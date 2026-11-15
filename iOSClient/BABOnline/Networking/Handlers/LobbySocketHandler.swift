@@ -27,7 +27,31 @@ final class LobbySocketHandler {
         self.safetyState = safetyState
     }
 
+    /// A refusal of the joinLobby a restore sent (lobby gone, full, the seat expired): back to
+    /// the main room with one short message. Any other failure is not ours (false).
+    /// Internal for LobbyRejoinTests.
+    @MainActor
+    func handleRejoinRefused(_ dict: [String: Any]) -> Bool {
+        guard dict["handler"] as? String == SocketEvents.Client.joinLobby,
+              let lobbyId = lobbyState.rejoiningLobbyId else { return false }
+        let message = dict["message"] as? String
+        print("[Lobby] Lobby re-entry refused (\(lobbyId)): \(message ?? "?")")
+        lobbyState.reset()
+        appState.screen = .mainRoom
+        LobbyEmitter.joinMainRoom()
+        // after a serverShutdown the restart alert says why; else a toast
+        if RestartNotices.shared.notice.isPending {
+            RestartNotices.shared.lost()
+        } else {
+            socket.serverError = ServerErrorNotice(message: RestoreRoute.lobbyRefusedMessage(message))
+        }
+        return true
+    }
+
     func register() {
+        // every connection registers again: the newest handler answers
+        socket.claimServerError = { [weak self] dict in self?.handleRejoinRefused(dict) ?? false }
+
         // MARK: - Main Room
 
         socket.on(SocketEvents.Server.mainRoomJoined) { [weak self] data, _ in
@@ -99,6 +123,12 @@ final class LobbySocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 let lobbyId = dict["lobbyId"] as? String ?? ""
+                if self.lobbyState.rejoiningLobbyId != nil {
+                    // the restore's re-entry answered: the seat is ours again
+                    self.lobbyState.rejoiningLobbyId = nil
+                    RestartNotices.shared.survived()
+                    print("[Lobby] Back in lobby: \(lobbyId)")
+                }
                 self.lobbyState.lobbyId = lobbyId
                 self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
                 self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))

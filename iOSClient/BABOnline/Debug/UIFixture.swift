@@ -329,6 +329,8 @@ enum UIFixture {
                              LobbyPlayer(id: "bot:fixture-2", username: "🤖 Bot 2", pic: nil, isReady: false, isBot: true)]
             lobby.messages = chat
             fixtureLobby = lobby
+            // `-uiLobbyRejoin YES`: the restore's joinLobby is out and unanswered
+            if UserDefaults.standard.bool(forKey: "uiLobbyRejoin") { lobby.rejoiningLobbyId = "l1" }
             appState.screen = .gameLobby
         case "tournament-lobby":
             tournament.tournamentId = "t1"

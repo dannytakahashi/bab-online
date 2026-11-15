@@ -14,6 +14,10 @@ final class SessionPendingTests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
 
+    private func readyButton(_ app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Ready", "Unready")).firstMatch
+    }
+
     func testMainRoomActionsWaitForTheSession() {
         let app = Fixture.launch("main-room", extra: ["-uiSessionPending", "YES"])
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
@@ -39,6 +43,27 @@ final class SessionPendingTests: XCTestCase {
         }
         XCTAssertTrue(button(app, "Stats").isEnabled, "a sheet needs no session")
         XCTAssertFalse(app.descendants(matching: .any)["connectionToast"].exists, "no Reconnecting toast")
+    }
+
+    /// A lobby after a reconnect stays on screen while the restore and its joinLobby run
+    /// (LobbyRejoinTests): this socket is not in the lobby until the re-entry is answered,
+    /// so Ready and removing a bot wait; Leave never does.
+    func testLobbyActionsWaitForTheSessionAndTheRejoin() {
+        for extra in [["-uiSessionPending", "YES"], ["-uiLobbyRejoin", "YES"]] {
+            let app = Fixture.launch("game-lobby-bots", extra: extra)
+            XCTAssertTrue(Fixture.readyElement(app, "game-lobby-bots").waitForExistence(timeout: 15), "\(extra)")
+            let ready = readyButton(app)  // "Unready": I am ready in this fixture
+            XCTAssertTrue(ready.waitForExistence(timeout: 5), "\(extra)")
+            XCTAssertFalse(ready.isEnabled, "Ready waits: \(extra)")
+            let removes = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Remove")).allElementsBoundByIndex
+            XCTAssertFalse(removes.isEmpty, "\(extra)")
+            for r in removes { XCTAssertFalse(r.isEnabled, "\(r.label) waits: \(extra)") }
+            XCTAssertTrue(button(app, "Leave").isEnabled, "Leave never waits: \(extra)")
+            app.terminate()
+        }
+        let app = Fixture.launch("game-lobby-bots")
+        XCTAssertTrue(Fixture.readyElement(app, "game-lobby-bots").waitForExistence(timeout: 15))
+        XCTAssertTrue(readyButton(app).isEnabled, "signed in, nothing pending")
     }
 
     func testMainRoomActionsWorkOnceSignedIn() {

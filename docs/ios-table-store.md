@@ -332,7 +332,9 @@ the five columns do not fit; none when the payload has no `playerStats`):
 ready): there removeBot and addBot change the list the way the server answers
 them (`UIFixture.emulateLobby`: a removal keeps the humans ready, server #248)
 and show in the `fixture.sent` probe as `removeBot:<id>` / `addBot`
-(`LobbyRemoveBotTests`).
+(`LobbyRemoveBotTests`). `-uiLobbyRejoin YES` there holds the moment a
+restore's lobby re-entry is unanswered (Ready and the remove controls wait;
+`SessionPendingTests`).
 No socket on any path (`SocketService.connectionsDisabled`: launch,
 foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
@@ -644,8 +646,13 @@ failures arrive as `error` and/or `serverError`.
   the connection and reconnects by itself; 8 s with neither drops the toast).
   After the reconnect the restore paths report: `lost` (restoreSession with
   no activeGameId / activeTournamentId, a failed restore, signIn to the main
-  room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft) or
-  `survived` (rejoinSuccess, a spectator's full state, tournamentJoined). The
+  room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft, the
+  refused lobby re-entry) or `survived` (rejoinSuccess, a spectator's full
+  state, tournamentJoined, the re-entry's lobbyCreated). From the next build
+  after 1.2.1 build 9 a restore with no game while the game lobby is on
+  screen sends joinLobby instead of going to the main room (`RestoreRoute`,
+  `iOSClient/CLAUDE.md` "Lobby re-entry after a reconnect"), so the lobby's
+  `lost` waits for that answer. The
   first `lost` within 2 minutes shows ONE alert ("Server restarted": "Your
   game ended because the server restarted for an update. It won't count
   toward your stats." / "The game you were watching ended ..." / "Your lobby
