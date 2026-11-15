@@ -11,6 +11,7 @@
 
 const { connect, confirm } = require('../server/admin/cli');
 const { setPassword, generateFriendlyPassword } = require('../server/admin/setPassword');
+const { isNameHold, heldNameRefusal, HOLD_FIELDS } = require('../server/admin/nameHold');
 
 const USAGE = `Usage:
   node scripts/set-password.js <username> [--password <new>] [--yes]
@@ -40,8 +41,9 @@ async function main() {
     const { client, uri, db } = await connect();
     console.log(`Database: ${uri}`);
     try {
-        const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1 } });
+        const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, ...HOLD_FIELDS } });
         if (!user) throw new Error(`Account "${username}" does not exist (names are case-sensitive).`);
+        if (isNameHold(user)) throw new Error(heldNameRefusal(username, user, 'reset'));
         if (user.mergedInto) throw new Error(`"${username}" was merged into "${user.mergedInto}". Reset that account instead.`);
 
         if (!yes && !(await confirm(`Set a new password for "${username}" and sign out their devices?`, 'YES'))) {

@@ -421,6 +421,14 @@ describe('scripts/set-admin.js', () => {
         expect(db.users.all().filter(u => u.isAdmin).map(u => u.username)).toEqual(['Bea']);
     });
 
+    test('a deleted account\'s held name says it was deleted, not "merged into [deleted]"', async () => {
+        await db.users.insertOne({ username: 'Gone', mergedInto: '[deleted]', deletedAt: new Date(), nameHeldUntil: new Date('2026-12-15T12:00:00Z') });
+        expect(await main(['Gone'], deps)).toBe(1);
+        expect(out.join('\n')).toMatch(/"Gone" was deleted \(its name is held until 2026-12-15\): there is no account to make an admin\./);
+        expect(out.join('\n')).not.toContain('[deleted]');
+        expect(deps.confirm).not.toHaveBeenCalled();
+    });
+
     test('argument errors', async () => {
         expect(() => parseArgs(['a', 'b'])).toThrow('one username');
         expect(() => parseArgs(['--bogus'])).toThrow('Unknown option');

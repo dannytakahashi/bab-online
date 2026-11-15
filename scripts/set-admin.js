@@ -16,6 +16,7 @@
 
 const { connect, confirm } = require('../server/admin/cli');
 const { listAdmins, setAdminFlag } = require('../server/admin/adminRole');
+const { isNameHold, heldNameRefusal, HOLD_FIELDS } = require('../server/admin/nameHold');
 
 const USAGE = `Usage:
   node scripts/set-admin.js --list                 read-only: list the current admins
@@ -77,9 +78,13 @@ async function main(argv = process.argv.slice(2), deps = {}) {
         if (args.list) return 0;
 
         const { username, remove } = args;
-        const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, isAdmin: 1 } });
+        const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, isAdmin: 1, ...HOLD_FIELDS } });
         if (!user) {
             console.error(`\nError: account "${username}" does not exist (names are case-sensitive).`);
+            return 1;
+        }
+        if (isNameHold(user)) {
+            console.error(`\nError: ${heldNameRefusal(username, user, 'make an admin')}`);
             return 1;
         }
         if (user.mergedInto) {
