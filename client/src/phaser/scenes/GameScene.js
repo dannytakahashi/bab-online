@@ -17,7 +17,8 @@
 
 import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
-import { getCardImageKey, sortHand } from '../../utils/cards.js';
+import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
+import { announce } from '../../ui/handA11y.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -346,6 +347,10 @@ export class GameScene extends Phaser.Scene {
     this.tableCardLabel.setDepth(100);
 
     if (faceUp) return;
+
+    // a new deal (a render's face-up trump is not news)
+    const cards = this.state?.currentHand;
+    announce(`New hand${cards ? ` of ${cards} ${cards === 1 ? 'card' : 'cards'}` : ''}. Trump is the ${getCardDisplayName(trumpCard)}.`);
 
     // Flip the trump face up once every hand is dealt (the first hand also
     // waits for createUI's fade). The flip belongs to this deal: a later
@@ -709,6 +714,11 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
 
+    // the announcer: my turn, with the trick so far (before the hand takes focus)
+    if (currentTurn === myPosition && !this.state.isSpectator && !this.state.isLazy) {
+      announce(this.turnAnnouncement());
+    }
+
     // Update turn glow for player's hand (skip for pure spectators — no hand area)
     if (this.cardManager && !isPureSpectator) {
       this.cardManager.updatePlayerTurnGlow(currentTurn, myPosition);
@@ -788,6 +798,8 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     const playedPosition = data.position;
     const card = data.card;
+
+    announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
 
     // Update card legality when lead card is first played
     if (this.state.currentTrick.length === 1) {
@@ -1008,6 +1020,10 @@ export class GameScene extends Phaser.Scene {
     // Determine if winner is on my team (same parity = same team)
     const isMyTeam = winner % 2 === myPosition % 2;
 
+    // the announcer: who took it, and (for a seat) the hand's tricks so far
+    const tally = this.state.isSpectator ? '' : ` Tricks: your team ${this.state.teamTricks || 0}, opponents ${this.state.oppTricks || 0}.`;
+    announce(`${this._seatName(winner)} won the trick.${tally}`);
+
     // Animate cards to winner's stack via TrickManager
     if (this.trickManager) {
       this.trickManager.completeTrick(winner, isMyTeam, data.resumeInMs);
@@ -1082,6 +1098,8 @@ export class GameScene extends Phaser.Scene {
         window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
       }
     }
+
+    announce(state.isSpectator ? 'Hand over.' : `Hand over. Score: your team ${teamScore}, opponents ${oppScore}.`);
 
     // Clear hand cards
     if (this.cardManager) {
@@ -1350,7 +1368,38 @@ export class GameScene extends Phaser.Scene {
       return result.legal;
     };
 
+    // what the keyboard hand says for a dimmed card (ui/handA11y.js)
+    this.cardManager.setIllegalReasonHandler?.((card) => this.illegalReason(card));
     this.cardManager.updateCardLegality(legalityChecker, canPlay);
+  }
+
+  /** Why `card` can't be played right now, in words (the keyboard hand). */
+  illegalReason(card) {
+    const s = this.state;
+    if (s.isLazy) return 'A bot is playing your seat.';
+    if (s.isBidding) return 'Bid first.';
+    if (s.currentTurn !== s.position) return 'Not your turn.';
+    if (s.hasPlayedCard || getMyAction().isPending()) return 'Your card is on its way.';
+    const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
+    if (!r.legal && r.reason) return `${r.reason}.`;
+    return 'Wait for the trick to clear.';
+  }
+
+  /** Who a seat is, for the announcer: "You", or the seat's name. */
+  _seatName(pos) {
+    const s = this.state;
+    if (pos === s.position && !s.isSpectator) return 'You';
+    return this.getPlayerNameForPosition(pos);
+  }
+
+  /** "Your turn to bid." / "Your turn to lead." / "Your turn. On the trick: Ann, King of Hearts; ..." */
+  turnAnnouncement() {
+    const s = this.state;
+    if (s.isBidding) return 'Your turn to bid.';
+    const trick = s.currentTrick || [];
+    if (!trick.length) return 'Your turn to lead.';
+    const cards = trick.map((t) => `${this._seatName(t.position)}, ${getCardDisplayName(t.card)}`).join('; ');
+    return `Your turn. On the trick: ${cards}.`;
   }
 
   /** The bid panel's choice: MyAction sends it (one outstanding at a time). */
