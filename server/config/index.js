@@ -4,6 +4,32 @@
 
 require('dotenv').config();
 
+/**
+ * Origins whose browser pages may use the Socket.IO HTTP transport
+ * cross-origin (its `cors` option: Access-Control-Allow-Origin on polling
+ * responses). It never refuses a connection: WebSockets have no CORS (the
+ * web page connects over websocket only, to the Railway host from
+ * babonline.io), native clients ignore it (iOS polls first, with no Origin
+ * or its own), and Express routes have no CORS at all. ALLOWED_ORIGINS
+ * (comma-separated, `*` for any) replaces the list.
+ */
+const DEFAULT_ALLOWED_ORIGINS = Object.freeze([
+    'https://babonline.io',
+    'https://www.babonline.io',
+    'https://bab-online-production.up.railway.app',
+    // npm run dev:client (5173) talks to the API on 3000
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+]);
+
+function parseAllowedOrigins(raw) {
+    const list = String(raw || '').split(',').map(o => o.trim()).filter(Boolean);
+    if (list.length === 0) return [...DEFAULT_ALLOWED_ORIGINS];
+    return list.includes('*') ? '*' : list;
+}
+
 const config = {
     // Environment
     env: process.env.NODE_ENV || 'development',
@@ -17,9 +43,7 @@ const config = {
     mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/bab-online',
 
     // Security
-    allowedOrigins: process.env.ALLOWED_ORIGINS
-        ? process.env.ALLOWED_ORIGINS.split(',')
-        : ['*'],  // TODO: Restrict in production
+    allowedOrigins: parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
 
     // Avatar pipeline (server/avatar, docs/avatars.md). Kill switch, no
     // deploy needed:
@@ -48,3 +72,5 @@ const config = {
 };
 
 module.exports = config;
+module.exports.DEFAULT_ALLOWED_ORIGINS = DEFAULT_ALLOWED_ORIGINS;
+module.exports.parseAllowedOrigins = parseAllowedOrigins;
