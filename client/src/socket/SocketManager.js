@@ -23,13 +23,16 @@ export const HOLD_MAX_MS = 30000;
 
 /**
  * Emits that never wait for the session: auth itself, the hello, snapshot
- * pings (answered either way) and voice signaling (live only: a held offer
- * is useless).
+ * pings (answered either way), voice signaling (live only: a held offer
+ * is useless) and client error reports (telemetry/clientErrors.js keeps its
+ * own buffer and waits FLUSH_DELAY_MS after a connect for the restore; a
+ * held one would take a chat line's HOLD_MAX slot, and the server takes one
+ * from a socket with no session).
  */
 export const SESSIONLESS_EVENTS = new Set([
   CLIENT_EVENTS.SIGN_IN, CLIENT_EVENTS.SIGN_UP, CLIENT_EVENTS.RESTORE_SESSION, CLIENT_EVENTS.CLIENT_HELLO,
   CLIENT_EVENTS.REQUEST_SNAPSHOT, CLIENT_EVENTS.VOICE_OFFER, CLIENT_EVENTS.VOICE_ANSWER,
-  CLIENT_EVENTS.VOICE_ICE_CANDIDATE, CLIENT_EVENTS.GET_VOICE_ICE_SERVERS,
+  CLIENT_EVENTS.VOICE_ICE_CANDIDATE, CLIENT_EVENTS.GET_VOICE_ICE_SERVERS, CLIENT_EVENTS.CLIENT_ERROR,
 ]);
 
 /**

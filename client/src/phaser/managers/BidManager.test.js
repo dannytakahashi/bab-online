@@ -135,4 +135,21 @@ describe('the bid sheet\'s width (the layout\'s BID_SHEET)', () => {
     expect(css).toContain('.bid-button:hover:not(:disabled)');
     expect(css).toContain('.bid-button:focus-visible');
   });
+
+  it('a bid the sender refuses on the spot (MyAction returns false) is not left marked', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isBidding = true;
+    state.tempBids = [];
+    let accept = false;
+    bm.showBidUI(5, () => accept);
+    bm.allBidButtons[3].click();
+    expect(bm.allBidButtons.some((b) => b.classList.contains('is-selected') || b.hasAttribute('aria-pressed'))).toBe(false);
+    expect(bm.selectedBid).toBe(null);
+    accept = undefined; // a sender that returns nothing keeps the mark, as before
+    bm.boreButtons.B.click();
+    expect(bm.boreButtons.B.getAttribute('aria-pressed')).toBe('true');
+    expect(bm.selectedBid).toBe('B');
+  });
 });

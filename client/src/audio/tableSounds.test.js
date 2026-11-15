@@ -1,8 +1,9 @@
 /**
  * Event -> sound, through the real handlers (handlers/gameHandlers.js), the
  * seq gate and GameState, with a recording SoundManager: the card on every
- * cardPlayed, the over-trump accent, the turn cue on the edge into MY turn
- * only (after the card that passed it; a bid turn after the trump flips),
+ * cardPlayed, the over-trump accent, the turn reminder: on the edge into MY
+ * turn only, and only if that turn is still open TURN_IDLE_MS later (a bid
+ * turn counts from the trump flip),
  * trick-ours by seat parity, made / set from my team's bid, the game end
  * after the last made / set; spectators and lazy seats; nothing while the
  * gate replays or flushes buffered events, and a snapshot is the turn
@@ -16,7 +17,7 @@ import { resetSeqGate } from '../state/SeqGate.js';
 import { resetMyAction } from '../state/MyAction.js';
 import { resetTableDirector } from '../phaser/TableDirector.js';
 import {
-  resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_DELAY_S, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
+  resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_IDLE_MS, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
 } from './tableSounds.js';
 import { SERVER_EVENTS as E } from '../constants/events.js';
 import { applyTableSnapshot } from '../state/tableSync.js';
@@ -45,10 +46,20 @@ let sounds;
 let played;
 let seq;
 let clock;
+let timers;
 
 const c = (rank, suit) => ({ rank, suit });
 const fire = (event, data = {}) => socket.fire(event, { ...data, seq: ++seq });
 const names = () => played.map((p) => p.name);
+/** TURN_IDLE_MS pass: every waiting turn reminder fires. */
+const idle = () => {
+  const due = timers.list;
+  timers.list = [];
+  for (const t of due) {
+    expect(t.ms).toBe(TURN_IDLE_MS);
+    t.fn();
+  }
+};
 
 /** A 2-card deal at my seat (1), trump spades; `flipped`: its trump is face up (main.js onFlipped). */
 function deal({ position = 1, gameId = 'g1', flipped = true } = {}) {
@@ -67,10 +78,16 @@ beforeEach(() => {
   seq = 0;
   clock = 100000;
   played = [];
+  timers = {
+    list: [],
+    set(fn, ms) { const t = { fn, ms }; this.list.push(t); return t; },
+    clear(t) { this.list = this.list.filter((x) => x !== t); },
+  };
   gate = resetSeqGate({ requestSnapshot: vi.fn(), setTimer: () => 1, clearTimer: () => {} });
   sounds = resetTableSounds({
     sound: () => ({ play: (name, opts) => (played.push({ name, opts }), true) }),
     now: () => clock,
+    timers,
   });
   socket = createMockSocket();
   const manager = new SocketManager(socket);
@@ -111,33 +128,86 @@ describe('the table\'s moments', () => {
     expect(names().filter((n) => n === 'overtrump')).toHaveLength(1);
   });
 
-  it('the turn cue: only on the edge into MY turn, to bid and to play', () => {
+  it('the turn reminder: only on the edge into MY turn, to bid and to play, once TURN_IDLE_MS have passed', () => {
+    expect(TURN_IDLE_MS).toBe(5000);
     deal();
     fire(E.UPDATE_TURN, { currentTurn: 2 });
+    idle();
     expect(names()).toEqual([]);
     fire(E.UPDATE_TURN, { currentTurn: 1 });
+    expect(names()).toEqual([]);
+    idle();
     expect(names()).toEqual(['turn']);
     // a repeated updateTurn (the /active resend) is not a new turn
     fire(E.UPDATE_TURN, { currentTurn: 1 });
+    idle();
     expect(names()).toEqual(['turn']);
     fire(E.BID_RECEIVED, { position: 1, bid: '1' });
     fire(E.UPDATE_TURN, { currentTurn: 2 });
-    // I lead: doneBidding names me, then its updateTurn: one cue
+    // I lead: doneBidding names me, then its updateTurn: one reminder
     fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
     fire(E.UPDATE_TURN, { currentTurn: 1 });
+    idle();
     expect(names()).toEqual(['turn', 'turn']);
     fire(E.CARD_PLAYED, { position: 1, card: c('A', 'hearts') });
     fire(E.UPDATE_TURN, { currentTurn: 2 });
+    idle();
     expect(names().filter((n) => n === 'turn')).toHaveLength(2);
   });
 
-  it('the turn cue starts TURN_DELAY_S late: the card that passed me the turn sounds first', () => {
+  it('no reminder when I act within TURN_IDLE_MS: my bid, my card, or the turn moving on cancels it (owner 2026-11-15: too noisy on every turn)', () => {
     deal();
-    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 4 });
-    fire(E.UPDATE_TURN, { currentTurn: 4 });
-    fire(E.CARD_PLAYED, { position: 4, card: c('K', 'hearts') });
     fire(E.UPDATE_TURN, { currentTurn: 1 });
-    expect(played).toEqual([{ name: 'card', opts: undefined }, { name: 'turn', opts: { delay: TURN_DELAY_S } }]);
+    expect(sounds.turnReminderPending).toBe(true);
+    fire(E.BID_RECEIVED, { position: 1, bid: '1' });
+    expect(sounds.turnReminderPending).toBe(false);
+    idle();
+    expect(names()).toEqual([]);
+    // my lead, played at once: the card sounds, the chime never does
+    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    fire(E.CARD_PLAYED, { position: 1, card: c('A', 'hearts') });
+    idle();
+    expect(names()).toEqual(['card']);
+    // a turn that moves on without my action (a lazy takeover, a resync's updateTurn)
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    fire(E.UPDATE_TURN, { currentTurn: 2 });
+    idle();
+    expect(names()).toEqual(['card']);
+    // the game end cancels a waiting one
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    fire(E.GAME_END, { score: { team1: 0, team2: 0 } });
+    idle();
+    expect(names()).toEqual(['card', 'gameend']);
+  });
+
+  it('a reminder that fires after the turn changed hands and came back does not count the old wait', () => {
+    deal();
+    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    fire(E.CARD_PLAYED, { position: 1, card: c('A', 'hearts') });
+    fire(E.UPDATE_TURN, { currentTurn: 2 });
+    fire(E.CARD_PLAYED, { position: 2, card: c('2', 'hearts') });
+    fire(E.UPDATE_TURN, { currentTurn: 3 });
+    fire(E.CARD_PLAYED, { position: 3, card: c('3', 'hearts') });
+    fire(E.UPDATE_TURN, { currentTurn: 4 });
+    fire(E.CARD_PLAYED, { position: 4, card: c('4', 'hearts') });
+    fire(E.TRICK_COMPLETE, { winner: 1 });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    // one timer, for the new turn only
+    expect(timers.list).toHaveLength(1);
+  });
+
+  it('a snapshot or a new deal cancels a waiting reminder', () => {
+    deal();
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    sounds.synced();
+    idle();
+    deal();
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    deal();
+    idle();
+    expect(names()).toEqual([]);
   });
 
   it('a bid turn that comes before the trump is face up (the next hand comes with handComplete) waits for it', () => {
@@ -146,11 +216,15 @@ describe('the table\'s moments', () => {
     expect(names()).toEqual([]);
     // the cards go down, then the trump flips and the bid panel opens
     sounds.dealShown();
+    idle(); // nothing waits before the flip
     expect(sounds.trumpShown()).toBe(true);
+    expect(names()).toEqual(['deal']);
+    idle();
     expect(names()).toEqual(['deal', 'turn']);
     // once: the flip is not a new turn, nor a later updateTurn
     expect(sounds.trumpShown()).toBe(false);
     fire(E.UPDATE_TURN, { currentTurn: 1 });
+    idle();
     expect(names()).toEqual(['deal', 'turn']);
   });
 
@@ -163,11 +237,14 @@ describe('the table\'s moments', () => {
     fire(E.UPDATE_TURN, { currentTurn: 1 });
     sounds.synced();
     expect(sounds.trumpShown()).toBe(false);
-    // after the flip a bid turn sounds at once (with its delay)
+    idle();
+    expect(names()).toEqual([]);
+    // after the flip a bid turn starts its reminder at once
     deal({ flipped: false });
     sounds.trumpShown();
     fire(E.UPDATE_TURN, { currentTurn: 1 });
-    expect(played).toEqual([{ name: 'turn', opts: { delay: TURN_DELAY_S } }]);
+    idle();
+    expect(played).toEqual([{ name: 'turn', opts: undefined }]);
   });
 
   it('winning a trick and leading the next one: a new turn after my own play', () => {
@@ -183,7 +260,9 @@ describe('the table\'s moments', () => {
     fire(E.CARD_PLAYED, { position: 4, card: c('4', 'hearts') });
     fire(E.TRICK_COMPLETE, { winner: 1 });
     fire(E.UPDATE_TURN, { currentTurn: 1 });
-    expect(names().filter((n) => n === 'turn')).toHaveLength(2);
+    idle();
+    // my first lead was played at once (no reminder); the second waits
+    expect(names().filter((n) => n === 'turn')).toHaveLength(1);
   });
 
   it('trick-ours when my team (seat parity) takes the trick, trick otherwise', () => {
@@ -258,6 +337,7 @@ describe('who hears what', () => {
     fire(E.TRICK_COMPLETE, { winner: 1 });
     fire(E.HAND_COMPLETE, { team1Tricks: 1, team2Tricks: 0, score: { team1: 10, team2: 0 } });
     fire(E.GAME_END, { score: { team1: 10, team2: 0 } });
+    idle();
     expect(names()).toEqual(['card', 'trick', 'made', 'gameend']);
     expect(played[2].opts).toEqual({ gain: SPECTATOR_HAND_END_GAIN });
   });
@@ -268,6 +348,7 @@ describe('who hears what', () => {
     fire(E.UPDATE_TURN, { currentTurn: 1 });
     fire(E.TRICK_COMPLETE, { winner: 3 });
     fire(E.HAND_COMPLETE, { team1Tricks: 2, team2Tricks: 0, score: { team1: 0, team2: 0 } });
+    idle();
     expect(names()).toEqual(['trick-ours', 'made']);
   });
 });
@@ -320,6 +401,7 @@ describe('never on catch-up', () => {
     fire(E.CARD_PLAYED, { position: 1, card: c('A', 'hearts') });
     fire(E.UPDATE_TURN, { currentTurn: 2 });
     fire(E.UPDATE_TURN, { currentTurn: 1 });
+    idle();
     expect(names()).toEqual(['card', 'turn']);
   });
 
@@ -342,6 +424,7 @@ describe('never on catch-up', () => {
     seq = 15;
     fire(E.UPDATE_TURN, { currentTurn: 1 }); // 16
     fire(E.UPDATE_TURN, { currentTurn: 4 }); // 17: a new turn of mine
+    idle();
     expect(names()).toEqual(['turn']);
   });
 

@@ -67,7 +67,7 @@ describe('/privacy', () => {
         expect(html).toContain('reports (who reported whom, not the reason)');
         expect(html).toContain('It is never saved to our database or written to our logs');
         // client error reports (server/socket/clientErrorHandlers.js)
-        expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), never chat or personal data.');
+        expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), logged with your username if you are signed in. Reports are meant for code only: before a report is logged we remove email addresses, IP addresses, long numbers, the query part of links, and quoted text other than code names.');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {
