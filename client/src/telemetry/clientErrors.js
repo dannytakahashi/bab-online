@@ -119,8 +119,9 @@ export function createClientErrorReporter({ build = '', page = () => null, sched
       }
       const r = buildReport(kind, value, { ...extra, build: opts.build, page: currentPage });
       if (!r) return false;
-      seen.add(kind);
+      // the kind counts as reported only once it is sent or waiting: a dropped one may come again
       if (connected() && !flushTimer) {
+        seen.add(kind);
         send(r);
         return true;
       }
@@ -128,6 +129,7 @@ export function createClientErrorReporter({ build = '', page = () => null, sched
         stats.dropped++;
         return false;
       }
+      seen.add(kind);
       buffer.push(r);
       stats.buffered++;
       return true;
@@ -151,7 +153,9 @@ export function createClientErrorReporter({ build = '', page = () => null, sched
 
   /**
    * window 'error' and 'unhandledrejection'. A cross-origin "Script error."
-   * (a browser extension, no file, no stack) says nothing and is skipped.
+   * (a browser extension, no file, no stack) says nothing and is skipped, and
+   * so is the harmless "ResizeObserver loop ..." (the canvas and chat log
+   * observers), which would otherwise use up the page's one 'error'.
    * @returns {Function} removes both listeners
    */
   function installWindowHooks(win = window) {
@@ -160,6 +164,7 @@ export function createClientErrorReporter({ build = '', page = () => null, sched
         const filename = e?.filename || '';
         const err = e?.error;
         if (!err && !filename && /^Script error\.?$/.test(String(e?.message || ''))) return;
+        if (!err && /^ResizeObserver loop/.test(String(e?.message || ''))) return;
         report('error', err || e?.message || 'error', { where: whereOf(filename, e?.lineno, e?.colno) });
       } catch {
         /* never throw from the hook */

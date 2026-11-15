@@ -120,6 +120,18 @@ describe('connection', () => {
     expect(socket.reports().map((r) => r.kind)).toEqual(['a', 'b']);
   });
 
+  test('a kind dropped on a full buffer is not counted as reported: its next one can still go', () => {
+    const { reporter, socket, runTimers } = setup({ connected: false });
+    for (let i = 0; i < MAX_BUFFER; i++) reporter.report(`k${i}`, 'x');
+    expect(reporter.report('late', 'first')).toBe(false);
+    socket.connected = true;
+    socket.fire('connect');
+    runTimers();
+    expect(reporter.report('late', 'second')).toBe(true);
+    expect(socket.reports().map((r) => r.kind)).toEqual(['k0', 'k1', 'k2', 'k3', 'k4', 'late']);
+    expect(socket.reports().at(-1).message).toBe('second');
+  });
+
   test('dropped again before the flush: the buffer waits for the connect after', () => {
     const { reporter, socket, runTimers } = setup({ connected: false });
     reporter.report('a', 'x');
@@ -197,6 +209,17 @@ describe('window hooks', () => {
     const remove = reporter.installWindowHooks(window);
     window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' }));
     expect(socket.reports()).toEqual([]);
+    remove();
+  });
+
+  test('the harmless "ResizeObserver loop" error is skipped and leaves the page\'s one \'error\' free', () => {
+    const { reporter, socket } = setup();
+    const remove = reporter.installWindowHooks(window);
+    window.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop completed with undelivered notifications.' }));
+    window.dispatchEvent(new ErrorEvent('error', { message: 'ResizeObserver loop limit exceeded' }));
+    expect(socket.reports()).toEqual([]);
+    window.dispatchEvent(new ErrorEvent('error', { message: 'boom', error: new TypeError('boom') }));
+    expect(socket.reports().map((r) => r.kind)).toEqual(['error']);
     remove();
   });
 
