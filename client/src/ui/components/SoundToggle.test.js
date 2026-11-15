@@ -2,7 +2,8 @@
  * The sound toggle (ui/components/SoundToggle.js): a keyboard-reachable
  * kit icon button whose aria-pressed is the muted state, its name what a
  * press does and its tooltip the state; every copy (the table's, the main
- * room's) follows the one setting; one that left the page stops listening.
+ * room's) follows the one setting; one that left the page stops listening,
+ * at the next change or when the next toggle is made.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { createSoundToggle, placeSoundToggle, TABLE_SOUND_BUTTON_ID } from './SoundToggle.js';
@@ -75,6 +76,29 @@ describe('the sound toggle', () => {
     a.click();
     expect(sound._listeners.size).toBe(1);
     expect(a.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  it('toggles that left the page are dropped when a new one is made, even if the mute is never touched', async () => {
+    for (let i = 0; i < 5; i++) {
+      // a main room shown again: a fresh header, the old one gone
+      document.body.replaceChildren();
+      const btn = createSoundToggle({ id: 'mainRoomSoundButton', sound });
+      document.body.appendChild(btn);
+      await Promise.resolve();
+    }
+    createSoundToggle({ sound });
+    // the connected one and the one just made
+    expect(sound._listeners.size).toBe(2);
+  });
+
+  it('two toggles made before either is inserted both stay bound', () => {
+    const a = createSoundToggle({ sound });
+    const b = createSoundToggle({ sound });
+    const c = createSoundToggle({ sound });
+    document.body.append(a, b, c);
+    c.click();
+    expect(a.getAttribute('aria-pressed')).toBe('true');
+    expect(b.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('off the table, placeSoundToggle puts nothing anywhere', () => {

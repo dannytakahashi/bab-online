@@ -24,6 +24,24 @@ function speakerIcon(muted) {
   return `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${cone}${rest}</svg>`;
 }
 
+/**
+ * Every toggle's listener on its manager. Each new toggle drops the ones
+ * whose button has left the page (a main room or a table torn down), so
+ * they do not pile up on a device that never touches the mute. A toggle
+ * still being built is not connected yet: it is only dropped once settled
+ * (a microtask after it was made; callers insert it at once).
+ */
+const bound = new Set();
+
+function pruneDetached() {
+  for (const entry of bound) {
+    if (entry.settled && !entry.btn.isConnected) {
+      entry.off();
+      bound.delete(entry);
+    }
+  }
+}
+
 /** Show a muted state on one button. */
 function show(btn, muted) {
   btn.innerHTML = speakerIcon(muted);
@@ -49,14 +67,24 @@ export function createSoundToggle({ id = null, className = '', sound = getSoundM
   btn.addEventListener('click', () => {
     sound.toggleMuted();
   });
+  pruneDetached();
   // A change comes from a click or another tab, never while the button is
   // being placed: one that has left the page stops listening
-  const off = sound.onChange(({ muted }) => {
+  const entry = { btn, off: null, settled: false };
+  const unsubscribe = sound.onChange(({ muted }) => {
     if (!btn.isConnected) {
-      off();
+      entry.off();
       return;
     }
     show(btn, muted);
+  });
+  entry.off = () => {
+    unsubscribe();
+    bound.delete(entry);
+  };
+  bound.add(entry);
+  queueMicrotask(() => {
+    entry.settled = true;
   });
   return btn;
 }
