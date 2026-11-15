@@ -16,7 +16,6 @@
 
 const fs = require('fs');
 const readline = require('readline');
-const { spawn } = require('child_process');
 const B = require('../server/admin/dbBackup');
 
 const USAGE = `Usage:
@@ -64,16 +63,10 @@ function parseArgs(argv) {
 
 function ask(question) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans.trim()); }));
-}
-
-function run(tool, args) {
     return new Promise((resolve) => {
-        const child = spawn(tool, args, { stdio: ['ignore', 'ignore', 'pipe'] });
-        let stderr = '';
-        child.stderr.on('data', (d) => { stderr += d; });
-        child.on('close', (code) => resolve({ code, stderr }));
-        child.on('error', (e) => resolve({ code: -1, stderr: String(e.message) }));
+        // Ctrl-C at the prompt reaches readline, not the process: treat it as "no"
+        rl.on('SIGINT', () => { rl.close(); process.stdout.write('\n'); resolve(''); });
+        rl.question(question, (ans) => { rl.close(); resolve(ans.trim()); });
     });
 }
 
@@ -179,17 +172,16 @@ async function main() {
         const toolArgs = ['--gzip', `--archive=${args.archive}`, `--nsInclude=${args.db}.*`];
         if (args.targetDb !== args.db) toolArgs.push(`--nsFrom=${args.db}.*`, `--nsTo=${args.targetDb}.*`);
         if (args.drop) toolArgs.push('--drop');
-        const cfg = B.writeToolConfig(B.uriWithoutDbPath(uri));
-        const onSignal = () => { cfg.cleanup(); process.exit(130); };
-        process.on('SIGINT', onSignal);
         console.log('\nRestoring ...');
         const started = Date.now();
-        let result;
-        try {
-            result = await run('mongorestore', [`--config=${cfg.file}`, ...toolArgs]);
-        } finally {
-            cfg.cleanup();
-        }
+        const tool = B.runTool('mongorestore', toolArgs, B.uriWithoutDbPath(uri));
+        const removeHandlers = B.onStopSignals((sig) => {
+            // SIGKILL: SIGTERM can take seconds while it waits on the server, and we exit now
+            if (tool.child.exitCode === null) tool.child.kill('SIGKILL');
+            console.error(`\n${sig}: mongorestore stopped; ${target} is only partly restored.`);
+        });
+        const result = await tool.done;
+        removeHandlers();
         const seconds = ((Date.now() - started) / 1000).toFixed(1);
         const summary = B.parseRestoreSummary(result.stderr);
         if (result.code !== 0 || summary.restored === null) {
@@ -233,9 +225,11 @@ async function main() {
         console.log(`Newest game record: ${s.newestGame ? new Date(s.newestGame).toISOString() : 'none'}`);
         const problems = [];
         if (summary.failed > 0) problems.push(`${summary.failed} document(s) failed to restore`);
+        // An archive taken after the accounts were lost restores "fine" otherwise
+        if (!s.users) problems.push('users is empty or missing: this archive holds no accounts');
         if (s.noUsername) problems.push(`${s.noUsername} user document(s) without a username`);
         if (s.noHash) problems.push(`${s.noHash} account(s) without a bcrypt password hash`);
-        if (!(after.users || []).includes('username_1')) problems.push('users has no unique username_1 index (duplicate names?)');
+        if (!(after.users || []).includes('username_1')) problems.push('users has no unique username_1 index: ensureIndexes could not build it, so names are duplicated');
         if (problems.length) {
             console.error(`\nSANITY CHECK FAILED: ${problems.join('; ')}`);
             process.exitCode = 1;

@@ -6,9 +6,8 @@
  */
 
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const DEFAULT_DB = 'babonline';
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -82,22 +81,48 @@ function redact(text) {
     return String(text).replace(/(mongodb(?:\+srv)?:\/\/)[^@\s/]+@/g, '$1***@');
 }
 
+/** The tools' `--config` YAML: just the URI (single-quoted, quotes doubled). */
+function toolConfig(uri) {
+    return `uri: '${String(uri).replace(/'/g, "''")}'\n`;
+}
+
 /**
- * Credentials go to the tools in a 0600 YAML file (`--config`), never on
- * the command line, where `ps` and shell history would show them.
+ * Runs a Database Tool with the URI as `--config=/dev/fd/3`, written into a
+ * pipe: never on the command line (`ps`, shell history) and never in a
+ * file, so a run killed by a signal leaves no password on disk.
+ * macOS / Linux only (/dev/fd).
+ * @returns {{child: ChildProcess, done: Promise<{code: number, signal: ?string, stderr: string}>}}
  */
-function writeToolConfig(uri) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bab-db-'));
-    fs.chmodSync(dir, 0o700);
-    const file = path.join(dir, 'tool.yml');
-    fs.writeFileSync(file, `uri: '${String(uri).replace(/'/g, "''")}'\n`, { mode: 0o600 });
-    let removed = false;
-    const cleanup = () => {
-        if (removed) return;
-        removed = true;
-        fs.rmSync(dir, { recursive: true, force: true });
-    };
-    return { file, cleanup };
+function runTool(tool, args, uri, spawnFn = spawn) {
+    const child = spawnFn(tool, ['--config=/dev/fd/3', ...args], { stdio: ['ignore', 'ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (d) => { stderr += d; });
+    // EPIPE when the tool exits before reading: its exit code tells why
+    child.stdio[3].on('error', () => {});
+    child.stdio[3].end(toolConfig(uri));
+    const done = new Promise((resolve) => {
+        child.on('error', (e) => resolve({ code: -1, signal: null, stderr: String(e.message) }));
+        child.on('close', (code, signal) => resolve({ code: code ?? -1, signal, stderr }));
+    });
+    return { child, done };
+}
+
+const STOP_SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 };
+
+/**
+ * Ctrl-C, kill, and closing the terminal window (SIGHUP) all run `stop`
+ * before exiting 128+n: it kills the tool (else it runs on, orphaned) and
+ * removes partial output. Returns a function that removes the handlers.
+ */
+function onStopSignals(stop) {
+    const handlers = Object.entries(STOP_SIGNALS).map(([sig, n]) => {
+        const h = () => {
+            try { stop(sig); } finally { process.exit(128 + n); }
+        };
+        process.once(sig, h);
+        return [sig, h];
+    });
+    return () => { for (const [sig, h] of handlers) process.removeListener(sig, h); };
 }
 
 /** Nearest existing ancestor's real path + the rest, so symlinks cannot hide the repo. */
@@ -224,7 +249,10 @@ module.exports = {
     uriWithoutDbPath,
     describeHosts,
     redact,
-    writeToolConfig,
+    toolConfig,
+    runTool,
+    onStopSignals,
+    STOP_SIGNALS,
     checkOutDir,
     archiveName,
     archivesToPrune,

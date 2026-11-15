@@ -7,6 +7,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn, spawnSync } = require('child_process');
 const B = require('../dbBackup');
 
 // Built from parts on reserved .invalid hosts: the source never holds a
@@ -48,15 +49,9 @@ describe('URIs never leak credentials', () => {
         expect(B.hasCredentials('mongodb://127.0.0.1:27017')).toBe(false);
     });
 
-    test('the tool config file is private and removed by cleanup', () => {
+    test('the tool config is just the quoted URI', () => {
         const quoted = `mongodb://${cred}h.invalid/?appName=it's`;
-        const { file, cleanup } = B.writeToolConfig(quoted);
-        expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-        expect(fs.statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
-        expect(fs.readFileSync(file, 'utf8')).toBe(`uri: '${quoted.replace(/'/g, "''")}'\n`);
-        cleanup();
-        expect(fs.existsSync(path.dirname(file))).toBe(false);
-        cleanup();
+        expect(B.toolConfig(quoted)).toBe(`uri: '${quoted.replace(/'/g, "''")}'\n`);
     });
 });
 
@@ -160,4 +155,45 @@ describe('tool summaries (mongodump / mongorestore 100.x stderr)', () => {
 test('database names are plain', () => {
     expect(B.isValidDbName('babonline_restore_20261115')).toBe(true);
     for (const bad of ['', 'a.b', 'a/b', 'a b', '$x', 'x'.repeat(64), null]) expect(B.isValidDbName(bad)).toBe(false);
+});
+
+describe('runTool and stop signals (no password left on disk or in ps)', () => {
+    // Stands in for mongodump: reads the --config path it is given and echoes it to stderr
+    const fakeTool = (tool, args, opts) => spawn(process.execPath, ['-e', `
+        const p = process.argv.find((a) => a.startsWith('--config=')).slice(9);
+        process.stderr.write(p + '\\n' + require('fs').readFileSync(p, 'utf8'));
+    `, '--', ...args], opts);
+
+    test('the URI arrives through a pipe, not a file or the command line', async () => {
+        const uri = `${remote}/?authSource=admin`;
+        const { child, done } = B.runTool('mongodump', ['--db=x'], uri, fakeTool);
+        expect(child.spawnargs.join(' ')).not.toContain(pw);
+        const r = await done;
+        expect(r.code).toBe(0);
+        const [where, ...config] = r.stderr.split('\n');
+        expect(where).toBe('/dev/fd/3');
+        expect(config.join('\n')).toBe(B.toolConfig(uri));
+    });
+
+    test('a missing tool resolves with an error instead of throwing', async () => {
+        const r = await B.runTool('bab-no-such-tool-' + process.pid, [], 'mongodb://127.0.0.1').done;
+        expect(r.code).toBe(-1);
+    });
+
+    test('closing the terminal (SIGHUP) is handled, not only Ctrl-C and kill', () => {
+        expect(Object.keys(B.STOP_SIGNALS).sort()).toEqual(['SIGHUP', 'SIGINT', 'SIGTERM']);
+    });
+
+    test.each(Object.entries(B.STOP_SIGNALS))('%s runs the stop handler, then exits 128+n', (sig, n) => {
+        const marker = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bab-sig-')), 'stopped');
+        const r = spawnSync(process.execPath, ['-e', `
+            const B = require(${JSON.stringify(require.resolve('../dbBackup'))});
+            B.onStopSignals((s) => require('fs').writeFileSync(${JSON.stringify(marker)}, s));
+            setTimeout(() => process.kill(process.pid, ${JSON.stringify(sig)}), 50);
+            setTimeout(() => {}, 5000);
+        `], { timeout: 10000 });
+        expect(r.status).toBe(128 + n);
+        expect(fs.readFileSync(marker, 'utf8')).toBe(sig);
+        fs.rmSync(path.dirname(marker), { recursive: true, force: true });
+    });
 });
