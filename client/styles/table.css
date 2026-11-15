@@ -1207,3 +1207,67 @@ body > .voice-btn {
     font-weight: var(--weight-medium);
     color: var(--text-dim);
 }
+
+/* ---------- My hand for the keyboard and screen readers (ui/handA11y.js) ----------
+   One button per card over its visible strip (CardManager passes the
+   layout's rects as --x/--y/--w/--h): invisible and never a pointer target
+   (the canvas keeps the clicks and the hover); a keyboard focus draws a ring
+   round the whole card, raised with it when it is playable. */
+
+.hud-hand {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.hud-hand[hidden] { display: none; }
+
+.hud-hand__card {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: var(--w);
+    height: var(--h);
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: transparent;
+    font-size: 0;
+    pointer-events: none;
+    outline: none;
+    appearance: none;
+}
+
+.hud-hand__card::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: var(--card-w);
+    height: var(--card-h);
+    border-radius: calc(var(--card-w) * 24 / 300);
+    transition: transform var(--dur-fast) var(--ease-emphasized);
+}
+
+.hud-hand__card:focus-visible::before {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+.hud-hand__card[aria-disabled="false"]:focus-visible::before {
+    transform: translateY(calc(-1 * var(--lift)));
+}
+
+/* the announcer (turn, trump, cards played, tricks won): screen readers only */
+.hud-announcer {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    outline: none;
+}
