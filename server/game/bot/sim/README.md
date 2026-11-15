@@ -5,8 +5,10 @@ and `rules.js`, with an orchestration loop that mirrors
 `server/socket/gameHandlers.js` (team bids, bores, multipliers, redeals,
 rainbows, scoring, memory notifications). Use it to tune strategy changes and
 catch regressions: every chosen card is re-validated against
-`rules.isLegalMove`, and illegal selections or thrown exceptions are reported.
-A healthy strategy reports **zero of both**.
+`rules.isLegalPlay` and every bid against `rules.isValidBid`; illegal cards,
+refused bids, thrown exceptions and play-search errors are reported. A healthy
+strategy reports **zero of all four** (`incidentCount`, `bidIncidentCount`,
+`exceptionCount`, `searchErrorCount`).
 
 ## Usage
 

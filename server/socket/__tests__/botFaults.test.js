@@ -312,6 +312,42 @@ describe('progress watchdog', () => {
         expect(ctx.game.pendingTimerCount).toBe(0);
     });
 
+    test('a state that moved on without an arm point is stalled 30 s after the next firing, not 90 s', async () => {
+        const dropped = loseBotActions(() => true);
+        const ctx = startGame();
+        await playUntil(ctx, () => dropped.length > 0);
+        const t0 = dropped[0].at;
+        // The turn rotates but nothing triggers the next bot (e.g. a
+        // continuation that failed after the rotate)
+        ctx.game.currentTurn = (ctx.game.currentTurn % 4) + 1;
+        const turn = ctx.game.turnKey();
+
+        await jest.advanceTimersByTimeAsync(t0 + STALL + RETRY - 1 - Date.now());
+        expect(logged('Game stalled')).toEqual([]);
+        await jest.advanceTimersByTimeAsync(1);
+        const [stalled] = logged('Game stalled');
+        expect(stalled.at - t0).toBe(STALL + RETRY);
+        expect(stalled.meta).toMatchObject({ kind: 'bot', retry: true, turnKey: turn });
+
+        await jest.advanceTimersByTimeAsync(RETRY);
+        expect(ctx.game.stage).toBe(Phase.ABORTED);
+        expect(logged('Game stalled, aborting')[0].at - t0).toBe(STALL + 2 * RETRY);
+    });
+
+    test('a bot bid retried after its bid was recorded is skipped as stale, not a fallback', async () => {
+        const dropped = loseBotActions(() => true);
+        const ctx = startGame();
+        await playUntil(ctx, () => dropped.length > 0);
+        expect(ctx.game.stage).toBe(Phase.BIDDING);
+        const pos = ctx.game.currentTurn;
+        const bot = ctx.bots.find((b) => ctx.game.getPositionBySocketId(b.socketId) === pos);
+        ctx.game.recordBid(pos, '1');
+        expect(botController.processBotBid(ctx.io, ctx.game, bot)).toBe(false);
+        expect(ctx.game.playerBids[pos - 1]).toBe('1');
+        expect(botController.fallbacks.bid).toBe(0);
+        expect(errorLog).toEqual([]);
+    });
+
     test('a lost bot action that the retry recovers: the game completes, nothing aborted', async () => {
         const dropped = loseBotActions((n) => n === 5);
         const ctx = startGame();

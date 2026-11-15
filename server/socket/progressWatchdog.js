@@ -79,6 +79,23 @@ function arm(io, game) {
     return game.setTimer(KEY, stallMs, () => onStall(io, game, key));
 }
 
+/**
+ * Moved on without passing an arm point (e.g. a bot's play landed but its
+ * continuation failed before the next seat was triggered, or stuck in
+ * DEALING): the new state may already be up to STALL_MS old, so it gets only
+ * STALL_RETRY_MS before it counts as stalled (worst case: retry at
+ * STALL_MS + STALL_RETRY_MS, abort STALL_RETRY_MS later).
+ */
+function rewatch(io, game) {
+    const { stallMs, retryMs } = timeouts();
+    if (!stallMs) {
+        game.clearTimer(KEY);
+        return false;
+    }
+    const key = game.turnKey();
+    return game.setTimer(KEY, retryMs, () => onStall(io, game, key));
+}
+
 function disarm(game) {
     game.clearTimer(KEY);
 }
@@ -86,9 +103,7 @@ function disarm(game) {
 function onStall(io, game, key) {
     const kind = watched(game);
     if (!kind) return false;
-    // Moved on without passing an arm point (e.g. stuck in DEALING after a
-    // hand resolved): watch the new state from now
-    if (game.turnKey() !== key) return arm(io, game);
+    if (game.turnKey() !== key) return rewatch(io, game);
     const { retryMs } = timeouts();
     gameLogger.error('Game stalled', logMeta(game, kind, { retry: kind === 'bot', abortInMs: retryMs }));
     if (kind === 'bot') {
@@ -104,7 +119,7 @@ function onStall(io, game, key) {
 function onStillStalled(io, game, key) {
     const kind = watched(game);
     if (!kind) return false;
-    if (game.turnKey() !== key) return arm(io, game);
+    if (game.turnKey() !== key) return rewatch(io, game);
     gameLogger.error('Game stalled, aborting', logMeta(game, kind));
     const { abortGame } = require('./gameLifecycle');
     return abortGame(io, game, ABORT_REASON);

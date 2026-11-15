@@ -261,6 +261,15 @@ class BotController {
             return false;
         }
 
+        // Already recorded (a watchdog retry after the post-bid step failed):
+        // stale state, not a bad choice, so no fallback
+        if (game.playerBids[bot.position - 1] != null) {
+            gameLogger.warn('Bot bid skipped: already bid', {
+                gameId: game.gameId, botName: bot.username, position: bot.position
+            });
+            return false;
+        }
+
         const hand = game.getHand(bot.socketId);
         const gameContext = {
             teamScore: (bot.position === 1 || bot.position === 3) ? game.score.team1 : game.score.team2,
