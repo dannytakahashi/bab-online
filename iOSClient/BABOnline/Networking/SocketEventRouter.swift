@@ -28,7 +28,7 @@ final class SocketEventRouter {
     ) {
         self.socket = socket
         self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState, safetyState: safetyState,
-                                             lobbyState: lobbyState)
+                                             lobbyState: lobbyState, tournamentState: tournamentState)
         self.lobbyHandler = LobbySocketHandler(socket: socket, mainRoomState: mainRoomState, lobbyState: lobbyState, appState: appState, gameState: gameState, safetyState: safetyState)
         self.gameHandler = GameSocketHandler(socket: socket, gameState: gameState, appState: appState)
         self.chatHandler = ChatSocketHandler(socket: socket, gameState: gameState, safetyState: safetyState)

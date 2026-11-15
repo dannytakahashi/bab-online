@@ -225,7 +225,7 @@ final class SocketService: ObservableObject {
         let msg = dict["message"] as? String ?? "Something went wrong"
         guard errorDeduper.accept(channel, message: msg, handler: dict["handler"] as? String, at: now) else { return }
         // a refusal its screen answers itself, with its own words (the lobby re-entry)
-        if claimServerError?(dict) == true { return }
+        if claimServerError?(dict) == true || claimTournamentServerError?(dict) == true { return }
         serverError = ServerErrorNotice(message: msg)
         print("[Socket] Server error: \(msg)")
         if let store = gameState { Self.routeTableError(dict, to: store) }
@@ -234,6 +234,8 @@ final class SocketService: ObservableObject {
     /// Set by LobbySocketHandler: true when it took the failure (the refused lobby re-entry
     /// after a restore, `handleRejoinRefused`), so no raw toast shows for it.
     var claimServerError: (@MainActor ([String: Any]) -> Bool)?
+    /// The same for TournamentSocketHandler (the refused tournament re-entry, `handleRejoinRefused`).
+    var claimTournamentServerError: (@MainActor ([String: Any]) -> Bool)?
 
     /// What a restart would cost the player now (set by BABOnlineApp: screen, table role, tournament).
     var restartPlace: (@MainActor () -> RestartNotice.Place?)?

@@ -18,6 +18,14 @@ private struct TournamentLobbyScreen: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
+    @ObservedObject private var socketService = SocketService.shared
+
+    /// Ready, Begin and Cancel wait for the session and for the restore's joinTournament
+    /// (`TournamentState.rejoiningTournamentId`: this socket is not a member until it is
+    /// answered). Leave never waits (during the re-entry it is `TournamentRejoin.abandon`).
+    private var canSendTournamentActions: Bool {
+        socketService.canSendMainRoomActions && tournamentState.rejoiningTournamentId == nil
+    }
 
     var body: some View {
         ZStack {
@@ -259,6 +267,7 @@ private struct TournamentLobbyScreen: View {
                             .foregroundColor(tournamentState.isReady ? Theme.dangerForeground : Theme.buttonForeground)
                             .cornerRadius(Theme.Radius.md)
                     }
+                    .disabled(!canSendTournamentActions)
                 }
 
                 // Begin button (creator only)
@@ -273,7 +282,7 @@ private struct TournamentLobbyScreen: View {
                             .foregroundColor(allReady ? Theme.warningForeground : Theme.buttonDisabledForeground)
                             .cornerRadius(Theme.Radius.md)
                     }
-                    .disabled(!allReady)
+                    .disabled(!allReady || !canSendTournamentActions)
                 }
             }
 
@@ -288,6 +297,7 @@ private struct TournamentLobbyScreen: View {
                         .foregroundColor(Theme.dangerForeground)
                         .cornerRadius(Theme.Radius.md)
                 }
+                .disabled(!canSendTournamentActions)
             }
         }
         .padding(.horizontal, Theme.Space.s3)
@@ -315,6 +325,11 @@ private struct TournamentLobbyScreen: View {
     }
 
     private func leaveTournament() {
+        // the re-entry unanswered: out at once (its leaveTournament is answered either way)
+        if tournamentState.rejoiningTournamentId != nil {
+            TournamentRejoin.abandon(tournamentState: tournamentState, appState: appState)
+            return
+        }
         TournamentEmitter.leaveTournament()
     }
 

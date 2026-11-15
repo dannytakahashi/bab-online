@@ -17,9 +17,25 @@ final class TournamentState: ObservableObject {
     @Published var isReady: Bool = false
     /// The unsent chat line (survives a recreated view; not @Published).
     var chatDraft = ""
+    /// The joinTournament a restore sent for the tournament lobby on screen
+    /// (`RestoreRoute.tournamentLobby`), until tournamentJoined or its refusal answers. The
+    /// lobby's actions wait for it.
+    @Published var rejoiningTournamentId: String?
+    /// The socket that joinTournament went out on: one per socket.
+    var rejoinSocketId: String?
+    /// Bumped on every re-entry sent: the answer wait (`TournamentRejoin.answerWait`) acts
+    /// only on its own one.
+    var rejoinGeneration = 0
+    /// A re-entry left before its answer (Leave, or the wait ran out; `TournamentRejoin.abandon`):
+    /// its late tournamentJoined or refusal is dropped. Cleared by that answer, tournamentLeft,
+    /// the next mainRoomJoined, or a restore on another socket (`rejoinSocketId` stays the abandoned one's).
+    var abandonedRejoinTournamentId: String?
 
     func reset() {
         chatDraft = ""
+        rejoiningTournamentId = nil
+        rejoinSocketId = nil
+        abandonedRejoinTournamentId = nil
         tournamentId = ""
         name = ""
         phase = "lobby"
