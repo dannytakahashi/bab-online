@@ -416,9 +416,13 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
           onClick: () => showPlayer(p.mergedInto),
         }));
       }
+      // a hold's button frees the name (freeHeldName): say so, to screen readers too
       actions.appendChild(createButton({
-        label: 'Delete…', variant: 'secondary', size: 'sm', className: 'admin-btn--quiet-danger',
-        attrs: { 'aria-label': `Delete… the old name ${p.username}`, 'data-focus-key': `del:${p.username}` },
+        label: held ? 'Free name…' : 'Delete…', variant: 'secondary', size: 'sm', className: 'admin-btn--quiet-danger',
+        attrs: {
+          'aria-label': held ? `Free the held name ${p.username}` : `Delete… the old name ${p.username}`,
+          'data-focus-key': `del:${p.username}`,
+        },
         onClick: () => deleteTombstone(p),
       }));
     } else {
@@ -537,7 +541,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         'shows their name as [deleted] in past games (the other players keep those games);',
         'keeps reports by or about them, marked deleted;',
         "removes them from other players' block lists and cancels any open reset link;",
-        `deletes the old names merged into it, and holds the name ${p.username} for 30 days so nobody signs up with it at once (Delete… on its row frees it sooner).`,
+        `deletes the old names merged into it, and holds the name ${p.username} for 30 days so nobody signs up with it at once (Free name… on its row frees it sooner).`,
       ],
       expected: p.username,
       confirmLabel: 'Delete account',

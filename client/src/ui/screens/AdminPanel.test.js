@@ -457,7 +457,7 @@ describe('the panel', () => {
     expect($('#adminStatus').textContent).toBe('The old name Bea2 is deleted and free again. Bea is unchanged.');
   });
 
-  it('a deleted account\'s name hold: no account to show, "held until", Delete frees the name', async () => {
+  it('a deleted account\'s name hold: no account to show, "held until", Free name… frees the name', async () => {
     const hold = { username: 'Gone', createdAt: '2026-01-01T00:00:00.000Z', lastSeenAt: null, online: false, gamesPlayed: 0, botGamesPlayed: 0, isAdmin: false, mergedInto: '[deleted]', renamed: false, renameUnfinished: null, heldUntil: '2026-12-15T12:00:00.000Z' };
     api = fakeApi({
       listPlayers: { ok: true, players: [...PLAYERS, hold], total: 4, limit: 500 },
@@ -466,7 +466,10 @@ describe('the panel', () => {
     await openPlayers();
     expect(rowOf('Gone').children[6].textContent).toMatch(/^deleted, name held until /);
     expect(byText('Show [deleted]', rowOf('Gone'))).toBeFalsy();
-    byText('Delete…', rowOf('Gone')).click();
+    expect(byText('Delete…', rowOf('Gone'))).toBeFalsy();
+    const free = byText('Free name…', rowOf('Gone'));
+    expect(free.getAttribute('aria-label')).toBe('Free the held name Gone');
+    free.click();
     await flush();
     expect($('#adminConfirmDialog').textContent).toMatch(/Free the name Gone\?/);
     expect($('#adminConfirmDialog').textContent).toMatch(/held until/);
