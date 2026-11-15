@@ -12,7 +12,7 @@
  *     the same playCard emit, the same fly-in, MyAction pending;
  *   - focus: my turn takes it only from nowhere after a key press (never
  *     from the chat input), the played card hands it to its neighbour, a
- *     render keeps it on the same card;
+ *     render keeps it on the same card, a resize keeps the card raised;
  *   - the announcer says the trump, my turn with the trick so far, each
  *     card played and each trick's winner.
  */
@@ -261,13 +261,21 @@ describe('focus on my turn', () => {
 });
 
 describe('every layout', () => {
-  it('the buttons follow a resize (wide, narrow, short) and still sit over their cards', () => {
+  it('the buttons follow a resize (wide, narrow, short) and still sit over their cards; the focused card stays raised', () => {
+    // focus is on my first playable card (the test before)
+    const focused = document.activeElement;
+    expect(focused.getAttribute('aria-disabled')).toBe('false');
     for (const [w, h] of [[1920, 1080], [1100, 700], [800, 600], [1366, 640], [669, 900]]) {
       page.scene.scale.width = w;
       page.scene.scale.height = h;
       page.scene.scale.emit('resize', { width: w, height: h });
       replay.advance(600);
       expectOverCards();
+      // the relayout snapped the hand to its new line: the focused card is
+      // lifted again (its ring is drawn raised)
+      expect(document.activeElement, `${w}x${h}`).toBe(focused);
+      const s = sprites()[btns().indexOf(focused)];
+      expect(s.y, `${w}x${h}`).toBeLessThan(s.getData('baseY'));
     }
   });
 });

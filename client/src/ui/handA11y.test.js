@@ -87,16 +87,37 @@ describe('the toolbar', () => {
     expect(document.activeElement).toBe(announcer());
   });
 
-  it('a render (clear, then the same hand) puts focus back on the same card; a new hand does not take it', () => {
+  it('a render (clear, then the same hand in the same task) puts focus back on the same card', () => {
     syncHand({ cards: hand([['a', true], ['b', true]]) });
     key('b').focus();
-    syncHand({ cards: [] });
+    syncHand({ cards: [], redraw: true });
+    expect(document.activeElement).toBe(announcer());
     syncHand({ cards: hand([['a', true], ['b', true]]) });
     expect(document.activeElement).toBe(key('b'));
-    // the hand ends; the next one has other cards
-    syncHand({ cards: [] });
-    syncHand({ cards: hand([['x', true], ['y', true]]) });
+  });
+
+  it('a render that drew no hand: the card memory ends with the task', async () => {
+    syncHand({ cards: hand([['a', true]]) });
+    key('a').focus();
+    syncHand({ cards: [], redraw: true });
+    await Promise.resolve();
+    syncHand({ cards: hand([['a', false]]) });
     expect(document.activeElement).toBe(announcer());
+  });
+
+  it('the last card played leaves focus on the announcer; the next deal never takes it, even holding that card', () => {
+    syncHand({ cards: hand([['a', true]]) });
+    key('a').focus();
+    syncHand({ cards: [] });
+    expect(document.activeElement).toBe(announcer());
+    // a fresh deck often deals the same card again: still no jump mid-deal
+    syncHand({ cards: hand([['x', false], ['a', false]]) });
+    expect(document.activeElement).toBe(announcer());
+    syncHand({ cards: hand([['x', false], ['a', true]]) });
+    expect(document.activeElement).toBe(announcer());
+    // my turn takes it from there (the announcer is the table's own)
+    expect(offerTurnFocus()).toBe(true);
+    expect(document.activeElement).toBe(key('a'));
   });
 });
 
@@ -115,6 +136,17 @@ describe('my turn takes focus only where it is free', () => {
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(offerTurnFocus()).toBe(false);
     expect(document.activeElement).toBe(document.body);
+  });
+
+  it('never for a pointer user who used the voice keys (M, backquote) or typed a stray letter', () => {
+    setup();
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    for (const k of ['m', '`', 'q']) press(document.body, k);
+    expect(offerTurnFocus()).toBe(false);
+    expect(document.activeElement).toBe(document.body);
+    // a navigation key does make it the keyboard
+    press(document.body, 'Tab');
+    expect(offerTurnFocus()).toBe(true);
   });
 
   it('never from a text input (chat), even after typing in it', () => {

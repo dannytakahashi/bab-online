@@ -20,7 +20,8 @@
  * after a key press) or from the table's own controls (this hand, the
  * announcer, the bid sheet, the draw layer). A focused card that goes
  * hands focus to its neighbour, the last one to the announcer (never to the
- * body); a render that rebuilds the same hand puts it back on the card.
+ * body; it waits there through the next deal, for my turn); a render that
+ * clears and redraws the same hand puts it back on the card.
  *
  * Geometry is the table layout's (CardManager passes the rects), as CSS
  * variables; keys other than the ones above are left alone (the voice keys:
@@ -40,11 +41,18 @@ let lastInput = null;
 let lastSaid = { text: '', at: 0 };
 let modality = false;
 
+/**
+ * Keys that move focus or press a control: only these make the last input
+ * the keyboard (a mouse player's voice keys, backquote and M, or a stray
+ * letter must not pull focus into the hand on their turn).
+ */
+const NAV_KEYS = new Set(['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End']);
+
 /** Whether the last input was a key (focus moves only for the keyboard). */
 function trackModality() {
   if (modality || typeof document === 'undefined') return;
   modality = true;
-  document.addEventListener('keydown', () => { lastInput = 'keyboard'; }, true);
+  document.addEventListener('keydown', (e) => { if (NAV_KEYS.has(e.key)) lastInput = 'keyboard'; }, true);
   document.addEventListener('pointerdown', () => { lastInput = 'pointer'; }, true);
 }
 
@@ -151,8 +159,9 @@ function makeButton(key) {
  * @param {Function} [o.onFocusCard] - (key)
  * @param {Function} [o.onBlurCard] - (key)
  * @param {Function} [o.reasonFor] - (key) why a dimmed card can't be played
+ * @param {boolean} [o.redraw] - an empty hand a render redraws in the same task
  */
-export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, ...rest } = {}) {
+export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, redraw = false, ...rest } = {}) {
   if (typeof document === 'undefined') return;
   trackModality();
   handlers = rest;
@@ -184,15 +193,21 @@ export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, ...rest }
   bar.style.setProperty('--lift', px(lift));
   bar.hidden = cards.length === 0;
 
-  // the focused card went: its neighbour, or the announcer (never the body)
+  // the focused card went: its neighbour, or the announcer (never the body;
+  // it waits there through the next deal: my turn takes it from there)
   if (focusedKey && !keep.has(focusedKey)) {
     if (want.length) focusButton(want[Math.min(focusedIndex, want.length - 1)]);
     else {
-      restoreKey = focusedKey;
       announcer().focus({ preventScroll: true });
+      // only a render's clear comes back to the card (its redraw is in this
+      // task); the last card played must not pull focus into the next deal
+      if (redraw) {
+        restoreKey = focusedKey;
+        queueMicrotask(() => { restoreKey = null; });
+      }
     }
   } else if (restoreKey && want.length) {
-    // a render rebuilt the hand it cleared: back on the same card
+    // the render redrew the hand it cleared: back on the same card
     const back = keep.has(restoreKey) && document.activeElement === announcer({ create: false });
     if (back) focusButton(byKey.get(restoreKey) || want[cards.findIndex((c) => c.key === restoreKey)]);
     restoreKey = null;

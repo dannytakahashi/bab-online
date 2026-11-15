@@ -71,16 +71,16 @@ export class CardManager {
    * (ui/handA11y.js): one button per card over its visible strip, dimmed
    * cards aria-disabled. Every change to the hand or its legality calls it.
    */
-  _syncA11y() {
+  _syncA11y(opts) {
     // the mirror never takes the table down with it
     try {
-      this._syncA11yNow();
+      this._syncA11yNow(opts);
     } catch (e) {
       console.warn('keyboard hand sync failed', e);
     }
   }
 
-  _syncA11yNow() {
+  _syncA11yNow({ redraw = false } = {}) {
     const sprites = this._handSprites.filter((s) => s && s.active !== false && s.getData('card'));
     const L = this.layout();
     const card = L?.hand?.card;
@@ -102,6 +102,7 @@ export class CardManager {
       cardW: card?.w ?? 0,
       cardH: card?.h ?? 0,
       lift: L?.hand?.lift ?? 0,
+      redraw,
       onActivate: (key) => this._activate(this._spriteForKey(key)),
       onFocusCard: (key) => this._raiseFocused(key),
       onBlurCard: (key) => {
@@ -164,10 +165,14 @@ export class CardManager {
    * @param {boolean} options.animate - Whether to animate dealing
    */
   displayHand(cards, { animate = true } = {}) {
-    // Clear existing hand
-    this.clearHand();
+    // Clear existing hand. The keyboard hand syncs once, with the new cards:
+    // a render redrawing the same hand keeps its buttons, so focus stays put
+    this.clearHand({ sync: false });
 
-    if (!cards || cards.length === 0) return;
+    if (!cards || cards.length === 0) {
+      this._syncA11y();
+      return;
+    }
 
     const scene = this._scene;
 
@@ -210,9 +215,8 @@ export class CardManager {
     sceneDelay(scene, animationDelay, () => {
       if (dealToken !== this._dealToken) return;
       this._isDealing = false; // Clear dealing flag so resize can work again
+      // (which raises a card focused during the deal, now it has landed)
       this.repositionHand();
-      // a card focused during the deal rises now it has landed
-      this._raiseFocused();
     }, { snapSafe: !animate });
   }
 
@@ -452,7 +456,7 @@ export class CardManager {
   /**
    * Clear all hand sprites.
    */
-  clearHand() {
+  clearHand({ sync = true, redraw = false } = {}) {
     this._hideRaise();
     this._dealToken++;
     this._isDealing = false;
@@ -462,7 +466,7 @@ export class CardManager {
       }
     });
     this._handSprites = [];
-    this._syncA11y();
+    if (sync) this._syncA11y({ redraw });
   }
 
   /**
@@ -479,9 +483,12 @@ export class CardManager {
 
   /**
    * Clear all card sprites.
+   * @param {Object} [o]
+   * @param {boolean} [o.redraw] - a render draws the table again at once
+   *   (the keyboard hand puts focus back on the same card)
    */
-  clearAll() {
-    this.clearHand();
+  clearAll({ redraw = false } = {}) {
+    this.clearHand({ redraw });
     this.clearPlayed();
   }
 
@@ -641,6 +648,9 @@ export class CardManager {
         sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
       }
     });
+    // the snap dropped every lift: the keyboard's focused card goes back up
+    // (its ring stays raised while it is focused)
+    this._raiseFocused();
   }
 
   /**

@@ -1455,7 +1455,7 @@ export class GameScene extends Phaser.Scene {
 
     // Clear: the hand before the tricks (a collect cleared in flight runs
     // its onCollected callbacks, which must find no hand)
-    this.cardManager?.clearAll();
+    this.cardManager?.clearAll({ redraw: true });
     this.trickManager?.clearAll();
     // the backs only: the avatars and the frog are the game's, updated in
     // place below (webclient-21: built once per game)
