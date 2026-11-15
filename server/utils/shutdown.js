@@ -15,19 +15,45 @@ const NOTICE_MS = 1000;
 // Then this long for remaining operations to finish
 const SETTLE_MS = 500;
 // Upper bound on the whole shutdown: whatever wedges, the process exits
+// (under Railway's drainingSeconds, .railway/railway.ts, so it is never SIGKILLed first)
 const HARD_EXIT_MS = 10000;
+// The game-log line every live table gets with the notice: games live in
+// memory, so a restart ends them (only gameEnd writes stats)
+const GAME_NOTICE = "This game was interrupted by a server update. It won't count toward stats.";
+
+/**
+ * Tell every live table, in its game log, that the update ends it. One
+ * broken game never keeps the others (or the shutdown) from going on.
+ * @returns {number} tables told
+ */
+function noticeGames(io, games) {
+    let told = 0;
+    for (const game of games()) {
+        try {
+            if (game.isTerminal?.()) continue;
+            game.addLogEntry(GAME_NOTICE, null, 'system');
+            game.broadcast(io, 'gameLogEntry', { message: GAME_NOTICE, type: 'system' });
+            told++;
+        } catch (error) {
+            logger.error('Shutdown notice to a game failed', { gameId: game?.gameId, error: error.message });
+        }
+    }
+    return told;
+}
 
 /**
  * Setup graceful shutdown handlers
  * @param {http.Server} server - HTTP server instance
  * @param {SocketIO.Server} io - Socket.IO server instance
- * @param {{noticeMs?: number, settleMs?: number, hardExitMs?: number}} [opts] - tests only
+ * @param {{games?: Function, noticeMs?: number, settleMs?: number, hardExitMs?: number}} [opts] -
+ *   games: () => iterable of the live GameStates (server/index.js: the GameManager's), told
+ *   of the update before serverShutdown; the waits are for tests only
  * @returns {{shutdown: Function, onUncaughtException: Function, onUnhandledRejection: Function}}
  *   the handlers (registered on `process` here; returned for tests, since
  *   Jest owns process-level uncaughtException while a test runs)
  */
 function setupGracefulShutdown(server, io, opts = {}) {
-    const { noticeMs = NOTICE_MS, settleMs = SETTLE_MS, hardExitMs = HARD_EXIT_MS } = opts;
+    const { games = () => [], noticeMs = NOTICE_MS, settleMs = SETTLE_MS, hardExitMs = HARD_EXIT_MS } = opts;
     // The first reason decides the code: a crash during a deploy's SIGTERM
     // still exits 0 (the platform asked it to stop), a second signal during
     // a crash shutdown still exits 1 (so it is restarted)
@@ -57,8 +83,14 @@ function setupGracefulShutdown(server, io, opts = {}) {
                 logger.info('HTTP server closed');
             });
 
-            // Notify connected clients
+            // Notify connected clients: players at a table first, in the game log
             if (io) {
+                try {
+                    const told = noticeGames(io, games);
+                    if (told) logger.info('Shutdown notice sent to games', { games: told });
+                } catch (error) {
+                    logger.error('Shutdown notice to games failed', { error: error.message });
+                }
                 io.emit('serverShutdown', {
                     message: 'Server is restarting, please reconnect shortly'
                 });
@@ -112,4 +144,4 @@ function setupGracefulShutdown(server, io, opts = {}) {
     return { shutdown, onUncaughtException, onUnhandledRejection };
 }
 
-module.exports = { setupGracefulShutdown, NOTICE_MS, SETTLE_MS, HARD_EXIT_MS };
+module.exports = { setupGracefulShutdown, noticeGames, GAME_NOTICE, NOTICE_MS, SETTLE_MS, HARD_EXIT_MS };

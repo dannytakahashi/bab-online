@@ -6338,7 +6338,8 @@
         "server/socket/gameHandlers.js:handlePostBid",
         "server/socket/gameHandlers.js:handleDrawComplete",
         "server/socket/chatHandlers.js:handleDrawPhaseLeave",
-        "server/socket/queueHandlers.js:routeGameDisconnect"
+        "server/socket/queueHandlers.js:routeGameDisconnect",
+        "server/utils/shutdown.js:noticeGames"
       ],
       "notes": "Reserved: a type other than 'system' must carry playerPosition (schemaMeta.test.js pins type to 'system' unless playerPosition is required).",
       "added": [

@@ -104,7 +104,8 @@ function start() {
     });
 
     // Setup graceful shutdown
-    setupGracefulShutdown(server, io);
+    // Live tables hear about the update in their game log before serverShutdown
+    setupGracefulShutdown(server, io, { games: () => require('./game/GameManager').games.values() });
 
     // Connect to database in background (fire and forget like original)
     connectDB()
