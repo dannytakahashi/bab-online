@@ -320,7 +320,7 @@ After each phase, verify:
 
 ```bash
 # Build and verify
-source ~/.nvm/nvm.sh && nvm use 18
+source ~/.nvm/nvm.sh && nvm use   # reads .nvmrc
 npm run build:client
 npm run test:client
 npm run dev  # Manual testing

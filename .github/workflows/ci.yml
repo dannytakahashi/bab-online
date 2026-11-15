@@ -31,7 +31,7 @@ jobs:
 
       # Same major as production: Nixpacks picks Node from package.json
       # engines ("24.x") before .nvmrc; keep both, this and Dockerfile.local
-      # on one major
+      # on one major (server/__tests__/nodeVersion.test.js)
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
