@@ -368,10 +368,13 @@ against mary+mary (±4.4); 0 incidents, 0 exceptions. Paired, 2000 deal sets
 48.0%, 49.9% and 47.4%: the personalities sit where they did.
 
 Recordings. The wire golden and the iOS event logs change with any play
-change (re-record as for bidding). Two web tests (`overTrumpEffect`,
-`overTrumpPartner`) need an over-trump the searching bots no longer produce
-in events-bots-s12; they read seat 1's earlier recording, kept in
-`client/src/testing/recordings/`.
+change (re-record as for bidding). Tests whose point is a situation the
+current bots no longer happen to produce in events-bots-s12 (an over-trump
+of seat 1: web `overTrumpEffect`, `overTrumpPartner`; a B + 2B hand: web
+`seatPipsRejoin`, `seatPipsSpectator`, iOS `SeatPipsTests`) read the game as
+recorded before the play changes, kept by hand in
+`iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json` (see "Combined
+play" below).
 
 Bid tables after the play change. With all four seats searching, defence is
 sharper and the team trick spread is wider (fitted `TEAM_SD` on 13 cards
@@ -386,3 +389,71 @@ Danny regression test (a worthless 2-card hand bid 1), which is what a fit
 on a third of the usual data does at the margins, so the refit is NOT in
 this change: run the full 16000-game, three-round recipe once the play
 changes are settled.
+
+## Combined play (November 2026)
+
+The play-inference rules and the play search were built separately and are
+combined here: the card view and its rules pick the card above 7 cards in
+hand (and are the search's tie-break below), the search picks it from 7
+cards down, and `bidModel.js` is the refit made on the play-inference bots.
+Three things were settled on the combination:
+
+- **Danny's flashy ruff** now sits below the low-ruff rules (he still plays
+  the very top trump where the ruff has to be high). Left above them he kept
+  the old high-ruff leak and drifted about 1.8 win points against Mary.
+- **`holdLoneHiRuff` is off.** Holding a lone HI joker back at 2nd seat
+  declines a trick that can be won; with the endings searched it was worth
+  +0.09 ±0.07 points a game (4000 deal sets, seed 880101), and it made
+  partner's soft out-of-trump read wrong about 4% of the time.
+- **`ruffForPartnerNoTrump` is off.** In no-trump the low ruff on partner's
+  shaky winner spends a joker: +0.04 ±0.04 with it off (4000, seed 880102).
+
+The refit tables earn more next to the search than they did alone: 50.7%
+±0.6, +3.3 ±1.1 against the same play on main's tables (4000, seed 880103),
+team sets 9.8% against 10.5%. They were fitted on rule-only play, so a refit
+on the combined play (about 2 CPU-hours per 16000-game round, see above) is
+still open.
+
+Paired harness as above (deal sets played twice, seats swapped, ± 95% CI
+over deal sets; a different deal hash and seeds from every earlier run).
+Every run: 0 illegal plays, 0 exceptions, 0 errors inside the search, and
+no lost last-seat trick that a legal card would have won, before or after
+the contract was made (over 2.5 million lost last-seat tricks checked on
+the combined side).
+
+| Comparison (Mary pair unless named) | Deal sets, seed | Win rate | Margin per game |
+|---|---|---|---|
+| combined vs origin/main | 8000, 990101 | 62.05% ±0.54 | +43.7 ±1.1 |
+| combined vs main, danny+zach | 4000, 990102 | 62.59% ±0.77 | +43.2 ±1.5 |
+| combined vs main, sharon+mike | 4000, 990106 | 62.98% ±0.77 | +46.2 ±1.7 |
+| combined vs the play search alone | 8000, 990103 | 51.24% ±0.47 | +7.6 ±0.9 |
+| combined vs the play inference alone | 8000, 990104 | 55.86% ±0.46 | +19.9 ±0.9 |
+| combined vs the play-leak fixes alone | 8000, 990105 | 57.40% ±0.51 | +27.1 ±1.0 |
+| sharon+mary vs mary+mary, all combined | 2000, 990111 | 48.65% ±0.76 | -0.3 ±1.2 |
+| danny+mary vs mary+mary | 2000, 990112 | 50.06% ±0.65 | +0.7 ±1.0 |
+| mike+mary vs mary+mary | 2000, 990113 | 47.55% ±0.69 | -9.5 ±1.3 |
+| zach+mary vs mary+mary (partner history recorded) | 2000, 990114 | 48.08% ±0.70 | -3.8 ±1.1 |
+
+The personalities sit where they did on main (47.8%, 50.0%, 47.4%, 48.0%).
+Against main the combined pair takes 1.83 tricks per player-hand to 1.67 and
+is set on 6.2% of team-hands to main's 12.2%. Every hand size from 2 cards
+up gains (2 cards +0.18 ±0.12 points per game, 13 cards +8.9 ±0.5);
+no-trump hands +2.6 ±0.3; hands with a bore on the table are flat.
+
+Self-play calibration (2000 deal sets, seed 990120): team set rate 9.7%
+(main 7.6%, search alone 10.2%), player tricks minus bid +0.47, exact bids
+44.9%, bores 4.8% of hands and 85% made. All-bot tables see more sets than
+on main because both sides defend better.
+
+Cost per searched decision, one process on a quiet M-series laptop: p50
+1.3 ms, p90 8.4 ms, p99 9.7 ms, max 23 ms (51,000 decisions); decisions
+above 7 cards p99 0.04 ms. `npm run sim -- --games 500` (seed 1001): 0
+incidents, 0 exceptions; mary vs legacy mary 84.4%, vs legacy danny+zach
+85.6% (±3.1).
+
+Recordings. The combined bots bore on no hand of events-bots-s12 and no
+longer over-trump seat 1 there, so the tests that need a B + 2B hand or an
+over-trump read `iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json`
+(that game as recorded before the play changes; `replay.loadKeptRecording`
+on the web, `FixtureLoader.keptBots` on iOS). `npm run ios:fixtures` never
+rewrites it. The pacing pins did not move (legacy 592.7 s).

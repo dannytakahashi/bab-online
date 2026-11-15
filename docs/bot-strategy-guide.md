@@ -157,7 +157,7 @@ Boss status drives almost every follow decision:
 Counting what is gone also tells you who holds what is left. The bots keep three facts per player (`buildCardView`):
 
 - **Void in a suit**: they failed to follow it.
-- **Out of trump**: they failed to follow a trump lead (certain), or they were void in the led suit and discarded while an opponent's card was winning (they would have ruffed; true of the bots and of nearly every human play).
+- **Out of trump**: they failed to follow a trump lead (certain), or they were void in the led suit and discarded while an opponent's card was winning (they would normally have ruffed: a read, not a fact, since a human, or a bot searching a small ending, may keep its trump).
 - **A cap on their best trump**: an opponent of a HI-joker lead must play their highest trump, so everything they still hold is below that card. A player who discarded under an opponent's winning trump had nothing above it.
 
 A void matters only while its owner still has trump: an opponent who is void but out of trump cannot ruff your winner, and a partner who is void but out of trump cannot ruff for you.
@@ -166,9 +166,9 @@ A void matters only while its owner still has trump: an opponent who is void but
 
 Void in the led suit with an opponent winning, **always ruff, with the lowest trump that will hold**:
 
-- **2nd seat: the lowest winning trump.** Your partner still plays behind you and the 4th seat usually has to follow suit, so a high ruff buys nothing and costs a card that would win a later trick. The old bots ruffed with their highest trump here; that single habit cost a partnership about 12 points a game. If the only trump that wins is the HI joker, throw a loser instead and keep its forcing lead (unless every remaining trick is needed).
+- **2nd seat: the lowest winning trump.** Your partner still plays behind you and the 4th seat usually has to follow suit, so a high ruff buys nothing and costs a card that would win a later trick. The old bots ruffed with their highest trump here; that single habit cost a partnership about 12 points a game. Even when the only trump that wins is the HI joker, ruff: holding it back was measured (+0.09 ±0.07 points a game with the endings searched) and is switched off, because it declines a trick that can be won.
 - **3rd seat: low when the opponent behind cannot over-ruff** (out of trump, or capped below your card) **or should still follow suit** (3 or more cards of the suit unseen and no void shown). Ruff high only against a real over-ruff threat.
-- **Partner winning with a shaky card** (a Jack or lower, with a higher card of the suit still out, and the opponent behind not known void): put a low trump on it. Securing the trick is worth more than the trump.
+- **Partner winning with a shaky card** (a Jack or lower, with a higher card of the suit still out, and the opponent behind not known void): put a low trump on it. Securing the trick is worth more than the trump. Not in no-trump, where the only "trump" is a joker.
 - **4th seat** is unchanged: the lowest winner always holds.
 
 ## Card Play: Leading
@@ -210,7 +210,7 @@ Everything above is a rule of thumb, and rules of thumb leak most when few cards
 
 The rule-based card is kept on an exact tie, above 7 cards, and whenever the bot has not seen the whole hand (a bot that took a seat mid-hand). Last to play, the search only ever considers cards that win a trick that can be won: it never declines one.
 
-Against the rule-only bots the searching bots win 61.6% of paired games, about 40 points per game, taking 0.29 more tricks per hand (sim README, "Play search"). The search has known blind spots: it assumes everyone sees every card from here on, so it never plays to hide a card or to make a defender guess.
+Against the old rule-only bots the search alone wins 61.6% of paired games, about 40 points per game (sim README, "Play search"); with the hand-reading rules above for the bigger hands, 62.0% and about 44 points ("Combined play"). The search has known blind spots: it assumes everyone sees every card from here on, so it never plays to hide a card or to make a defender guess.
 
 ## Game-Level Score Awareness
 
