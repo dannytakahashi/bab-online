@@ -20,6 +20,11 @@
  *   username key applies (never one shared key for every user). Logged once
  *   per process with the raw values.
  *
+ * Checked on Railway 2026-11-15: 12 failed sign-ins sent through
+ * babonline.io with a forged X-Real-IP and X-Forwarded-For (203.0.113.77)
+ * were throttled and logged under the sender's real IP, so the edge
+ * overwrites both headers and a client cannot rotate its IP key there.
+ *
  * Header trust rests on the peer address alone. Off Railway (docker-compose,
  * a LAN host) a client whose peer is private can set X-Real-IP freely and
  * rotate its IP key; the username key still caps guessing per account.
