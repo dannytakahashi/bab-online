@@ -381,6 +381,9 @@ function showErrorToast(message, duration = 5000) {
 // Track retry attempts for joinMainRoom
 let joinMainRoomRetries = 0;
 const MAX_JOIN_RETRIES = 5;
+// joinTournament refusals the server answers with no main room (it leaves
+// the socket where it is: server tournamentHandlers STAYS_PUT)
+const STAYS_PUT_REFUSALS = new Set(['Already in a tournament', 'Already in a lobby', 'Already in game']);
 
 // ==================== SERVER RESTART ====================
 
@@ -471,8 +474,10 @@ function handleSocketError(error, socket) {
     if (!explainRestartLoss()) showErrorToast('The tournament is no longer available');
     if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
     // The server follows a failed joinTournament with the main room, except
-    // for 'Already in a tournament'; a failed spectateTournament with nothing
-    if (pendingTournament.spectator || error.message === 'Already in a tournament') session.requestMainRoom();
+    // when the socket belongs elsewhere ('Already in a tournament' / 'Already
+    // in a lobby' / 'Already in game': joinMainRoom also leaves a lobby seat);
+    // a failed spectateTournament with nothing
+    if (pendingTournament.spectator || STAYS_PUT_REFUSALS.has(error.message)) session.requestMainRoom();
     return true;
   }
 
