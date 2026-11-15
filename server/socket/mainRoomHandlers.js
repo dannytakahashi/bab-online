@@ -123,6 +123,8 @@ function createLobby(socket, io, data) {
     if (result.evicted) {
         releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.lobby.createdBy });
     }
+    // Or a tournament lobby membership (GameManager.giveUpStaleTournament)
+    require('./tournamentHandlers').releaseStaleTournamentSeat(io, result.evictedTournament, result.lobby.createdBy);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -188,6 +190,8 @@ function joinLobby(socket, io, data) {
     } else if (result.evicted) {
         releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.newPlayer.username });
     }
+    // Or a tournament lobby membership (GameManager.giveUpStaleTournament)
+    require('./tournamentHandlers').releaseStaleTournamentSeat(io, result.evictedTournament, result.newPlayer?.username);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');

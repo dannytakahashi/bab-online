@@ -36,6 +36,7 @@ function createTournament(socket, io) {
 
     const tournament = result.tournament;
     releaseStaleTournamentSeat(io, result.evicted, user.username);
+    releaseStaleLobbySeatFor(io, result.evictedLobby, socket.id, user.username);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -81,6 +82,17 @@ function releaseStaleTournamentSeat(io, evicted, username) {
     });
 }
 
+/**
+ * A lobby seat the user held from an older socket was given up on creating
+ * or joining a tournament (GameManager.evictStaleLobbySeat), told as on a
+ * lobby-to-lobby move (lobbyHandlers.releaseStaleLobbySeat). The caller
+ * sends lobbiesUpdated.
+ */
+function releaseStaleLobbySeatFor(io, evictedLobby, newSocketId, username) {
+    if (!evictedLobby) return;
+    require('./lobbyHandlers').releaseStaleLobbySeat(io, { ...evictedLobby, newSocketId, username });
+}
+
 // joinTournament refusals that leave the socket where it is (activityOf)
 const STAYS_PUT = new Set(['Already in a tournament', 'Already in a lobby', 'Already in game']);
 
@@ -116,6 +128,7 @@ async function joinTournament(socket, io, data) {
     const tournament = result.tournament;
     const user = gameManager.getUserBySocketId(socket.id);
     releaseStaleTournamentSeat(io, result.evicted, user.username);
+    releaseStaleLobbySeatFor(io, result.evictedLobby, socket.id, user.username);
 
     // Leave main room
     socket.leave('mainRoom');
@@ -197,18 +210,19 @@ async function leaveTournament(socket, io) {
 
     const tournamentId = tournament.tournamentId;
 
-    // Leaving while their table is still before seating (the web client
-    // shows the tournament lobby until startDraw) leaves that table too,
-    // like /leave would: a bot takes the seat at the draw. Late in
-    // DRAW_RESOLVING the seats exist already (entrants is null): the seat
-    // is left as with /leave, without the leftGame (tournamentLeft follows)
+    // Leaving the tournament leaves its live table too, like /leave would
+    // (no member of a tournament they left keeps a human seat in it). Before
+    // seating (the web client shows the tournament lobby until startDraw) a
+    // bot takes the seat at the draw. Once the seats exist (late in
+    // DRAW_RESOLVING: entrants is null, or any later stage) the seat is left
+    // as with /leave, without the leftGame (tournamentLeft follows)
     const tableId = gameManager.playerGames.get(socket.id);
     const table = tableId && gameManager.tournamentGames.get(tableId) === tournamentId
         ? gameManager.getGameById(tableId)
         : null;
-    if (table && table.isPreSeating()) {
+    if (table && !table.isTerminal()) {
         const seated = table.entrants ? null : table.seatList().find(s => s.ownerSocketId === socket.id);
-        if (table.entrant(socket.id)) {
+        if (table.isPreSeating() && table.entrant(socket.id)) {
             require('./chatHandlers').handleDrawPhaseLeave(socket, io, table, { notify: false });
         } else if (seated) {
             require('./seatLifecycle').leaveSeat(io, table, seated.position, socket, { notify: false });
@@ -1004,6 +1018,7 @@ async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGam
 }
 
 module.exports = {
+    releaseStaleTournamentSeat,
     createTournament,
     joinTournament,
     leaveTournament,

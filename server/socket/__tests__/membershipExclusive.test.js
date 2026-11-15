@@ -4,9 +4,10 @@
  * createTournament, joinTournament, rejoinGame and joinAsSpectator's owner
  * paths refuse a socket that already belongs elsewhere (a hand-written
  * client or a double click used to make one socket a member of two); a
- * refused joinTournament leaves the socket where it is. Leaving a
- * tournament late in DRAW_RESOLVING (seats made, entrants gone) leaves the
- * table too. Real handlers, in-memory DB, stub io, fake timers.
+ * refused joinTournament leaves the socket where it is. Across one user's
+ * sockets a lobby seat and a tournament seat never coexist. Leaving a
+ * tournament once its table is seated (late in DRAW_RESOLVING or in play)
+ * leaves the table too. Real handlers, in-memory DB, stub io, fake timers.
  */
 
 const crypto = require('crypto');
@@ -92,6 +93,10 @@ function world() {
         },
         sent(s, from, event) {
             return w.log.slice(from).filter((l) => l.to === `self:${s.id}` && l.event === event);
+        },
+        // io.to(socketId).emit: sent by another socket's handler
+        told(s, from, event) {
+            return w.log.slice(from).filter((l) => l.to === s.id && l.event === event);
         },
     };
     return w;
@@ -274,5 +279,99 @@ describe('leaving a tournament late in DRAW_RESOLVING', () => {
         expect(table.isTerminal()).toBe(false);
         expect(table.seat(pos).controller).toBe('lazyBot');
         expect(events(ctx.log.slice(mark), 'gameLogEntry').some((l) => l.data.message.startsWith(`${name} left the game.`))).toBe(true);
+    }, 30000);
+});
+
+describe('one user, two sockets (an older socket still holds a membership)', () => {
+    test('createTournament / joinTournament give up the lobby seat an older socket holds', async () => {
+        const w = world();
+        const ann1 = await w.connect('ann');
+        const bob = await w.connect('bob');
+        mainRoomHandlers.createLobby(bob, w.io, { name: 'Bob' });
+        const lobbyId = gameManager.getPlayerLobby(bob.id).id;
+        mainRoomHandlers.joinLobby(ann1, w.io, { lobbyId });
+        expect(gameManager.getLobbyById(lobbyId).players).toHaveLength(2);
+
+        // A new socket of Ann's (half-open reconnect) creates a tournament
+        const ann2 = await w.connect('ann');
+        const from = w.log.length;
+        tournamentHandlers.createTournament(ann2, w.io);
+        expect(w.errors(ann2, from)).toEqual([]);
+        expect(gameManager.getPlayerTournament(ann2.id)).toBeTruthy();
+        expect(gameManager.getLobbyById(lobbyId).players.map((p) => p.username)).toEqual([bob.username]);
+        expect(gameManager.playerLobbies.has(ann1.id)).toBe(false);
+        expect(w.told(ann1, from, 'leftLobby')).toHaveLength(1);
+        expect(w.told(bob, from, 'lobbyPlayerLeft').map((l) => l.data.leftUsername)).toEqual([ann1.username]);
+
+        // The same for joinTournament
+        const cat1 = await w.connect('cat');
+        mainRoomHandlers.joinLobby(cat1, w.io, { lobbyId });
+        const cat2 = await w.connect('cat');
+        const tid = gameManager.getPlayerTournament(ann2.id).tournamentId;
+        const mark = w.log.length;
+        await tournamentHandlers.joinTournament(cat2, w.io, { tournamentId: tid });
+        expect(w.errors(cat2, mark)).toEqual([]);
+        expect(gameManager.getTournamentById(tid).players.size).toBe(2);
+        expect(gameManager.getLobbyById(lobbyId).players.map((p) => p.username)).toEqual([bob.username]);
+        expect(w.told(cat1, mark, 'leftLobby')).toHaveLength(1);
     });
+
+    test('createLobby / joinLobby: refused while an older socket is in a begun tournament; a lobby-phase one is given up', async () => {
+        const w = world();
+        const ann1 = await w.connect('ann');
+        const bob = await w.connect('bob');
+        mainRoomHandlers.createLobby(bob, w.io, { name: 'Bob' });
+        const lobbyId = gameManager.getPlayerLobby(bob.id).id;
+        const eve = await w.connect('eve');
+        tournamentHandlers.createTournament(eve, w.io);
+        const t = gameManager.getPlayerTournament(eve.id);
+        await tournamentHandlers.joinTournament(ann1, w.io, { tournamentId: t.tournamentId });
+
+        const ann2 = await w.connect('ann');
+        t.phase = 'round_active';
+        const from = w.log.length;
+        mainRoomHandlers.createLobby(ann2, w.io, { name: 'Ann' });
+        mainRoomHandlers.joinLobby(ann2, w.io, { lobbyId });
+        expect(w.errors(ann2, from)).toEqual(['Already in a tournament', 'Already in a tournament']);
+        expect(gameManager.getLobbyById(lobbyId).players).toHaveLength(1);
+        expect(t.players.has(ann1.id)).toBe(true);
+
+        // Still in its lobby: the older socket's membership is given up as a leave
+        t.phase = 'lobby';
+        const mark = w.log.length;
+        mainRoomHandlers.joinLobby(ann2, w.io, { lobbyId });
+        expect(w.errors(ann2, mark)).toEqual([]);
+        expect(gameManager.getPlayerLobby(ann2.id).id).toBe(lobbyId);
+        expect(t.players.has(ann1.id)).toBe(false);
+        expect(gameManager.playerTournaments.has(ann1.id)).toBe(false);
+        expect(w.told(ann1, mark, 'tournamentLeft')).toHaveLength(1);
+        expect(w.log.slice(mark).some((l) => l.event === 'tournamentPlayerLeft' && l.data.username === ann1.username)).toBe(true);
+    });
+});
+
+describe('leaving a tournament from its table in play', () => {
+    test('the seat is left as with /leave: a bot plays it, no leftGame, the table goes on', async () => {
+        const ctx = await setupTournament(4);
+        ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+        await advanceUntil(() => liveTables(ctx.t).length === 1 && liveTables(ctx.t)[0].entrants === null, 100, 120000);
+        await ctx.starting;
+        const table = liveTables(ctx.t)[0];
+        await advanceUntil(() => table.stage === Phase.BIDDING || table.stage === Phase.PLAYING, 100, 120000);
+
+        const leaver = ctx.sockets[1];
+        const name = ctx.usernames[1];
+        const pos = table.seatByUsername(name);
+        expect(table.seat(pos)).toMatchObject({ controller: 'human', ownerSocketId: leaver.id });
+        const mark = ctx.log.length;
+        await tournamentHandlers.leaveTournament(leaver, ctx.io);
+
+        expect(table.seat(pos)).toMatchObject({ controller: 'lazyBot', presence: 'gone' });
+        expect(gameManager.playerGames.has(leaver.id)).toBe(false);
+        expect(gameManager.activityOf(leaver.id)).toBeNull();
+        const toLeaver = ctx.log.slice(mark).filter((l) => l.to === `self:${leaver.id}`).map((l) => l.event);
+        expect(toLeaver).toContain('tournamentLeft');
+        expect(toLeaver).not.toContain('leftGame');
+        expect(table.isTerminal()).toBe(false);
+        expect(events(ctx.log.slice(mark), 'gameLogEntry').some((l) => l.data.message.startsWith(`${name} left the game.`))).toBe(true);
+    }, 30000);
 });

@@ -376,6 +376,10 @@ class GameManager {
         if (!user) {
             return { success: false, error: 'User not found' };
         }
+        // Nor a tournament an older socket of theirs still holds: given up
+        // in its lobby, refused once it has begun (giveUpStaleTournament)
+        const staleTournament = this.giveUpStaleTournament(user.username, socketId);
+        if (staleTournament.refused) return { success: false, error: 'Already in a tournament' };
 
         // One seat per user: a seat this user still holds from an older
         // socket (half-open reconnect) is given up
@@ -402,7 +406,7 @@ class GameManager {
         this.lobbies.set(lobbyId, lobby);
         this.playerLobbies.set(socketId, lobbyId);
 
-        return { success: true, lobby, evicted };
+        return { success: true, lobby, evicted, evictedTournament: staleTournament.evicted };
     }
 
     /**
@@ -442,10 +446,12 @@ class GameManager {
         if (stale && stale.lobby.id === lobbyId) {
             return this.takeOverLobbySeat(socketId, lobbyId);
         }
-
         if (lobby.players.length >= 4) {
             return { success: false, error: 'Lobby is full' };
         }
+        // Nor a tournament an older socket still holds (createNamedLobby)
+        const staleTournament = this.giveUpStaleTournament(user.username, socketId);
+        if (staleTournament.refused) return { success: false, error: 'Already in a tournament' };
 
         // One seat per user: a seat this user still holds in another lobby
         // from an older socket is given up
@@ -463,7 +469,7 @@ class GameManager {
         lobby.players.push(newPlayer);
         this.playerLobbies.set(socketId, lobbyId);
 
-        return { success: true, lobby, newPlayer, evicted };
+        return { success: true, lobby, newPlayer, evicted, evictedTournament: staleTournament.evicted };
     }
 
     /**
@@ -1419,6 +1425,8 @@ class GameManager {
         // still holds (half-open reconnect, a parked tab)
         const stale = this.giveUpStaleTournament(user.username, socketId);
         if (stale.refused) return { success: false, error: 'Already in a tournament' };
+        // Nor a lobby seat: one an older socket still holds is given up
+        const evictedLobby = this.evictStaleLobbySeat(user.username, socketId);
 
         const tournamentId = uuidv4();
         const tournament = new TournamentState(tournamentId, name, socketId, user.username);
@@ -1430,7 +1438,7 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament, evicted: stale.evicted };
+        return { success: true, tournament, evicted: stale.evicted, evictedLobby };
     }
 
     /**
@@ -1481,6 +1489,8 @@ class GameManager {
         // One tournament per user (another one an older socket still holds)
         const stale = this.giveUpStaleTournament(user.username, socketId);
         if (stale.refused) return { success: false, error: 'Already in a tournament' };
+        // Nor a lobby seat (an older socket's) alongside it
+        const evictedLobby = this.evictStaleLobbySeat(user.username, socketId);
 
         tournament.addPlayer(socketId, user.username, null);
         this.playerTournaments.set(socketId, tournamentId);
@@ -1488,7 +1498,7 @@ class GameManager {
         // Leave main room
         this.leaveMainRoom(socketId);
 
-        return { success: true, tournament, evicted: stale.evicted };
+        return { success: true, tournament, evicted: stale.evicted, evictedLobby };
     }
 
     /**
@@ -1509,7 +1519,7 @@ class GameManager {
     }
 
     /**
-     * Before `socketId` creates or joins another tournament: a membership
+     * Before `socketId` creates or joins another tournament or a lobby: a membership
      * the user holds from an older socket is given up as a leave while that
      * tournament is still in its lobby (as a lobby seat is,
      * evictStaleLobbySeat); once it has begun, the new one is refused (the
