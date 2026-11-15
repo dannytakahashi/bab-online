@@ -14,7 +14,8 @@
  * anything a baseline has is not. A schema baseline is edited by hand only
  * when a V1_REMOVALS.md entry is executed that is safe for that build; a
  * decode floor never is: the build is retired once MIN_IOS_BUILD gates it
- * (contract/baselines/README.md).
+ * (contract/baselines/README.md). The floors' named exceptions (waived
+ * mismatches, relied-on optional properties) are contract/lib/decodeRules.js.
  */
 
 const fs = require('fs');
@@ -23,6 +24,7 @@ const v1 = require('../v1-baseline.schema.json');
 const { schema, validateC2S } = require('..');
 const { deepEqual } = require('../lib/validate');
 const { checkDecodes } = require('../lib/swiftDecodes');
+const { DECODE_WAIVED, DECODE_RELIED, reliedFor } = require('../lib/decodeRules');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DIR = path.join(ROOT, 'contract', 'baselines');
@@ -197,14 +199,6 @@ function baselineProblems(base, cur) {
     return problems;
 }
 
-/**
- * Decode-floor mismatches that cannot reach iOS, each with why. Keep this
- * short: anything here is a hole in the floor.
- */
-const DECODE_WAIVED = {
-    'stateSnapshot.requestId': 'the echo of the asking socket\'s own requestSnapshot.requestId (snapshotHandlers.js copies req.requestId; the reply goes to the asker only), and every iOS build sends a String (GameEmitter.requestSnapshot(requestId: String)); the integer branch is web\'s',
-};
-
 test('the v1 baseline is the cc865b4 contract (frozen)', () => {
     expect(v1.title).toBe('BAB Online socket contract');
     // 80+ at cc865b4; the executed V1_REMOVALS entries hand-edit whole events out (#2, #4, #20, #3, #7)
@@ -238,14 +232,31 @@ test.each(BASELINES.map((b) => [b.label, b]))('everything %s promised is still t
 });
 
 test.each(BUILDS.map((b) => [b.label, b]))('what %s decodes is still sent: required, non-null, the same JSON types', (_, b) => {
-    fail(b, checkDecodes(b.decodes, schema, b.label, DECODE_WAIVED));
+    fail(b, checkDecodes(b.decodes, schema, b.label, DECODE_WAIVED, reliedFor(b.build)));
 });
 
-test('every decode waiver still matches a mismatch (a stale one would hide a new hole)', () => {
-    for (const b of BUILDS) {
-        const raw = checkDecodes(b.decodes, schema, b.label);
-        for (const where of Object.keys(DECODE_WAIVED)) {
-            expect(raw.some((p) => p.startsWith(`${b.label} decodes ${where} `))).toBe(true);
+test('every decode waiver still matches a mismatch on some frozen build (a stale one would hide a new hole)', () => {
+    // some, not every: a later build that decodes it leniently needs no waiver, the older ones still do
+    for (const where of Object.keys(DECODE_WAIVED)) {
+        const needed = BUILDS.some((b) => checkDecodes(b.decodes, schema, b.label).some((p) => p.startsWith(`${b.label} decodes ${where} `)));
+        if (!needed) throw new Error(`DECODE_WAIVED['${where}'] matches no frozen build's mismatch: delete it (contract/lib/decodeRules.js)`);
+    }
+});
+
+test('every relied-on property is one its builds decode (optional), for a build still frozen', () => {
+    for (const [where, r] of Object.entries(DECODE_RELIED)) {
+        const held = BUILDS.filter((b) => r.builds.includes(b.build));
+        if (!held.length) throw new Error(`DECODE_RELIED['${where}']: builds ${r.builds} are all retired; delete it (contract/lib/decodeRules.js)`);
+        const [event, ...keys] = where.split('.');
+        for (const b of held) {
+            const roots = b.decodes.events[event];
+            expect(roots).toBeDefined();
+            // one level is all an entry needs today; a deeper path would need the walk checkDecodes does
+            expect(keys).toHaveLength(1);
+            for (const root of roots) {
+                const f = b.decodes.types[root].fields[keys[0]];
+                if (!f || !f.optional) throw new Error(`DECODE_RELIED['${where}']: ${b.label} ${root} has ${f ? 'it non-optional (the floor already holds it)' : 'no such property'}`);
+            }
         }
     }
 });
@@ -280,7 +291,7 @@ describe('fault injection: what the per-build guards catch', () => {
         fn(s);
         return s;
     };
-    const both = (s) => [...baselineProblems(b6.schema, s), ...checkDecodes(b6.decodes, s, b6.label, DECODE_WAIVED)];
+    const both = (s) => [...baselineProblems(b6.schema, s), ...checkDecodes(b6.decodes, s, b6.label, DECODE_WAIVED, reliedFor(6))];
 
     test('dropping snapshot trickHistory breaks iOS 1.2.0 (6) in both guards', () => {
         const s = mutate((x) => {
@@ -311,6 +322,19 @@ describe('fault injection: what the per-build guards catch', () => {
             expect.stringMatching(/decodes cardPlayed\.card \(WirePayload\.CardPlayed\): no longer required/),
             expect.stringMatching(/decodes rejoinSuccess\.snapshot\.seats\[\]\.isBot .*it is integer, Swift wants Bool/),
         ]));
+    });
+
+    test('positionUpdate.isBot (optional in Swift, relied on once sockets go) is held for 6 to 8', () => {
+        const opt = mutate((x) => { x.s2c.positionUpdate.payload.required = x.s2c.positionUpdate.payload.required.filter((k) => k !== 'isBot'); });
+        expect(checkDecodes(b6.decodes, opt, b6.label)).toEqual([expect.stringMatching(/requestId/)]);
+        expect(checkDecodes(b6.decodes, opt, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([
+            expect.stringMatching(/^iOS 1\.2\.0 \(6\) decodes positionUpdate\.isBot \(WirePayload\.PositionUpdate\): no longer required \(relied on: bot or human/),
+        ]);
+        const nul = mutate((x) => { x.s2c.positionUpdate.payload.properties.isBot = { anyOf: [x.s2c.positionUpdate.payload.properties.isBot, { type: 'null' }] }; });
+        expect(checkDecodes(b6.decodes, nul, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([expect.stringMatching(/positionUpdate\.isBot .*it may be null \(relied on:/)]);
+        const gone = mutate((x) => { delete x.s2c.positionUpdate.payload.properties.isBot; });
+        expect(checkDecodes(b6.decodes, gone, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual(expect.arrayContaining([expect.stringMatching(/positionUpdate\.isBot .*gone from the schema \(relied on:/)]));
+        expect(reliedFor(9)).toEqual({});
     });
 
     test('a new card rank would throw in Card(from:) on the shipped builds', () => {

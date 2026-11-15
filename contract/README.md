@@ -15,7 +15,8 @@ and the iOS app, checked against the real server in every test run.
 | `v1-baseline.schema.json` | FROZEN copy of the contract at cc865b4. Edited by hand only when a `V1_REMOVALS.md` entry is executed |
 | `baselines/` | FROZEN per iOS build that is not gated: the contract it was cut from (`ios-<v>-b<n>.schema.json`) and what its Swift decodes (`.decodes.json`); rules, release step and retiring in `baselines/README.md` |
 | `baseline.js` | `npm run contract:baseline -- --build <n> [--commit <sha>]` freezes a build; `--check` re-derives the frozen ones from git |
-| `lib/swiftDecodes.js` | Reads a build's decode floor from its Swift (ServerEvent.decode and the types it reaches) and checks a schema against it |
+| `lib/swiftDecodes.js` | Reads a build's decode floor from its Swift (ServerEvent.decode and the types it reaches: table events only, the hand-parsed `Networking/Handlers` rely on the schema baselines) and checks a schema against it |
+| `lib/decodeRules.js` | The floors' named exceptions: `DECODE_WAIVED` (mismatches that cannot reach iOS) and `DECODE_RELIED` (optional properties a build needs once a planned removal takes their fallback: `positionUpdate.isBot` for 6-8) |
 | `layout.json` | Which events each platform's constants file lists, in which section and order, plus `exclude` reasons |
 | `gen.js` | Writes `events.schema.json`, `client/src/constants/events.js`, `iOSClient/BABOnline/Constants/SocketEvents.swift`, `iOSClient/BABOnline/Generated/TableSnapshot.swift` |
 | `swift/snapshotSwift.js` | Renders `$defs.snapshotV2` as the Swift `TableSnapshot` Codable (+ `ContractSeq.events` from `SEQ_EVENTS`); throws on an unnamed inline object/enum or an unsupported keyword |

@@ -2,7 +2,7 @@
 
 `contract/v1-baseline.schema.json` is the cc865b4 contract (iOS 1.0.0 and the
 web client). It never covered anything added since (snapshot v2, `seatV2`,
-`stateSnapshot`, `positionUpdate.isBot`, ...), so a PR that dropped
+`stateSnapshot`, ...), so a PR that dropped
 `trickHistory` or nulled `watching` regenerated everything and went green,
 while every iOS build since 1.2.0 decodes those keys non-optionally and would
 fail every rejoin, restore, spectate and resync. Each uploaded build that
@@ -25,10 +25,28 @@ contract to every one of them; a failure names the build it would break:
   must stay required and non-null in today's schema, and every property
   (optional ones too: `decodeIfPresent` throws on a wrong type) must keep a
   JSON type its Swift type decodes (`Int` integer only, a closed `Suit` /
-  `Rank` enum no new values). This is the floor a schema hand edit cannot
-  lower. `DECODE_WAIVED` in the test lists the mismatches that cannot reach
-  iOS, with why (today: `stateSnapshot.requestId`, an echo of the asker's
-  own String).
+  `Rank` enum no new values). For the table events this is the floor a
+  schema hand edit cannot lower. It covers `ServerEvent.decode` only: the
+  lobby, main room, auth, tournament, leaderboard, voice and safety handlers
+  (`Networking/Handlers`) read `[String: Any]` by hand (`guard let ... as?`
+  drops the event when a key is missing), and only the schema baselines
+  hold those.
+
+`contract/lib/decodeRules.js` holds the floors' two named exceptions, used by
+the test and the release step alike:
+
+- `DECODE_WAIVED`: mismatches that cannot reach iOS, with why (today:
+  `stateSnapshot.requestId`, an echo of the asker's own String). It applies
+  to every build that has the mismatch; the test fails a waiver no frozen
+  build needs any more.
+- `DECODE_RELIED`: properties a build decodes as optional but needs once a
+  planned removal takes its fallback, held for the listed builds as if they
+  were not optional (required, non-null). Today: `positionUpdate.isBot` for
+  6, 7 and 8. They read it first and the `bot:` prefix of
+  `positionUpdate.sockets` only as the fallback, and V1_REMOVALS #14 drops
+  `sockets` next. It reached main (b1304c1) after all three were cut, so no
+  schema baseline here has it. Drop a build from an entry when it is
+  retired.
 
 | Build | Files | Archived from | Status |
 | --- | --- | --- | --- |
@@ -36,9 +54,17 @@ contract to every one of them; a failure names the build it would break:
 | iOS 1.2.1 (7) | `ios-1.2.1-b7.*` | 6f11cb1 (PR #260 "version 1.2.1 (build 7)", dac6fdc; after #255, before #261's icon, which is build 8's) | TestFlight |
 | iOS 1.2.1 (8) | `ios-1.2.1-b8.*` | d3ebe76 (PR #262 merged; its iOS source is 7e73df1's, the build 8 commit, and its contract adds #263's stats `scope` echo, which build 8's Humans / Bots / All control reads) | submitted for review 2026-11-14 |
 
-Not here: builds 3 to 5 (3 never submitted, 4 pulled from review, 5 replaced
-by 6 with the same source; what TestFlight builds 3-4 read is tracked in
-V1_REMOVALS #14) and 1.2.1 (9) (7177d6a, not submitted yet: freeze it when it
+Not here: builds 3 to 5 and 1.2.1 (9). Build 5 was replaced by 6 with the
+same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
+(0acc10a, pulled from review) are not gated (MIN_IOS_BUILD 3) and may still
+be installed by testers, but the guard does NOT protect them: the removals
+of 2026-11-12/13 were re-checked against build 5, not against them, so a
+frozen schema for them could not be hand-edited honestly. What they rely on
+beyond build 5 is held in prose only (V1_REMOVALS #14: they tell a bot only
+by the `bot:` prefix of `positionUpdate.sockets`, so it stays until the
+owner accepts that for TestFlight or MIN_IOS_BUILD is 5). For the record,
+their decode floors, read from 29f3536 and 0acc10a on 2026-11-15, pass
+today's schema except the waived `stateSnapshot.requestId`. 1.2.1 (9) (7177d6a, not submitted yet: freeze it when it
 is, below). The three floors are identical; today's Swift differs only by
 no longer declaring the optional `gameStart.players` (dropped by #6).
 
@@ -54,7 +80,8 @@ npm run contract:baseline -- --build 10 --commit <sha>   # or the archive's comm
 
 It refuses a commit whose project is another build, and a build already
 frozen. It prints any mismatch today's contract already has with the new
-build (fix those first). Add the row above, run
+build (fix those first), and apart from them the ones `DECODE_WAIVED`
+covers (check each reason holds for the new build). Add the row above, run
 `npx jest contract/__tests__/additiveOnly.test.js`, and commit both files.
 
 `npm run contract:baseline -- --check` (needs git history, so not in CI)
@@ -93,8 +120,9 @@ V1_REMOVALS "What iOS 1.2.0 unblocks"):
 Once `MIN_IOS_BUILD` rises above a build (owner decision: when the build that
 becomes the floor is live; README "Releasing (App Store)"), that build only
 gets the update message, so delete its two files in the same PR (or right
-after) and drop its row. `additiveOnly.test.js` fails while a gated build
-still has a baseline ("a build MIN_IOS_BUILD gates is retired"). A build that
-is replaced before anyone can install it (rejected, pulled) is retired the
-same way. What only the retired builds read can then go through
-V1_REMOVALS.
+after), drop its row and take it out of `DECODE_RELIED` (decodeRules.js).
+`additiveOnly.test.js` fails while a gated build still has a baseline ("a
+build MIN_IOS_BUILD gates is retired"). A build no one can install (rejected
+before TestFlight, expired) is retired the same way; a TestFlight build stays
+installable for testers, so retiring one early is an owner decision. What
+only the retired builds read can then go through V1_REMOVALS.

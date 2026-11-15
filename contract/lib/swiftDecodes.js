@@ -15,6 +15,11 @@
  *
  * The parser throws on anything it does not understand (an unknown type, a
  * custom init it cannot read), so a floor is never quietly partial.
+ *
+ * Only the table events are covered: the lobby, main room, auth, tournament,
+ * leaderboard, voice and safety handlers (Networking/Handlers) read
+ * `[String: Any]` by hand (`guard let x = dict["k"] as? T`, which drops the
+ * event when a key is missing), and only the schema baselines hold those.
  */
 
 'use strict';
@@ -335,9 +340,11 @@ function branches(node, defs, seen = []) {
 /**
  * Problems with `schema` against a build's decode floor; `label` names the
  * build in every line ("iOS 1.2.0 (6)"). `waived` maps a path
- * ('stateSnapshot.requestId') to why a mismatch there cannot reach iOS.
+ * ('stateSnapshot.requestId') to why a mismatch there cannot reach iOS;
+ * `relied` maps a path whose Swift property is optional to why the build
+ * still needs it (held as if it were not optional). Both: decodeRules.js.
  */
-function checkDecodes(floor, schema, label, waived = {}) {
+function checkDecodes(floor, schema, label, waived = {}, relied = {}) {
     const out = new Set();
     const defs = schema.$defs || {};
     let root = '';
@@ -353,7 +360,7 @@ function checkDecodes(floor, schema, label, waived = {}) {
         const accepts = (b) => {
             if (b.any) return 'the schema no longer constrains it';
             if (b.missingRef) return `$defs.${b.missingRef} is gone`;
-            if (b.type === 'null') return nullOk || (type && type.kind === 'value' && type.accepts.includes('null')) ? null : 'it may be null (the Swift property is not optional)';
+            if (b.type === 'null') return nullOk || (type && type.kind === 'value' && type.accepts.includes('null')) ? null : `it may be null (${t.relied ? `relied on: ${t.relied}` : 'the Swift property is not optional'})`;
             if (base.array) return b.type === 'array' ? null : `it is ${b.type}, Swift wants an array`;
             if (base.dict) return b.type === 'object' ? null : `it is ${b.type}, Swift wants an object`;
             if (PRIMITIVE[base.name]) {
@@ -393,14 +400,15 @@ function checkDecodes(floor, schema, label, waived = {}) {
                     const ft = parseType(f.type);
                     const prop = b.properties && b.properties[key];
                     const w = `${where}.${key}`;
-                    if (f.optional) {
+                    if (f.optional && !relied[w]) {
                         if (prop) check({ opt: ft }, prop, w, depth + 1);
                         continue;
                     }
-                    if (!prop) say(w, `gone from the schema (${base.name}.${key}: ${f.type} is not optional)`);
+                    const why = f.optional ? `relied on: ${relied[w]}` : `${base.name}.${key}: ${f.type} is not optional`;
+                    if (!prop) say(w, `gone from the schema (${why})`);
                     else {
-                        if (!(b.required || []).includes(key)) say(w, `no longer required (${base.name}.${key}: ${f.type} is not optional)`);
-                        check(ft, prop, w, depth + 1);
+                        if (!(b.required || []).includes(key)) say(w, `no longer required (${why})`);
+                        check(f.optional ? { ...ft, relied: relied[w] } : ft, prop, w, depth + 1);
                     }
                 }
             }

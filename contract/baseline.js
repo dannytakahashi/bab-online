@@ -27,6 +27,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 const { extractDecodes, checkDecodes } = require('./lib/swiftDecodes');
 const { deepEqual } = require('./lib/validate');
+const { DECODE_WAIVED } = require('./lib/decodeRules');
 
 const ROOT = path.join(__dirname, '..');
 const DIR = path.join(__dirname, 'baselines');
@@ -113,9 +114,13 @@ function freeze(build, commit) {
     fs.writeFileSync(path.join(DIR, `${base}.decodes.json`), JSON.stringify(decodes, null, 2) + '\n');
     console.log(`froze iOS ${v.version} (${build}) from ${sha.slice(0, 7)}: contract/baselines/${base}.schema.json, ${base}.decodes.json`);
     const current = require('.').schema;
-    const problems = checkDecodes(decodes, current, `iOS ${v.version} (${build})`);
+    const label = `iOS ${v.version} (${build})`;
+    const problems = checkDecodes(decodes, current, label, DECODE_WAIVED);
+    const waived = checkDecodes(decodes, current, label).filter((p) => !problems.includes(p));
     const changed = differingPaths(JSON.parse(schemaText), current);
     if (problems.length) console.log(`today's schema fails its decode floor:\n  ${problems.join('\n  ')}`);
+    // listed apart so a real failure is never lost among them; check each reason still holds for this build
+    if (waived.length) console.log(`waived (contract/lib/decodeRules.js DECODE_WAIVED, check the reason holds for build ${build}):\n  ${waived.join('\n  ')}`);
     if (changed.length) console.log(`today's schema differs from it at (additiveOnly.test.js decides which are removals):\n  ${changed.join('\n  ')}`);
     console.log('Add the build to contract/baselines/README.md, then run npx jest contract/__tests__/additiveOnly.test.js');
 }
