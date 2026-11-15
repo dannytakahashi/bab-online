@@ -2,10 +2,11 @@
  * Tournament liveness between rounds and in the lobby (owner 2026-11-15):
  *
  *   Ready deadline: READY_DEADLINE_MS after a round completes, the host's
- *   Begin starts the next round with whoever is ready (TournamentState
- *   canBegin); members not ready sit it out and score the round's lowest
- *   (scoreMissedRound). At the deadline the room gets tournamentReadyUpdate
- *   {readyDeadlinePassed: true} (web enables Begin) and a notice.
+ *   Begin starts the next round with the host and whoever is ready
+ *   (TournamentState canBegin); members not ready sit it out and score the
+ *   round's lowest (scoreMissedRound). At the deadline the room gets
+ *   tournamentReadyUpdate {readyDeadlinePassed: true} (web enables Begin)
+ *   and a notice.
  *
  *   Host hand-off: a connected host idle for HOST_IDLE_MS while every other
  *   connected member is ready (or, past the ready deadline, while any other
@@ -13,6 +14,14 @@
  *   to the next member (transferCreator, a ready one first), announced like
  *   a host leaving (tournamentPlayerLeft {newCreator}, which web and iOS
  *   1.2.0 already act on) plus a notice. Never during a round.
+ *
+ *   Server start: iOS 1.2.0's Begin needs every connected member ready, so
+ *   past the deadline an iOS host (handed the role or not) cannot start
+ *   with one member AFK. Past the deadline, a host idle for HOST_IDLE_MS
+ *   after this wait's hand-off, or with no other member ready to hand to,
+ *   gets the round started for them with the ready members (startNextRound,
+ *   as a Begin without the host's own seat). At most one hand-off per wait,
+ *   so the role never bounces between idle members.
  *
  * Timers live on the tournament (t.setTimer): every round start (beginStart)
  * and the deletion (retire) clear them, and each one re-checks its condition
@@ -90,11 +99,8 @@ function onReadyDeadline(io, t) {
 
 // ==================== host hand-off ====================
 
-/** The host could be waited on: idle, the others ready, not in a round. */
-function hostIdleCondition(t) {
-    if (t.phase !== 'lobby' && t.phase !== 'between_rounds') return false;
-    const host = t.players.get(t.createdBy);
-    if (!host || host.connected === false) return false;
+/** Connected members other than the host, and how many of them are ready. */
+function readiness(t) {
     let others = 0;
     let ready = 0;
     for (const [socketId, player] of t.players) {
@@ -102,8 +108,26 @@ function hostIdleCondition(t) {
         others++;
         if (t.readyPlayers.has(socketId)) ready++;
     }
+    return { others, ready, hostReady: t.readyPlayers.has(t.createdBy) };
+}
+
+/** Past the deadline, the idle host's spell ends in a server start, not a hand-off. */
+function startsInstead(t) {
+    if (!t.readyDeadlinePassed()) return false;
+    return t.handedOffThisWait || readiness(t).ready === 0;
+}
+
+/** The host could be waited on: idle, the others ready, not in a round. */
+function hostIdleCondition(t) {
+    if (t.phase !== 'lobby' && t.phase !== 'between_rounds') return false;
+    const host = t.players.get(t.createdBy);
+    if (!host || host.connected === false) return false;
+    const { others, ready, hostReady } = readiness(t);
     if (others === 0) return false;
-    return ready === others || (t.readyDeadlinePassed() && ready > 0);
+    if (ready === others) return true;
+    if (!t.readyDeadlinePassed()) return false;
+    // Past the deadline: someone to hand to, or someone to start with
+    return startsInstead(t) ? ready + (hostReady ? 1 : 0) > 0 : ready > 0;
 }
 
 /**
@@ -126,7 +150,8 @@ function refreshHostIdle(io, t, { hostActed = false } = {}) {
             refreshHostIdle(io, t);
             return;
         }
-        handOffHost(io, t);
+        if (startsInstead(t)) startForIdleHost(io, t);
+        else handOffHost(io, t);
     });
 }
 
@@ -152,8 +177,21 @@ function handOffHost(io, t) {
         reason: 'hostIdle'
     });
     t.broadcast(io, 'tournamentMessage', systemLine(`${oldName} was idle, so ${next.username} is now the host.`));
+    if (t.phase === 'between_rounds') t.handedOffThisWait = true;
     require('./gameLifecycle').emitLobbiesUpdated(io);
     refreshHostIdle(io, t);
+}
+
+/** Past the deadline: start the round the idle host has not begun. */
+function startForIdleHost(io, t) {
+    const name = t.players.get(t.createdBy)?.username;
+    socketLogger.info('Tournament host idle past the ready deadline, round started by the server', {
+        tournamentId: t.tournamentId, host: name, round: t.currentRound + 1
+    });
+    t.broadcast(io, 'tournamentMessage', systemLine(`${name} was idle, so the next round starts with the players who are ready.`));
+    require('./tournamentHandlers').startNextRound(io, t).catch((error) => {
+        socketLogger.error('Server start of a tournament round failed', { tournamentId: t.tournamentId, error: error.message });
+    });
 }
 
 module.exports = {

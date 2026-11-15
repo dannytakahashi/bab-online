@@ -19,7 +19,7 @@ let currentTournamentId = null;
 let isPlayerReady = false;
 /** The lobby's socket, for creator controls built after the first render. */
 let lobbySocket = null;
-/** My username (Begin past the ready deadline needs me ready). */
+/** My username. */
 let lobbyUsername = null;
 /** Players as the server last sent them. */
 let lobbyPlayers = [];
@@ -58,13 +58,10 @@ function startsWithReadyOnly(players) {
 
 /**
  * May I begin (as the server's TournamentState.canBegin): everyone ready,
- * or past the ready deadline with me ready.
+ * or past the ready deadline (pressing Begin puts me in the round).
  */
 function canBegin(players) {
-  if (allConnectedReady(players)) return true;
-  if (!startsWithReadyOnly(players)) return false;
-  const me = (players || []).find((p) => p.username === lobbyUsername);
-  return !!me && me.ready === true && me.connected !== false;
+  return allConnectedReady(players) || startsWithReadyOnly(players);
 }
 
 /** Begin's label and gate from the players. */
@@ -296,7 +293,8 @@ function updateTournamentPlayersList(container, players, _currentUsername, _isCr
   // Past the ready deadline a member who is not ready sits the next round out
   const sitting = currentPhase === 'between_rounds' && readyDeadlinePassed;
   players.forEach((player) => {
-    const sitsOut = sitting && !player.ready && player.connected !== false;
+    // (the host plays the round their Begin starts)
+    const sitsOut = sitting && !player.ready && !player.isCreator && player.connected !== false;
     container.appendChild(el('div', {
       className: 'seat-row seat-row--compact',
       children: [

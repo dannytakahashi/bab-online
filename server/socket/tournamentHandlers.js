@@ -364,27 +364,40 @@ async function beginNextRound(socket, io) {
         return;
     }
 
-    // Everyone ready, or past the ready deadline with the host ready: the
-    // members not ready sit this round out (owner 2026-11-15)
+    // Everyone ready, or past the ready deadline: the host and the ready
+    // members play, the rest sit this round out (owner 2026-11-15)
     if (!tournament.canBegin()) {
         emitError(socket, { message: 'Not all players are ready' }, 'beginNextRound');
         return;
     }
 
-    const nextRound = tournament.currentRound + 1;
-    if (nextRound > tournament.totalRounds) {
+    if (tournament.currentRound + 1 > tournament.totalRounds) {
         emitError(socket, { message: 'Tournament is complete' }, 'beginNextRound');
         return;
     }
 
-    // Who sits out, decided at Begin (before any await)
+    // Pressing Begin is the host's ready
+    await startNextRound(io, tournament, { play: tournament.players.get(socket.id)?.username });
+}
+
+/**
+ * Start the next round with the ready members (plus `play`, the host who
+ * pressed Begin); the other connected members sit it out. Also the server's
+ * own start past the deadline (tournamentLiveness), with no `play`.
+ */
+async function startNextRound(io, tournament, { play = null } = {}) {
+    const nextRound = tournament.currentRound + 1;
+    if (tournament.phase !== 'between_rounds' || nextRound > tournament.totalRounds) return false;
+
+    // Who sits out, decided now (before any await)
     const sitOut = new Set(tournament.notReadyUsernames());
+    if (play) sitOut.delete(play);
 
     // Same double-start protection as beginTournament
     const epoch = tournament.beginStart();
 
     try {
-        await startTournamentRound(io, tournament, nextRound, epoch, { sitOut });
+        return await startTournamentRound(io, tournament, nextRound, epoch, { sitOut });
     } catch (error) {
         if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'between_rounds';
@@ -623,7 +636,20 @@ function rollbackRound(io, tournament, roundNumber) {
     tournament.broadcast(io, 'tournamentMessage', {
         ...systemLine('Round could not start — no connected players.')
     });
-    // Back between rounds: what is left of the ready deadline, and the host clock
+    if (tournament.phase === 'between_rounds') {
+        // Members who sat the round out are still here, and tournamentRoundStart
+        // put their clients in the round: the same between-rounds screen as
+        // when the round completed (both clients clear their own ready on
+        // it, so the server does too), then the players and the deadline
+        tournament.resetAllReady();
+        tournament.broadcast(io, 'tournamentRoundComplete', {
+            scoreboard: tournament.getScoreboard(),
+            currentRound: tournament.currentRound,
+            totalRounds: tournament.totalRounds
+        });
+        tournament.broadcast(io, 'tournamentReadyUpdate', liveness.readyUpdatePayload(tournament));
+    }
+    // What is left of the ready deadline (startRound kept it), and the host clock
     liveness.armReadyDeadline(io, tournament, { restart: false });
     liveness.refreshHostIdle(io, tournament);
     socketLogger.warn('Tournament round rolled back, no games created', {
@@ -975,6 +1001,7 @@ module.exports = {
     tournamentUnready,
     beginTournament,
     beginNextRound,
+    startNextRound,
     tournamentChat,
     spectateTournament,
     spectateTournamentGame,

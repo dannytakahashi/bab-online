@@ -186,10 +186,11 @@ describe('between rounds: the ready deadline and the idle-host hand-off (2026-11
     expect(socket.emitted('beginNextRound')).toHaveLength(1);
   });
 
-  it('past the deadline the host must be ready too; everyone ready is the plain Begin Next Round', () => {
+  it('past the deadline the host may start without readying (Begin puts the host in) and is never listed sitting out; everyone ready is the plain Begin Next Round', () => {
     showTournamentLobby(hosting({ cat: true }, { readyDeadlinePassed: true }), fakeSocket(), 'me');
-    expect(begin().disabled).toBe(true);
+    expect(begin().disabled).toBe(false);
     expect(begin().textContent).toBe('Start with ready players');
+    expect(statuses()).toEqual(['Waiting', 'Ready', 'Sitting out']);
     updateTournamentPlayers(hosting({ me: true, cat: true, dan: true }).players, 'me');
     expect(begin().disabled).toBe(false);
     expect(begin().textContent).toBe('Begin Next Round');

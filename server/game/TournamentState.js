@@ -46,8 +46,13 @@ class TournamentState {
         this.scoreboard = {};
 
         // Between rounds: when Begin may start with only the ready members
-        // (socket/tournamentLiveness.js armReadyDeadline; null: not yet)
+        // (socket/tournamentLiveness.js armReadyDeadline; null: not yet).
+        // Only a completed round sets a new one, so a rolled-back start keeps it
         this.readyDeadlineAt = null;
+        // This between-rounds wait already handed the host role on: past the
+        // deadline the next idle spell starts the round instead of a second
+        // hand-off (tournamentLiveness; reset with each new deadline)
+        this.handedOffThisWait = false;
         // key → handle ('readyDeadline', 'hostIdle'); all cleared on every
         // round start and on retire, so none outlives its phase
         this.timers = new Map();
@@ -311,13 +316,12 @@ class TournamentState {
 
     /**
      * May the host begin the next phase now: every connected member ready,
-     * or (between rounds, past the deadline) the host is ready, and the
-     * members who are not sit the round out.
+     * or (between rounds, past the deadline) always: the host plays, the
+     * ready members play and the rest sit the round out (owner 2026-11-15).
      */
     canBegin() {
         if (this.allPlayersReady()) return true;
-        return this.readyDeadlinePassed() && this.readyPlayers.has(this.createdBy) &&
-            this.players.get(this.createdBy)?.connected !== false;
+        return this.readyDeadlinePassed() && this.players.get(this.createdBy)?.connected !== false;
     }
 
     /** Connected members who are not ready (they sit out a round begun now). */
@@ -332,7 +336,6 @@ class TournamentState {
     startRound(roundNumber) {
         this.currentRound = roundNumber;
         this.phase = 'round_active';
-        this.readyDeadlineAt = null;
 
         const roundData = {
             roundNumber,
@@ -437,6 +440,9 @@ class TournamentState {
             this.phase = 'between_rounds';
             this.resetAllReady();
         }
+        // A new wait: armReadyDeadline sets its deadline right after
+        this.readyDeadlineAt = null;
+        this.handedOffThisWait = false;
         this.logAction('completeRound', { round: this.currentRound, phase: this.phase });
     }
 

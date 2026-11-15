@@ -260,22 +260,52 @@ describe('the between-rounds ready deadline', () => {
         expect(errorLogs).toEqual([]);
     });
 
-    test('past the deadline the host must be ready; a new round wait has its own deadline', async () => {
+    test('past the deadline the host\'s Begin puts the host in the round, ready or not; a new round wait has its own deadline', async () => {
         const ctx = await betweenRounds(3);
         const host = creatorSocket(ctx);
+        const hostName = gameManager.getUserBySocketId(host.id).username;
         const others = ctx.sockets.filter((s) => s !== host);
         tournamentHandlers.tournamentReady(others[0], ctx.io);
         await jest.advanceTimersByTimeAsync(liveness.READY_DEADLINE_MS);
-        await tournamentHandlers.beginNextRound(host, ctx.io);
-        expect(errorsTo(ctx, host, 'beginNextRound')).toHaveLength(1);
-        tournamentHandlers.tournamentReady(host, ctx.io);
-        await beginAndSeat(ctx, { next: true, by: host });
+        const round2 = await beginAndSeat(ctx, { next: true, by: host });
+        expect(errorsTo(ctx, host, 'beginNextRound')).toHaveLength(0);
+        const seated = round2.flatMap((g) => g.seatList().map((s) => s.ownerUsername)).filter(Boolean).sort();
+        expect(seated).toEqual([hostName, gameManager.getUserBySocketId(others[0].id).username].sort());
         await stallAbortAll(ctx);
         expect(ctx.t.phase).toBe('between_rounds');
         expect(ctx.t.readyDeadlinePassed()).toBe(false);
         tournamentHandlers.tournamentReady(host, ctx.io);
         await tournamentHandlers.beginNextRound(host, ctx.io);
-        expect(errorsTo(ctx, host, 'beginNextRound')).toHaveLength(2);
+        expect(errorsTo(ctx, host, 'beginNextRound')).toHaveLength(1);
+    });
+
+    test('a start rolled back past the deadline keeps the deadline and puts the sitters back between rounds', async () => {
+        const ctx = await betweenRounds(4);
+        const host = creatorSocket(ctx);
+        const [a, b] = ctx.sockets.filter((s) => s !== host);
+        tournamentHandlers.tournamentReady(a, ctx.io);
+        tournamentHandlers.tournamentReady(b, ctx.io);
+        await jest.advanceTimersByTimeAsync(liveness.READY_DEADLINE_MS);
+        // The host and the ready pair play; the 4th sits out. All three
+        // players drop during the announce: no table, the round rolls back
+        const starting = tournamentHandlers.beginNextRound(host, ctx.io);
+        for (const s of [host, a, b]) await kill(ctx.io, s);
+        await jest.advanceTimersByTimeAsync(5000);
+        await starting;
+        expect(ctx.t.phase).toBe('between_rounds');
+        expect(ctx.t.currentRound).toBe(1);
+        expect(ctx.t.readyDeadlinePassed()).toBe(true);
+        // The sitter's client left the round screen, and is the host now
+        const sitter = ctx.sockets.find((s) => ![host, a, b].includes(s));
+        expect(creatorSocket(ctx)).toBe(sitter);
+        expect(events(ctx.log, 'tournamentRoundComplete')).toHaveLength(2);
+        const lastUpdate = events(ctx.log, 'tournamentReadyUpdate').pop();
+        expect(lastUpdate.data).toMatchObject({ readyDeadlinePassed: true });
+        // ...and may begin at once
+        await beginAndSeat(ctx, { next: true, by: sitter });
+        expect(errorsTo(ctx, sitter, 'beginNextRound')).toHaveLength(0);
+        expect(ctx.t.currentRound).toBe(2);
+        expect(errorLogs).toEqual([]);
     });
 });
 
@@ -340,6 +370,44 @@ describe('idle host hand-off', () => {
         expect(ctx.t.currentRound).toBe(2);
         expect(liveTables(ctx.t).flatMap((g) => g.seatList().map((s) => s.ownerUsername)).filter(Boolean))
             .toEqual([gameManager.getUserBySocketId(ready.id).username]);
+    });
+
+    test('past the deadline the role moves once, then the server starts the round with the ready members (iOS 1.2.0 hosts cannot)', async () => {
+        const ctx = await setupTournament(3);
+        await beginAndSeat(ctx);
+        await stallAbortAll(ctx);
+        // Nobody presses Begin (an iOS 1.2.0 Begin needs everyone ready);
+        // the host and one member ready, the third AFK
+        const [host, ready, afk] = ctx.sockets;
+        expect(creatorSocket(ctx)).toBe(host);
+        tournamentHandlers.tournamentReady(host, ctx.io);
+        tournamentHandlers.tournamentReady(ready, ctx.io);
+        await jest.advanceTimersByTimeAsync(liveness.READY_DEADLINE_MS + liveness.HOST_IDLE_MS);
+        expect(handOffs(ctx).map((h) => h.data.newCreator)).toEqual([ctx.usernames[1]]);
+        const mark = ctx.log.length;
+        await jest.advanceTimersByTimeAsync(liveness.HOST_IDLE_MS);
+        expect(ctx.log.slice(mark).filter((l) => l.event === 'tournamentMessage').map((l) => l.data.message))
+            .toContain(`${ctx.usernames[1]} was idle, so the next round starts with the players who are ready.`);
+        await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => [Phase.BIDDING, Phase.PLAYING].includes(g.stage)), 100, 120000);
+        expect(handOffs(ctx)).toHaveLength(1);
+        expect(ctx.t.currentRound).toBe(2);
+        const seated = liveTables(ctx.t).flatMap((g) => g.seatList().map((s) => s.ownerUsername)).filter(Boolean).sort();
+        expect(seated).toEqual([ctx.usernames[0], ctx.usernames[1]].sort());
+        expect(gameManager.playerGames.has(afk.id)).toBe(false);
+        expect(errorLogs).toEqual([]);
+    });
+
+    test('past the deadline a ready host with nobody else ready: no hand-off, the server starts with the host', async () => {
+        const ctx = await setupTournament(3);
+        await beginAndSeat(ctx);
+        await stallAbortAll(ctx);
+        const [host] = ctx.sockets;
+        tournamentHandlers.tournamentReady(host, ctx.io);
+        await jest.advanceTimersByTimeAsync(liveness.READY_DEADLINE_MS + liveness.HOST_IDLE_MS);
+        await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => [Phase.BIDDING, Phase.PLAYING].includes(g.stage)), 100, 120000);
+        expect(handOffs(ctx)).toHaveLength(0);
+        expect(liveTables(ctx.t).flatMap((g) => g.seatList().map((s) => s.ownerUsername)).filter(Boolean))
+            .toEqual([ctx.usernames[0]]);
     });
 
     test('cancel and abandonment leave no tournament timer behind', async () => {
