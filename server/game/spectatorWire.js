@@ -1,9 +1,9 @@
 /**
  * The spectator list on the wire (spectatorsUpdated and snapshot v2
- * `spectators`). Pure, no requires: snapshotV2.js uses it too.
+ * `spectators`). Pure (its one require is a constant): snapshotV2.js uses it too.
  *
  * Each entry is {username, pic, avatarUrl?}:
- *   - pic: a stock avatar number (1-82), else null;
+ *   - pic: a stock avatar number (server/avatar/stockAvatars.js), else null;
  *   - a custom picture is never inline here: pic is null and `avatarUrl`
  *     (GET /avatar/<name>?v=) is present once its rendition exists
  *     (docs/avatars.md). Only clients that read this list (web since the
@@ -14,9 +14,10 @@
 
 'use strict';
 
+const { isStockPic: isStock } = require('../avatar/stockAvatars');
+
 const SPECTATOR_LIST_MAX = 50;
 
-const isStock = (p) => Number.isInteger(p) && p >= 1 && p <= 82;
 const isCustom = (p) => typeof p === 'string' && p.startsWith('data:image');
 
 /**

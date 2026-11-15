@@ -26,8 +26,9 @@
  * retry after 3 s, else the neutral assets/default_avatar.png.
  */
 
-export const STOCK_MIN = 1;
-export const STOCK_MAX = 82;
+import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
+
+export { STOCK_MIN, STOCK_MAX };
 const STOCK_WEBP = /avatars\/v1\/profile(\d+)\.webp$/;
 /** What a custom picture that cannot load shows (a neutral silhouette, nobody's face). */
 export const CUSTOM_FALLBACK = 'assets/default_avatar.png';

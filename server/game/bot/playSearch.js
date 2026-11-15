@@ -14,7 +14,7 @@
  * what the bot has seen (the sims, wire goldens and iOS fixtures rely on it).
  */
 
-const { RANK_VALUES, BID_RANKS } = require('../rules');
+const { RANK_VALUES, BID_RANKS, calculateScore } = require('../rules');
 
 // Local bindings: the solver's inner loops call these millions of times, and
 // a lookup through the global object is far slower under Jest's sandbox
@@ -409,9 +409,9 @@ class Solver {
 }
 Solver.LIMIT = { limit: true };
 
-/** Points a team scores for the hand (rainbows aside). */
+/** Points a team scores for the hand (rainbows aside: they never change with the play). */
 function teamScore(bid, mult, tricks) {
-    return tricks >= bid ? bid * 10 * mult + (tricks - bid) : -bid * 10 * mult;
+    return calculateScore(bid, tricks, mult, 0);
 }
 
 /**

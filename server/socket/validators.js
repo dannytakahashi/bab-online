@@ -5,6 +5,7 @@
 
 const Joi = require('joi');
 const { BID_VALUES, MAX_HAND_SIZE } = require('../game/rules');
+const { STOCK_AVATAR_COUNT } = require('../avatar/stockAvatars');
 const { ADMIN_ACTIONS } = require('../admin/actions');
 
 // Card schema - validates card objects
@@ -160,7 +161,7 @@ const schemas = {
 
     // Profile
     updateProfilePic: Joi.object({
-        profilePic: Joi.number().integer().min(1).max(82).required()
+        profilePic: Joi.number().integer().min(1).max(STOCK_AVATAR_COUNT).required()
     }),
 
     // The handler refuses anything over ~682,666 chars (500 KB decoded)

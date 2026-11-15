@@ -10,7 +10,7 @@
  */
 
 import { clearAllSessionData } from '../../utils/sessionPersistence.js';
-import { avatarSrc, profileAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
+import { avatarSrc, profileAvatarSrc, applyAvatarImg, STOCK_MAX } from '../../utils/avatar.js';
 import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { showError } from '../components/Toast.js';
 import { createStatsScopeControl } from '../components/StatsScopeControl.js';
@@ -33,7 +33,6 @@ let ownStats = null;
 let playerStats = null;
 
 const DEFAULT_AVATAR = 'assets/default_avatar.png';
-const AVATAR_COUNT = 82;
 export const VALID_PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
 const REPORT_MAX = 500;
 
@@ -256,7 +255,7 @@ function openPictureSelector(socket, currentPic) {
 
   const grid = el('div', { className: 'avatar-grid', attrs: { role: 'group', 'aria-label': 'Avatars' } });
   let current = null;
-  for (let i = 1; i <= AVATAR_COUNT; i++) {
+  for (let i = 1; i <= STOCK_MAX; i++) {
     const isCurrent = i === currentPic;
     const picBtn = el('button', {
       className: `avatar-option${isCurrent ? ' is-current' : ''}`,

@@ -12,6 +12,7 @@ const { emitError } = require('./serverError');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
+const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
@@ -107,11 +108,11 @@ async function updateProfilePic(socket, io, data) {
 
     const { profilePic } = data;
 
-    // Validate profilePic range (1-82)
-    if (!profilePic || profilePic < 1 || profilePic > 82) {
+    // Validate profilePic range (1..STOCK_AVATAR_COUNT)
+    if (!profilePic || profilePic < 1 || profilePic > STOCK_AVATAR_COUNT) {
         socket.emit('profilePicUpdateResponse', {
             success: false,
-            message: 'Invalid profile picture number (must be 1-82)'
+            message: `Invalid profile picture number (must be 1-${STOCK_AVATAR_COUNT})`
         });
         return;
     }
@@ -454,7 +455,7 @@ async function recordGameStats(game) {
  *   of a random pic (no username, user not found, no pic, DB error), so a
  *   caller running lookups in parallel can draw the random pics itself in a
  *   fixed order
- * @returns {Promise<number|string|null>} Profile pic number (1-82), custom
+ * @returns {Promise<number|string|null>} Profile pic number (stock), custom
  *   pic data URL, or random (null when randomFallback is false) if not set
  */
 async function getUserProfilePic(username, { randomFallback = true } = {}) {
@@ -462,7 +463,7 @@ async function getUserProfilePic(username, { randomFallback = true } = {}) {
 
     if (!username) {
         authLogger.warn('getUserProfilePic called with no username, returning random pic');
-        return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
+        return randomFallback ? randomStockPic() : null;
     }
 
     try {
@@ -492,7 +493,7 @@ async function getUserProfilePic(username, { randomFallback = true } = {}) {
 
     // Return random if not set or error
     authLogger.warn('getUserProfilePic: No profilePic found for user, returning random', { username });
-    return randomFallback ? Math.floor(Math.random() * 82) + 1 : null;
+    return randomFallback ? randomStockPic() : null;
 }
 
 /** Leaderboard row fields every scope reads. */
