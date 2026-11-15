@@ -1,6 +1,7 @@
 import Foundation
 
-/// Handles auth-related socket events: signInResponse, signUpResponse, forceLogout, activeGameFound, deleteAccountResponse
+/// Handles auth-related socket events: signInResponse, signUpResponse, forceLogout, activeGameFound, deleteAccountResponse,
+/// changePasswordResponse
 final class AuthSocketHandler {
     private let socket: SocketService
     private let authState: AuthState
@@ -9,6 +10,10 @@ final class AuthSocketHandler {
     private let safetyState: SafetyState
     private let lobbyState: LobbyState
     private let tournamentState: TournamentState
+    // a retryable restore failure's retries (RestoreRetry), per socket
+    private var restoreRetryAttempt = 0
+    private var restoreRetrySocketId: String?
+    private var restoreRetryGeneration = 0
 
     init(socket: SocketService, authState: AuthState, appState: AppState, gameState: GameState, safetyState: SafetyState,
          lobbyState: LobbyState, tournamentState: TournamentState = TournamentState()) {
@@ -52,6 +57,49 @@ final class AuthSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             self.handleDeleteAccountResponse(dict)
         }
+
+        socket.on(SocketEvents.Server.changePasswordResponse) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            self.handleChangePasswordResponse(dict)
+        }
+    }
+
+    /// Internal for AccountChangesTests.
+    func handleChangePasswordResponse(_ data: [String: Any]) {
+        let result = ChangePasswordResult(success: data["success"] as? Bool ?? false,
+                                          message: data["message"] as? String ?? "Password change failed")
+        DispatchQueue.main.async { self.authState.changePasswordResult = result }
+    }
+
+    /// A retryable restore failure: ask again on this socket after RestoreRetry.delay, with the
+    /// saved token kept. A new socket restores by itself (SocketService on .connect) and starts over.
+    @MainActor
+    private func scheduleRestoreRetry() {
+        let sid = socket.socketId
+        if restoreRetrySocketId != sid {
+            restoreRetrySocketId = sid
+            restoreRetryAttempt = 0
+        }
+        let delay = RestoreRetry.delay(attempt: restoreRetryAttempt)
+        restoreRetryAttempt += 1
+        restoreRetryGeneration += 1
+        let generation = restoreRetryGeneration
+        authState.restoreRetrying = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.restoreRetryGeneration == generation, self.socket.socketId == sid,
+                  self.socket.isConnected, self.authState.hasStoredSession else { return }
+            print("[Auth] Retrying the session restore (attempt \(self.restoreRetryAttempt))")
+            self.socket.emit(SocketEvents.Client.restoreSession,
+                             ["username": self.authState.username, "sessionToken": self.authState.sessionToken])
+        }
+    }
+
+    @MainActor
+    private func stopRestoreRetry() {
+        restoreRetryGeneration += 1
+        restoreRetryAttempt = 0
+        restoreRetrySocketId = nil
+        authState.restoreRetrying = false
     }
 
     private func handleSignInResponse(_ data: [String: Any]) {
@@ -66,6 +114,8 @@ final class AuthSocketHandler {
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
                 self.authState.saveCredentials()
+                self.stopRestoreRetry()
+                if let notice = PasswordResetNotice.text(data["passwordReset"]) { self.authState.accountNotice = notice }
 
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
@@ -142,6 +192,8 @@ final class AuthSocketHandler {
                 self.authState.username = username
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
+                self.stopRestoreRetry()
+                if let notice = PasswordResetNotice.text(data["passwordReset"]) { self.authState.accountNotice = notice }
 
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
@@ -191,9 +243,15 @@ final class AuthSocketHandler {
                 }
                 // after the follow-up emit: a tap from now on reaches the server behind it
                 self.socket.noteSessionEstablished()
+            } else if RestoreRetry.isRetryable(data), self.authState.hasStoredSession {
+                // passing (a database error, an admin action holding the name): keep the token
+                // and the screen, and ask again
+                print("[Auth] Session restore failed, retrying: \(data["message"] as? String ?? "")")
+                self.scheduleRestoreRetry()
             } else {
                 let message = data["message"] as? String ?? "Session expired"
                 print("[Auth] Session restore failed: \(message)")
+                self.stopRestoreRetry()
                 self.lobbyState.rejoiningLobbyId = nil
                 self.tournamentState.rejoiningTournamentId = nil
                 RestartNotices.shared.lost()

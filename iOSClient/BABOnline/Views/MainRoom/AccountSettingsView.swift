@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Account management sheet: sign out, legal links, blocked users, and
+/// Account management sheet: sign out, change password, legal links, blocked users, and
 /// permanent account deletion (App Store Guideline 5.1.1(v)).
 struct AccountSettingsView: View {
     @EnvironmentObject var appState: AppState
@@ -17,10 +17,19 @@ struct AccountSettingsView: View {
     @State private var deletePassword = ""
     @State private var isDeleting = false
 
+    // Change Password (changePassword -> changePasswordResponse)
+    @State private var showPasswordChange = false
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var newPasswordAgain = ""
+    @State private var isChangingPassword = false
+    @State private var passwordChangeAttempt = 0
+
     var body: some View {
         NavigationView {
             List {
                 accountSection
+                passwordSection
                 blockedUsersSection
                 legalSection
                 deleteSection
@@ -39,6 +48,16 @@ struct AccountSettingsView: View {
                 if newValue != nil {
                     isDeleting = false
                 }
+            }
+            .onChange(of: authState.changePasswordResult) { _, result in
+                guard let result else { return }
+                isChangingPassword = false
+                if result.success {
+                    currentPassword = ""
+                    newPassword = ""
+                    newPasswordAgain = ""
+                }
+                UIAccessibility.post(notification: .announcement, argument: result.message)
             }
             // Present safety feedback (e.g. unblock confirmation/errors) here:
             // the chat-surface alert hosts are covered while this sheet is up
@@ -59,6 +78,7 @@ struct AccountSettingsView: View {
         }
         .onDisappear {
             authState.deleteAccountError = nil
+            authState.changePasswordResult = nil
             safetyState.feedbackMessage = nil
         }
     }
@@ -79,6 +99,73 @@ struct AccountSettingsView: View {
             Button(action: signOut) {
                 Text("Sign Out")
                     .foregroundColor(Theme.primary)
+            }
+        }
+        .listRowBackground(Theme.surface)
+    }
+
+    @ViewBuilder
+    private var passwordSection: some View {
+        Section {
+            if !showPasswordChange {
+                Button(action: { showPasswordChange = true }) {
+                    Text("Change Password")
+                        .foregroundColor(Theme.primary)
+                }
+                .accessibilityIdentifier("account.changePassword")
+            } else {
+                SecureField("Current password", text: $currentPassword)
+                    .textContentType(.password)
+                    .foregroundColor(Theme.textPrimary)
+                    .accessibilityIdentifier("account.currentPassword")
+                SecureField("New password (at least \(PasswordRule.minLength) characters)", text: $newPassword)
+                    .textContentType(.newPassword)
+                    .foregroundColor(Theme.textPrimary)
+                    .accessibilityIdentifier("account.newPassword")
+                SecureField("New password again", text: $newPasswordAgain)
+                    .textContentType(.newPassword)
+                    .foregroundColor(Theme.textPrimary)
+                    .accessibilityIdentifier("account.newPasswordAgain")
+
+                if let problem = PasswordRule.changeProblem(current: currentPassword, new: newPassword, again: newPasswordAgain) {
+                    Text(problem)
+                        .font(.caption)
+                        .foregroundColor(Theme.error)
+                } else if let result = authState.changePasswordResult {
+                    Text(result.message)
+                        .font(.caption)
+                        .foregroundColor(result.success ? Theme.success : Theme.error)
+                        .accessibilityIdentifier("account.changePasswordResult")
+                }
+
+                Button(action: changePassword) {
+                    HStack {
+                        if isChangingPassword {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        }
+                        Text("Change Password")
+                            .bold()
+                    }
+                }
+                .disabled(isChangingPassword || !socketService.isConnected
+                          || !PasswordRule.canChange(current: currentPassword, new: newPassword, again: newPasswordAgain))
+                .accessibilityIdentifier("account.changePasswordSubmit")
+
+                Button("Cancel") {
+                    showPasswordChange = false
+                    currentPassword = ""
+                    newPassword = ""
+                    newPasswordAgain = ""
+                    authState.changePasswordResult = nil
+                }
+                .foregroundColor(Theme.textSecondary)
+            }
+        } header: {
+            Text("Password")
+        } footer: {
+            if showPasswordChange {
+                Text("Your other devices will be signed out.")
             }
         }
         .listRowBackground(Theme.surface)
@@ -178,6 +265,21 @@ struct AccountSettingsView: View {
         // session restore won't run because credentials are cleared.
         socketService.forceReconnect()
         dismiss()
+    }
+
+    private func changePassword() {
+        isChangingPassword = true
+        authState.changePasswordResult = nil
+        passwordChangeAttempt += 1
+        let attempt = passwordChangeAttempt
+        AuthEmitter.changePassword(current: currentPassword, new: newPassword)
+
+        // the button must not spin forever if no response arrives
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            guard isChangingPassword, attempt == passwordChangeAttempt else { return }
+            isChangingPassword = false
+            authState.changePasswordResult = ChangePasswordResult(success: false, message: "No answer from the server. Try again.")
+        }
     }
 
     private func deleteAccount() {

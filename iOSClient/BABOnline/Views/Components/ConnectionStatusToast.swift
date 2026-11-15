@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Floating pill that shows reconnection status after the app foregrounds, and
 /// "Restarting for an update…" from the server's serverShutdown until the socket is back.
+/// Also "Reconnecting..." while a retryable restore failure is retried (AuthState.restoreRetrying).
 struct ConnectionStatusToast: View {
     @EnvironmentObject var socketService: SocketService
+    @EnvironmentObject var authState: AuthState
     @ObservedObject private var restart = RestartNotices.shared
     @State private var wasDisconnected = false
     @State private var showToast = false
@@ -56,6 +58,17 @@ struct ConnectionStatusToast: View {
                 }
             } else if socketService.isConnected && !wasDisconnected {
                 // the server never closed the socket after all
+                withAnimation(.easeInOut(duration: 0.3)) { showToast = false }
+            }
+        }
+        // connected, but the saved session is being restored again (RestoreRetry)
+        .onChange(of: authState.restoreRetrying) { _, retrying in
+            if retrying {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    isReconnected = false
+                    showToast = true
+                }
+            } else if socketService.isConnected && showToast && !wasDisconnected {
                 withAnimation(.easeInOut(duration: 0.3)) { showToast = false }
             }
         }
