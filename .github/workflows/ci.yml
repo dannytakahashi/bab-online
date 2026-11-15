@@ -1,5 +1,8 @@
 name: CI/CD
 
+# Railway deploys every push to main (Nixpacks, `node server/index.js`), so
+# this workflow is the only gate in front of production
+
 on:
   push:
     branches: [main]
@@ -15,6 +18,12 @@ jobs:
         image: mongo:6
         ports:
           - 27017:27017
+        # Steps start only once mongod answers, so realMongo never races it
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - name: Checkout code
@@ -35,23 +44,24 @@ jobs:
       - name: sharp loads (prebuilt libvips)
         run: node -e "const s=require('sharp'); console.log('sharp', s.versions.sharp, 'libvips', s.versions.vips)"
 
-      - name: Run linter
-        run: npm run lint --if-present
+      - name: Design tokens are current
+        run: npm run tokens:check
 
-      - name: Run tests
-        run: npm test
+      - name: Client tests (Vitest)
+        run: npm run test:client
+
+      # One Jest run, with coverage (no thresholds, so it gates like plain
+      # `npm test`). REQUIRE_REAL_MONGO turns realMongo's no-mongod skip
+      # into a failure
+      - name: Server tests with coverage (Jest)
+        run: npm run test:coverage
         env:
           MONGO_URI: mongodb://localhost:27017/test
           NODE_ENV: test
+          REQUIRE_REAL_MONGO: '1'
 
       - name: Race check (every pacing delay 0)
         run: npm run test:race
-        env:
-          MONGO_URI: mongodb://localhost:27017/test
-          NODE_ENV: test
-
-      - name: Run tests with coverage
-        run: npm run test:coverage
         env:
           MONGO_URI: mongodb://localhost:27017/test
           NODE_ENV: test
@@ -62,9 +72,36 @@ jobs:
         with:
           fail_ci_if_error: false
 
+      # What Railway runs: the built client, then `node server/index.js`
+      # with NODE_ENV=production. Port 3000 is hard-coded (server/index.js);
+      # nothing else in this job listens on it. The server always writes the
+      # 'babonline' database, here the throwaway CI service
+      - name: Production boot (node server/index.js)
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          NODE_ENV: production
+        run: |
+          npm run build:client
+          node server/index.js > server-boot.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; echo "--- server log"; cat server-boot.log' EXIT
+          scripts/ci-boot-check.sh --pid "$pid" \
+            http://localhost:3000/health http://localhost:3000/ready http://localhost:3000/
+
   build:
     runs-on: ubuntu-latest
     needs: test
+
+    services:
+      mongo:
+        image: mongo:6
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ping:1})'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
 
     steps:
       - name: Checkout code
@@ -73,15 +110,23 @@ jobs:
       - name: Build Docker image
         run: docker build -f Dockerfile.local -t bab-online:${{ github.sha }} .
 
-      - name: Test Docker image starts
+      # host.docker.internal doesn't resolve on Linux without --add-host;
+      # host-gateway reaches the mongo service's published port
+      - name: Docker image boots
         run: |
-          docker run -d --name test-container -p 3000:3000 \
-            -e NODE_ENV=test \
+          docker run -d --name boot-check -p 3000:3000 \
+            --add-host=host.docker.internal:host-gateway \
+            -e NODE_ENV=production \
             -e MONGO_URI=mongodb://host.docker.internal:27017/test \
             bab-online:${{ github.sha }}
-          sleep 5
-          docker logs test-container
-          docker stop test-container
+          scripts/ci-boot-check.sh --container boot-check \
+            http://localhost:3000/health http://localhost:3000/ready http://localhost:3000/
+
+      - name: Docker logs and cleanup
+        if: always()
+        run: |
+          docker logs boot-check || true
+          docker rm -f boot-check || true
 
   # Deployment is handled automatically by Railway's GitHub integration
   # when pushing to main - no GitHub Actions deployment needed

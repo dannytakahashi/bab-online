@@ -8,7 +8,7 @@
  *    chat and Send fill the window's bottom-right corner); with neither, at
  *    the page's bottom right (ui-20: the fallback used to sit under the game
  *    log, and the global 44 px button rule pushed it off centre)
- * B. Tab overlay - player list with speaking indicators and per-player mute
+ * B. Voice overlay (hold `) - player list with speaking indicators and per-player mute
  */
 
 import { getVoiceChatManager } from '../../voice/VoiceChatManager.js';
@@ -296,7 +296,7 @@ function getMicIcon(muted) {
 }
 
 // ============================================
-// Tab Overlay
+// Voice overlay (hold `)
 // ============================================
 
 let overlayUpdateInterval = null;
@@ -305,7 +305,7 @@ let overlayUpdateInterval = null;
 let voiceModal = null;
 
 /**
- * Show the voice overlay (called on Tab press): a kit modal (Escape closes
+ * Show the voice overlay (while ` is held: voice/voiceHotkeys.js): a kit modal (Escape closes
  * it too; focus comes back where it was).
  */
 export function showVoiceOverlay() {
@@ -315,7 +315,7 @@ export function showVoiceOverlay() {
   if (!voiceManager.active) return;
 
   const playerList = el('div', { attrs: { id: 'voice-overlay-players' } });
-  const hint = el('p', { className: 'voice-overlay__hint', text: 'Release Tab to close' });
+  const hint = el('p', { className: 'voice-overlay__hint', text: 'Release ` to close' });
   voiceModal = openModal({
     id: 'voice-overlay',
     title: 'Voice Chat',
