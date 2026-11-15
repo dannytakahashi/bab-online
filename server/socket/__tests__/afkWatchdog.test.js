@@ -35,6 +35,7 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 
 const C = (rank, suit) => ({ rank, suit });
 const AFK = SeatState.AFK_TIMEOUT_MS;
+const TOP_UP = SeatState.AFK_RESUME_MIN_MS;
 const afkLine = (log, name) => events(log, 'gameLogEntry').filter((e) => e.data.message.startsWith(`${name} was idle`));
 let seq = 0;
 
@@ -157,37 +158,59 @@ describe('the watchdog fires', () => {
         expect(events(t.log, 'cardPlayed')[0].data.position).toBe(1);
     });
 
-    test('/active returns the seat; on the same turn the clock it already used up does not restart', async () => {
-        process.env.AFK_TIMEOUT_MS = '5000';
+    test('/active returns the seat; on the same turn the used-up clock gets one short top-up, not a fresh one', async () => {
         const t = setup({ stage: Phase.PLAYING });
-        // Hold the lazy bot: /active lands while the turn is still seat 1's
-        await jest.advanceTimersByTimeAsync(5000);
+        // /active lands while the turn is still seat 1's (before the lazy bot plays)
+        await jest.advanceTimersByTimeAsync(AFK);
         expect(t.game.seat(1).controller).toBe('lazyBot');
         chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/active' });
         expect(t.game.seat(1).controller).toBe('human');
         expect(events(t.log, 'playerActiveMode')).toHaveLength(1);
         expect(t.game.currentTurn).toBe(1);
         expect(t.game.hasTimer('afk:1')).toBe(true);
-        // Nothing was left of this turn's 5 s
-        await jest.advanceTimersByTimeAsync(0);
+        // Nothing was left of this turn's 90 s: the top-up, so the player can act
+        await jest.advanceTimersByTimeAsync(TOP_UP - 1);
+        expect(t.game.seat(1).controller).toBe('human');
+        await jest.advanceTimersByTimeAsync(1);
         expect(t.game.seat(1).controller).toBe('lazyBot');
         expect(afkLine(t.log, t.names[0])).toHaveLength(2);
+        // Only once per turn: a second /active gets what is left, nothing
+        chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/active' });
+        expect(t.game.seat(1).controller).toBe('human');
+        await jest.advanceTimersByTimeAsync(0);
+        expect(t.game.seat(1).controller).toBe('lazyBot');
+        expect(afkLine(t.log, t.names[0])).toHaveLength(3);
     });
 
     test('/lazy then /active cannot reset the clock: the turn keeps what is left of its 90 s', async () => {
         const t = setup();
-        await jest.advanceTimersByTimeAsync(80000);
+        await jest.advanceTimersByTimeAsync(60000);
         chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/lazy' });
         // /active before the bot's bid lands: still seat 1's turn
         chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/active' });
         expect(t.game.seat(1).controller).toBe('human');
         expect(t.game.currentTurn).toBe(1);
         expect(t.game.getBidCount()).toBe(0);
-        await jest.advanceTimersByTimeAsync(9999);
+        await jest.advanceTimersByTimeAsync(AFK - 60000 - 1);
         expect(t.game.seat(1).controller).toBe('human');
         await jest.advanceTimersByTimeAsync(1);
         expect(t.game.seat(1).controller).toBe('lazyBot');
         expect(afkLine(t.log, t.names[0])).toHaveLength(1);
+    });
+
+    test('repeating /lazy then /active near the end buys one top-up per turn, no more', async () => {
+        const t = setup();
+        await jest.advanceTimersByTimeAsync(AFK - 1000);
+        for (let i = 0; i < 3; i++) {
+            chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/lazy' });
+            chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/active' });
+        }
+        expect(t.game.seat(1).controller).toBe('human');
+        // 1 s was left: topped up to TOP_UP once (the later rounds keep that deadline)
+        await jest.advanceTimersByTimeAsync(TOP_UP - 1);
+        expect(t.game.seat(1).controller).toBe('human');
+        await jest.advanceTimersByTimeAsync(1);
+        expect(t.game.seat(1).controller).toBe('lazyBot');
     });
 
     test('after /lazy then /active, the seat\'s next turn gets the full 90 s', async () => {
@@ -411,16 +434,48 @@ describe('an idle seat at a tournament table', () => {
         expect(errors(t.log)).toEqual(['Player is still reconnecting']);
     });
 
-    test('/lazy then /active cannot dodge it: the offer comes back at once', async () => {
+    test('/lazy then /active cannot dodge it: the offer comes back after the one short top-up', async () => {
         const t = setupT();
         await jest.advanceTimersByTimeAsync(AFK);
         chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/lazy' });
         expect(t.game.idleOffer).toBeNull();
         chatHandlers.chatMessage(t.sockets[0], t.io, { message: '/active' });
         expect(t.game.seat(1).controller).toBe('human');
-        await jest.advanceTimersByTimeAsync(0);
+        await jest.advanceTimersByTimeAsync(TOP_UP - 1);
+        expect(t.game.idleOffer).toBeNull();
+        expect(offers(t.log)).toHaveLength(3);
+        await jest.advanceTimersByTimeAsync(1);
         expect(t.game.idleOffer).toMatchObject({ pos: 1 });
         expect(offers(t.log)).toHaveLength(6);
+    });
+
+    test('dropping and coming back cannot dodge it either: the reconnect resumes the used-up clock', async () => {
+        const t = setupT();
+        await jest.advanceTimersByTimeAsync(AFK);
+        expect(offers(t.log)).toHaveLength(3);
+        t.io.sockets.sockets.delete(t.ids[0]);
+        await queueHandlers.handleDisconnect(t.sockets[0], t.io);
+        await jest.advanceTimersByTimeAsync(5000);
+        mockDb.current.users.docs.find((d) => d.username === t.names[0]).sessionToken = 'tok';
+        const again = makeSocket(`${t.ids[0]}-again`, t.log, t.io);
+        await reconnectHandlers.rejoinGame(again, t.io, { gameId: t.game.gameId, username: t.names[0], sessionToken: 'tok' });
+        expect(t.game.seat(1)).toMatchObject({ controller: 'human', presence: 'connected' });
+        await jest.advanceTimersByTimeAsync(TOP_UP - 1);
+        expect(t.game.idleOffer).toBeNull();
+        await jest.advanceTimersByTimeAsync(1);
+        expect(t.game.idleOffer).toMatchObject({ pos: 1 });
+        expect(offers(t.log)).toHaveLength(6);
+    });
+
+    test('a stale idle offer (an earlier turn) does not let forceResign take the seat', async () => {
+        const t = setupT();
+        await jest.advanceTimersByTimeAsync(AFK);
+        // Left behind without its withdrawal: it names a turn that is over
+        t.game.idleOffer = { pos: 1, turn: 'an-earlier-turn' };
+        await gameHandlers.forceResign(t.sockets[1], t.io, { position: 1 });
+        expect(errors(t.log)).toEqual(['Player is not disconnected']);
+        expect(t.game.seat(1).controller).toBe('human');
+        expect(events(t.log, 'playerLazyMode')).toHaveLength(0);
     });
 
     test('a holder who comes back gets the standing offer replayed', async () => {
@@ -519,7 +574,7 @@ describe('the watchdog does not fire', () => {
         expect(events(t.log, 'playerLazyMode')).toHaveLength(0);
     });
 
-    test('a reconnect on its own turn starts a fresh watchdog', async () => {
+    test('a reconnect on its own turn resumes that turn\'s clock (the time away counts)', async () => {
         const t = setup();
         await queueHandlers.handleDisconnect(t.sockets[0], t.io);
         await jest.advanceTimersByTimeAsync(10000);
@@ -528,10 +583,26 @@ describe('the watchdog does not fire', () => {
         await reconnectHandlers.rejoinGame(again, t.io, { gameId: t.game.gameId, username: t.names[0], sessionToken: 'tok' });
         expect(t.game.seat(1).presence).toBe('connected');
         expect(t.game.hasTimer('afk:1')).toBe(true);
-        await jest.advanceTimersByTimeAsync(AFK - 1);
+        await jest.advanceTimersByTimeAsync(AFK - 10000 - 1);
         expect(t.game.seat(1).controller).toBe('human');
         await jest.advanceTimersByTimeAsync(1);
         expect(t.game.seat(1).controller).toBe('lazyBot');
+    });
+
+    test('a reconnect on a later turn of the same seat starts a fresh clock', async () => {
+        const t = setup();
+        await jest.advanceTimersByTimeAsync(AFK - 1000);
+        await gameHandlers.playerBid(t.sockets[0], t.io, { bid: '1' });
+        // Seat 2 bids, then seat 1 is not on turn again until play: drop and return mid-bidding
+        await queueHandlers.handleDisconnect(t.sockets[0], t.io);
+        for (const i of [1, 2, 3]) await gameHandlers.playerBid(t.sockets[i], t.io, { bid: '0' });
+        mockDb.current.users.docs.find((d) => d.username === t.names[0]).sessionToken = 'tok';
+        const again = makeSocket(`${t.ids[0]}-again`, t.log, t.io);
+        await reconnectHandlers.rejoinGame(again, t.io, { gameId: t.game.gameId, username: t.names[0], sessionToken: 'tok' });
+        await advanceUntil(() => t.game.stage === Phase.PLAYING && t.game.acceptsTurnInput() && !t.game.resume, 100, 30000);
+        expect(t.game.currentTurn).toBe(1);
+        await jest.advanceTimersByTimeAsync(AFK - 1000);
+        expect(t.game.seat(1).controller).toBe('human');
     });
 
     test('for a lazy seat or a native bot seat', async () => {

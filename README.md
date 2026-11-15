@@ -296,7 +296,7 @@ Browse in-progress games in the main room lobby panel and click **Spectate** to 
 
 ### Disconnection & Resignation
 
-If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect: after 60 seconds, or after 15 minutes in a casual game whose players can all still come back (e.g. you plus three bots), so a solo player has time to return.
+If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect: after 60 seconds, or after 15 minutes in a casual game whose players can all still come back (e.g. you plus three bots) and that is waiting on a disconnected player's seat, so a solo player has time to return. If every player had switched to /lazy before leaving, it still aborts after 60 seconds rather than letting the bots finish it.
 
 At a tournament table, a player who is connected but sits on their turn for 90 seconds is not replaced automatically: the other players at the table get the same "Replace with Bot" prompt, and it is withdrawn as soon as the idle player acts.
 

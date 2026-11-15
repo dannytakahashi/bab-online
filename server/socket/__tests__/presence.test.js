@@ -323,11 +323,13 @@ describe('R6/R7 abandon and abort (srv-6)', () => {
         expect(aborts(t)).toHaveLength(0);
     });
 
-    test('R7 a lone lazy owner dropping aborts after the solo window, and a rejoin within it cancels that', async () => {
+    test('R7 a lone lazy owner dropping aborts 60s later, and a rejoin within it cancels that', async () => {
+        // Not the solo window: no human seat holds the table, the bots would
+        // finish it with nobody here
         const t = table({ bots: { 2: 'mary', 3: 'sharon', 4: 'danny' } });
         chat(t, 1, '/lazy');
         await drop(t, t.sockets[1]);
-        await jest.advanceTimersByTimeAsync(SOLO_MS - 1000);
+        await jest.advanceTimersByTimeAsync(59000);
         expect(aborts(t)).toHaveLength(0);
         await jest.advanceTimersByTimeAsync(1000);
         expect(aborts(t)).toHaveLength(1);
@@ -335,7 +337,7 @@ describe('R6/R7 abandon and abort (srv-6)', () => {
         const u = table({ bots: { 2: 'mary', 3: 'sharon', 4: 'danny' } });
         chat(u, 1, '/lazy');
         await drop(u, u.sockets[1]);
-        await jest.advanceTimersByTimeAsync(SOLO_MS - 30000);
+        await jest.advanceTimersByTimeAsync(30000);
         await rejoin(u, 'user1');
         expect(u.game.hasTimer('abandon')).toBe(false);
         await jest.advanceTimersByTimeAsync(120000);
@@ -407,6 +409,31 @@ describe('the solo abandon window', () => {
         await jest.advanceTimersByTimeAsync(ABANDON_MS * 2);
         expect(aborts(t)).toHaveLength(0);
         await jest.advanceTimersByTimeAsync(SOLO_MS - ABANDON_MS * 2);
+        expect(aborts(t)).toHaveLength(1);
+    });
+
+    test('every owner away from a bot-played seat (two lazy humans drop): 60 s, the bots are not left to finish it', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(t, 1, '/lazy');
+        chat(t, 2, '/lazy');
+        await drop(t, t.sockets[1]);
+        await drop(t, t.sockets[2]);
+        expect(t.game.seat(1).presence).toBe('away');
+        expect(t.game.seat(2).presence).toBe('away');
+        await jest.advanceTimersByTimeAsync(ABANDON_MS - 1);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players disconnected']);
+    });
+
+    test('one owner away (lazy) and one in grace: the grace seat holds the table, the solo window', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(t, 2, '/lazy');
+        await drop(t, t.sockets[2]);
+        await drop(t, t.sockets[1]);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 1);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
         expect(aborts(t)).toHaveLength(1);
     });
 

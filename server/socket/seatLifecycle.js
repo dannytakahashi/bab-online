@@ -28,7 +28,7 @@ const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
-const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS } = SeatState;
+const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
 
 const logError = (what, game) => (err) =>
     socketLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -233,15 +233,19 @@ function maybeAbort(io, game) {
 
 /**
  * How long a table with nobody connected waits (decided when the wait
- * starts: nobody can join or leave for good while nobody is here). Owner,
- * 2026-11-15: a casual game whose every owner can still come back (one
- * human + bots, or every human only away) waits SOLO_ABANDON_MS, since
- * nobody else is kept waiting; once an owner has left for good, and at
- * every tournament table (the round waits for it), ABANDON_MS.
+ * starts: while nobody is here no seat can leave for good, be resigned or
+ * change controller). Owner, 2026-11-15: a casual game whose every owner
+ * can still come back (one human + bots, or every human only away) waits
+ * SOLO_ABANDON_MS, since nobody else is kept waiting; once an owner has
+ * left for good, and at every tournament table (the round waits for it),
+ * ABANDON_MS. Only while a human seat (grace / resignable) holds the
+ * table: when every owner's seat is bot-played, the bots would finish an
+ * unattended game in the owners' names, so 60 s as before.
  */
 function abandonMs(game, owned) {
     if (gameManager.tournamentGames.has(game.gameId)) return ABANDON_MS;
-    return owned.every(s => game.isReturnable(s.position)) ? SOLO_ABANDON_MS : ABANDON_MS;
+    if (!owned.every(s => game.isReturnable(s.position))) return ABANDON_MS;
+    return owned.some(s => s.controller === Controller.HUMAN) ? SOLO_ABANDON_MS : ABANDON_MS;
 }
 
 // ==================== disconnects ====================
@@ -349,9 +353,10 @@ function reconnectOwner(io, game, pos, socket, username) {
     logEntry(io, game, `${username} reconnected.`);
     replayPresenceTo(game, socket, pos);
     reofferAfter(io, game, pos, 'reconnect');
-    // Back from grace on its own turn: the watchdog starts now (a newer
-    // socket taking a connected seat keeps the running one)
-    if (game.currentTurn === pos) armAfk(io, game, pos, { keep: true });
+    // Back from grace on its own turn: what is left of this turn's clock
+    // (dropping cannot buy a fresh 90 s; a newer socket taking a connected
+    // seat keeps the running one)
+    if (game.currentTurn === pos) armAfk(io, game, pos, { keep: true, resume: true });
     maybeAbort(io, game);
     return true;
 }
@@ -473,8 +478,10 @@ function afkExempt(game) {
  * @param {{keep?: boolean, resume?: boolean}} [opts] keep: a watchdog
  *   already running for this same turn stays (a newer socket taking the
  *   seat does not restart the clock); resume: on the turn the clock was
- *   last started for, run only what is left of it (/active, so /lazy then
- *   /active cannot buy a fresh 90 s)
+ *   last started for, run only what is left of it (/active and a reconnect
+ *   from grace, so neither /lazy then /active nor a drop buys a fresh
+ *   90 s), topped up once per turn to AFK_RESUME_MIN_MS when it already
+ *   ran out (a returning player can still act before it fires again)
  */
 function armAfk(io, game, pos, { keep = false, resume = false } = {}) {
     for (let p = 1; p <= 4; p++) if (p !== pos) game.clearTimer(afkKey(p));
@@ -489,7 +496,14 @@ function armAfk(io, game, pos, { keep = false, resume = false } = {}) {
     const clock = game.afkClock;
     let ms = full;
     if (resume && clock && clock.pos === pos && clock.turn === turn) {
-        ms = Math.max(0, clock.deadline - now);
+        ms = clock.deadline - now;
+        const floor = Math.min(AFK_RESUME_MIN_MS, full);
+        if (ms < floor && !clock.toppedUp) {
+            ms = floor;
+            clock.deadline = now + floor;
+            clock.toppedUp = true;
+        }
+        ms = Math.max(0, ms);
     } else {
         game.afkClock = { pos, turn, deadline: now + full };
     }
