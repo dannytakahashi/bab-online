@@ -524,7 +524,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const hsiW = 96 * s;
   const voiceBtn = Math.max(22, 36 * s);
   const voiceGap = 6 * s;
-  const voiceRowW = 2 * voiceBtn + voiceGap;
+  // the row: sound effects toggle (ui/components/SoundToggle.js), mic device, mute
+  const voiceRowW = 3 * voiceBtn + 2 * voiceGap;
   let hand = null;
   let bottom;
   let voice;

@@ -437,6 +437,22 @@ body > .voice-btn {
     flex: 0 0 auto;
 }
 
+/* the sound effects toggle (ui/components/SoundToggle.js): first in the
+   table's voice row, drawn at the voice buttons' size, positioned for its
+   own hit extension as they are; muted = pressed (red) */
+.hud-voice > .sound-btn.kit-icon-btn {
+    --icon-btn-size: var(--voice-btn, 36px);
+    position: relative;
+    flex: 0 0 auto;
+    z-index: var(--z-panel);
+}
+
+/* the main room's header: beside the page buttons */
+.screen-nav > .sound-btn.kit-icon-btn {
+    --icon-btn-size: 36px;
+    flex: 0 0 auto;
+}
+
 .voice-popover {
     position: absolute;
     min-width: 200px;

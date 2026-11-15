@@ -10,7 +10,8 @@
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
  * SeqGate) and to MyAction (my own bid/play is confirmed by its echo), keeps
- * the TableDirector's key current, then calls the view callback. Snapshots
+ * the TableDirector's key current, cues the table's sound (audio/
+ * tableSounds.js: live events only), then calls the view callback. Snapshots
  * (rejoin, restore, rejected actions, resyncs) go through
  * state/tableSync.applyTableSnapshot, in main.js's callbacks.
  */
@@ -20,6 +21,7 @@ import { getGameState, PHASE } from '../state/GameState.js';
 import { getClientSession } from '../state/ClientSession.js';
 import { getMyAction } from '../state/MyAction.js';
 import { getTableDirector } from '../phaser/TableDirector.js';
+import { getTableSounds } from '../audio/tableSounds.js';
 
 /**
  * Register game event handlers.
@@ -74,6 +76,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   const state = getGameState();
   const myAction = getMyAction();
   const director = getTableDirector();
+  const sounds = getTableSounds();
 
   // The director's key follows the table: {gameId, handNo, deal, trickNo}
   const touched = () => {
@@ -106,6 +109,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // spectator's has no position; spectators re-spectate instead)
     getClientSession().noteDeal(data);
     touched();
+    sounds.deal();
 
     onGameStart?.(data);
   });
@@ -154,6 +158,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     state.applyBid(data);
     if (mine(data.position)) myAction.confirm('bid', data);
     touched();
+    sounds.bid(data);
     onBidReceived?.(data);
   });
 
@@ -172,6 +177,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     console.log('🔄 Update turn:', data);
     state.applyTurn(data);
     touched();
+    sounds.turn();
     onUpdateTurn?.(data);
   });
 
@@ -182,6 +188,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // My own play's echo confirms it (the 4th card of a trick comes at once)
     if (mine(data.position)) myAction.confirm('play', data);
     touched();
+    sounds.cardPlayed(data);
     onCardPlayed?.(data);
   });
 
@@ -191,6 +198,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // The counts are kept here (cli-8), never in the scene
     state.applyTrickComplete(data);
     touched();
+    sounds.trick(data);
     onTrickComplete?.(data);
   });
 
@@ -198,6 +206,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.onGame(SERVER_EVENTS.HAND_COMPLETE, (data) => {
     console.log('🏁 Hand complete:', data);
     state.applyHandComplete(data);
+    // made / set reads the hand's bids too
+    sounds.handComplete(data);
 
     // Callback BEFORE the reset: it reads the hand's bids and tricks
     onHandComplete?.(data);
@@ -214,6 +224,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
 
     myAction.reset();
     state.applyGameEnd(data);
+    sounds.gameEnd();
 
     // Nothing to rejoin any more (onGameEnd -> the client session's endGame
     // clears the spectatingGameId too)

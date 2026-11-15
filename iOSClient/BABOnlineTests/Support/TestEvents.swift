@@ -12,6 +12,8 @@ enum T {
     }
 
     static func card(_ s: String, _ r: String) -> [String: Any] { ["suit": s, "rank": r] }
+    /// The model value of `card(s, r)` (a local submission takes one).
+    static func c(_ s: String, _ r: String) -> Card { Card.from(card(s, r))! }
 
     static func snapshot(_ name: String, edit: (inout [String: Any]) -> Void = { _ in }) throws -> TableSnapshot {
         var raw = try FixtureLoader.v2Snapshot(name)

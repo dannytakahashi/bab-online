@@ -116,9 +116,10 @@ export default defineConfig(({ command }) => ({
 
   build: {
     outDir: 'dist',
-    // Never inline the card font (cards/cardFont.js) as a data: URL: the
-    // CSP's font-src is 'self' (a woff2 under the 4 KB default would be)
-    assetsInlineLimit: (file) => (/\.woff2?$/.test(file) ? false : undefined),
+    // Never inline the card font (cards/cardFont.js) or a sound (audio/
+    // SoundManager.js fetches them) as a data: URL: the CSP's font-src and
+    // connect-src have no data: (a file under the 4 KB default would be)
+    assetsInlineLimit: (file) => (/\.(woff2?|m4a)$/.test(file) ? false : undefined),
     emptyOutDir: true,
     // The vendor chunk is Phaser's 1.04 MB prebuilt build (+ socket.io-client)
     chunkSizeWarningLimit: 1200,

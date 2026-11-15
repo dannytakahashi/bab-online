@@ -54,7 +54,7 @@ test('the cards\' index font is a same-origin file font-src \'self\' allows: a h
     expect(fs.readFileSync(path.join(ROOT, 'client', 'assets', 'fonts', 'OFL.txt'), 'utf8')).toMatch(/SIL Open Font License, Version 1\.1/);
     // under Vite's 4 KB default a woff2 would be inlined as data:, which font-src 'self' refuses
     const config = fs.readFileSync(path.join(ROOT, 'client', 'vite.config.js'), 'utf8');
-    expect(config).toMatch(/assetsInlineLimit: \(file\) => \(\/\\\.woff2\?\$\/\.test\(file\) \? false : undefined\)/);
+    expect(config).toMatch(/assetsInlineLimit: \(file\) => \(\/\\\.\(woff2\?\|m4a\)\$\/\.test\(file\) \? false : undefined\)/);
     // a built client (npm run build): the app chunk points at the emitted file
     const assets = path.join(ROOT, 'client', 'dist', 'assets');
     if (!fs.existsSync(assets)) return;
@@ -64,6 +64,29 @@ test('the cards\' index font is a same-origin file font-src \'self\' allows: a h
     const js = files.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
     expect(js).toContain(`/dist/assets/${woff[0]}`);
     expect(js).not.toMatch(/data:font\/woff2/);
+});
+
+test('the sound effects are same-origin files the page fetches (connect-src \'self\'): hashed /dist/assets m4a, never data:', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'client', 'src', 'audio', 'SoundManager.js'), 'utf8');
+    const imports = [...src.matchAll(/from '\.\.\/\.\.\/assets\/sounds\/([\w-]+)\.m4a\?url';/g)].map((m) => m[1]);
+    expect(imports).toHaveLength(11);
+    for (const name of imports) expect(fs.existsSync(path.join(ROOT, 'client', 'assets', 'sounds', `${name}.m4a`))).toBe(true);
+    // fetch() is connect-src: 'self' (the page's own host) allows it in both policies
+    expect(header['connect-src']).toContain("'self'");
+    expect(metaPolicy()['connect-src']).toContain("'self'");
+    // a built client (npm run build) newer than the sound code: it emits the
+    // files and its chunk points at them. A dist built before the sounds
+    // existed is stale, not wrong: rebuild to check it
+    const assets = path.join(ROOT, 'client', 'dist', 'assets');
+    if (!fs.existsSync(assets)) return;
+    const files = fs.readdirSync(assets);
+    const built = Math.max(0, ...files.filter((f) => f.endsWith('.js')).map((f) => fs.statSync(path.join(assets, f)).mtimeMs));
+    if (built < fs.statSync(path.join(ROOT, 'client', 'src', 'audio', 'SoundManager.js')).mtimeMs) return;
+    const sounds = files.filter((f) => /\.m4a$/.test(f));
+    expect(sounds).toHaveLength(11);
+    const js = files.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
+    for (const f of sounds) expect(js).toContain(`/dist/assets/${f}`);
+    expect(js).not.toMatch(/data:audio\//);
 });
 
 test('the header and the meta agree on every directive but the hosts', () => {

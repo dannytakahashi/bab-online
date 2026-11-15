@@ -71,6 +71,7 @@ struct GameLogPanel: View {
                             .font(.headline)
                             .foregroundColor(Theme.textPrimary)
                         Spacer()
+                        SoundToggleButton()
                         if style == .drawer {
                             Button(action: { onClose?() }) {
                                 Image(systemName: "xmark.circle.fill")

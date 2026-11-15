@@ -182,9 +182,11 @@ describe('computeTableLayout at the named viewports', () => {
             expect(intersects(L.spectators.bubble.rect, r), `${label} badge bubble over ${seat}`).toBe(false);
           }
         }
-        if (isSpectator && vw === 390) {
+        if (isSpectator && (vw === 390 || vw === 1024)) {
           // a phone's 260 px canvas: the bottom seat's bubble needs the
-          // corner beside its backs, so the badge sits up the right edge
+          // corner beside its backs, so the badge sits up the right edge;
+          // at 1024x668 the corner row (sound, mic device, mute) is too
+          // wide for the badge beside it, so it goes up the edge too
           expect(L.spectators.rect.x + L.spectators.rect.w).toBeCloseTo(L.w - L.margin, 0);
           expect(L.spectators.rect.y).toBeLessThan(L.voice.rect.y);
         } else if (isSpectator) {

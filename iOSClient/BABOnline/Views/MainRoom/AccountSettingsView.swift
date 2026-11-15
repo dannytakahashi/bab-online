@@ -12,6 +12,7 @@ struct AccountSettingsView: View {
     @EnvironmentObject var safetyState: SafetyState
     @EnvironmentObject var socketService: SocketService
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var sounds = SoundPlayer.shared
 
     @State private var showDeleteConfirm = false
     @State private var deletePassword = ""
@@ -21,6 +22,7 @@ struct AccountSettingsView: View {
         NavigationView {
             List {
                 accountSection
+                soundSection
                 blockedUsersSection
                 legalSection
                 deleteSection
@@ -80,6 +82,34 @@ struct AccountSettingsView: View {
                 Text("Sign Out")
                     .foregroundColor(Theme.primary)
             }
+        }
+        .listRowBackground(Theme.surface)
+    }
+
+    /// The same switch as the table's speaker (SoundToggleButton), plus the volume.
+    private var soundSection: some View {
+        Section {
+            Toggle("Sound", isOn: $sounds.isEnabled)
+                .foregroundColor(Theme.textPrimary)
+                .tint(Theme.primary)
+                .accessibilityIdentifier("settings.sound")
+            if sounds.isEnabled {
+                HStack(spacing: Theme.Space.s3) {
+                    Image(systemName: "speaker.fill")
+                        .foregroundColor(Theme.textDim)
+                        .accessibilityHidden(true)
+                    Slider(value: $sounds.volume, in: 0.05...1)
+                        .tint(Theme.primary)
+                        .accessibilityLabel("Sound volume")
+                        .accessibilityIdentifier("settings.soundVolume")
+                    Image(systemName: "speaker.wave.3.fill")
+                        .foregroundColor(Theme.textDim)
+                        .accessibilityHidden(true)
+                }
+            }
+        } footer: {
+            Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat.")
+                .foregroundColor(Theme.textDim)
         }
         .listRowBackground(Theme.surface)
     }

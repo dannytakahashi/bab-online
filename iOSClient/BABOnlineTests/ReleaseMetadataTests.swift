@@ -70,6 +70,10 @@ final class ReleaseMetadataTests: XCTestCase {
             "NSPrivacyCollectedDataTypeGameplayContent",
         ])
         for entry in collected { XCTAssertEqual(entry["NSPrivacyCollectedDataTypeTracking"] as? Bool, false) }
-        XCTAssertNotNil(plist["NSPrivacyAccessedAPITypes"] as? [Any])
+        // release code keeps settings in UserDefaults (the Stats scope, the sound switch and volume):
+        // declared with CA92.1 (read and written by this app only)
+        let apis = try XCTUnwrap(plist["NSPrivacyAccessedAPITypes"] as? [[String: Any]])
+        let defaults = apis.first { $0["NSPrivacyAccessedAPIType"] as? String == "NSPrivacyAccessedAPICategoryUserDefaults" }
+        XCTAssertEqual(defaults?["NSPrivacyAccessedAPITypeReasons"] as? [String], ["CA92.1"])
     }
 }

@@ -5,7 +5,8 @@
  *
  *   1. GameState.applySnapshot (the whole table; snapshot v2 when the
  *      payload carries one, else snapshotFromLegacy of the v1 fields)
- *   2. MyAction.reconcile (a pending bid/play is confirmed or rolled back)
+ *   2. MyAction.reconcile (a pending bid/play is confirmed or rolled back);
+ *      the table's sounds take it as their baseline (no sound plays)
  *   3. the caller's render (queued behind the scene if it is not ready)
  *   4. SeqGate.onSnapshot: the snapshot is the seq baseline; buffered
  *      events above it replay now, after the render was queued
@@ -16,6 +17,7 @@ import { snapshotFromLegacy } from './legacySnapshot.js';
 import { getGameState } from './GameState.js';
 import { getMyAction } from './MyAction.js';
 import { getSeqGate } from './SeqGate.js';
+import { getTableSounds } from '../audio/tableSounds.js';
 
 /**
  * The snapshot of a payload: its v2 `snapshot` when valid, else one built
@@ -51,6 +53,8 @@ export function applyTableSnapshot(payload, { source = 'other', role, render } =
   if (!snap) return null;
   getGameState().applySnapshot(snap, { players: Array.isArray(payload.players) ? payload.players : null });
   const outcome = getMyAction().reconcile(snap, source);
+  // silent: the table it shows (my turn included) is the baseline, not news
+  getTableSounds().synced();
   render?.(snap, outcome);
   getSeqGate().onSnapshot(snap);
   return snap;

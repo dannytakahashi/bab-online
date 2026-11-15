@@ -25,7 +25,7 @@ final class GameState: ObservableObject {
     private(set) var sceneResets = 0
 
     weak var renderer: TableRenderer?
-    /// Non-animation effects (requestSnapshot / cancelAck / haptic) for ActionCoordinator.
+    /// Non-animation effects (requestSnapshot / cancelAck / haptic / sound) for ActionCoordinator.
     let ioRequests = PassthroughSubject<TableEffect, Never>()
 
     private var applying = false

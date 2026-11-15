@@ -45,6 +45,14 @@ enum ServerEvent: Equatable {
     case spectatorState(WirePayload.RejoinEnvelope)
     case actionRejected(WirePayload.ActionRejected)
     case stateSnapshot(WirePayload.StateSnapshot)
+
+    /// Restores (and a refused action's rollback): what they show is state, not news (no sounds).
+    var isSnapshotCarrier: Bool {
+        switch self {
+        case .rejoinSuccess, .rejoinFailed, .restorePlayerState, .spectatorState, .actionRejected, .stateSnapshot: return true
+        default: return false
+        }
+    }
 }
 
 struct SequencedEvent: Equatable {
