@@ -410,9 +410,8 @@ Three things were settled on the combination:
 
 The refit tables earn more next to the search than they did alone: 50.7%
 ±0.6, +3.3 ±1.1 against the same play on main's tables (4000, seed 880103),
-team sets 9.8% against 10.5%. They were fitted on rule-only play, so a refit
-on the combined play (about 2 CPU-hours per 16000-game round, see above) is
-still open.
+team sets 9.8% against 10.5%. They were fitted on rule-only play; the refit
+on the combined play is "Refit on the combined play" below.
 
 Paired harness as above (deal sets played twice, seats swapped, ± 95% CI
 over deal sets; a different deal hash and seeds from every earlier run).
@@ -491,3 +490,88 @@ the result of 226 of the 2000 deal sets. The soft read moved 0.8% of the
 searched decisions against bots that do play by the read, for no more gain
 against duckers, so it is not used. 0 illegal plays, 0 exceptions, 0 search
 errors in every run.
+
+## Refit on the combined play (November 2026)
+
+`bidModel.js` refit by the recipe above on the combined play (card view +
+endgame search, last-seat read as above): three rounds of 16000 Mary
+self-play games, each fitted on records from the previous round's tables.
+Each round ran as 8 processes split by seed (`simulate.js --exp baseline
+--games 2000 --seed S --records part.jsonl`), the parts concatenated into
+one file for `fitBidModel.js`:
+
+| Round | Records played with | Seeds |
+|---|---|---|
+| 1 | the tables fitted on the play-inference bots | 921-928 |
+| 2 | round 1 | 929-936 |
+| 3 | round 2 | 937-944 |
+| (calibration only) | round 3 | 945-952 |
+
+Paired runs, Mary pair, each table set against the one before (deal sets
+played twice with the seats swapped, ± 95% CI over deal sets):
+
+| Comparison | Deal sets, seed | Win rate | Margin per game |
+|---|---|---|---|
+| round 1 vs the previous tables | 4000, 9201 | 49.93% ±0.46 | +0.73 ±0.75 |
+| round 2 vs round 1 | 4000, 9202 | 49.78% ±0.42 | +0.14 ±0.63 |
+| round 3 vs round 2 | 4000, 9203 | 49.96% ±0.38 | +0.27 ±0.57 |
+| round 3 vs the previous tables | 4000, 9204 | 49.97% ±0.49 | +0.33 ±0.81 |
+| probe, not kept: round 3 with the team spread x1.15 vs round 3 | 4000, 9205 | 47.73% ±0.57 | -2.93 ±0.84 |
+
+No round is worse than the one before; all are even on points, and round 3
+is kept. Every run: 0 illegal plays, 0 invalid bids (`rules.isValidBid`), 0
+exceptions, 0 search errors; the 32 record runs had 0 incidents.
+
+Calibration, Mary self-play, 16000 games per row (8000 for the probe), from
+the records (all hand sizes; team set = share of a player's team-hands that
+were set, as `simulate.js` counts `teamSetRate`; ±0.06 binomial, a little
+wider in fact since a game's hands are not independent):
+
+| Tables | Seeds | Team set | trump / no-trump | Player tricks − bid | Exact bids | Bores | Bores made |
+|---|---|---|---|---|---|---|---|
+| d93b08a (main before the search: its play and tables) | 921-928 | 7.94% | 7.82% / 11.10% | +0.452 | 46.3% | 3.64% | 84.0% |
+| previous (play-inference fit) | 921-928 | 10.15% | 9.99% / 14.26% | +0.465 | 45.3% | 3.64% | 84.4% |
+| round 1 | 929-936 | 9.67% | 9.55% / 12.69% | +0.479 | 45.0% | 3.61% | 83.7% |
+| round 2 | 937-944 | 9.73% | 9.61% / 12.72% | +0.476 | 44.9% | 3.61% | 84.2% |
+| round 3 (kept) | 945-952 | 9.71% | 9.58% / 12.99% | +0.475 | 44.8% | 3.61% | 84.1% |
+| probe: round 3, spread x1.15 | 961-968 | 8.43% | 8.29% / 12.06% | +0.543 | 43.1% | 3.63% | 84.4% |
+
+(The 9.7% and 7.6% in "Combined play" are the paired harness's self-play on
+other deals; `simulate.js` reads the same tables at 10.15% and 7.94%.)
+
+What moved: the spread of team tricks the fit sees is wider with both sides
+searching (`TEAM_SD`, first to bid: 4 cards 0.84 -> 0.87, 7 cards 1.05 ->
+1.11, 10 cards 1.18 -> 1.24, 13 cards 1.27 -> 1.32; no-trump on 13 cards
+1.62 -> 1.79) and a partner who bid first wins more over the bid (13 cards
++0.86 -> +0.99). Round 1 takes the set rate from 10.15% to 9.7% (no-trump
+14.3% -> 12.7%); rounds 2 and 3 hold it there, so the tables have settled.
+
+The rest of the gap to main's 7.9% is not miscalibration. The bidder picks
+the best expected score under the fitted spread, and the spread is wider
+because both sides now defend with the search; forcing more caution (the
+probe: every team spread x1.15) does bring sets down to 8.4%, and costs 2.9
+points a game and 2.3 win points. All-bot tables are set more often than on
+main because sets are worth risking there.
+
+Bidding checks: every personality's bid passes `rules.isValidBid` (130,000
+random spots, 1-13 cards, earlier bids random and legal, bores included),
+and the bot tests (`server/game/bot`, the personality and bid tests among
+them) pass unchanged; none was relaxed. The wire golden and the iOS event
+logs were re-recorded; all five live recordings change (bids and the play
+that follows), `kept/kept-bots-s12.json` is untouched, and the static
+fixture expectations still hold (s14 seat1-rejoin is a PLAYING 4-card
+snapshot with 3 cards in hand, s21's seat-3 bid turn follows B, 1, 2B,
+over-trump, reject and rejoin counts unchanged). `pacingBudget.test.js`
+repinned botPlay:afterBidding (standard 7.8 -> 8.5 s, solo 5.0 -> 5.5 s):
+the new bids move which seat leads after bidding, and a bot leads a little
+more often; no delay changed.
+
+Personalities, paired on the same deals with each table set (2000 deal sets,
+seed 9206, personality + Mary vs Mary + Mary): danny+mary 49.93% ±0.64 with
+the previous tables, 50.29% ±0.68 with round 3 (difference +0.36 ±0.82 win
+points, -0.13 ±1.16 margin); zach+mary 48.00% ±0.69 -> 47.51% ±0.72 (-0.49
+±0.81, -0.14 ±1.09). `npm run sim -- --games 500` (seed 1001, 25 minutes in
+one process): 0 incidents, 0 exceptions, 0 search errors; mary vs legacy mary
+83.1%, vs legacy danny+zach 85.5% (±3.3; 84.4% / 85.6% before); sharon+mary
+48.0%, danny+mary 45.9%, mike+mary 48.5%, zach+mary 45.2% against mary+mary
+(±4.4; the paired runs above are the precise read for Danny and Zach).
