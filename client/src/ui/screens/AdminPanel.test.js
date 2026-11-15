@@ -321,7 +321,7 @@ describe('the panel', () => {
     expect(dialog.textContent).toMatch(/cannot be undone/);
     expect(dialog.textContent).toMatch(/\[deleted\] in past games/);
     expect(dialog.textContent).toMatch(/keeps reports by or about them, marked deleted/);
-    expect(dialog.textContent).toMatch(/frees the name Bea/);
+    expect(dialog.textContent).toMatch(/holds the name Bea for 30 days/);
     const typed = $('#adminDialogConfirm');
     expect($('label[for="adminDialogConfirm"]').textContent).toBe('Type Bea to confirm');
     expect(document.activeElement).toBe(typed);

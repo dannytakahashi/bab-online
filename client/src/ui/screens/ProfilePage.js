@@ -556,7 +556,7 @@ function createDangerZone(socket) {
   confirmArea.appendChild(el('p', {
     className: 'danger-zone__warning',
     attrs: { id: 'deleteAccountWarning' },
-    text: 'This permanently deletes your account, statistics, and profile. This cannot be undone. Enter your password to confirm.',
+    text: 'This permanently deletes your account, statistics, and profile. This cannot be undone. Your username stays reserved for 30 days. Enter your password to confirm.',
   }));
 
   const passwordInput = el('input', {

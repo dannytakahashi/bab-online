@@ -537,7 +537,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         'shows their name as [deleted] in past games (the other players keep those games);',
         'keeps reports by or about them, marked deleted;',
         "removes them from other players' block lists and cancels any open reset link;",
-        `deletes the old names merged into it, and frees the name ${p.username} for a new sign-up.`,
+        `deletes the old names merged into it, and holds the name ${p.username} for 30 days so nobody signs up with it at once (Delete… on its row frees it sooner).`,
       ],
       expected: p.username,
       confirmLabel: 'Delete account',
