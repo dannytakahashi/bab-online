@@ -198,7 +198,7 @@ describe('POST /api/password-reset', () => {
             expect(JSON.stringify([db.adminAudit.all(), db.passwordResets.all(), db.users.all()])).not.toContain(secret);
         }
         // reuse: the constant refusal
-        const again = await post({ token, password: 'other' });
+        const again = await post({ token, password: 'other-pw-1' });
         expect(again.status).toBe(400);
         expect(again.json).toEqual(INVALID);
     });
@@ -209,12 +209,12 @@ describe('POST /api/password-reset', () => {
         const second = await createResetLink(db, 'Bea', { now: new Date(clock) });
         const bodies = [];
         for (const token of [first.token, 'x'.repeat(43), 'short', null, 42, '../../etc/passwd']) {
-            const res = await post({ token, password: 'pw' });
+            const res = await post({ token, password: 'pw-long-1' });
             expect(res.status).toBe(400);
             bodies.push(res.text);
         }
         clock += RESET_TTL_MS;
-        bodies.push((await post({ token: second.token, password: 'pw' })).text);
+        bodies.push((await post({ token: second.token, password: 'pw-long-1' })).text);
         expect(new Set(bodies).size).toBe(1);
         expect(JSON.parse(bodies[0])).toEqual(INVALID);
     });
@@ -224,24 +224,24 @@ describe('POST /api/password-reset', () => {
         await db.users.insertOne({ username: 'Bea2', password: 'x' });
         const { token } = await createResetLink(db, 'Bea2', { now: new Date(clock) });
         await db.users.updateOne({ username: 'Bea2' }, { $set: { mergedInto: 'Bea' } });
-        expect((await post({ token, password: 'pw' })).json).toEqual(INVALID);
+        expect((await post({ token, password: 'pw-long-1' })).json).toEqual(INVALID);
     });
 
-    test('the sign-up password rule (1-100); a refused password keeps the link usable', async () => {
+    test('the new-password rule (8-100); a refused password keeps the link usable', async () => {
         await start();
         const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
-        for (const password of ['', 'p'.repeat(101), 7, null]) {
+        for (const password of ['', 'p'.repeat(7), 'p'.repeat(101), 7, null]) {
             const res = await post({ token, password });
             expect(res.status).toBe(400);
             expect(res.json).toEqual({ ok: false, error: 'invalid_password', message: MESSAGES.invalid_password });
         }
-        expect((await post({ token, password: 'fine' })).status).toBe(200);
+        expect((await post({ token, password: 'fine-pw-1' })).status).toBe(200);
     });
 
     test('two tabs submitting at once: exactly one success', async () => {
         await start();
         const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
-        const results = await Promise.all([post({ token, password: 'a1' }), post({ token, password: 'a2' })]);
+        const results = await Promise.all([post({ token, password: 'a1-long-pw' }), post({ token, password: 'a2-long-pw' })]);
         expect(results.map(r => r.status).sort()).toEqual([200, 400]);
     });
 
@@ -249,8 +249,8 @@ describe('POST /api/password-reset', () => {
         await start();
         const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
         expect((await post(`token=${token}&password=x`, { 'Content-Type': 'application/x-www-form-urlencoded' })).status).toBe(415);
-        expect((await post({ token, password: 'x' }, { Origin: 'https://evil.example' })).status).toBe(403);
-        expect((await post({ token, password: 'x' }, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
+        expect((await post({ token, password: 'x-long-pw' }, { Origin: 'https://evil.example' })).status).toBe(403);
+        expect((await post({ token, password: 'x-long-pw' }, { 'Sec-Fetch-Site': 'cross-site' })).status).toBe(403);
         logLines.length = 0;
         const bad = await post(`{"token":"${token}", oops`);
         expect(bad.status).toBe(400);
@@ -266,7 +266,7 @@ describe('POST /api/password-reset', () => {
     test('rate limited per client address (10 attempts, refilling over 15 minutes)', async () => {
         await start();
         // behind the proxy (a loopback peer): X-Real-IP names the client (utils/clientIp)
-        const as = (ip) => post({ token: 'x'.repeat(43), password: 'pw' }, { 'X-Real-IP': ip });
+        const as = (ip) => post({ token: 'x'.repeat(43), password: 'pw-long-1' }, { 'X-Real-IP': ip });
         const statuses = [];
         for (let i = 0; i < 12; i++) statuses.push((await as('203.0.113.9')).status);
         expect(statuses.slice(0, 10)).toEqual(Array(10).fill(400));
@@ -282,14 +282,14 @@ describe('POST /api/password-reset', () => {
         const links = [];
         for (const username of ['Cy', 'Di', 'Ed']) links.push((await createResetLink(db, username, { now: new Date(clock) })).token);
         // junk first: malformed and unknown well-formed tokens, any number of them
-        for (let i = 0; i < 5; i++) expect((await post({ token: i % 2 ? 'x' : 'x'.repeat(43), password: 'pw' })).status).toBe(400);
+        for (let i = 0; i < 5; i++) expect((await post({ token: i % 2 ? 'x' : 'x'.repeat(43), password: 'pw-long-1' })).status).toBe(400);
         const statuses = [];
-        for (const token of links) statuses.push((await post({ token, password: 'pw' })).status);
+        for (const token of links) statuses.push((await post({ token, password: 'pw-long-1' })).status);
         expect(statuses).toEqual([200, 200, 429]);
         // the refused link was not used up: it works once the bucket refills
         expect(db.passwordResets.all().find(r => r.username === 'Ed').state).toBe('open');
         clock += 1000 * 1000;
-        expect((await post({ token: links[2], password: 'pw' })).status).toBe(200);
+        expect((await post({ token: links[2], password: 'pw-long-1' })).status).toBe(200);
     });
 
     test('junk from many addresses never locks a real link out (SEC2-RESET-GLOBAL-DOS)', async () => {
@@ -303,7 +303,7 @@ describe('POST /api/password-reset', () => {
         }
         expect(statuses).toEqual({ 400: 90 });
         // and an unknown client address (no X-Real-IP behind the proxy) can send junk all day
-        for (let i = 0; i < 70; i++) expect((await post({ token: 'z'.repeat(43), password: 'p' })).status).toBe(400);
+        for (let i = 0; i < 70; i++) expect((await post({ token: 'z'.repeat(43), password: 'p-long-pw' })).status).toBe(400);
         const victim = await post({ token, password: 'brand-new' }, { 'X-Real-IP': '203.0.113.7' });
         expect(victim.status).toBe(200);
         expect(victim.json.ok).toBe(true);
@@ -311,7 +311,7 @@ describe('POST /api/password-reset', () => {
 
     test('an IPv6 client is limited by its /64, not per address', async () => {
         await start();
-        const as = (ip) => post({ token: 'x'.repeat(43), password: 'pw' }, { 'X-Real-IP': ip });
+        const as = (ip) => post({ token: 'x'.repeat(43), password: 'pw-long-1' }, { 'X-Real-IP': ip });
         const statuses = [];
         for (let i = 1; i <= 12; i++) statuses.push((await as(`2001:db8::${i.toString(16)}`)).status);
         expect(statuses).toEqual([...Array(10).fill(400), 429, 429]);
@@ -330,13 +330,13 @@ describe('POST /api/password-reset', () => {
         await db.users.insertOne({ username: 'Cy', password: 'x' });
         const bea = (await createResetLink(db, 'Bea', { now: new Date(clock) })).token;
         const cy = (await createResetLink(db, 'Cy', { now: new Date(clock) })).token;
-        const first = post({ token: bea, password: 'pw' });
+        const first = post({ token: bea, password: 'pw-long-1' });
         await entered; // the first is hashing
-        expect((await post({ token: 'x'.repeat(43), password: 'pw' })).status).toBe(400);
-        expect((await post({ token: cy, password: 'pw' })).status).toBe(503);
+        expect((await post({ token: 'x'.repeat(43), password: 'pw-long-1' })).status).toBe(400);
+        expect((await post({ token: cy, password: 'pw-long-1' })).status).toBe(503);
         release();
         expect((await first).status).toBe(200);
-        expect((await post({ token: cy, password: 'pw' })).status).toBe(200);
+        expect((await post({ token: cy, password: 'pw-long-1' })).status).toBe(200);
     });
 
     describe('every live connection of the player is signed out', () => {
@@ -458,12 +458,12 @@ describe('POST /api/password-reset', () => {
         const { token } = await createResetLink(db, 'Bea', { now: new Date(clock) });
         const real = db.users.findOneAndUpdate.bind(db.users);
         db.users.findOneAndUpdate = async () => { throw new Error('write failed'); };
-        expect((await post({ token, password: 'pw' })).status).toBe(503);
+        expect((await post({ token, password: 'pw-long-1' })).status).toBe(503);
         db.users.findOneAndUpdate = real;
-        expect((await post({ token, password: 'pw' })).status).toBe(200);
+        expect((await post({ token, password: 'pw-long-1' })).status).toBe(200);
         const saved = db;
         db = { users: undefined, passwordResets: undefined };
-        expect((await post({ token, password: 'pw' })).status).toBe(503);
+        expect((await post({ token, password: 'pw-long-1' })).status).toBe(503);
         db = saved;
     });
 });

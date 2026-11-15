@@ -11,6 +11,7 @@ const seatLifecycle = require('./seatLifecycle');
 const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { releaseStaleLobbySeat, leaveLobby } = require('./lobbyHandlers');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
+const { deletedSince } = require('../admin/accountDelete');
 
 /**
  * Handle player joining the main room
@@ -259,7 +260,8 @@ function joinAsSpectator(socket, io, data) {
     }
 
     // An owner of this game comes back to their own seat, not as a spectator
-    const ownPos = game.seatByUsername(user.username);
+    // (never a seat of an account deleted since the game began: accountDelete.deletedSince)
+    const ownPos = deletedSince(user.username, game.createdAt) ? null : game.seatByUsername(user.username);
     const ownSeat = ownPos ? game.seat(ownPos) : null;
     if (ownSeat && ownSeat.controller !== Controller.HUMAN &&
         (ownSeat.presence === Presence.CONNECTED || ownSeat.presence === Presence.AWAY)) {

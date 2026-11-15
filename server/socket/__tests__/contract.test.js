@@ -423,16 +423,21 @@ describe('(e) non-game handlers', () => {
         jest.useRealTimers();
         const w = world('e');
         const a = w.socket('e-a');
-        await authHandlers.signUp(a, w.io, { username: 'e_alice', password: 'pw1' });
-        await authHandlers.signUp(a, w.io, { username: 'e_alice', password: 'pw1' }); // taken
+        await authHandlers.signUp(a, w.io, { username: 'e_alice', password: 'pw1-long' });
+        await authHandlers.signUp(a, w.io, { username: 'e_alice', password: 'pw1-long' }); // taken
         const b = w.socket('e-b');
         await authHandlers.signIn(b, w.io, { username: 'e_alice', password: 'nope' });
-        await authHandlers.signIn(b, w.io, { username: 'e_alice', password: 'pw1' }); // kicks a: forceLogout
+        await authHandlers.signIn(b, w.io, { username: 'e_alice', password: 'pw1-long' }); // kicks a: forceLogout
         expect(selfEvents(w, 'e-a')).toContain('forceLogout');
         const token = w.log.filter((l) => l.event === 'signInResponse' && l.data.success).pop().data.sessionToken;
         const c = w.socket('e-c');
         await authHandlers.restoreSession(c, w.io, { username: 'e_alice', sessionToken: token });
         await authHandlers.restoreSession(c, w.io, { username: 'e_nobody', sessionToken: token });
+        // Change password: a wrong current one, a short new one, then a real change
+        await authHandlers.changePassword(c, w.io, { current: 'nope', next: 'pw2-longer' });
+        await authHandlers.changePassword(c, w.io, { current: 'pw1-long', next: 'short' });
+        await authHandlers.changePassword(c, w.io, { current: 'pw1-long', next: 'pw2-longer' });
+        expect(events(w.log, 'changePasswordResponse').map((l) => l.data.success)).toEqual([false, false, true]);
 
         // DB content, so the leaderboard rows and records periods are validated
         // non-empty: a player with games, a game this month, an old one and a
@@ -557,7 +562,7 @@ describe('(e) non-game handlers', () => {
 
         // Account deletion, and the last socket of a user going away
         await authHandlers.deleteAccount(c, w.io, { password: 'wrong' });
-        await authHandlers.deleteAccount(c, w.io, { password: 'pw1' });
+        await authHandlers.deleteAccount(c, w.io, { password: 'pw2-longer' });
         const online = gameManager.getOnlineUsernames().length;
         await w.kill(d);
         const left = events(w.log, 'mainRoomPlayerLeft');
@@ -574,7 +579,7 @@ describe('(e) auth responses that drive auto-rejoin', () => {
         jest.useRealTimers();
         const w = world('e2');
         const a = w.socket('e2-a');
-        await authHandlers.signUp(a, w.io, { username: 'e2_ann', password: 'pw1' });
+        await authHandlers.signUp(a, w.io, { username: 'e2_ann', password: 'pw1-long' });
         const token = events(w.log, 'signUpResponse').pop().data.sessionToken;
         const users = mockDb.current.users;
         const doc = () => users.docs.find((d) => d.username === 'e2_ann');
@@ -583,7 +588,7 @@ describe('(e) auth responses that drive auto-rejoin', () => {
         const game = gameManager.createGame(['e2-x1', 'e2-x2', 'e2-x3', 'e2-x4']);
         doc().activeGameId = game.gameId;
         const b = w.socket('e2-b');
-        await authHandlers.signIn(b, w.io, { username: 'e2_ann', password: 'pw1' });
+        await authHandlers.signIn(b, w.io, { username: 'e2_ann', password: 'pw1-long' });
         const c = w.socket('e2-c');
         await authHandlers.restoreSession(c, w.io, { username: 'e2_ann', sessionToken: token });
         const signIn1 = events(w.log, 'signInResponse').pop().data;
@@ -601,7 +606,7 @@ describe('(e) auth responses that drive auto-rejoin', () => {
         expect(tid).toBeTruthy();
         doc().activeTournamentId = tid;
         const d = w.socket('e2-d');
-        await authHandlers.signIn(d, w.io, { username: 'e2_ann', password: 'pw1' });
+        await authHandlers.signIn(d, w.io, { username: 'e2_ann', password: 'pw1-long' });
         const e = w.socket('e2-e');
         await authHandlers.restoreSession(e, w.io, { username: 'e2_ann', sessionToken: token });
         const signIn2 = events(w.log, 'signInResponse').pop().data;

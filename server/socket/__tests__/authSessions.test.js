@@ -196,7 +196,7 @@ describe('merged (retired) accounts', () => {
 
     test('sign-up cannot re-register the name and points to the kept account', async () => {
         const socket = connect();
-        await auth.signUp(socket, io, { username: 'Alan2', password: 'new' });
+        await auth.signUp(socket, io, { username: 'Alan2', password: 'new-password' });
         const res = lastEmit(socket, 'signUpResponse');
         expect(res.success).toBe(false);
         expect(res.message).toContain('sign in as Alan');
@@ -228,14 +228,15 @@ describe('merged (retired) accounts', () => {
             jest.useRealTimers();
         }
         expect(lastEmit(socket, 'deleteAccountResponse')).toEqual({ success: true });
-        expect(await mockDb.current.users.countDocuments({})).toBe(0);
+        // Only the deleted name's hold is left (30 days, accountDelete.js)
+        expect(mockDb.current.users.all()).toEqual([expect.objectContaining({ username: 'Alan', mergedInto: '[deleted]' })]);
     });
 });
 
 describe('sign-up', () => {
     test('new accounts get a per-device session', async () => {
         const socket = connect();
-        await auth.signUp(socket, io, { username: 'Newbie', password: 'pw' });
+        await auth.signUp(socket, io, { username: 'Newbie', password: 'pw-long-1' });
         const { sessionToken } = lastEmit(socket, 'signUpResponse');
         const user = await getUser('Newbie');
         expect(user).not.toHaveProperty('sessionToken');
@@ -249,7 +250,7 @@ describe('sign-up', () => {
         jest.spyOn(mockDb.current.users, 'insertOne').mockRejectedValueOnce(
             Object.assign(new Error('E11000 duplicate key error collection: babonline.users index: username_1'), { code: 11000 })
         );
-        await auth.signUp(socket, io, { username: 'Racer', password: 'pw' });
+        await auth.signUp(socket, io, { username: 'Racer', password: 'pw-long-1' });
         expect(lastEmit(socket, 'signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
         expect(gameManager.registerUser).not.toHaveBeenCalled();
         expect(socket.data.sessionHash).toBeUndefined();
@@ -421,7 +422,7 @@ describe('cold start (connectDB still running)', () => {
         expect(await signIn(connect())).toMatchObject({ success: true });
         mockDb.cold = true;
         const s = connect();
-        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        await auth.signUp(s, io, { username: 'Late', password: 'pw-long-1' });
         expect(lastEmit(s, 'signUpResponse')).toMatchObject({ success: true, username: 'Late' });
     });
 
@@ -430,9 +431,9 @@ describe('cold start (connectDB still running)', () => {
         mockDb.whenReady = async () => false;
         expect(await signIn(connect())).toEqual({ success: false, message: 'Database error. Try again.' });
         expect(await restore(connect(), '55555555-5555-4555-8555-555555555555'))
-            .toEqual({ success: false, message: 'Database error. Try again.' });
+            .toEqual({ success: false, message: 'Database error. Try again.', retryable: true });
         const s = connect();
-        await auth.signUp(s, io, { username: 'Late', password: 'pw' });
+        await auth.signUp(s, io, { username: 'Late', password: 'pw-long-1' });
         expect(lastEmit(s, 'signUpResponse')).toEqual({ success: false, message: 'Database not ready. Try again.' });
     });
 
@@ -811,7 +812,8 @@ describe('account deletion and the admin role', () => {
         await mockDb.current.users.insertOne({ username: 'Bea', password: pw, isAdmin: true });
         await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { isAdmin: true } });
         expect(await del('Alan')).toEqual({ success: true });
-        expect(await getUser('Alan')).toBeNull();
+        expect(await getUser('Alan')).toEqual(expect.objectContaining({ mergedInto: '[deleted]' }));
+        expect(await getUser('Alan')).not.toHaveProperty('isAdmin');
         expect(await mockDb.current.users.countDocuments({ isAdmin: true })).toBe(1);
     });
 

@@ -25,7 +25,9 @@ function generateFriendlyPassword() {
 /**
  * The password write both resets share (this CLI, and a one-time reset link:
  * server/admin/passwordReset.js): the new hash, a timestamp field naming
- * which reset it was, and every saved session revoked (the per-device
+ * which reset it was (passwordResetByAdminAt for this CLI,
+ * passwordResetByLinkAt for a link), the one-time notice the player gets at
+ * their next sign-in (passwordResetNotice {by, at}), and every saved session revoked (the per-device
  * sessionTokens and the legacy plaintext sessionToken, with sessionEpoch
  * bumped so an in-flight sign-in or restore cannot write them back), so
  * every device has to sign in with the new password.
@@ -44,10 +46,13 @@ function generateFriendlyPassword() {
  * @returns {Promise<{revokedSessions: number, socketId: string|null}>}
  */
 async function writePasswordHash(db, user, hash, { now = new Date(), stampField = 'passwordResetByAdminAt' } = {}) {
+    // passwordResetNotice: told once at the next sign-in or restore
+    // (authHandlers.resetNoticeFor), then unset by that session write
+    const by = stampField === 'passwordResetByLinkAt' ? 'link' : 'admin';
     const before = await db.users.findOneAndUpdate(
         { _id: user._id },
         {
-            $set: { password: hash, [stampField]: now },
+            $set: { password: hash, [stampField]: now, passwordResetNotice: { by, at: now } },
             ...REVOKE_ALL_SESSIONS
         },
         { returnDocument: 'before', projection: { socketId: 1, 'sessionTokens.hash': 1, sessionToken: 1 } }
@@ -59,9 +64,19 @@ async function writePasswordHash(db, user, hash, { now = new Date(), stampField 
     };
 }
 
-/** The sign-up password rule (validators.js signUp: 1-100 characters). */
+/**
+ * The rule for every NEW password (sign-up, Change password, a reset link,
+ * this CLI): 8-100 characters (owner 2026-11-15; it was 1-100). Existing
+ * shorter passwords keep working for sign-in, whose Joi schema stays at
+ * 1-100, as do signUp's and changePassword's, so a short one gets this
+ * message rather than a validation error.
+ */
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 100;
+const PASSWORD_RULE_MESSAGE = `Password must be ${PASSWORD_MIN_LENGTH}-${PASSWORD_MAX_LENGTH} characters.`;
+
 function checkPasswordRule(newPassword) {
-    return typeof newPassword === 'string' && newPassword.length >= 1 && newPassword.length <= 100;
+    return typeof newPassword === 'string' && newPassword.length >= PASSWORD_MIN_LENGTH && newPassword.length <= PASSWORD_MAX_LENGTH;
 }
 
 /**
@@ -95,7 +110,7 @@ async function revokeOpenResetLinks(db, user, { now = new Date() } = {}) {
  */
 async function setPassword(db, username, newPassword, { now = new Date(), rounds = 10 } = {}) {
     if (!checkPasswordRule(newPassword)) {
-        throw new Error('Password must be 1-100 characters.');
+        throw new Error(PASSWORD_RULE_MESSAGE);
     }
     const user = await db.users.findOne({ username });
     if (!user) throw new Error(`Account "${username}" does not exist.`);
@@ -109,4 +124,7 @@ async function setPassword(db, username, newPassword, { now = new Date(), rounds
     return { username, revokedSessions, revokedLinks };
 }
 
-module.exports = { setPassword, writePasswordHash, revokeOpenResetLinks, checkPasswordRule, generateFriendlyPassword, WORDS };
+module.exports = {
+    setPassword, writePasswordHash, revokeOpenResetLinks, checkPasswordRule, generateFriendlyPassword, WORDS,
+    PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH, PASSWORD_RULE_MESSAGE
+};

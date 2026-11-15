@@ -130,6 +130,9 @@ async function ensureIndexes({
         safeIndex(gameRecords, { completedAt: -1 }, {}, 'gameRecords.completedAt_-1'),
         safeIndex(reports, { createdAt: -1 }, {}, 'reports.createdAt_-1'),
         ensureUsernameIndex(users),
+        // A deleted account's name hold (server/admin/accountDelete.js)
+        // goes when its nameHeldUntil passes; only holds carry the field
+        safeIndex(users, { nameHeldUntil: 1 }, { expireAfterSeconds: 0 }, 'users.nameHeldUntil_1 (TTL)'),
         ...adminIndexes({ users, passwordResets, adminAudit })
     ]);
 }

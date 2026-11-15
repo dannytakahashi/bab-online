@@ -425,7 +425,7 @@ describe('actions', () => {
         expect(res.players[0]).toMatchObject({ mergedInto: 'Bea', isAdmin: false, online: false, gamesPlayed: 0, lastSeenAt: null });
         expect(res.players[3]).toMatchObject({ username: 'Owner', isAdmin: true, online: true, gamesPlayed: 4, mergedInto: null });
         expect(res.players[3].lastSeenAt).toEqual(expect.any(String));
-        expect(Object.keys(res.players[3]).sort()).toEqual(['botGamesPlayed', 'createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
+        expect(Object.keys(res.players[3]).sort()).toEqual(['botGamesPlayed', 'createdAt', 'gamesPlayed', 'heldUntil', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(res)).not.toMatch(/\$2[ab]\$|hash|socketId|sessionToken|password/i);
         // read-only and opened constantly: not audited (a non-admin's attempt still is)
         expect(audit().some(e => e.action === 'listPlayers')).toBe(false);
@@ -442,7 +442,7 @@ describe('actions', () => {
             await users().insertOne({ username: 'CyOld', mergedInto: 'Cy', mergedAt: new Date() });
         });
 
-        test('a normal account: both tabs signed out, records anonymized, block lists and reset links cleaned, reports kept and marked, its tombstones gone; one audit entry; the name can be signed up again', async () => {
+        test('a normal account: both tabs signed out, records anonymized, block lists and reset links cleaned, reports kept and marked, its tombstones gone; one audit entry; the name is held until an admin frees it', async () => {
             const cy = await signedIn('Cy');
             const cy2 = await restoredTab('Cy', cy.sessionToken);
             const bea = await signedIn('Bea');
@@ -458,7 +458,11 @@ describe('actions', () => {
                 expect(w.io.sockets.sockets.has(s.id)).toBe(false);
             }
             expect(w.io.sockets.sockets.has(owner.id)).toBe(true);
-            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            // the account is now its name hold: nothing of it but the name and the dates
+            const held = await users().findOne({ username: 'Cy' });
+            expect(held).toEqual(expect.objectContaining({ mergedInto: '[deleted]', deletedAt: expect.any(Date), nameHeldUntil: expect.any(Date) }));
+            expect(Object.keys(held).sort()).toEqual(['_id', 'deletedAt', 'mergedInto', 'nameHeldUntil', 'username']);
+            expect(held.nameHeldUntil.getTime() - held.deletedAt.getTime()).toBe(30 * 24 * 60 * 60 * 1000);
             expect(await users().findOne({ username: 'CyOld' })).toBeNull();
             const records = mockDb.current.gameRecords.all();
             expect(records.map(r => [r.team1Players, r.team2Players])).toEqual([
@@ -487,11 +491,15 @@ describe('actions', () => {
             expect(entries.filter(e => e.action === 'deleteAccount')).toHaveLength(1);
             expect(entries.find(e => e.action === 'deleteAccount')).toMatchObject({ actor: 'Owner', target: 'Cy', result: 'ok', detail: expect.stringMatching(/^account deleted: 2 game record/) });
             expect(JSON.stringify(entries)).not.toMatch(/\$2[ab]\$|hash|token/i);
-            // the name is free: nothing clashes with it any more (a new
-            // sign-up would need 3+ characters; the tombstone test signs one up)
+            // the name is held (30 days); its merged tombstone's name is free
             const { findNameClash } = require('../../utils/usernameRules');
-            expect(await findNameClash(users(), 'Cy')).toBeNull();
+            expect(await findNameClash(users(), 'Cy')).toMatchObject({ username: 'Cy', mergedInto: '[deleted]', exact: true });
+            expect(await findNameClash(users(), 'cy')).toMatchObject({ username: 'Cy', exact: false });
             expect(await findNameClash(users(), 'CyOld')).toBeNull();
+            // the panel frees it like any tombstone
+            expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: '[deleted]' });
+            expect(audit().pop()).toMatchObject({ action: 'deleteAccount', target: 'Cy', result: 'ok', detail: expect.stringMatching(/name hold removed; the name is free/) });
+            expect(await findNameClash(users(), 'Cy')).toBeNull();
             gameManager.deletedUsernames.delete('Cy');
         });
 
@@ -511,7 +519,7 @@ describe('actions', () => {
             expect(JSON.stringify(await users().findOne({ username: 'Bea' }))).toBe(beaBefore);
             expect(audit().pop()).toMatchObject({ action: 'deleteAccount', target: 'Old', result: 'ok', detail: expect.stringMatching(/tombstone deleted/) });
             const s = w.socket(`adm-${++n}`);
-            await auth.signUp(s, w.io, { username: 'Old', password: 'pw' });
+            await auth.signUp(s, w.io, { username: 'Old', password: 'pw-long-1' });
             expect(w.log.filter(l => l.to === `self:${s.id}` && l.event === 'signUpResponse').pop().data).toMatchObject({ success: true });
         });
 
@@ -582,7 +590,7 @@ describe('actions', () => {
             expect(await users().findOne({ username: 'Cy' })).not.toBeNull();
             expect(gameManager.isMergeLocked('Cy')).toBe(false);
             expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, gameRecords: 2 });
-            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(await users().findOne({ username: 'Cy' })).toEqual(expect.objectContaining({ mergedInto: '[deleted]', deletedAt: expect.any(Date), nameHeldUntil: expect.any(Date) }));
         });
 
         test('a delete sent while a merge of the same name is running waits for it (the merge queue): it then finds a tombstone; never stats merged from a deleted account', async () => {
@@ -620,7 +628,7 @@ describe('actions', () => {
             expect(w.log.filter(l => l.to === `self:${cy.id}` && l.event === 'deleteAccountResponse').pop().data).toEqual({ success: true });
             expect(gotEvent(cy, 'forceLogout')).toBe(false); // the asking tab gets its reply, then closes
             expect(gotEvent(cy2, 'forceLogout')).toBe(true);
-            expect(await users().findOne({ username: 'Cy' })).toBeNull();
+            expect(await users().findOne({ username: 'Cy' })).toEqual(expect.objectContaining({ mergedInto: '[deleted]', deletedAt: expect.any(Date), nameHeldUntil: expect.any(Date) }));
             expect(await users().findOne({ username: 'CyOld' })).toBeNull();
             // other players' blocks of the name stay (BLK-EVADE: deleting and
             // signing up again as Cy must not clear them)
@@ -713,7 +721,7 @@ describe('actions', () => {
             expect(await signInReply('Cyrus')).toMatchObject({ success: true, username: 'Cyrus' });
             // sign-up of the old name is refused (the redirect keeps the name)
             const up = w.socket(`adm-${++n}`);
-            await auth.signUp(up, w.io, { username: 'CyOld', password: 'pw' });
+            await auth.signUp(up, w.io, { username: 'CyOld', password: 'pw-long-1' });
             expect(w.log.filter(l => l.to === `self:${up.id}` && l.event === 'signUpResponse').pop().data.success).toBe(false);
             // the leaderboard (cache invalidated) shows the new name
             const profile = require('../profileHandlers');
@@ -794,9 +802,9 @@ describe('actions', () => {
             // anyone else is not
             expect(await ask(auth.signIn, 'signInResponse', { username: 'Bea', password: 'not-it' })).toEqual({ success: false, message: 'Invalid username or password!' });
             expect(await ask(auth.signIn, 'signInResponse', { username: 'Old', password: 'not-it' })).toEqual({ success: false, message: 'Invalid username or password!' });
-            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Bea', password: 'pw' })).toEqual({ success: false, message: 'That name is taken.' });
-            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Old', password: 'pw' })).toEqual({ success: false, message: 'That name is taken.' });
-            expect(await ask(auth.signUp, 'signUpResponse', { username: 'bea', password: 'pw' })).toMatchObject({ success: false, message: expect.stringMatching(/"Bea" already exists/) });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Bea', password: 'pw-long-1' })).toEqual({ success: false, message: 'That name is taken.' });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'Old', password: 'pw-long-1' })).toEqual({ success: false, message: 'That name is taken.' });
+            expect(await ask(auth.signUp, 'signUpResponse', { username: 'bea', password: 'pw-long-1' })).toMatchObject({ success: false, message: expect.stringMatching(/"Bea" already exists/) });
             expect(await ask(auth.restoreSession, 'restoreSessionResponse', { username: 'Bea', sessionToken: 'x'.repeat(64) })).toEqual({ success: false, message: 'Invalid session token' });
             const profile = require('../profileHandlers');
             expect(await ask(profile.getPlayerProfile, 'playerProfileResponse', { username: 'Bea' })).toEqual({ success: false, message: 'Player not found' });
@@ -861,7 +869,7 @@ describe('actions', () => {
                 expect(gotEvent(cy, 'forceLogout')).toBe(true);
                 expect(await signInReply('Cy')).toEqual({ success: false, message: auth.MERGE_LOCKED_MESSAGE });
                 const up = w.socket(`adm-${++n}`);
-                await auth.signUp(up, w.io, { username: 'cyrus', password: 'pw' });
+                await auth.signUp(up, w.io, { username: 'cyrus', password: 'pw-long-1' });
                 expect(w.log.filter(l => l.to === `self:${up.id}` && l.event === 'signUpResponse').pop().data).toEqual({ success: false, message: 'That name is taken.' });
             } finally {
                 hold.release();
@@ -930,7 +938,8 @@ describe('actions', () => {
                 jest.useRealTimers();
             }
             expect(w.log.filter(l => l.to === `self:${cyrus.id}` && l.event === 'deleteAccountResponse').pop().data).toEqual({ success: true });
-            expect(await users().findOne({ username: 'Cyrus' })).toBeNull();
+            // the account's name is held; the old name's redirect went with the account
+            expect(await users().findOne({ username: 'Cyrus' })).toEqual(expect.objectContaining({ mergedInto: '[deleted]', deletedAt: expect.any(Date), nameHeldUntil: expect.any(Date) }));
             expect(await users().findOne({ username: 'Cy' })).toBeNull();
             expect(await users().findOne({ username: 'CyOld' })).toBeNull();
             try {
@@ -1255,7 +1264,7 @@ describe('actions', () => {
             expect(await users().findOne({ username: 'Cyrus' })).toMatchObject({ stats: { gamesPlayed: 3 } });
         });
 
-        test('BLK-EVADE: a player deleting their own account and signing up again as the same name stays blocked', async () => {
+        test('BLK-EVADE: a player deleting their own account cannot sign up as the name at once (held), and once an admin frees it the new account stays blocked', async () => {
             await users().insertOne({ username: 'Hal', password: PW });
             await users().updateOne({ username: 'Bea' }, { $set: { blockedUsers: ['Hal'] } });
             const bea = await signedIn('Bea');
@@ -1267,9 +1276,15 @@ describe('actions', () => {
                 jest.useRealTimers();
             }
             expect(replyOf(hal, 'deleteAccountResponse')).toEqual({ success: true });
-            expect(await users().findOne({ username: 'Hal' })).toBeNull();
+            expect(await users().findOne({ username: 'Hal' })).toEqual(expect.objectContaining({ mergedInto: '[deleted]', deletedAt: expect.any(Date), nameHeldUntil: expect.any(Date) }));
+            const early = w.socket(`adm-${++n}`);
+            await auth.signUp(early, w.io, { username: 'Hal', password: 'pw-long-1' });
+            expect(replyOf(early, 'signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
+            await auth.signUp(early, w.io, { username: 'hal', password: 'pw-long-1' });
+            expect(replyOf(early, 'signUpResponse')).toEqual({ success: false, message: expect.stringMatching(/"Hal" already exists/) });
+            expect(await request(owner, 'deleteAccount', { username: 'Hal', confirm: 'Hal' })).toMatchObject({ ok: true, kind: 'tombstone' });
             const up = w.socket(`adm-${++n}`);
-            await auth.signUp(up, w.io, { username: 'Hal', password: 'pw' });
+            await auth.signUp(up, w.io, { username: 'Hal', password: 'pw-long-1' });
             expect(replyOf(up, 'signUpResponse')).toMatchObject({ success: true });
             expect((await users().findOne({ username: 'Bea' })).blockedUsers).toEqual(['Hal']);
             expect([...bea.data.blockedUsers]).toEqual(['Hal']);
@@ -1298,7 +1313,7 @@ describe('actions', () => {
         test('SU-CASE: a sign-up of a case variant whose hash overlaps a rename to that name is undone after its insert', async () => {
             const hold = holdNextWrite(passwordHash, 'hash');
             const up = w.socket(`adm-${++n}`);
-            const signing = auth.signUp(up, w.io, { username: 'cyrus', password: 'pw' });
+            const signing = auth.signUp(up, w.io, { username: 'cyrus', password: 'pw-long-1' });
             try {
                 await hold.reached;
                 expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true });

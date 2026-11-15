@@ -66,7 +66,7 @@ const lastEmit = (socket, event) => {
 const freshName = () => `Acct ${++names}`;
 
 async function signUp(socket, username = freshName()) {
-    await auth.signUp(socket, io, { username, password: 'secret' });
+    await auth.signUp(socket, io, { username, password: 'secret-pw' });
     return lastEmit(socket, 'signUpResponse');
 }
 

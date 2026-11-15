@@ -60,7 +60,10 @@ const I = {
 const reads = (web, ios) => ({ web: [].concat(web || []), ios: [].concat(ios || []) });
 
 // ---------- shared payload pieces ----------
-const fail = (extra = {}) => variant('failure', obj({ success: konst(false), message: str(), ...extra }));
+const fail = (extra = {}, o = {}) => variant('failure', obj({ success: konst(false), message: str(), ...extra }, o));
+// The one-time notice after a password reset (authHandlers.resetNoticeFor)
+const passwordResetNotice = obj({ by: enm('link', 'admin'), at: str() });
+const PASSWORD_RESET_NOTE = 'passwordReset {by: link | admin, at: ISO time} (additive 2026-11-15, success only): the password was reset since the player last signed in, by a one-time reset link or by an admin (scripts/set-password.js); sent once (the reply\'s session write clears it). Web shows one info line ("Your password was reset with a reset link on <date>. If that wasn\'t you, tell an admin."); iOS from the next build after 1.2.1 build 9; iOS 1.2.0 ignores it.';
 const okFail = (okProps, { optional = [], failScope = false } = {}) => anyOf(
     variant('success', obj({ success: konst(true), ...okProps }, { optional })),
     // failScope: the stats scope echo on a failure (SCOPE_ECHO_NOTE)
@@ -92,7 +95,9 @@ const adminPlayerRow = obj({
     // gamesPlayed: human games; botGamesPlayed: games with bots (users.botStats)
     gamesPlayed: int({ minimum: 0 }), botGamesPlayed: int({ minimum: 0 }), isAdmin: bool(), mergedInto: orNull(str()), renamed: bool(),
     renameUnfinished: orNull(str()),
-});
+    // a deleted account's name hold: until when the name stays taken (2026-11-15)
+    heldUntil: isoOrNull(),
+}, { optional: ['heldUntil'] });
 const adminStats = obj({ gamesPlayed: num(), wins: num(), losses: num(), draws: num(), totalPoints: num() });
 const teams = obj({ team1: arr(str()), team2: arr(str()) });
 const mergePlanView = obj({
@@ -152,13 +157,13 @@ const s2c = {
         payload: anyOf(
             variant('success', obj({
                 success: konst(true), username: str(), sessionToken: str(), blockedUsers: arr(str()),
-                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true),
-            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin'] })),
+                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true), passwordReset: passwordResetNotice,
+            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin', 'passwordReset'] })),
             fail(),
         ),
         status: 'active', to: 'self',
-        added: ['isAdmin'],
-        notes: 'isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key.',
+        added: ['isAdmin', 'passwordReset'],
+        notes: 'isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key. ' + PASSWORD_RESET_NOTE,
         clientReads: reads(W.auth, I.auth),
         emittedFrom: ['server/socket/authHandlers.js:signIn', 'server/socket/upgradeGate.js:sendUpdateMessage'],
     },
@@ -175,13 +180,13 @@ const s2c = {
         payload: anyOf(
             variant('success', obj({
                 success: konst(true), username: str(), blockedUsers: arr(str()),
-                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true),
-            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin'] })),
-            fail(),
+                activeGameId: str(), activeTournamentId: str(), isAdmin: konst(true), passwordReset: passwordResetNotice,
+            }, { optional: ['activeGameId', 'activeTournamentId', 'isAdmin', 'passwordReset'] })),
+            fail({ retryable: konst(true) }, { optional: ['retryable'] }),
         ),
         status: 'active', to: 'self',
-        added: ['isAdmin'],
-        notes: 'isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it).',
+        added: ['isAdmin', 'passwordReset', 'retryable'],
+        notes: 'isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it). ' + PASSWORD_RESET_NOTE + ' retryable: true (additive 2026-11-15, failure only) when the failure is passing and the saved token may still be good: a database error (also the session re-check\'s failed read) or a name an admin merge / rename / delete holds for a moment ("This account is being updated..."). Web keeps the saved token, shows Reconnecting... and sends restoreSession again with backoff (1 s doubling to 30 s, within the 10 / min limit); iOS the same from the next build after 1.2.1 build 9. iOS 1.2.0 and 1.2.1 up to build 9 ignore the key and forget the token on any failure (sign-in screen), as before. Every other failure (no such user, a deleted name, a bad or revoked token) has no retryable and both clients forget the token.',
         clientReads: reads(W.main('restoreSessionResponse'), I.auth),
         emittedFrom: ['server/socket/authHandlers.js:restoreSession'],
     },
@@ -204,8 +209,16 @@ const s2c = {
     deleteAccountResponse: {
         payload: anyOf(variant('success', obj({ success: konst(true) })), fail()),
         status: 'active', to: 'self',
+        notes: 'Refused (success false, the message says why) while the player is in a live game (its draw included, a /leave\'d seat until the game ends) or a tournament that is not complete (2026-11-15). On success the name is held for 30 days (a deleted-name tombstone: sign-up says it is taken; an admin can free it in the panel).',
         clientReads: reads(W.main('deleteAccountResponse'), I.auth),
         emittedFrom: ['server/socket/authHandlers.js:deleteAccount'],
+    },
+    changePasswordResponse: {
+        payload: obj({ success: bool(), message: str() }),
+        status: 'active', to: 'self',
+        notes: 'New (2026-11-15): the reply to changePassword. success true: the password changed, every other device was signed out (forceLogout to its live sockets, its saved session revoked); this device stays signed in. success false: message says why (the 8-100 rule, the same password, a wrong current password (counted in the failed-sign-in throttle), throttled, busy, a database error). Web: the profile page\'s Change password form; iOS from the next build after 1.2.1 build 9 (Account sheet). Shipped iOS builds never send changePassword, so never get it.',
+        clientReads: reads(W.main('changePasswordResponse'), []),
+        emittedFrom: ['server/socket/authHandlers.js:changePassword'],
     },
     activeGameFound: {
         payload: obj({ gameId: str() }, { open: true }),

@@ -17,6 +17,7 @@ const { socketLogger } = require('../utils/logger');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { serverErrorOf } = require('./serverError');
+const { deletedSince } = require('../admin/accountDelete');
 
 /** @returns {{game, role, pos}|null} */
 function resolveSender(socketId) {
@@ -91,7 +92,8 @@ function spectatorCommand(socket, io, game, message) {
     const username = game.spectators.get(socket.id)?.username;
     const authed = gameManager.getUserBySocketId(socket.id);
     if (!username || (authed && authed.username !== username)) return;
-    const pos = game.seatByUsername(username);
+    // A seat of an account deleted since the game began is nobody's (accountDelete.deletedSince)
+    const pos = deletedSince(username, game.createdAt) ? null : game.seatByUsername(username);
     const seat = pos ? game.seat(pos) : null;
     if (!seat) return; // an ordinary spectator
     if (seat.controller !== Controller.HUMAN && seat.presence === Presence.AWAY) {

@@ -23,9 +23,20 @@
  *     account with the same name;
  *   - the user document itself (password hash, sessions, stats and
  *     botStats (human and bot games) and with them the leaderboard rows, pictures, block list, admin fields),
- *     deleted by _id AND name: if the account was renamed meanwhile (the
- *     CLI, another process; the panel and the self-delete share one queue,
- *     mergeQueue.js) nothing is deleted and eraseAccount throws;
+ *     REPLACED by _id AND name with a name hold (owner 2026-11-15): a
+ *     tombstone `{username, mergedInto: '[deleted]', deletedAt,
+ *     nameHeldUntil}` that keeps the name taken for NAME_HOLD_MS (30 days),
+ *     so nobody can sign up as the name at once and inherit what is still
+ *     keyed by it (other players' blocks, reports, an in-flight game). It
+ *     is a tombstone to every reader (mergedInto set): sign-in says
+ *     "Invalid username or password!", sign-up "That name is taken.",
+ *     leaderboard / search / profiles skip it; a TTL index on
+ *     nameHeldUntil (server/database.js) removes it when it lapses, and
+ *     usernameRules.findNameClash frees a lapsed one it finds before the TTL
+ *     monitor runs; an admin frees it earlier by deleting the tombstone in
+ *     the panel. If the account was renamed meanwhile (the CLI, another
+ *     process; the panel and the self-delete share one queue,
+ *     mergeQueue.js) nothing is replaced and eraseAccount throws;
  *   - the tombstones that point at it (`mergedInto: <name>`: accounts
  *     merged into it and the redirects its renames left), so nothing tied
  *     to the person remains and those names are free again;
@@ -64,12 +75,30 @@ const { createModuleLogger } = require('../utils/logger');
 const logger = createModuleLogger('admin');
 
 const DELETED_NAME = '[deleted]';
+// How long a deleted account's name stays taken (owner 2026-11-15)
+const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** A deleted account's name hold (eraseAccount), as opposed to a merge / rename tombstone. */
+const isNameHold = (doc) => Boolean(doc && doc.mergedInto === DELETED_NAME && doc.deletedAt);
+
+// When each name was deleted in this process (never cleared by a new
+// sign-up of the name, unlike gameManager.deletedUsernames): a seat in a
+// game created before then belonged to the deleted account, so nobody
+// signed in as the name now may take it (rejoinGame, spectate, /active).
+// Games do not outlive the process, so this covers every live game.
+const deletedAt = new Map();
+
+/** Was `username` deleted after `sinceMs` (a game's createdAt)? */
+function deletedSince(username, sinceMs) {
+    const at = deletedAt.get(username);
+    return at !== undefined && at >= (Number(sinceMs) || 0);
+}
 
 /**
  * @param {{users, gameRecords?, reports?, passwordResets?}} db
  * @param {{_id: *, username: string}} user - the account, already checked by the caller
  * @param {{now?: Date}} [options]
- * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number, oldName: string|null}>}
+ * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number, oldName: string|null, heldUntil: Date}>}
  */
 async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = {}) {
     const { username } = user;
@@ -123,12 +152,18 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
         }
     }
 
-    const gone = await db.users.deleteOne({ _id: user._id, username, mergedInto: { $exists: false } });
-    if (!gone?.deletedCount) {
+    // The account becomes its name hold in one write (never a moment with
+    // the name free, which a sign-up could take)
+    const gone = await db.users.replaceOne(
+        { _id: user._id, username, mergedInto: { $exists: false } },
+        { username, mergedInto: DELETED_NAME, deletedAt: now, nameHeldUntil: new Date(now.getTime() + NAME_HOLD_MS) }
+    );
+    if (!gone?.matchedCount) {
         // Renamed or merged since the caller read it: never delete the
         // document under another name (deleting again finds it by its name)
         throw new Error(`eraseAccount: "${username}" changed before its document was deleted`);
     }
+    out.heldUntil = new Date(now.getTime() + NAME_HOLD_MS);
     // Its tombstones, the old name's redirect among them; for an unfinished
     // rename also the ones still pointing at the old name
     for (const name of names) {
@@ -202,6 +237,7 @@ function forgetAccount(io, db, username, erased = {}) {
         // Keep an in-flight game from re-inserting this username into a new
         // game record after the anonymization
         gameManager.deletedUsernames?.add(name);
+        deletedAt.set(name, Date.now());
     }
     return refreshBlockLists(io, db, erased.blockers || [], { emit: false });
 }
@@ -241,4 +277,7 @@ async function refreshBlockLists(io, db, usernames, { emit = true, silent = fals
     return n;
 }
 
-module.exports = { eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists, DELETED_NAME };
+module.exports = {
+    eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists, deletedSince, isNameHold,
+    DELETED_NAME, NAME_HOLD_MS
+};
