@@ -1,6 +1,9 @@
 /**
  * Rate limiting for socket events
- * Prevents spam and abuse by limiting event frequency per socket
+ * Prevents spam and abuse by limiting event frequency per socket, plus
+ * token buckets for limits that must outlive a socket (sign-ups per client
+ * IP and server-wide: a reconnect gets a new socket id and so a fresh
+ * per-socket budget)
  */
 
 const { socketLogger } = require('../utils/logger');
@@ -72,8 +75,35 @@ class RateLimiter {
             spectateTournamentGame: { max: 10, windowMs: 60000 },
             cancelTournament: { max: 10, windowMs: 60000 },
 
-            // Account management
+            // Account management. The password check also goes through
+            // signInThrottle (per username / IP failures, across sockets)
             deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
+
+            // Session and table entry. Every reconnect is a new socket (web
+            // and iOS both open a fresh one), so these per-socket limits
+            // never meet a flaky network: they only stop one socket from
+            // spamming. Web sends restoreSession and rejoinGame once per
+            // socket (ClientSession.resume / rejoin); iOS sends
+            // restoreSession on every .connect and rejoinGame after a
+            // sign-in or restore that names a game. The iOS foreground
+            // probe is requestSnapshot, not these. Over the limit: the
+            // wrapper's serverError {code:'rateLimit'}, never a
+            // restoreSessionResponse failure (iOS clears its saved token on
+            // one)
+            restoreSession: { max: 10, windowMs: 60000 },
+            rejoinGame: { max: 10, windowMs: 60000 },
+            // One per Join / Watch tap (web MainRoom, iOS LobbyListView) and
+            // a lobby re-entry after a restore; each one broadcasts lobby
+            // lists, so a bot clicking stops here
+            joinLobby: { max: 20, windowMs: 30000 },
+            joinAsSpectator: { max: 20, windowMs: 30000 },
+            // Web only: the Profile button and the stats scope tabs (a DB
+            // read each). Checked in profileHandlers.getProfile (it has no
+            // schema), same serverError over the limit
+            getProfile: { max: 20, windowMs: 10000 },
+            // One per tap in the web picture grid (a DB write and cache
+            // invalidation each)
+            updateProfilePic: { max: 30, windowMs: 60000 },
 
             // Voice signaling (checked inside voiceHandlers: over the limit
             // the message is dropped silently, never serverError, which the
@@ -103,6 +133,36 @@ class RateLimiter {
             adminRequest: { max: 60, windowMs: 60000 }
         };
 
+        // Wrapped events deliberately without a limit (check() allows them
+        // without a warning). Any other unknown key warns once in
+        // development and test, so a new event gets a limit or a line here
+        this.unlimited = new Set([
+            // Seat actions bounded by the game itself (a resign offer per
+            // seat; a bot removal per bot in the lobby)
+            'forceResign',
+            'removeBot'
+        ]);
+        this.warnedUnknown = new Set();
+
+        // Token buckets keyed by something other than the socket:
+        // { burst: capacity, perHour: refill rate, maxKeys }. A missing key
+        // is a full bucket, so a bucket that has refilled is dropped by the
+        // sweep below and memory stays bounded by the keys active within
+        // about an hour (and maxKeys, oldest dropped first).
+        // - signUpIp: accounts created per client IP (IPv6 by its /64,
+        //   clientIp.ipBucketKey), charged only for an attempt that will
+        //   hash and insert (authHandlers.signUp). 5 at once covers a
+        //   family installing together behind one router; then 5 an hour
+        // - signUpGlobal: accounts created on the whole server, so rotating
+        //   IPs cannot flood users or fill the hash pool either. Far above
+        //   a family app's real rate; a warn line says when it bites
+        this.buckets = {
+            signUpIp: { burst: 5, perHour: 5, maxKeys: 10000 },
+            signUpGlobal: { burst: 20, perHour: 60, maxKeys: 1 }
+        };
+        // bucket name -> Map<key, {tokens, at}>
+        this.bucketState = new Map();
+
         // Track requests: Map<string, number[]> where key is "socketId:event"
         this.requests = new Map();
 
@@ -123,6 +183,7 @@ class RateLimiter {
 
         // No limit defined for this event - allow
         if (!limit) {
+            this.noteUnknown(event);
             return true;
         }
 
@@ -147,6 +208,64 @@ class RateLimiter {
         this.requests.set(key, timestamps);
 
         return true;
+    }
+
+    /**
+     * An event with no limit and not in `unlimited`: warn once per key
+     * outside production, so a new event does not ship unlimited by
+     * accident. Production behaviour is unchanged (allowed, no log).
+     */
+    noteUnknown(event) {
+        if (process.env.NODE_ENV === 'production' || this.unlimited.has(event)) return;
+        if (this.warnedUnknown.has(event)) return;
+        this.warnedUnknown.add(event);
+        socketLogger.warn('Rate limiter: event has no limit (add one to rateLimiter.limits, or to unlimited)', { event });
+    }
+
+    /** The bucket `name` / `key` refilled to now (not stored). */
+    refill(name, key, now) {
+        const cfg = this.buckets[name];
+        const b = this.bucketState.get(name)?.get(key);
+        if (!b) return { tokens: cfg.burst, at: now };
+        const tokens = Math.min(cfg.burst, b.tokens + ((now - b.at) / 3600000) * cfg.perHour);
+        return { tokens, at: now };
+    }
+
+    /**
+     * Take one token from bucket `name` for `key`.
+     * @returns {{ok: boolean, retryAfterMs: number}} retryAfterMs: until a
+     *   token is back (0 when ok)
+     */
+    take(name, key, now = Date.now()) {
+        const cfg = this.buckets[name];
+        let map = this.bucketState.get(name);
+        if (!map) {
+            map = new Map();
+            this.bucketState.set(name, map);
+        }
+        const b = this.refill(name, key, now);
+        if (b.tokens < 1) {
+            return { ok: false, retryAfterMs: Math.ceil(((1 - b.tokens) / cfg.perHour) * 3600000) };
+        }
+        b.tokens -= 1;
+        map.delete(key); // re-insert: insertion order = least recently used first
+        map.set(key, b);
+        while (map.size > cfg.maxKeys) map.delete(map.keys().next().value);
+        return { ok: true, retryAfterMs: 0 };
+    }
+
+    /** Give back a token taken for an attempt that did no work (a busy hash pool). */
+    refund(name, key, now = Date.now()) {
+        const map = this.bucketState.get(name);
+        if (!map || !map.has(key)) return;
+        const b = this.refill(name, key, now);
+        b.tokens = Math.min(this.buckets[name].burst, b.tokens + 1);
+        map.set(key, b);
+    }
+
+    /** Test helper: every bucket full again. */
+    _resetBuckets() {
+        this.bucketState.clear();
     }
 
     /**
@@ -209,6 +328,16 @@ class RateLimiter {
                 cleaned++;
             } else if (validTimestamps.length !== timestamps.length) {
                 this.requests.set(key, validTimestamps);
+            }
+        }
+
+        // Buckets that have refilled are the same as no entry
+        for (const [name, map] of this.bucketState) {
+            for (const key of Array.from(map.keys())) {
+                if (this.refill(name, key, now).tokens >= this.buckets[name].burst) {
+                    map.delete(key);
+                    cleaned++;
+                }
             }
         }
 

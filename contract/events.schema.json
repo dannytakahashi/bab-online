@@ -2067,7 +2067,7 @@
           "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
         }
       ],
-      "notes": "Two per-socket budgets. The wrapper limit rateLimiter.signUp (20 / 5 min) counts every attempt and over it replies error {type:'rateLimit'}. Refusals by the new-name rules, the profanity filter and the taken check spend only that; an attempt past them (bcrypt hash + insert) also spends rateLimiter.signUpAccount (3 / 5 min), checked in-handler, and over it gets signUpResponse {success:false, message}."
+      "notes": "Two per-socket budgets. The wrapper limit rateLimiter.signUp (20 / 5 min) counts every attempt and over it replies error {type:'rateLimit'}. Refusals by the new-name rules, the profanity filter and the taken check spend only that; an attempt past them (bcrypt hash + insert) also spends rateLimiter.signUpAccount (3 / 5 min), checked in-handler, and over it gets signUpResponse {success:false, message}. The same attempt then spends two budgets a reconnect does not reset (rateLimiter.buckets): signUpIp per client IP, an IPv6 address by its /64 (5 at once, then 5 an hour; skipped when the IP is unknown) and signUpGlobal for the whole server (20 at once, then 60 an hour); over either it gets signUpResponse {success:false, message} too."
     },
     "restoreSession": {
       "payload": {
@@ -2091,7 +2091,7 @@
       },
       "status": "active",
       "joi": "restoreSession",
-      "rateLimit": null,
+      "rateLimit": "restoreSession",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2110,7 +2110,8 @@
         {
           "username": "alan"
         }
-      ]
+      ],
+      "notes": "Wrapper limit 10 / min per socket (every reconnect is a new socket, so it never meets a flaky network); over it serverError {code:'rateLimit'}, never a restoreSessionResponse failure, which makes iOS forget its saved token."
     },
     "clientHello": {
       "payload": {
@@ -2233,7 +2234,8 @@
           "password": ""
         },
         {}
-      ]
+      ],
+      "notes": "The password check also counts in the failed-sign-in throttle (server/socket/signInThrottle.js: per username / IP across sockets); throttled, it answers deleteAccountResponse {success:false, message} before any hash."
     },
     "joinMainRoom": {
       "payload": {
@@ -2342,7 +2344,7 @@
       },
       "status": "active",
       "joi": "joinLobby",
-      "rateLimit": null,
+      "rateLimit": "joinLobby",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2379,7 +2381,7 @@
       },
       "status": "active",
       "joi": "joinAsSpectator",
-      "rateLimit": null,
+      "rateLimit": "joinAsSpectator",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2874,7 +2876,7 @@
       },
       "status": "active",
       "joi": "rejoinGame",
-      "rateLimit": null,
+      "rateLimit": "rejoinGame",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2993,7 +2995,7 @@
           "scope": "all"
         }
       ],
-      "notes": "Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
+      "notes": "Throttled in-handler (rateLimiter key getProfile, 20 / 10 s per socket); over the limit serverError {code:'rateLimit', handler:'getProfile'}, as the wrappers answer. Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
     },
     "updateProfilePic": {
       "payload": {
@@ -3012,7 +3014,7 @@
       },
       "status": "active",
       "joi": "updateProfilePic",
-      "rateLimit": null,
+      "rateLimit": "updateProfilePic",
       "sentBy": {
         "web": true,
         "ios": false

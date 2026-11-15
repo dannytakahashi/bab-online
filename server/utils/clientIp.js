@@ -1,5 +1,6 @@
 /**
- * The client's IP for the failed-sign-in throttle (signInThrottle.js).
+ * The client's IP for the failed-sign-in throttle (signInThrottle.js) and
+ * the per-IP sign-up limit (authHandlers.takeSignUpSlot).
  *
  * Railway: the TCP peer Socket.IO sees (handshake.address) is Railway's
  * edge, an address in 100.0.0.0/8 (staff: CGNAT 100.64/10 today, not a
@@ -96,6 +97,27 @@ function warnOnce(kind, message, details) {
 }
 
 /**
+ * The key a per-client limit counts an address under: an IPv4 address as
+ * is, an IPv6 address by its /64 (a home or VPS gets a whole /64, so
+ * per-address keys would let one client rotate through billions of
+ * buckets). Used by the reset route and the sign-up limit.
+ */
+function ipBucketKey(ip) {
+    if (!net.isIPv6(ip)) return ip;
+    let s = ip.toLowerCase().split('%')[0];
+    if (s.includes('.')) { // an embedded IPv4 tail (e.g. 64:ff9b::192.0.2.1)
+        const cut = s.lastIndexOf(':') + 1;
+        const n = s.slice(cut).split('.').reduce((acc, o) => ((acc << 8) + Number(o)) >>> 0, 0);
+        s = `${s.slice(0, cut)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
+    }
+    const [h, t] = s.split('::');
+    const head = h ? h.split(':') : [];
+    const tail = t ? t.split(':') : [];
+    const groups = t === undefined ? head : [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
+    return `${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
+}
+
+/**
  * @param {Object} socket - a Socket.IO socket
  * @returns {string|null}
  */
@@ -123,6 +145,7 @@ function getClientIp(socket) {
 
 module.exports = {
     getClientIp,
+    ipBucketKey,
     isProxyPeer,
     describeClientAddress,
     _normalize: normalize,

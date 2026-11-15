@@ -45,11 +45,10 @@
 'use strict';
 
 const fs = require('fs');
-const net = require('net');
 const path = require('path');
 const express = require('express');
 const passwordHash = require('../utils/passwordHash');
-const { getClientIp } = require('../utils/clientIp');
+const { getClientIp, ipBucketKey } = require('../utils/clientIp');
 const { useResetLink, INVALID_LINK } = require('../admin/passwordReset');
 const { recordAudit } = require('../admin/audit');
 const { createModuleLogger } = require('../utils/logger');
@@ -77,25 +76,9 @@ const NO_STORE = (res) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
 };
 
-/**
- * The per-client bucket key: an IPv4 address as is, an IPv6 address by its
- * /64 (a home or VPS gets a whole /64, so per-address keys would let one
- * client rotate through billions of buckets).
- */
-function clientKey(ip) {
-    if (!net.isIPv6(ip)) return ip;
-    let s = ip.toLowerCase().split('%')[0];
-    if (s.includes('.')) { // an embedded IPv4 tail (e.g. 64:ff9b::192.0.2.1)
-        const cut = s.lastIndexOf(':') + 1;
-        const n = s.slice(cut).split('.').reduce((acc, o) => ((acc << 8) + Number(o)) >>> 0, 0);
-        s = `${s.slice(0, cut)}${(n >>> 16).toString(16)}:${(n & 0xffff).toString(16)}`;
-    }
-    const [h, t] = s.split('::');
-    const head = h ? h.split(':') : [];
-    const tail = t ? t.split(':') : [];
-    const groups = t === undefined ? head : [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
-    return `${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
-}
+// The per-client bucket key (an IPv6 address by its /64): utils/clientIp.ipBucketKey,
+// shared with the sign-up limit
+const clientKey = ipBucketKey;
 
 /** Thrown by the gated hash: the reset never reached bcrypt. */
 const gateError = (code) => Object.assign(new Error(code), { code });

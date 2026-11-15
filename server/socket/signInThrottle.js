@@ -15,6 +15,7 @@
  *   for the household that already uses it (the pair and IP keys still
  *   apply there).
  *
+ * deleteAccount's password check counts the same way (authHandlers).
  * Never counted or limited: restoreSession, rejoinGame, signUp, correct
  * sign-ins, database errors and a busy hash pool. Session tokens are
  * SHA-256 over a uuid v4, so guessing one is infeasible.

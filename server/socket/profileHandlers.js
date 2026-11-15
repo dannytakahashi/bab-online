@@ -8,6 +8,7 @@ const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { createCache } = require('../utils/ttlCache');
 const rateLimiter = require('./rateLimiter');
+const { emitError } = require('./serverError');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
@@ -40,6 +41,12 @@ const profileProjection = (scope) => (scope === 'human' ? PROFILE_PROJECTION : P
  * @param {Object} [data] - optional {scope: 'human'|'bots'|'all'} (statsScope.js)
  */
 async function getProfile(socket, io, data) {
+    // Registered without a schema (safeHandler), so the limit is checked
+    // here; over it, the wrappers' rateLimit reply
+    if (!rateLimiter.check(socket.id, 'getProfile')) {
+        emitError(socket, { type: 'rateLimit', message: 'Too many requests, please slow down', handler: 'getProfile' });
+        return;
+    }
     const { scope, echo } = normalizeScope(data);
     const usersCollection = getUsersCollection();
     const user = gameManager.getUserBySocketId(socket.id);
