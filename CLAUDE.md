@@ -13,7 +13,7 @@ BAB Online is a 4-player online multiplayer trick-taking card game ("Back Alley 
 
 - **Frontend (web)**: Phaser 3.55.2 (game engine), ES6 modules, Socket.IO client 4.8.1 (the server's version), Vite bundler; both libraries are bundled (`client/src/vendor.js`, `client/src/socket/createSocket.js`), no CDN scripts
 - **iOS**: Native SwiftUI app in `iOSClient/` (SpriteKit game scene, Socket.IO-Client-Swift, WebRTC voice) — NOT a webview; it mirrors the web client's socket contract
-- **Backend**: Node.js 18+, Express.js, Socket.IO server
+- **Backend**: Node.js 24 LTS (`engines` 24.x, which Railway's Nixpacks reads first; `.nvmrc`, CI and `Dockerfile.local` match), Express.js, Socket.IO server
 - **Database**: MongoDB (native client, no ORM) — collections: `users`, `gameRecords`, `reports`, `passwordResets`, `adminAudit` (the admin panel)
 - **Testing**: Jest (server), Vitest (client)
 - **Deployment**: Railway via its GitHub integration on push to main (GitHub Actions is the only gate: Jest, Vitest, tokens check, production + Docker boot checks; `docs/claude/server-infra.md`, CI). `railway.toml`: restart ON_FAILURE (a crash exits 1, a deploy's SIGTERM 0); no deploy healthcheck until `PORT=3000` is set on the service; Railway stops reading the file on 2026-12-01; `/health` shows the DB state and live counts (`docs/claude/server-infra.md`, Deploys)

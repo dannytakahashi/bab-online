@@ -28,8 +28,9 @@
  * Callers run derive() through avatarStore's semaphore (2 at once), so at
  * most 2 of libuv's 4 threadpool threads ever decode.
  *
- * sharp (prebuilt libvips, pinned 0.34.5: the last release whose engines
- * include Node 18) is optional at runtime: if it fails to load the whole
+ * sharp (prebuilt libvips, pinned exactly at 0.34.5 so the lockfile's
+ * @img platform packages match; Node-API binaries, so any Node major its
+ * engines allow) is optional at runtime: if it fails to load the whole
  * pipeline is off (available() false) and every payload keeps today's
  * shape. sharp's own cache is off (we cache renditions ourselves, by
  * bytes) and libvips runs one thread per image; avatarStore bounds how

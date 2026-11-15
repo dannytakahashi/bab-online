@@ -174,7 +174,6 @@ test('sharp is pinned exactly and the lockfile carries the prebuilt binaries for
     const pkg = require(`${root}/package.json`);
     const lock = require(`${root}/package-lock.json`);
     expect(pkg.dependencies.sharp).toBe('0.34.5');
-    expect(pkg.engines.node).toBe('>=18.17.0');
     expect(lock.packages['node_modules/sharp'].version).toBe('0.34.5');
     for (const p of ['sharp-linux-x64', 'sharp-libvips-linux-x64', 'sharp-linuxmusl-x64', 'sharp-libvips-linuxmusl-x64',
         'sharp-darwin-arm64', 'sharp-libvips-darwin-arm64', 'sharp-darwin-x64', 'sharp-libvips-darwin-x64']) {
