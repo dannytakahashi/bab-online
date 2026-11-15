@@ -11,7 +11,9 @@
  *   - gameRecords: the name becomes '[deleted]' in team1Players /
  *     team2Players (shared documents: the other players keep their games;
  *     a bot game's personas in team1Bots / team2Bots are not names of
- *     accounts and stay as they are);
+ *     accounts and stay as they are), and its entry leaves `statsPending`
+ *     (a game still being credited: profileHandlers.recordGameStats);
+ *     `statsDeltas` has no names (by seat, which then reads '[deleted]');
  *   - other players' blockedUsers: for an ADMIN delete the name is pulled,
  *     so a new account that later takes the freed name does not start out
  *     blocked; a player's OWN delete keeps them (pullBlocks: false), so a
@@ -91,6 +93,11 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
                 );
                 out.gameRecords += res?.modifiedCount || 0;
             }
+            // Nothing left to credit; the sweep clears an emptied list
+            await db.gameRecords.updateMany(
+                { 'statsPending.username': name },
+                { $pull: { statsPending: { username: name } } }
+            );
         }
     }
 

@@ -108,7 +108,11 @@ function start() {
 
     // Connect to database in background (fire and forget like original)
     connectDB()
-        .then(() => logger.info('Database connected'))
+        .then(() => {
+            logger.info('Database connected');
+            // End-of-game stats a previous process left half-applied
+            return require('./socket/profileHandlers').resumePendingGameStats();
+        })
         .catch(err => logger.error('Database connection error', { error: err.message }));
 }
 

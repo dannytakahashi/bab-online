@@ -13,6 +13,7 @@ const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
+const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -260,7 +261,60 @@ async function uploadProfilePic(socket, io, data) {
 const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
 
 /**
- * Record a completed game's results into the gameRecords collection
+ * End-of-game writes, made safe to retry and to replay:
+ *   1. the gameRecords entry goes in first, carrying `statsDeltas` (the
+ *      bucket and each human seat's 12 counters, by position: no names) and
+ *      `statsPending` ([{position, username}] still to apply). The unique
+ *      gameId index (database.ensureGameIdIndex) makes a second insert fail
+ *      with E11000, and the write then reuses the stored entry
+ *   2. each pending player's `$inc` is guarded by the game id: the filter
+ *      `statsGames.id: {$ne: gameId}` and a `$push` of {id, at} (the last
+ *      STATS_GAMES_KEPT kept) in the same update, so applying it twice
+ *      counts once. For a record read back (a replay, the sweep, maybe
+ *      days later) the window is only trusted back to its oldest `at`: a
+ *      full list whose oldest entry is newer than the game (less
+ *      STATS_GUARD_SKEW_MS) may have dropped the id, so the game is not
+ *      credited (logged with the delta) rather than risk counting it twice.
+ *      A record this chain just inserted was never applied, so only the id
+ *      guards it. A tombstone (renamed or merged away) is never credited
+ *   3. `statsPending` is unset (or cut to what failed); the usernames leave
+ *      the record with it
+ * Every step retries with backoff (shutdown.retryDelay, short during a
+ * shutdown, which retries until its drain ends), and a graceful shutdown
+ * waits for the whole chain (shutdown.trackInFlight). A record still
+ * pending at the next boot (a crash, an outage longer than the retries) is
+ * finished by resumePendingGameStats. Any failure is retried: every step is
+ * idempotent.
+ */
+const STATS_GAMES_KEPT = 50;
+// Covers clock skew between server processes (a deploy overlaps two); a
+// game is credited from the window only if the window reaches back this far
+// before the game ended
+const STATS_GUARD_SKEW_MS = 10 * 60 * 1000;
+const DEFAULT_RETRY_DELAYS_MS = Object.freeze([1000, 2000, 4000, 8000, 16000]);
+let retryDelaysMs = DEFAULT_RETRY_DELAYS_MS;
+// One chain per game in this process: a second call joins the first
+const statsWrites = new Map();
+
+const isDuplicateKey = (error) => error?.code === 11000;
+
+/** Run `fn(attempt)`, retrying a failure after each of retryDelaysMs; the last failure throws. */
+async function withRetry(step, gameId, fn) {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await fn(attempt);
+        } catch (error) {
+            // A shutdown keeps retrying while its drain has time
+            if (attempt >= retryDelaysMs.length && !shutdownAllowsRetry()) throw error;
+            const retryInMs = retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)];
+            authLogger.warn('End-of-game write failed; retrying', { step, gameId, attempt: attempt + 1, retryInMs, error: error.message });
+            await retryDelay(retryInMs);
+        }
+    }
+}
+
+/**
+ * The gameRecords entry of a finished game (no stats fields)
  * @param {Object} game - The completed game object
  * @param {{withBots?: boolean}} [options] - a bot game (any bot or
  *   resign-bot seat at the end): the entry gets `withBots: true`, its
@@ -270,73 +324,220 @@ const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
  *   teamNPlayers arrays, so merge / rename / delete (which touch only those)
  *   never see a bot name. A human game's document is exactly today's.
  */
-async function recordGameResult(game, { withBots = false } = {}) {
-    const gameRecordsCollection = getGameRecordsCollection();
-    if (!gameRecordsCollection) return;
+function buildGameRecord(game, { withBots = false } = {}) {
+    // Users who deleted their account mid-game must not reappear in new
+    // records — deletion already anonymized their historical ones
+    const recordName = (p) => {
+        if (!p || !p.username) return null;
+        return gameManager.deletedUsernames.has(p.username) ? '[deleted]' : p.username;
+    };
 
-    try {
-        // Users who deleted their account mid-game must not reappear in new
-        // records — deletion already anonymized their historical ones
-        const gameManager = require('../game/GameManager');
-        const recordName = (p) => {
-            if (!p || !p.username) return null;
-            return gameManager.deletedUsernames.has(p.username) ? '[deleted]' : p.username;
+    // Calculate team-level bags (total tricks taken minus total tricks bid)
+    const ps = game.playerStats || {};
+    const team1Bags = ((ps[1]?.totalTricks || 0) + (ps[3]?.totalTricks || 0))
+        - ((ps[1]?.totalBids || 0) + (ps[3]?.totalBids || 0));
+    const team2Bags = ((ps[2]?.totalTricks || 0) + (ps[4]?.totalTricks || 0))
+        - ((ps[2]?.totalBids || 0) + (ps[4]?.totalBids || 0));
+
+    if (!withBots) {
+        const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
+            .map(recordName)
+            .filter(Boolean);
+        const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
+            .map(recordName)
+            .filter(Boolean);
+        return {
+            gameId: game.gameId,
+            team1Score: game.score.team1,
+            team2Score: game.score.team2,
+            team1Players,
+            team2Players,
+            team1Bags,
+            team2Bags,
+            completedAt: new Date()
         };
-
-        // Calculate team-level bags (total tricks taken minus total tricks bid)
-        const ps = game.playerStats || {};
-        const team1Bags = ((ps[1]?.totalTricks || 0) + (ps[3]?.totalTricks || 0))
-            - ((ps[1]?.totalBids || 0) + (ps[3]?.totalBids || 0));
-        const team2Bags = ((ps[2]?.totalTricks || 0) + (ps[4]?.totalTricks || 0))
-            - ((ps[2]?.totalBids || 0) + (ps[4]?.totalBids || 0));
-
-        let doc;
-        if (!withBots) {
-            const team1Players = [game.getOriginalPlayer(1), game.getOriginalPlayer(3)]
-                .map(recordName)
-                .filter(Boolean);
-            const team2Players = [game.getOriginalPlayer(2), game.getOriginalPlayer(4)]
-                .map(recordName)
-                .filter(Boolean);
-            doc = {
-                gameId: game.gameId,
-                team1Score: game.score.team1,
-                team2Score: game.score.team2,
-                team1Players,
-                team2Players,
-                team1Bags,
-                team2Bags,
-                completedAt: new Date()
-            };
-        } else {
-            const owned = (pos) => Boolean(game.seat(pos)?.ownerUsername);
-            const humans = (positions) => positions.filter(owned)
-                .map(pos => recordName(game.getOriginalPlayer(pos)))
-                .filter(Boolean);
-            const bots = (positions) => positions.filter(pos => !owned(pos))
-                .map(pos => game.getOriginalPlayer(pos)?.username)
-                .filter(name => typeof name === 'string' && name.length > 0);
-            doc = {
-                gameId: game.gameId,
-                team1Score: game.score.team1,
-                team2Score: game.score.team2,
-                team1Players: humans([1, 3]),
-                team2Players: humans([2, 4]),
-                team1Bags,
-                team2Bags,
-                completedAt: new Date(),
-                withBots: true,
-                team1Bots: bots([1, 3]),
-                team2Bots: bots([2, 4])
-            };
-        }
-
-        await gameRecordsCollection.insertOne(doc);
-
-        authLogger.info('Game result recorded', { gameId: game.gameId, withBots });
-    } catch (error) {
-        authLogger.error('Error recording game result', { gameId: game.gameId, error: error.message });
     }
+    const owned = (pos) => Boolean(game.seat(pos)?.ownerUsername);
+    const humans = (positions) => positions.filter(owned)
+        .map(pos => recordName(game.getOriginalPlayer(pos)))
+        .filter(Boolean);
+    const bots = (positions) => positions.filter(pos => !owned(pos))
+        .map(pos => game.getOriginalPlayer(pos)?.username)
+        .filter(name => typeof name === 'string' && name.length > 0);
+    return {
+        gameId: game.gameId,
+        team1Score: game.score.team1,
+        team2Score: game.score.team2,
+        team1Players: humans([1, 3]),
+        team2Players: humans([2, 4]),
+        team1Bags,
+        team2Bags,
+        completedAt: new Date(),
+        withBots: true,
+        team1Bots: bots([1, 3]),
+        team2Bots: bots([2, 4])
+    };
+}
+
+/** The 12 counters one human seat adds to its bucket for this game. */
+function seatStatsDelta(game, position) {
+    const team1Won = game.score.team1 > game.score.team2;
+    const isTie = game.score.team1 === game.score.team2;
+    const isTeam1 = position === 1 || position === 3;
+    const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
+    // Per-player stats for individual bids/tricks (accumulated across all hands)
+    const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 };
+    return {
+        gamesPlayed: 1,
+        wins: isTie ? 0 : (isWinner ? 1 : 0),
+        losses: isTie ? 0 : (isWinner ? 0 : 1),
+        draws: isTie ? 1 : 0,
+        totalPoints: isTeam1 ? game.score.team1 : game.score.team2,
+        totalTricksBid: playerStats.totalBids,
+        totalTricksTaken: playerStats.totalTricks,
+        totalHands: game.handStats.totalHands,
+        // Total sets is team-based, not fault-based
+        totalSets: isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets,
+        // Points lost to sets - for the "drag" stat
+        totalSetPoints: isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0),
+        totalFaults: playerStats.setsCaused || 0,
+        totalHSI: playerStats.totalHSI || 0
+    };
+}
+
+const RECORD_STATS_PROJECTION = Object.freeze({ gameId: 1, completedAt: 1, statsDeltas: 1, statsPending: 1 });
+
+/**
+ * Insert the record (step 1). Every attempt first looks for an entry
+ * already there (a replay, or an earlier attempt whose reply was lost; also
+ * while legacy duplicates leave only the non-unique fallback index), and
+ * E11000 means one raced in: either way the stored entry wins, so its
+ * pending list (none once applied) is what step 2 applies.
+ * @returns {Promise<Object>} the record as stored
+ */
+async function insertGameRecord(gameRecords, doc) {
+    const stored = () => gameRecords.findOne({ gameId: doc.gameId }, { projection: RECORD_STATS_PROJECTION });
+    return withRetry('record', doc.gameId, async () => {
+        const existing = await stored();
+        if (existing) return existing;
+        try {
+            await gameRecords.insertOne(doc);
+            return doc;
+        } catch (error) {
+            if (!isDuplicateKey(error)) throw error;
+            return (await stored()) || { gameId: doc.gameId };
+        }
+    });
+}
+
+/**
+ * Why a guarded `$inc` matched nothing: applied before (a replay, the usual
+ * case), no account, a tombstone, or a full guard window newer than the game
+ * (it may have been applied and dropped from the window). The last two are
+ * not credited, so they warn with the delta for a manual fix. Never throws.
+ */
+async function explainNotCredited(users, username, gameId, { bucket, delta }) {
+    let doc = null;
+    try {
+        doc = await users.findOne({ username }, { projection: { mergedInto: 1, statsGames: 1 } });
+    } catch (error) {
+        authLogger.warn('Game stats not credited; could not tell why', { username, gameId, bucket, delta, error: error.message });
+        return;
+    }
+    if (!doc) {
+        authLogger.debug('Game stats not credited: no account', { username, gameId });
+    } else if ((doc.statsGames || []).some(g => g?.id === gameId)) {
+        authLogger.debug('Game stats already applied', { username, gameId });
+    } else if (doc.mergedInto) {
+        authLogger.warn('Game stats not credited: the account was renamed or merged', { username, mergedInto: doc.mergedInto, gameId, bucket, delta });
+    } else {
+        authLogger.warn('Game stats not credited: the guard window no longer reaches this game', { username, gameId, bucket, delta });
+    }
+}
+
+/**
+ * Steps 2 and 3 for one record: every pending player's guarded `$inc`, then
+ * the record's pending list cut to what failed (unset when nothing did).
+ * Safe to run twice for the same record, also from two processes.
+ * @param {{gameId: string, statsDeltas?: Object, statsPending?: Array}} record
+ * @param {{users: Collection, gameRecords?: Collection, fresh?: boolean}} collections
+ *   fresh: this chain just inserted the record (or none could be written)
+ * @returns {Promise<number>} players whose write failed for good
+ */
+async function applyPendingStats(record, { users, gameRecords, fresh = false }) {
+    const { gameId } = record;
+    const pending = Array.isArray(record.statsPending) ? record.statsPending : [];
+    const bucket = record.statsDeltas?.bucket === 'botStats' ? 'botStats' : 'stats';
+    const byPosition = record.statsDeltas?.byPosition || {};
+    const done = new Set();
+    const endedAt = record.completedAt instanceof Date ? record.completedAt.getTime() : Date.now();
+    // The list still has room, or it reaches back past the game
+    const windowReaches = fresh ? {} : {
+        $or: [
+            { [`statsGames.${STATS_GAMES_KEPT - 1}`]: { $exists: false } },
+            { 'statsGames.0.at': { $lt: new Date(endedAt - STATS_GUARD_SKEW_MS) } }
+        ]
+    };
+
+    await Promise.all(pending.map(async (entry) => {
+        const delta = byPosition[entry?.position];
+        if (!delta || !entry.username) {
+            done.add(entry);
+            return;
+        }
+        const $inc = {};
+        for (const [field, value] of Object.entries(delta)) $inc[`${bucket}.${field}`] = value;
+        try {
+            const res = await withRetry('stats', gameId, () => users.updateOne(
+                {
+                    username: entry.username,
+                    mergedInto: { $exists: false },
+                    'statsGames.id': { $ne: gameId },
+                    ...windowReaches
+                },
+                // `at` per attempt: when the push really ran
+                { $inc, $push: { statsGames: { $each: [{ id: gameId, at: new Date() }], $slice: -STATS_GAMES_KEPT } } }
+            ));
+            done.add(entry);
+            if (res?.matchedCount === 0) {
+                await explainNotCredited(users, entry.username, gameId, { bucket, delta });
+            } else {
+                authLogger.info('Game stats recorded', {
+                    username: entry.username,
+                    gameId,
+                    bucket,
+                    won: delta.wins === 1,
+                    score: delta.totalPoints,
+                    tricks: delta.totalTricksTaken,
+                    bids: delta.totalTricksBid,
+                    hands: delta.totalHands,
+                    sets: delta.totalSets,
+                    setPoints: delta.totalSetPoints,
+                    faults: delta.totalFaults,
+                    hsi: delta.totalHSI
+                });
+            }
+        } catch (error) {
+            authLogger.error('Error recording game stats', { username: entry.username, gameId, bucket, delta, error: error.message });
+        }
+    }));
+
+    const remaining = pending.filter(entry => !done.has(entry));
+    // An empty list (account deletion pulls its entry) is cleared too
+    const emptied = pending.length === 0 && Array.isArray(record.statsPending);
+    if (gameRecords && (emptied || remaining.length < pending.length)) {
+        const update = remaining.length > 0
+            ? { $set: { statsPending: remaining } }
+            : { $unset: { statsPending: '' } };
+        try {
+            await withRetry('mark', gameId, () => gameRecords.updateOne({ gameId }, update));
+        } catch (error) {
+            // Harmless: the next boot's sweep re-applies, and the per-user
+            // guard keeps that from counting twice
+            authLogger.error('Could not mark game stats applied', { gameId, error: error.message });
+        }
+    }
+    return remaining.length;
 }
 
 /**
@@ -347,11 +548,24 @@ async function recordGameResult(game, { withBots = false } = {}) {
  * bots, a resigned seat) goes to each owner's `botStats` and a `withBots`
  * record; a game whose only bots are lazy bots stays a human game
  * (`stats`). A game with no human owner at all (the ambient demo) records
- * nothing and leaves the caches alone.
+ * nothing and leaves the caches alone. Retry- and replay-safe (see
+ * STATS_GAMES_KEPT above); never rejects.
  * @param {Object} game - The completed game object
+ * @returns {Promise<void>}
  */
-async function recordGameStats(game) {
+function recordGameStats(game) {
+    const key = game?.gameId;
+    if (key && statsWrites.has(key)) return statsWrites.get(key);
+    const run = writeGameStats(game)
+        .catch(error => { authLogger.error('End-of-game writes failed', { gameId: key, error: error.message }); })
+        .finally(() => { if (key) statsWrites.delete(key); });
+    if (key) statsWrites.set(key, run);
+    return trackInFlight(run);
+}
+
+async function writeGameStats(game) {
     const usersCollection = getUsersCollection();
+    const gameRecordsCollection = getGameRecordsCollection();
 
     // Every seat with a human owner, as the original human player (resigned
     // and lazy positions included)
@@ -369,81 +583,83 @@ async function recordGameStats(game) {
     const withBots = game.seatList().some(s => BOT_CONTROLLERS.has(s.controller));
     const bucket = withBots ? 'botStats' : 'stats';
 
-    // Record the game result for records page
-    await recordGameResult(game, { withBots });
-    invalidateRecords();
-
-    // Determine winner based on final scores
-    const team1Won = game.score.team1 > game.score.team2;
-    const isTie = game.score.team1 === game.score.team2;
+    const byPosition = {};
+    for (const { position } of players) byPosition[position] = seatStatsDelta(game, position);
+    // A player who deleted their account mid-game has nothing to credit, and
+    // their name must not go into the record
+    const statsPending = players
+        .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
+        .map(({ position, player }) => ({ position, username: player.username }));
+    let record = { gameId: game.gameId, statsDeltas: { bucket, byPosition }, statsPending };
+    // Not a record read back: never applied before
+    let fresh = true;
 
     try {
-        // One $inc per human seat, written in parallel; each keeps its own
-        // try/catch so one failure never hides the others
-        await Promise.all(players.map(async ({ position, player }) => {
-            const isTeam1 = position === 1 || position === 3;
-            const isWinner = (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
-            const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
-            const totalHands = game.handStats.totalHands;
-
-            // Use per-player stats for individual bids/tricks (accumulated across all hands)
-            const playerStats = game.playerStats?.[position] || { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 };
-            const playerBids = playerStats.totalBids;
-            const playerTricks = playerStats.totalTricks;
-            const playerFaults = playerStats.setsCaused || 0;
-            const playerHSI = playerStats.totalHSI || 0;
-            // Total sets is team-based, not fault-based
-            const teamSets = isTeam1 ? game.handStats.team1Sets : game.handStats.team2Sets;
-            // Total set points (negative points lost to sets) - for "drag" stat
-            const teamSetPoints = isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0);
-
+        if (gameRecordsCollection) {
+            const doc = buildGameRecord(game, { withBots });
+            doc.statsDeltas = record.statsDeltas;
+            if (statsPending.length > 0) doc.statsPending = statsPending;
             try {
-                await usersCollection.updateOne(
-                    { username: player.username },
-                    {
-                        $inc: {
-                            [`${bucket}.gamesPlayed`]: 1,
-                            [`${bucket}.wins`]: isTie ? 0 : (isWinner ? 1 : 0),
-                            [`${bucket}.losses`]: isTie ? 0 : (isWinner ? 0 : 1),
-                            [`${bucket}.draws`]: isTie ? 1 : 0,
-                            [`${bucket}.totalPoints`]: teamScore,
-                            [`${bucket}.totalTricksBid`]: playerBids,
-                            [`${bucket}.totalTricksTaken`]: playerTricks,
-                            [`${bucket}.totalHands`]: totalHands,
-                            [`${bucket}.totalSets`]: teamSets,
-                            [`${bucket}.totalSetPoints`]: teamSetPoints,
-                            [`${bucket}.totalFaults`]: playerFaults,
-                            [`${bucket}.totalHSI`]: playerHSI
-                        }
-                    }
-                );
-
-                authLogger.info('Game stats recorded', {
-                    username: player.username,
-                    bucket,
-                    won: isWinner,
-                    score: teamScore,
-                    tricks: playerTricks,
-                    bids: playerBids,
-                    hands: totalHands,
-                    sets: teamSets,
-                    setPoints: teamSetPoints,
-                    faults: playerFaults,
-                    hsi: playerHSI
-                });
+                record = await insertGameRecord(gameRecordsCollection, doc);
+                fresh = record === doc;
+                authLogger.info('Game result recorded', { gameId: game.gameId, withBots });
             } catch (error) {
-                authLogger.error('Error recording game stats', {
-                    username: player.username,
-                    error: error.message
-                });
+                // No record after every retry: the stats still go in (the
+                // per-user guard keeps them single), logged with the deltas
+                authLogger.error('Error recording game result', { gameId: game.gameId, statsDeltas: record.statsDeltas, error: error.message });
             }
-        }));
+            invalidateRecords();
+        }
+        if (usersCollection) {
+            await applyPendingStats(record, { users: usersCollection, gameRecords: gameRecordsCollection, fresh });
+        } else {
+            // Not connected yet (a game ending right after a cold start)
+            authLogger.error('No database: game stats not recorded', { gameId: game.gameId, statsDeltas: record.statsDeltas });
+        }
     } finally {
         // Settled (each write logs its own failure): the pages re-read, so
         // the players who just played see this game
         invalidateLeaderboard();
         invalidateRecords();
     }
+}
+
+/**
+ * Finish the records a previous process left pending (a crash or deploy
+ * between steps, an outage longer than the retries). Run once after
+ * connectDB (server/index.js). Safe while another process is applying the
+ * same records (the per-user guard). Never rejects.
+ * @returns {Promise<{records: number, failed: number}>}
+ */
+async function resumePendingGameStats() {
+    const gameRecords = getGameRecordsCollection();
+    const users = getUsersCollection();
+    const out = { records: 0, failed: 0 };
+    if (!gameRecords || !users) return out;
+    try {
+        const pending = await gameRecords.find(
+            { statsPending: { $exists: true } },
+            { projection: RECORD_STATS_PROJECTION }
+        ).toArray();
+        for (const record of pending) {
+            if (!record.gameId) continue;
+            out.records++;
+            out.failed += await applyPendingStats(record, { users, gameRecords });
+        }
+        if (out.records > 0) {
+            authLogger.info('Resumed pending game stats', out);
+            invalidateLeaderboard();
+            invalidateRecords();
+        }
+    } catch (error) {
+        authLogger.error('Could not resume pending game stats', { error: error.message });
+    }
+    return out;
+}
+
+/** Tests only: retry delays (default 1, 2, 4, 8, 16 s); no argument restores them. */
+function _setStatsRetryDelaysForTests(delays = DEFAULT_RETRY_DELAYS_MS) {
+    retryDelaysMs = delays;
 }
 
 /**
@@ -1038,6 +1254,10 @@ module.exports = {
     updateProfilePic,
     uploadProfilePic,
     recordGameStats,
+    resumePendingGameStats,
+    _setStatsRetryDelaysForTests,
+    STATS_GAMES_KEPT,
+    STATS_GUARD_SKEW_MS,
     getUserProfilePic,
     getLeaderboard,
     searchPlayers,

@@ -43,6 +43,8 @@ const { STAT_KEYS, pickStats } = require('../utils/statsScope');
 // Fields removed from a source when it becomes a tombstone
 const TOMBSTONE_UNSET = [
     'password', 'sessionToken', 'sessionTokens', 'socketId', 'stats', 'botStats',
+    // the end-of-game guard (profileHandlers): a tombstone is never credited
+    'statsGames',
     'profilePic', 'customProfilePic', 'blockedUsers', 'activeGameId',
     'activeGameStartedAt', 'activeTournamentId',
     // a tombstone is never an admin (server/admin/adminRole.js)

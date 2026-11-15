@@ -22,7 +22,10 @@
  * (below), which undoes exactly those removals and nothing else: the golden
  * then still proves every other byte and the RNG order are fcdd885's. The
  * file was regenerated once at 71343c5 (raw wire still fcdd885's), with the
- * projection in place, before any removal ran.
+ * projection in place, before any removal ran. Re-recorded 2026-11-15 for
+ * the redeal HSI fix (an all-zero redeal no longer adds an HSI sample):
+ * only oneHuman's hash moved (its gameEnd playerStats totalHSI/avgHSI; it
+ * has a redeal), hands, trumps, pictures and emit counts unchanged.
  */
 
 const fs = require('fs');
