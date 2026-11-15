@@ -746,7 +746,7 @@ const s2c = {
     tournamentJoined: {
         payload: anyOf(
             variant('member', ref('tournamentClientState')),
-            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners'] })),
+            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners', 'readyDeadlinePassed'] })),
         ),
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
@@ -760,24 +760,27 @@ const s2c = {
         notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS 1.1.0 reads only players.',
     },
     tournamentPlayerLeft: {
-        payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()) }, { optional: ['username'] }),
+        payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()), reason: konst('hostIdle') }, { optional: ['username', 'reason'] }),
         status: 'active', to: 'tournament',
+        added: ['reason'],
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat'],
-        notes: 'username is absent when the leaver had no registered user (user?.username).',
+        emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat', 'server/socket/tournamentLiveness.js:handOffHost'],
+        notes: 'username is absent when the leaver had no registered user (user?.username). reason \'hostIdle\' (additive 2026-11-15): nobody left; the idle host (username, still a member) handed the role to newCreator (tournamentLiveness.handOffHost). Web and iOS 1.2.0 read only players and newCreator, which is what moves Begin / Cancel: web toasts "X is now the tournament host" and drops the old host\'s controls, iOS 1.2.0 sets creatorUsername (the old host\'s buttons go, the new host\'s appear).',
     },
     tournamentReadyUpdate: {
-        payload: obj({ players: arr(ref('tournamentPlayer')), allReady: bool() }),
+        payload: obj({ players: arr(ref('tournamentPlayer')), allReady: bool(), readyDeadlinePassed: bool() }, { optional: ['readyDeadlinePassed'] }),
         status: 'active', to: 'tournament',
+        added: ['readyDeadlinePassed'],
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentReady', 'server/socket/tournamentHandlers.js:tournamentUnready'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentReady', 'server/socket/tournamentHandlers.js:tournamentUnready', 'server/socket/tournamentLiveness.js:onReadyDeadline'],
+        notes: 'readyDeadlinePassed (additive 2026-11-15, between rounds only): the ready deadline passed, so the host\'s Begin starts the round with the ready members (the host must be one) and the rest sit out; sent at the deadline too. allReady keeps its meaning (every connected member ready). Web enables Begin as "Start with ready players"; iOS 1.2.0 ignores it and keeps Begin disabled until all are ready (the idle-host hand-off moves the role on).',
     },
     tournamentMessage: {
         payload: ref('tournamentChatLine'),
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:rollbackRound'],
-        notes: 'system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
+        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost'],
+        notes: 'system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline and the idle-host hand-off); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
     },
     tournamentRoundStart: {
         payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })) }),

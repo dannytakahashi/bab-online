@@ -199,7 +199,10 @@ const defs = {
         creatorUsername: orNull(str()),
         creatorSocketId: orNull(str()),
         winners: arr(str()),
-    }, { optional: ['winners'] }),
+        // additive 2026-11-15, between rounds only: Begin may start with the
+        // ready members (tournamentReadyUpdate notes)
+        readyDeadlinePassed: bool(),
+    }, { optional: ['winners', 'readyDeadlinePassed'] }),
     // DB projections: closed at the top, nested rows open
     profile: obj({
         username: str(),

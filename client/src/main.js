@@ -54,7 +54,7 @@ import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/s
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -1767,6 +1767,8 @@ function initializeApp() {
 
     onTournamentReadyUpdate: (data) => {
       updateTournamentPlayers(data.players, gameState.username);
+      // between rounds only (servers since 2026-11-15): past the ready deadline
+      if (typeof data.readyDeadlinePassed === 'boolean') setReadyDeadlinePassed(data.readyDeadlinePassed);
     },
 
     onTournamentMessage: (data) => {

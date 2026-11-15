@@ -13,6 +13,9 @@ const { safeTimeout } = require('../utils/safeTimer');
 const pacing = require('../game/pacing');
 const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { botController, BotPlayer, personalities } = require('../game/bot');
+const liveness = require('./tournamentLiveness');
+const { systemLine } = liveness;
+const { recordTableScores } = require('../game/tournamentScoring');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
 /**
@@ -71,6 +74,7 @@ function releaseStaleTournamentSeat(io, evicted, username) {
             players: tournament.getClientState().players,
             newCreator: leaveResult.newCreator ? leaveResult.newCreator.username : null
         });
+        liveness.refreshHostIdle(io, tournament);
     }
     socketLogger.info('Stale tournament membership given up', {
         oldSocketId, tournamentId: tournament.tournamentId, deleted: Boolean(leaveResult?.deleted)
@@ -127,6 +131,8 @@ async function joinTournament(socket, io, data) {
         players: joinedState.players,
         scoreboard: joinedState.scoreboard
     });
+    // A joiner is not ready yet
+    liveness.refreshHostIdle(io, tournament);
 
     // Notify main room
     emitLobbiesUpdated(io);
@@ -242,6 +248,7 @@ async function leaveTournament(socket, io) {
         players: tournament.getClientState().players,
         newCreator: result.newCreator ? result.newCreator.username : null
     });
+    liveness.refreshHostIdle(io, tournament);
 
     // Notify main room
     emitLobbiesUpdated(io);
@@ -265,10 +272,8 @@ function tournamentReady(socket, io) {
 
     tournament.setReady(socket.id);
 
-    tournament.broadcast(io, 'tournamentReadyUpdate', {
-        players: tournament.getClientState().players,
-        allReady: tournament.allPlayersReady()
-    });
+    tournament.broadcast(io, 'tournamentReadyUpdate', liveness.readyUpdatePayload(tournament));
+    liveness.noteActivity(io, tournament, socket.id);
 }
 
 function tournamentUnready(socket, io) {
@@ -280,10 +285,8 @@ function tournamentUnready(socket, io) {
 
     tournament.unsetReady(socket.id);
 
-    tournament.broadcast(io, 'tournamentReadyUpdate', {
-        players: tournament.getClientState().players,
-        allReady: tournament.allPlayersReady()
-    });
+    tournament.broadcast(io, 'tournamentReadyUpdate', liveness.readyUpdatePayload(tournament));
+    liveness.noteActivity(io, tournament, socket.id);
 }
 
 /**
@@ -335,6 +338,7 @@ async function beginTournament(socket, io) {
     } catch (error) {
         if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'lobby';
+            liveness.refreshHostIdle(io, tournament);
         }
         throw error;
     }
@@ -360,7 +364,9 @@ async function beginNextRound(socket, io) {
         return;
     }
 
-    if (!tournament.allPlayersReady()) {
+    // Everyone ready, or past the ready deadline with the host ready: the
+    // members not ready sit this round out (owner 2026-11-15)
+    if (!tournament.canBegin()) {
         emitError(socket, { message: 'Not all players are ready' }, 'beginNextRound');
         return;
     }
@@ -371,14 +377,19 @@ async function beginNextRound(socket, io) {
         return;
     }
 
+    // Who sits out, decided at Begin (before any await)
+    const sitOut = new Set(tournament.notReadyUsernames());
+
     // Same double-start protection as beginTournament
     const epoch = tournament.beginStart();
 
     try {
-        await startTournamentRound(io, tournament, nextRound, epoch);
+        await startTournamentRound(io, tournament, nextRound, epoch, { sitOut });
     } catch (error) {
         if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'between_rounds';
+            liveness.armReadyDeadline(io, tournament, { restart: false });
+            liveness.refreshHostIdle(io, tournament);
         }
         throw error;
     }
@@ -411,17 +422,19 @@ function tournamentLive(tournament, epoch) {
  * or deletion stops it at once. The canceller has already aborted the tables
  * (any table still alive is aborted here); nothing more is created or sent.
  * @param {number} epoch - from tournament.beginStart()
+ * @param {{sitOut?: Set<string>}} [opts] - usernames left out of this round
  * @returns {Promise<boolean>} true if the round started
  */
-async function startTournamentRound(io, tournament, roundNumber, epoch = tournament.epoch) {
+async function startTournamentRound(io, tournament, roundNumber, epoch = tournament.epoch, { sitOut = new Set() } = {}) {
     const live = () => tournamentLive(tournament, epoch);
     if (!live()) return false;
 
     // Shuffle player usernames (connected players only — disconnected members
-    // keep their scores but sit out rounds until they reattach)
+    // keep their scores but sit out rounds until they reattach; so do the
+    // members not ready when a round was begun past the ready deadline)
     const usernames = [];
     for (const [, player] of tournament.players) {
-        if (player.connected !== false) {
+        if (player.connected !== false && !sitOut.has(player.username)) {
             usernames.push(player.username);
         }
     }
@@ -600,18 +613,6 @@ function createRoundTable(io, tournament, assignment, roundNumber) {
     return { game, humanSocketIds, presentHumans };
 }
 
-/**
- * A server notice in tournament chat. `system: true` marks it for web, and
- * `type: 'system'` for iOS 1.2.0, whose ChatMessage.from already reads
- * `type` and shows a system line dim, without a name or a report/block
- * menu. A player's line carries neither, so a player named "System" (no
- * longer registrable: usernameRules RESERVED_NAMES) cannot pass for one.
- * The username stays for any reader of neither.
- */
-function systemLine(message) {
-    return { username: 'System', message, isSpectator: false, timestamp: Date.now(), system: true, type: 'system' };
-}
-
 /** Undo startRound for a round that got no tables. */
 function rollbackRound(io, tournament, roundNumber) {
     const startedRound = tournament.getCurrentRound();
@@ -622,6 +623,9 @@ function rollbackRound(io, tournament, roundNumber) {
     tournament.broadcast(io, 'tournamentMessage', {
         ...systemLine('Round could not start — no connected players.')
     });
+    // Back between rounds: what is left of the ready deadline, and the host clock
+    liveness.armReadyDeadline(io, tournament, { restart: false });
+    liveness.refreshHostIdle(io, tournament);
     socketLogger.warn('Tournament round rolled back, no games created', {
         tournamentId: tournament.tournamentId, roundNumber
     });
@@ -669,6 +673,8 @@ function tournamentChat(socket, io, data) {
         isSpectator: chatMessage.isSpectator,
         timestamp: chatMessage.timestamp
     });
+    // A host who chats is not idle
+    if (!isSpectator) liveness.noteActivity(io, foundTournament, socket.id);
 }
 
 /**
@@ -854,6 +860,8 @@ function returnToTournament(socket, io) {
 
     // Send current tournament state
     socket.emit('tournamentJoined', tournament.getClientState());
+    // A reattach may have moved the host role or readiness
+    liveness.refreshHostIdle(io, tournament);
 }
 
 // Completed tournaments stay in memory for a grace window so players coming
@@ -912,15 +920,25 @@ async function broadcastRoundOutcome(io, tournament) {
             currentRound: tournament.currentRound,
             totalRounds: tournament.totalRounds
         });
+        liveness.armReadyDeadline(io, tournament);
+        liveness.refreshHostIdle(io, tournament);
     }
 }
 
 /**
  * A tournament game ended without reaching gameEnd (aborted/abandoned).
- * Mark it complete with no scores recorded so the round can still advance —
- * otherwise the tournament is stuck in round_active forever.
+ * Record its round scores (tournamentScoring: running scores, a leaver at
+ * most 0) and mark it complete so the round can still advance — otherwise
+ * the tournament is stuck in round_active forever.
  */
 async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGameById(gameId)) {
+    // Scored only while still mapped (a cancel unmapped it: nothing), and
+    // before handleTournamentGameEnd, whose round completion scores the
+    // members who missed the round from these scores
+    const mappedTo = gameManager.tournamentGames.get(gameId);
+    const mappedTournament = mappedTo ? gameManager.getTournamentById(mappedTo) : null;
+    if (mappedTournament && game) recordTableScores(mappedTournament, game, { aborted: true });
+
     const result = gameManager.handleTournamentGameEnd(gameId);
     if (!result) return;
 

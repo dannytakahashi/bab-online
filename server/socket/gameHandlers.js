@@ -20,6 +20,7 @@ const { emitError } = require('./serverError');
 const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
+const { recordTableScores } = require('../game/tournamentScoring');
 const seatLifecycle = require('./seatLifecycle');
 const progressWatchdog = require('./progressWatchdog');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
@@ -983,32 +984,9 @@ async function handleHandComplete(game, io) {
                 ? gameManager.getTournamentById(tournamentId)
                 : null;
             if (tournament) {
-                // Scores go to the round this game was created in
-                const roundNumber = tournament.roundOfGame(game.gameId)?.roundNumber ?? tournament.currentRound;
-                // Record each human tournament player's team score
-                for (let pos = 1; pos <= 4; pos++) {
-                    const player = game.getOriginalPlayer(pos);
-                    if (!player || !player.username) continue;
-
-                    // Only record scores for players in the tournament (not filler bots)
-                    const tournamentPlayer = tournament.getPlayerByUsername(player.username);
-                    if (!tournamentPlayer) continue;
-
-                    const isTeam1 = (pos === 1 || pos === 3);
-                    const teamScore = isTeam1 ? game.score.team1 : game.score.team2;
-                    const oppScore = isTeam1 ? game.score.team2 : game.score.team1;
-                    const partnerPos = pos <= 2 ? pos + 2 : pos - 2;
-                    const partner = game.getOriginalPlayer(partnerPos);
-
-                    tournament.recordPlayerRoundScore(player.username, {
-                        roundNumber,
-                        gameId: game.gameId,
-                        position: pos,
-                        teamScore,
-                        oppScore,
-                        partner: partner?.username || 'Bot'
-                    });
-                }
+                // Each member at the table: their team's final score, into
+                // the round this game was created in (not filler bots)
+                recordTableScores(tournament, game);
 
                 // Handle tournament game end (mark complete, check round)
                 const result = gameManager.handleTournamentGameEnd(game.gameId);
