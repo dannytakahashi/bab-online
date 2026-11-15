@@ -417,7 +417,8 @@ function teamScore(bid, mult, tricks) {
 /**
  * Everything the bot knows about the unseen cards.
  * @returns {Object|null} null when the memory does not cover the whole hand
- *   (a bot that took the seat mid-hand), so the caller must not search
+ *   (a gap or a contradiction; a bot seated mid-hand gets the hand replayed
+ *   by createSeatBot), so the caller must not search
  */
 function readPosition(hand, playedCards, leadPosition, trump, position, memory, handSize, lastSeatInference = true) {
     const noTrump = trump.suit === 'joker';

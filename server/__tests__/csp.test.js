@@ -139,3 +139,37 @@ test('the middleware sets the header on every response', async () => {
         await new Promise((r) => server.close(r));
     }
 });
+
+test('header only: no framing, no <base> elsewhere, forms post to the site only', () => {
+    expect(header['frame-ancestors']).toEqual(["'none'"]);
+    expect(header['base-uri']).toEqual(["'self'"]);
+    expect(header['form-action']).toEqual(["'self'"]);
+    // A meta CSP ignores frame-ancestors (and browsers warn about it)
+    expect(metaPolicy()['frame-ancestors']).toBeUndefined();
+    // Every form is built in JS and posts with fetch: the pages have none
+    for (const page of ['index.html', 'reset.html']) {
+        expect(fs.readFileSync(path.join(ROOT, 'client', page), 'utf8')).not.toMatch(/<form|<base/i);
+    }
+});
+
+describe('HSTS (Railway terminates TLS: X-Forwarded-Proto)', () => {
+    const { createHstsMiddleware, HSTS } = require('../middleware/csp');
+    const run = (opts, headers = {}, secure = false) => {
+        const set = {};
+        const res = { setHeader: (k, v) => { set[k] = v; } };
+        let nexted = false;
+        createHstsMiddleware(opts)({ headers, secure }, res, () => { nexted = true; });
+        expect(nexted).toBe(true);
+        return set['Strict-Transport-Security'];
+    };
+
+    test('production over https only; never on plain http or outside production', () => {
+        expect(HSTS).toBe('max-age=15552000');
+        expect(run({ production: true }, { 'x-forwarded-proto': 'https' })).toBe(HSTS);
+        expect(run({ production: true }, { 'x-forwarded-proto': 'https,http' })).toBe(HSTS);
+        expect(run({ production: true }, {}, true)).toBe(HSTS);
+        expect(run({ production: true }, { 'x-forwarded-proto': 'http' })).toBeUndefined();
+        expect(run({ production: true }, {})).toBeUndefined();
+        expect(run({ production: false }, { 'x-forwarded-proto': 'https' })).toBeUndefined();
+    });
+});

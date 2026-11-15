@@ -28,6 +28,7 @@ node scripts/set-password.js Alan                                 # new friendly
 node scripts/set-admin.js --list                                  # read-only: who is an admin (run this first)
 node scripts/set-admin.js Alan                                    # lists admins, then asks you to type ADMIN
 node scripts/set-admin.js Alan --remove                           # lists admins, then asks you to type REMOVE
+node scripts/migrate-legacy-session-tokens.js [--apply]          # one-off: dry run counts plaintext users.sessionToken left; --apply (type MIGRATE) hashes them into sessionTokens and unsets them; players stay signed in
 node scripts/avatar-report.js [--list]                            # read-only: stored custom pictures, sizes, how many derive (run before enabling the avatar pipeline)
 node scripts/backup-db.js --out ~/bab-backups [--keep N]          # logical backup (MONGO_URI from the environment only; runbook: docs/claude/server-infra.md, Backups and restore)
 node scripts/restore-db.js <archive> --uri mongodb://127.0.0.1:<port> --into-db <scratch>  # local by default; production needs --i-mean-production

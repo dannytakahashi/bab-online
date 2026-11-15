@@ -123,6 +123,8 @@ function createLobby(socket, io, data) {
     if (result.evicted) {
         releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.lobby.createdBy });
     }
+    // Or a tournament lobby membership (GameManager.giveUpStaleTournament)
+    require('./tournamentHandlers').releaseStaleTournamentSeat(io, result.evictedTournament, result.lobby.createdBy);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -188,6 +190,8 @@ function joinLobby(socket, io, data) {
     } else if (result.evicted) {
         releaseStaleLobbySeat(io, { ...result.evicted, newSocketId: socket.id, username: result.newPlayer.username });
     }
+    // Or a tournament lobby membership (GameManager.giveUpStaleTournament)
+    require('./tournamentHandlers').releaseStaleTournamentSeat(io, result.evictedTournament, result.newPlayer?.username);
 
     // Leave main room Socket.IO room
     socket.leave('mainRoom');
@@ -259,16 +263,26 @@ function joinAsSpectator(socket, io, data) {
     }
 
     // An owner of this game comes back to their own seat, not as a spectator
+    // (never from a lobby seat, another game or another tournament:
+    // GameManager.activityOf)
     const ownPos = game.seatByUsername(user.username);
     const ownSeat = ownPos ? game.seat(ownPos) : null;
-    if (ownSeat && ownSeat.controller !== Controller.HUMAN &&
-        (ownSeat.presence === Presence.CONNECTED || ownSeat.presence === Presence.AWAY)) {
+    const watches = ownSeat && ownSeat.controller !== Controller.HUMAN &&
+        (ownSeat.presence === Presence.CONNECTED || ownSeat.presence === Presence.AWAY);
+    const returns = ownSeat && ownSeat.controller === Controller.HUMAN &&
+        (ownSeat.presence === Presence.GRACE || ownSeat.presence === Presence.RESIGNABLE);
+    const other = watches || returns ? gameManager.activityBesides(socket.id, game.gameId) : null;
+    if (other) {
+        socketLogger.warn('Spectate refused: socket belongs elsewhere', { socketId: socket.id, gameId, kind: other.kind });
+        emitError(socket, { message: gameManager.membershipError(other) }, 'joinAsSpectator');
+        return;
+    }
+    if (watches) {
         // Lazy or resigned seat: watch it while the bot plays (/active works)
         seatLifecycle.watchSeat(io, game, ownPos, socket, user.username, { via: 'spectate' });
         return;
     }
-    if (ownSeat && ownSeat.controller === Controller.HUMAN &&
-        (ownSeat.presence === Presence.GRACE || ownSeat.presence === Presence.RESIGNABLE)) {
+    if (returns) {
         socket.leave('mainRoom');
         gameManager.leaveMainRoom(socket.id);
         seatLifecycle.reconnectOwner(io, game, ownPos, socket, user.username);

@@ -210,4 +210,44 @@ describe('Deck', () => {
             expect(deck.remaining).toBe(0);
         });
     });
+
+    describe('the shuffle\'s source of randomness', () => {
+        const crypto = require('crypto');
+        const { mulberry32 } = require('../../testUtils/gameDriver');
+        const realRandom = Math.random;
+        afterEach(() => {
+            Math.random = realRandom;
+            jest.restoreAllMocks();
+        });
+        const order = (d) => d.cards.map(c => `${c.rank}_${c.suit}`).join(' ');
+
+        test('a real deal (the engine\'s Math.random) draws from crypto.randomInt, one call per swap', () => {
+            expect(Deck.isSeeded()).toBe(false);
+            const spy = jest.spyOn(crypto, 'randomInt');
+            deck.shuffle();
+            expect(spy).toHaveBeenCalledTimes(53);
+            expect(spy.mock.calls.map(([n]) => n)).toEqual(Array.from({ length: 53 }, (_, k) => 54 - k));
+        });
+
+        test('a seeded run (Math.random replaced) keeps its exact stream: same seed, same deck, no crypto', () => {
+            const spy = jest.spyOn(crypto, 'randomInt');
+            Math.random = mulberry32(7);
+            expect(Deck.isSeeded()).toBe(true);
+            deck.shuffle();
+            const first = order(deck);
+            // The order the old shuffle gave this seed
+            const rng = mulberry32(7);
+            const ref = new Deck();
+            for (let i = ref.cards.length - 1; i > 0; i--) {
+                const j = Math.floor(rng() * (i + 1));
+                [ref.cards[i], ref.cards[j]] = [ref.cards[j], ref.cards[i]];
+            }
+            expect(first).toBe(order(ref));
+            Math.random = mulberry32(7);
+            const again = new Deck();
+            again.shuffle();
+            expect(order(again)).toBe(first);
+            expect(spy).not.toHaveBeenCalled();
+        });
+    });
 });

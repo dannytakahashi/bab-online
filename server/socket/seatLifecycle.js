@@ -87,8 +87,25 @@ function createSeatBot(game, pos, preferred = null) {
     bot.pic = Math.floor(Math.random() * 82) + 1;
     botController.registerBot(game.gameId, bot);
     bot.resetCardMemory(game.currentHand, game.trump);
+    bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game));
     gameManager.playerGames.set(bot.socketId, game.gameId);
     return bot;
+}
+
+/**
+ * The cards on the table in play order from the lead, as the bots were told
+ * them (cardPlayed), or null. Through TRICK_RESOLVING the 4th card is still
+ * here: resumeTrick moves the trick to trickHistory and advances the bots.
+ */
+function openTrick(game) {
+    if (!game.playedCardsIndex || !game.leadPosition) return null;
+    const cards = [];
+    for (let k = 0; k < 4; k++) {
+        const c = game.playedCards[((game.leadPosition - 1 + k) % 4)];
+        if (!c) break;
+        cards.push(c);
+    }
+    return { lead: game.leadPosition, cards };
 }
 
 /** Undo createSeatBot for a bot that never got its seat. */
@@ -701,8 +718,12 @@ function resignSeat(io, game, pos) {
     return true;
 }
 
-/** /leave from the owner socket: the bot keeps the seat, the owner is gone for good. */
-function leaveSeat(io, game, pos, socket) {
+/**
+ * /leave from the owner socket: the bot keeps the seat, the owner is gone
+ * for good. `notify` false skips the leftGame (leaveTournament late in
+ * DRAW_RESOLVING: tournamentLeft follows).
+ */
+function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
     if (!game.seatLeave(pos)) return false;
@@ -712,7 +733,7 @@ function leaveSeat(io, game, pos, socket) {
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c
     // joinMainRoom had no listener: V1_REMOVALS #4)
-    socket.emit('leftGame');
+    if (notify) socket.emit('leftGame');
     socketLogger.info('Player left game (permanent)', { gameId: game.gameId, position: pos });
     maybeAbort(io, game);
     return true;

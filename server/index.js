@@ -26,7 +26,7 @@ const { createAvatarRouter } = require('./routes/avatar');
 const avatarStore = require('./avatar/avatarStore');
 const { mountStatic } = require('./staticAssets');
 const { createCompression } = require('./middleware/compression');
-const { cspMiddleware } = require('./middleware/csp');
+const { cspMiddleware, createHstsMiddleware } = require('./middleware/csp');
 const { createPasswordResetRouter } = require('./routes/passwordReset');
 const database = require('./database');
 const { signOutUser } = require('./socket/authHandlers');
@@ -45,6 +45,8 @@ app.use(createCompression());
 // Content-Security-Policy on every response (server/middleware/csp.js;
 // kept in step with the page's meta CSP)
 app.use(cspMiddleware);
+// HSTS on https responses in production (server/middleware/csp.js)
+app.use(createHstsMiddleware());
 
 // Custom avatars over HTTP (GET /avatar/:username?v=): before the static
 // handlers; sets its own CSP/CORP/nosniff and cache headers

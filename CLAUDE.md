@@ -42,7 +42,7 @@ bab-online/
 ├── server/                     # Backend
 │   ├── game/                  # Core game logic
 │   │   ├── rules.js           # Pure functions: card comparison, legality, scoring
-│   │   ├── Deck.js            # Card deck with Fisher-Yates shuffle
+│   │   ├── Deck.js            # Card deck, Fisher-Yates shuffle (crypto.randomInt; a replaced Math.random, i.e. a seeded run, keeps its stream)
 │   │   ├── GameState.js       # Game state encapsulation
 │   │   ├── SeatState.js       # Seat controller/presence edge table + invariants
 │   │   ├── GameManager.js     # Singleton: manages main room, lobbies, games, tournaments

@@ -19,6 +19,15 @@
  *   /dist/assets woff2 (client/src/phaser/cards/cardFont.js)
  * - connect-src: the production hosts, unchanged ('self' covers ws(s)
  *   to the serving host, a local server included)
+ * - frame-ancestors 'none', base-uri 'self', form-action 'self': header
+ *   only (a meta CSP ignores frame-ancestors). Nothing frames the site (iOS
+ *   is native); every form (sign-in, register, admin dialogs, the reset
+ *   page) handles submit in JS and posts with fetch, so none navigates
+ *
+ * HSTS (hstsMiddleware): Railway terminates TLS and forwards plain HTTP
+ * with X-Forwarded-Proto, so the header goes on responses the client got
+ * over https, in production only. No includeSubDomains / preload: other
+ * babonline.io subdomains are not ours to pin.
  */
 
 'use strict';
@@ -33,7 +42,13 @@ const DIRECTIVES = [
     "font-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "media-src 'self' blob:",
+    "frame-ancestors 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
 ];
+
+// 180 days
+const HSTS = 'max-age=15552000';
 
 const CONTENT_SECURITY_POLICY = `${DIRECTIVES.join('; ')};`;
 
@@ -42,4 +57,13 @@ function cspMiddleware(req, res, next) {
     next();
 }
 
-module.exports = { cspMiddleware, CONTENT_SECURITY_POLICY };
+/** Strict-Transport-Security on https responses (behind Railway's edge). */
+function createHstsMiddleware({ production = process.env.NODE_ENV === 'production' } = {}) {
+    return function hstsMiddleware(req, res, next) {
+        const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+        if (production && (req.secure || proto === 'https')) res.setHeader('Strict-Transport-Security', HSTS);
+        next();
+    };
+}
+
+module.exports = { cspMiddleware, createHstsMiddleware, CONTENT_SECURITY_POLICY, HSTS };

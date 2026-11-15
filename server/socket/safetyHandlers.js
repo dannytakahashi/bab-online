@@ -9,6 +9,15 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { rememberBlockList } = require('./voiceHandlers');
 
+// Enough for any real list; bounds the document and every sign-in payload
+const BLOCK_LIST_MAX = 200;
+const BLOCK_LIST_FULL = `Your block list is full (${BLOCK_LIST_MAX} players). Unblock someone first.`;
+
+// Bot personas chat too (lazy bots, the ambient game, '🤖 Bot 2' labels):
+// iOS 1.2.0 offers Block on any chat line, so a 🤖 name counts as existing
+// (no account can have one: sign-up names have no emoji, usernameRules)
+const isBotName = (name) => typeof name === 'string' && name.startsWith('🤖 ');
+
 /**
  * File a report against another user. Stored in the reports collection for
  * review; reporters get an acknowledgement immediately.
@@ -83,10 +92,23 @@ async function updateBlockList(socket, targetUsername, op) {
     }
 
     try {
-        await usersCollection.updateOne(
-            { username: user.username },
-            { [op]: { blockedUsers: targetUsername } }
-        );
+        if (op === '$addToSet') {
+            const refusal = await checkBlockTarget(usersCollection, user.username, targetUsername);
+            if (refusal) {
+                socket.emit('blockListUpdated', { success: false, message: refusal });
+                return;
+            }
+        }
+        // A block only while the list has room (an unblock always works);
+        // a name already on the list is a no-op either way
+        const filter = op === '$addToSet'
+            ? { username: user.username, $or: [{ [`blockedUsers.${BLOCK_LIST_MAX - 1}`]: { $exists: false } }, { blockedUsers: targetUsername }] }
+            : { username: user.username };
+        const result = await usersCollection.updateOne(filter, { [op]: { blockedUsers: targetUsername } });
+        if (op === '$addToSet' && result.matchedCount === 0) {
+            socket.emit('blockListUpdated', { success: false, message: BLOCK_LIST_FULL });
+            return;
+        }
         const updated = await usersCollection.findOne(
             { username: user.username },
             { projection: { blockedUsers: 1 } }
@@ -107,7 +129,24 @@ async function updateBlockList(socket, targetUsername, op) {
     }
 }
 
+/**
+ * Why `target` cannot be blocked by `username`, or null: it must name an
+ * account (any, a tombstone included: the name is still shown in old chat)
+ * or a bot persona, and the list must have room.
+ */
+async function checkBlockTarget(usersCollection, username, target) {
+    if (!isBotName(target)) {
+        const exists = await usersCollection.findOne({ username: target }, { projection: { _id: 1 } });
+        if (!exists) return 'No player by that name.';
+    }
+    const own = await usersCollection.findOne({ username }, { projection: { blockedUsers: 1 } });
+    const list = own?.blockedUsers || [];
+    if (!list.includes(target) && list.length >= BLOCK_LIST_MAX) return BLOCK_LIST_FULL;
+    return null;
+}
+
 module.exports = {
+    BLOCK_LIST_MAX,
     reportUser,
     blockUser,
     unblockUser

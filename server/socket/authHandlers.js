@@ -281,7 +281,9 @@ async function signIn(socket, io, data) {
                 success: false,
                 message: 'Invalid username or password!'
             });
-            authLogger.warn('Sign-in failed: user not found', { username });
+            // Not the typed name: no account has it, and it is sometimes the
+            // password typed into the wrong field
+            authLogger.warn('Sign-in failed: user not found');
             failed = true;
             return;
         }
