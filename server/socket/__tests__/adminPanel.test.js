@@ -748,6 +748,8 @@ describe('actions', () => {
                 [{ newName: ' Cyrus', confirm: ' Cyrus' }, 'refused', /start or end with a space/],
                 [{ newName: 'Cy😀x', confirm: 'Cy😀x' }, 'refused', /emoji/],
                 [{ newName: 'shit5', confirm: 'shit5' }, 'refused', /That username is not allowed/],
+                [{ newName: 'xXfuckXx', confirm: 'xXfuckXx' }, 'refused', /That username is not allowed/],
+                [{ newName: 'Adm1n', confirm: 'Adm1n' }, 'refused', /That name is reserved/],
                 [{ newName: 'bea', confirm: 'bea' }, 'refused', /That name is taken: "Bea" already exists/],
                 [{ newName: 'BEA', confirm: 'BEA' }, 'refused', /taken/],
                 [{ newName: 'old', confirm: 'old' }, 'refused', /an old name of "Bea"\. Delete that old name first/],

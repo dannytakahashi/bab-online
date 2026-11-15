@@ -600,6 +600,18 @@ function createRoundTable(io, tournament, assignment, roundNumber) {
     return { game, humanSocketIds, presentHumans };
 }
 
+/**
+ * A server notice in tournament chat. `system: true` marks it for web, and
+ * `type: 'system'` for iOS 1.2.0, whose ChatMessage.from already reads
+ * `type` and shows a system line dim, without a name or a report/block
+ * menu. A player's line carries neither, so a player named "System" (no
+ * longer registrable: usernameRules RESERVED_NAMES) cannot pass for one.
+ * The username stays for any reader of neither.
+ */
+function systemLine(message) {
+    return { username: 'System', message, isSpectator: false, timestamp: Date.now(), system: true, type: 'system' };
+}
+
 /** Undo startRound for a round that got no tables. */
 function rollbackRound(io, tournament, roundNumber) {
     const startedRound = tournament.getCurrentRound();
@@ -608,10 +620,7 @@ function rollbackRound(io, tournament, roundNumber) {
     tournament.currentRound = roundNumber - 1;
     tournament.phase = roundNumber === 1 ? 'lobby' : 'between_rounds';
     tournament.broadcast(io, 'tournamentMessage', {
-        username: 'System',
-        message: 'Round could not start — no connected players.',
-        isSpectator: false,
-        timestamp: Date.now()
+        ...systemLine('Round could not start — no connected players.')
     });
     socketLogger.warn('Tournament round rolled back, no games created', {
         tournamentId: tournament.tournamentId, roundNumber
@@ -694,10 +703,7 @@ function spectateTournament(socket, io, data) {
     });
 
     tournament.broadcast(io, 'tournamentMessage', {
-        username: 'System',
-        message: `${user.username} is now spectating`,
-        isSpectator: false,
-        timestamp: Date.now()
+        ...systemLine(`${user.username} is now spectating`)
     });
 
     socketLogger.info('Player spectating tournament', {

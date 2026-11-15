@@ -23,6 +23,33 @@ const MSG = 'This would break the App Store iOS build or the web client; see con
 const S2C_REFINED = {
     's2c.recordsResponse|success.records': 'the documented allTime / thisYear / thisMonth periods (review fix: records content was never checked)',
 };
+/**
+ * s2c-only baseline $defs that may gain OPTIONAL properties, named with the
+ * properties allowed. Everything the baseline had stays byte-identical
+ * (defKeeps); a $def is otherwise frozen because a $ref payload cannot grow
+ * any other way. Both clients read these lines as plain dictionaries /
+ * objects and ignore keys they do not know.
+ */
+const S2C_DEF_ADDITIONS = {
+    // a server notice, not a player's line (2026-11-15: a player named "System" could pass for one)
+    tournamentChatLine: ['system', 'type'],
+};
+
+/** Problems with `cur` being the baseline $def `base` plus only the named optional properties. */
+function defKeeps(name, base, cur) {
+    const allowed = S2C_DEF_ADDITIONS[name];
+    if (!allowed) return deepEqual(base, cur) ? [] : [`$defs.${name}: changed`];
+    const out = [];
+    const added = Object.keys(cur.properties || {}).filter((k) => !(k in (base.properties || {})));
+    for (const k of added) {
+        if (!allowed.includes(k)) out.push(`$defs.${name}.${k}: added, but not named in S2C_DEF_ADDITIONS`);
+        if ((cur.required || []).includes(k)) out.push(`$defs.${name}.${k}: an added property must be optional`);
+    }
+    const trimmed = { ...cur, properties: Object.fromEntries(Object.entries(cur.properties || {}).filter(([k]) => !added.includes(k))) };
+    if (!deepEqual(base, trimmed)) out.push(`$defs.${name}: changed`);
+    return out;
+}
+
 const isBareOpenObject = (s) => s && s.type === 'object' && s.additionalProperties === true &&
     Object.keys(s.properties || {}).length === 0 && !(s.required || []).length;
 
@@ -132,7 +159,7 @@ test('every baseline $def is unchanged (new $defs are fine)', () => {
     const problems = [];
     for (const [name, d] of Object.entries(baseline.$defs)) {
         if (!schema.$defs[name]) problems.push(`$defs.${name}: removed`);
-        else if (!deepEqual(d, schema.$defs[name])) problems.push(`$defs.${name}: changed`);
+        else problems.push(...defKeeps(name, d, schema.$defs[name]));
     }
     if (problems.length) throw new Error(`${MSG}\n  ${problems.join('\n  ')}`);
 });
@@ -159,4 +186,33 @@ test('the s2c refinement exception is narrow: only named properties, only while 
     objectKeeps(base, closed, 's2c.recordsResponse|success', out);
     objectKeeps(base, closed, 's2c.other|success', out);
     expect(out).toEqual(['s2c.recordsResponse|success.records: refined, but no longer an open object', 's2c.other|success.records: schema changed']);
+});
+
+test('the $def addition exception is narrow: only named, optional properties, the rest unchanged', () => {
+    const base = baseline.$defs.tournamentChatLine;
+    const cur = schema.$defs.tournamentChatLine;
+    expect(defKeeps('tournamentChatLine', base, cur)).toEqual([]);
+    const extra = { ...cur, properties: { ...cur.properties, color: { type: 'string' } } };
+    expect(defKeeps('tournamentChatLine', base, extra)).toEqual(['$defs.tournamentChatLine.color: added, but not named in S2C_DEF_ADDITIONS']);
+    const required = { ...cur, required: [...cur.required, 'system'] };
+    expect(defKeeps('tournamentChatLine', base, required)).toContain('$defs.tournamentChatLine.system: an added property must be optional');
+    const retyped = { ...cur, properties: { ...cur.properties, timestamp: { type: 'number' } } };
+    expect(defKeeps('tournamentChatLine', base, retyped)).toEqual(['$defs.tournamentChatLine: changed']);
+    // s2c-only: a client payload growing would be a different promise
+    const refs = (node, out = new Set()) => {
+        if (node && typeof node === 'object') {
+            if (typeof node.$ref === 'string') out.add(node.$ref.split('/').pop());
+            for (const v of Object.values(node)) refs(v, out);
+        }
+        return out;
+    };
+    const c2sRefs = refs(schema.c2s);
+    for (const name of Object.keys(S2C_DEF_ADDITIONS)) {
+        expect(c2sRefs.has(name)).toBe(false);
+        for (const def of Object.keys(schema.$defs)) {
+            if (c2sRefs.has(def)) expect(refs(schema.$defs[def]).has(name)).toBe(false);
+        }
+    }
+    const other = baseline.$defs.lobbyMember;
+    expect(defKeeps('lobbyMember', other, { ...other, properties: { ...other.properties, system: { const: true } } })).toEqual(['$defs.lobbyMember: changed']);
 });

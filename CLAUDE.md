@@ -66,7 +66,7 @@ bab-online/
 │   │   ├── profanityFilter.js # UGC filter (chat, usernames, lobby names)
 │   │   ├── sessionTokens.js   # Per-device "stay signed in" tokens
 │   │   ├── passwordHash.js    # bcryptjs in a worker_threads pool
-│   │   ├── clientIp.js        # Client IP behind Railway's edge (sign-in throttle)
+│   │   ├── clientIp.js        # Client IP behind Railway's edge (sign-in throttle, sign-up limit)
 │   │   ├── shutdown.js        # Graceful shutdown; exit 0 on SIGTERM, 1 on a crash
 │   │   ├── safeTimer.js       # safeTimeout/safeInterval: a throwing callback is logged, never a crash
 │   │   └── ttlCache.js        # Leaderboard/records caches
@@ -157,7 +157,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Spectator badge and chat | `docs/claude/spectators.md` | `spectatorList()`, unsequenced `spectatorsUpdated`, web badge + spectator bubble, iOS 1.2.0 |
 | Ambient bot activity | `server/demo/CLAUDE.md` | on-demand demo game, idle rules, `AMBIENT_CHAT_USERS` (test1): who sees the bot chat AND the demo game (lists, spectate, demand) |
 | Sessions and socket identity | `docs/claude/server-accounts.md`, Sessions and socket identity | per-device tokens, one live socket, supersede / parked tabs, `releaseIdentity` |
-| Username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` | sign-up name rules and budgets, bcrypt worker pool, failed-sign-in limits + client IP |
+| Username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` | sign-up name rules and budgets (per socket, per IP, server-wide), bcrypt worker pool, failed-sign-in limits + client IP |
 | Database, caches, limits, CI, deploys | `docs/claude/server-infra.md` | `.railway/railway.ts` service settings (wait for CI, `/ready` healthcheck, `PORT=3000`, how to plan/apply), crash exit codes, `safeTimer`, `/health` counts, `LOG_LEVEL`; startup DB + indexes, 5 s server selection timeout, what CI runs (`ci-boot-check.sh`, `REQUIRE_REAL_MONGO`), active-game writes, projected reads, stats scopes (human `stats` / bot-game `botStats`, `withBots` records, `{scope}` reads), profile caches per scope, soft limits |
 | Express pages, avatars | `docs/claude/server-infra.md` | /privacy /support /terms; avatar pipeline, `clientHello` caps, kill switches |
 | Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules, web voice keys (hold `` ` `` for the overlay, M mute) |

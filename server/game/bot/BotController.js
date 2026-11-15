@@ -8,6 +8,7 @@ const { gameLogger } = require('../../utils/logger');
 const { safeTimeout } = require('../../utils/safeTimer');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
+const { safeBid: fallbackBid } = require('../rules');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -18,6 +19,9 @@ class BotController {
 
         // Track pending timeouts for cleanup
         this.pendingActions = new Map();
+
+        // Bot bids/plays replaced by the fallback since startup (noteFallback)
+        this.fallbacks = { bid: 0, play: 0 };
     }
 
     /**
@@ -257,13 +261,41 @@ class BotController {
             return false;
         }
 
+        // Already recorded (a watchdog retry after the post-bid step failed):
+        // stale state, not a bad choice, so no fallback
+        if (game.playerBids[bot.position - 1] != null) {
+            gameLogger.warn('Bot bid skipped: already bid', {
+                gameId: game.gameId, botName: bot.username, position: bot.position
+            });
+            return false;
+        }
+
         const hand = game.getHand(bot.socketId);
         const gameContext = {
             teamScore: (bot.position === 1 || bot.position === 3) ? game.score.team1 : game.score.team2,
             oppScore: (bot.position === 1 || bot.position === 3) ? game.score.team2 : game.score.team1,
             currentHandSize: game.currentHand
         };
-        const bid = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
+        let chosen;
+        let failure = null;
+        try {
+            chosen = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
+        } catch (err) {
+            failure = { error: err.message, stack: err.stack };
+        }
+
+        // Same checks as a human bid (GameState.applyBid); a refused or
+        // missing bid falls back to the safe bid so the table never waits
+        let result = failure ? null : game.applyBid(bot.position, chosen);
+        if (!result || !result.ok) {
+            this.noteFallback('bid', game, bot, { chosen, reason: result ? result.reason : 'strategy_threw', ...failure });
+            result = game.applyBid(bot.position, fallbackBid(game.playerBids));
+            if (!result.ok) {
+                gameLogger.error('Bot safe bid refused', { gameId: game.gameId, position: bot.position, stage: game.stage, reason: result.reason });
+                return false;
+            }
+        }
+        const bid = result.bid;
 
         gameLogger.debug('Bot bidding', {
             botName: bot.username,
@@ -272,8 +304,6 @@ class BotController {
             gameId: game.gameId
         });
 
-        // Record bid (same as playerBid handler)
-        game.recordBid(bot.position, bid);
         game.addLogEntry(`${bot.username} bid ${bid}.`, bot.position, 'bid');
 
         game.broadcast(io, 'bidReceived', {
@@ -322,16 +352,41 @@ class BotController {
             return false;
         }
 
-        const card = bot.decideCard(
-            hand,
-            game.playedCards,
-            game.leadCard,
-            game.leadPosition,
-            game.trump,
-            game.isTrumpBroken,
-            game.currentHand,
-            this.buildPlayContext(game)
-        );
+        let card = null;
+        let failure = null;
+        try {
+            card = bot.decideCard(
+                hand,
+                game.playedCards,
+                game.leadCard,
+                game.leadPosition,
+                game.trump,
+                game.isTrumpBroken,
+                game.currentHand,
+                this.buildPlayContext(game)
+            );
+        } catch (err) {
+            failure = { error: err.message, stack: err.stack };
+        }
+
+        // Same checks as a human play (GameState.checkPlay: in hand, follow
+        // suit, trump lead, HI joker); a refused or missing card falls back
+        // to the first legal card in hand order
+        const check = failure ? null : (card ? game.checkPlay(bot.position, card, bot.socketId) : { ok: false, reason: 'no_card' });
+        if (!check || !check.ok) {
+            this.noteFallback('play', game, bot, {
+                chosen: card && card.suit ? `${card.rank} of ${card.suit}` : card,
+                reason: check ? check.reason : 'strategy_threw',
+                ...(check && check.error && { error: check.error }),
+                ...failure
+            });
+            card = game.firstLegalCard(bot.position);
+        }
+        const result = card ? game.applyPlay(bot.position, card, bot.socketId) : { ok: false, reason: 'no_legal_card' };
+        if (!result.ok) {
+            gameLogger.error('Bot fallback play refused', { gameId: game.gameId, position: bot.position, stage: game.stage, reason: result.reason, error: result.error });
+            return false;
+        }
 
         gameLogger.debug('Bot playing card', {
             botName: bot.username,
@@ -340,26 +395,6 @@ class BotController {
             gameId: game.gameId
         });
 
-        // Remove card from hand
-        game.removeCardFromHand(bot.socketId, card);
-
-        // Record lead card if leading
-        const isLeading = game.playedCardsIndex === 0;
-        if (isLeading) {
-            game.leadCard = card;
-            game.leadPosition = bot.position;
-        }
-
-        // Record played card
-        game.playedCards[bot.position - 1] = card;
-        game.playedCardsIndex++;
-        game.cardIndex++;
-
-        // Check if trump is broken
-        if (card.suit === game.trump.suit || card.suit === 'joker') {
-            game.isTrumpBroken = true;
-        }
-
         game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, bot.position));
 
         // Notify all bots about this card play
@@ -367,6 +402,25 @@ class BotController {
 
         // Let the caller handle post-play logic (turn advancement, trick completion, etc.)
         return true;
+    }
+
+    /**
+     * A bot's own bid/play was refused or its strategy threw: log it loudly
+     * (the caller then bids rules.safeBid / plays the first legal card) and count
+     * it, so a broken strategy shows up in the logs and in `fallbacks`.
+     * @param {'bid'|'play'} kind
+     */
+    noteFallback(kind, game, bot, detail) {
+        this.fallbacks[kind]++;
+        gameLogger.error(kind === 'bid' ? 'Bot bid refused, bidding the safe bid' : 'Bot play refused, playing the first legal card', {
+            gameId: game.gameId,
+            position: bot.position,
+            botName: bot.username,
+            stage: game.stage,
+            handSize: game.currentHand,
+            count: this.fallbacks[kind],
+            ...detail
+        });
     }
 
     /**

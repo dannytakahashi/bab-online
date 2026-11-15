@@ -17,10 +17,13 @@
  *    advanceTrick on every bot after each trick (notifyTrickComplete)
  *  - Zach partner history updated every hand, bore -> 0 (updatePartnerHistory)
  *
- * Every card a bot chooses is re-validated with rules.isLegalMove; illegal
- * choices and thrown exceptions are counted and reported (and substituted so
- * the run can continue), and so are errors caught inside the play search
- * (searchErrorCount). A healthy strategy reports zero of all three.
+ * Every card a bot chooses is re-validated with rules.isLegalPlay and every
+ * bid with rules.isValidBid (the checks the server applies to human and bot
+ * actions alike); illegal choices and thrown exceptions are counted and
+ * reported and substituted with the server's own fallback (the first legal
+ * card in hand order, rules.safeBid), and so are errors caught inside the
+ * play search (searchErrorCount). A healthy strategy reports zero of all
+ * four (incidentCount, bidIncidentCount, exceptionCount, searchErrorCount).
  *
  * Usage:
  *   node server/game/bot/sim/simulate.js                         # all experiments, 2000 games each
@@ -145,6 +148,7 @@ const numericBid = (b) => (isBore(b) ? null : (parseInt(String(b), 10) || 0));
 // ---------- Global stat accumulators ----------
 let recordsFd = null;   // --records: one JSONL line per bot-hand (fitBidModel.js input)
 const incidents = [];   // illegal card selections
+const bidIncidents = [];  // bids rules.isValidBid refuses
 const exceptions = [];  // thrown errors
 let redealCount = 0;
 let totalHandsDealt = 0;
@@ -213,7 +217,14 @@ function playGame(specs, expName, gameIdx) {
                         hand: handStr(hands[pos]), trump: cardStr(trump),
                         existingBids: playerBids.slice(), error: e.message, stack: e.stack.split('\n')[1]
                     });
-                    bid = '0';
+                    bid = rules.safeBid(playerBids);
+                }
+                if (!rules.isValidBid(String(bid).toUpperCase(), playerBids, handSize)) {
+                    bidIncidents.push({
+                        exp: expName, game: gameIdx, handSize, position: pos, personality: bot.statKey,
+                        chosen: bid, existingBids: playerBids.slice(), hand: handStr(hands[pos])
+                    });
+                    bid = rules.safeBid(playerBids);
                 }
                 playerBids[pos - 1] = bid;
             }
@@ -305,13 +316,9 @@ function playGame(specs, expName, gameIdx) {
                 }
 
                 // Validate the choice against the REAL rules before accepting it
+                const trick = { leadCard, isLeading, trump, trumpBroken, position: pos, leadPosition };
                 const inHand = card && hand.find(c => c.suit === card.suit && c.rank === card.rank);
-                let legal = false;
-                if (inHand) {
-                    const remaining = hand.filter(c => c !== inHand);
-                    legal = rules.isLegalMove(inHand, remaining, leadCard || inHand, isLeading,
-                        trump, trumpBroken, pos, isLeading ? pos : leadPosition);
-                }
+                const legal = !!inHand && rules.isLegalPlay(inHand, hand, trick);
                 if (!inHand || !legal) {
                     incidents.push({
                         exp: expName, game: gameIdx, handSize, trick: t,
@@ -321,11 +328,8 @@ function playGame(specs, expName, gameIdx) {
                         leadCard: cardStr(leadCard),
                         playedCards: playedCards.map(cardStr).join(',')
                     });
-                    card = hand.find(c => {
-                        const remaining = hand.filter(x => x !== c);
-                        return rules.isLegalMove(c, remaining, leadCard || c, isLeading,
-                            trump, trumpBroken, pos, isLeading ? pos : leadPosition);
-                    }) || hand[0];
+                    // The server's fallback (BotController.processBotPlay)
+                    card = rules.firstLegalCard(hand, trick) || hand[0];
                 } else {
                     card = inHand;
                 }
@@ -508,6 +512,8 @@ function main() {
         personalities: {},
         incidentCount: incidents.length,
         incidents: incidents.slice(0, 25),
+        bidIncidentCount: bidIncidents.length,
+        bidIncidents: bidIncidents.slice(0, 25),
         exceptionCount: exceptions.length,
         exceptions: exceptions.slice(0, 25),
         // Errors thrown inside the play search (caught: the rule card was played)

@@ -183,7 +183,9 @@ const defs = {
     }),
     scoreboardRow: obj({ username: str(), totalScore: num(), roundScores: arr(num()), roundDetails: arr(obj({}, { open: true })) }, { open: true }),
     tournamentActiveGame: obj({ gameId: str(), humanPlayers: arr(str()), botCount: int({ minimum: 0 }), status: str() }),
-    tournamentChatLine: obj({ username: str(), message: str(), isSpectator: bool(), timestamp: int() }),
+    // system / type (additive 2026-11-15): a server notice
+    // (tournamentHandlers systemLine), never on a player's line
+    tournamentChatLine: obj({ username: str(), message: str(), isSpectator: bool(), timestamp: int(), system: konst(true), type: konst('system') }, { optional: ['system', 'type'] }),
     tournamentClientState: obj({
         tournamentId: str(),
         name: str(),

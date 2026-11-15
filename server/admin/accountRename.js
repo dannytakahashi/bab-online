@@ -4,10 +4,10 @@
  * requested)"). The orchestration (refusals, the name lock, signing out,
  * the merge queue) is adminHandlers renameAccount; this is the data.
  *
- * The new name follows the sign-up rules (checkNewUsername, the profanity
- * filter) and must not clash, ignoring case, with any stored name,
- * tombstones included (findNameClash); only the account itself may match
- * (a case-only rename, "alan" -> "Alan").
+ * The new name follows the sign-up rules (checkNewUsername with its
+ * reserved names, the profanity filter) and must not clash, ignoring
+ * case, with any stored name, tombstones included (findNameClash); only
+ * the account itself may match (a case-only rename, "alan" -> "Alan").
  *
  * Where the name is a key, and what happens to it (keep in step with
  * accountMerge.js, the other writer of these fields):

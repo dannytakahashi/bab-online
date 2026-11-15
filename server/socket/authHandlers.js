@@ -5,7 +5,7 @@
 const passwordHash = require('../utils/passwordHash');
 const signInThrottle = require('./signInThrottle');
 const rateLimiter = require('./rateLimiter');
-const { describeClientAddress } = require('../utils/clientIp');
+const { describeClientAddress, ipBucketKey, ipNet48Key } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -27,6 +27,8 @@ const {
 const BUSY_MESSAGE = 'Server is busy. Try again in a moment.';
 const THROTTLED_MESSAGE = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
 const SIGN_UP_LIMIT_MESSAGE = 'Too many sign-up attempts. Please wait a few minutes and try again.';
+const SIGN_UP_SERVER_LIMIT_MESSAGE = 'Too many new accounts are being created right now. Please try again in a few minutes.';
+const DELETE_THROTTLED_MESSAGE = 'Too many incorrect passwords. Please wait a few minutes and try again.';
 const LAST_ADMIN_DELETE_MESSAGE = 'You are the only admin. Make someone else an admin before deleting your account.';
 const SESSIONS_CHANGED_MESSAGE = 'Your account was just signed out everywhere. Please sign in again.';
 const ACCOUNT_CHANGED_MESSAGE = 'Your account was just changed by an admin (renamed or merged). Nothing was deleted. Sign in again and try again.';
@@ -443,6 +445,64 @@ async function signIn(socket, io, data) {
     }
 }
 
+function signUpNetworkMessage(retryAfterMs) {
+    const minutes = Math.max(1, Math.round(retryAfterMs / 60000));
+    return `Too many new accounts from this network. Please try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
+// One warn line per kind per minute under a flood (the count says how many
+// were refused since the last line)
+const signUpRefusals = { ip: { at: 0, held: 0 }, global: { at: 0, held: 0 } };
+function noteSignUpRefusal(kind, message, details) {
+    const r = signUpRefusals[kind];
+    const now = Date.now();
+    if (now - r.at < 60000) {
+        r.held++;
+        return;
+    }
+    authLogger.warn(message, { ...details, refusedSinceLastLine: r.held });
+    r.at = now;
+    r.held = 0;
+}
+
+/**
+ * The sign-up limits that outlive a socket (rateLimiter.buckets): per
+ * client IP, IPv6 by its /64 and its /48 (skipped when the IP is unknown,
+ * as in signInThrottle: never one shared key for everyone), then
+ * server-wide. Every bucket is checked before any is charged, so a refused
+ * attempt writes no key (a flood refused by the ceiling cannot fill the
+ * per-IP map).
+ * @returns {{ok: true, refund: Function} | {ok: false, message: string}}
+ */
+function takeSignUpSlot(socket) {
+    const ip = socket.data?.clientIp ?? null;
+    const charges = [];
+    if (ip) {
+        charges.push(['signUpIp', ipBucketKey(ip)]);
+        const net48 = ipNet48Key(ip);
+        if (net48) charges.push(['signUpNet48', net48]);
+    }
+    charges.push(['signUpGlobal', 'all']);
+    for (const [name, key] of charges) {
+        const seen = rateLimiter.peek(name, key);
+        if (seen.ok) continue;
+        if (name === 'signUpGlobal') {
+            const { burst, perHour } = rateLimiter.buckets.signUpGlobal;
+            noteSignUpRefusal('global', 'Sign-up ceiling reached: refusing new accounts server-wide', { burst, perHour, retryAfterMs: seen.retryAfterMs });
+            return { ok: false, message: SIGN_UP_SERVER_LIMIT_MESSAGE };
+        }
+        noteSignUpRefusal('ip', 'Sign-up refused: per-IP account limit', { ip: key, bucket: name, retryAfterMs: seen.retryAfterMs });
+        return { ok: false, message: signUpNetworkMessage(seen.retryAfterMs) };
+    }
+    for (const [name, key] of charges) rateLimiter.take(name, key);
+    return {
+        ok: true,
+        refund: () => {
+            for (const [name, key] of charges) rateLimiter.refund(name, key);
+        }
+    };
+}
+
 async function signUp(socket, io, data) {
     const usersCollection = await usersCollectionWhenReady();
 
@@ -487,6 +547,7 @@ async function signUp(socket, io, data) {
         return;
     }
 
+    let slot = null; // the per-IP / server-wide tokens, given back if the hash never ran
     try {
         // Taken ignoring case and surrounding whitespace ("alan T" vs "Alan T")
         const existingUser = await findNameClash(usersCollection, username);
@@ -509,11 +570,22 @@ async function signUp(socket, io, data) {
         // the wrapper's wider signUp cap, so a player trying names is never
         // locked out by the rules. Over the budget: an ordinary refusal,
         // which both clients show (never serverError, a generic toast on iOS).
-        if (!rateLimiter.check(socket.id, 'signUpAccount')) {
+        if (rateLimiter.getRemaining(socket.id, 'signUpAccount') < 1) {
             socket.emit('signUpResponse', { success: false, message: SIGN_UP_LIMIT_MESSAGE });
             authLogger.warn('Sign-up refused: account budget spent', { socketId: socket.id });
             return;
         }
+        // The same kind of attempt against the budgets a reconnect does not
+        // reset: per client IP and server-wide (takeSignUpSlot). Checked
+        // before signUpAccount is spent, so retrying after one of these
+        // refusals never turns into the per-socket message
+        const taken = takeSignUpSlot(socket);
+        if (!taken.ok) {
+            socket.emit('signUpResponse', { success: false, message: taken.message });
+            return;
+        }
+        slot = taken;
+        rateLimiter.check(socket.id, 'signUpAccount'); // remaining >= 1 above, nothing awaited since
 
         // Session token for reconnection (this device's first session)
         const session = issueSession(null);
@@ -578,6 +650,7 @@ async function signUp(socket, io, data) {
             return;
         }
         if (isHashBusy(error)) {
+            slot?.refund();
             authLogger.warn('Sign-up deferred: password hashing busy', { username });
             socket.emit('signUpResponse', { success: false, message: BUSY_MESSAGE });
             return;
@@ -795,6 +868,19 @@ async function deleteAccount(socket, io, data) {
     }
     const username = sessionUser.username;
 
+    // The password check counts like a sign-in (signInThrottle: per
+    // username / IP failures across sockets), so a stolen signed-in socket
+    // cannot guess the password through deleteAccount at reconnect speed
+    const who = { ip: socket.data?.clientIp ?? null, username };
+    const gate = signInThrottle.check(who);
+    if (!gate.ok) {
+        authLogger.warn('Account deletion throttled after repeated wrong passwords', { username, ip: who.ip, retryAfterMs: gate.retryAfterMs });
+        socket.emit('deleteAccountResponse', { success: false, message: DELETE_THROTTLED_MESSAGE });
+        return;
+    }
+    const reservation = signInThrottle.reserve(who);
+    let passwordChecked = null; // true / false once compared; null: the failure does not count
+
     try {
         const user = await usersCollection.findOne({ username }, { projection: { password: 1, socketId: 1, isAdmin: 1 } });
         if (!user) {
@@ -806,6 +892,7 @@ async function deleteAccount(socket, io, data) {
         }
 
         const passwordMatch = await passwordHash.compare(password, user.password);
+        passwordChecked = Boolean(passwordMatch);
         if (!passwordMatch) {
             socket.emit('deleteAccountResponse', {
                 success: false,
@@ -890,6 +977,12 @@ async function deleteAccount(socket, io, data) {
             success: false,
             message: 'Database error. Try again.'
         });
+    } finally {
+        // As signIn: a wrong password counts, a right one clears the pair;
+        // no account, a busy pool or a DB error before the compare do not
+        if (passwordChecked === true) signInThrottle.recordSuccess(who, reservation);
+        else if (passwordChecked === false) signInThrottle.confirm(who);
+        else signInThrottle.release(who, reservation);
     }
 }
 

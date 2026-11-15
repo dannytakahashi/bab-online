@@ -8,14 +8,11 @@ const { recordGameStats, getUserProfilePic } = require('./profileHandlers');
 const {
     rotatePosition,
     isRainbow,
-    isLegalMove,
-    isTrumpTight,
     determineWinner,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,
     calculateHSI,
-    isValidBid,
     BID_RANKS
 } = require('../game/rules');
 const { gameLogger } = require('../utils/logger');
@@ -24,6 +21,7 @@ const { Phase, reportViolation } = require('../game/GamePhase');
 const { botController } = require('../game/bot');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
+const progressWatchdog = require('./progressWatchdog');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
@@ -58,12 +56,16 @@ function triggerBotIfNeeded(io, game, actionType) {
     const seat = game.seat(game.currentTurn);
     // A human seat acts through its own socket; a connected one gets the
     // turn watchdog (seatLifecycle.armAfk: lazy after AFK_TIMEOUT_MS idle).
-    // Any seat's turn clears the other seats' watchdogs.
+    // Any seat's turn clears the other seats' watchdogs. A bot's turn
+    // arms the progress watchdog instead (progressWatchdog.js), a human's
+    // clears it.
     if (!seat || seat.controller === Controller.HUMAN) {
+        progressWatchdog.disarm(game);
         if (seat) seatLifecycle.armAfk(io, game, game.currentTurn);
         return;
     }
     for (let p = 1; p <= 4; p++) game.clearTimer(`afk:${p}`);
+    progressWatchdog.arm(io, game);
 
     // Lazy, resign and native bot seats are all keyed by their bot socket
     if (actionType === 'bid') {
@@ -186,6 +188,7 @@ async function handlePostPlay(io, game) {
         // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
         if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
         game.scheduleResume('trick', pacing(game).TRICK_VIEW_MS, () => resumeTrick(io, game), 'trickView');
+        progressWatchdog.arm(io, game);
         return;
     }
 
@@ -266,6 +269,7 @@ function resumeTrick(io, game) {
         // Brief hold after the last trick stacks (longer before gameEnd)
         if (!game.transition(Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING)) return;
         game.scheduleResume('hand', handMs, () => handleHandComplete(game, io), lastHand ? 'gameEnd' : 'handEnd');
+        progressWatchdog.arm(io, game);
         return;
     }
     if (!game.transition(Phase.TRICK_RESOLVING, Phase.PLAYING)) return;
@@ -324,6 +328,8 @@ async function handleDrawComplete(io, game) {
     if (game.drawIDs.length !== 4) return;
     game.clearTimer('draw:watchdog');
     if (!game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
+    // The profile lookups below wait on the DB
+    progressWatchdog.arm(io, game);
     const alive = game.aliveCheck();
 
     // Saved profile pics for every human, looked up in parallel. No random
@@ -703,24 +709,18 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate stage and turn (before the deal currentTurn holds the
-    // constructor default)
-    if (game.stage !== Phase.BIDDING || position !== game.currentTurn) {
-        rejectAction(socket, game, 'bid', 'not_your_turn', { position, currentTurn: game.currentTurn });
+    // Stage, turn, a repeat and the bid itself: GameState.applyBid, the
+    // path bots bid through too
+    const result = game.applyBid(position, data.bid);
+    if (!result.ok) {
+        const extra = result.reason === 'not_your_turn' ? { position, currentTurn: game.currentTurn }
+            : result.reason === 'invalid_bid' ? { position, bid: result.bid, handSize: game.currentHand }
+                : { position };
+        rejectAction(socket, game, 'bid', result.reason, extra);
         return;
     }
-    if (game.playerBids[position - 1] != null) {
-        rejectAction(socket, game, 'bid', 'already_bid', { position });
-        return;
-    }
-
-    const bid = String(data.bid).toUpperCase();
-    if (!isValidBid(bid, game.playerBids, game.currentHand)) {
-        rejectAction(socket, game, 'bid', 'invalid_bid', { position, bid, handSize: game.currentHand });
-        return;
-    }
+    const bid = result.bid;
     seatLifecycle.clearAfk(game, position);
-    game.recordBid(position, bid);
     // A bid during the first-hand hold opens the turn early (its pause
     // then just ends): the table is no longer held
     if (game.resume && game.resume.kind === 'firstTurn') game.resume = null;
@@ -752,17 +752,21 @@ async function playCard(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Validate stage, turn, trick state and card ownership. Plays are only
-    // accepted in PLAYING: during TRICK_RESOLVING currentTurn has already
-    // rotated to the leader while the trick is still on the table.
-    if (game.stage !== Phase.PLAYING || position !== game.currentTurn) {
-        rejectAction(socket, game, 'play', 'not_your_turn', { position, currentTurn: game.currentTurn });
-        return;
-    }
-    const check = game.validateCardPlay(socket.id, data.card);
-    if (!check.valid) {
-        rejectAction(socket, game, 'play', 'invalid_play', { position, error: check.error });
-        if (check.error === 'Card not in hand') {
+    // Stage, turn, trick state, card ownership and legality:
+    // GameState.applyPlay, the path bots play through too
+    const card = data.card;
+    const result = game.applyPlay(position, card, socket.id);
+    if (!result.ok) {
+        if (result.reason === 'illegal_card') {
+            gameLogger.warn(game.playedCardsIndex === 0 ? 'Player tried to lead illegal card' : 'Player tried to play illegal card',
+                { position, card, gameId: game.gameId });
+        }
+        const extra = result.reason === 'not_your_turn' ? { position, currentTurn: game.currentTurn }
+            : result.reason === 'invalid_play' ? { position, error: result.error }
+                : result.reason === 'illegal_card' ? { position, card }
+                    : { position };
+        rejectAction(socket, game, 'play', result.reason, extra);
+        if (result.error === 'Card not in hand') {
             // The client's hand has drifted from ours (e.g. iOS builds that
             // kept cards the lazy bot played after /active). Resend the full
             // seat state so it redraws from the truth instead of freezing.
@@ -772,53 +776,9 @@ async function playCard(socket, io, data) {
         }
         return;
     }
-    if (game.playedCards[position - 1]) {
-        rejectAction(socket, game, 'play', 'already_played', { position });
-        return;
-    }
-
-    const card = data.card;
-    const hand = game.getHand(socket.id);
-
-    // Remove card from hand first (for validation)
-    game.removeCardFromHand(socket.id, card);
-    const remainingHand = game.getHand(socket.id);
-
-    // Validate move
-    const isLeading = game.playedCardsIndex === 0;
-    if (isLeading) {
-        if (!isLegalMove(card, remainingHand, card, true, game.trump, game.isTrumpBroken, position, position) &&
-            !isTrumpTight([card, ...remainingHand], game.trump)) {
-            gameLogger.warn('Player tried to lead illegal card', { position, card, gameId: game.gameId });
-            // Re-add card to hand
-            hand.push(card);
-            rejectAction(socket, game, 'play', 'illegal_card', { position, card });
-            return;
-        }
-        game.leadCard = card;
-        game.leadPosition = position;
-    } else {
-        if (!isLegalMove(card, remainingHand, game.leadCard, false, game.trump, game.isTrumpBroken, position, game.leadPosition)) {
-            gameLogger.warn('Player tried to play illegal card', { position, card, gameId: game.gameId });
-            // Re-add card to hand
-            remainingHand.push(card);
-            rejectAction(socket, game, 'play', 'illegal_card', { position, card });
-            return;
-        }
-    }
 
     // The seat acted: its turn watchdog is over
     seatLifecycle.clearAfk(game, position);
-
-    // Record played card
-    game.playedCards[position - 1] = card;
-    game.playedCardsIndex++;
-    game.cardIndex++;
-
-    // Check if trump is broken
-    if (card.suit === game.trump.suit || card.suit === 'joker') {
-        game.isTrumpBroken = true;
-    }
 
     game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, position));
 

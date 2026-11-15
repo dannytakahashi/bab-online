@@ -39,8 +39,9 @@ const { validate } = require('../validators');
 const rules = require('../../utils/usernameRules');
 const { authLogger } = require('../../utils/logger');
 
-// Names that exist in production today, plus legacy shapes the new rules refuse
-const EXISTING = ['Alan T', 'JoAnn Jameson', 'Danny', 'Al', 'x', 'An Exceptionally Long Legacy Name', 'trailing ', 'Ünïcode'];
+// Names that exist in production today, plus legacy shapes the new rules
+// refuse (a name reserved since 2026-11-15 among them)
+const EXISTING = ['Alan T', 'JoAnn Jameson', 'Danny', 'Al', 'x', 'An Exceptionally Long Legacy Name', 'trailing ', 'Ünïcode', 'System', 'test1'];
 
 let io;
 let n = 0;
@@ -211,6 +212,28 @@ describe('sign-up through the handler', () => {
         expect(await signUp('Alan')).toMatchObject({ success: true });
         expect(await signUp('Alan Tx')).toMatchObject({ success: true });
     });
+});
+
+describe('reserved and filtered names through the handler (2026-11-15)', () => {
+    test.each(['System', 'system', 'ADMIN', 'Adm1n', 'Administrator', 'Moderator', 'mod', 'BabOnline', 'bab', 'Server',
+        'Support', 'Official', 'Staff', 'Bot', 'Bot 2', 'null', 'undefined', 'Official_Support'])(
+        '%p is refused as reserved (signUpResponse, nothing written)', async (name) => {
+            const before = await mockDb.current.users.countDocuments({});
+            expect(await signUp(name)).toEqual({ success: false, message: rules.MESSAGES.reserved });
+            expect(await mockDb.current.users.countDocuments({})).toBe(before);
+        });
+
+    test.each(['fuckyou', 'shithead', 'fuck_you', 'xXfuckXx', 'BigNazi88', 'rapist_joe', 'sh1t.lord', 'N4zi'])(
+        '%p is refused by the filter (signUpResponse, nothing written)', async (name) => {
+            const before = await mockDb.current.users.countDocuments({});
+            expect(await signUp(name)).toEqual({ success: false, message: 'That username is not allowed.' });
+            expect(await mockDb.current.users.countDocuments({})).toBe(before);
+        });
+
+    test.each(['Therapist', 'Dickens', 'Hancock', 'Sussex', 'Scunthorpe', 'Grape', 'Systems Guy', 'Bobcat'])(
+        '%p registers', async (name) => {
+            expect(await signUp(name)).toMatchObject({ success: true, username: name });
+        });
 });
 
 describe('existing accounts are untouched', () => {

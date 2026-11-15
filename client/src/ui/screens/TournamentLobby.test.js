@@ -4,7 +4,7 @@
  * begin or cancel, so without them the tournament was stuck until a reload).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby } from './TournamentLobby.js';
+import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage } from './TournamentLobby.js';
 
 function fakeSocket() {
   const sent = [];
@@ -132,5 +132,31 @@ describe('tournament host handoff', () => {
     showTournamentLobby(data, fakeSocket(), 'me');
     expect(begin().disabled).toBe(false);
     expect(document.querySelectorAll('#tournamentBeginBtn')).toHaveLength(1);
+  });
+});
+
+describe('tournament chat: server notices by the system flag (2026-11-15)', () => {
+  const lines = () => [...document.querySelectorAll('#tournamentChatArea .chat-line')];
+
+  it('a notice (system: true) is the message alone, styled as a notice; a player named "System" is a player line', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    addTournamentChatMessage('System', 'cat is now spectating', false, true);
+    addTournamentChatMessage('System', 'cat is now spectating', false);
+    const [notice, impostor] = lines();
+    expect(notice.classList.contains('is-system')).toBe(true);
+    expect(notice.querySelector('.chat-line__name')).toBeNull();
+    expect(notice.textContent).toBe('cat is now spectating');
+    expect(impostor.classList.contains('is-system')).toBe(false);
+    expect(impostor.querySelector('.chat-line__name').textContent).toBe('System: ');
+  });
+
+  it('the joiner\'s history renders by the same flag', () => {
+    const data = lobby();
+    data.messages = [
+      { username: 'System', message: 'notice', isSpectator: false, timestamp: 1, system: true },
+      { username: 'System', message: 'player', isSpectator: false, timestamp: 2 },
+    ];
+    showTournamentLobby(data, fakeSocket(), 'me');
+    expect(lines().map((l) => l.classList.contains('is-system'))).toEqual([true, false]);
   });
 });

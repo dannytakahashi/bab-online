@@ -5,8 +5,10 @@ and `rules.js`, with an orchestration loop that mirrors
 `server/socket/gameHandlers.js` (team bids, bores, multipliers, redeals,
 rainbows, scoring, memory notifications). Use it to tune strategy changes and
 catch regressions: every chosen card is re-validated against
-`rules.isLegalMove`, and illegal selections or thrown exceptions are reported.
-A healthy strategy reports **zero of both**.
+`rules.isLegalPlay` and every bid against `rules.isValidBid`; illegal cards,
+refused bids, thrown exceptions and play-search errors are reported. A healthy
+strategy reports **zero of all four** (`incidentCount`, `bidIncidentCount`,
+`exceptionCount`, `searchErrorCount`).
 
 ## Usage
 
@@ -41,7 +43,7 @@ fully reproducible.
   matches in the run. `legacy:` specs are tracked separately.
 - `byHandSize{}` — redeal rate, combined team bid as a fraction of available
   tricks, bore frequency.
-- `incidentCount` / `exceptionCount` — must be 0.
+- `incidentCount` / `bidIncidentCount` / `exceptionCount` — must be 0 (an illegal card, a bid `rules.isValidBid` refuses, a throw; each is replaced by the server's own fallback, the first legal card or `rules.safeBid`, as `BotController` does live).
 
 ## Baseline (June 2026, pre-tuning legacy snapshot, 4000 games/match)
 

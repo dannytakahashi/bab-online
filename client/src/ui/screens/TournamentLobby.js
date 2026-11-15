@@ -159,7 +159,7 @@ export function showTournamentLobby(data, socket, username) {
   if (data.messages) {
     data.messages.forEach((msg) => colorFor(msg.username));
     data.messages.forEach((msg) => {
-      appendChatMessage(chatArea, msg.username, msg.message, msg.isSpectator);
+      appendChatMessage(chatArea, msg.username, msg.message, msg.isSpectator, msg.system === true);
     });
   }
   chatPanel.appendChild(chatArea);
@@ -299,21 +299,27 @@ function updateActiveGames(container, activeGames, socket) {
 /**
  * Append a chat message to the chat area.
  */
-function appendChatMessage(chatArea, username, message, isSpectator) {
+function appendChatMessage(chatArea, username, message, isSpectator, isSystem = false) {
   if (!chatArea) {
     chatArea = document.getElementById('tournamentChatArea');
   }
   if (!chatArea) return;
 
   // Follows the newest message unless the reader scrolled up
-  appendChatLine(chatArea, chatLine({ username, message, color: colorFor(username), isSpectator: !!isSpectator }));
+  // A notice is styled by the server's flag, never by the name "System"
+  // (a player may hold that name from before it was reserved)
+  const line = isSystem
+    ? chatLine({ username, message, isSystem: true })
+    : chatLine({ username, message, color: colorFor(username), isSpectator: !!isSpectator });
+  appendChatLine(chatArea, line);
 }
 
 /**
- * Add a chat message to the tournament lobby.
+ * Add a chat message to the tournament lobby. isSystem: the line's
+ * `system: true` (a server notice).
  */
-export function addTournamentChatMessage(username, message, isSpectator) {
-  appendChatMessage(null, username, message, isSpectator);
+export function addTournamentChatMessage(username, message, isSpectator, isSystem = false) {
+  appendChatMessage(null, username, message, isSpectator, isSystem);
 }
 
 /**
