@@ -950,6 +950,8 @@ function initializeApp() {
       showError(message || 'Sign-in failed! Incorrect username or password.');
     },
     onSignUpSuccess: (data) => {
+      // A pending restore retry belongs to the identity this tab just left
+      stopRestoreRetry();
       if (data.autoLoggedIn) {
         // Auto-login: go straight to main room
         console.log(`Registration & auto-login successful: ${data.username}`);
@@ -1896,6 +1898,8 @@ function initializeApp() {
  * @param {string} [reason] - EXIT.*
  */
 function displaySignInScreen(reason = null) {
+  // Signed out (forceLogout, sign out, a failed restore): nothing to restore
+  stopRestoreRetry();
   if (reason || session.hasTable) {
     session.exitTable(reason || EXIT.SIGN_OUT, { to: SCREEN.SIGN_IN });
   } else {
@@ -1996,7 +2000,8 @@ const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not fou
 // and restoreSession goes out again on the same socket after 1 s, doubling
 // to 30 s (the server allows 10 a minute per socket), with the banner's
 // 'Reconnecting…'. A new socket restores by itself (and starts over); a
-// success, a sign-in or any other failure stops it.
+// success, a sign-in, a sign-up, the sign-in screen or any other failure
+// stops it.
 export const RESTORE_RETRY_MIN_MS = 1000;
 export const RESTORE_RETRY_MAX_MS = 30000;
 let connectionBannerRef = null;

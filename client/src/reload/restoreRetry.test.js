@@ -108,6 +108,25 @@ describe('retryable restore failures', () => {
     expect(socket.emitted('restoreSession')).toEqual([]);
   });
 
+  it('a sign-up meanwhile stops the retry: no restoreSession with the new account, the banner goes', () => {
+    socket.fire('restoreSessionResponse', DB_ERROR);
+    expect(banner().classList.contains('visible')).toBe(true);
+    socket.clearEmits();
+    socket.fire('signUpResponse', { success: true, username: 'newbie', sessionToken: 'tok-new', autoLoggedIn: true });
+    expect(banner().classList.contains('visible')).toBe(false);
+    vi.advanceTimersByTime(60000);
+    expect(socket.emitted('restoreSession')).toEqual([]);
+  });
+
+  it('a forceLogout meanwhile stops the retry and the banner', () => {
+    socket.fire('restoreSessionResponse', DB_ERROR);
+    socket.clearEmits();
+    socket.fire('forceLogout', {});
+    expect(banner().classList.contains('visible')).toBe(false);
+    vi.advanceTimersByTime(60000);
+    expect(socket.emitted('restoreSession')).toEqual([]);
+  });
+
   it('a failure without retryable signs out as before: token gone, sign-in screen', () => {
     socket.fire('restoreSessionResponse', DB_ERROR);
     socket.fire('restoreSessionResponse', { success: false, message: 'Invalid session token' });
