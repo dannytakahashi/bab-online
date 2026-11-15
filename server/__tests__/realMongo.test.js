@@ -6,11 +6,13 @@
  * Uses a scratch database bab_jest_item9_<pid>_<ts> that is dropped in
  * afterAll. Never touches 'babonline' (connectDB is never called). Only runs
  * against localhost; with no reachable mongod every test returns early and
- * passes.
+ * passes, unless REQUIRE_REAL_MONGO=1 (CI), where that fails the file so a
+ * broken mongo service can't turn this suite into a silent pass.
  */
 
 // Read before anything loads dotenv (server/database.js does)
 const ENV_URI = process.env.MONGO_URI;
+const REQUIRED = process.env.REQUIRE_REAL_MONGO === '1';
 
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
@@ -61,6 +63,7 @@ const PIC = 'data:image/png;base64,' + 'Q'.repeat(500 * 1024);
 beforeAll(async () => {
     const base = baseUri();
     if (!isLocal(base)) {
+        if (REQUIRED) throw new Error(`realMongo: REQUIRE_REAL_MONGO=1 but MONGO_URI is not a localhost mongod`);
         console.info(`realMongo: MONGO_URI is not a localhost mongod, skipping`);
         return;
     }
@@ -69,6 +72,7 @@ beforeAll(async () => {
         db = client.db(dbName);
     } catch (e) {
         client = null;
+        if (REQUIRED) throw new Error(`realMongo: REQUIRE_REAL_MONGO=1 but no mongod at ${base}: ${e.message}`);
         console.info('realMongo: no mongod, skipping');
     }
 }, 20000);
