@@ -340,7 +340,8 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   }
 
   function headerCell(column) {
-    const th = el('th', { attrs: { scope: 'col' }, className: column.numeric ? 'is-num' : '' });
+    // the column's width comes from its key (screens.css .admin-col--<key>), not its position
+    const th = el('th', { attrs: { scope: 'col' }, className: `admin-col--${column.key}${column.numeric ? ' is-num' : ''}` });
     const active = sortBy.key === column.key;
     if (active) th.setAttribute('aria-sort', sortBy.ascending ? 'ascending' : 'descending');
     const btn = el('button', {
@@ -378,7 +379,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       className: 'admin-table admin-players',
       children: [
         el('caption', { className: 'admin-sr-only', text: 'Players' }),
-        el('thead', { children: [el('tr', { children: [...PLAYER_COLUMNS.map(headerCell), el('th', { attrs: { scope: 'col' }, text: 'Actions' })] })] }),
+        el('thead', { children: [el('tr', { children: [...PLAYER_COLUMNS.map(headerCell), el('th', { attrs: { scope: 'col' }, className: 'admin-col--actions', text: 'Actions' })] })] }),
         el('tbody', { children: shown.map(playerRow) }),
       ],
     });
