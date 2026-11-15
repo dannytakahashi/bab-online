@@ -68,6 +68,12 @@ const c2s = {
         invalid: [{ client: 'web', version: '1.0.0' }, { client: 'web', version: '1', caps: 'avatarUrl' }, { client: '', version: '1', caps: [] }, { client: 'Web!', version: '1', caps: [] }],
         notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS).',
     },
+    changePassword: {
+        payload: open({ current: password(), next: password() }), status: 'active', joi: 'changePassword', rateLimit: 'changePassword', sentBy: webOnly,
+        examples: [{ current: 'old password', next: 'new password 1' }],
+        invalid: [{ current: 'old password' }, { current: '', next: 'new password 1' }, { current: 'old password', next: 'n'.repeat(101) }],
+        notes: 'New (2026-11-15). The signed-in socket\'s own account only. Answered by changePasswordResponse {success, message}. next must be 8-100 characters and differ from current (checked in the handler, so Joi stays 1-100 and a short one gets the rule message); the current-password check counts in the failed-sign-in throttle like deleteAccount\'s. On success every saved session but this device\'s is revoked, every other live socket of the account gets forceLogout, and open reset links are cancelled. Rate limit 5 / 5 min per socket. Web: profile page, Change password. iOS: Account sheet, Change Password, from the next build after 1.2.1 build 9 (sentBy says what shipped clients send).',
+    },
     deleteAccount: { payload: open({ password: password() }), status: 'active', joi: 'deleteAccount', rateLimit: 'deleteAccount', sentBy: both, examples: [{ password: 'pw' }], invalid: [{ password: '' }, {}], notes: 'The password check also counts in the failed-sign-in throttle (server/socket/signInThrottle.js: per username / IP across sockets); throttled, it answers deleteAccountResponse {success:false, message} before any hash.' },
 
     // (joinQueue / leaveQueue / getLobbies, the matchmaking queue no client

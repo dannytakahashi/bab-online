@@ -197,6 +197,12 @@ const schemas = {
     deleteAccount: Joi.object({
         password: Joi.string().min(1).max(100).required()
     }),
+    // next: 1-100 like signUp, so a short one gets the 8-character rule's
+    // message from the handler (setPassword.checkPasswordRule)
+    changePassword: Joi.object({
+        current: Joi.string().min(1).max(100).required(),
+        next: Joi.string().min(1).max(100).required()
+    }),
 
     // Safety / moderation
     reportUser: Joi.object({

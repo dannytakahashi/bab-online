@@ -83,7 +83,7 @@ test('Sign out everywhere cancels the player\'s open reset link (and only theirs
     expect(db().passwordResets.all().find(d => d.username === 'Bea').revokedAt).toBeInstanceOf(Date);
 
     // another player's link is untouched
-    expect(await useResetLink(db(), other.token, 'cy-new', { hash })).toMatchObject({ ok: true, username: 'Cy' });
+    expect(await useResetLink(db(), other.token, 'cy-new-pw', { hash })).toMatchObject({ ok: true, username: 'Cy' });
 
     const entry = db().adminAudit.all().filter(e => e.action === 'signOutEverywhere').pop();
     expect(entry).toMatchObject({ result: 'ok', target: 'Bea' });
@@ -92,7 +92,7 @@ test('Sign out everywhere cancels the player\'s open reset link (and only theirs
 
     // a link made AFTER the lock-down works as usual
     const fresh = await request(owner, 'createResetLink', { username: 'Bea' });
-    expect(await useResetLink(db(), fresh.token, 'bea-new', { hash })).toMatchObject({ ok: true, username: 'Bea' });
+    expect(await useResetLink(db(), fresh.token, 'bea-new-pw', { hash })).toMatchObject({ ok: true, username: 'Bea' });
 });
 
 test('Sign out everywhere with no open link keeps its audit detail as before', async () => {
@@ -114,7 +114,7 @@ test('the CLI setPassword cancels the open link: the leaked link cannot overwrit
 
 test('revokeOpenResetLinks: used links stay used, no collection is nothing to do', async () => {
     const { token } = await createResetLink(db(), 'Bea');
-    expect(await useResetLink(db(), token, 'bea-new', { hash })).toMatchObject({ ok: true });
+    expect(await useResetLink(db(), token, 'bea-new-pw', { hash })).toMatchObject({ ok: true });
     expect(await revokeOpenResetLinks(db(), { username: 'Bea' })).toBe(0);
     expect(db().passwordResets.all()[0].state).toBe('used');
     expect(await revokeOpenResetLinks({ users: db().users }, { username: 'Bea' })).toBe(0);

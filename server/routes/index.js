@@ -83,6 +83,7 @@ router.get('/privacy', (req, res) => {
     <ul>
         <li><strong>Reports</strong> you filed or that were filed about you stay, marked as belonging to a deleted account, so the moderation history is not lost.</li>
         <li><strong>The admin log</strong> keeps the usernames recorded at the time, as a record of what admins did and of attempts to use admin functions.</li>
+        <li><strong>Your username</strong> itself stays reserved for 30 days after you delete your account, so nobody else can sign up with it right away; then it is released.</li>
         <li><strong>Other players' block lists</strong> keep your username when you delete your account in the app, so deleting an account and signing up again with the same name can't be used to get around a block. When we delete an account for you (for example at your request by email), we remove the username from block lists too.</li>
         <li><strong>Server logs and backups</strong> expire on the schedule above.</li>
     </ul>

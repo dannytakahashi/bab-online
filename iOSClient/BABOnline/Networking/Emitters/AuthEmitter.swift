@@ -22,4 +22,9 @@ enum AuthEmitter {
     static func deleteAccount(password: String) {
         socket.emit(SocketEvents.Client.deleteAccount, ["password": password])
     }
+
+    /// Answered by changePasswordResponse {success, message}; other devices are signed out.
+    static func changePassword(current: String, new: String) {
+        socket.emit(SocketEvents.Client.changePassword, ["current": current, "next": new])
+    }
 }

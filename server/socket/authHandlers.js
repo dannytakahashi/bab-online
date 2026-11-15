@@ -11,10 +11,11 @@ const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { safeTimeout } = require('../utils/safeTimer');
 const { randomStockPic } = require('../avatar/stockAvatars');
-const { issueSession, verifySession } = require('../utils/sessionTokens');
+const { issueSession, verifySession, revokeOtherSessions } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
-const { eraseAccount, forgetAccount } = require('../admin/accountDelete');
+const { eraseAccount, forgetAccount, isNameHold } = require('../admin/accountDelete');
+const { checkPasswordRule, revokeOpenResetLinks, PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const {
     belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded,
     reparkClosedNotices
@@ -33,6 +34,19 @@ const DELETE_THROTTLED_MESSAGE = 'Too many incorrect passwords. Please wait a fe
 const LAST_ADMIN_DELETE_MESSAGE = 'You are the only admin. Make someone else an admin before deleting your account.';
 const SESSIONS_CHANGED_MESSAGE = 'Your account was just signed out everywhere. Please sign in again.';
 const ACCOUNT_CHANGED_MESSAGE = 'Your account was just changed by an admin (renamed or merged). Nothing was deleted. Sign in again and try again.';
+const DATABASE_ERROR_MESSAGE = 'Database error. Try again.';
+const DELETE_IN_GAME_MESSAGE = "You're in a game right now. Delete your account after it ends.";
+const DELETE_IN_TOURNAMENT_MESSAGE = "You're in a tournament right now. Leave it (or wait until it ends), then delete your account.";
+const PASSWORD_CHANGED_MESSAGE = 'Password changed. Your other devices were signed out.';
+const SAME_PASSWORD_MESSAGE = 'Choose a new password that is different from the current one.';
+const WRONG_CURRENT_PASSWORD_MESSAGE = 'Your current password is incorrect.';
+const PASSWORD_CHANGE_RACE_MESSAGE = 'Your password was changed somewhere else meanwhile. Sign in again and try again.';
+// restoreSessionResponse failures worth retrying with the same saved token
+// (additive 2026-11-15): a database error or a name an admin action holds
+// for a moment. Web keeps the token and retries with backoff; iOS from the
+// next build after 1.2.1 build 9 too; iOS 1.2.0 ignores the key and forgets
+// its token on any failure, as before
+const RETRYABLE = Object.freeze({ retryable: true });
 const isHashBusy = (error) => Boolean(error && error.code === 'HASH_BUSY');
 
 function mergedAccountMessage(username, mergedInto) {
@@ -227,6 +241,41 @@ function adminDisplay(user) {
 }
 
 /**
+ * The one-time notice after a password reset (setPassword.writePasswordHash
+ * sets passwordResetNotice {by: 'link'|'admin', at}): `passwordReset {by,
+ * at}` on the next signInResponse / restoreSessionResponse (additive
+ * 2026-11-15; web shows one line; iOS from the next build after 1.2.1
+ * build 9; iOS 1.2.0 ignores it). The field is unset only once the reply
+ * is a success (clearResetNotice), so a refused sign-in still tells it later.
+ */
+function resetNoticeFor(user) {
+    const n = user && user.passwordResetNotice;
+    if (!n || (n.by !== 'link' && n.by !== 'admin')) return null;
+    const at = new Date(n.at);
+    return { by: n.by, at: Number.isNaN(at.getTime()) ? new Date(0).toISOString() : at.toISOString() };
+}
+
+/** What a successful signInResponse / restoreSessionResponse adds for `user`. */
+function replyExtras(user) {
+    const notice = resetNoticeFor(user);
+    return { ...adminDisplay(user), ...(notice ? { passwordReset: notice } : {}) };
+}
+
+/**
+ * The reset notice is being told: unset it, scoped to the one read (a newer
+ * reset meanwhile keeps its own). A failed write only tells it once more.
+ */
+async function clearResetNotice(usersCollection, username, user) {
+    const n = user && user.passwordResetNotice;
+    if (!n) return;
+    try {
+        await usersCollection.updateOne({ username, 'passwordResetNotice.at': n.at }, { $unset: { passwordResetNotice: '' } });
+    } catch (error) {
+        authLogger.warn('Could not clear the password reset notice', { username, error: error.message });
+    }
+}
+
+/**
  * signIn/restoreSession read everything on the user document except the
  * big or unused fields: the custom picture (up to ~500 KB base64), stats,
  * the end-of-game guard ids (statsGames) and the merge audit log. Exclusion keeps password, mergedInto, socketId,
@@ -277,7 +326,9 @@ async function signIn(socket, io, data) {
         const usersCollection = await usersCollectionWhenReady();
         const user = await usersCollection.findOne({ username }, { projection: SIGN_IN_PROJECTION });
 
-        if (!user) {
+        // A deleted account's name hold (accountDelete.js) is no account:
+        // the unknown-user reply, counted like one
+        if (!user || isNameHold(user)) {
             socket.emit('signInResponse', {
                 success: false,
                 message: 'Invalid username or password!'
@@ -374,6 +425,7 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
         reparkClosedNotices(io, socket);
@@ -393,7 +445,7 @@ async function signIn(socket, io, data) {
                 sessionToken,
                 activeGameId: activeGameId,
                 blockedUsers,
-                ...adminDisplay(user)
+                ...replyExtras(user)
             });
             authLogger.info('User signed in with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -415,14 +467,14 @@ async function signIn(socket, io, data) {
                     sessionToken,
                     activeTournamentId,
                     blockedUsers,
-                    ...adminDisplay(user)
+                    ...replyExtras(user)
                 });
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers, ...adminDisplay(user) });
+                socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers, ...replyExtras(user) });
                 authLogger.info('User signed in', { username, socketId: socket.id });
             }
         }
@@ -542,6 +594,14 @@ async function signUp(socket, io, data) {
         return;
     }
 
+    // Every new password: 8-100 characters (setPassword.checkPasswordRule;
+    // Joi still takes 1-100, so a short one gets this message)
+    if (!checkPasswordRule(password)) {
+        socket.emit('signUpResponse', { success: false, message: PASSWORD_RULE_MESSAGE });
+        authLogger.warn('Sign-up failed: password rule');
+        return;
+    }
+
     // A name an admin rename / delete / merge holds right now (either side
     // of a rename): taken until it is done, ignoring case like the check below
     if (gameManager.isNameLockedIgnoringCase?.(username)) {
@@ -558,8 +618,9 @@ async function signUp(socket, io, data) {
         if (existingUser) {
             socket.emit('signUpResponse', {
                 success: false,
-                // A rename's old name is just taken (sign-up proves nothing)
-                message: existingUser.exact && existingUser.mergedInto && !hidesNewName(existingUser)
+                // A rename's old name, and a deleted account's name hold,
+                // are just taken (sign-up proves nothing)
+                message: existingUser.exact && existingUser.mergedInto && !hidesNewName(existingUser) && !isNameHold(existingUser)
                     ? tombstoneMessage(username, existingUser)
                     : takenMessage(username, existingUser)
             });
@@ -699,12 +760,13 @@ async function restoreSession(socket, io, data) {
         // Find user and validate session token
         const user = await usersCollection.findOne({ username }, { projection: RESTORE_PROJECTION });
 
-        if (!user) {
+        // A deleted account's name hold: as if the document were gone
+        if (!user || isNameHold(user)) {
             socket.emit('restoreSessionResponse', {
                 success: false,
                 message: 'User not found'
             });
-            authLogger.warn('Session restore failed: user not found', { username });
+            authLogger.warn('Session restore failed: user not found', { username, deletedName: Boolean(user) });
             return;
         }
 
@@ -774,12 +836,19 @@ async function restoreSession(socket, io, data) {
             unregister(io, socket, username, previousEntry, claim.previous);
             claim = null;
             if (gone !== 'disconnected') {
-                socket.emit('restoreSessionResponse', { success: false, message: gone === 'merge' ? MERGE_LOCKED_MESSAGE : 'Invalid session token' });
+                // A merge lock and a failed re-check read are passing: the
+                // saved token may be good, so the client keeps it and retries
+                socket.emit('restoreSessionResponse', gone === 'merge'
+                    ? { success: false, message: MERGE_LOCKED_MESSAGE, ...RETRYABLE }
+                    : gone === 'error'
+                        ? { success: false, message: DATABASE_ERROR_MESSAGE, ...RETRYABLE }
+                        : { success: false, message: 'Invalid session token' });
             }
             authLogger.warn('Session restore undone: the session ended while it was being recorded', { username, reason: gone });
             return;
         }
         claim = null; // signed in: the name stays claimed
+        await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
         reparkClosedNotices(io, socket);
@@ -796,7 +865,7 @@ async function restoreSession(socket, io, data) {
                 username,
                 activeGameId: activeGameId,
                 blockedUsers,
-                ...adminDisplay(user)
+                ...replyExtras(user)
             });
             authLogger.info('Session restored with active game', { username, socketId: socket.id, gameId: activeGameId });
         } else {
@@ -817,14 +886,14 @@ async function restoreSession(socket, io, data) {
                     username,
                     activeTournamentId,
                     blockedUsers,
-                    ...adminDisplay(user)
+                    ...replyExtras(user)
                 });
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
                 if (activeTournamentId) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
-                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers, ...adminDisplay(user) });
+                socket.emit('restoreSessionResponse', { success: true, username, blockedUsers, ...replyExtras(user) });
                 authLogger.info('Session restored', { username, socketId: socket.id });
             }
         }
@@ -834,7 +903,8 @@ async function restoreSession(socket, io, data) {
         authLogger.error('Database error during session restore', { username, error: error.message });
         socket.emit('restoreSessionResponse', {
             success: false,
-            message: 'Database error. Try again.'
+            message: DATABASE_ERROR_MESSAGE,
+            ...RETRYABLE
         });
     }
 }
@@ -918,38 +988,22 @@ async function deleteAccount(socket, io, data) {
             );
             if (!current) return ACCOUNT_CHANGED_MESSAGE;
 
-            // The last admin cannot delete their account (it would leave
-            // nobody able to open the admin panel). The flag comes off first
-            // through the same guard as the panel's Remove admin (remove,
-            // count, put it back if nobody is left), so two last admins
-            // deleting at once cannot both go
-            if (current.isAdmin === true) {
-                const { setAdminFlag } = require('../admin/adminRole');
-                try {
-                    await setAdminFlag({ users: usersCollection }, username, false, { by: username });
-                } catch (error) {
-                    if (error && error.code === 'last_admin') return LAST_ADMIN_DELETE_MESSAGE;
-                    throw error;
-                }
+            // Not while playing (owner 2026-11-15, as the admin panel's
+            // delete): a game (its draw included, any seat presence, a
+            // /leave'd seat until the game ends) or a tournament that is not
+            // complete, from memory. Otherwise the name's seat, round
+            // scores and in-flight records would outlive the account. Then
+            // the name is locked (GameManager.mergeLocks: no sign-in,
+            // restore, rejoin, lobby, tournament or game start) in the same
+            // synchronous step, until the deletion is done
+            const live = gameManager.findLiveActivity?.(username);
+            if (live) return live.kind === 'game' ? DELETE_IN_GAME_MESSAGE : DELETE_IN_TOURNAMENT_MESSAGE;
+            gameManager.lockForMerge?.([username]);
+            try {
+                return await eraseOwnAccount(io, usersCollection, user, current, username);
+            } finally {
+                gameManager.unlockMerge?.([username]);
             }
-
-            // The shared deletion (server/admin/accountDelete.js, also the
-            // admin panel's): game records anonymized, open reset links
-            // revoked, reports marked, the user document and its tombstones
-            // deleted, then the in-memory caches, the avatar store and
-            // deletedUsernames. Other players' blocks of this name stay
-            // (pullBlocks: false): deleting the account and signing up again
-            // as the same name must not clear them
-            const database = require('../database');
-            const db = {
-                users: usersCollection,
-                gameRecords: getGameRecordsCollection(),
-                reports: database.getReportsCollection?.(),
-                passwordResets: database.getPasswordResetsCollection?.()
-            };
-            const erased = await eraseAccount(db, { _id: user._id, username }, { pullBlocks: false });
-            await forgetAccount(io, db, username, erased);
-            return null;
         });
         if (refused) {
             socket.emit('deleteAccountResponse', { success: false, message: refused });
@@ -988,6 +1042,124 @@ async function deleteAccount(socket, io, data) {
     }
 }
 
+/**
+ * deleteAccount's turn in the queue, with the name locked: the admin flag,
+ * then the shared deletion. @returns {Promise<string|null>} a refusal or null
+ */
+async function eraseOwnAccount(io, usersCollection, user, current, username) {
+    // The last admin cannot delete their account (it would leave
+    // nobody able to open the admin panel). The flag comes off first
+    // through the same guard as the panel's Remove admin (remove,
+    // count, put it back if nobody is left), so two last admins
+    // deleting at once cannot both go
+    if (current.isAdmin === true) {
+        const { setAdminFlag } = require('../admin/adminRole');
+        try {
+            await setAdminFlag({ users: usersCollection }, username, false, { by: username });
+        } catch (error) {
+            if (error && error.code === 'last_admin') return LAST_ADMIN_DELETE_MESSAGE;
+            throw error;
+        }
+    }
+
+    // The shared deletion (server/admin/accountDelete.js, also the
+    // admin panel's): game records anonymized, open reset links
+    // revoked, reports marked, the user document replaced by its name
+    // hold and its tombstones deleted, then the in-memory caches, the
+    // avatar store and deletedUsernames. Other players' blocks of this
+    // name stay (pullBlocks: false): deleting the account and signing up
+    // again as the same name must not clear them
+    const database = require('../database');
+    const db = {
+        users: usersCollection,
+        gameRecords: getGameRecordsCollection(),
+        reports: database.getReportsCollection?.(),
+        passwordResets: database.getPasswordResetsCollection?.()
+    };
+    const erased = await eraseAccount(db, { _id: user._id, username }, { pullBlocks: false });
+    await forgetAccount(io, db, username, erased);
+    return null;
+}
+
+/**
+ * Change password (owner 2026-11-15; c2s changePassword {current, next} ->
+ * changePasswordResponse {success, message}): the signed-in socket only
+ * (never a client-supplied username). The current-password check counts in
+ * signInThrottle exactly like deleteAccount's (a hijacked signed-in socket
+ * cannot guess through it); the new one must pass the new-password rule
+ * (8-100) and differ from the current one. Then: open reset links
+ * cancelled, ONE guarded write (still this account, still the hash that
+ * was checked: a reset or another change meanwhile wins) sets the hash and
+ * revokes every saved session but this device's (revokeOtherSessions, the
+ * epoch bumped), and every OTHER live socket of the name is signed out
+ * (signOutUser except this one: forceLogout, so other devices show sign-in).
+ * Existing shorter passwords keep working for sign-in until changed.
+ */
+async function changePassword(socket, io, data) {
+    const reply = (success, message) => socket.emit('changePasswordResponse', { success, message });
+    const usersCollection = getUsersCollection();
+    if (!usersCollection) return reply(false, 'Database not ready. Try again.');
+    const sessionUser = gameManager.getUserBySocketId(socket.id);
+    if (!sessionUser) return reply(false, 'Not signed in');
+    const username = sessionUser.username;
+    const { current, next } = data;
+
+    // Cheap refusals first: nothing read, nothing counted
+    if (!checkPasswordRule(next)) return reply(false, PASSWORD_RULE_MESSAGE);
+    if (next === current) return reply(false, SAME_PASSWORD_MESSAGE);
+
+    const who = { ip: socket.data?.clientIp ?? null, username };
+    const gate = signInThrottle.check(who);
+    if (!gate.ok) {
+        authLogger.warn('Password change throttled after repeated wrong passwords', { username, ip: who.ip, retryAfterMs: gate.retryAfterMs });
+        return reply(false, DELETE_THROTTLED_MESSAGE);
+    }
+    const reservation = signInThrottle.reserve(who);
+    let passwordChecked = null; // as deleteAccount
+
+    try {
+        const user = await usersCollection.findOne(
+            { username, mergedInto: { $exists: false } },
+            { projection: { password: 1, socketId: 1, sessionTokens: 1, sessionToken: 1 } }
+        );
+        if (!user) return reply(false, 'Account not found');
+        const match = typeof user.password === 'string' && await passwordHash.compare(current, user.password);
+        passwordChecked = Boolean(match);
+        if (!match) {
+            authLogger.warn('Password change failed: incorrect current password', { username });
+            return reply(false, WRONG_CURRENT_PASSWORD_MESSAGE);
+        }
+        if (gameManager.isMergeLocked?.(username)) return reply(false, MERGE_LOCKED_MESSAGE);
+
+        const hash = await passwordHash.hash(next, 10);
+        const now = new Date();
+        const database = require('../database');
+        // Before the write (setPassword's order): a failure changes nothing
+        const revokedLinks = await revokeOpenResetLinks({ passwordResets: database.getPasswordResetsCollection?.() }, { username }, { now });
+        const { kept, ...revoke } = revokeOtherSessions(user, socket.data?.sessionHash, now);
+        const before = await usersCollection.findOneAndUpdate(
+            { _id: user._id, username, mergedInto: { $exists: false }, password: user.password },
+            { ...revoke, $set: { ...revoke.$set, password: hash, passwordChangedAt: now } },
+            { returnDocument: 'before', projection: { socketId: 1 } }
+        );
+        if (!before) {
+            authLogger.warn('Password change lost a race (reset, merge or another change)', { username });
+            return reply(false, PASSWORD_CHANGE_RACE_MESSAGE);
+        }
+        const signedOut = signOutUser(io, username, { socketId: before.socketId, except: socket.id });
+        authLogger.info('Password changed', { username, keptThisDevice: kept, revokedLinks, signedOut });
+        return reply(true, PASSWORD_CHANGED_MESSAGE);
+    } catch (error) {
+        if (isHashBusy(error)) return reply(false, BUSY_MESSAGE);
+        authLogger.error('Database error during password change', { username, error: error.message });
+        return reply(false, DATABASE_ERROR_MESSAGE);
+    } finally {
+        if (passwordChecked === true) signInThrottle.recordSuccess(who, reservation);
+        else if (passwordChecked === false) signInThrottle.confirm(who);
+        else signInThrottle.release(who, reservation);
+    }
+}
+
 module.exports = {
     signOutSocket,
     signOutUser,
@@ -998,5 +1170,6 @@ module.exports = {
     signIn,
     signUp,
     restoreSession,
-    deleteAccount
+    deleteAccount,
+    changePassword
 };

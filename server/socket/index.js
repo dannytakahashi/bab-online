@@ -61,6 +61,9 @@ function setupSocketHandlers(io) {
         socket.on('deleteAccount', (data) =>
             asyncHandler('deleteAccount', authHandlers.deleteAccount)(socket, io, data)
         );
+        socket.on('changePassword', (data) =>
+            asyncHandler('changePassword', authHandlers.changePassword)(socket, io, data)
+        );
 
         // Main room events
         socket.on('joinMainRoom', () =>

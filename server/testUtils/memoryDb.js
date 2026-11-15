@@ -361,6 +361,16 @@ class MemoryCollection {
         return { matchedCount: targets.length, modifiedCount: modified };
     }
 
+    /** replaceOne as the driver does it: the whole document but its _id. */
+    async replaceOne(filter, replacement) {
+        const i = this.docs.findIndex(d => matches(d, filter));
+        if (i === -1) return { matchedCount: 0, modifiedCount: 0 };
+        const next = clone(replacement);
+        delete next._id;
+        this.docs[i] = { _id: this.docs[i]._id, ...next };
+        return { matchedCount: 1, modifiedCount: 1 };
+    }
+
     async deleteOne(filter) {
         const i = this.docs.findIndex(d => matches(d, filter));
         if (i === -1) return { deletedCount: 0 };

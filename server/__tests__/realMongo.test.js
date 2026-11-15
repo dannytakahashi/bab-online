@@ -159,6 +159,8 @@ describe('real mongod', () => {
         if (!client) return;
         const indexes = await mockHolder.users.indexes();
         expect(indexes.find(i => i.name === 'username_1')).toMatchObject({ unique: true, key: { username: 1 } });
+        // a deleted account's name hold lapses by TTL (accountDelete.js)
+        expect(indexes.find(i => i.name === 'nameHeldUntil_1')).toMatchObject({ key: { nameHeldUntil: 1 }, expireAfterSeconds: 0 });
         expect((await mockHolder.gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
         expect((await mockHolder.reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
 
@@ -203,8 +205,8 @@ describe('real mongod', () => {
         const a = sock();
         const b = sock();
         await Promise.all([
-            auth.signUp(a, io, { username: 'Racer', password: 'pw' }),
-            auth.signUp(b, io, { username: 'Racer', password: 'pw' })
+            auth.signUp(a, io, { username: 'Racer', password: 'pw-long-1' }),
+            auth.signUp(b, io, { username: 'Racer', password: 'pw-long-1' })
         ]);
         const replies = log.filter(l => l.event === 'signUpResponse').map(l => l.data);
         expect(replies).toHaveLength(2);
@@ -213,13 +215,13 @@ describe('real mongod', () => {
         expect(await mockHolder.users.countDocuments({ username: 'Racer' })).toBe(1);
 
         const c = sock();
-        await auth.signUp(c, io, { username: 'Racer', password: 'pw' });
+        await auth.signUp(c, io, { username: 'Racer', password: 'pw-long-1' });
         expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
 
         // The case-insensitive clash check (usernameRules.findNameClash) on a real mongod
-        await auth.signUp(sock(), io, { username: 'rACER', password: 'pw' });
+        await auth.signUp(sock(), io, { username: 'rACER', password: 'pw-long-1' });
         expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken: "Racer" already exists, and capital letters don\'t make a different name.' });
-        await auth.signUp(sock(), io, { username: 'R.cer', password: 'pw' });
+        await auth.signUp(sock(), io, { username: 'R.cer', password: 'pw-long-1' });
         expect(last('signUpResponse')).toMatchObject({ success: true, username: 'R.cer' });
     }, 20000);
 
@@ -378,12 +380,12 @@ describe('real mongod', () => {
         // Concurrent double (quintuple) use of one link: exactly one success
         const { token } = await createResetLink(adb, 'Bea');
         const hash = (pw) => bcrypt.hash(pw, 4);
-        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-${i}`, { hash })));
+        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-long-${i}`, { hash })));
         expect(results.filter(r => r.ok)).toHaveLength(1);
         expect(results.filter(r => r === INVALID_LINK)).toHaveLength(4);
         const winner = results.find(r => r.ok);
         const bea = await adb.users.findOne({ username: 'Bea' });
-        const winning = [1, 2, 3, 4, 5].map(i => `pw-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
+        const winning = [1, 2, 3, 4, 5].map(i => `pw-long-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
         expect(winning).toHaveLength(1);
         expect(winner.username).toBe('Bea');
         expect(bea.sessionTokens).toBeUndefined();
@@ -579,6 +581,13 @@ describe('real mongod', () => {
 
             const res = await ask('deleteAccount', { username: 'Cy', confirm: 'Cy' });
             expect(res).toMatchObject({ ok: true, kind: 'account', gameRecords: 5, reports: 2, blockLists: 1, resetLinks: 1, tombstones: 1 });
+            // replaceOne on the real driver: the account became its name hold, same _id
+            const held = await users.findOne({ username: 'Cy' });
+            expect(Object.keys(held).sort()).toEqual(['_id', 'deletedAt', 'mergedInto', 'nameHeldUntil', 'username']);
+            expect(held).toMatchObject({ mergedInto: '[deleted]', nameHeldUntil: expect.any(Date) });
+            // taken on the real unique index until the panel frees it
+            await expect(users.insertOne({ username: 'Cy', password: 'x' })).rejects.toMatchObject({ code: 11000 });
+            expect(await ask('deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: '[deleted]' });
             expect(await users.findOne({ username: 'Cy' })).toBeNull();
             expect(await users.findOne({ username: 'OldCy' })).toBeNull();
             expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
@@ -589,7 +598,7 @@ describe('real mongod', () => {
                 ['Cy', 'Bea', true, false], ['Eve', 'Cy', false, true]
             ]);
             expect(await mockHolder.passwordResets.countDocuments({ username: 'Cy', state: 'open' })).toBe(0);
-            expect(await mockHolder.adminAudit.countDocuments({ action: 'deleteAccount', result: 'ok' })).toBe(1);
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'deleteAccount', result: 'ok' })).toBe(2); // the delete and freeing its name
             // a tombstone: only that document; its kept account is unchanged
             const alanBefore = await users.findOne({ username: 'Alan' });
             expect(await ask('deleteAccount', { username: 'OldAlan', confirm: 'OldAlan' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: 'Alan' });
@@ -717,7 +726,7 @@ describe('real mongod', () => {
         });
         try {
             const up = sock();
-            await auth.signUp(up, io, { username: 'zedd', password: 'pw' });
+            await auth.signUp(up, io, { username: 'zedd', password: 'pw-long-1' });
             expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
         } finally {
             spy.mockRestore();
@@ -739,7 +748,8 @@ describe('real mongod', () => {
         const hugo = await users.findOne({ username: 'Hugo' });
         const out = await eraseAccount(dbs, hugo, { pullBlocks: false });
         expect(out).toMatchObject({ oldName: 'Hu', gameRecords: 2, reports: 1, tombstones: 2 });
-        expect(await users.countDocuments({ username: { $in: ['Hugo', 'Hu', 'HuOld'] } })).toBe(0);
+        // the account's own name is held; the old name and its tombstone are gone
+        expect(await users.find({ username: { $in: ['Hugo', 'Hu', 'HuOld'] } }).toArray()).toEqual([expect.objectContaining({ username: 'Hugo', mergedInto: '[deleted]' })]);
         expect(await mockHolder.gameRecords.findOne({ gameId: 'n1' })).toMatchObject({ team1Players: ['[deleted]', 'p'], team2Players: ['q', '[deleted]'] });
         expect(await mockHolder.reports.findOne({ reason: 'n' })).toMatchObject({ reported: 'Hu', reportedDeletedAt: expect.any(Date) });
         // the old name belongs to a different, live account now: its data stays

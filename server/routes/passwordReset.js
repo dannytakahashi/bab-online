@@ -51,6 +51,7 @@ const passwordHash = require('../utils/passwordHash');
 const { getClientIp, ipBucketKey } = require('../utils/clientIp');
 const { useResetLink, INVALID_LINK } = require('../admin/passwordReset');
 const { recordAudit } = require('../admin/audit');
+const { PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('auth');
@@ -60,7 +61,7 @@ const CLIENT = path.join(__dirname, '..', '..', 'client');
 const MESSAGES = {
     ok: 'Password changed. Sign in with your new password on the app or the website.',
     invalid_link: 'This reset link is not valid any more. It may have expired or been used already. Ask for a new link.',
-    invalid_password: 'Password must be 1-100 characters.',
+    invalid_password: PASSWORD_RULE_MESSAGE,
     invalid_request: 'Something was wrong with that request. Reload the page and try again.',
     rate_limited: 'Too many attempts. Wait a few minutes and try again.',
     unavailable: 'The server is busy. Try again in a moment.',

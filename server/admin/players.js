@@ -27,7 +27,7 @@ const MAX_QUERY = 50;
 const LIST_MAX = 500;
 
 const PROJECTION = {
-    username: 1, mergedInto: 1, renamedAt: 1, isAdmin: 1, 'stats.gamesPlayed': 1, 'botStats.gamesPlayed': 1, 'renamePending.from': 1,
+    username: 1, mergedInto: 1, renamedAt: 1, deletedAt: 1, nameHeldUntil: 1, isAdmin: 1, 'stats.gamesPlayed': 1, 'botStats.gamesPlayed': 1, 'renamePending.from': 1,
     'sessionTokens.lastUsedAt': 1, 'sessionTokens.createdAt': 1
 };
 
@@ -59,6 +59,8 @@ function playerRow(user, isOnline) {
         mergedInto: user.mergedInto || null,
         // a rename's redirect (accountRename.js), not a merged account
         renamed: Boolean(user.mergedInto && user.renamedAt),
+        // a deleted account's name hold (accountDelete.js): until when the name stays taken
+        heldUntil: user.mergedInto && user.deletedAt ? iso(user.nameHeldUntil) : null,
         // accountRename.js renamePending: the old name, while unfinished
         renameUnfinished: !user.mergedInto && typeof user.renamePending?.from === 'string' ? user.renamePending.from : null
     };

@@ -52,6 +52,8 @@ describe('/privacy', () => {
         expect(html).toContain('"[deleted]"');
         expect(html).toMatch(/<strong>Reports<\/strong> you filed or that were filed about you stay/);
         expect(html).toMatch(/<strong>The admin log<\/strong> keeps the usernames/);
+        // the deleted name's 30-day hold (accountDelete.NAME_HOLD_MS)
+        expect(html).toMatch(/<strong>Your username<\/strong> itself stays reserved for 30 days after you delete your account/);
         expect(html).toMatch(/<strong>Other players' block lists<\/strong> keep your username when you delete your account in the app/);
         // an admin delete (an email request) pulls the name (pullBlocks default)
         expect(html).toContain('we remove the username from block lists too');

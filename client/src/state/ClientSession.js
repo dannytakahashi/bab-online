@@ -546,6 +546,19 @@ export class ClientSession {
     return true;
   }
 
+  /**
+   * Send restoreSession again on the same socket: a restoreSessionResponse
+   * failure marked retryable (a database error, a name an admin action
+   * holds for a moment). main.js schedules it with backoff and keeps the
+   * saved token. @returns {boolean} whether restoreSession went out
+   */
+  retryResume() {
+    const id = this._socketManager?.id;
+    if (!id || this._restoreSentFor !== id) return false;
+    this._restoreSentFor = null;
+    return this.resume();
+  }
+
   /** Signed in by password on this socket (signInResponse / signUp auto-login). */
   noteSignedIn(username) {
     this._restoredSocketId = this._socketManager?.id || null;

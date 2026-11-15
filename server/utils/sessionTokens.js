@@ -12,7 +12,8 @@
  *
  * Revoking (sign out everywhere, a password reset, a merge retiring the
  * account) bumps `sessionEpoch` along with removing the sessions
- * (REVOKE_ALL_SESSIONS). issueSession / verifySession rewrite the whole
+ * (REVOKE_ALL_SESSIONS); a password change does the same for every session
+ * but the changing device's (revokeOtherSessions). issueSession / verifySession rewrite the whole
  * array they read, so their writes must go through `filter`: it matches only
  * while the epoch is still the one that read saw. A write that loses the
  * race to a revoke matches nothing (matchedCount 0) instead of putting every
@@ -96,6 +97,24 @@ function verifySession(user, token, now = new Date()) {
 }
 
 /**
+ * The update a password change makes (authHandlers.changePassword): every
+ * saved session but this device's (`hash`, the socket's sessionHash) goes,
+ * with sessionEpoch bumped as in REVOKE_ALL_SESSIONS, so another device's
+ * in-flight sign-in or restore cannot write its session back. A legacy
+ * plaintext token that is this device's is kept as its hashed entry.
+ * @returns {{$set: Object, $unset: Object, $inc: Object, kept: boolean}}
+ */
+function revokeOtherSessions(user, hash, now = new Date()) {
+    const keep = hash ? currentSessions(user || {}, now).filter(e => e.hash === hash) : [];
+    return {
+        $set: { sessionTokens: keep },
+        $unset: { sessionToken: '' },
+        $inc: { sessionEpoch: 1 },
+        kept: keep.length > 0
+    };
+}
+
+/**
  * Is `hash` (a socket's socket.data.sessionHash) still one of the user's
  * live sessions? False once the sessions were revoked (sign out
  * everywhere, a password reset) even while that socket stays connected.
@@ -108,6 +127,7 @@ function hasLiveSession(user, hash, now = new Date()) {
 module.exports = {
     MAX_SESSIONS,
     REVOKE_ALL_SESSIONS,
+    revokeOtherSessions,
     hasLiveSession,
     sessionStateFilter,
     SESSION_TTL_MS,

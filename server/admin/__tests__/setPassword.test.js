@@ -28,14 +28,27 @@ describe('setPassword', () => {
 
     test('refuses unknown and merged accounts', async () => {
         const db = createMemoryDb({ users: [{ username: 'Alan2', mergedInto: 'Alan' }] });
-        await expect(setPassword(db, 'Nobody', 'x', { rounds: 4 })).rejects.toThrow('does not exist');
-        await expect(setPassword(db, 'Alan2', 'x', { rounds: 4 })).rejects.toThrow('merged into "Alan"');
+        await expect(setPassword(db, 'Nobody', 'maple-otter-42', { rounds: 4 })).rejects.toThrow('does not exist');
+        await expect(setPassword(db, 'Alan2', 'maple-otter-42', { rounds: 4 })).rejects.toThrow('merged into "Alan"');
     });
 
-    test('rejects empty or over-long passwords', async () => {
+    test('rejects empty, short (under 8) or over-long passwords', async () => {
         const db = createMemoryDb({ users: [{ username: 'Alan' }] });
-        await expect(setPassword(db, 'Alan', '')).rejects.toThrow('1-100');
-        await expect(setPassword(db, 'Alan', 'x'.repeat(101))).rejects.toThrow('1-100');
+        await expect(setPassword(db, 'Alan', '')).rejects.toThrow('8-100');
+        await expect(setPassword(db, 'Alan', 'x'.repeat(7))).rejects.toThrow('8-100');
+        await expect(setPassword(db, 'Alan', 'x'.repeat(101))).rejects.toThrow('8-100');
+        await expect(setPassword(db, 'Alan', 'x'.repeat(8), { rounds: 4 })).resolves.toMatchObject({ username: 'Alan' });
+    });
+
+    test('stamps the one-time reset notice for the next sign-in', async () => {
+        const db = createMemoryDb({ users: [{ username: 'Alan', password: 'old' }] });
+        const now = new Date('2026-11-15T12:00:00Z');
+        await setPassword(db, 'Alan', 'maple-otter-42', { rounds: 4, now });
+        expect((await db.users.findOne({ username: 'Alan' })).passwordResetNotice).toEqual({ by: 'admin', at: now });
+    });
+
+    test('generated passwords meet the 8-character rule', () => {
+        for (let i = 0; i < 50; i++) expect(generateFriendlyPassword().length).toBeGreaterThanOrEqual(8);
     });
 });
 

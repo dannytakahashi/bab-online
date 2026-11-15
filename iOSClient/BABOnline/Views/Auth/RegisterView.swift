@@ -46,6 +46,15 @@ struct RegisterView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
+                    // the server's rule for new passwords (8-100); hidden until something is typed
+                    if !password.isEmpty, let problem = PasswordRule.newPasswordProblem(password) {
+                        Text(problem)
+                            .font(.caption)
+                            .foregroundColor(Theme.error)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("register.passwordRule")
+                    }
+
                     if !confirmPassword.isEmpty && password != confirmPassword {
                         Text("Passwords do not match")
                             .font(.caption)
@@ -105,6 +114,7 @@ struct RegisterView: View {
 
     private var canRegister: Bool {
         !username.isEmpty && !password.isEmpty && password == confirmPassword
+            && PasswordRule.newPasswordProblem(password) == nil
             && socketService.isConnected && !isLoading
     }
 

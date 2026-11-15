@@ -9,6 +9,7 @@ enum SocketEvents {
         static let signIn = "signIn"
         static let signUp = "signUp"
         static let deleteAccount = "deleteAccount"
+        static let changePassword = "changePassword"
 
         // Safety / moderation
         static let reportUser = "reportUser"
@@ -84,6 +85,7 @@ enum SocketEvents {
         static let forceLogout = "forceLogout"
         static let activeGameFound = "activeGameFound"
         static let deleteAccountResponse = "deleteAccountResponse"
+        static let changePasswordResponse = "changePasswordResponse"
 
         // Safety / moderation
         static let reportUserResponse = "reportUserResponse"

@@ -78,6 +78,7 @@ class RateLimiter {
             // Account management. The password check also goes through
             // signInThrottle (per username / IP failures, across sockets)
             deleteAccount: { max: 3, windowMs: 300000 },  // 3 per 5 minutes
+            changePassword: { max: 5, windowMs: 300000 }, // 5 per 5 minutes
 
             // Session and table entry. Every reconnect is a new socket (web
             // and iOS both open a fresh one), so these per-socket limits

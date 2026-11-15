@@ -2205,6 +2205,55 @@
       ],
       "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS)."
     },
+    "changePassword": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "next": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "current",
+          "next"
+        ],
+        "additionalProperties": true
+      },
+      "status": "active",
+      "joi": "changePassword",
+      "rateLimit": "changePassword",
+      "sentBy": {
+        "web": true,
+        "ios": false
+      },
+      "examples": [
+        {
+          "current": "old password",
+          "next": "new password 1"
+        }
+      ],
+      "invalid": [
+        {
+          "current": "old password"
+        },
+        {
+          "current": "",
+          "next": "new password 1"
+        },
+        {
+          "current": "old password",
+          "next": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+        }
+      ],
+      "notes": "New (2026-11-15). The signed-in socket's own account only. Answered by changePasswordResponse {success, message}. next must be 8-100 characters and differ from current (checked in the handler, so Joi stays 1-100 and a short one gets the rule message); the current-password check counts in the failed-sign-in throttle like deleteAccount's. On success every saved session but this device's is revoked, every other live socket of the account gets forceLogout, and open reset links are cancelled. Rate limit 5 / 5 min per socket. Web: profile page, Change password. iOS: Account sheet, Change Password, from the next build after 1.2.1 build 9 (sentBy says what shipped clients send)."
+    },
     "deleteAccount": {
       "payload": {
         "type": "object",
@@ -4099,6 +4148,25 @@
               },
               "isAdmin": {
                 "const": true
+              },
+              "passwordReset": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "enum": [
+                      "link",
+                      "admin"
+                    ]
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -4131,9 +4199,10 @@
       "status": "active",
       "to": "self",
       "added": [
-        "isAdmin"
+        "isAdmin",
+        "passwordReset"
       ],
-      "notes": "isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key.",
+      "notes": "isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key. passwordReset {by: link | admin, at: ISO time} (additive 2026-11-15, success only): the password was reset since the player last signed in, by a one-time reset link or by an admin (scripts/set-password.js); sent once (the reply's session write clears it). Web shows one info line (\"Your password was reset with a reset link on <date>. If that wasn't you, tell an admin.\"); iOS from the next build after 1.2.1 build 9; iOS 1.2.0 ignores it.",
       "clientReads": {
         "web": [
           "client/src/handlers/authHandlers.js:registerAuthHandlers"
@@ -4236,6 +4305,25 @@
               },
               "isAdmin": {
                 "const": true
+              },
+              "passwordReset": {
+                "type": "object",
+                "properties": {
+                  "by": {
+                    "enum": [
+                      "link",
+                      "admin"
+                    ]
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "by",
+                  "at"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -4254,6 +4342,9 @@
               },
               "message": {
                 "type": "string"
+              },
+              "retryable": {
+                "const": true
               }
             },
             "required": [
@@ -4267,9 +4358,11 @@
       "status": "active",
       "to": "self",
       "added": [
-        "isAdmin"
+        "isAdmin",
+        "passwordReset",
+        "retryable"
       ],
-      "notes": "isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it).",
+      "notes": "isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it). passwordReset {by: link | admin, at: ISO time} (additive 2026-11-15, success only): the password was reset since the player last signed in, by a one-time reset link or by an admin (scripts/set-password.js); sent once (the reply's session write clears it). Web shows one info line (\"Your password was reset with a reset link on <date>. If that wasn't you, tell an admin.\"); iOS from the next build after 1.2.1 build 9; iOS 1.2.0 ignores it. retryable: true (additive 2026-11-15, failure only) when the failure is passing and the saved token may still be good: a database error (also the session re-check's failed read) or a name an admin merge / rename / delete holds for a moment (\"This account is being updated...\"). Web keeps the saved token, shows Reconnecting... and sends restoreSession again with backoff (1 s doubling to 30 s, within the 10 / min limit); iOS the same from the next build after 1.2.1 build 9. iOS 1.2.0 and 1.2.1 up to build 9 ignore the key and forget the token on any failure (sign-in screen), as before. Every other failure (no such user, a deleted name, a bad or revoked token) has no retryable and both clients forget the token.",
       "clientReads": {
         "web": [
           "client/src/main.js:restoreSessionResponse"
@@ -4373,6 +4466,7 @@
       },
       "status": "active",
       "to": "self",
+      "notes": "Refused (success false, the message says why) while the player is in a live game (its draw included, a /leave'd seat until the game ends) or a tournament that is not complete (2026-11-15). On success the name is held for 30 days (a deleted-name tombstone: sign-up says it is taken; an admin can free it in the panel).",
       "clientReads": {
         "web": [
           "client/src/main.js:deleteAccountResponse"
@@ -4383,6 +4477,36 @@
       },
       "emittedFrom": [
         "server/socket/authHandlers.js:deleteAccount"
+      ]
+    },
+    "changePasswordResponse": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "self",
+      "notes": "New (2026-11-15): the reply to changePassword. success true: the password changed, every other device was signed out (forceLogout to its live sockets, its saved session revoked); this device stays signed in. success false: message says why (the 8-100 rule, the same password, a wrong current password (counted in the failed-sign-in throttle), throttled, busy, a database error). Web: the profile page's Change password form; iOS from the next build after 1.2.1 build 9 (Account sheet). Shipped iOS builds never send changePassword, so never get it.",
+      "clientReads": {
+        "web": [
+          "client/src/main.js:changePasswordResponse"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/authHandlers.js:changePassword"
       ]
     },
     "activeGameFound": {
@@ -8316,6 +8440,12 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "heldUntil": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -9356,6 +9486,12 @@
                       "type": "boolean"
                     },
                     "renameUnfinished": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "heldUntil": {
                       "type": [
                         "string",
                         "null"

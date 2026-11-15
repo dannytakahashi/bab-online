@@ -47,8 +47,9 @@ import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, 
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby } from './ui/screens/GameLobby.js';
 import {
   showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
-  updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed,
+  updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed, showChangePasswordResult,
 } from './ui/screens/ProfilePage.js';
+import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
@@ -359,6 +360,23 @@ socket.on('reportUserResponse', (data) => {
   }
 });
 
+// Change password (profile page): the form shows the answer; this device
+// stays signed in, the server signed out every other one
+socket.on('changePasswordResponse', (data) => {
+  showChangePasswordResult(data || {});
+});
+
+/**
+ * The one-time notice after a password reset (signInResponse /
+ * restoreSessionResponse passwordReset {by, at}, additive 2026-11-15): one
+ * info line, a little longer than a plain toast.
+ */
+const PASSWORD_RESET_TOAST_MS = 10000;
+function notePasswordReset(data) {
+  const text = passwordResetNoticeText(data?.passwordReset);
+  if (text) showInfo(text, PASSWORD_RESET_TOAST_MS);
+}
+
 // Account deletion (in-app, required by App Store Guideline 5.1.1(v))
 socket.on('deleteAccountResponse', (data) => {
   if (data.success) {
@@ -569,6 +587,7 @@ function initializeApp() {
   // Visible connection state while the socket is down (and the restart
   // notice: serverShutdown)
   const connectionBanner = installConnectionBanner(socketMgr);
+  connectionBannerRef = connectionBanner;
 
   // A parked tab whose socket reconnected (a deploy, a network blip): a
   // parked tab never restores, so the server no longer knows the new
@@ -919,6 +938,8 @@ function initializeApp() {
       leaveParked();
       // Signed in on this socket: no restoreSession needed for it
       session.noteSignedIn(data.username);
+      stopRestoreRetry();
+      notePasswordReset(data);
       // The main room's Admin entry (display only; the server checks)
       setIsAdmin(data.isAdmin === true);
       setBlockedUsers(data.blockedUsers);
@@ -941,6 +962,8 @@ function initializeApp() {
       showError(message || 'Sign-in failed! Incorrect username or password.');
     },
     onSignUpSuccess: (data) => {
+      // A pending restore retry belongs to the identity this tab just left
+      stopRestoreRetry();
       if (data.autoLoggedIn) {
         // Auto-login: go straight to main room
         console.log(`Registration & auto-login successful: ${data.username}`);
@@ -1898,6 +1921,8 @@ function initializeApp() {
  * @param {string} [reason] - EXIT.*
  */
 function displaySignInScreen(reason = null) {
+  // Signed out (forceLogout, sign out, a failed restore): nothing to restore
+  stopRestoreRetry();
   if (reason || session.hasTable) {
     session.exitTable(reason || EXIT.SIGN_OUT, { to: SCREEN.SIGN_IN });
   } else {
@@ -1993,6 +2018,44 @@ function signOutParkedTab() {
 /** restoreSessionResponse failures that need no explanation (sign in again). */
 const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not found']);
 
+// A restore failure marked retryable (a database error, a name an admin
+// action holds for a moment; additive 2026-11-15): the saved token is kept
+// and restoreSession goes out again on the same socket after 1 s, doubling
+// to 30 s (the server allows 10 a minute per socket), with the banner's
+// 'Reconnecting…'. A new socket restores by itself (and starts over); a
+// success, a sign-in, a sign-up, the sign-in screen or any other failure
+// stops it.
+export const RESTORE_RETRY_MIN_MS = 1000;
+export const RESTORE_RETRY_MAX_MS = 30000;
+let connectionBannerRef = null;
+const restoreRetry = { attempt: 0, socketId: null, timer: null };
+
+function stopRestoreRetry() {
+  clearTimeout(restoreRetry.timer);
+  restoreRetry.timer = null;
+  restoreRetry.attempt = 0;
+  restoreRetry.socketId = null;
+  connectionBannerRef?.noteRestoring(false);
+}
+
+function scheduleRestoreRetry() {
+  const id = socket.id;
+  if (restoreRetry.socketId !== id) {
+    restoreRetry.socketId = id;
+    restoreRetry.attempt = 0;
+  }
+  const delay = Math.min(RESTORE_RETRY_MAX_MS, RESTORE_RETRY_MIN_MS * 2 ** restoreRetry.attempt);
+  restoreRetry.attempt++;
+  clearTimeout(restoreRetry.timer);
+  connectionBannerRef?.noteRestoring(true);
+  restoreRetry.timer = setTimeout(() => {
+    restoreRetry.timer = null;
+    // Another socket by now: its own connect restored (or will)
+    if (socket.id !== id || !socket.connected || !session.credentials()) return;
+    session.retryResume();
+  }, delay);
+}
+
 // restoreSessionResponse: sent for session.resume() (every connect of a
 // signed-in tab, once per socket)
 socket.on('restoreSessionResponse', (data) => {
@@ -2000,13 +2063,20 @@ socket.on('restoreSessionResponse', (data) => {
   leaveParked();
   if (data.success) {
     console.log('Session restored successfully');
+    stopRestoreRetry();
+    notePasswordReset(data);
     setBlockedUsers(data.blockedUsers);
     setIsAdmin(data.isAdmin === true);
     // Then rejoin, re-spectate, or re-enter the current screen
     const action = session.onSessionRestored(data);
     console.log(`Session restored: ${action}`);
+  } else if (data.retryable === true && session.credentials()) {
+    // Passing: keep the token (and the screen) and ask again
+    console.log('Session restore failed, retrying:', data.message);
+    scheduleRestoreRetry();
   } else {
     console.log('Session restore failed:', data.message);
+    stopRestoreRetry();
     // Clear invalid session data (and the device's saved copy of it)
     forgetSession(sessionStorage.getItem('sessionToken'));
     sessionStorage.removeItem('username');
