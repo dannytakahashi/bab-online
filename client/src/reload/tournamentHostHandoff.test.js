@@ -54,4 +54,28 @@ describe('the tournament host leaves', () => {
     document.getElementById('tournamentCancelBtn').click();
     expect(page.socket.emitted('cancelTournament')).toHaveLength(1);
   });
+
+  it('idle (2026-11-15, reason hostIdle): the role leaves me while I am here, the controls go', async () => {
+    page.socket.fire('tournamentJoined', { ...tournamentPayload({ creator: 'me', phase: 'between_rounds' }), players: roster('me') });
+    expect(document.getElementById('tournamentCancelBtn')).not.toBeNull();
+    clearToasts();
+    page.socket.fire('tournamentPlayerLeft', { username: 'me', players: roster('cat'), newCreator: 'cat', reason: 'hostIdle' });
+    await tick();
+    expect(toasts()).toEqual(['cat is now the tournament host']);
+    expect(document.getElementById('tournamentBeginBtn')).toBeNull();
+    expect(document.getElementById('tournamentCancelBtn')).toBeNull();
+  });
+
+  it('between rounds the ready deadline (readyDeadlinePassed) lets the ready host start', async () => {
+    page.socket.fire('tournamentJoined', { ...tournamentPayload({ creator: 'me', phase: 'between_rounds' }), players: roster('me') });
+    const ready = roster('me').map((p) => ({ ...p, ready: p.username === 'me' }));
+    page.socket.fire('tournamentReadyUpdate', { players: ready, allReady: false, readyDeadlinePassed: false });
+    const beginBtn = document.getElementById('tournamentBeginBtn');
+    expect(beginBtn.disabled).toBe(true);
+    page.socket.fire('tournamentReadyUpdate', { players: ready, allReady: false, readyDeadlinePassed: true });
+    expect(beginBtn.disabled).toBe(false);
+    expect(beginBtn.textContent).toBe('Start with ready players');
+    beginBtn.click();
+    expect(page.socket.emitted('beginNextRound')).toHaveLength(1);
+  });
 });

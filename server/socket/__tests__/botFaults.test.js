@@ -414,7 +414,7 @@ describe('progress watchdog', () => {
         expect(quiet.game.hasTimer(progressWatchdog.KEY)).toBe(false);
     });
 
-    test('a stuck tournament table is aborted and the round still finishes (no scores for it)', async () => {
+    test('a stuck tournament table is aborted and the round still finishes (its running scores recorded)', async () => {
         const ctx = await setupTournament(8); // two 4-human tables
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => g.entrants === null), 100, 120000);
@@ -427,7 +427,6 @@ describe('progress watchdog', () => {
                 chatHandlers.chatMessage(ctx.sockets.find((s) => s.id === seat.ownerSocketId), ctx.io, { message: '/lazy' });
             }
         }
-        const stuckNames = stuck.seatList().map((s) => s.ownerUsername);
         const otherNames = other.seatList().map((s) => s.ownerUsername);
         await advanceUntil(() => ctx.t.phase !== 'round_active', 1000, 600000);
 
@@ -438,9 +437,15 @@ describe('progress watchdog', () => {
         expect(results.find((e) => e.data.gameId === stuck.gameId).data.aborted).toBe(true);
         expect(results.find((e) => e.data.gameId === other.gameId).data.aborted).toBeUndefined();
         expect(events(ctx.log, 'tournamentRoundComplete')).toHaveLength(1);
-        // Aborted: nothing recorded for its players (the abort rule); the
-        // finished table's players have their round
-        for (const name of stuckNames) expect(ctx.t.scoreboard[name]?.roundDetails ?? []).toEqual([]);
+        // CHANGED (owner 2026-11-15): an aborted table scores its running
+        // score (no leaver here, /lazy is not leaving); the finished table's
+        // players have their round
+        for (const seat of stuck.seatList()) {
+            const team = seat.position % 2 === 1 ? 'team1' : 'team2';
+            expect(ctx.t.scoreboard[seat.ownerUsername].roundDetails).toEqual([
+                expect.objectContaining({ gameId: stuck.gameId, aborted: true, teamScore: stuck.score[team] }),
+            ]);
+        }
         for (const name of otherNames) expect(ctx.t.scoreboard[name].roundDetails.map((d) => d.gameId)).toEqual([other.gameId]);
     });
 });

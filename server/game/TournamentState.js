@@ -4,6 +4,7 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { safeTimeout } = require('../utils/safeTimer');
 
 class TournamentState {
     constructor(tournamentId, name, creatorSocketId, creatorUsername) {
@@ -43,6 +44,18 @@ class TournamentState {
 
         // Scoreboard: username → { totalScore, roundScores: [r1..r4], roundDetails: [...] }
         this.scoreboard = {};
+
+        // Between rounds: when Begin may start with only the ready members
+        // (socket/tournamentLiveness.js armReadyDeadline; null: not yet).
+        // Only a completed round sets a new one, so a rolled-back start keeps it
+        this.readyDeadlineAt = null;
+        // This between-rounds wait already handed the host role on: past the
+        // deadline the next idle spell starts the round instead of a second
+        // hand-off (tournamentLiveness; reset with each new deadline)
+        this.handedOffThisWait = false;
+        // key → handle ('readyDeadline', 'hostIdle'); all cleared on every
+        // round start and on retire, so none outlives its phase
+        this.timers = new Map();
 
         this._debugMode = process.env.NODE_ENV !== 'production';
     }
@@ -194,9 +207,22 @@ class TournamentState {
 
     /**
      * Transfer creator role to next human player.
+     * @param {Object} [opts]
+     * @param {boolean} [opts.preferReady] - a ready connected player first
+     *   (the idle-host hand-off: the new host can begin at once)
      * @returns {{ socketId: string, username: string } | null} New creator, or null if no humans remain
      */
-    transferCreator() {
+    transferCreator({ preferReady = false } = {}) {
+        if (preferReady) {
+            for (const [socketId, player] of this.players.entries()) {
+                if (socketId !== this.createdBy && player.connected !== false && this.readyPlayers.has(socketId)) {
+                    this.createdBy = socketId;
+                    this.creatorUsername = player.username;
+                    this.logAction('transferCreator', { newCreator: player.username, preferReady });
+                    return { socketId, username: player.username };
+                }
+            }
+        }
         // Prefer a connected player that isn't the current creator
         for (const [socketId, player] of this.players.entries()) {
             if (socketId !== this.createdBy && player.connected !== false) {
@@ -233,6 +259,7 @@ class TournamentState {
     beginStart() {
         this.phase = 'starting';
         this.epoch++;
+        this.clearTimers();
         return this.epoch;
     }
 
@@ -246,7 +273,64 @@ class TournamentState {
         if (this.retired) return;
         this.retired = true;
         this.epoch++;
+        this.clearTimers();
         this.logAction('retire', { epoch: this.epoch });
+    }
+
+    // ---------- timers (lobby / between-rounds liveness) ----------
+
+    setTimer(key, ms, fn) {
+        this.clearTimer(key);
+        const handle = safeTimeout(() => {
+            this.timers.delete(key);
+            if (this.retired) return;
+            fn();
+        }, ms, `tournament:${key}`);
+        if (handle.unref) handle.unref();
+        this.timers.set(key, handle);
+    }
+
+    clearTimer(key) {
+        const handle = this.timers.get(key);
+        if (handle) {
+            clearTimeout(handle);
+            this.timers.delete(key);
+        }
+    }
+
+    hasTimer(key) {
+        return this.timers.has(key);
+    }
+
+    clearTimers() {
+        for (const handle of this.timers.values()) clearTimeout(handle);
+        this.timers.clear();
+    }
+
+    // ---------- between-rounds ready deadline ----------
+
+    /** Past the ready deadline: Begin may start with the ready members only. */
+    readyDeadlinePassed(now = Date.now()) {
+        return this.phase === 'between_rounds' && this.readyDeadlineAt != null && now >= this.readyDeadlineAt;
+    }
+
+    /**
+     * May the host begin the next phase now: every connected member ready,
+     * or (between rounds, past the deadline) always: the host plays, the
+     * ready members play and the rest sit the round out (owner 2026-11-15).
+     */
+    canBegin() {
+        if (this.allPlayersReady()) return true;
+        return this.readyDeadlinePassed() && this.players.get(this.createdBy)?.connected !== false;
+    }
+
+    /** Connected members who are not ready (they sit out a round begun now). */
+    notReadyUsernames() {
+        const names = [];
+        for (const [socketId, player] of this.players) {
+            if (player.connected !== false && !this.readyPlayers.has(socketId)) names.push(player.username);
+        }
+        return names;
     }
 
     startRound(roundNumber) {
@@ -349,13 +433,36 @@ class TournamentState {
     }
 
     completeRound() {
+        this.scoreMissedRound(this.getCurrentRound()?.roundNumber ?? this.currentRound);
         if (this.currentRound >= this.totalRounds) {
             this.phase = 'complete';
         } else {
             this.phase = 'between_rounds';
             this.resetAllReady();
         }
+        // A new wait: armReadyDeadline sets its deadline right after
+        this.readyDeadlineAt = null;
+        this.handedOffThisWait = false;
         this.logAction('completeRound', { round: this.currentRound, phase: this.phase });
+    }
+
+    /**
+     * Owner 2026-11-15: a member with no score for `roundNumber` (sat out,
+     * disconnected, at no table) scores the round's lowest recorded score,
+     * 0 when nobody scored. So sitting out never beats playing.
+     */
+    scoreMissedRound(roundNumber) {
+        const idx = roundNumber - 1;
+        if (idx < 0) return;
+        const recorded = Object.values(this.scoreboard)
+            .map(e => e.roundScores[idx])
+            .filter(v => typeof v === 'number');
+        const lowest = recorded.length > 0 ? Math.min(...recorded) : 0;
+        for (const [, player] of this.players) {
+            const entry = this.scoreboard[player.username];
+            if (entry && typeof entry.roundScores[idx] === 'number') continue;
+            this.recordPlayerRoundScore(player.username, { roundNumber, teamScore: lowest, missed: true });
+        }
     }
 
     isTournamentComplete() {
@@ -503,6 +610,11 @@ class TournamentState {
             creatorUsername: this.creatorUsername,
             creatorSocketId: this.createdBy
         };
+
+        // Additive (2026-11-15): Begin may start with the ready members
+        if (this.phase === 'between_rounds') {
+            state.readyDeadlinePassed = this.readyDeadlinePassed();
+        }
 
         // Returning to a finished tournament must show the same (co-)winners
         // the tournamentComplete broadcast announced

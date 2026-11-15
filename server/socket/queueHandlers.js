@@ -53,6 +53,8 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
             players: tournament.getClientState().players,
             newCreator: result.tournamentResult.newCreator ? result.tournamentResult.newCreator.username : null
         });
+        // A dropped member no longer holds up an idle host's hand-off
+        require('./tournamentLiveness').refreshHostIdle(io, tournament);
     }
 
     // Emit voicePeerLeft for lobby disconnect

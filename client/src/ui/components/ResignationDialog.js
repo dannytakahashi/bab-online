@@ -22,8 +22,10 @@ let current = null; // { position, modal }
  * @param {number} o.position - the seat on offer
  * @param {string} o.username - its player (user text: set as text)
  * @param {Function} o.onConfirm - Replace with Bot
+ * @param {boolean} [o.idle] - the player is here but idle on their turn
+ *   (a tournament table's idle-seat offer), not disconnected
  */
-export function showResignationDialog({ position, username, onConfirm }) {
+export function showResignationDialog({ position, username, onConfirm, idle = false }) {
   dismissResignationDialog();
   const wait = createButton({ label: 'Wait', variant: 'secondary', onClick: () => dismissResignationDialog() });
   wait.id = 'resign-cancel-btn';
@@ -37,10 +39,14 @@ export function showResignationDialog({ position, username, onConfirm }) {
   });
   replace.id = 'resign-confirm-btn';
   const modal = openModal({
-    title: 'Player Disconnected',
+    title: idle ? 'Player Idle' : 'Player Disconnected',
     id: DIALOG_ID,
     className: 'page-modal',
-    body: el('p', { className: 'dialog-copy', attrs: { id: 'resign-message' }, text: `${username} did not reconnect. Replace with a bot?` }),
+    body: el('p', {
+      className: 'dialog-copy',
+      attrs: { id: 'resign-message' },
+      text: idle ? `${username} seems idle. Replace with a bot?` : `${username} did not reconnect. Replace with a bot?`,
+    }),
     actions: [wait, replace],
     dismissible: false,
     // focus on the dialog, not Wait (see above); the kit leaves it alone

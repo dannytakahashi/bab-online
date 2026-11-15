@@ -887,8 +887,10 @@ describe('14. redeal', () => {
 
 describe('15. abandoned tables abort instead of waiting forever (found by the chaos run)', () => {
     // One rule now (seatLifecycle.maybeAbort): once no seat has a connected
-    // owner the 'abandon' timer runs (60s) and aborts unless someone is back;
+    // owner the 'abandon' timer runs (60s; 15 min while every owner can
+    // still return, owner 2026-11-15) and aborts unless someone is back;
     // a table where no owner can ever return aborts at once.
+    const SOLO = 15 * 60000;
     /** Seat 1 disconnects and its grace period runs out while seat 2 is still here. */
     async function expiredGrace() {
         const { io, log } = newIo();
@@ -933,6 +935,10 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
         await jest.advanceTimersByTimeAsync(60000);
 
         expect(events(log, 'resignationAvailable')).toHaveLength(0);
+        // Every owner (grace, lazy away, the two resigned) can still return:
+        // the solo window, not 60 s
+        expect(events(log, 'abortGame')).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(SOLO - 60000);
         expect(events(log, 'abortGame')).toHaveLength(1);
     });
 
@@ -964,7 +970,10 @@ describe('15. abandoned tables abort instead of waiting forever (found by the ch
         await queueHandlers.handleDisconnect(shadow, io);
 
         expect(game.hasTimer('abandon')).toBe(true);
-        await jest.advanceTimersByTimeAsync(60000);
+        // Nobody left for good: the solo window
+        await jest.advanceTimersByTimeAsync(SOLO - 1);
+        expect(events(log, 'abortGame')).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
         expect(events(log, 'abortGame')).toHaveLength(1);
     });
 });

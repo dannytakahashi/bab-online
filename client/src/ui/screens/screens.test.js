@@ -335,6 +335,22 @@ describe('every dialog is a kit Modal', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it('an idle-seat offer (resignationAvailable idle: true) says idle, not disconnected, and confirms the same way', () => {
+    const onConfirm = vi.fn();
+    showResignationDialog({ position: 3, username: 'cat', onConfirm, idle: true });
+    const backdrop = document.getElementById('resignation-dialog');
+    expect(backdrop.querySelector('.kit-modal__title').textContent).toBe('Player Idle');
+    expect(document.getElementById('resign-message').textContent).toBe('cat seems idle. Replace with a bot?');
+    document.getElementById('resign-confirm-btn').click();
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+
+    showResignationDialog({ position: 3, username: 'cat', onConfirm: () => {} });
+    expect(document.querySelector('#resignation-dialog .kit-modal__title').textContent).toBe('Player Disconnected');
+    // the server withdraws an idle offer with playerReconnected for the seat
+    dismissResignationDialog(3);
+    expect(document.getElementById('resignation-dialog')).toBeNull();
+  });
+
   it('the resignation offer is sent once, so only Wait or Replace closes it: no Escape, no backdrop click, no stolen keystroke', () => {
     // a player typing in the table chat when the offer arrives
     const chat = document.createElement('input');

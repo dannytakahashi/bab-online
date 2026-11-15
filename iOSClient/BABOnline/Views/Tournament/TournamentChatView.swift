@@ -57,9 +57,9 @@ struct TournamentChatView: View {
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(message.isEmpty ? Theme.textDim : Theme.primary)
+                        .foregroundColor(message.isEmpty || rejoining ? Theme.textDim : Theme.primary)
                 }
-                .disabled(message.isEmpty)
+                .disabled(message.isEmpty || rejoining)
                 .accessibilityLabel("Send")  // not the symbol's "Arrow Up Circle"
             }
             .padding(Theme.Space.s2)
@@ -69,9 +69,13 @@ struct TournamentChatView: View {
         .onChange(of: message) { tournamentState.chatDraft = message }
     }
 
+    /// The restore's joinTournament unanswered: the server drops a chat line from a socket
+    /// in no tournament without a word, so the line stays in the field.
+    private var rejoining: Bool { tournamentState.rejoiningTournamentId != nil }
+
     private func sendMessage() {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !rejoining else { return }
         TournamentEmitter.tournamentChat(message: text)
         message = ""
         tournamentState.chatDraft = ""

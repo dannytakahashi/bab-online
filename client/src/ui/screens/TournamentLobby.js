@@ -19,6 +19,15 @@ let currentTournamentId = null;
 let isPlayerReady = false;
 /** The lobby's socket, for creator controls built after the first render. */
 let lobbySocket = null;
+/** My username. */
+let lobbyUsername = null;
+/** Players as the server last sent them. */
+let lobbyPlayers = [];
+/**
+ * Between rounds, past the server's ready deadline (readyDeadlinePassed):
+ * Begin starts with the ready members and the others sit the round out.
+ */
+let readyDeadlinePassed = false;
 
 /** Ready / Ready! on the tournament's Ready button. */
 function renderReady(readyBtn) {
@@ -34,6 +43,32 @@ function renderBegin(beginBtn, enabled) {
   if (!beginBtn) return;
   beginBtn.disabled = !enabled;
   setButtonVariant(beginBtn, enabled ? 'primary' : 'secondary');
+}
+
+/** Begin's label for the phase; past the deadline it says who plays. */
+function beginLabel(players) {
+  if (currentPhase !== 'between_rounds') return 'Begin Tournament';
+  return startsWithReadyOnly(players) ? 'Start with ready players' : 'Begin Next Round';
+}
+
+/** Past the deadline with someone not ready: Begin leaves them out. */
+function startsWithReadyOnly(players) {
+  return currentPhase === 'between_rounds' && readyDeadlinePassed && !allConnectedReady(players);
+}
+
+/**
+ * May I begin (as the server's TournamentState.canBegin): everyone ready,
+ * or past the ready deadline (pressing Begin puts me in the round).
+ */
+function canBegin(players) {
+  return allConnectedReady(players) || startsWithReadyOnly(players);
+}
+
+/** Begin's label and gate from the players. */
+function syncBegin(beginBtn, players) {
+  if (!beginBtn) return;
+  if (currentPhase === 'lobby' || currentPhase === 'between_rounds') beginBtn.textContent = beginLabel(players);
+  renderBegin(beginBtn, canBegin(players));
 }
 
 /** Begin needs every connected member ready (as the server's allPlayersReady). */
@@ -61,12 +96,10 @@ function isHost(players, username, creatorUsername) {
 function addCreatorControls(readyBtn, socket, players) {
   const beginBtn = createButton({ label: 'Begin Tournament', variant: 'secondary' });
   beginBtn.id = 'tournamentBeginBtn';
-  if (currentPhase === 'between_rounds') {
-    beginBtn.textContent = 'Begin Next Round';
-  } else if (currentPhase !== 'lobby') {
+  if (currentPhase !== 'lobby' && currentPhase !== 'between_rounds') {
     beginBtn.hidden = true;
   }
-  renderBegin(beginBtn, allConnectedReady(players));
+  syncBegin(beginBtn, players);
 
   beginBtn.addEventListener('click', () => {
     if (beginBtn.disabled) return;
@@ -84,6 +117,12 @@ function addCreatorControls(readyBtn, socket, players) {
   const cancelBtn = createButton({ label: 'Cancel Tournament', variant: 'danger', onClick: () => socket.emit('cancelTournament') });
   cancelBtn.id = 'tournamentCancelBtn';
   readyBtn.after(beginBtn, cancelBtn);
+}
+
+/** The idle-host hand-off moved the role away from me: no more controls. */
+function removeCreatorControls() {
+  document.getElementById('tournamentBeginBtn')?.remove();
+  document.getElementById('tournamentCancelBtn')?.remove();
 }
 
 /**
@@ -104,7 +143,10 @@ export function showTournamentLobby(data, socket, username) {
   currentTournamentId = data.tournamentId;
   isPlayerReady = false;
   lobbySocket = socket;
+  lobbyUsername = username;
+  lobbyPlayers = data.players || [];
   currentPhase = data.phase || 'lobby';
+  readyDeadlinePassed = data.readyDeadlinePassed === true;
   rounds = { currentRound: data.currentRound || 0, totalRounds: data.totalRounds || 4 };
 
   const isSpectator = data.isSpectator || false;
@@ -248,12 +290,16 @@ function updateTournamentPlayersList(container, players, _currentUsername, _isCr
 
   if (!players || players.length === 0) return;
 
+  // Past the ready deadline a member who is not ready sits the next round out
+  const sitting = currentPhase === 'between_rounds' && readyDeadlinePassed;
   players.forEach((player) => {
+    // (the host plays the round their Begin starts)
+    const sitsOut = sitting && !player.ready && !player.isCreator && player.connected !== false;
     container.appendChild(el('div', {
       className: 'seat-row seat-row--compact',
       children: [
         el('span', { className: `seat-row__name${player.isCreator ? ' is-host' : ''}`, text: player.isCreator ? `${player.username} (host)` : player.username }),
-        el('span', { className: `seat-row__status${player.ready ? ' is-ready' : ''}`, text: player.ready ? 'Ready' : 'Waiting' }),
+        el('span', { className: `seat-row__status${player.ready ? ' is-ready' : ''}`, text: player.ready ? 'Ready' : (sitsOut ? 'Sitting out' : 'Waiting') }),
       ],
     }));
   });
@@ -330,19 +376,40 @@ export function updateTournamentPlayers(players, currentUsername, newCreator = n
   const container = document.getElementById('tournamentPlayersList');
   const lobbyContainer = document.getElementById('tournamentLobbyContainer');
   let isCreator = lobbyContainer?.dataset?.isCreator === 'true';
+  if (players) lobbyPlayers = players;
   // Promoted: only the host's socket may begin or cancel, so without the
-  // controls the tournament would be stuck until a reload. The server never
-  // takes the role from a connected host (a dropped one comes back through
-  // tournamentJoined, a full render), so there is nothing to remove.
+  // controls the tournament would be stuck until a reload.
   // Spectators have no Ready button and get no controls.
   const readyBtn = document.getElementById('tournamentReadyBtn');
   if (!isCreator && readyBtn && isHost(players, currentUsername, newCreator)) {
     isCreator = true;
     lobbyContainer.dataset.isCreator = 'true';
     addCreatorControls(readyBtn, lobbySocket, players);
+  } else if (isCreator && lobbyContainer && someoneElseHosts(players, currentUsername, newCreator)) {
+    // An idle host loses the role while still here (server hand-off,
+    // 2026-11-15); a dropped one comes back through a full render
+    isCreator = false;
+    lobbyContainer.dataset.isCreator = 'false';
+    removeCreatorControls();
   }
   updateTournamentPlayersList(container, players, currentUsername, isCreator);
   updateBeginButton(players);
+}
+
+/** The server named another host (newCreator, or another isCreator entry). */
+function someoneElseHosts(players, username, newCreator) {
+  if (newCreator) return newCreator !== username;
+  return !!players?.some((p) => p.isCreator && p.username !== username);
+}
+
+/**
+ * tournamentReadyUpdate / tournamentJoined's readyDeadlinePassed: Begin may
+ * start with the ready members (only sent between rounds).
+ */
+export function setReadyDeadlinePassed(passed) {
+  readyDeadlinePassed = passed === true;
+  updateTournamentPlayersList(null, lobbyPlayers, lobbyUsername, false);
+  updateBeginButton(lobbyPlayers);
 }
 
 /**
@@ -372,7 +439,7 @@ export function updateTournamentRoundIndicator(currentRound, totalRounds) {
 function updateBeginButton(players) {
   const beginBtn = document.getElementById('tournamentBeginBtn');
   if (!beginBtn) return;
-  renderBegin(beginBtn, allConnectedReady(players));
+  syncBegin(beginBtn, players);
 }
 
 /**
@@ -387,6 +454,8 @@ export function updateTournamentActiveGames(activeGames, socket) {
  */
 export function setTournamentPhase(phase) {
   currentPhase = phase;
+  // A new between-rounds wait starts its own deadline
+  readyDeadlinePassed = false;
   const lobbyContainer = document.getElementById('tournamentLobbyContainer');
   if (lobbyContainer) {
     lobbyContainer.dataset.phase = phase;
@@ -421,6 +490,9 @@ export function removeTournamentLobby() {
   currentTournamentId = null;
   isPlayerReady = false;
   lobbySocket = null;
+  lobbyUsername = null;
+  lobbyPlayers = [];
+  readyDeadlinePassed = false;
   tournamentUserColors = {};
   currentPhase = 'lobby';
 }

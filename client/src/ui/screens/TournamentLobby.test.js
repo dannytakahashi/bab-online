@@ -4,7 +4,7 @@
  * begin or cancel, so without them the tournament was stuck until a reload).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage } from './TournamentLobby.js';
+import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed } from './TournamentLobby.js';
 
 function fakeSocket() {
   const sent = [];
@@ -158,5 +158,70 @@ describe('tournament chat: server notices by the system flag (2026-11-15)', () =
     ];
     showTournamentLobby(data, fakeSocket(), 'me');
     expect(lines().map((l) => l.classList.contains('is-system'))).toEqual([true, false]);
+  });
+});
+
+describe('between rounds: the ready deadline and the idle-host hand-off (2026-11-15)', () => {
+  // I am the host between rounds 1 and 2
+  const hosting = (ready = {}, extra = {}) => ({
+    ...lobby({ phase: 'between_rounds', currentRound: 1 }),
+    creatorUsername: 'me',
+    players: ['me', 'cat', 'dan'].map((username) => ({ username, ready: !!ready[username], isCreator: username === 'me', connected: true })),
+    ...extra,
+  });
+  const statuses = () => [...document.querySelectorAll('#tournamentPlayersList .seat-row__status')].map((s) => s.textContent);
+
+  it('before the deadline Begin waits for everyone; after it, the ready host may start with the ready players', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(hosting({ me: true, cat: true }), socket, 'me');
+    expect(begin().textContent).toBe('Begin Next Round');
+    expect(begin().disabled).toBe(true);
+    expect(statuses()).toEqual(['Ready', 'Ready', 'Waiting']);
+
+    setReadyDeadlinePassed(true);
+    expect(begin().disabled).toBe(false);
+    expect(begin().textContent).toBe('Start with ready players');
+    expect(statuses()).toEqual(['Ready', 'Ready', 'Sitting out']);
+    begin().click();
+    expect(socket.emitted('beginNextRound')).toHaveLength(1);
+  });
+
+  it('past the deadline the host may start without readying (Begin puts the host in) and is never listed sitting out; everyone ready is the plain Begin Next Round', () => {
+    showTournamentLobby(hosting({ cat: true }, { readyDeadlinePassed: true }), fakeSocket(), 'me');
+    expect(begin().disabled).toBe(false);
+    expect(begin().textContent).toBe('Start with ready players');
+    expect(statuses()).toEqual(['Waiting', 'Ready', 'Sitting out']);
+    updateTournamentPlayers(hosting({ me: true, cat: true, dan: true }).players, 'me');
+    expect(begin().disabled).toBe(false);
+    expect(begin().textContent).toBe('Begin Next Round');
+  });
+
+  it('a new between-rounds wait starts without the deadline', () => {
+    showTournamentLobby(hosting({ me: true }, { readyDeadlinePassed: true }), fakeSocket(), 'me');
+    setTournamentPhase('round_active');
+    setTournamentPhase('between_rounds');
+    updateTournamentPlayers(hosting({ me: true }).players, 'me');
+    expect(begin().disabled).toBe(true);
+    expect(begin().textContent).toBe('Begin Next Round');
+  });
+
+  it('the hand-off takes the controls from me while I am still here, and gives them back once', () => {
+    showTournamentLobby(hosting({ cat: true, dan: true }), fakeSocket(), 'me');
+    expect(cancel()).not.toBeNull();
+    const players = hosting({ cat: true, dan: true }).players.map((p) => ({ ...p, isCreator: p.username === 'cat' }));
+    updateTournamentPlayers(players, 'me', 'cat');
+    expect(begin()).toBeNull();
+    expect(cancel()).toBeNull();
+    expect(buttonLabels()).toEqual(['Ready', 'Leave']);
+    expect(document.getElementById('tournamentLobbyContainer').dataset.isCreator).toBe('false');
+    updateTournamentPlayers(players.map((p) => ({ ...p, isCreator: p.username === 'me' })), 'me', 'me');
+    expect(document.querySelectorAll('#tournamentBeginBtn')).toHaveLength(1);
+    expect(document.querySelectorAll('#tournamentCancelBtn')).toHaveLength(1);
+  });
+
+  it('a ready update naming me as host never removes the controls', () => {
+    showTournamentLobby(hosting(), fakeSocket(), 'me');
+    updateTournamentPlayers(hosting({ cat: true }).players, 'me');
+    expect(cancel()).not.toBeNull();
   });
 });
