@@ -366,6 +366,12 @@
     color: var(--text-primary);
 }
 
+/* a server notice (the wire's system flag): no name, set apart from players' lines */
+.chat-line.is-system .chat-line__text {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
 .chat-form {
     display: flex;
     gap: var(--space-2);

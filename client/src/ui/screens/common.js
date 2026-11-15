@@ -33,10 +33,16 @@ export function formatChatTime(timestamp) {
  * @param {number} [o.timestamp]
  * @param {string} [o.color] - the session's distinct color (hsl string) for this name
  * @param {boolean} [o.isSpectator]
+ * @param {boolean} [o.isSystem] - a server notice (the wire's `system: true`):
+ *   the message alone, never a player's name, as iOS shows one
  */
-export function chatLine({ username, message, timestamp = null, color = null, isSpectator = false }) {
-  const line = el('div', { className: `chat-line${isSpectator ? ' is-spectator' : ''}` });
+export function chatLine({ username, message, timestamp = null, color = null, isSpectator = false, isSystem = false }) {
+  const line = el('div', { className: `chat-line${isSpectator ? ' is-spectator' : ''}${isSystem ? ' is-system' : ''}` });
   if (timestamp) line.appendChild(el('span', { className: 'chat-line__time', text: `${formatChatTime(timestamp)} ` }));
+  if (isSystem) {
+    line.appendChild(el('span', { className: 'chat-line__text', text: message }));
+    return line;
+  }
   const name = el('span', { className: 'chat-line__name', text: `${username}: ` });
   setNameHue(name, color, username);
   line.appendChild(name);

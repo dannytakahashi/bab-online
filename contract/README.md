@@ -119,7 +119,10 @@ accepts what it accepted": the `joi` key is unchanged, no documented key
 disappears, and every baseline example still validates (the schema may
 tighten toward Joi). For s2c, a baseline property that was a bare open
 object may be spelled out (narrowing only adds promises) only when listed
-in `S2C_REFINED` (today: `recordsResponse.records`).
+in `S2C_REFINED` (today: `recordsResponse.records`). A baseline `$def` is
+frozen, except that an s2c-only one may gain optional properties named in
+`S2C_DEF_ADDITIONS` (the only way a `$ref` payload can grow; today:
+`tournamentChatLine.system` / `.type`, the tournament server notice).
 
 Escape hatches:
 

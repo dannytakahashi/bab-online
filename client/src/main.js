@@ -1770,8 +1770,10 @@ function initializeApp() {
     },
 
     onTournamentMessage: (data) => {
-      if (isUserBlocked(data.username)) return;
-      addTournamentChatMessage(data.username, data.message, data.isSpectator);
+      const isSystem = data.system === true;
+      // a server notice is nobody's line, so blocking a player named "System" cannot hide it
+      if (!isSystem && isUserBlocked(data.username)) return;
+      addTournamentChatMessage(data.username, data.message, data.isSpectator, isSystem);
     },
 
     onTournamentRoundStart: (data) => {
