@@ -199,6 +199,12 @@ private struct GameScreen: View {
                 GameEndView()
                     .transition(.opacity)
             }
+
+            // A snapshot this build cannot show: over everything, never a silent frozen table
+            if gameState.table.snapshotTrouble != .none {
+                UnreadableTableView(trouble: gameState.table.snapshotTrouble, onLeave: leaveUnreadableTable)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
@@ -727,6 +733,24 @@ private struct GameScreen: View {
         } else {
             gameState.apply(.local(.leaveAsked))
             runLeave(leaveFlow.tapped(check: gameState.players.leaveCheck))
+        }
+    }
+
+    /// Leave from UnreadableTableView: no confirmation (its outcome reads seats this table
+    /// may not have). The server's leftGame navigates as for any Leave; if none comes (the
+    /// server no longer has us in a game), the app leaves on its own.
+    private func leaveUnreadableTable() {
+        ChatEmitter.sendMessage("/leave")
+        DispatchQueue.main.asyncAfter(deadline: .now() + UnreadableTableLeave.fallback) {
+            guard appState.screen == .game, gameState.table.snapshotTrouble != .none else { return }
+            let tournamentId = gameState.tournamentId
+            gameState.reset()
+            if tournamentId != nil {
+                TournamentEmitter.returnToTournament()
+            } else {
+                appState.screen = .mainRoom
+                LobbyEmitter.joinMainRoom()
+            }
         }
     }
 

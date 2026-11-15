@@ -24,6 +24,11 @@ final class GameSocketHandler {
         SocketEvents.Server.spectatorsUpdated,
     ]
 
+    /// Snapshot carriers that open the game screen when they apply.
+    static let enteringCarriers: Set<String> = [
+        SocketEvents.Server.rejoinSuccess, SocketEvents.Server.restorePlayerState, SocketEvents.Server.spectatorJoined,
+    ]
+
     init(socket: SocketService, gameState: GameState, appState: AppState) {
         self.socket = socket
         self.gameState = gameState
@@ -43,7 +48,15 @@ final class GameSocketHandler {
     @MainActor
     func handle(event name: String, payload: [Any]) {
         let savedTournamentId = gameState.tournamentId
-        guard case .success(let ev) = gameState.apply(serverEvent: name, payload: payload) else { return }
+        let decoded = gameState.apply(serverEvent: name, payload: payload)
+        guard case .success(let ev) = decoded else {
+            // the server put us at a table this build cannot show: open the game screen anyway,
+            // where it says so and offers Leave (UnreadableTableView), never a silent main room
+            if case .failure(.snapshot(let event, _, _)) = decoded, Self.enteringCarriers.contains(event) {
+                appState.screen = .game
+            }
+            return
+        }
 
         switch ev.event {
         case .startDraw, .gameStart:

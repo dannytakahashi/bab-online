@@ -13,6 +13,17 @@ struct TableSlice: Equatable {
     var trickNo = 1
     /// Mirror of TableState.myTurn, refreshed after every reduce.
     var myTurn: MyTurnState = .waiting
+    /// A snapshot this build cannot show (TableReducer.snapshotFailed); any applied snapshot clears it.
+    var snapshotTrouble = SnapshotTrouble.none
+}
+
+/// What the table says about snapshots it could not show (UnreadableTableView).
+enum SnapshotTrouble: Equatable {
+    case none
+    /// Asked again (`attempt` of SnapshotRetryPolicy.maxRetries), waiting for the answer.
+    case retrying(attempt: Int)
+    /// Retries spent: "update the app", with Leave. Nothing asks for a snapshot any more.
+    case unreadable
 }
 
 /// Absolute (team1/team2) counts; views make them relative.
@@ -60,6 +71,8 @@ struct SyncState: Equatable {
     var buffered: [SequencedEvent] = []
     var resyncId: String?
     var nextRequestNo = 1
+    /// Snapshots in a row this build could not show (reset by the next applied one).
+    var snapshotFailures = 0
 }
 
 struct TableState: Equatable {

@@ -63,6 +63,8 @@ final class ActionCoordinator: ObservableObject {
     private var inFlight: (id: String, resets: Int)?
     private var inFlightTimer: AckCancellable?
     private var deferred: (id: String, log: Bool)?
+    /// The pending retry after a snapshot this build could not show (SnapshotRetryPolicy).
+    private var retryTimer: AckCancellable?
 
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock()) {
         self.store = store
@@ -126,6 +128,15 @@ final class ActionCoordinator: ObservableObject {
                 return
             }
             send(id, log: log)
+        case .retrySnapshot(let id, let attempt):
+            // the failed answer ended the one in flight, so this goes out past the debounce;
+            // skipped if anything else resynced the table meanwhile
+            retryTimer?.cancel()
+            retryTimer = clock.after(SnapshotRetryPolicy.delay(attempt: attempt)) { [weak self] in
+                guard let self else { return }
+                self.retryTimer = nil
+                if self.store.state.sync.resyncId == id { self.send(id, log: false) }
+            }
         case .haptic:
             HapticManager.error()
         default:

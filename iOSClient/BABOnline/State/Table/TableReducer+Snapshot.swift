@@ -10,7 +10,8 @@ extension TableReducer {
             #if DEBUG
             print("[Table] snapshot with stage \(snap.stage.rawValue) ignored")
             #endif
-            if case .unknown = snap.stage { requestResync(&s, &fx) }
+            // (ServerEvent.decode already turns a carrier's unknown stage into WireError.snapshot)
+            if case .unknown = snap.stage { snapshotFailed(&s, &fx) }
             return
         default:
             break

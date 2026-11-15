@@ -23,6 +23,8 @@ enum LocalAction: Equatable {
     case chatRead
     case snapshotUnavailable(requestId: String?)
     case resyncNeeded                        // an undecodable event: ask for a snapshot (debounced)
+    /// A snapshot this build cannot show (WireError.snapshot): retry with backoff, then say so.
+    case snapshotFailed(requestId: String?, SnapshotProblem)
     /// Leave's confirmation opened: when the outcome hinges on owners who may have left
     /// unannounced (LeaveOutcome `.unsure`), ask for a snapshot to settle it.
     case leaveAsked
@@ -33,6 +35,8 @@ enum LocalAction: Equatable {
 enum TableEffect: Equatable {
     case animate(TableAnimation)
     case requestSnapshot(requestId: String, log: Bool)
+    /// requestSnapshot after SnapshotRetryPolicy.delay(attempt), if the table still waits for it.
+    case retrySnapshot(requestId: String, attempt: Int)
     case haptic(HapticKind)
     case dropped(event: String, seq: Int)
     case gap(expected: Int, got: Int)
@@ -83,14 +87,11 @@ enum TableReducer {
         case .drop:
             fx.append(.dropped(event: ev.name, seq: seq))
         case .gap:
-            s.sync.buffered.append(ev)
             fx.append(.gap(expected: (s.sync.lastSeq ?? 0) + 1, got: seq))
-            if s.sync.resyncId == nil {
-                let id = "gap-\(s.sync.nextRequestNo)"
-                s.sync.nextRequestNo += 1
-                s.sync.resyncId = id
-                fx.append(.requestSnapshot(requestId: id, log: false))
-            }
+            // unreadable: no snapshot is asked for, so a buffer would only grow
+            guard s.table.snapshotTrouble != .unreadable else { return }
+            s.sync.buffered.append(ev)
+            requestResync(&s, &fx)
         }
     }
 
@@ -99,6 +100,9 @@ enum TableReducer {
         let buffered = s.sync.buffered.sorted { ($0.seq ?? 0) < ($1.seq ?? 0) }
         s.sync.buffered = []
         s.sync.resyncId = nil
+        // no snapshot is coming for a retry either (not_in_game, a requestSnapshot error): stop
+        // saying "reloading"; the failure count stays, so the retries remain bounded
+        if case .retrying = s.table.snapshotTrouble { s.table.snapshotTrouble = .none }
         for ev in buffered {
             if let seq = ev.seq, let last = s.sync.lastSeq, seq <= last { fx.append(.dropped(event: ev.name, seq: seq)); continue }
             s.sync.lastSeq = ev.seq ?? s.sync.lastSeq
@@ -160,6 +164,8 @@ enum TableReducer {
             s.log.unread = 0
         case .resyncNeeded:
             requestResync(&s, &fx)
+        case .snapshotFailed:
+            snapshotFailed(&s, &fx)
         case .leaveAsked:
             checkLeave(&s, &fx)
         case .leaveClosed:
@@ -192,6 +198,13 @@ enum TableReducer {
     static func currentKey(_ s: TableState) -> TrickKey {
         TrickKey(dealSeq: s.table.deal?.dealSeq ?? 0, trick: s.table.trickNo)
     }
+}
+
+/// Snapshots this build cannot show: asked again twice, 1 s then 3 s later, before
+/// the table says so (a deploy mid-answer, a stage that passes); never a loop.
+enum SnapshotRetryPolicy {
+    static let maxRetries = 2
+    static func delay(attempt: Int) -> TimeInterval { attempt <= 1 ? 1 : 3 }
 }
 
 /// Network liveness for acknowledged actions (not presentation pacing).
