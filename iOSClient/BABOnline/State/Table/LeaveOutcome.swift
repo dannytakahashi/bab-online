@@ -54,11 +54,11 @@ enum LeaveOutcome: Equatable {
         case .endsGame:
             return "You're the only player here, so leaving ends the game."
         case .endsTournamentTable:
-            return "You're the only player at this table, so leaving ends its game with no score for this round. You stay in the tournament."
+            return "You're the only player at this table, so leaving ends its game. For this round you score your team's score so far if it's below zero, otherwise 0. You stay in the tournament."
         case .unsure(false):
             return "A bot will finish your hand for you, unless everyone else has left too: then leaving ends the game."
         case .unsure(true):
-            return "A bot will finish your hand for you, unless everyone else at this table has left too: then leaving ends its game with no score for this round. You stay in the tournament."
+            return "A bot will finish your hand for you, unless everyone else at this table has left too: then leaving ends its game, and for this round you score your team's score so far if it's below zero, otherwise 0. You stay in the tournament."
         }
     }
 
@@ -67,7 +67,7 @@ enum LeaveOutcome: Equatable {
         switch self {
         case .botFinishes: return "Leave the game (bot finishes for you)"
         case .endsGame: return "Leave and end the game (you're the only player)"
-        case .endsTournamentTable: return "Leave and end this table's game (no score)"
+        case .endsTournamentTable: return "Leave and end this table's game (you score at most 0)"
         case .unsure: return "Leave the game (a bot takes over; ends it if you're the only player)"
         }
     }

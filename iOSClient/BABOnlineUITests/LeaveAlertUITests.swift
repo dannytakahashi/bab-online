@@ -51,7 +51,7 @@ final class LeaveAlertUITests: XCTestCase {
     func testSoloTournamentTableSaysItsGameEnds() {
         let app = Fixture.launch("tournament-game")
         XCTAssertEqual(leaveMessage(app, "tournament-solo"),
-                       "You're the only player at this table, so leaving ends its game with no score for this round. You stay in the tournament.")
+                       "You're the only player at this table, so leaving ends its game. For this round you score your team's score so far if it's below zero, otherwise 0. You stay in the tournament.")
         app.terminate()
     }
 

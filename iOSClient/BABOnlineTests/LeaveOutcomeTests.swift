@@ -86,11 +86,11 @@ final class LeaveOutcomeTests: XCTestCase {
         XCTAssertEqual(LeaveOutcome.botFinishes.alertMessage, "A bot will finish your hand for you.")
         XCTAssertEqual(LeaveOutcome.endsGame.alertMessage, "You're the only player here, so leaving ends the game.")
         XCTAssertEqual(LeaveOutcome.endsTournamentTable.alertMessage,
-                       "You're the only player at this table, so leaving ends its game with no score for this round. You stay in the tournament.")
+                       "You're the only player at this table, so leaving ends its game. For this round you score your team's score so far if it's below zero, otherwise 0. You stay in the tournament.")
         XCTAssertEqual(LeaveOutcome.unsure(inTournament: false).alertMessage,
                        "A bot will finish your hand for you, unless everyone else has left too: then leaving ends the game.")
         XCTAssertEqual(LeaveOutcome.unsure(inTournament: true).alertMessage,
-                       "A bot will finish your hand for you, unless everyone else at this table has left too: then leaving ends its game with no score for this round. You stay in the tournament.")
+                       "A bot will finish your hand for you, unless everyone else at this table has left too: then leaving ends its game, and for this round you score your team's score so far if it's below zero, otherwise 0. You stay in the tournament.")
         for o in [LeaveOutcome.endsGame, .endsTournamentTable] {
             XCTAssertFalse(o.alertMessage.localizedCaseInsensitiveContains("bot"), "\(o)")
             XCTAssertFalse(o.commandHelp.localizedCaseInsensitiveContains("bot"), "\(o)")
@@ -101,7 +101,7 @@ final class LeaveOutcomeTests: XCTestCase {
         func leaveLine(_ list: [SlashCommand]) -> String? { list.first { $0.command == "/leave" }?.description }
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .botFinishes)), "Leave the game (bot finishes for you)")
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .endsGame)), "Leave and end the game (you're the only player)")
-        XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .endsTournamentTable)), "Leave and end this table's game (no score)")
+        XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .endsTournamentTable)), "Leave and end this table's game (you score at most 0)")
         XCTAssertEqual(leaveLine(GameLogPanel.commands(pureSpectator: false, leave: .unsure(inTournament: false))),
                        "Leave the game (a bot takes over; ends it if you're the only player)")
         XCTAssertEqual(GameLogPanel.commands(pureSpectator: false, leave: .endsGame).map(\.command), ["/lazy", "/active", "/leave"])
