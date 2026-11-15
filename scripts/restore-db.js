@@ -177,7 +177,7 @@ async function main() {
         const tool = B.runTool('mongorestore', toolArgs, B.uriWithoutDbPath(uri));
         const removeHandlers = B.onStopSignals((sig) => {
             // SIGKILL: SIGTERM can take seconds while it waits on the server, and we exit now
-            if (tool.child.exitCode === null) tool.child.kill('SIGKILL');
+            if (tool.child && tool.child.exitCode === null) tool.child.kill('SIGKILL');
             console.error(`\n${sig}: mongorestore stopped; ${target} is only partly restored.`);
         });
         const result = await tool.done;

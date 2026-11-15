@@ -120,7 +120,7 @@ async function main() {
     const tool = B.runTool('mongodump', [`--db=${args.db}`, '--gzip', `--archive=${partial}`], B.uriWithoutDbPath(uri));
     const removeHandlers = B.onStopSignals(() => {
         // SIGKILL: SIGTERM can take seconds while it waits on the server, and we exit now
-        if (tool.child.exitCode === null) tool.child.kill('SIGKILL');
+        if (tool.child && tool.child.exitCode === null) tool.child.kill('SIGKILL');
         fs.rmSync(partial, { force: true });
     });
     const result = await tool.done;

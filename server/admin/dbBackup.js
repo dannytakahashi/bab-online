@@ -6,6 +6,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
@@ -87,24 +88,75 @@ function toolConfig(uri) {
 }
 
 /**
- * Runs a Database Tool with the URI as `--config=/dev/fd/3`, written into a
+ * Runs a Database Tool with the URI in its `--config` file, written into a
  * pipe: never on the command line (`ps`, shell history) and never in a
- * file, so a run killed by a signal leaves no password on disk.
- * macOS / Linux only (/dev/fd).
+ * regular file, so a run killed by a signal leaves no password on disk.
+ * - macOS: `--config=/dev/fd/3`, the child's extra stdio. Node makes that a
+ *   socket, which macOS's /dev/fd reopens.
+ * - Linux: /dev/fd/N on a socket fails (ENXIO), so a named pipe (FIFO) in a
+ *   private 0700 temp dir instead; a FIFO holds no data on disk, and the
+ *   dir is removed when the tool exits.
  * @returns {{child: ChildProcess, done: Promise<{code: number, signal: ?string, stderr: string}>}}
  */
-function runTool(tool, args, uri, spawnFn = spawn) {
-    const child = spawnFn(tool, ['--config=/dev/fd/3', ...args], { stdio: ['ignore', 'ignore', 'pipe', 'pipe'] });
+function runTool(tool, args, uri, spawnFn = spawn, platform = process.platform) {
+    let fifoDir = null;
+    let configPath = '/dev/fd/3';
+    if (platform !== 'darwin') {
+        fifoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bab-tool-'));
+        fs.chmodSync(fifoDir, 0o700);
+        configPath = path.join(fifoDir, 'config');
+        const mk = spawnSync('mkfifo', ['-m', '600', configPath]);
+        if (mk.status !== 0) {
+            fs.rmSync(fifoDir, { recursive: true, force: true });
+            const err = mk.error ? mk.error.message : String(mk.stderr || 'mkfifo failed');
+            return { child: null, done: Promise.resolve({ code: -1, signal: null, stderr: err }) };
+        }
+    }
+    const stdio = fifoDir ? ['ignore', 'ignore', 'pipe'] : ['ignore', 'ignore', 'pipe', 'pipe'];
+    const child = spawnFn(tool, [`--config=${configPath}`, ...args], { stdio });
     let stderr = '';
     child.stderr.on('data', (d) => { stderr += d; });
-    // EPIPE when the tool exits before reading: its exit code tells why
-    child.stdio[3].on('error', () => {});
-    child.stdio[3].end(toolConfig(uri));
+    const cleanup = () => { if (fifoDir) fs.rmSync(fifoDir, { recursive: true, force: true }); };
     const done = new Promise((resolve) => {
-        child.on('error', (e) => resolve({ code: -1, signal: null, stderr: String(e.message) }));
-        child.on('close', (code, signal) => resolve({ code: code ?? -1, signal, stderr }));
+        child.on('error', (e) => { cleanup(); resolve({ code: -1, signal: null, stderr: String(e.message) }); });
+        child.on('close', (code, signal) => { cleanup(); resolve({ code: code ?? -1, signal, stderr }); });
     });
+    if (fifoDir) {
+        // Opening a FIFO for writing waits for the reader; the async open
+        // runs off the main thread, and fails harmlessly if the tool exits
+        // first (cleanup removes the FIFO)
+        writeFifoWhenRead(configPath, toolConfig(uri), child);
+    } else {
+        // EPIPE when the tool exits before reading: its exit code tells why
+        child.stdio[3].on('error', () => {});
+        child.stdio[3].end(toolConfig(uri));
+    }
     return { child, done };
+}
+
+/**
+ * Writes `text` into the FIFO once the tool opens it for reading. A blocking
+ * open would wait forever if the tool exits without reading (and a pending
+ * open cannot be cancelled), so it polls a non-blocking open (ENXIO until a
+ * reader is there) and gives up when the tool exits. The config is far
+ * smaller than a pipe buffer, so one non-blocking write takes it all.
+ */
+function writeFifoWhenRead(fifoPath, text, child, everyMs = 20) {
+    let closed = false;
+    child.on('close', () => { closed = true; });
+    const attempt = () => {
+        if (closed) return;
+        let fd;
+        try {
+            fd = fs.openSync(fifoPath, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
+        } catch (e) {
+            if (e.code === 'ENXIO') setTimeout(attempt, everyMs).unref?.();
+            return; // ENOENT: cleaned up after the tool exited
+        }
+        try { fs.writeSync(fd, text); } catch { /* the tool exited mid-read: its exit code tells why */ }
+        fs.closeSync(fd);
+    };
+    attempt();
 }
 
 const STOP_SIGNALS = { SIGHUP: 1, SIGINT: 2, SIGTERM: 15 };

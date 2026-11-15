@@ -164,15 +164,40 @@ describe('runTool and stop signals (no password left on disk or in ps)', () => {
         process.stderr.write(p + '\\n' + require('fs').readFileSync(p, 'utf8'));
     `, '--', ...args], opts);
 
-    test('the URI arrives through a pipe, not a file or the command line', async () => {
+    // macOS reopens the child's extra stdio (a socket) as /dev/fd/3; Linux
+    // cannot (ENXIO on a socket), so it gets a FIFO. Both run on any OS that
+    // has mkfifo, so CI (Linux) and a Mac each cover both.
+    test('macOS: the URI arrives through /dev/fd/3, not a file or the command line', async () => {
+        if (process.platform !== 'darwin') return; // /dev/fd/N on a socket is macOS-only
         const uri = `${remote}/?authSource=admin`;
-        const { child, done } = B.runTool('mongodump', ['--db=x'], uri, fakeTool);
+        const { child, done } = B.runTool('mongodump', ['--db=x'], uri, fakeTool, 'darwin');
         expect(child.spawnargs.join(' ')).not.toContain(pw);
         const r = await done;
         expect(r.code).toBe(0);
         const [where, ...config] = r.stderr.split('\n');
         expect(where).toBe('/dev/fd/3');
         expect(config.join('\n')).toBe(B.toolConfig(uri));
+    });
+
+    test('Linux: the URI arrives through a FIFO in a private dir, removed afterwards', async () => {
+        const uri = `${remote}/?authSource=admin`;
+        const { child, done } = B.runTool('mongodump', ['--db=x'], uri, fakeTool, 'linux');
+        expect(child.spawnargs.join(' ')).not.toContain(pw);
+        const r = await done;
+        expect(r.code).toBe(0);
+        const [where, ...config] = r.stderr.split('\n');
+        expect(where).toMatch(/bab-tool-[^/]+\/config$/);
+        expect(config.join('\n')).toBe(B.toolConfig(uri));
+        expect(fs.existsSync(path.dirname(where))).toBe(false);
+    });
+
+    test('Linux: a tool that exits without reading leaves no FIFO behind', async () => {
+        const quitter = (tool, args, opts) => spawn(process.execPath, ['-e', 'process.exit(3)', '--', ...args], opts);
+        const { child, done } = B.runTool('mongodump', [], `${remote}/`, quitter, 'linux');
+        const cfg = child.spawnargs.find((a) => a.startsWith('--config=')).slice(9);
+        const r = await done;
+        expect(r.code).toBe(3);
+        expect(fs.existsSync(path.dirname(cfg))).toBe(false);
     });
 
     test('a missing tool resolves with an error instead of throwing', async () => {
