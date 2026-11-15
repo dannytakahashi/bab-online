@@ -13,7 +13,7 @@ socket event ──> GameSocketHandler.handle(event:payload:)   (Chat / Voice / 
                            seq gate (contract/README.md R1-R5) · snapshots are the only restore path (R5)
                       └─ commit the changed slices: table, scores, players, log (@Published)
                       └─ GameSKScene.apply(model: TableRenderModel(state), animations:)   (synchronous)
-                      └─ ioRequests → ActionCoordinator (requestSnapshot, ack timers, haptics)
+                      └─ ioRequests → ActionCoordinator (requestSnapshot, ack timers, haptics, sounds → SoundPlayer)
 taps / bid overlay ──> ActionCoordinator.play / .bid ──> .local(.submitPlay/.submitBid) + emit, 5 s ack timeout
 ```
 
@@ -837,6 +837,81 @@ message; the pending play is dropped; delta failures still resync at once and
 debounce; a carrier field outside the snapshot is a delta failure; decode
 paths; both view states drawn). Ships with the next iOS build (after 1.2.1
 build 9).
+
+## Table sounds (next build, after 1.2.1 build 9)
+
+Owner 2026-11-15: tasteful sounds, on by default at a quiet volume, easy to
+mute; fewer and quieter is better than more and louder. The same 11 files as
+the web (`Resources/Sounds/*.m4a`, built by `npm run build:sounds`, copied to
+the bundle root).
+
+`TableEffect.sound(SoundKind)`, emitted by the reducer, run by
+ActionCoordinator (`SoundPlaying`, default `SoundPlayer.shared`); haptics are
+unchanged. The table's effects, in order of a reduce:
+
+- `.animate(TableAnimation)`: the scene (GameSKScene, synchronously).
+- `.requestSnapshot` / `.retrySnapshot` / `.cancelAck`: ActionCoordinator's
+  resync debounce and ack timers.
+- `.haptic(.error)`: a refused or unanswered action of mine.
+- `.sound(SoundKind)`: one per live event below.
+- `.dropped` / `.gap`: DEBUG log and the tests.
+
+| Live delta event | Sound | Who |
+| --- | --- | --- |
+| gameStart (each deal, a redeal too) | `deal` | everyone |
+| cardPlayed | `card` (card-1/2/3 in turn), or `overTrump` instead when `TrickRules.isOverTrump` | everyone |
+| my turn starts (MyTurnState into `.choosing`, bid or play) | `turn` | a seat (`role == .seat`): never a spectator or a lazy owner |
+| trickComplete | `trickOurs` if the winner is on my team (position parity), else `trick` | `trickOurs` only for a seat holder (`holdsSeat`) |
+| handComplete with a score | `made` if my team's tricks >= its bid total (`BidTotals`, a bore = the hand; server `calculateScore`), else `set` | a seat holder; a pure spectator hears nothing |
+| gameEnd | `gameEnd` | everyone |
+
+Never a sound for what is state rather than news: a snapshot (`.snapshot`, and
+every carrier: rejoinSuccess, restorePlayerState, spectatorJoined,
+stateSnapshot, actionRejected, rejoinFailed: `ServerEvent.isSnapshotCarrier`),
+and buffered events replayed after a resync's snapshot or when no snapshot
+comes (`TableReducer.catchUp` drops their sounds, keeps everything else). The
+turn cue is computed in `reduce` from the MyTurnState before and after, for a
+live `.server` event only, so a restore onto my turn, a refused bid handed
+back or an ack timeout's rollback is silent. A dropped (already applied) seq
+changes nothing and is silent.
+
+`SoundPlayer` (`Utils/SoundPlayer.swift`): `isEnabled` ("soundEnabled",
+default on) and `volume` ("soundVolume", default 0.35, clamped 0...1) in
+UserDefaults; nothing plays while muted, at volume 0 or while the app is not
+`.active` (background, Control Center); the same `SoundKind` within 80 ms is
+dropped (`throttle`); two AVAudioPlayers per file (`AudioPlayerPool`, created
+on the first sound), a busy pair restarts its first. Audio session: see
+`docs/claude/voice.md`, iOS sounds and voice. Under XCTest and in UI fixture
+mode the shared player is silent and never touches the session.
+
+UI: a speaker button ("Sound", value On / Off, id `sound`) in the game log's
+header (`SoundToggleButton`: the drawer, the Duo's docked side panel and book
+page), and a Sound switch with a volume slider in the Account sheet (ids
+`settings.sound`, `settings.soundVolume`). Not on the felt: the corner buttons
+are measured into `TableChrome.cornerButton` (both corners' obstacle, the
+zoom's chrome), so a third button there would move every layout.
+
+Tests: `SoundEffectsTests` (each live event's sound, trick-ours parity for all
+four winners, made / set with a bore, the over-trump in place of the card, the
+turn cue's edge, a refused bid and an ack timeout silent, a spectator's
+sounds, every v2 fixture as every snapshot source and carrier silent with one
+on my turn, buffered catch-up silent both ways, every recorded game through
+the handlers (sounds only on their live events, snapshot carriers silent, a
+spectator never hears turn / trick-ours / made / set, humans-s13 seat 1 hears
+all 364 cards and 91 tricks), ActionCoordinator plays them, the player's
+default, mute and volume persisted and respected, inactive app, throttle and
+take rotation, every file bundled, the session policy with voice on, off and
+off again, a muted player never touching the session); `SoundToggleUITests` (the log
+header's speaker flips On / Off and is remembered across launches, the
+Account sheet's switch and volume slider). Release code now reads UserDefaults
+(this and the Stats scope), so `PrivacyInfo.xcprivacy` declares it (CA92.1,
+README "Privacy manifest"); the throttle's clock is the wall clock, not
+`systemUptime` (another required-reason API).
+
+Not verified: nobody has listened on a device (volume against voice chat, the
+silent switch, the 48 ms AAC lead-in); with voice on the session is
+playAndRecord / voiceChat, so sounds then ignore the silent switch and go
+through voice processing.
 
 ## Visible changes to review on the next build (remove a bot)
 

@@ -56,6 +56,8 @@ final class ActionCoordinator: ObservableObject {
     private let store: GameState
     private let emitter: GameActionEmitting
     private let clock: AckClock
+    /// Table sounds (SoundPlayer.shared; tests inject a recorder).
+    private let sounds: SoundPlaying
     private var reqId: UInt32 = 0
     private var timers: [UInt32: AckCancellable] = [:]
     private var cancellables = Set<AnyCancellable>()
@@ -66,10 +68,12 @@ final class ActionCoordinator: ObservableObject {
     /// The pending retry after a snapshot this build could not show (SnapshotRetryPolicy).
     private var retryTimer: AckCancellable?
 
-    init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock()) {
+    init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock(),
+         sounds: SoundPlaying? = nil) {
         self.store = store
         self.emitter = emitter
         self.clock = clock
+        self.sounds = sounds ?? SoundPlayer.shared
         store.ioRequests
             .sink { [weak self] fx in self?.handle(fx) }
             .store(in: &cancellables)
@@ -139,6 +143,8 @@ final class ActionCoordinator: ObservableObject {
             }
         case .haptic:
             HapticManager.error()
+        case .sound(let kind):
+            sounds.play(kind)
         default:
             break
         }

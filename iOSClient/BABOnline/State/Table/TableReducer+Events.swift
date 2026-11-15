@@ -67,8 +67,9 @@ extension TableReducer {
         case .trickComplete(let p):
             trickComplete(&s, p, &fx)
         case .handComplete(let p):
-            handComplete(&s, p)
+            handComplete(&s, p, &fx)
         case .gameEnd(let p, let data):
+            fx.append(.sound(.gameEnd))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
             s.table.phase = .ended(data ?? GameEndData(winningTeam: 0, team1Score: s.scores.score.team1, team2Score: s.scores.score.team2,
@@ -341,6 +342,7 @@ extension TableReducer {
         s.pending = nil
         s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))  // 21.5: bids start empty every deal
         if let previous { fx.append(.animate(.handCleared(dealSeq: previous.dealSeq))) }
+        fx.append(.sound(.deal))
         if let trump = p.trump {
             addLog(&s, "Hand \(size) — Trump: \(trumpString(trump))")
         } else {
@@ -414,7 +416,13 @@ extension TableReducer {
         }
         let key = currentKey(s)
         fx.append(.animate(.cardPlayed(played, key, byMe: mine && s.table.viewer.role == .seat)))
-        if TrickRules.isOverTrump(trick: pl.trick, trump: s.table.deal?.trump) { fx.append(.animate(.overTrump(key))) }
+        // an over-trump's snap stands in for the card's sound (one sound per card)
+        if TrickRules.isOverTrump(trick: pl.trick, trump: s.table.deal?.trump) {
+            fx.append(.animate(.overTrump(key)))
+            fx.append(.sound(.overTrump))
+        } else {
+            fx.append(.sound(.card))
+        }
     }
 
     static func trickComplete(_ s: inout TableState, _ p: WirePayload.TrickComplete, _ fx: inout [TableEffect]) {
@@ -431,9 +439,12 @@ extension TableReducer {
         let rel = s.scores.tricks.relative(to: s.table.viewer.viewPosition)
         addLog(&s, "\(s.players.name(winner)) won the trick (\(rel.mine)-\(rel.theirs))")
         fx.append(.animate(.trickCollected(winner: winner, key)))
+        // my team's sweep for a seat (a lazy owner's too); a pure spectator has no team
+        let ours = s.table.viewer.holdsSeat && s.table.viewer.position.map { Positions.getTeamNumber($0) == Positions.getTeamNumber(winner) } == true
+        fx.append(.sound(ours ? .trickOurs : .trick))
     }
 
-    static func handComplete(_ s: inout TableState, _ p: WirePayload.HandComplete) {
+    static func handComplete(_ s: inout TableState, _ p: WirePayload.HandComplete, _ fx: inout [TableEffect]) {
         let bids = s.table.phase.bids ?? .fresh(bidder: s.table.deal?.bidder ?? 1)
         let t1 = p.score?.team1 ?? s.scores.score.team1
         let t2 = p.score?.team2 ?? s.scores.score.team2
@@ -445,6 +456,14 @@ extension TableReducer {
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))
         guard p.score != nil else { return }
+        // made / set for my team (server calculateScore: tricks >= the team's bid total); a pure
+        // spectator has no team, so no sound
+        if s.table.viewer.holdsSeat, let me = s.table.viewer.position {
+            let team = Positions.getTeamNumber(me)
+            let total = BidTotals.totals(bids, handSize: s.table.deal?.handSize)[team: team]
+            let won = (team == 1 ? p.team1Tricks : p.team2Tricks) ?? s.scores.tricks[team: team]
+            fx.append(.sound(won >= total ? .made : .set))
+        }
 
         let players = s.players
         let name = { (pos: Int) in players.name(pos) }

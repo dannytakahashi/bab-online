@@ -38,6 +38,7 @@ enum TableEffect: Equatable {
     /// requestSnapshot after SnapshotRetryPolicy.delay(attempt), if the table still waits for it.
     case retrySnapshot(requestId: String, attempt: Int)
     case haptic(HapticKind)
+    case sound(SoundKind)
     case dropped(event: String, seq: Int)
     case gap(expected: Int, got: Int)
     case cancelAck(reqId: UInt32)
@@ -67,13 +68,27 @@ enum TableReducer {
     @discardableResult
     static func reduce(_ s: inout TableState, _ e: TableEvent) -> [TableEffect] {
         var fx: [TableEffect] = []
+        let before = s.myTurn
         switch e {
         case .server(let ev): gate(&s, ev, &fx)
         case .snapshot(let snap, let source, let hints): applySnapshot(&s, snap, source, hints, &fx)
         case .local(let a): local(&s, a, &fx)
         }
         s.table.myTurn = s.myTurn
+        // the your-turn cue: the edge into my choice, from a live delta only (a snapshot that
+        // lands on my turn, a rolled-back submission or an ack timeout is not news)
+        if case .server(let ev) = e, !ev.event.isSnapshotCarrier, !before.isChoosing, s.myTurn.isChoosing {
+            fx.append(.sound(.turn))
+        }
         return fx
+    }
+
+    /// Catch-up (buffered events replayed after a snapshot or a lapsed resync): its effects
+    /// without the sounds, so a rejoin or resync never plays a burst.
+    static func catchUp(_ fx: inout [TableEffect], _ body: (inout [TableEffect]) -> Void) {
+        var inner: [TableEffect] = []
+        body(&inner)
+        fx += inner.filter { if case .sound = $0 { return false } else { return true } }
     }
 
     // MARK: - Seq gate (contract/README.md R1-R5)
@@ -100,10 +115,12 @@ enum TableReducer {
         let buffered = s.sync.buffered.sorted { ($0.seq ?? 0) < ($1.seq ?? 0) }
         s.sync.buffered = []
         s.sync.resyncId = nil
-        for ev in buffered {
-            if let seq = ev.seq, let last = s.sync.lastSeq, seq <= last { fx.append(.dropped(event: ev.name, seq: seq)); continue }
-            s.sync.lastSeq = ev.seq ?? s.sync.lastSeq
-            apply(&s, ev, &fx)
+        catchUp(&fx) { fx in
+            for ev in buffered {
+                if let seq = ev.seq, let last = s.sync.lastSeq, seq <= last { fx.append(.dropped(event: ev.name, seq: seq)); continue }
+                s.sync.lastSeq = ev.seq ?? s.sync.lastSeq
+                apply(&s, ev, &fx)
+            }
         }
     }
 
