@@ -78,7 +78,15 @@ final class GameState: ObservableObject {
             #if DEBUG
             print("[Table] could not decode \(name): \(err)")
             #endif
-            apply(.local(.resyncNeeded))
+            TableLog.decodeFailed(err)
+            if case .snapshot(_, let requestId, let problem) = err {
+                // not a delta: the same request would get the same snapshot (snapshotFailed)
+                let was = table.snapshotTrouble
+                apply(.local(.snapshotFailed(requestId: requestId, problem)))
+                if was != .unreadable, table.snapshotTrouble == .unreadable { TableLog.unreadable(failures: state.sync.snapshotFailures) }
+            } else {
+                apply(.local(.resyncNeeded))
+            }
         }
         return decoded
     }

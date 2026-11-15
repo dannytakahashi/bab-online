@@ -13,6 +13,10 @@ and the iOS app, checked against the real server in every test run.
 | `src/defs.js`, `src/c2s.js`, `src/s2c.js` | The source: shared `$defs` and the two event maps, written with small helpers |
 | `events.schema.json` | GENERATED from `src/` (`npm run contract:gen`). The artifact other tools read (e.g. a future Swift Codable generator) |
 | `v1-baseline.schema.json` | FROZEN copy of the contract at cc865b4. Edited by hand only when a `V1_REMOVALS.md` entry is executed |
+| `baselines/` | FROZEN per iOS build that is not gated: the contract it was cut from (`ios-<v>-b<n>.schema.json`) and what its Swift decodes (`.decodes.json`); rules, release step and retiring in `baselines/README.md` |
+| `baseline.js` | `npm run contract:baseline -- --build <n> [--commit <sha>]` freezes a build; `--check` re-derives the frozen ones from git |
+| `lib/swiftDecodes.js` | Reads a build's decode floor from its Swift (ServerEvent.decode and the types it reaches: table events only, the hand-parsed `Networking/Handlers` rely on the schema baselines) and checks a schema against it |
+| `lib/decodeRules.js` | The floors' named exceptions: `DECODE_WAIVED` (mismatches that cannot reach iOS) and `DECODE_RELIED` (optional properties a build needs once a planned removal takes their fallback: `positionUpdate.isBot` for 6-8) |
 | `layout.json` | Which events each platform's constants file lists, in which section and order, plus `exclude` reasons |
 | `gen.js` | Writes `events.schema.json`, `client/src/constants/events.js`, `iOSClient/BABOnline/Constants/SocketEvents.swift`, `iOSClient/BABOnline/Generated/TableSnapshot.swift` |
 | `swift/snapshotSwift.js` | Renders `$defs.snapshotV2` as the Swift `TableSnapshot` Codable (+ `ContractSeq.events` from `SEQ_EVENTS`); throws on an unnamed inline object/enum or an unsupported keyword |
@@ -70,7 +74,8 @@ switch on read paths the shipped app already has, so its screen changes
   1.1.0 and web read `isSpectator`, which stays.
 
 Guards: the always-on contract guard (every emit), `additiveOnly.test.js`
-(against the frozen baseline), `legacyConstants.test.js` (every cc865b4
+(against the frozen v1 baseline and every iOS build's baseline and decode
+floor in `baselines/`), `legacyConstants.test.js` (every cc865b4
 constant), `wireCompat.test.js` (values and meaning of the touched
 builders), `transcripts.test.js` and `wireProjection.test.js` (legacy keys).
 
@@ -120,10 +125,9 @@ disappears, and every baseline example still validates (the schema may
 tighten toward Joi). For s2c, a baseline property that was a bare open
 object may be spelled out (narrowing only adds promises) only when listed
 in `S2C_REFINED` (today: `recordsResponse.records`). A baseline `$def` is
-frozen, except that an s2c-only one may gain optional properties named in
-`S2C_DEF_ADDITIONS` (the only way a `$ref` payload can grow; today:
-`tournamentChatLine.system` / `.type`, the tournament server notice). The
-guard's own test checks that no c2s payload reaches such a $def by `$ref`.
+held the same way as a payload, recursively: it may gain optional
+properties (e.g. `tournamentChatLine.system` / `.type`, the tournament
+server notice), never lose, retype or un-require one.
 iOS 1.2.0 drops a tournament line whose username the player has blocked
 before it reads `type` (TournamentSocketHandler), so an iOS player who
 blocked a legacy account named "System" also loses the real notices

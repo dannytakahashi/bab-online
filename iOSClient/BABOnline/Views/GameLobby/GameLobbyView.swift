@@ -31,6 +31,16 @@ private struct GameLobbyScreen: View {
     @State private var hingeTick = 0
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @ObservedObject private var voiceManager = VoiceChatManager.shared
+    @ObservedObject private var socketService = SocketService.shared
+
+    /// Ready, Add Bot and removing a bot wait for the session (after a reconnect this socket
+    /// is not in the lobby until the restore's joinLobby has gone out and been answered,
+    /// `LobbyState.rejoiningLobbyId`) and for a foreground probe. Leave never waits (during
+    /// the re-entry it goes through `LobbyRejoin.abandon`); the chat's Send waits for the
+    /// re-entry too (LobbyChatView).
+    private var canSendLobbyActions: Bool {
+        socketService.canSendMainRoomActions && lobbyState.rejoiningLobbyId == nil
+    }
 
     var body: some View {
         ZStack {
@@ -106,7 +116,7 @@ private struct GameLobbyScreen: View {
                             LobbyPlayerRow(player: player,
                                            isCurrentUser: player.username == authState.username,
                                            onRemove: { removeBot(player) },
-                                           isRemoving: removing.contains(player.id))
+                                           isRemoving: removing.contains(player.id) || !canSendLobbyActions)
                         } else {
                             emptySlot(index: index)
                         }
@@ -127,6 +137,8 @@ private struct GameLobbyScreen: View {
                             .background(Theme.surface)
                             .cornerRadius(Theme.Radius.md)
                     }
+                    .disabled(!canSendLobbyActions)
+                    .opacity(canSendLobbyActions ? 1 : 0.5)
                     .padding(.bottom, Theme.Space.s2)
                 }
                 }
@@ -151,6 +163,8 @@ private struct GameLobbyScreen: View {
                         .foregroundColor(isReady ? Theme.dangerForeground : Theme.buttonForeground)
                         .cornerRadius(Theme.Radius.md)
                 }
+                .disabled(!canSendLobbyActions)
+                .opacity(canSendLobbyActions ? 1 : 0.5)
                 .padding(.horizontal, Theme.Space.s3)
                 .padding(.bottom, Theme.Space.s1)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { readyHeight = $0 }
@@ -270,6 +284,13 @@ private struct GameLobbyScreen: View {
     }
 
     private func leaveLobby() {
+        // the re-entry unanswered: this socket may not be in the lobby, and a refused
+        // leaveLobby would strand the screen (LobbyRejoin)
+        if lobbyState.rejoiningLobbyId != nil {
+            LobbyRejoin.abandon(lobbyState: lobbyState, appState: appState)
+            isReady = false
+            return
+        }
         LobbyEmitter.leaveLobby()
         lobbyState.reset()
         isReady = false

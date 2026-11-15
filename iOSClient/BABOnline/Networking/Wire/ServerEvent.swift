@@ -56,12 +56,65 @@ struct SequencedEvent: Equatable {
 enum WireError: Error, Equatable {
     case unknownEvent(String)
     case missingPayload(String)
+    /// `message`: DecodeTrace.describe (kind + coding path, never a value), logged in release too.
     case decode(event: String, message: String)
+    /// A snapshot carrier whose snapshot this build cannot show. Not a delta: asking again
+    /// gets the same snapshot, so TableReducer.snapshotFailed retries a bounded number of times.
+    case snapshot(event: String, requestId: String?, problem: SnapshotProblem)
+}
+
+/// Why a snapshot cannot be shown (a newer server's table, in every case).
+enum SnapshotProblem: Equatable {
+    case undecodable(String)   // DecodeTrace.describe of the error
+    case version(Int?)         // v is not 2 (the web rejects it too)
+    case unknownStage(String)  // a stage this build does not know
+
+    var summary: String {
+        switch self {
+        case .undecodable(let d): return d
+        case .version(let v): return "snapshot v \(v.map(String.init) ?? "missing")"
+        case .unknownStage(let raw): return "unknown stage \(raw)"
+        }
+    }
+}
+
+/// A decode error as its kind + coding path (keys and array indices), none of the payload's
+/// values, so release builds can log it with no PII.
+enum DecodeTrace {
+    static func describe(_ error: Error) -> String {
+        guard let e = error as? DecodingError else { return String(describing: type(of: error)) }
+        switch e {
+        case .keyNotFound(let key, let c): return "keyNotFound \(path(c.codingPath + [key]))"
+        case .typeMismatch(let t, let c): return "typeMismatch \(t) at \(path(c.codingPath))"
+        case .valueNotFound(let t, let c): return "valueNotFound \(t) at \(path(c.codingPath))"
+        case .dataCorrupted(let c): return "dataCorrupted at \(path(c.codingPath))"
+        @unknown default: return "DecodingError"
+        }
+    }
+
+    /// "snapshot.seats[0].position"; "(root)" for the payload itself.
+    static func path(_ keys: [CodingKey]) -> String {
+        guard !keys.isEmpty else { return "(root)" }
+        return keys.enumerated().map { i, k in
+            if let n = k.intValue { return "[\(n)]" }
+            return i == 0 ? k.stringValue : ".\(k.stringValue)"
+        }.joined()
+    }
+
+    /// The error is inside the payload's `snapshot` (not the carrier's own fields).
+    static func isInSnapshot(_ error: Error) -> Bool {
+        guard let e = error as? DecodingError else { return false }
+        switch e {
+        case .keyNotFound(let key, let c): return (c.codingPath + [key]).first?.stringValue == "snapshot"
+        case .typeMismatch(_, let c), .valueNotFound(_, let c), .dataCorrupted(let c): return c.codingPath.first?.stringValue == "snapshot"
+        @unknown default: return false
+        }
+    }
 }
 
 extension ServerEvent {
     /// Decode a raw Socket.IO event. Never throws: a failure is a `WireError`
-    /// (the store logs it in DEBUG and resyncs with requestSnapshot).
+    /// (the store logs it, in release too, and resyncs: GameState.apply(serverEvent:)).
     /// `chatBlocked` / `chatMine`: chatMessage context from SafetyState / the identity.
     static func decode(name: String, payload: [Any], strict: Bool = false,
                        chatBlocked: Bool = false, chatMine: Bool = false) -> Result<SequencedEvent, WireError> {
@@ -71,6 +124,15 @@ extension ServerEvent {
             return try Wire.decode(t, first, strict: strict)
         }
         var seq: Int? = ((first as? [String: Any])?["seq"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue }
+        let carriesSnapshot = snapshotCarriers.contains(name)
+        func snapshotFailure(_ problem: SnapshotProblem) -> Result<SequencedEvent, WireError> {
+            .failure(.snapshot(event: name, requestId: (first as? [String: Any])?["requestId"] as? String, problem: problem))
+        }
+        // the version first: a v3 snapshot may decode, or fail anywhere, and is not ours either way
+        if carriesSnapshot, let raw = (first as? [String: Any])?["snapshot"] as? [String: Any] {
+            let v = (raw["v"] as? NSNumber).flatMap { CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue }
+            if v != 2 { return snapshotFailure(.version(v)) }
+        }
         do {
             let event: ServerEvent
             switch name {
@@ -122,11 +184,26 @@ extension ServerEvent {
             case "stateSnapshot": event = .stateSnapshot(try d(WirePayload.StateSnapshot.self))
             default: return .failure(.unknownEvent(name))
             }
+            // production decodes an unknown stage as .unknown: a newer server's table, never applied
+            if case .unknown(let raw)? = event.carriedSnapshot?.stage { return snapshotFailure(.unknownStage(raw)) }
             return .success(SequencedEvent(name: name, seq: seq, event: event))
         } catch let e as WireError {
             return .failure(e)
         } catch {
-            return .failure(.decode(event: name, message: String(describing: error)))
+            if carriesSnapshot && DecodeTrace.isInSnapshot(error) { return snapshotFailure(.undecodable(DecodeTrace.describe(error))) }
+            return .failure(.decode(event: name, message: DecodeTrace.describe(error)))
+        }
+    }
+
+    /// The events that carry a snapshot v2 (contract/CLAUDE.md "Snapshot v2").
+    static let snapshotCarriers: Set<String> = ["stateSnapshot", "rejoinSuccess", "restorePlayerState", "spectatorJoined", "actionRejected"]
+
+    var carriedSnapshot: TableSnapshot? {
+        switch self {
+        case .rejoinSuccess(let e), .restorePlayerState(let e), .spectatorState(let e): return e.snapshot
+        case .actionRejected(let p): return p.snapshot
+        case .stateSnapshot(let p): return p.snapshot
+        default: return nil
         }
     }
 }

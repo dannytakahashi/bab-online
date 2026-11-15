@@ -1,20 +1,68 @@
 /**
- * The wire only grows: the current contract must keep everything the frozen
- * v1 baseline (contract/v1-baseline.schema.json, captured from cc865b4 and
- * never regenerated) promised the shipped App Store iOS app and the web
- * client. New events, properties and variants are fine; removing or
- * changing anything the baseline has is not. The baseline is edited by hand
- * only when a V1_REMOVALS.md entry is executed.
+ * The wire only grows, for every client that may still connect: the current
+ * contract must keep everything each frozen baseline promised.
+ *
+ * - contract/v1-baseline.schema.json: the cc865b4 contract (iOS 1.0.0 and
+ *   the web client), never regenerated.
+ * - contract/baselines/ios-<version>-b<build>.schema.json: the contract at
+ *   the commit each submitted iOS build was cut from (npm run
+ *   contract:baseline), plus its .decodes.json: what that build's Swift
+ *   decodes, held separately below because a non-optional property that
+ *   goes missing or null fails the whole event on that build.
+ *
+ * New events, properties and variants are fine; removing or changing
+ * anything a baseline has is not. A schema baseline is edited by hand only
+ * when a V1_REMOVALS.md entry is executed that is safe for that build; a
+ * decode floor never is: the build is retired once MIN_IOS_BUILD gates it
+ * (contract/baselines/README.md). The floors' named exceptions (waived
+ * mismatches, relied-on optional properties) are contract/lib/decodeRules.js.
  */
 
-const baseline = require('../v1-baseline.schema.json');
+const fs = require('fs');
+const path = require('path');
+const v1 = require('../v1-baseline.schema.json');
 const { schema, validateC2S } = require('..');
 const { deepEqual } = require('../lib/validate');
+const { checkDecodes } = require('../lib/swiftDecodes');
+const { DECODE_WAIVED, DECODE_RELIED, reliedFor } = require('../lib/decodeRules');
 
-const MSG = 'This would break the App Store iOS build or the web client; see contract/V1_REMOVALS.md';
+const ROOT = path.join(__dirname, '..', '..');
+const DIR = path.join(ROOT, 'contract', 'baselines');
+const FILE_RE = /^ios-(\d+\.\d+\.\d+)-b(\d+)\.(schema|decodes)\.json$/;
+
+const MIN_IOS_BUILD = (() => {
+    // read, not required: upgradeGate.js pulls in the database module
+    const m = /^const MIN_IOS_BUILD = (\d+);$/m.exec(fs.readFileSync(path.join(ROOT, 'server/socket/upgradeGate.js'), 'utf8'));
+    if (!m) throw new Error('MIN_IOS_BUILD not found in server/socket/upgradeGate.js');
+    return Number(m[1]);
+})();
+
+const BUILDS = fs.readdirSync(DIR).filter((f) => FILE_RE.test(f) && f.endsWith('.schema.json')).map((f) => {
+    const [, version, build] = FILE_RE.exec(f);
+    const decodesFile = f.replace('.schema.json', '.decodes.json');
+    return {
+        label: `iOS ${version} (${build})`,
+        version,
+        build: Number(build),
+        file: `contract/baselines/${f}`,
+        schema: JSON.parse(fs.readFileSync(path.join(DIR, f), 'utf8')),
+        decodes: fs.existsSync(path.join(DIR, decodesFile)) ? JSON.parse(fs.readFileSync(path.join(DIR, decodesFile), 'utf8')) : null,
+    };
+}).sort((a, b) => a.build - b.build);
+
+const BASELINES = [
+    { label: 'the v1 baseline (cc865b4: iOS 1.0.0 and the web client)', file: 'contract/v1-baseline.schema.json', schema: v1 },
+    ...BUILDS,
+];
+
+const fail = (b, problems) => {
+    if (problems.length) {
+        throw new Error(`This would break ${b.label} (${b.file}); see contract/V1_REMOVALS.md and contract/baselines/README.md\n  ${problems.join('\n  ')}`);
+    }
+};
 
 /**
- * s2c properties the baseline left as a bare open object `{}` that the
+ * s2c properties a baseline left as a bare open object `{}` that the
  * contract now spells out. Narrowing an s2c schema only adds promises to
  * clients (the server always sent this shape), so it cannot break one; it
  * is allowed only here, named, and only while the property stays an open
@@ -23,61 +71,64 @@ const MSG = 'This would break the App Store iOS build or the web client; see con
 const S2C_REFINED = {
     's2c.recordsResponse|success.records': 'the documented allTime / thisYear / thisMonth periods (review fix: records content was never checked)',
 };
-/**
- * s2c-only baseline $defs that may gain OPTIONAL properties, named with the
- * properties allowed. Everything the baseline had stays byte-identical
- * (defKeeps); a $def is otherwise frozen because a $ref payload cannot grow
- * any other way. Both clients read these lines as plain dictionaries /
- * objects and ignore keys they do not know.
- */
-const S2C_DEF_ADDITIONS = {
-    // a server notice, not a player's line (2026-11-15: a player named "System" could pass for one)
-    tournamentChatLine: ['system', 'type'],
-};
-
-/** Problems with `cur` being the baseline $def `base` plus only the named optional properties. */
-function defKeeps(name, base, cur) {
-    const allowed = S2C_DEF_ADDITIONS[name];
-    if (!allowed) return deepEqual(base, cur) ? [] : [`$defs.${name}: changed`];
-    const out = [];
-    const added = Object.keys(cur.properties || {}).filter((k) => !(k in (base.properties || {})));
-    for (const k of added) {
-        if (!allowed.includes(k)) out.push(`$defs.${name}.${k}: added, but not named in S2C_DEF_ADDITIONS`);
-        if ((cur.required || []).includes(k)) out.push(`$defs.${name}.${k}: an added property must be optional`);
-    }
-    const trimmed = { ...cur, properties: Object.fromEntries(Object.entries(cur.properties || {}).filter(([k]) => !added.includes(k))) };
-    if (!deepEqual(base, trimmed)) out.push(`$defs.${name}: changed`);
-    return out;
-}
-
 const isBareOpenObject = (s) => s && s.type === 'object' && s.additionalProperties === true &&
     Object.keys(s.properties || {}).length === 0 && !(s.required || []).length;
 
-/** Problems with `cur` keeping everything `base` (an object payload) had. */
-function objectKeeps(base, cur, where, out) {
-    if (!cur || typeof cur !== 'object') {
-        out.push(`${where}: payload is gone`);
+/** Keys compared recursively below; `description` is documentation (wireCompat pins meaning). */
+const STRUCTURAL = new Set(['properties', 'required', 'patternProperties', 'items', 'anyOf', 'description']);
+const show = (v) => JSON.stringify(v);
+
+/**
+ * Problems with `cur` keeping everything the schema node `base` promised:
+ * every property (recursively), every required key, every variant, and
+ * the same type / const / enum / bounds / additionalProperties / $ref.
+ * New optional or required properties, new variants (by name) and new
+ * $defs are fine.
+ */
+function schemaKeeps(base, cur, where, out) {
+    if (deepEqual(base, cur)) return;
+    if (cur === undefined) {
+        out.push(`${where}: removed`);
         return;
     }
-    if (base.$ref || cur.$ref) {
-        if (!deepEqual(base, cur)) out.push(`${where}: ${JSON.stringify(base)} became ${JSON.stringify(cur)}`);
+    if (!base || typeof base !== 'object' || !cur || typeof cur !== 'object' || base.$ref || cur.$ref) {
+        out.push(`${where}: ${show(base)} became ${show(cur)}`);
         return;
     }
-    for (const k of ['type', 'additionalProperties', 'const', 'enum']) {
-        if (!deepEqual(base[k], cur[k])) out.push(`${where}: '${k}' changed from ${JSON.stringify(base[k])} to ${JSON.stringify(cur[k])}`);
+    for (const k of new Set([...Object.keys(base), ...Object.keys(cur)])) {
+        if (!STRUCTURAL.has(k) && !deepEqual(base[k], cur[k])) out.push(`${where}: '${k}' changed from ${show(base[k])} to ${show(cur[k])}`);
     }
     for (const [k, ps] of Object.entries(base.properties || {})) {
-        if (!cur.properties || !(k in cur.properties)) out.push(`${where}.${k}: removed`);
+        const c = cur.properties && cur.properties[k];
+        if (c === undefined) out.push(`${where}.${k}: removed`);
         else if (S2C_REFINED[`${where}.${k}`] && isBareOpenObject(ps)) {
-            const c = cur.properties[k];
             if (!(c.type === 'object' && c.additionalProperties === true)) out.push(`${where}.${k}: refined, but no longer an open object`);
-        } else if (!deepEqual(ps, cur.properties[k])) out.push(`${where}.${k}: schema changed`);
+        } else schemaKeeps(ps, c, `${where}.${k}`, out);
     }
     for (const k of base.required || []) {
         if (!(cur.required || []).includes(k)) out.push(`${where}.${k}: no longer required`);
     }
-    if (!deepEqual(base.patternProperties, cur.patternProperties)) out.push(`${where}: patternProperties changed`);
-    if (!deepEqual(base.items, cur.items)) out.push(`${where}: items changed`);
+    for (const [k, ps] of Object.entries(base.patternProperties || {})) {
+        schemaKeeps(ps, (cur.patternProperties || {})[k], `${where}[${k}]`, out);
+    }
+    if (base.items !== undefined) schemaKeeps(base.items, cur.items, `${where}[]`, out);
+    if (base.anyOf) {
+        if (!cur.anyOf) {
+            out.push(`${where}: variants are gone`);
+        } else if (base.anyOf.some((v) => v.variant)) {
+            for (const bv of base.anyOf) {
+                const cv = cur.anyOf.find((v) => v.variant === bv.variant);
+                if (!cv) out.push(`${where}|${bv.variant}: variant removed`);
+                else schemaKeeps(bv, cv, `${where}|${bv.variant}`, out);
+            }
+        } else if (base.anyOf.length !== cur.anyOf.length) {
+            out.push(`${where}: anyOf went from ${base.anyOf.length} to ${cur.anyOf.length} branches`);
+        } else {
+            base.anyOf.forEach((bv, i) => schemaKeeps(bv, cur.anyOf[i], `${where}|${i}`, out));
+        }
+    } else if (cur.anyOf) {
+        out.push(`${where}: became an anyOf`);
+    }
 }
 
 function payloadKeeps(base, cur, where, out) {
@@ -85,19 +136,11 @@ function payloadKeeps(base, cur, where, out) {
         if (cur !== null) out.push(`${where}: had no payload, now has one`);
         return;
     }
-    if (base.anyOf) {
-        if (!cur || !cur.anyOf) {
-            out.push(`${where}: variants are gone`);
-            return;
-        }
-        for (const bv of base.anyOf) {
-            const cv = cur.anyOf.find((v) => v.variant === bv.variant);
-            if (!cv) out.push(`${where}|${bv.variant}: variant removed`);
-            else objectKeeps(bv, cv, `${where}|${bv.variant}`, out);
-        }
+    if (!cur) {
+        out.push(`${where}: payload is gone`);
         return;
     }
-    objectKeeps(base, cur, where, out);
+    schemaKeeps(base, cur, where, out);
 }
 
 /**
@@ -130,46 +173,96 @@ function c2sKeeps(name, be, ce, out) {
     }
 }
 
-test('the baseline is the cc865b4 contract (frozen)', () => {
-    expect(baseline.title).toBe('BAB Online socket contract');
-    // 80+ at cc865b4; the executed V1_REMOVALS entries hand-edit whole events out (#2, #4, #20, #3, #7)
-    expect(Object.keys(baseline.s2c).length).toBeGreaterThan(70);
-    expect(baseline.s2c.seq).toBeUndefined();
-});
-
-test.each(['s2c', 'c2s'])('every baseline %s event is still there, with the same direction and payload', (dir) => {
+/** Problems with `cur` against one baseline's events, $defs and builtins. */
+function baselineProblems(base, cur) {
     const problems = [];
-    for (const [name, be] of Object.entries(baseline[dir])) {
+    for (const dir of ['s2c', 'c2s']) {
         const other = dir === 's2c' ? 'c2s' : 's2c';
-        const ce = schema[dir][name];
-        if (!ce) {
-            problems.push(`${dir}.${name}: removed${schema[other][name] ? ` (now ${other})` : ''}`);
-            continue;
-        }
-        if (dir === 's2c') payloadKeeps(be.payload, ce.payload, `${dir}.${name}`, problems);
-        else c2sKeeps(name, be, ce, problems);
-        if (be.status !== ce.status && !(be.status === 'active' && ce.status === 'deprecated')) {
-            problems.push(`${dir}.${name}: status ${be.status} -> ${ce.status}`);
+        for (const [name, be] of Object.entries(base[dir])) {
+            const ce = cur[dir][name];
+            if (!ce) {
+                problems.push(`${dir}.${name}: removed${cur[other][name] ? ` (now ${other})` : ''}`);
+                continue;
+            }
+            if (dir === 's2c') payloadKeeps(be.payload, ce.payload, `${dir}.${name}`, problems);
+            else c2sKeeps(name, be, ce, problems);
+            if (be.status !== ce.status && !(be.status === 'active' && ce.status === 'deprecated')) {
+                problems.push(`${dir}.${name}: status ${be.status} -> ${ce.status}`);
+            }
         }
     }
-    if (problems.length) throw new Error(`${MSG}\n  ${problems.join('\n  ')}`);
-});
-
-test('every baseline $def is unchanged (new $defs are fine)', () => {
-    const problems = [];
-    for (const [name, d] of Object.entries(baseline.$defs)) {
-        if (!schema.$defs[name]) problems.push(`$defs.${name}: removed`);
-        else problems.push(...defKeeps(name, d, schema.$defs[name]));
+    for (const [name, d] of Object.entries(base.$defs)) {
+        if (!cur.$defs[name]) problems.push(`$defs.${name}: removed`);
+        else schemaKeeps(d, cur.$defs[name], `$defs.${name}`, problems);
     }
-    if (problems.length) throw new Error(`${MSG}\n  ${problems.join('\n  ')}`);
+    if (!deepEqual(base.builtins, cur.builtins)) problems.push('builtins changed');
+    return problems;
+}
+
+test('the v1 baseline is the cc865b4 contract (frozen)', () => {
+    expect(v1.title).toBe('BAB Online socket contract');
+    // 80+ at cc865b4; the executed V1_REMOVALS entries hand-edit whole events out (#2, #4, #20, #3, #7)
+    expect(Object.keys(v1.s2c).length).toBeGreaterThan(70);
+    expect(v1.s2c.seq).toBeUndefined();
 });
 
-test('the builtins are unchanged', () => {
-    expect(schema.builtins).toEqual(baseline.builtins);
+test('every submitted iOS build that is not gated has a baseline and a decode floor', () => {
+    expect(BUILDS.map((b) => b.build)).toEqual(expect.arrayContaining([6, 7, 8]));
+    for (const f of fs.readdirSync(DIR)) {
+        if (f === 'README.md') continue;
+        expect(f).toMatch(FILE_RE);
+        expect(fs.existsSync(path.join(DIR, f.replace(/\.(schema|decodes)\.json$/, '.schema.json')))).toBe(true);
+    }
+    for (const b of BUILDS) {
+        expect(b.decodes).not.toBeNull();
+        expect([b.decodes.build, b.decodes.version]).toEqual([b.build, b.version]);
+        expect(b.decodes.commit).toMatch(/^[0-9a-f]{40}$/);
+        expect(b.schema.title).toBe('BAB Online socket contract');
+        expect(Object.keys(b.decodes.events).length).toBeGreaterThan(20);
+    }
+});
+
+test('a build MIN_IOS_BUILD gates is retired (its baseline would hold back removals for nobody)', () => {
+    const gated = BUILDS.filter((b) => b.build < MIN_IOS_BUILD).map((b) => `${b.file} (build ${b.build} < MIN_IOS_BUILD ${MIN_IOS_BUILD})`);
+    if (gated.length) throw new Error(`Retire (delete) the baselines of gated builds, contract/baselines/README.md:\n  ${gated.join('\n  ')}`);
+});
+
+test.each(BASELINES.map((b) => [b.label, b]))('everything %s promised is still there, with the same direction and payload', (_, b) => {
+    fail(b, baselineProblems(b.schema, schema));
+});
+
+test.each(BUILDS.map((b) => [b.label, b]))('what %s decodes is still sent: required, non-null, the same JSON types', (_, b) => {
+    fail(b, checkDecodes(b.decodes, schema, b.label, DECODE_WAIVED, reliedFor(b.build)));
+});
+
+test('every decode waiver still matches a mismatch on some frozen build (a stale one would hide a new hole)', () => {
+    // some, not every: a later build that decodes it leniently needs no waiver, the older ones still do
+    for (const where of Object.keys(DECODE_WAIVED)) {
+        const needed = BUILDS.some((b) => checkDecodes(b.decodes, schema, b.label).some((p) => p.startsWith(`${b.label} decodes ${where} `)));
+        if (!needed) throw new Error(`DECODE_WAIVED['${where}'] matches no frozen build's mismatch: delete it (contract/lib/decodeRules.js)`);
+    }
+});
+
+test('every relied-on property is one its builds decode (optional), for a build still frozen', () => {
+    for (const [where, r] of Object.entries(DECODE_RELIED)) {
+        const held = BUILDS.filter((b) => r.builds.includes(b.build));
+        if (!held.length) throw new Error(`DECODE_RELIED['${where}']: builds ${r.builds} are all retired; delete it (contract/lib/decodeRules.js)`);
+        const [event, ...keys] = where.split('.');
+        for (const b of held) {
+            const roots = b.decodes.events[event];
+            expect(roots).toBeDefined();
+            // one level is all an entry needs today; a deeper path would need the walk checkDecodes does
+            expect(keys).toHaveLength(1);
+            for (const root of roots) {
+                const f = b.decodes.types[root].fields[keys[0]];
+                if (!f || !f.optional) throw new Error(`DECODE_RELIED['${where}']: ${b.label} ${root} has ${f ? 'it non-optional (the floor already holds it)' : 'no such property'}`);
+            }
+        }
+    }
 });
 
 test('the c2s rule catches what would make the server refuse a shipped client', () => {
-    const base = baseline.c2s.playerBid;
+    const base = v1.c2s.playerBid;
     const cur = JSON.parse(JSON.stringify(schema.c2s.playerBid));
     const run = (c) => { const out = []; c2sKeeps('playerBid', base, c, out); return out.join('\n'); };
     expect(run(cur)).toBe('');
@@ -183,36 +276,80 @@ test('the s2c refinement exception is narrow: only named properties, only while 
     const out = [];
     const base = { type: 'object', properties: { records: { type: 'object', properties: {}, additionalProperties: true } }, additionalProperties: false };
     const closed = { ...base, properties: { records: { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: false } } };
-    objectKeeps(base, closed, 's2c.recordsResponse|success', out);
-    objectKeeps(base, closed, 's2c.other|success', out);
-    expect(out).toEqual(['s2c.recordsResponse|success.records: refined, but no longer an open object', 's2c.other|success.records: schema changed']);
+    schemaKeeps(base, closed, 's2c.recordsResponse|success', out);
+    schemaKeeps(base, closed, 's2c.other|success', out);
+    expect(out).toEqual([
+        's2c.recordsResponse|success.records: refined, but no longer an open object',
+        "s2c.other|success.records: 'additionalProperties' changed from true to false",
+    ]);
 });
 
-test('the $def addition exception is narrow: only named, optional properties, the rest unchanged', () => {
-    const base = baseline.$defs.tournamentChatLine;
-    const cur = schema.$defs.tournamentChatLine;
-    expect(defKeeps('tournamentChatLine', base, cur)).toEqual([]);
-    const extra = { ...cur, properties: { ...cur.properties, color: { type: 'string' } } };
-    expect(defKeeps('tournamentChatLine', base, extra)).toEqual(['$defs.tournamentChatLine.color: added, but not named in S2C_DEF_ADDITIONS']);
-    const required = { ...cur, required: [...cur.required, 'system'] };
-    expect(defKeeps('tournamentChatLine', base, required)).toContain('$defs.tournamentChatLine.system: an added property must be optional');
-    const retyped = { ...cur, properties: { ...cur.properties, timestamp: { type: 'number' } } };
-    expect(defKeeps('tournamentChatLine', base, retyped)).toEqual(['$defs.tournamentChatLine: changed']);
-    // s2c-only: a client payload growing would be a different promise
-    const refs = (node, out = new Set()) => {
-        if (node && typeof node === 'object') {
-            if (typeof node.$ref === 'string') out.add(node.$ref.split('/').pop());
-            for (const v of Object.values(node)) refs(v, out);
-        }
-        return out;
+describe('fault injection: what the per-build guards catch', () => {
+    const b6 = BUILDS.find((b) => b.build === 6);
+    const mutate = (fn) => {
+        const s = JSON.parse(JSON.stringify(schema));
+        fn(s);
+        return s;
     };
-    const c2sRefs = refs(schema.c2s);
-    for (const name of Object.keys(S2C_DEF_ADDITIONS)) {
-        expect(c2sRefs.has(name)).toBe(false);
-        for (const def of Object.keys(schema.$defs)) {
-            if (c2sRefs.has(def)) expect(refs(schema.$defs[def]).has(name)).toBe(false);
-        }
-    }
-    const other = baseline.$defs.lobbyMember;
-    expect(defKeeps('lobbyMember', other, { ...other, properties: { ...other.properties, system: { const: true } } })).toEqual(['$defs.lobbyMember: changed']);
+    const both = (s) => [...baselineProblems(b6.schema, s), ...checkDecodes(b6.decodes, s, b6.label, DECODE_WAIVED, reliedFor(6))];
+
+    test('dropping snapshot trickHistory breaks iOS 1.2.0 (6) in both guards', () => {
+        const s = mutate((x) => {
+            delete x.$defs.snapshotV2.properties.trickHistory;
+            x.$defs.snapshotV2.required = x.$defs.snapshotV2.required.filter((k) => k !== 'trickHistory');
+        });
+        expect(baselineProblems(b6.schema, s)).toContain('$defs.snapshotV2.trickHistory: removed');
+        expect(checkDecodes(b6.decodes, s, b6.label)).toEqual(expect.arrayContaining([
+            expect.stringMatching(/^iOS 1\.2\.0 \(6\) decodes rejoinSuccess\.snapshot\.trickHistory .*gone from the schema/),
+        ]));
+    });
+
+    test('making watching optional, or tricksByPosition nullable, is caught', () => {
+        const opt = mutate((x) => { x.$defs.snapshotV2.required = x.$defs.snapshotV2.required.filter((k) => k !== 'watching'); });
+        expect(both(opt)).toEqual(expect.arrayContaining(['$defs.snapshotV2.watching: no longer required',
+            expect.stringMatching(/decodes stateSnapshot\.snapshot\.watching .*no longer required/)]));
+        const nul = mutate((x) => { x.$defs.snapshotV2.properties.tricksByPosition = { anyOf: [x.$defs.snapshotV2.properties.tricksByPosition, { type: 'null' }] }; });
+        expect(both(nul)).toEqual(expect.arrayContaining([expect.stringMatching(/decodes restorePlayerState\.snapshot\.tricksByPosition .*may be null/)]));
+    });
+
+    test('a hand-written payload field (cardPlayed.card) and a nested one (seat isBot) are held too', () => {
+        const s = mutate((x) => {
+            x.s2c.cardPlayed.payload.required = x.s2c.cardPlayed.payload.required.filter((k) => k !== 'card');
+            x.$defs.seatV2.properties.isBot = { type: 'integer' };
+        });
+        const out = checkDecodes(b6.decodes, s, b6.label);
+        expect(out).toEqual(expect.arrayContaining([
+            expect.stringMatching(/decodes cardPlayed\.card \(WirePayload\.CardPlayed\): no longer required/),
+            expect.stringMatching(/decodes rejoinSuccess\.snapshot\.seats\[\]\.isBot .*it is integer, Swift wants Bool/),
+        ]));
+    });
+
+    test('positionUpdate.isBot (optional in Swift, relied on once sockets go) is held for 6 to 8', () => {
+        const opt = mutate((x) => { x.s2c.positionUpdate.payload.required = x.s2c.positionUpdate.payload.required.filter((k) => k !== 'isBot'); });
+        expect(checkDecodes(b6.decodes, opt, b6.label)).toEqual([expect.stringMatching(/requestId/)]);
+        expect(checkDecodes(b6.decodes, opt, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([
+            expect.stringMatching(/^iOS 1\.2\.0 \(6\) decodes positionUpdate\.isBot \(WirePayload\.PositionUpdate\): no longer required \(relied on: bot or human/),
+        ]);
+        const nul = mutate((x) => { x.s2c.positionUpdate.payload.properties.isBot = { anyOf: [x.s2c.positionUpdate.payload.properties.isBot, { type: 'null' }] }; });
+        expect(checkDecodes(b6.decodes, nul, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([expect.stringMatching(/positionUpdate\.isBot .*it may be null \(relied on:/)]);
+        const gone = mutate((x) => { delete x.s2c.positionUpdate.payload.properties.isBot; });
+        expect(checkDecodes(b6.decodes, gone, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual(expect.arrayContaining([expect.stringMatching(/positionUpdate\.isBot .*gone from the schema \(relied on:/)]));
+        expect(reliedFor(9)).toEqual({});
+    });
+
+    test('a new card rank would throw in Card(from:) on the shipped builds', () => {
+        const s = mutate((x) => { x.$defs.card.properties.rank.enum.push('XX'); });
+        expect(checkDecodes(b6.decodes, s, b6.label)).toEqual(expect.arrayContaining([expect.stringMatching(/"XX"\] would throw \(Rank decodes only/)]));
+    });
+
+    test('new optional properties, new required ones and new events pass', () => {
+        const s = mutate((x) => {
+            x.$defs.snapshotV2.properties.newThing = { type: 'string' };
+            x.$defs.seatV2.properties.newSeatFlag = { type: 'boolean' };
+            x.$defs.seatV2.required.push('newSeatFlag');
+            x.s2c.cardPlayed.payload.properties.extra = { type: 'integer' };
+            x.s2c.brandNewEvent = { payload: null, status: 'active' };
+        });
+        expect(both(s)).toEqual([]);
+    });
 });

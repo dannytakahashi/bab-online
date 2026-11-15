@@ -7,13 +7,16 @@ final class AuthSocketHandler {
     private let appState: AppState
     private let gameState: GameState
     private let safetyState: SafetyState
+    private let lobbyState: LobbyState
 
-    init(socket: SocketService, authState: AuthState, appState: AppState, gameState: GameState, safetyState: SafetyState) {
+    init(socket: SocketService, authState: AuthState, appState: AppState, gameState: GameState, safetyState: SafetyState,
+         lobbyState: LobbyState) {
         self.socket = socket
         self.authState = authState
         self.appState = appState
         self.gameState = gameState
         self.safetyState = safetyState
+        self.lobbyState = lobbyState
     }
 
     func register() {
@@ -144,15 +147,28 @@ final class AuthSocketHandler {
                     self.safetyState.setBlockedUsers(blocked)
                 }
 
-                // Check if there's an active game to rejoin
-                if let gameId = data["activeGameId"] as? String, !gameId.isEmpty {
+                // an abandoned re-entry's answer never comes on a new socket
+                if self.lobbyState.abandonedRejoinLobbyId != nil, self.lobbyState.rejoinSocketId != self.socket.socketId {
+                    self.lobbyState.abandonedRejoinLobbyId = nil
+                    self.lobbyState.rejoinSocketId = nil
+                }
+
+                switch RestoreRoute.of(data, screen: self.appState.screen, lobbyId: self.lobbyState.lobbyId) {
+                case .rejoinGame(let gameId):
                     print("[Auth] Session restored with active game: \(gameId)")
+                    self.lobbyState.rejoiningLobbyId = nil
                     AuthEmitter.rejoinGame(gameId: gameId, username: username)
-                } else if let tournamentId = data["activeTournamentId"] as? String, !tournamentId.isEmpty {
+                case .tournament(let tournamentId):
                     print("[Auth] Session restored with active tournament: \(tournamentId)")
+                    self.lobbyState.rejoiningLobbyId = nil
                     TournamentEmitter.joinTournament(tournamentId: tournamentId)
-                } else {
+                case .lobby(let lobbyId):
+                    // the lobby stays on screen; lobbyCreated (the seat back) or the refusal
+                    // (LobbySocketHandler.handleRejoinRefused) answers
+                    self.rejoinLobby(lobbyId)
+                case .mainRoom:
                     print("[Auth] Session restored for: \(username)")
+                    self.lobbyState.rejoiningLobbyId = nil
                     self.appState.screen = .mainRoom
                     LobbyEmitter.joinMainRoom()
                     // no game or tournament to go back to: after a serverShutdown, it ended
@@ -163,12 +179,42 @@ final class AuthSocketHandler {
             } else {
                 let message = data["message"] as? String ?? "Session expired"
                 print("[Auth] Session restore failed: \(message)")
+                self.lobbyState.rejoiningLobbyId = nil
                 RestartNotices.shared.lost()
                 // Clear stale credentials and show sign-in
                 self.authState.sessionToken = ""
                 self.authState.saveCredentials()
                 self.appState.screen = .signIn
             }
+        }
+    }
+
+    /// joinLobby for the lobby on screen, once per socket (a repeated restore answer on the
+    /// same socket waits for the first one's reply).
+    @MainActor
+    private func rejoinLobby(_ lobbyId: String) {
+        let sid = socket.socketId
+        if sid != nil, lobbyState.rejoiningLobbyId == lobbyId, lobbyState.rejoinSocketId == sid {
+            print("[Auth] Lobby re-entry already sent on this socket")
+            return
+        }
+        print("[Auth] Session restored in lobby \(lobbyId): taking the seat back")
+        lobbyState.rejoiningLobbyId = lobbyId
+        lobbyState.rejoinSocketId = sid
+        lobbyState.rejoinGeneration += 1
+        let generation = lobbyState.rejoinGeneration
+        LobbyEmitter.joinLobby(lobbyId: lobbyId)
+
+        // no answer on a socket that stayed connected (the event was dropped): the actions
+        // must not wait forever, so out to the main room as a refusal would go. Disconnected
+        // meanwhile: the next socket's restore sends its own.
+        DispatchQueue.main.asyncAfter(deadline: .now() + LobbyRejoin.answerWait) { [weak self] in
+            guard let self, self.lobbyState.rejoinGeneration == generation,
+                  self.lobbyState.rejoiningLobbyId == lobbyId, self.appState.screen == .gameLobby,
+                  self.socket.isConnected, self.socket.socketId == sid else { return }
+            print("[Auth] Lobby re-entry unanswered after \(LobbyRejoin.answerWait) s")
+            LobbyRejoin.abandon(lobbyState: self.lobbyState, appState: self.appState)
+            LobbyRejoin.showFailure(nil, socket: self.socket)
         }
     }
 

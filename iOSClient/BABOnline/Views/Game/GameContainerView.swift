@@ -199,6 +199,12 @@ private struct GameScreen: View {
                 GameEndView()
                     .transition(.opacity)
             }
+
+            // A snapshot this build cannot show: over everything, never a silent frozen table
+            if gameState.table.snapshotTrouble != .none {
+                UnreadableTableView(trouble: gameState.table.snapshotTrouble, onLeave: leaveUnreadableTable)
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
@@ -727,6 +733,26 @@ private struct GameScreen: View {
         } else {
             gameState.apply(.local(.leaveAsked))
             runLeave(leaveFlow.tapped(check: gameState.players.leaveCheck))
+        }
+    }
+
+    /// Leave from UnreadableTableView. Confirmed like any Leave, with the hedged message (the
+    /// exact outcome reads seats this table may not have); a pure spectator just exits. The
+    /// server's leftGame navigates as for any Leave; if none comes (the server no longer has
+    /// us in a game) and no snapshot or reset has landed since, the app leaves on its own.
+    private func leaveUnreadableTable() {
+        let leave = {
+            let resets = gameState.sceneResets
+            ChatEmitter.sendMessage("/leave")
+            DispatchQueue.main.asyncAfter(deadline: .now() + UnreadableTableLeave.fallback) {
+                guard appState.screen == .game, gameState.sceneResets == resets else { return }
+                GameSocketHandler.leaveTable(gameState: gameState, appState: appState, tournamentId: gameState.tournamentId)
+            }
+        }
+        if isPureSpectator { return leave() }
+        // an alert already up (a Leave opened before the trouble) sits above this view and asks the same
+        leaveAlert.present(message: UnreadableTableLeave.message(inTournament: gameState.tournamentId != nil)) { answer in
+            if answer == .leave { leave() }
         }
     }
 

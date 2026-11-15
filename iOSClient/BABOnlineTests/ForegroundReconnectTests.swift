@@ -126,7 +126,8 @@ final class ForegroundReconnectTests: XCTestCase {
     @MainActor
     func testRestoreAnswerMakesTheSessionReady() {
         let auth = AuthState(), app = AppState(), game = GameState(), safety = SafetyState()
-        let handler = AuthSocketHandler(socket: service, authState: auth, appState: app, gameState: game, safetyState: safety)
+        let handler = AuthSocketHandler(socket: service, authState: auth, appState: app, gameState: game, safetyState: safety,
+                                        lobbyState: LobbyState())
         service.isSessionReady = false
 
         handler.handleRestoreSessionResponse(["success": false, "message": "Session expired"])

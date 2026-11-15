@@ -332,7 +332,9 @@ the five columns do not fit; none when the payload has no `playerStats`):
 ready): there removeBot and addBot change the list the way the server answers
 them (`UIFixture.emulateLobby`: a removal keeps the humans ready, server #248)
 and show in the `fixture.sent` probe as `removeBot:<id>` / `addBot`
-(`LobbyRemoveBotTests`).
+(`LobbyRemoveBotTests`). `-uiLobbyRejoin YES` there holds the moment a
+restore's lobby re-entry is unanswered (Ready, the remove controls and the
+chat's Send wait, Leave goes to the main room; `SessionPendingTests`).
 No socket on any path (`SocketService.connectionsDisabled`: launch,
 foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
@@ -644,8 +646,13 @@ failures arrive as `error` and/or `serverError`.
   the connection and reconnects by itself; 8 s with neither drops the toast).
   After the reconnect the restore paths report: `lost` (restoreSession with
   no activeGameId / activeTournamentId, a failed restore, signIn to the main
-  room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft) or
-  `survived` (rejoinSuccess, a spectator's full state, tournamentJoined). The
+  room, rejoinFailed, a `not_in_game` stateSnapshot, tournamentLeft, the
+  refused lobby re-entry) or `survived` (rejoinSuccess, a spectator's full
+  state, tournamentJoined, the re-entry's lobbyCreated). From the next build
+  after 1.2.1 build 9 a restore with no game while the game lobby is on
+  screen sends joinLobby instead of going to the main room (`RestoreRoute`,
+  `iOSClient/CLAUDE.md` "Lobby re-entry after a reconnect"), so the lobby's
+  `lost` waits for that answer. The
   first `lost` within 2 minutes shows ONE alert ("Server restarted": "Your
   game ended because the server restarted for an update. It won't count
   toward your stats." / "The game you were watching ended ..." / "Your lobby
@@ -737,6 +744,92 @@ bore, rejoin with B + 2B, a spectator, every viewer in the store, a reload mid
 bore hand, unknown counts), `Release12FollowupTests.swift` (`MyPipsLayoutTests`
 at every listed size and Duo pose, `RestartNoticeTests`,
 `SocketLogRedactionTests`, `AccessibilityLabelSourceTests`).
+
+## Snapshots this build cannot show (next build, after 1.2.1 build 9)
+
+Before: an undecodable event asked for one resync (`resyncNeeded`, `gap-N`);
+when the `stateSnapshot` reply failed to decode the same way it was one more
+`resyncNeeded`, which `requestResync` ignored because `resyncId` was still
+set. Every later seq event buffered behind the gap, nothing asked again, and
+the player sat on a frozen table; release builds logged nothing.
+
+Now (no wire change, server unchanged):
+
+- `ServerEvent.decode` sets a snapshot carrier (`snapshotCarriers`:
+  stateSnapshot, rejoinSuccess, restorePlayerState, spectatorJoined,
+  actionRejected) apart from a delta: `WireError.snapshot(event, requestId,
+  SnapshotProblem)` when its `snapshot` has `v` other than 2 (checked on the
+  raw dictionary before decoding, as the web's `snapshotV2.js`; a missing or
+  boolean `v` is not 2), fails to decode inside `snapshot` (an error in the
+  carrier's own fields stays a delta failure), or decodes with an unknown
+  `stage`. `requestId` is read from the raw payload.
+- `GameState.apply(serverEvent:)` sends it to `.snapshotFailed`
+  (`TableReducer.snapshotFailed`): the waiting resync ends, and the snapshot
+  is asked for again as `snap-N` after `SnapshotRetryPolicy.delay` (1 s, then
+  3 s; `.retrySnapshot`, scheduled by ActionCoordinator past its in-flight
+  debounce and dropped if anything else resynced meanwhile), at most
+  `maxRetries` (2) times; `TableSlice.snapshotTrouble` is `.retrying(n)`.
+  The next failure makes it `.unreadable`: no more requests from retries,
+  gaps (no buffering either) or undecodable deltas, buffered events and a
+  pending play / bid are dropped (`cancelAck`). Any snapshot that applies
+  (`applySnapshot`: fresh state) clears it and the count, e.g. the restore's
+  rejoin after a reconnect. A `not_in_game` answer to any request ends
+  `.retrying`, and GameSocketHandler then leaves the table as leftGame does
+  (`leaveTable`: reset, main room or back to the tournament), unless a
+  gameEnd landed meanwhile (GameEndView leads out): the table may never have
+  applied (a rejoin from the main room), and the server has no game for us.
+  A requestSnapshot error while retrying counts as one more failure
+  (`snapshotFailed`), so it never says "reloading" with nothing asked.
+  leftGame resets the table as always (unsequenced, so it applies); a seq'd
+  abortGame behind a failed snapshot is dropped or buffered by the gate, so
+  the handler resets the table itself. Either way no retry or count outlives
+  the game. `applySnapshot`'s own unknown-stage path counts the same way.
+- `UnreadableTableView` covers the table (GameContainerView) while
+  `snapshotTrouble` is not `.none`: "Reloading the table…" with Leave Game
+  during the retries; then "Update BAB Online" / "This version of the app
+  can't show this table. Update BAB Online from the App Store." with Open the
+  App Store (`AppStoreLink`, id 6759510890, the web phone gate's
+  `APP_STORE_URL`) and Leave Game. No dismiss; VoiceOver stays in it
+  (`.isModal`). Leave is confirmed with the Leave alert (LeaveAlertPresenter)
+  and LeaveOutcome's hedged `.unsure` message, since the exact outcome reads
+  seats this table may not have and leaving can end the game for everyone (a
+  pure spectator just exits). Then `/leave`; if after 3 s
+  (`UnreadableTableLeave.fallback`) the app is still on the game screen and
+  no snapshot or reset has landed (`sceneResets`), it leaves itself
+  (`GameSocketHandler.leaveTable`). A leftGame arriving later, with no table
+  and off the game screen, does not navigate again (no second joinMainRoom,
+  never out of the tournament screen).
+- A rejoinSuccess / restorePlayerState / spectatorJoined whose snapshot cannot
+  be shown still opens the game screen (`GameSocketHandler.enteringCarriers`),
+  so the player sees the message instead of a main room while seated.
+- Release log (`TableLog`, os `Logger`, subsystem = bundle id, category
+  `table`): every decode failure as event + `DecodeTrace.describe` (kind and
+  coding path, e.g. `keyNotFound snapshot.trickHistory`, `typeMismatch Int at
+  snapshot.seats[1].position`; never a payload value) or the snapshot problem
+  with its requestId, and one fault when the table turns unreadable.
+
+Not done: lenient (defaulted) decoding of additive snapshot fields in the
+generated Swift. The only non-optional fields added after the first
+snapshot-reading build (1.1.0) are `trickHistory` and `watching`, and 1.2.0
+(live) and 1.2.1 decode them as required already (Generated/TableSnapshot.swift
+is unchanged since 92d0c75), so making this build lenient would not let a
+server drop them while those builds are in use; it would need a non-schema
+marker and a hand-written `init(from:)` per struct in the generator, and would
+hide a server omission behind a default table. A field added from now on is
+listed in `obj`'s `optional` (the generator makes it Optional, as
+`Seat.avatarUrl`); the server-side baseline guard is the primary protection.
+
+Tests: `UnreadableSnapshotTests` (undecodable stateSnapshot -> two retries with
+backoff -> unreadable, no requests after; v 3 the same, and checked before
+decoding; unknown stage; a rejoin into one opens the game screen; a good
+snapshot after a bad one, and after unreadable, recovers; not_in_game ends the
+retrying and leaves the table, also after an unshown rejoin and to another
+request, but not over a gameEnd; a refused retry counts; leftGame and a gapped
+abortGame clear the retries; a late leftGame does not navigate; the Leave
+message; the pending play is dropped; delta failures still resync at once and
+debounce; a carrier field outside the snapshot is a delta failure; decode
+paths; both view states drawn). Ships with the next iOS build (after 1.2.1
+build 9).
 
 ## Visible changes to review on the next build (remove a bot)
 

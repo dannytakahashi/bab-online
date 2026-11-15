@@ -142,9 +142,13 @@ final class RestartNotices: ObservableObject {
     }
 
     /// The restore found the place gone: show the message once (VoiceOver reads the alert).
-    func lost(now: Date = Date()) {
-        guard notice.isPending else { return }
-        if let text = notice.lost(at: now) { message = text }
+    /// False when nothing was shown (no notice, or one older than the window).
+    @discardableResult
+    func lost(now: Date = Date()) -> Bool {
+        guard notice.isPending else { return false }
+        guard let text = notice.lost(at: now) else { return false }
+        message = text
+        return true
     }
 
     /// The place came back: forget the notice.

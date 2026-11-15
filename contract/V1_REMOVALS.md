@@ -64,6 +64,11 @@ One PR per entry:
 1. Make the server change.
 2. Hand-edit `contract/v1-baseline.schema.json` (the frozen baseline) to drop
    what is removed, and update `contract/src`; run `npm run contract:gen`.
+   Also hand-edit `contract/baselines/ios-*-b<n>.schema.json` for each iOS
+   build the entry was re-checked against (what that build reads, at its
+   source commit: `contract/baselines/README.md`). Never edit a
+   `.decodes.json`: a removal that one of them still holds waits until
+   `MIN_IOS_BUILD` gates that build, and its baseline is retired.
 3. Update `additiveOnly.test.js` expectations if needed,
    `legacyConstants.golden.json` (constants), `transcripts.test.js` and
    `wireProjection.test.js` (legacy key sets), `wireCompat.test.js` goldens.
@@ -697,7 +702,11 @@ and build 5's replay of them re-run with `socketBySeat` empty; (3) for build
 gameStart / the snapshot; but TestFlight builds 3 and 4 (never shipped,
 still not gated: MIN_IOS_BUILD 3) read only the `bot:` prefix, so without
 `sockets` they would show every bot as a human seat: drop it only once the
-owner accepts that for TestFlight or MIN_IOS_BUILD is 5; (4) a pre-#233 web
+owner accepts that for TestFlight or MIN_IOS_BUILD is 5 (no frozen baseline
+holds 3 or 4: `contract/baselines/README.md`); (3b) `isBot` is then the only
+bot signal for builds 6 to 8, and their frozen baselines predate it (b1304c1
+merged after they were cut), so it is held by `DECODE_RELIED` in
+`contract/lib/decodeRules.js` (required, non-null) and must stay there; (4) a pre-#233 web
 tab keeps `sockets` only in `playerData.socket` for its glow (report only).
 
 `positionUpdate.sockets` / `usernames[].socketId`, `playerDrew.socketId`,

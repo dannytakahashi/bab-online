@@ -211,13 +211,40 @@ extension TableReducer {
         return h
     }
 
-    /// Debounced by the coordinator (at most one in flight).
+    /// Debounced by the coordinator (at most one in flight). Never once the table is
+    /// unreadable: every later gap would ask for the same snapshot again.
     static func requestResync(_ s: inout TableState, _ fx: inout [TableEffect]) {
-        guard s.sync.resyncId == nil else { return }
+        guard s.sync.resyncId == nil, s.table.snapshotTrouble != .unreadable else { return }
         let id = "gap-\(s.sync.nextRequestNo)"
         s.sync.nextRequestNo += 1
         s.sync.resyncId = id
         fx.append(.requestSnapshot(requestId: id, log: false))
+    }
+
+    /// A snapshot this build cannot show (any carrier, any request). A resync waiting for it
+    /// ends here (it kept `resyncId` set, so nothing asked again and the table froze); it is
+    /// asked for again SnapshotRetryPolicy.maxRetries times with backoff, then the table is
+    /// `unreadable` (UnreadableTableView: update the app, or leave) until a snapshot applies.
+    static func snapshotFailed(_ s: inout TableState, _ fx: inout [TableEffect]) {
+        guard s.table.snapshotTrouble != .unreadable else { return }
+        s.sync.snapshotFailures += 1
+        let attempt = s.sync.snapshotFailures
+        if attempt <= SnapshotRetryPolicy.maxRetries {
+            let id = "snap-\(s.sync.nextRequestNo)"
+            s.sync.nextRequestNo += 1
+            s.sync.resyncId = id
+            s.table.snapshotTrouble = .retrying(attempt: attempt)
+            fx.append(.retrySnapshot(requestId: id, attempt: attempt))
+        } else {
+            s.sync.resyncId = nil
+            s.sync.buffered = []
+            s.table.snapshotTrouble = .unreadable
+            // nothing can confirm or roll back a submission now
+            if let p = s.pending {
+                s.pending = nil
+                fx.append(.cancelAck(reqId: p.reqId))
+            }
+        }
     }
 
     // MARK: - helpers

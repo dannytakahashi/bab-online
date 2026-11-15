@@ -89,6 +89,15 @@ final class FakeSocketIOServer {
     /// Every stateSnapshot answer written to a held poll (so it reached the client's HTTP
     /// stack): the engine, the requestId it echoed, and when.
     var deliveredAnswers: [(engine: String, requestId: String, at: Date)] { queue.sync { _deliveredAnswers } }
+    /// Scripted answers to other events (LobbyRejoinTests: restoreSession, joinLobby): the
+    /// events to send back to the asking engine, in order. Runs on the server's queue.
+    var replies: ((_ name: String, _ payload: [String: Any]) -> [(String, [String: Any])])? {
+        get { queue.sync { _replies } }
+        set { queue.sync { _replies = newValue } }
+    }
+    private var _replies: ((String, [String: Any]) -> [(String, [String: Any])])?
+    /// The engine each recorded event came on (a reconnect is a new engine).
+    var eventEngines: [String] { queue.sync { _events.map(\.engine) } }
 
     func start() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -233,6 +242,12 @@ final class FakeSocketIOServer {
                       let name = array.first as? String else { return }
                 let payload = array.count > 1 ? (array[1] as? [String: Any] ?? [:]) : [:]
                 _events.append((engine.sid, name, payload))
+                for (event, data) in _replies?(name, payload) ?? [] {
+                    if let json = try? JSONSerialization.data(withJSONObject: [event, data]),
+                       let text = String(data: json, encoding: .utf8) {
+                        push("2" + text, to: engine)
+                    }
+                }
                 if name == "requestSnapshot", _answersSnapshots {
                     var reply: [String: Any] = ["snapshot": NSNull(), "reason": "not_in_game"]
                     if let id = payload["requestId"] { reply["requestId"] = id }
