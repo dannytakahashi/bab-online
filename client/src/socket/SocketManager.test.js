@@ -6,6 +6,9 @@ import {
   initializeSocketManager,
   resetSocketManager,
   PROBE_TIMEOUT_MS,
+  HOLD_MAX,
+  REFUSAL,
+  TABLE_EVENTS,
 } from './SocketManager.js';
 
 // Mock socket for testing
@@ -543,5 +546,50 @@ describe('reconnection events', () => {
   it('tolerates a socket without a Manager', () => {
     const bare = createMockSocket();
     expect(() => new SocketManager().initialize(bare)).not.toThrow();
+  });
+});
+
+describe('emit gate notices', () => {
+  let sm;
+  let socket;
+  let notices;
+  let gate;
+  beforeEach(() => {
+    socket = createMockSocket();
+    sm = new SocketManager();
+    sm.initialize(socket);
+    gate = { hasSession: () => true, isRestored: () => false, isOffline: () => false };
+    sm.setSessionGate(gate);
+    notices = { refused: vi.fn(), dropped: vi.fn() };
+    sm.setEmitNotices(notices);
+  });
+
+  it('a refusal says why: offline, or HOLD_MAX already waiting (not "offline" while reconnecting)', () => {
+    for (let i = 0; i < HOLD_MAX; i++) expect(socket.emit('lobbyChat', { message: `m${i}` })).toBeTruthy();
+    expect(socket.emit('lobbyChat', { message: 'one too many' })).toBe(false);
+    expect(notices.refused).toHaveBeenLastCalledWith('lobbyChat', REFUSAL.FULL);
+    sm.dropHeld();
+    gate.isOffline = () => true;
+    expect(socket.emit('lobbyChat', { message: 'offline' })).toBe(false);
+    expect(notices.refused).toHaveBeenLastCalledWith('lobbyChat', REFUSAL.OFFLINE);
+  });
+
+  it('dropHeld (sign-out, a failed restore) says what was lost: those drafts were cleared when held', () => {
+    socket.emit('chatMessage', { message: 'a' });
+    expect(sm.dropHeld()).toEqual(['chatMessage']);
+    expect(notices.dropped).toHaveBeenCalledWith(['chatMessage']);
+    notices.dropped.mockClear();
+    expect(sm.dropHeld()).toEqual([]);
+    expect(notices.dropped).not.toHaveBeenCalled();
+  });
+
+  it('flushHeld({drop}) sends the rest in order and reports the dropped ones', () => {
+    socket.emit('chatMessage', { message: 'table' });
+    socket.emit('getLeaderboard', {});
+    socket.emit('draw', {});
+    gate.isRestored = () => true;
+    sm.flushHeld(Date.now(), { drop: TABLE_EVENTS });
+    expect(socket._emit.mock.calls.map(([e]) => e)).toEqual(['getLeaderboard']);
+    expect(notices.dropped).toHaveBeenCalledWith(['chatMessage', 'draw']);
   });
 });

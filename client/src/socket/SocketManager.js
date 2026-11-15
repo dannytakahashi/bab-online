@@ -43,6 +43,19 @@ export const REFUSED_WHILE_RESTORING = new Set([
   CLIENT_EVENTS.PLAY_CARD, CLIENT_EVENTS.PLAYER_BID, CLIENT_EVENTS.ADMIN_REQUEST,
 ]);
 
+/**
+ * Emits that need this socket seated at its table: after a reconnect they
+ * wait for the rejoin's answer too (ClientSession), since the server
+ * resolves the sender by socket id and its rejoinGame seats the new socket
+ * only after an awaited auth check. A failed rejoin drops them.
+ */
+export const TABLE_EVENTS = new Set([
+  CLIENT_EVENTS.CHAT_MESSAGE, CLIENT_EVENTS.DRAW, CLIENT_EVENTS.FORCE_RESIGN,
+]);
+
+/** Why an emit was refused: the connection gave up, or HOLD_MAX are already waiting. */
+export const REFUSAL = Object.freeze({ OFFLINE: 'offline', FULL: 'full' });
+
 /** Chat events (a refusal keeps the draft; its notice says the message was not sent). */
 export const CHAT_EVENTS = new Set([
   CLIENT_EVENTS.CHAT_MESSAGE, CLIENT_EVENTS.MAIN_ROOM_CHAT, CLIENT_EVENTS.LOBBY_CHAT, CLIENT_EVENTS.TOURNAMENT_CHAT,
@@ -520,7 +533,7 @@ export class SocketManager {
     this._sessionGate = gate || null;
   }
 
-  /** {refused(event), dropped(events)}: the page's notices (main.js toasts). */
+  /** {refused(event, reason: REFUSAL), dropped(events)}: the page's notices (main.js toasts). */
   setEmitNotices(notices) {
     this._emitNotices = notices || null;
   }
@@ -551,36 +564,42 @@ export class SocketManager {
     let offline = false;
     try { offline = !!this._sessionGate.isOffline?.(); } catch { /* treat as reconnecting */ }
     if (offline || this._held.length >= HOLD_MAX) {
-      this._notice('refused', event);
+      this._notice('refused', event, offline ? REFUSAL.OFFLINE : REFUSAL.FULL);
       return false;
     }
     this._held.push({ event, args, at: Date.now() });
     return this._socket;
   }
 
-  /** The restore went out and was answered: send what was held, in order. */
-  flushHeld(now = Date.now()) {
+  /**
+   * The restore went out and was answered: send what was held, in order.
+   * @param {number} [now]
+   * @param {Object} [o]
+   * @param {Set<string>} [o.drop] - events that can no longer land (a failed rejoin: TABLE_EVENTS): dropped with the notice
+   */
+  flushHeld(now = Date.now(), { drop = null } = {}) {
     const held = this._held || [];
     if (!held.length) return;
     this._held = [];
-    const stale = [];
+    const lost = [];
     for (const h of held) {
-      if (now - h.at > HOLD_MAX_MS) stale.push(h.event);
+      if (now - h.at > HOLD_MAX_MS || drop?.has(h.event)) lost.push(h.event);
       else this._send(h.event, h.args);
     }
-    if (stale.length) this._notice('dropped', stale);
+    if (lost.length) this._notice('dropped', lost);
   }
 
-  /** Signed out (or the restore failed): nothing held may go out later. */
+  /** Signed out (or the restore failed): nothing held may go out later; their drafts are gone, so say so. */
   dropHeld() {
     const events = this.heldEvents;
     if (this._held) this._held = [];
+    if (events.length) this._notice('dropped', events);
     return events;
   }
 
-  _notice(kind, payload) {
+  _notice(kind, ...payload) {
     try {
-      this._emitNotices?.[kind]?.(payload);
+      this._emitNotices?.[kind]?.(...payload);
     } catch (err) {
       console.error('SocketManager: emit notice failed', err);
     }

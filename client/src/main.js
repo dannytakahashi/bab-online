@@ -28,7 +28,7 @@ import { PHASE, getGameState } from './state/GameState.js';
 import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 
 // Socket
-import { getSocketManager, initializeSocketManager, CHAT_EVENTS } from './socket/SocketManager.js';
+import { getSocketManager, initializeSocketManager, CHAT_EVENTS, REFUSAL } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
@@ -563,9 +563,13 @@ function initializeApp() {
   // The emit gate's notices: a refusal (offline; a chat form keeps the
   // draft), and what was held too long to send after the reconnect
   socketMgr.setEmitNotices({
-    refused: (event) => showWarning(CHAT_EVENTS.has(event)
-      ? "You're offline. Your message wasn't sent."
-      : "You're offline. Try again once you're back online."),
+    refused: (event, reason) => showWarning(reason === REFUSAL.FULL
+      ? (CHAT_EVENTS.has(event)
+        ? "Still reconnecting. Your message wasn't sent; try again in a moment."
+        : 'Still reconnecting. Try again in a moment.')
+      : (CHAT_EVENTS.has(event)
+        ? "You're offline. Your message wasn't sent."
+        : "You're offline. Try again once you're back online.")),
     dropped: (events) => showWarning(events.some((e) => CHAT_EVENTS.has(e))
       ? "A message from while you were reconnecting wasn't sent."
       : "An action from while you were reconnecting wasn't sent."),
@@ -1495,6 +1499,8 @@ function initializeApp() {
     onRejoinFailed: (data) => {
       // 'Already connected': this socket's seat is live, keep it
       const reason = typeof data === 'string' ? data : data?.reason;
+      // The emit gate waited for this answer (ClientSession.onSessionRestored)
+      session.noteRejoinFailed(reason);
       if (reason === 'Already connected') return;
       // The game is gone (or was left): take any table down, route out
       session.exitTable(EXIT.REJOIN_FAILED);
