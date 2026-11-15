@@ -2067,7 +2067,7 @@
           "password": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
         }
       ],
-      "notes": "Two per-socket budgets. The wrapper limit rateLimiter.signUp (20 / 5 min) counts every attempt and over it replies error {type:'rateLimit'}. Refusals by the new-name rules, the profanity filter and the taken check spend only that; an attempt past them (bcrypt hash + insert) also spends rateLimiter.signUpAccount (3 / 5 min), checked in-handler, and over it gets signUpResponse {success:false, message}. The same attempt then spends two budgets a reconnect does not reset (rateLimiter.buckets): signUpIp per client IP, an IPv6 address by its /64 (5 at once, then 5 an hour; skipped when the IP is unknown) and signUpGlobal for the whole server (20 at once, then 60 an hour); over either it gets signUpResponse {success:false, message} too."
+      "notes": "Two per-socket budgets. The wrapper limit rateLimiter.signUp (20 / 5 min) counts every attempt and over it replies error {type:'rateLimit'}. Refusals by the new-name rules, the profanity filter and the taken check spend only that; an attempt past them (bcrypt hash + insert) also spends rateLimiter.signUpAccount (3 / 5 min), checked in-handler, and over it gets signUpResponse {success:false, message}. The same attempt also spends budgets a reconnect does not reset (rateLimiter.buckets, all checked before any is spent, and before signUpAccount): signUpIp per client IP, an IPv6 address by its /64 (5 at once, then 5 an hour; skipped when the IP is unknown), signUpNet48 per IPv6 /48 (10 at once, then 10 an hour) and signUpGlobal for the whole server (20 at once, then 60 an hour); over any of them it gets signUpResponse {success:false, message} too."
     },
     "restoreSession": {
       "payload": {
@@ -2246,7 +2246,7 @@
       "optionalPayload": true,
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "joinMainRoom",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2407,7 +2407,7 @@
       "optionalPayload": true,
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "playerReady",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2425,7 +2425,7 @@
       "optionalPayload": true,
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "playerUnready",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2476,7 +2476,7 @@
       "optionalPayload": true,
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "leaveLobby",
       "sentBy": {
         "web": true,
         "ios": true
@@ -2494,7 +2494,7 @@
       "optionalPayload": true,
       "status": "active",
       "joi": null,
-      "rateLimit": null,
+      "rateLimit": "addBot",
       "sentBy": {
         "web": true,
         "ios": true

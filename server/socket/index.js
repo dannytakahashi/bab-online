@@ -64,7 +64,7 @@ function setupSocketHandlers(io) {
 
         // Main room events
         socket.on('joinMainRoom', () =>
-            safeHandler(mainRoomHandlers.joinMainRoom)(socket, io, {})
+            safeHandler(mainRoomHandlers.joinMainRoom, { limit: 'joinMainRoom' })(socket, io, {})
         );
         socket.on('mainRoomChat', (data) =>
             syncHandler('chatMessage', mainRoomHandlers.mainRoomChat, { event: 'mainRoomChat' })(socket, io, data)
@@ -81,19 +81,19 @@ function setupSocketHandlers(io) {
 
         // Lobby events
         socket.on('playerReady', () =>
-            safeHandler(lobbyHandlers.playerReady)(socket, io, {})
+            safeHandler(lobbyHandlers.playerReady, { limit: 'playerReady' })(socket, io, {})
         );
         socket.on('playerUnready', () =>
-            safeHandler(lobbyHandlers.playerUnready)(socket, io, {})
+            safeHandler(lobbyHandlers.playerUnready, { limit: 'playerUnready' })(socket, io, {})
         );
         socket.on('lobbyChat', (data) =>
             syncHandler('chatMessage', lobbyHandlers.lobbyChat, { event: 'lobbyChat' })(socket, io, data)
         );
         socket.on('leaveLobby', () =>
-            safeHandler(lobbyHandlers.leaveLobby)(socket, io, {})
+            safeHandler(lobbyHandlers.leaveLobby, { limit: 'leaveLobby' })(socket, io, {})
         );
         socket.on('addBot', () =>
-            safeHandler(lobbyHandlers.addBot)(socket, io, {})
+            safeHandler(lobbyHandlers.addBot, { limit: 'addBot' })(socket, io, {})
         );
         socket.on('removeBot', (data) =>
             syncHandler('removeBot', lobbyHandlers.removeBot)(socket, io, data)

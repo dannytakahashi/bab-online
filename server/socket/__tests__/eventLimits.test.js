@@ -1,6 +1,8 @@
 /**
  * Per-socket limits on the events that had none (restoreSession,
- * rejoinGame, joinLobby, joinAsSpectator, getProfile, updateProfilePic),
+ * rejoinGame, joinLobby, joinAsSpectator, getProfile, updateProfilePic,
+ * and the no-payload joinMainRoom, playerReady, playerUnready, leaveLobby,
+ * addBot through safeHandler's `limit`),
  * through the handlers setupSocketHandlers registers: within the limit
  * every event reaches its handler, past it the usual serverError
  * {code:'rateLimit'} answers and the handler is not called, and a new
@@ -14,6 +16,7 @@ const { socketLogger } = require('../../utils/logger');
 const authHandlers = require('../authHandlers');
 const reconnectHandlers = require('../reconnectHandlers');
 const mainRoomHandlers = require('../mainRoomHandlers');
+const lobbyHandlers = require('../lobbyHandlers');
 const profileHandlers = require('../profileHandlers');
 
 const UUID = '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f';
@@ -47,6 +50,11 @@ const CASES = [
     ['joinLobby', { lobbyId: UUID }, [mainRoomHandlers, 'joinLobby'], { max: 20, windowMs: 30000 }],
     ['joinAsSpectator', { gameId: UUID }, [mainRoomHandlers, 'joinAsSpectator'], { max: 20, windowMs: 30000 }],
     ['updateProfilePic', { profilePic: 12 }, [profileHandlers, 'updateProfilePic'], { max: 30, windowMs: 60000 }],
+    ['joinMainRoom', undefined, [mainRoomHandlers, 'joinMainRoom'], { max: 30, windowMs: 60000 }],
+    ['playerReady', undefined, [lobbyHandlers, 'playerReady'], { max: 20, windowMs: 10000 }],
+    ['playerUnready', undefined, [lobbyHandlers, 'playerUnready'], { max: 20, windowMs: 10000 }],
+    ['leaveLobby', undefined, [lobbyHandlers, 'leaveLobby'], { max: 20, windowMs: 30000 }],
+    ['addBot', { personality: 'mary' }, [lobbyHandlers, 'addBot'], { max: 20, windowMs: 30000 }],
 ];
 
 beforeEach(() => {
@@ -139,6 +147,30 @@ describe('unknown limit keys', () => {
             process.env.NODE_ENV = env;
         }
         expect(warned()).toEqual([]);
+    });
+
+    test('every socket.on event in socket/index.js has a limit: its wrapper key, safeHandler\'s limit, or one checked in its handler; or it is listed as unlimited', () => {
+        const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
+        // Registered without a wrapper limit and checked inside the handler (each with its own over-limit reply)
+        const IN_HANDLER = ['clientHello', 'getProfile', 'getLeaderboard', 'getRecords', 'voiceOffer', 'voiceAnswer', 'voiceIceCandidate'];
+        const regs = [...src.matchAll(/socket\.on\('([a-zA-Z]+)',[^\n]*\n\s*([^\n]*)/g)].map((m) => [m[1], m[2]]);
+        expect(regs.length).toBeGreaterThan(50);
+        const unlimitedNow = [];
+        for (const [event, line] of regs) {
+            if (event === 'disconnect') continue;
+            const wrapped = /^(?:asyncHandler|syncHandler)\('([a-zA-Z]+)'/.exec(line);
+            const safeLimit = /^safeHandler\([^)]*\{ limit: '([a-zA-Z]+)' \}\)/.exec(line);
+            const key = (wrapped && !/rateLimit: false/.test(line) && wrapped[1]) || (safeLimit && safeLimit[1]) || null;
+            const ok = key
+                ? Boolean(rateLimiter.limits[key]) || rateLimiter.unlimited.has(key)
+                : IN_HANDLER.includes(event) && Boolean(rateLimiter.limits[event]);
+            if (!ok) unlimitedNow.push(event);
+        }
+        expect(unlimitedNow).toEqual([]);
+        for (const event of IN_HANDLER) {
+            expect({ event, registeredUnwrapped: regs.some(([e, l]) => e === event && (/^safeHandler\(/.test(l) || /rateLimit: false/.test(l))) })
+                .toEqual({ event, registeredUnwrapped: true });
+        }
     });
 
     test('every key a wrapper in socket/index.js checks has a limit or is listed as deliberately unlimited', () => {

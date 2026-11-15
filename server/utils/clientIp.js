@@ -96,14 +96,8 @@ function warnOnce(kind, message, details) {
     authLogger.warn(message, details);
 }
 
-/**
- * The key a per-client limit counts an address under: an IPv4 address as
- * is, an IPv6 address by its /64 (a home or VPS gets a whole /64, so
- * per-address keys would let one client rotate through billions of
- * buckets). Used by the reset route and the sign-up limit.
- */
-function ipBucketKey(ip) {
-    if (!net.isIPv6(ip)) return ip;
+/** The eight 16-bit groups of an IPv6 address, as numbers. */
+function v6Groups(ip) {
     let s = ip.toLowerCase().split('%')[0];
     if (s.includes('.')) { // an embedded IPv4 tail (e.g. 64:ff9b::192.0.2.1)
         const cut = s.lastIndexOf(':') + 1;
@@ -114,7 +108,28 @@ function ipBucketKey(ip) {
     const head = h ? h.split(':') : [];
     const tail = t ? t.split(':') : [];
     const groups = t === undefined ? head : [...head, ...Array(8 - head.length - tail.length).fill('0'), ...tail];
-    return `${groups.slice(0, 4).map(g => parseInt(g, 16).toString(16)).join(':')}::/64`;
+    return groups.map(g => parseInt(g, 16));
+}
+
+/**
+ * The key a per-client limit counts an address under: an IPv4 address as
+ * is, an IPv6 address by its /64 (a home or VPS gets a whole /64, so
+ * per-address keys would let one client rotate through billions of
+ * buckets). Used by the reset route and the sign-up limit.
+ */
+function ipBucketKey(ip) {
+    if (!net.isIPv6(ip)) return ip;
+    return `${v6Groups(ip).slice(0, 4).map(g => g.toString(16)).join(':')}::/64`;
+}
+
+/**
+ * The /48 an IPv6 address is in (null for IPv4): one customer or VPS
+ * allocation is often a /48 or /56, i.e. 256 to 65,536 /64s, so the
+ * sign-up limit also counts the /48 (rateLimiter.buckets.signUpNet48).
+ */
+function ipNet48Key(ip) {
+    if (!net.isIPv6(ip)) return null;
+    return `${v6Groups(ip).slice(0, 3).map(g => g.toString(16)).join(':')}::/48`;
 }
 
 /**
@@ -146,6 +161,7 @@ function getClientIp(socket) {
 module.exports = {
     getClientIp,
     ipBucketKey,
+    ipNet48Key,
     isProxyPeer,
     describeClientAddress,
     _normalize: normalize,

@@ -138,11 +138,13 @@ describe('(a) client -> server events', () => {
     test('joi / rateLimit metadata matches the wrapper each handler is registered with', () => {
         for (const name of contract.c2sNames()) {
             const entry = contract.schema.c2s[name];
-            const m = new RegExp(`socket\\.on\\('${name}',[^\\n]*\\n\\s*(asyncHandler|syncHandler|safeHandler)\\((?:'([a-zA-Z]+)')?`).exec(indexSrc);
+            const m = new RegExp(`socket\\.on\\('${name}',[^\\n]*\\n\\s*(asyncHandler|syncHandler|safeHandler)\\((?:'([a-zA-Z]+)')?([^\\n]*)`).exec(indexSrc);
             expect({ name, registered: !!m }).toEqual({ name, registered: true });
             const key = m[2] || null;
+            // safeHandler(fn, { limit: 'key' }): a limit with no schema
+            const limitKey = key || (/\{ limit: '([a-zA-Z]+)' \}/.exec(m[3]) || [])[1] || null;
             expect({ name, joi: entry.joi }).toEqual({ name, joi: key && validators.schemas[key] ? key : null });
-            expect({ name, rateLimit: entry.rateLimit }).toEqual({ name, rateLimit: key && rateLimiter.limits[key] ? key : null });
+            expect({ name, rateLimit: entry.rateLimit }).toEqual({ name, rateLimit: limitKey && rateLimiter.limits[limitKey] ? limitKey : null });
         }
     });
 

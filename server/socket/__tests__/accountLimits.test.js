@@ -1,8 +1,8 @@
 /**
  * Limits that outlive a socket, through the real auth handlers:
- * - sign-ups per client IP (IPv6 by its /64) and server-wide
- *   (rateLimiter.buckets signUpIp / signUpGlobal), which a reconnect does
- *   not reset;
+ * - sign-ups per client IP (IPv6 by its /64 and its /48) and server-wide
+ *   (rateLimiter.buckets signUpIp / signUpNet48 / signUpGlobal), which a
+ *   reconnect does not reset;
  * - the hash pool keeps room for compares, so a sign-up flood never turns
  *   a real sign-in into "Server is busy" (passwordHash MAX_PENDING_HASH,
  *   with a fake slow hasher);
@@ -45,6 +45,7 @@ const NETWORK = /^Too many new accounts from this network\. Please try again in 
 const SERVER_WIDE = 'Too many new accounts are being created right now. Please try again in a few minutes.';
 const SIGN_IN_THROTTLED = 'Too many failed sign-in attempts. Please wait a few minutes and try again.';
 const DELETE_THROTTLED = 'Too many incorrect passwords. Please wait a few minutes and try again.';
+const SIGN_UP_LIMIT = 'Too many sign-up attempts. Please wait a few minutes and try again.';
 const HOUR = 3600000;
 
 let io;
@@ -96,6 +97,7 @@ afterEach(() => {
 describe('sign-ups per client IP (rateLimiter.buckets.signUpIp)', () => {
     test('the production budget: 5 at once, then 5 an hour per IP; 20 at once, then 60 an hour server-wide', () => {
         expect(rateLimiter.buckets.signUpIp).toEqual({ burst: 5, perHour: 5, maxKeys: 10000 });
+        expect(rateLimiter.buckets.signUpNet48).toEqual({ burst: 10, perHour: 10, maxKeys: 10000 });
         expect(rateLimiter.buckets.signUpGlobal).toMatchObject({ burst: 20, perHour: 60 });
     });
 
@@ -125,6 +127,17 @@ describe('sign-ups per client IP (rateLimiter.buckets.signUpIp)', () => {
         expect(await signUp(connect('2001:db8:1:3::1'))).toMatchObject({ success: true });
     });
 
+    test('IPv6 also counts by its /48: rotating /64s inside one allocation stops at 10; another /48 is apart', async () => {
+        for (let i = 0; i < 10; i++) expect(await signUp(connect(`2001:db8:7:${(i + 1).toString(16)}::1`))).toMatchObject({ success: true });
+        const refused = await signUp(connect('2001:db8:7:ff::1'));
+        expect(refused.message).toMatch(NETWORK);
+        expect(refused.message).toBe('Too many new accounts from this network. Please try again in 6 minutes.');
+        expect(rateLimiter.bucketState.get('signUpIp').has('2001:db8:7:ff::/64')).toBe(false);
+        expect(await signUp(connect('2001:db8:8:1::1'))).toMatchObject({ success: true });
+        // IPv4 has no such tier
+        expect(rateLimiter.bucketState.get('signUpNet48').size).toBe(2);
+    });
+
     test('it refills: one more sign-up 12 minutes later, and the message says how long to wait', async () => {
         for (let i = 0; i < 5; i++) await signUp(connect('203.0.113.9'));
         expect((await signUp(connect('203.0.113.9'))).message).toBe('Too many new accounts from this network. Please try again in 12 minutes.');
@@ -151,6 +164,25 @@ describe('sign-ups per client IP (rateLimiter.buckets.signUpIp)', () => {
 
     test('an unknown client IP skips the per-IP bucket (never one shared key); the server-wide one still applies', async () => {
         for (let i = 0; i < 8; i++) expect(await signUp(connect(null))).toMatchObject({ success: true });
+    });
+
+    test('a full key map never drops a spent key: refilled keys make room, else a new key is refused (fails closed)', () => {
+        const cfg = rateLimiter.buckets.signUpIp;
+        const saved = cfg.maxKeys;
+        cfg.maxKeys = 3;
+        try {
+            for (const key of ['a', 'b', 'c']) for (let i = 0; i < 5; i++) expect(rateLimiter.take('signUpIp', key).ok).toBe(true);
+            const refused = rateLimiter.take('signUpIp', 'd');
+            expect(refused.ok).toBe(false);
+            expect(refused.retryAfterMs).toBe(HOUR);
+            expect([...rateLimiter.bucketState.get('signUpIp').keys()]).toEqual(['a', 'b', 'c']);
+            expect(rateLimiter.take('signUpIp', 'a').ok).toBe(false); // still spent, not reset
+            clock += HOUR; // all three refilled: the same as no entry, so they give way
+            expect(rateLimiter.take('signUpIp', 'd').ok).toBe(true);
+            expect([...rateLimiter.bucketState.get('signUpIp').keys()]).toEqual(['d']);
+        } finally {
+            cfg.maxKeys = saved;
+        }
     });
 
     test('memory stays bounded: the sweep drops refilled buckets', async () => {
@@ -186,6 +218,24 @@ describe('the server-wide ceiling (rateLimiter.buckets.signUpGlobal)', () => {
         expect(await signUp(connect('198.51.100.204'))).toEqual({ success: false, message: SERVER_WIDE });
         expect(ceilingLines()).toHaveLength(2);
         expect(ceilingLines()[1][1]).toMatchObject({ refusedSinceLastLine: 2 });
+    });
+
+    test('a refusal by the ceiling writes no per-IP key (rotating addresses cannot fill the map)', async () => {
+        for (let i = 0; i < 20; i++) await signUp(connect(`198.51.100.${i + 1}`));
+        for (let i = 0; i < 50; i++) expect((await signUp(connect(`192.0.2.${i + 1}`))).message).toBe(SERVER_WIDE);
+        for (let i = 0; i < 20; i++) expect((await signUp(connect(`2001:db8:9:${i.toString(16)}::1`))).message).toBe(SERVER_WIDE);
+        expect(rateLimiter.bucketState.get('signUpIp').size).toBe(20);
+        expect(rateLimiter.bucketState.get('signUpNet48')).toBeUndefined();
+    });
+
+    test('retrying on one socket after a ceiling refusal never spends the per-socket account budget', async () => {
+        for (let i = 0; i < 20; i++) await signUp(connect(`198.51.100.${i + 1}`));
+        const s = connect('203.0.113.70');
+        for (let i = 0; i < 6; i++) expect((await signUp(s)).message).toBe(SERVER_WIDE);
+        clock += HOUR / 20; // 3 server-wide tokens back
+        for (let i = 0; i < 3; i++) expect(await signUp(s)).toMatchObject({ success: true });
+        // signUpAccount (3 / 5 min) still caps that socket, checked before any bucket
+        expect((await signUp(s)).message).toBe(SIGN_UP_LIMIT);
     });
 
     test('a refusal by the ceiling does not spend the IP\'s own budget', async () => {
@@ -304,7 +354,18 @@ describe('deleteAccount counts in the failed-sign-in throttle', () => {
         }
     });
 
-    test('not counted: no account, a busy pool', async () => {
+    test('not counted: no account', async () => {
+        const ip = '203.0.113.64';
+        gameManager.getUserBySocketId.mockReturnValue({ username: 'Ghost' });
+        for (let i = 0; i < signInThrottle.LIMITS.pair + 2; i++) {
+            const s = connect(ip);
+            await auth.deleteAccount(s, io, { password: 'guess' });
+            expect(lastEmit(s, 'deleteAccountResponse')).toEqual({ success: false, message: 'Account not found' });
+        }
+        expect(signInThrottle.check({ username: 'Ghost', ip }).ok).toBe(true);
+    });
+
+    test('not counted: a busy pool', async () => {
         const ip = '203.0.113.63';
         const busy = Object.assign(new Error('full'), { code: 'HASH_BUSY' });
         const spy = jest.spyOn(passwordHash, 'compare');

@@ -97,6 +97,18 @@ class RateLimiter {
             // lists, so a bot clicking stops here
             joinLobby: { max: 20, windowMs: 30000 },
             joinAsSpectator: { max: 20, windowMs: 30000 },
+            // No-payload table events (safeHandler's `limit`, checked at the
+            // socket event only: joinMainRoom also leaves a lobby through
+            // leaveLobby internally). Ready / Unready / Add Bot / Leave are
+            // one per tap (web GameLobby, iOS LobbyEmitter), and each
+            // broadcasts lobby state. joinMainRoom: web on entering the
+            // main room; iOS on MainRoomView appear and after a sign-in,
+            // restore, game end or tournament exit, so a few at once
+            joinMainRoom: { max: 30, windowMs: 60000 },
+            playerReady: { max: 20, windowMs: 10000 },
+            playerUnready: { max: 20, windowMs: 10000 },
+            leaveLobby: { max: 20, windowMs: 30000 },
+            addBot: { max: 20, windowMs: 30000 },
             // Web only: the Profile button and the stats scope tabs (a DB
             // read each). Checked in profileHandlers.getProfile (it has no
             // schema), same serverError over the limit
@@ -138,7 +150,7 @@ class RateLimiter {
         // development and test, so a new event gets a limit or a line here
         this.unlimited = new Set([
             // Seat actions bounded by the game itself (a resign offer per
-            // seat; a bot removal per bot in the lobby)
+            // seat; a bot removal per bot in the lobby, and addBot is limited)
             'forceResign',
             'removeBot'
         ]);
@@ -148,16 +160,27 @@ class RateLimiter {
         // { burst: capacity, perHour: refill rate, maxKeys }. A missing key
         // is a full bucket, so a bucket that has refilled is dropped by the
         // sweep below and memory stays bounded by the keys active within
-        // about an hour (and maxKeys, oldest dropped first).
+        // about an hour. maxKeys is a backstop: only refilled keys are ever
+        // dropped to make room, and a map full of spent keys refuses new
+        // keys (fails closed, like signInThrottle), so rotating addresses
+        // can never push a spent key out and reset it.
         // - signUpIp: accounts created per client IP (IPv6 by its /64,
         //   clientIp.ipBucketKey), charged only for an attempt that will
         //   hash and insert (authHandlers.signUp). 5 at once covers a
         //   family installing together behind one router; then 5 an hour
+        // - signUpNet48: the same per IPv6 /48 (clientIp.ipNet48Key; IPv4
+        //   has no such tier). One VPS or customer allocation is 256 to
+        //   65,536 /64s, so without it a single host could drain
+        //   signUpGlobal alone. 10 at once, then 10 an hour
         // - signUpGlobal: accounts created on the whole server, so rotating
         //   IPs cannot flood users or fill the hash pool either. Far above
-        //   a family app's real rate; a warn line says when it bites
+        //   a family app's real rate; a warn line says when it bites. The
+        //   known trade-off: about 12 IPv4 addresses (or /48s) keeping it
+        //   empty refuse every new account until they stop (existing
+        //   accounts are unaffected); the warn line is the one to alert on
         this.buckets = {
             signUpIp: { burst: 5, perHour: 5, maxKeys: 10000 },
+            signUpNet48: { burst: 10, perHour: 10, maxKeys: 10000 },
             signUpGlobal: { burst: 20, perHour: 60, maxKeys: 1 }
         };
         // bucket name -> Map<key, {tokens, at}>
@@ -222,36 +245,68 @@ class RateLimiter {
         socketLogger.warn('Rate limiter: event has no limit (add one to rateLimiter.limits, or to unlimited)', { event });
     }
 
-    /** The bucket `name` / `key` refilled to now (not stored). */
-    refill(name, key, now) {
+    /** The bucket `name` / `key` (or the stored entry `stored`) refilled to now (not stored). */
+    refill(name, key, now, stored = this.bucketState.get(name)?.get(key)) {
         const cfg = this.buckets[name];
-        const b = this.bucketState.get(name)?.get(key);
+        const b = stored;
         if (!b) return { tokens: cfg.burst, at: now };
         const tokens = Math.min(cfg.burst, b.tokens + ((now - b.at) / 3600000) * cfg.perHour);
         return { tokens, at: now };
     }
 
     /**
-     * Take one token from bucket `name` for `key`.
+     * Whether a token could be taken now, without taking it (so several
+     * buckets can be checked before any is charged).
      * @returns {{ok: boolean, retryAfterMs: number}} retryAfterMs: until a
      *   token is back (0 when ok)
      */
-    take(name, key, now = Date.now()) {
+    peek(name, key, now = Date.now()) {
         const cfg = this.buckets[name];
+        const map = this.bucketState.get(name);
+        if (map && !map.has(key) && !this.makeRoom(name, map, now)) {
+            // Full of spent keys: refuse a new one until the oldest refills
+            const [, oldest] = map.entries().next().value;
+            const deficit = cfg.burst - this.refill(name, null, now, oldest).tokens;
+            return { ok: false, retryAfterMs: Math.ceil((deficit / cfg.perHour) * 3600000) };
+        }
+        const b = this.refill(name, key, now);
+        if (b.tokens < 1) {
+            return { ok: false, retryAfterMs: Math.ceil(((1 - b.tokens) / cfg.perHour) * 3600000) };
+        }
+        return { ok: true, retryAfterMs: 0 };
+    }
+
+    /**
+     * Room for one more key in a bucket map: drop refilled keys (the same
+     * as no entry). Never drops a key that still owes tokens.
+     * @returns {boolean} whether a new key fits
+     */
+    makeRoom(name, map, now) {
+        const cfg = this.buckets[name];
+        if (map.size < cfg.maxKeys) return true;
+        for (const key of Array.from(map.keys())) {
+            if (this.refill(name, key, now).tokens >= cfg.burst) map.delete(key);
+        }
+        return map.size < cfg.maxKeys;
+    }
+
+    /**
+     * Take one token from bucket `name` for `key`.
+     * @returns {{ok: boolean, retryAfterMs: number}} as peek()
+     */
+    take(name, key, now = Date.now()) {
+        const seen = this.peek(name, key, now);
+        if (!seen.ok) return seen;
         let map = this.bucketState.get(name);
         if (!map) {
             map = new Map();
             this.bucketState.set(name, map);
         }
         const b = this.refill(name, key, now);
-        if (b.tokens < 1) {
-            return { ok: false, retryAfterMs: Math.ceil(((1 - b.tokens) / cfg.perHour) * 3600000) };
-        }
         b.tokens -= 1;
         map.delete(key); // re-insert: insertion order = least recently used first
         map.set(key, b);
-        while (map.size > cfg.maxKeys) map.delete(map.keys().next().value);
-        return { ok: true, retryAfterMs: 0 };
+        return seen;
     }
 
     /** Give back a token taken for an attempt that did no work (a busy hash pool). */

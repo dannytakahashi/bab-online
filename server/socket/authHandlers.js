@@ -5,7 +5,7 @@
 const passwordHash = require('../utils/passwordHash');
 const signInThrottle = require('./signInThrottle');
 const rateLimiter = require('./rateLimiter');
-const { describeClientAddress, ipBucketKey } = require('../utils/clientIp');
+const { describeClientAddress, ipBucketKey, ipNet48Key } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
@@ -467,32 +467,38 @@ function noteSignUpRefusal(kind, message, details) {
 
 /**
  * The sign-up limits that outlive a socket (rateLimiter.buckets): per
- * client IP, IPv6 by its /64 (skipped when the IP is unknown, as in
- * signInThrottle: never one shared key for everyone), then server-wide.
+ * client IP, IPv6 by its /64 and its /48 (skipped when the IP is unknown,
+ * as in signInThrottle: never one shared key for everyone), then
+ * server-wide. Every bucket is checked before any is charged, so a refused
+ * attempt writes no key (a flood refused by the ceiling cannot fill the
+ * per-IP map).
  * @returns {{ok: true, refund: Function} | {ok: false, message: string}}
  */
 function takeSignUpSlot(socket) {
     const ip = socket.data?.clientIp ?? null;
-    const ipKey = ip ? ipBucketKey(ip) : null;
-    if (ipKey) {
-        const perIp = rateLimiter.take('signUpIp', ipKey);
-        if (!perIp.ok) {
-            noteSignUpRefusal('ip', 'Sign-up refused: per-IP account limit', { ip: ipKey, retryAfterMs: perIp.retryAfterMs });
-            return { ok: false, message: signUpNetworkMessage(perIp.retryAfterMs) };
+    const charges = [];
+    if (ip) {
+        charges.push(['signUpIp', ipBucketKey(ip)]);
+        const net48 = ipNet48Key(ip);
+        if (net48) charges.push(['signUpNet48', net48]);
+    }
+    charges.push(['signUpGlobal', 'all']);
+    for (const [name, key] of charges) {
+        const seen = rateLimiter.peek(name, key);
+        if (seen.ok) continue;
+        if (name === 'signUpGlobal') {
+            const { burst, perHour } = rateLimiter.buckets.signUpGlobal;
+            noteSignUpRefusal('global', 'Sign-up ceiling reached: refusing new accounts server-wide', { burst, perHour, retryAfterMs: seen.retryAfterMs });
+            return { ok: false, message: SIGN_UP_SERVER_LIMIT_MESSAGE };
         }
+        noteSignUpRefusal('ip', 'Sign-up refused: per-IP account limit', { ip: key, bucket: name, retryAfterMs: seen.retryAfterMs });
+        return { ok: false, message: signUpNetworkMessage(seen.retryAfterMs) };
     }
-    const global = rateLimiter.take('signUpGlobal', 'all');
-    if (!global.ok) {
-        if (ipKey) rateLimiter.refund('signUpIp', ipKey);
-        const { burst, perHour } = rateLimiter.buckets.signUpGlobal;
-        noteSignUpRefusal('global', 'Sign-up ceiling reached: refusing new accounts server-wide', { burst, perHour, retryAfterMs: global.retryAfterMs });
-        return { ok: false, message: SIGN_UP_SERVER_LIMIT_MESSAGE };
-    }
+    for (const [name, key] of charges) rateLimiter.take(name, key);
     return {
         ok: true,
         refund: () => {
-            if (ipKey) rateLimiter.refund('signUpIp', ipKey);
-            rateLimiter.refund('signUpGlobal', 'all');
+            for (const [name, key] of charges) rateLimiter.refund(name, key);
         }
     };
 }
@@ -564,19 +570,22 @@ async function signUp(socket, io, data) {
         // the wrapper's wider signUp cap, so a player trying names is never
         // locked out by the rules. Over the budget: an ordinary refusal,
         // which both clients show (never serverError, a generic toast on iOS).
-        if (!rateLimiter.check(socket.id, 'signUpAccount')) {
+        if (rateLimiter.getRemaining(socket.id, 'signUpAccount') < 1) {
             socket.emit('signUpResponse', { success: false, message: SIGN_UP_LIMIT_MESSAGE });
             authLogger.warn('Sign-up refused: account budget spent', { socketId: socket.id });
             return;
         }
         // The same kind of attempt against the budgets a reconnect does not
-        // reset: per client IP and server-wide (takeSignUpSlot)
+        // reset: per client IP and server-wide (takeSignUpSlot). Checked
+        // before signUpAccount is spent, so retrying after one of these
+        // refusals never turns into the per-socket message
         const taken = takeSignUpSlot(socket);
         if (!taken.ok) {
             socket.emit('signUpResponse', { success: false, message: taken.message });
             return;
         }
         slot = taken;
+        rateLimiter.check(socket.id, 'signUpAccount'); // remaining >= 1 above, nothing awaited since
 
         // Session token for reconnection (this device's first session)
         const session = issueSession(null);

@@ -22,18 +22,21 @@ function eventOf(schemaName, handler, options) {
  * Wrap an async socket handler with rate limiting, validation, and error handling
  * @param {string} schemaName - Name of validation schema (or null to skip validation)
  * @param {Function} handler - Async handler function (socket, io, data) => Promise
- * @param {Object} options - { rateLimit = true, event }: event is the c2s
- *   event name reported as the error's handler, when it is not schemaName
- *   (the chat events share the chatMessage schema and rate-limit key)
+ * @param {Object} options - { rateLimit = true, event, limitKey }: event is
+ *   the c2s event name reported as the error's handler, when it is not
+ *   schemaName (the chat events share the chatMessage schema and rate-limit
+ *   key); limitKey is the rate-limit key when it is not schemaName (an
+ *   event with no schema, safeHandler's `limit`)
  * @returns {Function} - Wrapped handler
  */
 function asyncHandler(schemaName, handler, options = {}) {
     const { rateLimit = true } = options;
+    const limitKey = options.limitKey || schemaName;
     const event = eventOf(schemaName, handler, options);
     return async (socket, io, data) => {
         try {
             // Check rate limit first
-            if (rateLimit && schemaName && !rateLimiter.check(socket.id, schemaName)) {
+            if (rateLimit && limitKey && !rateLimiter.check(socket.id, limitKey)) {
                 emitError(socket, {
                     type: 'rateLimit',
                     message: 'Too many requests, please slow down',
@@ -135,13 +138,16 @@ function handleError(socket, handlerName, error) {
 }
 
 /**
- * Create a simple wrapper that just adds error handling (no validation or rate limiting)
+ * Create a simple wrapper that just adds error handling (no validation)
  * Useful for handlers that don't need input validation
  * @param {Function} handler - Handler function
+ * @param {Object} [options] - { limit }: a rateLimiter key checked here,
+ *   at the socket event (never on the handler's internal callers), with
+ *   the wrappers' serverError {code:'rateLimit'} over it; none: no limit
  * @returns {Function} - Wrapped handler
  */
-function safeHandler(handler) {
-    return asyncHandler(null, handler, { rateLimit: false });
+function safeHandler(handler, { limit = null } = {}) {
+    return asyncHandler(null, handler, { rateLimit: !!limit, limitKey: limit, event: limit || undefined });
 }
 
 module.exports = {
