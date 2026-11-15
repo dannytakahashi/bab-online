@@ -376,6 +376,107 @@ describe('searchCard', () => {
         expect(off.some(d => d[4].some(c => isTrump(c, trump)))).toBe(true);
     });
 
+    /** Up to `n` sampled deals in at most 4n draws: never loops on a dead position. */
+    const boundedSample = (pos, rng, n) => {
+        const out = [];
+        for (let i = 0; i < 4 * n && out.length < n; i++) {
+            const d = sampleDeal(pos, rng);
+            if (d) out.push(d);
+        }
+        return out;
+    };
+
+    test('last seat: a player who declines a ruff and ruffs later is read as holding trump again', () => {
+        // Hearts trump, 5-card hand. Trick 0: seat 1 led the K of spades and it
+        // held; seat 4, last, threw a diamond instead of ruffing (no trump, as
+        // read). Trick 1: seat 1 led the Q of spades and seat 4 ruffed with the
+        // 5 of hearts, so it did hold trump: the read is lifted. Seat 4 then
+        // led the 8 of clubs and seat 1 (the bot) is to play.
+        const trump = card('hearts', '2');
+        const trick0 = [
+            { suit: 'spades', rank: 'K', position: 1, trickIndex: 0, isLead: true },
+            { suit: 'spades', rank: '3', position: 2, trickIndex: 0, isLead: false },
+            { suit: 'spades', rank: '4', position: 3, trickIndex: 0, isLead: false },
+            { suit: 'diamonds', rank: '4', position: 4, trickIndex: 0, isLead: false }
+        ];
+        const trick1 = (seat4) => [
+            { suit: 'spades', rank: 'Q', position: 1, trickIndex: 1, isLead: true },
+            { suit: 'spades', rank: '6', position: 2, trickIndex: 1, isLead: false },
+            { suit: 'spades', rank: '7', position: 3, trickIndex: 1, isLead: false },
+            { ...seat4, position: 4, trickIndex: 1, isLead: false }
+        ];
+        const ruffed = { trickIndex: 2, playedCards: [...trick0, ...trick1(card('hearts', '5'))] };
+        const declinedTwice = { trickIndex: 2, playedCards: [...trick0, ...trick1(card('diamonds', '5'))] };
+        const hand = [card('clubs', 'K'), card('clubs', '3'), card('hearts', '9')];
+        const table = [undefined, undefined, undefined, card('clubs', '8')];
+        const rng = mulberry32(3);
+
+        const lifted = readPosition(hand, table, 4, trump, 1, ruffed, 5);
+        expect(lifted).not.toBeNull();
+        expect(lifted.loose).toBeNull(); // no read left on anyone
+        const seat4 = lifted.others.find(o => o.pos === 4);
+        expect(seat4.need).toBe(2);
+        expect(lifted.unseen.filter(c => isTrump(c, trump)).every(c => seat4.allowed.has(code(c)))).toBe(true);
+        const deals = boundedSample(lifted, rng, 200);
+        expect(deals).toHaveLength(200);
+        expect(deals.some(d => d[4].some(c => isTrump(c, trump)))).toBe(true);
+        // Still void in spades: that one is a rule, not a read
+        expect(deals.every(d => d[4].every(c => c.suit !== 'spades'))).toBe(true);
+
+        // Declining twice keeps the read: no trump for seat 4
+        const kept = readPosition(hand, table, 4, trump, 1, declinedTwice, 5);
+        expect(boundedSample(kept, rng, 200).every(d => d[4].every(c => !isTrump(c, trump)))).toBe(true);
+
+        // The search runs on the lifted read and plays a legal card
+        const legal = getLegalCards(hand, table[3], false, trump, true, 1, 4);
+        expect(legal).toHaveLength(2);
+        const ctx = { playerBids: ['2', '1', '1', '1'], bids: { team1: 3, team2: 2 }, tricks: { team1: 1, team2: 1 }, team1Mult: 1, team2Mult: 1 };
+        const stats = {};
+        const q = { hand, legal, ruleCard: legal[0], playedCards: table, leadPosition: 4, trump, trumpBroken: true, position: 1, memory: ruffed, handSize: 5, playContext: ctx, stats };
+        const found = searchCard(q);
+        expect(stats.samples).toBeGreaterThanOrEqual(SEARCH.minSamples);
+        if (found !== null) expect(legal).toContain(found);
+        const chosen = selectOptimalCard(hand, table, table[3], 4, trump, true, 1, ruffed, 5, ctx, 'mary');
+        expect(legal).toContain(chosen);
+    });
+
+    test('last seat: reads that leave a hand too few cards are dropped, not a reason to give up', () => {
+        // Hearts trump, 7-card hand, the bot (seat 1) holds the top five
+        // diamonds. Seat 4 showed out of spades and clubs, each time throwing a
+        // diamond instead of ruffing; seats 2 and 3 threw diamonds too. Read
+        // literally seat 4 holds only diamonds, and just two are left for its
+        // five cards: the reads must be wrong, so the search deals from the
+        // rules alone (any trump for seat 4) instead of returning nothing.
+        const trump = card('hearts', '2');
+        const memory = {
+            trickIndex: 2,
+            playedCards: [
+                { suit: 'spades', rank: 'A', position: 1, trickIndex: 0, isLead: true },
+                { suit: 'diamonds', rank: '5', position: 2, trickIndex: 0, isLead: false },
+                { suit: 'diamonds', rank: '6', position: 3, trickIndex: 0, isLead: false },
+                { suit: 'diamonds', rank: '2', position: 4, trickIndex: 0, isLead: false },
+                { suit: 'clubs', rank: 'A', position: 1, trickIndex: 1, isLead: true },
+                { suit: 'diamonds', rank: '7', position: 2, trickIndex: 1, isLead: false },
+                { suit: 'diamonds', rank: '8', position: 3, trickIndex: 1, isLead: false },
+                { suit: 'diamonds', rank: '3', position: 4, trickIndex: 1, isLead: false }
+            ]
+        };
+        const hand = ['A', 'K', 'Q', 'J', '10'].map(r => card('diamonds', r));
+        const none = [undefined, undefined, undefined, undefined];
+        const pos = readPosition(hand, none, null, trump, 1, memory, 7);
+        expect(pos).not.toBeNull();
+        expect(pos.loose).toBeNull();
+        const deals = boundedSample(pos, mulberry32(4), 100);
+        expect(deals.length).toBeGreaterThanOrEqual(SEARCH.minSamples);
+        expect(deals.every(d => d[4].length === 5 && d[4].every(c => c.suit !== 'spades' && c.suit !== 'clubs'))).toBe(true);
+        expect(deals.some(d => d[4].some(c => isTrump(c, trump)))).toBe(true);
+        const ctx = { playerBids: ['3', '1', '1', '1'], bids: { team1: 4, team2: 2 }, tricks: { team1: 2, team2: 0 }, team1Mult: 1, team2Mult: 1 };
+        const stats = {};
+        const found = searchCard({ hand, legal: hand, ruleCard: hand[4], playedCards: none, leadPosition: null, trump, trumpBroken: false, position: 1, memory, handSize: 7, playContext: ctx, stats });
+        expect(stats.samples).toBeGreaterThanOrEqual(SEARCH.minSamples);
+        if (found !== null) expect(hand).toContain(found);
+    });
+
     test('teamScore follows the rules', () => {
         expect(teamScore(3, 1, 3)).toBe(30);
         expect(teamScore(3, 1, 5)).toBe(32);
