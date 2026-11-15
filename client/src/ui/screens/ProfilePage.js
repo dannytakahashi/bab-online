@@ -348,7 +348,7 @@ export function showProfilePage(profile, socket, scope = getStatsScope()) {
     id: 'profilePageOverlay',
     dialogId: 'profilePageModal',
     className: 'page-modal',
-    body: [hero, ...section.nodes, createSignOutButton(), createDangerZone(socket)],
+    body: [hero, ...section.nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
     onClose: () => {
       profileModal = null;
       removePictureSelector();
@@ -390,6 +390,148 @@ export function createSignOutButton() {
   });
   btn.id = 'profileSignOutButton';
   return btn;
+}
+
+// The new-password rule (server setPassword.checkPasswordRule: 8-100;
+// existing shorter passwords still sign in)
+export const PASSWORD_MIN = 8;
+export const PASSWORD_MAX = 100;
+
+export const PASSWORD_CHANGE_COPY = Object.freeze({
+  open: 'Change Password',
+  submit: 'Change Password',
+  busy: 'Changing…',
+  current: 'Current password',
+  next: `New password (at least ${PASSWORD_MIN} characters)`,
+  again: 'New password again',
+  empty: 'Fill in all three fields.',
+  short: `The new password must be at least ${PASSWORD_MIN} characters.`,
+  long: `The new password can be at most ${PASSWORD_MAX} characters.`,
+  mismatch: 'The two new passwords do not match.',
+  same: 'Choose a new password that is different from the current one.',
+  noAnswer: 'No answer from the server. Try again.',
+});
+// A reply that never comes (a dropped socket): the form is usable again
+const PASSWORD_CHANGE_TIMEOUT_MS = 10000;
+
+let passwordChange = null; // { form, fields, submit, status, timer } while the profile is open
+
+/**
+ * Change password (c2s changePassword {current, next} ->
+ * changePasswordResponse {success, message}): a button that expands into a
+ * form with three labelled password fields, checked here first with the
+ * server's rule; on success this device stays signed in and the server
+ * signs out every other one.
+ *
+ * @param {Object} socket - Socket instance
+ * @returns {HTMLElement}
+ */
+function createPasswordChange(socket) {
+  const C = PASSWORD_CHANGE_COPY;
+  const section = el('section', { className: 'password-change', attrs: { 'aria-label': 'Change password' } });
+  const toggle = createButton({
+    label: C.open,
+    variant: 'secondary',
+    size: 'sm',
+    attrs: { id: 'changePasswordToggle', 'aria-expanded': 'false', 'aria-controls': 'changePasswordForm' },
+  });
+  section.appendChild(toggle);
+
+  const field = (id, label, autocomplete) => {
+    const input = el('input', {
+      className: 'kit-input',
+      attrs: { id, type: 'password', name: id, autocomplete, autocapitalize: 'none', spellcheck: 'false', maxlength: String(PASSWORD_MAX), 'aria-describedby': 'changePasswordStatus' },
+    });
+    input.addEventListener('input', () => {
+      input.classList.remove('is-invalid');
+      input.removeAttribute('aria-invalid');
+    });
+    return {
+      input,
+      node: el('div', { className: 'field', children: [el('label', { className: 'field__label', attrs: { for: id }, text: label }), input] }),
+    };
+  };
+  const current = field('changePasswordCurrent', C.current, 'current-password');
+  const next = field('changePasswordNew', C.next, 'new-password');
+  const again = field('changePasswordAgain', C.again, 'new-password');
+  const submit = createButton({ label: C.submit, variant: 'primary', size: 'sm', type: 'submit', attrs: { id: 'changePasswordSubmit' } });
+  // role=status: success and refusals are both read out politely
+  const status = el('p', { className: 'password-change__status', attrs: { id: 'changePasswordStatus', role: 'status', 'aria-live': 'polite' } });
+  const form = el('form', {
+    className: 'password-change__form',
+    attrs: { id: 'changePasswordForm', hidden: true, novalidate: true },
+    children: [current.node, next.node, again.node, el('div', { className: 'btn-row', children: [submit] }), status],
+  });
+  section.appendChild(form);
+
+  const say = (text, tone = '') => {
+    status.textContent = text;
+    status.classList.toggle('is-error', tone === 'error');
+    status.classList.toggle('is-success', tone === 'success');
+  };
+  const invalid = (f, text) => {
+    f.input.classList.add('is-invalid');
+    f.input.setAttribute('aria-invalid', 'true');
+    say(text, 'error');
+    f.input.focus();
+  };
+
+  toggle.addEventListener('click', () => {
+    form.hidden = !form.hidden;
+    toggle.setAttribute('aria-expanded', String(!form.hidden));
+    if (!form.hidden) current.input.focus();
+  });
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (submit.disabled) return;
+    // Trimmed like the web's Sign In and Register, so the new password is
+    // the one this site's sign-in will send
+    const cur = current.input.value.trim();
+    const pw = next.input.value.trim();
+    const pw2 = again.input.value.trim();
+    if (!cur) return invalid(current, C.empty);
+    if (!pw) return invalid(next, C.empty);
+    if (!pw2) return invalid(again, C.empty);
+    if (pw.length < PASSWORD_MIN) return invalid(next, C.short);
+    if (pw.length > PASSWORD_MAX) return invalid(next, C.long);
+    if (pw !== pw2) return invalid(again, C.mismatch);
+    if (pw === cur) return invalid(next, C.same);
+    say('');
+    submit.disabled = true;
+    submit.textContent = C.busy;
+    clearTimeout(passwordChange?.timer);
+    passwordChange.timer = setTimeout(() => showChangePasswordResult({ success: false, message: C.noAnswer }), PASSWORD_CHANGE_TIMEOUT_MS);
+    socket?.emit('changePassword', { current: cur, next: pw });
+  });
+
+  passwordChange = { form, fields: { current, next, again }, submit, status, say, timer: null };
+  return section;
+}
+
+/**
+ * changePasswordResponse {success, message}: the form says it (a success
+ * clears the three fields; a wrong current password puts focus back there).
+ *
+ * @param {{success?: boolean, message?: string}} data
+ * @returns {boolean} false when the form is not open
+ */
+export function showChangePasswordResult(data) {
+  if (!passwordChange || !passwordChange.form.isConnected) return false;
+  const { fields, submit, say } = passwordChange;
+  clearTimeout(passwordChange.timer);
+  passwordChange.timer = null;
+  submit.disabled = false;
+  submit.textContent = PASSWORD_CHANGE_COPY.submit;
+  if (data.success) {
+    for (const f of Object.values(fields)) f.input.value = '';
+    say(data.message || 'Password changed.', 'success');
+    return true;
+  }
+  say(data.message || 'Password change failed.', 'error');
+  const target = /current password/i.test(data.message || '') ? fields.current : fields.next;
+  target.input.focus();
+  return true;
 }
 
 /**
@@ -513,6 +655,8 @@ export function updateCustomProfilePicDisplay(customPic) {
  * Remove the profile page.
  */
 export function removeProfilePage() {
+  clearTimeout(passwordChange?.timer);
+  passwordChange = null;
   removePictureSelector();
   profileModal?.close('api');
   profileModal = null;

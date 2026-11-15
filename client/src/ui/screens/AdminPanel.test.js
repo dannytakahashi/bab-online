@@ -457,6 +457,26 @@ describe('the panel', () => {
     expect($('#adminStatus').textContent).toBe('The old name Bea2 is deleted and free again. Bea is unchanged.');
   });
 
+  it('a deleted account\'s name hold: no account to show, "held until", Delete frees the name', async () => {
+    const hold = { username: 'Gone', createdAt: '2026-01-01T00:00:00.000Z', lastSeenAt: null, online: false, gamesPlayed: 0, botGamesPlayed: 0, isAdmin: false, mergedInto: '[deleted]', renamed: false, renameUnfinished: null, heldUntil: '2026-12-15T12:00:00.000Z' };
+    api = fakeApi({
+      listPlayers: { ok: true, players: [...PLAYERS, hold], total: 4, limit: 500 },
+      deleteAccount: (a) => ({ ok: true, username: a.username, kind: 'tombstone', mergedInto: '[deleted]', gameRecords: 0, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 0 }),
+    });
+    await openPlayers();
+    expect(rowOf('Gone').children[6].textContent).toMatch(/^deleted, name held until /);
+    expect(byText('Show [deleted]', rowOf('Gone'))).toBeFalsy();
+    byText('Delete…', rowOf('Gone')).click();
+    await flush();
+    expect($('#adminConfirmDialog').textContent).toMatch(/Free the name Gone\?/);
+    expect($('#adminConfirmDialog').textContent).toMatch(/held until/);
+    typeInto($('#adminDialogConfirm'), 'Gone');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect(api.calls.filter((c) => c[0] === 'deleteAccount')).toEqual([['deleteAccount', { username: 'Gone', confirm: 'Gone' }]]);
+    expect($('#adminStatus').textContent).toBe('The name Gone is free again.');
+  });
+
   it('reset link: shown once in a labelled field with Copy, the /reset#token URL', async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });

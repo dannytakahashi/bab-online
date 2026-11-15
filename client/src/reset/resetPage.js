@@ -7,7 +7,8 @@
  * The token is read from the URL fragment and dropped from the address bar
  * at once (history.replaceState), then sent only in the POST body to
  * /api/password-reset (server/routes/passwordReset.js). The password rule
- * is sign-up's: 1-100 characters; the two fields must match.
+ * is every new password's (server setPassword.checkPasswordRule): 8-100
+ * characters; the two fields must match.
  *
  * Accessible: labelled fields, one status line (role=status, polite;
  * errors role=alert), focus moves to the message after a result, the
@@ -23,10 +24,11 @@ export const RESET_API = '/api/password-reset';
 
 export const COPY = {
   title: 'Choose a new password',
-  lede: 'Pick something you will remember. Every device that was signed in will need it.',
+  lede: 'Pick something you will remember, at least 8 characters. Every device that was signed in will need it.',
   noToken: 'This link is incomplete. Open the whole link you were sent, or ask for a new one.',
   mismatch: 'The two passwords do not match.',
   empty: 'Type a new password.',
+  tooShort: 'Use at least 8 characters.',
   tooLong: 'Use at most 100 characters.',
   working: 'Saving...',
   network: 'Could not reach the server. Check your connection and try again.',
@@ -111,6 +113,7 @@ export function renderResetPage({ root, win = window, fetchImpl = (...a) => win.
     if (busy) return;
     const password = pw.input.value;
     if (!password) { say(COPY.empty, 'error'); pw.input.focus(); return; }
+    if (password.length < 8) { say(COPY.tooShort, 'error'); pw.input.focus(); return; }
     if (password.length > 100) { say(COPY.tooLong, 'error'); pw.input.focus(); return; }
     if (password !== again.input.value) { say(COPY.mismatch, 'error'); again.input.focus(); return; }
 

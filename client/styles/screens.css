@@ -738,6 +738,37 @@
     margin-top: var(--space-6);
 }
 
+/* profile: Change password (ProfilePage createPasswordChange) */
+.password-change {
+    margin-top: var(--space-6);
+}
+
+.password-change__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    max-width: 360px;
+}
+
+.password-change__status {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+}
+
+.password-change__status:empty {
+    display: none;
+}
+
+.password-change__status.is-error {
+    color: var(--danger-text);
+}
+
+.password-change__status.is-success {
+    color: var(--success);
+}
+
 .danger-zone {
     margin-top: var(--space-6);
     padding: var(--space-4);

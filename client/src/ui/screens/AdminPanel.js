@@ -407,11 +407,15 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         onClick: () => finishRename(p),
       }));
     }
+    // a deleted account's name hold (heldUntil): no account to show
+    const held = tomb && Boolean(p.heldUntil);
     if (tomb) {
-      actions.appendChild(createButton({
-        label: `Show ${p.mergedInto}`, variant: 'ghost', size: 'sm',
-        onClick: () => showPlayer(p.mergedInto),
-      }));
+      if (!held) {
+        actions.appendChild(createButton({
+          label: `Show ${p.mergedInto}`, variant: 'ghost', size: 'sm',
+          onClick: () => showPlayer(p.mergedInto),
+        }));
+      }
       actions.appendChild(createButton({
         label: 'Delete…', variant: 'secondary', size: 'sm', className: 'admin-btn--quiet-danger',
         attrs: { 'aria-label': `Delete… the old name ${p.username}`, 'data-focus-key': `del:${p.username}` },
@@ -451,7 +455,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
         td(tomb ? '—' : p.gamesPlayed, 'is-num'),
         td(tomb ? '—' : (Number(p.botGamesPlayed) || 0), 'is-num'),
         td(p.isAdmin ? chip('admin', 'gold') : '—'),
-        td(tomb ? `${p.renamed ? 'renamed to' : 'into'} ${p.mergedInto}` : '—'),
+        td(held ? `deleted, name held until ${fmtDay(p.heldUntil)}` : tomb ? `${p.renamed ? 'renamed to' : 'into'} ${p.mergedInto}` : '—'),
         td(actions),
       ],
     });
@@ -546,6 +550,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
   }
 
   async function deleteTombstone(p) {
+    if (p.heldUntil) return freeHeldName(p);
     const res = await openTypedConfirm({
       title: `Delete the old name ${p.username}?`,
       lines: [
@@ -558,6 +563,23 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     });
     if (!res?.ok) return;
     say(`The old name ${res.username} is deleted and free again. ${res.mergedInto} is unchanged.`, 'success');
+    await afterDelete();
+  }
+
+  /** A deleted account's name hold (30 days): deleting it frees the name now. */
+  async function freeHeldName(p) {
+    const res = await openTypedConfirm({
+      title: `Free the name ${p.username}?`,
+      lines: [
+        `${p.username} belonged to an account that was deleted. The name is held until ${fmtDay(p.heldUntil)} so nobody takes it at once.`,
+        `Freeing it lets anyone sign up as ${p.username} now. Other players' blocks and reports of the name stay.`,
+      ],
+      expected: p.username,
+      confirmLabel: 'Free name',
+      submit: (typed) => call('deleteAccount', { username: p.username, confirm: typed }, { quiet: true }),
+    });
+    if (!res?.ok) return;
+    say(`The name ${res.username} is free again.`, 'success');
     await afterDelete();
   }
 
