@@ -30,6 +30,7 @@ enum SocketEvents {
         // Session
         static let restoreSession = "restoreSession"
         static let clientHello = "clientHello"
+        static let clientError = "clientError"
 
         // Game
         static let draw = "draw"

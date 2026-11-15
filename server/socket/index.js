@@ -16,6 +16,7 @@ const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const adminHandlers = require('./adminHandlers');
+const clientErrorHandlers = require('./clientErrorHandlers');
 const clientInfo = require('./clientInfo');
 const sessionIdentity = require('./sessionIdentity');
 const upgradeGate = require('./upgradeGate');
@@ -46,6 +47,13 @@ function setupSocketHandlers(io) {
         // Rate limited inside the handler (silently dropped over the limit)
         socket.on('clientHello', (data) =>
             syncHandler('clientHello', clientInfo.handle, { rateLimit: false, event: 'clientHello' })(socket, io, data)
+        );
+
+        // Client error reports: no reply, ever. Joi, the per-socket / per-IP /
+        // server-wide limits and the CLIENT_ERRORS=off switch are checked in
+        // the handler, which drops a refused report silently
+        socket.on('clientError', (data) =>
+            safeHandler(clientErrorHandlers.clientError)(socket, io, data)
         );
 
         // Auth events - with validation

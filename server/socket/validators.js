@@ -52,6 +52,18 @@ const schemas = {
         caps: Joi.array().items(Joi.string().min(1).max(32)).max(16).required()
     }),
 
+    // Client error reports (socket/clientErrorHandlers.js, checked in the
+    // handler: a bad one is dropped silently); mirrors contract c2s.clientError.
+    // Strings only, each capped: no free-form object reaches the log
+    clientError: Joi.object({
+        kind: Joi.string().pattern(/^[A-Za-z][A-Za-z0-9_.-]{0,31}$/).required(),
+        message: Joi.string().min(1).max(500).required(),
+        stack: Joi.string().max(4000).allow('').optional(),
+        where: Joi.string().max(200).allow('').optional(),
+        build: Joi.string().max(64).allow('').optional(),
+        page: Joi.string().max(32).pattern(/^[A-Za-z0-9_.:-]*$/).allow('').optional()
+    }),
+
     // Game actions
     playCard: Joi.object({
         card: cardSchema.required(),
