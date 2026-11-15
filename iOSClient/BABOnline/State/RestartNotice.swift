@@ -96,10 +96,9 @@ struct RestartNotice: Equatable {
 
 /// The app's one RestartNotice: the toast state while the server restarts and
 /// the alert message after it. In memory only: the app process outlives the
-/// server's restart (the socket reconnects by itself), and persisting it would
-/// put UserDefaults, a required-reason API, into release code and the privacy
-/// manifest (README "Privacy manifest"). A relaunch inside the window shows
-/// nothing; the player lands in the main room as before.
+/// server's restart (the socket reconnects by itself), so there is nothing to
+/// carry across a launch. A relaunch inside the window shows nothing; the player
+/// lands in the main room as before.
 @MainActor
 final class RestartNotices: ObservableObject {
     static let shared = RestartNotices()

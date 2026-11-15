@@ -27,8 +27,10 @@ extension TableReducer {
         s = next
         s.table.myTurn = s.myTurn
         fx.append(.animate(.sceneReset))
-        for ev in buffered.sorted(by: { ($0.seq ?? 0) < ($1.seq ?? 0) }) where (ev.seq ?? Int.max) > snap.seq {
-            gate(&s, ev, &fx)
+        catchUp(&fx) { fx in
+            for ev in buffered.sorted(by: { ($0.seq ?? 0) < ($1.seq ?? 0) }) where (ev.seq ?? Int.max) > snap.seq {
+                gate(&s, ev, &fx)
+            }
         }
     }
 

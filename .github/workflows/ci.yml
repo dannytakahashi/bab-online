@@ -51,6 +51,11 @@ jobs:
       - name: Design tokens are current
         run: npm run tokens:check
 
+      # The web and iOS sound files against sounds-src/sounds.json (plain
+      # python3: the check needs no numpy or afconvert, only the rebuild does)
+      - name: Sound effects are current
+        run: npm run sounds:check
+
       - name: Client tests (Vitest)
         run: npm run test:client
 

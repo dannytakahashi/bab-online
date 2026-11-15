@@ -35,6 +35,7 @@ export class SeqGate {
     this._setTimer = setTimer;
     this._clearTimer = clearTimer;
     this._nextRequestNo = 1;
+    this._replayDepth = 0;
     this.stats = { applied: 0, dropped: 0, gaps: 0, replayed: 0, flushed: 0 };
     this.log = [];
     this.reset();
@@ -56,6 +57,14 @@ export class SeqGate {
 
   get buffered() {
     return this._buffer.length;
+  }
+
+  /**
+   * True while buffered events are being applied after a snapshot or the
+   * gap timeout: catch-up, not live (audio/tableSounds.js stays quiet).
+   */
+  get replaying() {
+    return this._replayDepth > 0;
   }
 
   _note(entry) {
@@ -133,13 +142,18 @@ export class SeqGate {
     this._timer = null;
     this.gameId = snapshot.gameId || this.gameId;
     this.lastSeq = snapshot.seq;
-    for (const b of buffered.sort((a, c) => a.seq - c.seq)) {
-      if (b.seq <= this.lastSeq) {
-        this.stats.dropped++;
-        continue;
+    this._replayDepth++;
+    try {
+      for (const b of buffered.sort((a, c) => a.seq - c.seq)) {
+        if (b.seq <= this.lastSeq) {
+          this.stats.dropped++;
+          continue;
+        }
+        this.stats.replayed++;
+        this.admit(b.event, { seq: b.seq }, b.apply);
       }
-      this.stats.replayed++;
-      this.admit(b.event, { seq: b.seq }, b.apply);
+    } finally {
+      this._replayDepth--;
     }
   }
 
@@ -150,14 +164,19 @@ export class SeqGate {
     this.resyncId = null;
     if (this._timer !== null && this._timer !== undefined) this._clearTimer(this._timer);
     this._timer = null;
-    for (const b of buffered) {
-      if (this.lastSeq !== null && b.seq <= this.lastSeq) {
-        this.stats.dropped++;
-        continue;
+    this._replayDepth++;
+    try {
+      for (const b of buffered) {
+        if (this.lastSeq !== null && b.seq <= this.lastSeq) {
+          this.stats.dropped++;
+          continue;
+        }
+        this.lastSeq = b.seq;
+        this.stats.flushed++;
+        this._apply(b.event, b.apply);
       }
-      this.lastSeq = b.seq;
-      this.stats.flushed++;
-      this._apply(b.event, b.apply);
+    } finally {
+      this._replayDepth--;
     }
   }
 }

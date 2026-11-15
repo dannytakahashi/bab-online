@@ -13,6 +13,7 @@ import { showPlayerSearchPage } from './PlayerSearchPage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
 import { scopePayload } from '../../state/statsScope.js';
+import { createSoundToggle } from '../components/SoundToggle.js';
 
 /**
  * Module state - tracks user colors for consistent display.
@@ -230,6 +231,8 @@ export function showMainRoom(data, socket, username = null) {
     onClick: () => showAdminPanel(socket, { username: currentUsername }),
   });
   nav.appendChild(adminButton);
+  // Sound effects on / off for this device (the table has the same toggle)
+  nav.appendChild(createSoundToggle({ id: 'mainRoomSoundButton' }));
 
   // Store online users from initial data
   currentOnlineUsers = data.onlineUsers || [];

@@ -24,6 +24,7 @@ import { isOverTrump } from '../../rules/overTrump.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { ANIMATION_CONFIG } from '../config.js';
 import { reattachMuteButton } from '../../ui/components/VoiceChatUI.js';
+import { placeSoundToggle } from '../../ui/components/SoundToggle.js';
 import { CardManager } from '../managers/CardManager.js';
 import { OpponentManager } from '../managers/OpponentManager.js';
 import { TrickManager } from '../managers/TrickManager.js';
@@ -243,6 +244,7 @@ export class GameScene extends Phaser.Scene {
     this.drawManager?.relayout?.();
     this.effectsManager?.relayout?.();
     reattachMuteButton();
+    placeSoundToggle();
     return layout;
   }
 
@@ -1451,6 +1453,7 @@ export class GameScene extends Phaser.Scene {
     if (!spectator) this.updatePlayerHsi(m.hsi);
     // the voice buttons' slot moves with the role (my box, or the corner)
     reattachMuteButton();
+    placeSoundToggle();
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
@@ -1579,6 +1582,7 @@ export class GameScene extends Phaser.Scene {
 
     // Move voice mute button into avatar container if voice is active
     reattachMuteButton();
+    placeSoundToggle();
 
     this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
     return this._playerInfo;
@@ -1609,6 +1613,7 @@ export class GameScene extends Phaser.Scene {
     if (!this._playerInfo?.avatarContainer) return;
     applyHudLayout(this.getLayout());
     reattachMuteButton();
+    placeSoundToggle();
   }
 
   /**
