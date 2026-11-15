@@ -21,8 +21,10 @@ const HARD_EXIT_MS = 10000;
 // deadline, normally ends the process
 const DRAIN_MARGIN_MS = 1000;
 
-// Writes a shutdown waits for (end-of-game stats: profileHandlers
-// recordGameStats). Each entry leaves the set once it settles.
+// Writes a shutdown waits for: the stats of games that already ENDED
+// (profileHandlers registers them). A shutdown never records a game itself
+// (RestartNoticeTests in the iOS tests pin that). Each entry leaves the set
+// once it settles.
 const inFlight = new Set();
 let shuttingDown = false;
 // Pending retry waits (retryDelay), cut short when a shutdown starts
