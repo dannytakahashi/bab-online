@@ -570,7 +570,14 @@ failures arrive as `error` and/or `serverError`.
   `playerReconnected` and `playerActiveMode`, on any `playerResigned`, when a
   new `resignationAvailable` moves it, and on every snapshot (rebuilt from
   `seats[].offered`); `GameState.resignationAvailable` also hides an offer
-  whose seat is no longer resignable.
+  whose seat is no longer resignable. The server's idle-seat offer at a
+  tournament table (2026-11-15) is the same private `resignationAvailable`
+  (plus `idle: true`, ignored) for a seat that never disconnected: the
+  reducer marks it resignable, so 1.2.0 shows "<name> disconnected —
+  waiting for reconnection..." over "<name> timed out" + Replace with Bot;
+  the server withdraws it with `playerReconnected` for that seat. A
+  snapshot rebuilds the seat as connected and drops it; the server asks
+  again every 90 s while the seat stays idle.
 - **Live checks**: Debug builds take `-serverURL http://localhost:<port>`
   (`ServerConfig`, localhost / 127.0.0.1 origins only) for the socket and the
   avatar URLs, so the simulator can talk to a local server that is not on 3000.

@@ -296,7 +296,9 @@ Browse in-progress games in the main room lobby panel and click **Spectate** to 
 
 ### Disconnection & Resignation
 
-If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect.
+If a player disconnects, a 60-second grace period starts. If they don't return, any remaining player can click to replace them with a bot. The game only aborts if all human players disconnect: after 60 seconds, or after 15 minutes in a casual game whose players can all still come back (e.g. you plus three bots), so a solo player has time to return.
+
+At a tournament table, a player who is connected but sits on their turn for 90 seconds is not replaced automatically: the other players at the table get the same "Replace with Bot" prompt, and it is withdrawn as soon as the idle player acts.
 
 ### Tournaments
 
@@ -458,7 +460,7 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `gameEnd` | Game finished with final scores |
 | `rejoinSuccess` | Successfully reconnected to game |
 | `activeGameFound` | Active game found on sign-in |
-| `resignationAvailable` | Disconnected player's grace period expired |
+| `resignationAvailable` | Disconnected player's grace period expired (or, with `idle: true`, an idle player at a tournament table) |
 | `playerResigned` | Player replaced by bot |
 | `playerLazyMode` | Player entered lazy mode (bot playing) |
 | `playerActiveMode` | Player took back control from bot |

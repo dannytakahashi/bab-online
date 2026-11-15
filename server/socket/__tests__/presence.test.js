@@ -30,6 +30,8 @@ const { Phase } = require('../../game/GamePhase');
 const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
 const { gameLogger, socketLogger, authLogger } = require('../../utils/logger');
 
+const { ABANDON_MS, SOLO_ABANDON_MS: SOLO_MS } = require('../../game/SeatState');
+
 const C = (rank, suit) => ({ rank, suit });
 let seq = 0;
 let realRandom;
@@ -303,7 +305,8 @@ describe('R6/R7 abandon and abort (srv-6)', () => {
         await jest.advanceTimersByTimeAsync(20000);
         await drop(t, t.sockets[2]);
         expect(t.game.hasTimer('abandon')).toBe(true);
-        await jest.advanceTimersByTimeAsync(59999);
+        // Both owners can still return: the solo window (owner, 2026-11-15)
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 1);
         expect(aborts(t)).toHaveLength(0);
         await jest.advanceTimersByTimeAsync(1);
         expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players disconnected']);
@@ -320,11 +323,11 @@ describe('R6/R7 abandon and abort (srv-6)', () => {
         expect(aborts(t)).toHaveLength(0);
     });
 
-    test('R7 a lone lazy owner dropping aborts 60s later, and a rejoin within it cancels that', async () => {
+    test('R7 a lone lazy owner dropping aborts after the solo window, and a rejoin within it cancels that', async () => {
         const t = table({ bots: { 2: 'mary', 3: 'sharon', 4: 'danny' } });
         chat(t, 1, '/lazy');
         await drop(t, t.sockets[1]);
-        await jest.advanceTimersByTimeAsync(59000);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 1000);
         expect(aborts(t)).toHaveLength(0);
         await jest.advanceTimersByTimeAsync(1000);
         expect(aborts(t)).toHaveLength(1);
@@ -332,11 +335,99 @@ describe('R6/R7 abandon and abort (srv-6)', () => {
         const u = table({ bots: { 2: 'mary', 3: 'sharon', 4: 'danny' } });
         chat(u, 1, '/lazy');
         await drop(u, u.sockets[1]);
-        await jest.advanceTimersByTimeAsync(30000);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 30000);
         await rejoin(u, 'user1');
         expect(u.game.hasTimer('abandon')).toBe(false);
         await jest.advanceTimersByTimeAsync(120000);
         expect(aborts(u)).toHaveLength(0);
+    });
+});
+
+/**
+ * The solo window (owner, 2026-11-15): a casual game whose owners can all
+ * still come back waits 15 minutes for them with nobody connected; once an
+ * owner left for good, and at a tournament table, 60 s as before.
+ */
+describe('the solo abandon window', () => {
+    const SOLO_BOTS = { 2: 'mary', 3: 'sharon', 4: 'danny' };
+
+    test('one human + three bots, the owner drops: alive at 14 min, aborted at 15', async () => {
+        const t = table({ bots: SOLO_BOTS });
+        await drop(t, t.sockets[1]);
+        expect(t.game.hasTimer('abandon')).toBe(true);
+        await jest.advanceTimersByTimeAsync(14 * 60000);
+        expect(aborts(t)).toHaveLength(0);
+        expect(gameManager.getGameById(t.game.gameId)).toBe(t.game);
+        // Grace ran out long ago; nobody is here to take the offer
+        expect(t.game.seat(1).presence).toBe('resignable');
+        expect(events(t.log, 'resignationAvailable')).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 14 * 60000 - 1);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players disconnected']);
+        expect(t.game.stage).toBe(Phase.ABORTED);
+    });
+
+    test('a return inside the window resumes the game, and the wait starts over on the next drop', async () => {
+        const t = table({ bots: SOLO_BOTS });
+        await drop(t, t.sockets[1]);
+        await jest.advanceTimersByTimeAsync(14 * 60000);
+        const back = await rejoin(t, 'user1');
+        expect(t.game.seat(1)).toMatchObject({ controller: 'human', presence: 'connected', ownerSocketId: back.id });
+        expect(t.game.hasTimer('abandon')).toBe(false);
+        await jest.advanceTimersByTimeAsync(SOLO_MS);
+        expect(aborts(t)).toHaveLength(0);
+        // The seat still plays: the human's bid is accepted on its turn
+        t.game.currentTurn = 1;
+        await gameHandlers.playerBid(back, t.io, { bid: '0' });
+        expect(t.game.playerBids[0]).toBe('0');
+
+        await drop(t, back);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - 1);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(aborts(t)).toHaveLength(1);
+    });
+
+    test('a second human who left for good: 60 s', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        chat(t, 2, '/leave');
+        expect(t.game.seat(2).presence).toBe('gone');
+        await drop(t, t.sockets[1]);
+        await jest.advanceTimersByTimeAsync(ABANDON_MS - 1);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(aborts(t)).toHaveLength(1);
+    });
+
+    test('a second human only away (both can return): the solo window too', async () => {
+        const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
+        await drop(t, t.sockets[2]);
+        await drop(t, t.sockets[1]);
+        await jest.advanceTimersByTimeAsync(ABANDON_MS * 2);
+        expect(aborts(t)).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(SOLO_MS - ABANDON_MS * 2);
+        expect(aborts(t)).toHaveLength(1);
+    });
+
+    test('a tournament table with one human: 60 s (the round waits for it)', async () => {
+        const t = table({ bots: SOLO_BOTS });
+        gameManager.tournamentGames.set(t.game.gameId, 'presence-solo-window');
+        try {
+            await drop(t, t.sockets[1]);
+            await jest.advanceTimersByTimeAsync(ABANDON_MS - 1);
+            expect(aborts(t)).toHaveLength(0);
+            await jest.advanceTimersByTimeAsync(1);
+            expect(aborts(t)).toHaveLength(1);
+        } finally {
+            gameManager.tournamentGames.delete(t.game.gameId);
+        }
+    });
+
+    test('no owner can return (the lone human /leaves): aborted at once', async () => {
+        const t = table({ bots: SOLO_BOTS });
+        chat(t, 1, '/leave');
+        expect(aborts(t).map((l) => l.data.reason)).toEqual(['All players left']);
     });
 });
 

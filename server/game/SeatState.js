@@ -28,10 +28,14 @@ const { Phase, PRE_SEATING } = require('./GamePhase');
 // Timings (re-exported by socket/seatLifecycle.js)
 const RECONNECT_GRACE_MS = 60000;   // per seat: disconnect -> resign offer
 const ABANDON_MS = 60000;           // nobody connected -> abort
+// Solo window (owner, 2026-11-15): a casual game whose owners can all still
+// come back (one human + bots, or every human away) waits this long instead
+const SOLO_ABANDON_MS = 15 * 60000;
 const DRAW_WATCHDOG_MS = 30000;     // DRAWING entry -> auto-draw stragglers
 // Turn watchdog (owner, 2026-11-11): a connected human who sits on their
 // bid or play this long is put in lazy mode ('afk:<pos>' game timer,
-// socket/seatLifecycle.armAfk). Every game, tournaments included.
+// socket/seatLifecycle.armAfk). Every game, tournaments included (there,
+// with another owner present, the others are offered the seat instead).
 const AFK_TIMEOUT_MS = 90000;
 
 /**
@@ -261,6 +265,7 @@ function validateSeats(game) {
 module.exports = {
     RECONNECT_GRACE_MS,
     ABANDON_MS,
+    SOLO_ABANDON_MS,
     DRAW_WATCHDOG_MS,
     AFK_TIMEOUT_MS,
     afkTimeoutMs,

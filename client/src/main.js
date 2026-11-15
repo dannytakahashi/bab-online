@@ -1490,6 +1490,8 @@ function initializeApp() {
       showResignationDialog({
         position: data.position,
         username: data.username,
+        // an idle (connected) player at a tournament table, not a disconnect
+        idle: data.idle === true,
         onConfirm: () => socket.emit('forceResign', { position: data.position }),
       });
     },

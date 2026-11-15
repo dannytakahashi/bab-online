@@ -608,7 +608,8 @@ const s2c = {
         payload: seatNotice,
         status: 'active', to: 'room', seq: false,
         clientReads: reads([W.game, W.main('onPlayerReconnected')], I.game('registerReconnection')),
-        emittedFrom: ['server/socket/seatLifecycle.js:reconnectOwner', 'server/socket/seatLifecycle.js:watchSeat'],
+        emittedFrom: ['server/socket/seatLifecycle.js:reconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/seatLifecycle.js:withdrawIdleOffer'],
+        notes: 'withdrawIdleOffer: also sent for a seat that never left, to take an idle-seat offer down (both clients drop the offer on it and show nothing else).',
     },
     leftGame: {
         payload: null,
@@ -619,10 +620,15 @@ const s2c = {
 
     // ==================== Presence ====================
     resignationAvailable: {
-        payload: anyOf(variant('room', seatNotice), variant('private', seatNotice)),
+        payload: anyOf(
+            variant('room', seatNotice),
+            variant('private', obj({ position: ref('position'), username: str(), idle: konst(true) }, { optional: ['idle'] }))
+        ),
         status: 'active', to: ['room', 'socket'], seq: false,
+        added: ['idle'],
         clientReads: reads(W.game, I.game('registerSpecialEvents')),
-        emittedFrom: ['server/socket/seatLifecycle.js:offer', 'server/socket/seatLifecycle.js:replayPresenceTo'],
+        emittedFrom: ['server/socket/seatLifecycle.js:offer', 'server/socket/seatLifecycle.js:replayPresenceTo', 'server/socket/seatLifecycle.js:offerIdle'],
+        notes: 'private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it, iOS 1.2.0 ignores it).',
     },
     playerResigned: {
         payload: obj({ position: ref('position'), oldUsername: str(), botUsername: str(), botPic: ref('pic') }),

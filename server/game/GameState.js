@@ -134,6 +134,12 @@ class GameState {
         // Position of the last room-wide resignationAvailable (single-slot
         // clients), or null
         this.offerPos = null;
+        // The idle-seat offer at a tournament table (seatLifecycle.offerIdle):
+        // {pos, turn} while the other present owners hold it, or null
+        this.idleOffer = null;
+        // The turn watchdog's clock: {pos, turn, deadline} of the turn it was
+        // last armed for, so /lazy then /active resumes it (seatLifecycle.armAfk)
+        this.afkClock = null;
         this._seatHistory = this._history ? [] : null;
 
         // HSI values for current hand (position → hsi), stored for reconnection
@@ -575,7 +581,8 @@ class GameState {
                 bot: s.bot?.username ?? null,
                 graceDeadline: s.graceDeadline,
                 resignableAt: s.resignableAt,
-                offer: this.offerPos === pos
+                offer: this.offerPos === pos,
+                idleOffer: this.idleOffer?.pos === pos
             };
         });
     }

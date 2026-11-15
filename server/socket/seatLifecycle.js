@@ -28,7 +28,7 @@ const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
-const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS } = SeatState;
+const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS } = SeatState;
 
 const logError = (what, game) => (err) =>
     socketLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -146,6 +146,8 @@ function reattachTournament(io, socket, gameId, username) {
  * returning socket when nobody held one), or null.
  */
 function offer(io, game, pos) {
+    // Clients hold one offer: an idle-seat offer gives way to this one
+    withdrawIdleOffer(io, game);
     game.broadcast(io, 'resignationAvailable', { position: pos, username: game.seat(pos).ownerUsername });
     game.offerPos = pos;
 }
@@ -167,11 +169,14 @@ function replayPresenceTo(game, socket, ownPos) {
     if (resignable.length > 0) {
         const p = resignable.includes(game.offerPos) ? game.offerPos : resignable[0];
         socket.emit('resignationAvailable', { position: p, username: game.seat(p).ownerUsername });
+        // (offerIdle never runs while a resignable seat is offered)
         // Record the offer this socket now holds, so reofferAfter moves it
         // when p's owner comes back (or p is resigned). Not when the standing
         // offer is for the returner's own seat: reconnectOwner's
         // reofferAfter(ownPos) moves that one room-wide right after.
         if (game.offerPos !== ownPos) game.offerPos = p;
+    } else if (game.idleOffer && game.idleOffer.pos !== ownPos) {
+        sendIdleOffer(socket, game, game.idleOffer.pos);
     }
 }
 
@@ -195,7 +200,7 @@ function reofferAfter(io, game, pos, why) {
 /**
  * The single presence-driven abort decision (synchronous). A seated table
  * with owners aborts at once when no owner can ever come back, and after
- * ABANDON_MS when no owner is connected. Ambient / native-bot tables (no
+ * abandonMs when no owner is connected. Ambient / native-bot tables (no
  * owners) are never presence-aborted. Pre-seating is handled by
  * handleDrawComplete (which calls this right after seating).
  * @returns {boolean} true if it aborted the game now
@@ -215,13 +220,28 @@ function maybeAbort(io, game) {
         return true;
     }
     if (!game.hasTimer('abandon')) {
-        game.setTimer('abandon', ABANDON_MS, () => {
+        const ms = abandonMs(game, owned);
+        if (ms !== ABANDON_MS) socketLogger.info('Solo game: waiting for its players', { gameId: game.gameId, ms });
+        game.setTimer('abandon', ms, () => {
             if (game.hasPresentHuman()) return;
             socketLogger.warn('All players disconnected, aborting game', { gameId: game.gameId });
             return abortGame(io, game, 'All players disconnected');
         });
     }
     return false;
+}
+
+/**
+ * How long a table with nobody connected waits (decided when the wait
+ * starts: nobody can join or leave for good while nobody is here). Owner,
+ * 2026-11-15: a casual game whose every owner can still come back (one
+ * human + bots, or every human only away) waits SOLO_ABANDON_MS, since
+ * nobody else is kept waiting; once an owner has left for good, and at
+ * every tournament table (the round waits for it), ABANDON_MS.
+ */
+function abandonMs(game, owned) {
+    if (gameManager.tournamentGames.has(game.gameId)) return ABANDON_MS;
+    return owned.every(s => game.isReturnable(s.position)) ? SOLO_ABANDON_MS : ABANDON_MS;
 }
 
 // ==================== disconnects ====================
@@ -237,6 +257,8 @@ function disconnectOwner(io, game, pos, sid) {
     if (seat.controller === Controller.HUMAN) {
         if (!game.seatDisconnect(pos, sid, { onGraceExpire: () => onGraceExpired(io, game, pos) })) return;
         unmap(game, sid);
+        // An idle offer for this seat is moot: grace and its own offer follow
+        withdrawIdleOffer(io, game, pos);
         socketLogger.info('Player disconnected from game, waiting for reconnection', {
             username, position: pos, gameId: game.gameId, gracePeriod: RECONNECT_GRACE_MS / 1000
         });
@@ -309,6 +331,9 @@ function reconnectOwner(io, game, pos, socket, username) {
         isLazy: wireIsLazy(game, socket.id),
         tournamentId: tournament ? tournament.tournamentId : null
     }));
+    // This playerReconnected takes any idle offer for the seat down too; the
+    // still running watchdog makes it again if the seat stays idle
+    if (game.idleOffer?.pos === pos) game.idleOffer = null;
     game.broadcast(io, 'playerReconnected', { position: pos, username });
 
     // Voice: the other connected owners at their seats
@@ -435,7 +460,9 @@ function afkExempt(game) {
  * Arm the turn watchdog for `pos` (owner, 2026-11-11: 90 s, every game with
  * another human waiting; a solo casual game never arms it: afkExempt):
  * a connected human who neither bids nor plays within afkTimeoutMs() goes
- * lazy exactly as with /lazy. Called where a human turn opens
+ * lazy exactly as with /lazy (at a tournament table with another owner
+ * present, the others are offered the seat instead: offerIdle).
+ * Called where a human turn opens
  * (triggerBotIfNeeded's human branch), when a seat comes back to a human on
  * its turn (reconnect, /active) — never during grace or disconnect (the
  * grace timers own those; a presence change clears it, GameState
@@ -443,38 +470,132 @@ function afkExempt(game) {
  * Cleared too by the seat's own bid/play (clearAfk), /lazy and /active
  * (controller change) and abort/end (terminate cancels every game timer;
  * setTimer's epoch guard).
- * @param {{keep?: boolean}} [opts] keep a watchdog already running for this
- *   same turn (a newer socket taking the seat does not restart the clock)
+ * @param {{keep?: boolean, resume?: boolean}} [opts] keep: a watchdog
+ *   already running for this same turn stays (a newer socket taking the
+ *   seat does not restart the clock); resume: on the turn the clock was
+ *   last started for, run only what is left of it (/active, so /lazy then
+ *   /active cannot buy a fresh 90 s)
  */
-function armAfk(io, game, pos, { keep = false } = {}) {
+function armAfk(io, game, pos, { keep = false, resume = false } = {}) {
     for (let p = 1; p <= 4; p++) if (p !== pos) game.clearTimer(afkKey(p));
-    const ms = SeatState.afkTimeoutMs();
-    if (!ms || !afkEligible(game, pos)) {
+    const full = SeatState.afkTimeoutMs();
+    if (!full || !afkEligible(game, pos)) {
         game.clearTimer(afkKey(pos));
         return false;
     }
     if (keep && game.hasTimer(afkKey(pos))) return true;
     const turn = game.turnKey();
+    const now = Date.now();
+    const clock = game.afkClock;
+    let ms = full;
+    if (resume && clock && clock.pos === pos && clock.turn === turn) {
+        ms = Math.max(0, clock.deadline - now);
+    } else {
+        game.afkClock = { pos, turn, deadline: now + full };
+    }
     return game.setTimer(afkKey(pos), ms, () => onAfk(io, game, pos, turn));
 }
 
-/** The seat acted (or its turn is otherwise over): stop its watchdog. */
-function clearAfk(game, pos) {
-    if (pos) game.clearTimer(afkKey(pos));
+/** The seat acted (or its turn is otherwise over): stop its watchdog and take its idle offer down. */
+function clearAfk(io, game, pos) {
+    if (!pos) return;
+    game.clearTimer(afkKey(pos));
+    withdrawIdleOffer(io, game, pos);
 }
 
 /** The watchdog fired: still the same open turn of the same connected human? */
 function onAfk(io, game, pos, turn) {
     if (!afkEligible(game, pos) || game.turnKey() !== turn) return false;
+    // A tournament table (owner, 2026-11-15): no automatic takeover while
+    // another owner is here to decide; with nobody to ask, as before
+    if (gameManager.tournamentGames.has(game.gameId) && idleOfferHolders(game, pos).length > 0) {
+        return offerIdle(io, game, pos, turn);
+    }
     socketLogger.info('Turn timeout: bot takes over an idle seat', { gameId: game.gameId, position: pos, ms: SeatState.afkTimeoutMs() });
     return goLazy(io, game, pos, { reason: 'afk' });
+}
+
+// ==================== idle seat offer (tournament tables) ====================
+
+/** The other seats' owners with a live socket here: who an idle offer goes to. */
+function idleOfferHolders(game, pos) {
+    return game.seatList()
+        .filter(s => s.position !== pos && s.presence === Presence.CONNECTED)
+        .map(s => s.ownerSocketId);
+}
+
+/**
+ * The existing "Replace with Bot" offer, private (never the idle owner's
+ * socket, never a spectator). `idle` (additive) lets the web say "seems
+ * idle" instead of "did not reconnect"; iOS 1.2.0 ignores it.
+ */
+function sendIdleOffer(target, game, pos) {
+    target.emit('resignationAvailable', { position: pos, username: game.seat(pos).ownerUsername, idle: true });
+}
+
+/**
+ * The watchdog fired for a connected owner on their own turn at a
+ * tournament table with another owner present: those owners get the
+ * resign offer for the seat and any of them may forceResign it
+ * (replaceIdleSeat). Asked again every afkTimeoutMs() while the seat stays
+ * idle (a holder who pressed Wait, or whose resync dropped the offer, sees
+ * it again; once nobody is left to ask, onAfk falls back to lazy). Clients
+ * hold one offer, so a disconnected seat's standing offer goes first.
+ */
+function offerIdle(io, game, pos, turn) {
+    const ms = SeatState.afkTimeoutMs();
+    if (ms) game.setTimer(afkKey(pos), ms, () => onAfk(io, game, pos, turn));
+    if (game.offerPos != null && game.resignablePositions().includes(game.offerPos)) return false;
+    const first = !(game.idleOffer && game.idleOffer.pos === pos && game.idleOffer.turn === turn);
+    game.idleOffer = { pos, turn };
+    const holders = idleOfferHolders(game, pos);
+    for (const sid of holders) sendIdleOffer(io.to(sid), game, pos);
+    if (first) {
+        const name = game.seat(pos).ownerUsername;
+        socketLogger.info('Turn timeout at a tournament table: offering the idle seat', {
+            gameId: game.gameId, position: pos, holders: holders.length, ms
+        });
+        logEntry(io, game, `${name} seems idle. You may replace them with a bot.`);
+    }
+    return true;
+}
+
+/** forceResign may take this seat: its idle offer stands for this very turn. */
+function idleOfferStands(game, pos) {
+    const o = game.idleOffer;
+    return !!o && o.pos === pos && afkEligible(game, pos) && game.turnKey() === o.turn;
+}
+
+/**
+ * Take an idle offer down (the owner acted, dropped, went lazy or left, or
+ * a disconnected seat's offer replaces it): one room playerReconnected for
+ * the seat, which both clients already handle with no line of their own
+ * (web dismissResignationDialog(pos); iOS 1.2.0 the seat back to connected,
+ * its offer cleared). A no-op unless an idle offer stands (for `pos`).
+ */
+function withdrawIdleOffer(io, game, pos = null) {
+    const o = game.idleOffer;
+    if (!o || (pos != null && o.pos !== pos)) return false;
+    game.idleOffer = null;
+    game.broadcast(io, 'playerReconnected', { position: o.pos, username: game.seat(o.pos).ownerUsername });
+    return true;
+}
+
+/**
+ * Another present owner confirmed the idle offer: a bot plays the seat as
+ * after an AFK takeover (the /lazy transition, so the owner, still here,
+ * watches and may /active back; credited like /lazy).
+ */
+function replaceIdleSeat(io, game, pos) {
+    return goLazy(io, game, pos, { reason: 'replaced' });
 }
 
 // ==================== lazy / active ====================
 
 /**
  * /lazy: a bot plays the owner's (human, connected) seat.
- * @param {{reason?: 'afk'|'leave'}} [opts] 'afk': the turn watchdog fired;
+ * @param {{reason?: 'afk'|'leave'|'replaced'}} [opts] 'afk': the turn watchdog fired;
+ *   'replaced': another owner confirmed an idle offer (replaceIdleSeat);
  *   'leave': the first half of /leave at a human seat (same transition and
  *   events, each with its own log line: a leaver cannot /active back)
  */
@@ -485,6 +606,8 @@ function goLazy(io, game, pos, { reason = null } = {}) {
         discardSeatBot(game, bot);
         return false;
     }
+    // Before playerLazyMode: iOS 1.2.0 keeps an offer through it
+    withdrawIdleOffer(io, game, pos);
     game.broadcast(io, 'playerLazyMode', {
         position: pos,
         botUsername: bot.username,
@@ -493,6 +616,7 @@ function goLazy(io, game, pos, { reason = null } = {}) {
     });
     const line = {
         afk: `${seat.ownerUsername} was idle and ${bot.username} is playing for them. Type /active to return.`,
+        replaced: `${seat.ownerUsername} was idle and has been replaced. ${bot.username} is playing for them. Type /active to return.`,
         leave: `${seat.ownerUsername} left the game. ${bot.username} is playing for them.`
     }[reason] || `${seat.ownerUsername} entered lazy mode. ${bot.username} is playing.`;
     logEntry(io, game, line);
@@ -530,8 +654,9 @@ function goActive(io, game, pos, socket) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
     }
-    // Back on its own turn: a fresh watchdog (no-op on anyone else's turn)
-    if (game.currentTurn === pos) armAfk(io, game, pos);
+    // Back on its own turn: what is left of this turn's clock (no-op on
+    // anyone else's turn)
+    if (game.currentTurn === pos) armAfk(io, game, pos, { resume: true });
     maybeAbort(io, game);
     return true;
 }
@@ -613,10 +738,14 @@ function startDrawWatchdog(io, game) {
 module.exports = {
     RECONNECT_GRACE_MS,
     ABANDON_MS,
+    SOLO_ABANDON_MS,
     DRAW_WATCHDOG_MS,
     AFK_TIMEOUT_MS,
     armAfk,
     clearAfk,
+    idleOfferStands,
+    replaceIdleSeat,
+    withdrawIdleOffer,
     pickBotPersonality,
     createSeatBot,
     reattachTournament,

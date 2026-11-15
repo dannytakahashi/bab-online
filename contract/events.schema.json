@@ -6771,8 +6771,10 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:reconnectOwner",
-        "server/socket/seatLifecycle.js:watchSeat"
+        "server/socket/seatLifecycle.js:watchSeat",
+        "server/socket/seatLifecycle.js:withdrawIdleOffer"
       ],
+      "notes": "withdrawIdleOffer: also sent for a seat that never left, to take an idle-seat offer down (both clients drop the offer on it and show nothing else).",
       "added": [
         "seq"
       ]
@@ -6829,6 +6831,9 @@
               },
               "username": {
                 "type": "string"
+              },
+              "idle": {
+                "const": true
               }
             },
             "required": [
@@ -6845,6 +6850,10 @@
         "socket"
       ],
       "seq": true,
+      "added": [
+        "idle",
+        "seq"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -6855,11 +6864,10 @@
       },
       "emittedFrom": [
         "server/socket/seatLifecycle.js:offer",
-        "server/socket/seatLifecycle.js:replayPresenceTo"
+        "server/socket/seatLifecycle.js:replayPresenceTo",
+        "server/socket/seatLifecycle.js:offerIdle"
       ],
-      "added": [
-        "seq"
-      ]
+      "notes": "private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it, iOS 1.2.0 ignores it)."
     },
     "playerResigned": {
       "payload": {

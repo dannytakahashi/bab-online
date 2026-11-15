@@ -721,7 +721,7 @@ async function playerBid(socket, io, data) {
         return;
     }
     const bid = result.bid;
-    seatLifecycle.clearAfk(game, position);
+    seatLifecycle.clearAfk(io, game, position);
     // A bid during the first-hand hold opens the turn early (its pause
     // then just ends): the table is no longer held
     if (game.resume && game.resume.kind === 'firstTurn') game.resume = null;
@@ -779,7 +779,7 @@ async function playCard(socket, io, data) {
     }
 
     // The seat acted: its turn watchdog is over
-    seatLifecycle.clearAfk(game, position);
+    seatLifecycle.clearAfk(io, game, position);
 
     game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, position));
 
@@ -1022,7 +1022,8 @@ async function handleHandComplete(game, io) {
 
 /**
  * Replace a disconnected player whose grace period ran out with a bot. Any
- * connected owner may ask (a lazy owner watching their bot too).
+ * connected owner may ask (a lazy owner watching their bot too). Also the
+ * idle seat of a standing idle offer (tournament tables, seatLifecycle.offerIdle).
  */
 async function forceResign(socket, io, data) {
     const game = gameManager.getPlayerGame(socket.id);
@@ -1037,6 +1038,21 @@ async function forceResign(socket, io, data) {
     const requestingPosition = game.seatByOwnerSocket(socket.id);
     if (!requestingPosition || !game.isHumanPresent(requestingPosition)) {
         emitError(socket, { message: 'Not a player in this game' }, 'forceResign');
+        return;
+    }
+
+    // An idle seat at a tournament table whose offer stands (owner,
+    // 2026-11-15): any other present owner may replace it
+    if (position !== requestingPosition && seatLifecycle.idleOfferStands(game, position)) {
+        const idleUsername = game.seat(position).ownerUsername;
+        if (!seatLifecycle.replaceIdleSeat(io, game, position)) return;
+        gameLogger.info('Idle player replaced with a bot', {
+            gameId: game.gameId,
+            position,
+            oldUsername: idleUsername,
+            botUsername: game.seat(position).bot?.username,
+            requestedBy: requestingPosition
+        });
         return;
     }
 
