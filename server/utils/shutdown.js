@@ -18,21 +18,24 @@ const SETTLE_MS = 500;
 // (under Railway's drainingSeconds, .railway/railway.ts, so it is never SIGKILLed first)
 const HARD_EXIT_MS = 10000;
 // The game-log line every live table gets with the notice: games live in
-// memory, so a restart ends them (only gameEnd writes stats)
+// memory, so a restart ends them (only gameEnd writes stats). A crash is no
+// update, so it gets the neutral wording
 const GAME_NOTICE = "This game was interrupted by a server update. It won't count toward stats.";
+const CRASH_NOTICE = "This game was interrupted by a server restart. It won't count toward stats.";
 
 /**
  * Tell every live table, in its game log, that the update ends it. One
  * broken game never keeps the others (or the shutdown) from going on.
+ * @param {string} [message] - GAME_NOTICE (a stop: SIGTERM/SIGINT) or CRASH_NOTICE
  * @returns {number} tables told
  */
-function noticeGames(io, games) {
+function noticeGames(io, games, message = GAME_NOTICE) {
     let told = 0;
     for (const game of games()) {
         try {
             if (game.isTerminal?.()) continue;
-            game.addLogEntry(GAME_NOTICE, null, 'system');
-            game.broadcast(io, 'gameLogEntry', { message: GAME_NOTICE, type: 'system' });
+            game.addLogEntry(message, null, 'system');
+            game.broadcast(io, 'gameLogEntry', { message, type: 'system' });
             told++;
         } catch (error) {
             logger.error('Shutdown notice to a game failed', { gameId: game?.gameId, error: error.message });
@@ -86,7 +89,8 @@ function setupGracefulShutdown(server, io, opts = {}) {
             // Notify connected clients: players at a table first, in the game log
             if (io) {
                 try {
-                    const told = noticeGames(io, games);
+                    // exitCode 1 is a crash (onUncaughtException), not a deploy's stop
+                    const told = noticeGames(io, games, exitCode === 0 ? GAME_NOTICE : CRASH_NOTICE);
                     if (told) logger.info('Shutdown notice sent to games', { games: told });
                 } catch (error) {
                     logger.error('Shutdown notice to games failed', { error: error.message });
@@ -144,4 +148,4 @@ function setupGracefulShutdown(server, io, opts = {}) {
     return { shutdown, onUncaughtException, onUnhandledRejection };
 }
 
-module.exports = { setupGracefulShutdown, noticeGames, GAME_NOTICE, NOTICE_MS, SETTLE_MS, HARD_EXIT_MS };
+module.exports = { setupGracefulShutdown, noticeGames, GAME_NOTICE, CRASH_NOTICE, NOTICE_MS, SETTLE_MS, HARD_EXIT_MS };

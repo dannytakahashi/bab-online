@@ -1,7 +1,8 @@
 /**
  * The deploy notice for players at a table (server/utils/shutdown.js
  * noticeGames): before serverShutdown, every live game gets one system line
- * in its game log ("interrupted by a server update"), sent as the existing
+ * in its game log ("interrupted by a server update", or "restart" on a
+ * crash), sent as the existing
  * gameLogEntry room broadcast, which web and iOS 1.2.0 already show. Ended
  * games are skipped, and one broken game never stops the others or the
  * shutdown (exit codes unchanged: shutdownExitCodes.test.js).
@@ -14,7 +15,7 @@ const GameState = require('../game/GameState');
 const { Phase } = require('../game/GamePhase');
 const { makeIo, events } = require('../testUtils/gameDriver');
 const { logger } = require('../utils/logger');
-const { noticeGames, GAME_NOTICE, setupGracefulShutdown } = require('../utils/shutdown');
+const { noticeGames, GAME_NOTICE, CRASH_NOTICE, setupGracefulShutdown } = require('../utils/shutdown');
 
 const SIGNALS = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'];
 
@@ -42,6 +43,7 @@ describe('noticeGames', () => {
         expect(live.getGameLog().at(-1)).toMatchObject({ message: GAME_NOTICE, type: 'system', playerPosition: null });
         expect(ended.getGameLog().some((e) => e.message === GAME_NOTICE)).toBe(false);
         expect(GAME_NOTICE).toBe("This game was interrupted by a server update. It won't count toward stats.");
+        expect(CRASH_NOTICE).toBe("This game was interrupted by a server restart. It won't count toward stats.");
     });
 
     test('a game that throws is logged and the rest are still told', () => {
@@ -79,7 +81,12 @@ describe('the deploy notice over a real Socket.IO server', () => {
         jest.restoreAllMocks();
     });
 
-    test('a player at a table reads the line, then serverShutdown, then the transport close; the main room only the notice', async () => {
+    // A crash is not an update: neutral wording, and still exit 1 (Jest owns
+    // process-level uncaughtException, so the returned handler is called)
+    test.each([
+        ['SIGTERM', 0, GAME_NOTICE, () => process.emit('SIGTERM')],
+        ['a crash', 1, CRASH_NOTICE, (h) => h.onUncaughtException(new Error('boom'))]
+    ])('%s: a player at a table reads the line, then serverShutdown, then the transport close; the main room only the notice', async (_why, code, notice, trigger) => {
         server = http.createServer();
         io = new Server(server);
         const port = await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -104,13 +111,13 @@ describe('the deploy notice over a real Socket.IO server', () => {
         await connect('table');
         await connect('room');
 
-        process.emit('SIGTERM');
+        trigger(handlers);
         await new Promise((resolve) => {
             const poll = () => (exit.mock.calls.length ? resolve() : setTimeout(poll, 20));
             poll();
         });
-        expect(exit).toHaveBeenCalledWith(0);
-        expect(seen.table).toEqual([['gameLogEntry', GAME_NOTICE], ['serverShutdown'], ['disconnect', 'transport close']]);
+        expect(exit).toHaveBeenCalledWith(code);
+        expect(seen.table).toEqual([['gameLogEntry', notice], ['serverShutdown'], ['disconnect', 'transport close']]);
         expect(seen.room).toEqual([['serverShutdown'], ['disconnect', 'transport close']]);
     }, 20000);
 });
