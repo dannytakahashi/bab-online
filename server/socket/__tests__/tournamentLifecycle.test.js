@@ -369,7 +369,7 @@ describe('cancel in every tournament phase', () => {
         for (const entry of Object.values(ctx.t.scoreboard)) expect(entry.roundDetails).toEqual([]);
         expect(gameManager.tournamentGames.size).toBe(0);
         expect(events(ctx.log, 'gameEnd')).toHaveLength(1);
-    });
+    }, 120000); // a whole all-bot game: with the endgame search it outran 5 s under CI coverage
 });
 
 describe('leave and disconnect during the round start', () => {
