@@ -102,6 +102,33 @@ final class ErrorReporterTests: XCTestCase {
         XCTAssertEqual(kinds, ["first", "second"])
     }
 
+    /// Between a connect and its flush (the restore's 1.5 s) a report waits even though the
+    /// socket could take it: sent then, the server could not name the user yet.
+    func testAReportRightAfterAConnectWaitsForTheFlush() {
+        let r = reporter()
+        r.connected()
+        XCTAssertTrue(r.report(kind: "socket", message: "x"))
+        XCTAssertTrue(sent.isEmpty)
+        XCTAssertEqual(r.pending, 1)
+        r.flush()
+        XCTAssertEqual(kinds, ["socket"])
+        r.report(kind: "decode", message: "y")  // after the flush: straight out
+        XCTAssertEqual(kinds, ["socket", "decode"])
+        XCTAssertEqual(r.pending, 0)
+    }
+
+    func testAKindDroppedOnAFullBufferMayStillGoLater() {
+        let r = reporter()
+        connected = false
+        for i in 0..<ErrorReporter.maxBuffer { r.report(kind: "k\(i)", message: "x") }
+        XCTAssertFalse(r.report(kind: "late", message: "first"))
+        connected = true
+        r.flush()
+        XCTAssertTrue(r.report(kind: "late", message: "second"))
+        XCTAssertEqual(kinds.last, "late")
+        XCTAssertEqual(sent.last?["message"] as? String, "second")
+    }
+
     func testNoSenderBuffers() {
         let r = ErrorReporter(build: "10", defaults: defaults)
         XCTAssertTrue(r.report(kind: "decode", message: "x"))
@@ -142,6 +169,9 @@ final class ErrorReporterTests: XCTestCase {
         XCTAssertTrue(ErrorReporter.isExpectedSocketError("Could not connect to the server."))
         XCTAssertTrue(ErrorReporter.isExpectedSocketError("The network connection was lost."))
         XCTAssertTrue(ErrorReporter.isExpectedSocketError("Tried emitting when not connected"))
+        XCTAssertTrue(ErrorReporter.isExpectedSocketError("A server with the specified hostname could not be found."))
+        XCTAssertTrue(ErrorReporter.isExpectedSocketError("An SSL error has occurred and a secure connection to the server cannot be made."))
+        XCTAssertTrue(ErrorReporter.isExpectedSocketError("The operation couldn’t be completed. (NSURLErrorDomain error -1003.)"))
         XCTAssertFalse(ErrorReporter.isExpectedSocketError("Got unknown error from server {\"message\":\"x\"}"))
         XCTAssertFalse(ErrorReporter.isExpectedSocketError("Invalid packet type"))
     }
@@ -161,6 +191,32 @@ final class ErrorReporterTests: XCTestCase {
         let third = reporter()
         third.reportPendingCrash()
         XCTAssertEqual(sent.count, 1)  // forgotten once sent
+    }
+
+    /// A launch that ends before its connect never sent the saved exception: the next one does.
+    func testASavedExceptionIsKeptUntilItIsSent() {
+        reporter().savePendingCrash(name: "NSRangeException", reason: "x", stack: "0 CoreFoundation")
+        connected = false
+        let offline = reporter()
+        offline.reportPendingCrash()
+        XCTAssertEqual(offline.pending, 1)
+        XCTAssertNotNil(defaults.dictionary(forKey: ErrorReporter.pendingCrashKey))  // still saved
+
+        connected = true
+        let next = reporter()
+        next.reportPendingCrash()
+        XCTAssertEqual(kinds, ["exception"])
+        XCTAssertNil(defaults.dictionary(forKey: ErrorReporter.pendingCrashKey))
+    }
+
+    func testInstallingTheExceptionHandlerTwiceKeepsTheFirst() {
+        let before = NSGetUncaughtExceptionHandler()
+        defer { NSSetUncaughtExceptionHandler(before) }
+        ErrorReporter.installExceptionHandler()
+        let first = NSGetUncaughtExceptionHandler()
+        ErrorReporter.installExceptionHandler()
+        XCTAssertEqual(first.map { unsafeBitCast($0, to: UnsafeRawPointer.self) },
+                       NSGetUncaughtExceptionHandler().map { unsafeBitCast($0, to: UnsafeRawPointer.self) })
     }
 
     func testTableLogReportsEachDecodeFailureKind() {

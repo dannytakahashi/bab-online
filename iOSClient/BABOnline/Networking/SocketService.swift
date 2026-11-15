@@ -175,7 +175,8 @@ final class SocketService: ObservableObject {
                 AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
             }
             // error reports made while disconnected, once the restore has had time to answer
-            // (so the server can name the signed-in user)
+            // (so the server can name the signed-in user); new ones wait with them until then
+            ErrorReporter.shared.connected()
             DispatchQueue.main.asyncAfter(deadline: .now() + ErrorReporter.flushDelay) { ErrorReporter.shared.flush() }
         }
 

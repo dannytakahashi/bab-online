@@ -8,11 +8,13 @@ import Foundation
 /// an unreadable table, a seq gap, an unexpected socket error or an uncaught exception used to
 /// vanish. Each goes out once per kind per launch (the first one is the one worth having; the
 /// server also caps a socket at 5 a minute), at most `maxKinds` kinds; only while connected,
-/// with up to `maxBuffer` waiting for the next connect (`flush`, called after the restore).
+/// with up to `maxBuffer` waiting for the next connect (`connected()` holds every report until
+/// `flush`, called after the restore, so none goes out before the server knows the user).
 /// Messages are what TableLog already logs (event names, coding paths, enum values: never a
 /// payload value, a name or chat), cut to the server's limits. No crash reporter SDK: an
 /// uncaught Objective-C exception is saved (UserDefaults, the app's own domain: CA92.1) and
-/// sent after the next launch's connect; a Swift trap cannot be caught and is not reported.
+/// sent after the next launch's connect (kept until it is sent); a Swift trap cannot be caught
+/// and is not reported.
 final class ErrorReporter {
     static let shared = ErrorReporter()
 
@@ -53,6 +55,10 @@ final class ErrorReporter {
     private var seen = Set<String>()
     private var buffer: [Report] = []
     private var sending = false
+    /// Between a connect and its `flush`: reports wait, so the restore lands first.
+    private var flushPending = false
+    /// The message of the last launch's saved exception, forgotten (defaults) only once sent.
+    private var pendingCrashMessage: String?
     private(set) var deduped = 0
     private(set) var dropped = 0
 
@@ -98,18 +104,28 @@ final class ErrorReporter {
         if sending { lock.unlock(); return false }  // an error while sending one: never loop
         if seen.contains(kind) { deduped += 1; lock.unlock(); return false }
         if seen.count >= Self.maxKinds { lock.unlock(); return false }
-        seen.insert(kind)
-        let direct = buffer.isEmpty
+        seen.insert(kind)  // now, so a second thread's same kind is a duplicate; undone on a drop
+        let direct = buffer.isEmpty && !flushPending
         lock.unlock()
         if direct, send(r) { return true }
         lock.lock(); defer { lock.unlock() }
-        guard buffer.count < Self.maxBuffer else { dropped += 1; return false }
+        guard buffer.count < Self.maxBuffer else {
+            dropped += 1
+            seen.remove(kind)  // never sent: its next one may still go
+            return false
+        }
         buffer.append(r)
         return true
     }
 
+    /// The socket connected (SocketService, before it schedules `flush`): reports wait for it.
+    func connected() {
+        lock.lock(); flushPending = true; lock.unlock()
+    }
+
     /// Send what waited, in order, while the sender takes it (SocketService, after a connect).
     func flush() {
+        lock.lock(); flushPending = false; lock.unlock()
         while true {
             lock.lock()
             guard let next = buffer.first else { lock.unlock(); return }
@@ -125,7 +141,15 @@ final class ErrorReporter {
         guard let sender else { return false }
         lock.lock(); sending = true; lock.unlock()
         defer { lock.lock(); sending = false; lock.unlock() }
-        return sender(r.payload)
+        let ok = sender(r.payload)
+        if ok {
+            lock.lock()
+            let wasCrash = r.kind == "exception" && r.message == pendingCrashMessage
+            if wasCrash { pendingCrashMessage = nil }
+            lock.unlock()
+            if wasCrash { defaults.removeObject(forKey: Self.pendingCrashKey) }
+        }
+        return ok
     }
 
     // MARK: - Socket errors
@@ -137,16 +161,22 @@ final class ErrorReporter {
         return ["offline", "timed out", "timeout", "could not connect", "network connection was lost",
                 "not connected", "connection reset", "connection refused", "socket is not connected",
                 "connection abort", "broken pipe", "cancelled", "canceled", "-1001", "-1004", "-1005", "-1009",
+                // DNS and TLS on a flaky or captive network
+                "could not be found", "-1003", "ssl error", "secure connection", "-1200",
                 "tried emitting when not connected", "session id unknown"].contains { m.contains($0) }
     }
 
     // MARK: - Uncaught exceptions
 
     private static var previousHandler: (@convention(c) (NSException) -> Void)?
+    private static var handlerInstalled = false
 
     /// Saves an uncaught exception for the next launch (the process ends before a socket could
-    /// send it), then calls any handler that was installed before.
+    /// send it), then calls any handler that was installed before. Once: a second install would
+    /// take our own handler as the previous one and recurse while crashing.
     static func installExceptionHandler() {
+        guard !handlerInstalled else { return }
+        handlerInstalled = true
         previousHandler = NSGetUncaughtExceptionHandler()
         NSSetUncaughtExceptionHandler { exception in
             ErrorReporter.shared.savePendingCrash(name: exception.name.rawValue, reason: exception.reason,
@@ -159,13 +189,24 @@ final class ErrorReporter {
         let r = Self.makeReport(kind: "exception", message: [name, reason].compactMap { $0 }.joined(separator: ": "),
                                 stack: stack, build: build)
         defaults.set(r?.payload, forKey: Self.pendingCrashKey)
+        // the process aborts next: write it now, not on the defaults' own schedule
+        defaults.synchronize()
     }
 
-    /// The last launch's saved exception, reported (and forgotten) once.
+    /// The last launch's saved exception, reported once; forgotten when it is sent (`send`),
+    /// so a launch that ends before it could go sends it the time after.
     func reportPendingCrash() {
         guard let saved = defaults.dictionary(forKey: Self.pendingCrashKey) else { return }
-        defaults.removeObject(forKey: Self.pendingCrashKey)
-        guard let message = saved["message"] as? String else { return }
-        report(kind: "exception", message: "previous launch: \(message)", stack: saved["stack"] as? String)
+        guard let message = saved["message"] as? String else {
+            defaults.removeObject(forKey: Self.pendingCrashKey)
+            return
+        }
+        let text = "previous launch: \(message)"
+        lock.lock()
+        pendingCrashMessage = Self.makeReport(kind: "exception", message: text)?.message  // as cut
+        lock.unlock()
+        if !report(kind: "exception", message: text, stack: saved["stack"] as? String) {
+            lock.lock(); pendingCrashMessage = nil; lock.unlock()
+        }
     }
 }
