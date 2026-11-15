@@ -1769,9 +1769,11 @@ function initializeApp() {
     },
 
     onTournamentPlayerLeft: (data) => {
-      updateTournamentPlayers(data.players, gameState.username);
+      // The host left: the role passed on (to me: the Begin / Cancel
+      // controls appear in place)
+      updateTournamentPlayers(data.players, gameState.username, data.newCreator);
       if (data.newCreator) {
-        showInfo(`${data.newCreator} is now the tournament host`);
+        showInfo(data.newCreator === gameState.username ? 'You are now the tournament host' : `${data.newCreator} is now the tournament host`);
       }
     },
 
