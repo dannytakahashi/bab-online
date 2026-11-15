@@ -186,6 +186,18 @@ describe('one live connection per user', () => {
     });
 });
 
+describe('an unknown name', () => {
+    test('the log line never carries the typed name (sometimes a password typed in the wrong field)', async () => {
+        const { authLogger } = require('../../utils/logger');
+        const warn = jest.spyOn(authLogger, 'warn').mockImplementation(() => {});
+        const res = await signIn(connect(), 'maple-otter-42', 'pw');
+        expect(res).toEqual({ success: false, message: 'Invalid username or password!' });
+        expect(warn).toHaveBeenCalledWith('Sign-in failed: user not found');
+        expect(JSON.stringify(warn.mock.calls)).not.toContain('maple-otter-42');
+        warn.mockRestore();
+    });
+});
+
 describe('merged (retired) accounts', () => {
     test('sign-in tells the player which account to use', async () => {
         const res = await signIn(connect(), 'Alan2', 'anything');
