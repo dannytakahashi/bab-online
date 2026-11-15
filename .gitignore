@@ -30,3 +30,9 @@ build/
 
 # Coverage
 coverage/
+
+# Database dumps (scripts/backup-db.js refuses a repository folder; this is the backstop):
+# every password hash and session token, never committed
+*.archive.gz
+*.archive.gz.partial
+*.bson

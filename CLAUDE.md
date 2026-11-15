@@ -72,7 +72,7 @@ bab-online/
 │   │   └── ttlCache.js        # Leaderboard/records caches
 │   └── __tests__/             # Jest tests
 │
-├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only); build-avatars.js, build-tokens.js (npm run tokens); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
+├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only), backup-db.js / restore-db.js (logical DB backup and restore); build-avatars.js, build-tokens.js (npm run tokens); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
 │
 ├── contract/                   # Socket contract: schema source, generator, v1 + per-iOS-build baselines, v2 fixtures (dev/test only)
 │
@@ -160,6 +160,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Sessions and socket identity | `docs/claude/server-accounts.md`, Sessions and socket identity | per-device tokens, one live socket, supersede / parked tabs, `releaseIdentity` |
 | Username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` | sign-up name rules and budgets (per socket, per IP, server-wide), bcrypt worker pool, failed-sign-in limits + client IP |
 | Database, caches, limits, CI, deploys | `docs/claude/server-infra.md` | `.railway/railway.ts` service settings (wait for CI, `/ready` healthcheck, `PORT=3000`, how to plan/apply), crash exit codes, `safeTimer`, `/health` counts, `LOG_LEVEL`; startup DB + indexes, 5 s server selection timeout, what CI runs (`ci-boot-check.sh`, `REQUIRE_REAL_MONGO`), active-game writes, projected reads, stats scopes (human `stats` / bot-game `botStats`, `withBots` records, `{scope}` reads), profile caches per scope, soft limits |
+| Backups and restore | `docs/claude/server-infra.md`, Backups and restore | Railway volume backups (dashboard: schedules, retention, restore = new volume + DB redeploy); owner-run `scripts/backup-db.js` (mongodump archive, never in a repo, URI via `railway run`) and `scripts/restore-db.js` (local by default, `--into-db` scratch copy, `--i-mean-production` + typed name); copying one document back; what a full restore loses; the drill checklist; the scheduled-backup proposal. Stats are `$inc` counters and deletes are final: only backups undo them |
 | Express pages, avatars | `docs/claude/server-infra.md` | /privacy /support /terms; avatar pipeline, `clientHello` caps, kill switches |
 | Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules, web voice keys (hold `` ` `` for the overlay, M mute) |
 | Merged accounts, admin panel, reset links, deletion | `server/admin/CLAUDE.md` | tombstones, `adminRequest` authorization + audit, merge / delete / rename, one-time reset links |
