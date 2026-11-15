@@ -1,0 +1,126 @@
+{
+  "pipeline": 1,
+  "sounds": {
+    "deal": {
+      "source": "card-fan-1.ogg",
+      "gain_db": -0.3,
+      "duration": 0.71,
+      "rms_dbfs": -24.0,
+      "peak_dbfs": -4.4,
+      "centroid_hz": 1078,
+      "bytes": 10137,
+      "sha256": "df9bd3c6179dbbd9d5204bafdc8ab3a01cbaacce495f1b7eff824d795f74ad63",
+      "recipe": "2f2e18feee9e3bd6"
+    },
+    "card-1": {
+      "source": "card-slide-1.ogg",
+      "gain_db": -6.1,
+      "duration": 0.14,
+      "rms_dbfs": -24.0,
+      "peak_dbfs": -8.5,
+      "centroid_hz": 1036,
+      "bytes": 5812,
+      "sha256": "aa274f19977b71f89b7c7ad2d2df423bed1fa9fc918d6a4a5306f37c8e927c8c",
+      "recipe": "af72b979df4acdef"
+    },
+    "card-2": {
+      "source": "card-place-1.ogg",
+      "gain_db": -4.3,
+      "duration": 0.18,
+      "rms_dbfs": -24.0,
+      "peak_dbfs": -6.4,
+      "centroid_hz": 1231,
+      "bytes": 5823,
+      "sha256": "7d43c5917521d3a131713bbef9fc4260f33a9be4cf743ff2a0f7c6c234a4e089",
+      "recipe": "13b616da71317213"
+    },
+    "card-3": {
+      "source": "card-slide-3.ogg",
+      "gain_db": -5.1,
+      "duration": 0.25,
+      "rms_dbfs": -24.1,
+      "peak_dbfs": -6.9,
+      "centroid_hz": 1215,
+      "bytes": 5995,
+      "sha256": "4ec14ac325a7a812c8bace00575d7bbecd35d8115742f552f940ee2728f00cf6",
+      "recipe": "393c392759a939d1"
+    },
+    "trick": {
+      "source": "card-shove-4.ogg",
+      "gain_db": -0.2,
+      "duration": 0.45,
+      "rms_dbfs": -24.6,
+      "peak_dbfs": -3.1,
+      "centroid_hz": 3845,
+      "bytes": 7516,
+      "sha256": "c348e19cc40b864e85a62db0467befb48bdc426fd1acd6a88c0949fd064b6375",
+      "recipe": "4a4524090a17cdbc"
+    },
+    "trick-ours": {
+      "source": "card-shove-4.ogg+chip-lay-3.ogg",
+      "gain_db": -0.7,
+      "duration": 0.45,
+      "rms_dbfs": -25.0,
+      "peak_dbfs": -3.7,
+      "centroid_hz": 4261,
+      "bytes": 7681,
+      "sha256": "128da3d6ea9dd6fefc7bd0cfb82e6aacf925e54bbc78c32499903e4d44ba7e11",
+      "recipe": "32ce140927c7ea13"
+    },
+    "turn": {
+      "source": "synthesized",
+      "gain_db": -15.7,
+      "duration": 0.45,
+      "rms_dbfs": -26.0,
+      "peak_dbfs": -15.1,
+      "centroid_hz": 977,
+      "bytes": 5182,
+      "sha256": "f34236686c87ecd31aeb701d65a2a6074c27696aacc2a249f27a7abd78581eab",
+      "recipe": "7c38c90592c0892e"
+    },
+    "made": {
+      "source": "chips-stack-3.ogg",
+      "gain_db": 1.0,
+      "duration": 0.37,
+      "rms_dbfs": -27.7,
+      "peak_dbfs": -3.7,
+      "centroid_hz": 4336,
+      "bytes": 6997,
+      "sha256": "2352a21f97e71eedf24b20e5e70fbfdb886567ced7fc762738035a22c96f5fec",
+      "recipe": "7ebcd04ec333ebfa"
+    },
+    "set": {
+      "source": "chips-collide-2.ogg",
+      "gain_db": 2.4,
+      "duration": 0.1,
+      "rms_dbfs": -26.6,
+      "peak_dbfs": -4.1,
+      "centroid_hz": 3079,
+      "bytes": 5055,
+      "sha256": "a13f60679b1cc454cf6ef694dc589810b09eadc4813f0be34f53dcfec5f2268e",
+      "recipe": "ddc5b26a8dfc7696"
+    },
+    "gameend": {
+      "source": "synthesized",
+      "gain_db": -18.5,
+      "duration": 1.1,
+      "rms_dbfs": -26.0,
+      "peak_dbfs": -13.3,
+      "centroid_hz": 730,
+      "bytes": 6649,
+      "sha256": "7a66aa6bc362a690ece5f9c72361d87047c5fc4a213d0ed7b9e2839a7edf8b7e",
+      "recipe": "f2c30d8288247be5"
+    },
+    "overtrump": {
+      "source": "card-slide-4.ogg",
+      "gain_db": -1.5,
+      "duration": 0.19,
+      "rms_dbfs": -25.0,
+      "peak_dbfs": -3.2,
+      "centroid_hz": 3574,
+      "bytes": 5736,
+      "sha256": "21b3c1a0bde7cd4c525085705957c5b08f605bd33428013156cb4e39b6d92500",
+      "recipe": "a53656bcddd28334"
+    }
+  }
+}

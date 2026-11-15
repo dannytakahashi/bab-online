@@ -36,7 +36,7 @@ bab-online/
 │   │   │   ├── scenes/        # GameScene (main Phaser scene)
 │   │   │   └── managers/      # CardManager, TrickManager, BidManager, etc.
 │   │   └── ui/                # DOM-based UI (screens, components)
-│   └── assets/                # Card images, sprites
+│   └── assets/                # Card images, sprites, sounds/ (npm run build:sounds)
 │
 ├── server/                     # Backend
 │   ├── game/                  # Core game logic
@@ -72,7 +72,7 @@ bab-online/
 │   │   └── ttlCache.js        # Leaderboard/records caches
 │   └── __tests__/             # Jest tests
 │
-├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only), backup-db.js / restore-db.js (logical DB backup and restore); build-avatars.js, build-tokens.js (npm run tokens); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
+├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only), backup-db.js / restore-db.js (logical DB backup and restore); build-avatars.js, build-tokens.js (npm run tokens), build-sounds.py (npm run build:sounds); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
 │
 ├── contract/                   # Socket contract: schema source, generator, v1 + per-iOS-build baselines, v2 fixtures (dev/test only)
 │
@@ -118,6 +118,7 @@ npm run dev:client   # Client Vite dev server (port 5173; serves client/index.ht
 npm run build:client # Production build: client/dist (index.html + hashed assets/); Express serves / from it
 npm run build:avatars # Re-encode stock avatar art from the fcdd885 masters (scripts/build-avatars.js)
 npm run build:icons  # favicon.ico (16/32/48), assets/icons/icon-192.png + apple-touch-icon.png, assets/app-icon.webp (the phone gate's) from the iOS app icon (scripts/build-icons.js)
+npm run build:sounds # Table sound effects (macOS + numpy): client/assets/sounds/*.m4a and the same files in iOSClient/BABOnline/Resources/Sounds/ from sounds-src/ (scripts/build-sounds.py; sounds:check = stale check)
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)

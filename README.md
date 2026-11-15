@@ -255,6 +255,11 @@ npm run build:client
 # tokens.css / tokens.js and the iOS app's Generated/Theme.swift
 # (tokens:check fails when a generated file is stale or a contrast pair fails)
 npm run tokens
+
+# Rebuild the sound effects (macOS: afconvert, plus python3 with numpy) after
+# editing scripts/build-sounds.py or sounds-src/: writes client/assets/sounds/
+# and iOSClient/BABOnline/Resources/Sounds/ (sounds:check fails when stale)
+npm run build:sounds
 ```
 
 The web cards are drawn at runtime (`client/src/phaser/cards/`, a port of the
@@ -493,3 +498,9 @@ docker-compose down
 # Rebuild after changes
 docker-compose up -d --build
 ```
+
+## Credits
+
+Sound effects: Casino Audio by Kenney (kenney.nl), CC0. The samples used are in
+`sounds-src/kenney-casino-audio/` with the pack's License.txt; the chimes are
+synthesized by `scripts/build-sounds.py`.
