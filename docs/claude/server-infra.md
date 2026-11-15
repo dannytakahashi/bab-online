@@ -104,7 +104,7 @@ A Railway cron service in the same project (schedule `0 9 * * *`, UTC; it must e
 
 ## Express pages
 
-- Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`)
+- Express pages: `/privacy`, `/support`, `/terms` (App Store compliance copy lives in `server/routes/index.js`). The privacy policy (2026-11-15) lists what the server stores, logs and sends out (Railway, Cloudflare TURN/STUN, Google STUN) and what an account deletion keeps (`server/admin/accountDelete.js`); `server/__tests__/policyPages.test.js` pins its date, the processors and the deletion rows, so change the policy (and its date) together with a change to stored data, logs or processors
 
 ## Avatars
 
