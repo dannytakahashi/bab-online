@@ -26,7 +26,7 @@ import { PHASE, getGameState } from './state/GameState.js';
 import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 
 // Socket
-import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
+import { getSocketManager, initializeSocketManager, CHAT_EVENTS } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
@@ -220,11 +220,8 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
   }
   if (!gameLogInstance) {
     gameLogInstance = showGameLog({
-      onChatSubmit: (message) => {
-        if (window.socket) {
-          window.socket.emit('chatMessage', { message });
-        }
-      },
+      // false (the emit gate refused it, offline): the log keeps the draft
+      onChatSubmit: (message) => (window.socket ? window.socket.emit('chatMessage', { message }) : false),
     });
 
     // The log's grid column (--log-w) comes on
@@ -556,6 +553,20 @@ function initializeApp() {
     requestSnapshot,
     forceReconnect: () => socketMgr.forceReconnect(),
     connectionId: () => (socket.connected ? socket.id || 'connected' : null),
+    // The emit gate's rule (SocketManager._send): no bid or play before the restore
+    canSend: (event) => socketMgr.canSend(event),
+    onRefused: () => showInfo('Reconnecting. Try again in a moment.'),
+  });
+
+  // The emit gate's notices: a refusal (offline; a chat form keeps the
+  // draft), and what was held too long to send after the reconnect
+  socketMgr.setEmitNotices({
+    refused: (event) => showWarning(CHAT_EVENTS.has(event)
+      ? "You're offline. Your message wasn't sent."
+      : "You're offline. Try again once you're back online."),
+    dropped: (events) => showWarning(events.some((e) => CHAT_EVENTS.has(e))
+      ? "A message from while you were reconnecting wasn't sent."
+      : "An action from while you were reconnecting wasn't sent."),
   });
 
   // Visible connection state while the socket is down (and the restart
@@ -1277,12 +1288,8 @@ function initializeApp() {
           }
           if (!gameLogInstance) {
             gameLogInstance = showGameLog({
-              onChatSubmit: (message) => {
-                const socket = getSocketManager()?.socket;
-                if (socket) {
-                  socket.emit('chatMessage', { message });
-                }
-              },
+              // false (the emit gate refused it, offline): the log keeps the draft
+              onChatSubmit: (message) => getSocketManager()?.socket?.emit('chatMessage', { message }) ?? false,
             });
 
             // The log's grid column (--log-w) comes on

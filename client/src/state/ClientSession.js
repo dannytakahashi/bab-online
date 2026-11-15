@@ -177,6 +177,13 @@ export class ClientSession {
       this._socketManager = socketManager;
       this._unsubscribeSocket = socketManager.onStateChange?.((event, data) => this._onSocketState(event, data)) || null;
       if (socketManager.isConnected) this._setConnection(CONNECTION.CONNECTED);
+      // The emit gate: a signed-in tab's emits wait for this socket's
+      // restore (SocketManager._send); the restore's reply flushes them
+      socketManager.setSessionGate?.({
+        hasSession: () => !!this.credentials(),
+        isRestored: () => !!socketManager.socket?.connected && this.sessionRestored,
+        isOffline: () => this._connection === CONNECTION.OFFLINE,
+      });
     }
     return this;
   }
@@ -541,6 +548,11 @@ export class ClientSession {
 
   /** Signed in by password on this socket (signInResponse / signUp auto-login). */
   noteSignedIn(username) {
+    this._markRestored(username);
+    this._socketManager?.flushHeld?.();
+  }
+
+  _markRestored(username) {
     this._restoredSocketId = this._socketManager?.id || null;
     this._restoreSentFor = this._restoredSocketId;
     if (this._gameState && username) this._gameState.username = username;
@@ -548,11 +560,20 @@ export class ClientSession {
 
   /**
    * restoreSessionResponse {success: true}: rejoin, re-spectate, or
-   * re-enter the current screen.
+   * re-enter the current screen, then send what the emit gate held while
+   * the socket was down (after the rejoin, so a held action finds its seat).
    * @returns {string} what it did: 'rejoin' | 'spectate' | 'tournament' | 'tournamentSpectate' | 'lobby' | 'mainRoom' | 'stay' | 'none'
    */
   onSessionRestored(data) {
-    this.noteSignedIn(data.username);
+    this._markRestored(data.username);
+    try {
+      return this._routeAfterRestore(data);
+    } finally {
+      this._socketManager?.flushHeld?.();
+    }
+  }
+
+  _routeAfterRestore(data) {
     // The server's pointer to a tournament this player is in (one that has
     // begun) first: a rejoin below that fails, or a table with nothing to
     // rejoin, then routes back to it (returnToTournament reattaches by
@@ -710,6 +731,8 @@ export class ClientSession {
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;
+    // Nothing held for the old identity may go out under the next one
+    this._socketManager?.dropHeld?.();
   }
 
   // ============================================

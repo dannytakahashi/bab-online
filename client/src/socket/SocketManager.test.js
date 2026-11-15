@@ -10,6 +10,8 @@ import {
 
 // Mock socket for testing
 function createMockSocket() {
+  // the raw emit (initialize wraps socket.emit in the emit gate): assert on _emit
+  const emit = vi.fn();
   const listeners = new Map();
 
   return {
@@ -26,7 +28,8 @@ function createMockSocket() {
         eventListeners.delete(callback);
       }
     }),
-    emit: vi.fn(),
+    emit,
+    _emit: emit,
     disconnect: vi.fn(),
     connect: vi.fn(),
     // Helper to trigger events in tests
@@ -180,7 +183,7 @@ describe('SocketManager', () => {
     it('emits event to socket', () => {
       manager.emit('testEvent', { foo: 'bar' });
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('testEvent', { foo: 'bar' });
+      expect(mockSocket._emit).toHaveBeenCalledWith('testEvent', { foo: 'bar' });
     });
 
     it('handles missing socket gracefully', () => {
@@ -325,7 +328,7 @@ describe('visibility reconnection (ping first)', () => {
   }
 
   function pings() {
-    return mockSocket.emit.mock.calls.filter(([event]) => event === 'requestSnapshot');
+    return mockSocket._emit.mock.calls.filter(([event]) => event === 'requestSnapshot');
   }
 
   function answer(requestId) {
@@ -467,7 +470,7 @@ describe('visibility reconnection (ping first)', () => {
     sessionStorage.setItem('spectatingGameId', 'g2');
     mockSocket._trigger('connect');
     expect(manager.state).toBe(CONNECTION_STATE.CONNECTED);
-    const events = mockSocket.emit.mock.calls.map(([e]) => e);
+    const events = mockSocket._emit.mock.calls.map(([e]) => e);
     expect(events).not.toContain('rejoinGame');
     expect(events).not.toContain('joinAsSpectator');
   });

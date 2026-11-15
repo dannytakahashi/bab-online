@@ -29,7 +29,7 @@ export const MAX_LOG_ROWS = 500;
  * Create game log component.
  *
  * @param {Object} options - Log options
- * @param {Function} options.onChatSubmit - Called with message when chat submitted
+ * @param {Function} options.onChatSubmit - Called with message when chat submitted; false keeps the draft
  * @returns {Object} { container, addMessage, addSystemMessage, updateScores, destroy }
  */
 export function createGameLog({ onChatSubmit } = {}) {
@@ -249,7 +249,8 @@ export function createGameLog({ onChatSubmit } = {}) {
           message = matches[0].command;
         }
       }
-      onChatSubmit(message);
+      // false: not sent (offline, the emit gate): the draft stays
+      if (onChatSubmit(message) === false) return;
       chatInput.value = '';
       autocompleteDropdown.hidden = true;
     }

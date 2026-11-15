@@ -16,6 +16,27 @@ export const BACKGROUND_PROBE_AFTER_MS = 5000;
 // No answer to that ping within this long: force a reconnect
 export const PROBE_TIMEOUT_MS = 3000;
 
+// The emit gate (_send): at most this many held for the restore, each for
+// at most this long (an older click is stale: dropped with a notice)
+export const HOLD_MAX = 20;
+export const HOLD_MAX_MS = 30000;
+
+/**
+ * Emits that never wait for the session: auth itself, the hello, snapshot
+ * pings (answered either way), voice signaling (live only: a held offer is
+ * useless) and admin requests (they time out on their own).
+ */
+export const SESSIONLESS_EVENTS = new Set([
+  CLIENT_EVENTS.SIGN_IN, CLIENT_EVENTS.SIGN_UP, CLIENT_EVENTS.RESTORE_SESSION, CLIENT_EVENTS.CLIENT_HELLO,
+  CLIENT_EVENTS.REQUEST_SNAPSHOT, CLIENT_EVENTS.VOICE_OFFER, CLIENT_EVENTS.VOICE_ANSWER,
+  CLIENT_EVENTS.VOICE_ICE_CANDIDATE, CLIENT_EVENTS.GET_VOICE_ICE_SERVERS, CLIENT_EVENTS.ADMIN_REQUEST,
+]);
+
+/** Chat events (a refusal keeps the draft; its notice says the message was not sent). */
+export const CHAT_EVENTS = new Set([
+  CLIENT_EVENTS.CHAT_MESSAGE, CLIENT_EVENTS.MAIN_ROOM_CHAT, CLIENT_EVENTS.LOBBY_CHAT, CLIENT_EVENTS.TOURNAMENT_CHAT,
+]);
+
 // Connection states
 export const CONNECTION_STATE = {
   DISCONNECTED: 'disconnected',
@@ -129,6 +150,7 @@ export class SocketManager {
    */
   initialize(socket) {
     this._socket = socket;
+    this._installEmitGate(socket);
     // The socket may have connected before the app initialized (the
     // connect event has fired already): start from its real state
     if (socket?.connected) {
@@ -442,10 +464,114 @@ export class SocketManager {
   emit(event, data) {
     if (!this._socket) {
       console.warn('Socket not initialized');
-      return;
+      return false;
     }
 
-    this._socket.emit(event, data);
+    return this._socket.emit(event, data);
+  }
+
+  // ============================================
+  // Emit gate (later #10): nothing that needs the session goes out before
+  // this socket's restoreSession is answered
+  // ============================================
+
+  /**
+   * Socket.IO buffers an emit made while disconnected and flushes it on
+   * connect BEFORE the connect handler's restoreSession, so the server
+   * got it from an anonymous socket and dropped it ("Not in main room":
+   * a chat line lost). Every emit of the page goes through here instead
+   * (the socket's own emit is wrapped, so screens calling socket.emit are
+   * covered): while a signed-in tab's socket is not restored, one that
+   * needs the session is held, and sent in order once the restore (and
+   * its rejoin / re-entry) went out (flushHeld); offline, or with
+   * HOLD_MAX held, it is refused (returns false: a chat form keeps the
+   * draft) with a notice. Held longer than HOLD_MAX_MS it is dropped at
+   * the flush, with a notice. My bids and plays never wait: MyAction asks
+   * canSend first and the player plays again once back.
+   */
+  _installEmitGate(socket) {
+    if (!socket || typeof socket.emit !== 'function' || socket.emit.__babGated) return;
+    const raw = socket.emit.bind(socket);
+    this._rawEmit = raw;
+    this._held = [];
+    const gated = (event, ...args) => this._send(event, args);
+    gated.__babGated = true;
+    socket.emit = gated;
+  }
+
+  /**
+   * @param {Object|null} gate
+   * @param {Function} gate.hasSession - () => this tab is signed in (holds credentials)
+   * @param {Function} gate.isRestored - () => this connected socket's session is restored
+   * @param {Function} gate.isOffline - () => the connection gave up (no reconnect coming by itself)
+   */
+  setSessionGate(gate) {
+    this._sessionGate = gate || null;
+  }
+
+  /** {refused(event), dropped(events)}: the page's notices (main.js toasts). */
+  setEmitNotices(notices) {
+    this._emitNotices = notices || null;
+  }
+
+  /** Would `event` go out now (not held, not refused)? */
+  canSend(event) {
+    return !this._mustWait(event);
+  }
+
+  /** Events held for the restore, in order (tests, debugging). */
+  get heldEvents() {
+    return (this._held || []).map((h) => h.event);
+  }
+
+  _mustWait(event) {
+    const g = this._sessionGate;
+    if (!g || SESSIONLESS_EVENTS.has(event)) return false;
+    try {
+      return !!g.hasSession() && !g.isRestored();
+    } catch {
+      return false;
+    }
+  }
+
+  _send(event, args) {
+    if (!this._mustWait(event)) return this._rawEmit(event, ...args);
+    let offline = false;
+    try { offline = !!this._sessionGate.isOffline?.(); } catch { /* treat as reconnecting */ }
+    if (offline || this._held.length >= HOLD_MAX) {
+      this._notice('refused', event);
+      return false;
+    }
+    this._held.push({ event, args, at: Date.now() });
+    return this._socket;
+  }
+
+  /** The restore went out and was answered: send what was held, in order. */
+  flushHeld(now = Date.now()) {
+    const held = this._held || [];
+    if (!held.length) return;
+    this._held = [];
+    const stale = [];
+    for (const h of held) {
+      if (now - h.at > HOLD_MAX_MS) stale.push(h.event);
+      else this._send(h.event, h.args);
+    }
+    if (stale.length) this._notice('dropped', stale);
+  }
+
+  /** Signed out (or the restore failed): nothing held may go out later. */
+  dropHeld() {
+    const events = this.heldEvents;
+    if (this._held) this._held = [];
+    return events;
+  }
+
+  _notice(kind, payload) {
+    try {
+      this._emitNotices?.[kind]?.(payload);
+    } catch (err) {
+      console.error('SocketManager: emit notice failed', err);
+    }
   }
 
   // ============================================
