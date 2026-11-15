@@ -21,7 +21,7 @@ const B = require('../server/admin/dbBackup');
 const USAGE = `Usage:
   node scripts/restore-db.js <archive> (--uri <local uri> | RESTORE_URI=<uri>) [options]
 
-  --db <name>           database inside the archive (default ${B.DEFAULT_DB})
+  --db <name>           database inside the archive (default: DB_NAME from this shell, else babonline; .env is never read)
   --into-db <name>      restore under another name (mongorestore --nsFrom '<db>.*' --nsTo '<name>.*')
   --nsFrom '<db>.*' --nsTo '<name>.*'   the same, spelled as mongorestore spells it
   --drop                drop each archived collection in the target before restoring it
@@ -34,11 +34,12 @@ function nsDb(pattern, flag) {
 }
 
 function parseArgs(argv) {
-    const a = { archive: null, uri: null, db: B.DEFAULT_DB, intoDb: null, nsFrom: null, nsTo: null, drop: false, production: false };
+    const def = B.defaultDb();
+    const a = { archive: null, uri: null, db: def.db, dbFrom: def.from, intoDb: null, nsFrom: null, nsTo: null, drop: false, production: false };
     for (let i = 0; i < argv.length; i++) {
         const k = argv[i];
         if (k === '--uri') a.uri = argv[++i];
-        else if (k === '--db') a.db = argv[++i];
+        else if (k === '--db') { a.db = argv[++i]; a.dbFrom = '--db'; }
         else if (k === '--into-db') a.intoDb = argv[++i];
         else if (k === '--nsFrom') a.nsFrom = nsDb(argv[++i], '--nsFrom');
         else if (k === '--nsTo') a.nsTo = nsDb(argv[++i], '--nsTo');
@@ -53,6 +54,7 @@ function parseArgs(argv) {
         if (!a.nsFrom || !a.nsTo) throw new Error('--nsFrom and --nsTo go together');
         if (a.intoDb && a.intoDb !== a.nsTo) throw new Error('--into-db and --nsTo disagree');
         a.db = a.nsFrom;
+        a.dbFrom = '--nsFrom';
         a.intoDb = a.nsTo;
     }
     if (!B.isValidDbName(a.db)) throw new Error('--db must be a plain database name');
@@ -130,6 +132,16 @@ async function main() {
     }
     if (!B.parseUri(uri)) { console.error('The target is not a mongodb:// or mongodb+srv:// URI.'); process.exit(2); }
 
+    // Loaded now, not after the restore: it reads .env, and a DB_NAME there
+    // that is not a plain name throws, which must stop us before writing
+    let ensureIndexes;
+    try {
+        ({ ensureIndexes } = require('../server/database'));
+    } catch (e) {
+        console.error(`Cannot load server/database.js (${e.message}); nothing written.`);
+        process.exit(2);
+    }
+
     const local = B.isLocalUri(uri);
     const target = `${B.describeHosts(uri)} (database ${args.targetDb})`;
     if (!local && !args.production) {
@@ -152,7 +164,7 @@ async function main() {
         const existing = (await collectionCounts(db)).filter((c) => c.count > 0);
 
         console.log(`Archive: ${args.archive} (${B.formatBytes(fs.statSync(args.archive).size)})`);
-        console.log(`From:    database ${args.db} in the archive`);
+        console.log(`From:    database ${args.db} in the archive (${args.dbFrom})`);
         console.log(`Target:  ${target}${local ? '' : '   <-- NOT LOCAL'}`);
         console.log(`Mode:    ${args.drop ? '--drop (each archived collection is dropped, then restored)' : 'insert into an empty database'}`);
         console.log(`Tool:    ${version}`);
@@ -200,7 +212,6 @@ async function main() {
         // The server builds these on every boot anyway; doing it here makes
         // the restored database complete before anything points at it
         const before = await indexNames(db);
-        const { ensureIndexes } = require('../server/database');
         await ensureIndexes({
             users: db.collection('users'),
             gameRecords: db.collection('gameRecords'),
