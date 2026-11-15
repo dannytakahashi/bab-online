@@ -1,3 +1,5 @@
+// TEMP fault injection (throwaway branch): crash at boot only inside Docker
+if (process.env.NODE_ENV === 'production' && require('fs').existsSync('/.dockerenv')) { console.error('FAULT INJECTION: crash in docker'); process.exit(1); }
 /**
  * BAB Online Server - Entry Point
  *
