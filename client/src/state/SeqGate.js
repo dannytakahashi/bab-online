@@ -18,6 +18,7 @@
  */
 
 import { classifySeq } from './snapshotV2.js';
+import { reportClientError } from '../telemetry/clientErrors.js';
 
 export const GAP_TIMEOUT_MS = 5000;
 
@@ -94,6 +95,8 @@ export class SeqGate {
         this._buffer.push({ event, seq, apply });
         this.stats.gaps++;
         this._note({ event, seq, verdict: 'gap', last: this.lastSeq });
+        // once per page load: a missed broadcast is worth knowing about
+        reportClientError('seqGap', `${event}: expected ${this.lastSeq + 1}, got ${seq}`);
         if (!this.resyncId) this._requestResync();
         return 'gap';
     }

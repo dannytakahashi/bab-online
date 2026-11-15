@@ -34,6 +34,7 @@
  */
 
 import { removeTransitionOverlay, onTransitionRemoved } from '../ui/transitionOverlay.js';
+import { reportClientError } from '../telemetry/clientErrors.js';
 
 /** gameUIReady used to follow the createUI fade-out by this long. */
 export const UI_READY_DELAY_MS = 500;
@@ -174,6 +175,7 @@ export class TableDirector {
         if (item.kind !== 'draw') ranTable = item.kind !== 'render' || ranTable;
       } catch (err) {
         console.error('Deferred table work failed:', err);
+        reportClientError('director', err, { where: 'Deferred table work failed' });
       }
     }
     // Late events stack their animations: settle on the model once
@@ -387,6 +389,7 @@ export class TableDirector {
         w.fn();
       } catch (err) {
         console.error('Deal step failed:', err);
+        reportClientError('director', err, { where: 'Deal step failed' });
       }
     }
   }
@@ -413,6 +416,7 @@ export class TableDirector {
         w.fn();
       } catch (err) {
         console.error('Deal step failed:', err);
+        reportClientError('director', err, { where: 'Deal step failed' });
       }
     }
   }
@@ -432,6 +436,7 @@ export class TableDirector {
       this.stats.renders++;
     } catch (err) {
       console.error('Fast-forward render failed:', err);
+      reportClientError('director', err, { where: 'Fast-forward render failed' });
     }
     return true;
   }

@@ -15,6 +15,7 @@ import { RANK_VALUES } from './constants/ranks.js';
 import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
 import { installAvatarSupport } from './utils/avatar.js';
+import { getClientErrorReporter } from './telemetry/clientErrors.js';
 
 // Rules
 import { isLegalMove } from './rules/legality.js';
@@ -281,6 +282,18 @@ installAvatarSupport(socket, {
   version: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0',
   build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
 });
+
+// Client error reports (telemetry/clientErrors.js): uncaught errors and
+// unhandled rejections from here on, plus the table's own counters (SeqGate
+// gaps, TableDirector failures, illegal screen moves), once per kind per page
+// load, sent as clientError while connected. Never throws
+const errorReporter = getClientErrorReporter();
+errorReporter.configure({
+  build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
+  page: () => getClientSession().screen,
+});
+errorReporter.attach(socket);
+errorReporter.installWindowHooks(window);
 
 // ==================== SESSION / RECONNECTION ====================
 

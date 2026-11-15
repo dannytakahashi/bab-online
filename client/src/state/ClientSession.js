@@ -35,6 +35,7 @@
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
+import { reportClientError } from '../telemetry/clientErrors.js';
 
 export const SCREEN = Object.freeze({
   BOOT: 'boot',
@@ -333,6 +334,7 @@ export class ClientSession {
     const message = `ClientSession: ${why} ${from} -> ${to}`;
     if (this._strict) throw new IllegalTransitionError(message);
     this._log.error?.(message);
+    reportClientError('screen', message);
     return false;
   }
 
@@ -344,6 +346,7 @@ export class ClientSession {
     } catch (err) {
       if (this._strict) throw err;
       this._log.error?.(`ClientSession: ${screen}.${kind} hook failed`, err);
+      reportClientError('screenHook', err, { where: `${screen}.${kind}` });
     }
   }
 
