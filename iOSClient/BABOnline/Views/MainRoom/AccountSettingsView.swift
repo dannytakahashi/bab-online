@@ -213,7 +213,7 @@ struct AccountSettingsView: View {
                     Text("Delete Account")
                 }
             } else {
-                Text("Permanently deletes your account, statistics, and profile. This cannot be undone.")
+                Text("Permanently deletes your account, statistics, and profile. This cannot be undone. Your username stays reserved for 30 days.")
                     .font(.caption)
                     .foregroundColor(Theme.textSecondary)
 
