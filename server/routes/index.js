@@ -24,38 +24,78 @@ router.get('/privacy', (req, res) => {
         h2 { color: #ccc; margin-top: 2em; }
         p { margin: 0.8em 0; }
         a { color: #4dcc73; }
+        ul { margin: 0.8em 0; }
+        li { margin: 0.4em 0; }
     </style>
 </head>
 <body>
     <h1>BAB Online — Privacy Policy</h1>
-    <p><strong>Last updated:</strong> February 22, 2026</p>
+    <p><strong>Last updated:</strong> November 15, 2026</p>
+
+    <p>BAB Online collects only what the game needs to run. There are no ads, no tracking, no analytics, and we never sell your data.</p>
 
     <h2>What We Collect</h2>
-    <p>When you create an account we store your <strong>username</strong> and a <strong>hashed password</strong> (bcrypt). We also store game statistics (wins, losses, scores) associated with your account.</p>
-    <p>We do not collect your real name, email address, location, or any device identifiers.</p>
+    <ul>
+        <li><strong>Account:</strong> your username and your password, stored only as a bcrypt hash. We don't ask for your real name, email address, or phone number.</li>
+        <li><strong>Sign-in sessions:</strong> for each device that stays signed in (up to 5), a hashed sign-in token and when it was created and last used. A session stops working 90 days after its last use. The token itself is kept on your device (the iOS Keychain, or your browser's storage).</li>
+        <li><strong>Profile:</strong> the stock picture you chose, or a picture you uploaded on the web. Uploaded pictures are re-encoded with their metadata (such as photo location) removed before anyone else sees them.</li>
+        <li><strong>Games:</strong> your statistics (wins, losses, points, bids and tricks) and a record of each finished game: the usernames of the people who played, the bots' names, the scores, and when it ended.</li>
+        <li><strong>Safety:</strong> the players you block, reports you file (who you reported, the reason you wrote, where it happened, and when), and reports other players file about you.</li>
+        <li><strong>Admin records:</strong> when an admin acts on an account (for example a rename, a password reset link, or a deletion), a log entry with the admin's username, the account's username, the action, and the time. Password reset links are stored only as a hash.</li>
+        <li><strong>Server logs:</strong> the server logs events such as sign-ins, sign-ups, wrong passwords, and errors, with the username involved. A sign-in with your password also logs your IP address. We use these logs to fix problems and to stop password guessing and spam sign-ups.</li>
+    </ul>
+    <p>We don't collect your location, contacts, photo library, or device identifiers. The app contains no analytics or advertising code, and our website sets no cookies.</p>
+
+    <h2>Chat and Voice</h2>
+    <p><strong>Text chat</strong> is filtered for profanity and shown to the other players in the room. It is never saved to our database or written to our logs: the server keeps the last 50 main room messages, and each lobby's, game's, or tournament's chat until it ends, in memory only.</p>
+    <p><strong>Voice chat</strong> is optional and needs your permission to use the microphone. Audio is encrypted and goes directly between players' devices (WebRTC); it is never recorded, and our server only passes along the messages that set up the call. To set up the call your device contacts a STUN server (Cloudflare's, or Google's public ones), which sees your IP address. When a direct connection isn't possible, the encrypted audio is relayed through Cloudflare, which sees the IP addresses involved but cannot listen to the audio. As in any peer-to-peer call, the players you talk with can see your IP address.</p>
+
+    <h2>Who Can See Your Data</h2>
+    <p>Your username, profile picture, and statistics are public: they appear on the leaderboard, in player search and profiles, and at the table, and anyone can see them, even without an account. Reports, block lists, sessions, and logs are never shown to other players; admins can see reports and the admin log.</p>
 
     <h2>How We Use Your Data</h2>
-    <p>Your username and stats are used solely to operate the game: displaying your name to other players, tracking leaderboard rankings, and enabling reconnection to in-progress games.</p>
+    <p>Only to run the game: showing your name and picture to other players, keeping leaderboards and records, reconnecting you to games in progress, handling reports and blocks, and protecting accounts from abuse. We don't use it for advertising or profiling.</p>
 
-    <h2>Data Sharing</h2>
-    <p>We do not sell, share, or transfer your data to any third parties. Your data stays on our server.</p>
+    <h2>Where It's Stored and Who Processes It</h2>
+    <ul>
+        <li><strong>Railway</strong> hosts our server, its logs, and our MongoDB database, in the United States.</li>
+        <li><strong>Cloudflare</strong> provides the voice relay and its STUN server (see Chat and Voice).</li>
+        <li><strong>Google</strong> runs the public STUN servers the app uses for voice when Cloudflare's relay is unavailable; they see your IP address only.</li>
+        <li><strong>Apple</strong> distributes the iOS app. If you agreed on your device to share analytics with app developers, Apple may share anonymous crash reports and usage statistics with us.</li>
+    </ul>
+    <p>We don't sell, rent, or share your data with anyone else, unless the law requires it.</p>
 
-    <h2>Data Storage</h2>
-    <p>Data is stored in a MongoDB database hosted on Railway. Passwords are hashed with bcrypt and are never stored in plain text.</p>
+    <h2>How Long We Keep It</h2>
+    <ul>
+        <li><strong>Account, profile, statistics, and block list:</strong> until you delete your account.</li>
+        <li><strong>Sign-in sessions:</strong> they stop working 90 days after their last use, and are deleted with your account.</li>
+        <li><strong>Game records:</strong> kept as the game's history. If you delete your account, your username in them is replaced with "[deleted]".</li>
+        <li><strong>Reports and the admin log:</strong> kept as a moderation and safety record; they are not deleted automatically.</li>
+        <li><strong>Password reset links:</strong> valid for 24 hours and deleted from our database about a week after they expire.</li>
+        <li><strong>Server logs:</strong> kept by Railway for a limited time (at most 30 days), then deleted.</li>
+        <li><strong>Backups:</strong> we may keep backups of the database for recovery; deleted data disappears from them as they expire, within 3 months.</li>
+    </ul>
 
     <h2>Data Deletion</h2>
-    <p>You can permanently delete your account and all associated data directly in the app: open <strong>Settings → Delete Account</strong> (iOS) or your <strong>profile page → Delete Account</strong> (web), confirm with your password, and your account, statistics, and profile data are removed immediately. Your username is also anonymized in historical game records.</p>
+    <p>You can permanently delete your account directly in the app: open <strong>Settings → Delete Account</strong> (iOS) or your <strong>profile page → Delete Account</strong> (web) and confirm with your password. This immediately deletes your account, password hash, sign-in sessions, statistics, profile picture, and block list, cancels any open password reset link, and replaces your username with "[deleted]" in game records.</p>
+    <p>Some records keep your username, and why:</p>
+    <ul>
+        <li><strong>Reports</strong> you filed or that were filed about you stay, marked as belonging to a deleted account, so the moderation history is not lost.</li>
+        <li><strong>The admin log</strong> keeps the usernames recorded at the time, as a record of what admins did.</li>
+        <li><strong>Other players' block lists</strong> keep your username, so deleting an account and signing up again with the same name can't be used to get around a block.</li>
+        <li><strong>Server logs and backups</strong> expire on the schedule above.</li>
+    </ul>
     <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> if you prefer; we will process the request within 48 hours.</p>
 
     <h2>Children's Privacy</h2>
-    <p>BAB Online does not knowingly collect data from children under 13. The game contains no advertising, in-app purchases, or tracking.</p>
+    <p>BAB Online does not knowingly collect data from children under 13. The game contains no advertising, in-app purchases, or tracking. If you believe a child under 13 has created an account, email us and we will delete it.</p>
 
     <h2>Changes</h2>
     <p>If we update this policy, the changes will be posted on this page with an updated date.</p>
 
     <h2>Contact</h2>
     <p>Email: <a href="mailto:support@zalberico.com">support@zalberico.com</a></p>
-    <p>Bug reports &amp; feature requests: <a href="https://github.com/dannytakahashi/bab-online/issues">github.com/dannytakahashi/bab-online/issues</a></p>
+    <p>Bug reports &amp; feature requests: <a href="https://github.com/dannytakahashi/bab-online/issues">github.com/dannytakahashi/bab-online/issues</a> (issues there are public, so please don't post personal information)</p>
     <p>See our <a href="/support">Support Page</a> for FAQs and more information.</p>
 </body>
 </html>`);
@@ -101,7 +141,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>How do I delete my account?</summary>
-        <p>You can delete your account directly in the app. On iOS, open <strong>Settings</strong> (the gear icon in the main room) and tap <strong>Delete Account</strong>; on the web, open your <strong>profile page</strong> and click <strong>Delete Account</strong>. You'll confirm with your password, and your account, statistics, and profile data are deleted immediately. Your username is anonymized in historical game records.</p>
+        <p>You can delete your account directly in the app. On iOS, open <strong>Settings</strong> (the gear icon in the main room) and tap <strong>Delete Account</strong>; on the web, open your <strong>profile page</strong> and click <strong>Delete Account</strong>. You'll confirm with your password, and your account, statistics, profile picture, and block list are deleted immediately, and your username is replaced with "[deleted]" in game records. Reports, the admin log, and other players' block lists keep your username; the <a href="/privacy">Privacy Policy</a> explains why.</p>
         <p>You may also email <a href="mailto:support@zalberico.com">support@zalberico.com</a> with your username and we will delete your account within 48 hours.</p>
     </details>
 
@@ -116,7 +156,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>What data do you collect?</summary>
-        <p>We only collect your username, a hashed password, and game statistics. We do not collect your real name, email address, location, or device identifiers. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
+        <p>Your username, a hashed password, your profile picture, your game statistics and game records, the players you block, and any reports you file. Our server logs record your IP address when you sign in with your password. Chat is not saved, and voice chat goes directly between players and is never recorded (when needed, Cloudflare relays the encrypted audio). We do not collect your real name, email address, location, or device identifiers, and there are no ads or tracking. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
     </details>
 
     <details>
