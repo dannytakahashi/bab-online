@@ -28,12 +28,14 @@ export default defineRailway(() => {
       // was Railway's injected 8080). 120 s covers connectDB's backoff
       healthcheckPath: "/ready",
       healthcheckTimeout: 120,
-      // Proposed 2026-11-15, not yet applied (check `railway config plan`):
-      // seconds between SIGTERM and SIGKILL for the old deploy. The graceful
+      // PROPOSED 2026-11-15, commented out so an unrelated apply cannot
+      // carry it: the owner uncomments it, then `railway config plan` and
+      // `apply`. Seconds between SIGTERM and SIGKILL for the old deploy (a
+      // DeployConfig key in the railway SDK 3.17.0 typings). The graceful
       // shutdown (game-log notice, serverShutdown, 1 s, close, 0.5 s) takes
       // ~1.5 s and is capped at 10 s (shutdown.js HARD_EXIT_MS), so 15 s lets
       // it always exit by itself with its own code
-      drainingSeconds: 15,
+      // drainingSeconds: 15,
     },
     replicas: { "us-west2": 1 },
     domains: [{ domain: "babonline.io", port: 3000 }],

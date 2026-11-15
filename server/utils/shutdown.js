@@ -15,7 +15,8 @@ const NOTICE_MS = 1000;
 // Then this long for remaining operations to finish
 const SETTLE_MS = 500;
 // Upper bound on the whole shutdown: whatever wedges, the process exits
-// (under Railway's drainingSeconds, .railway/railway.ts, so it is never SIGKILLed first)
+// (under the drainingSeconds proposed in .railway/railway.ts, so once that is
+// applied it is never SIGKILLed first)
 const HARD_EXIT_MS = 10000;
 // The game-log line every live table gets with the notice: games live in
 // memory, so a restart ends them (only gameEnd writes stats). A crash is no
