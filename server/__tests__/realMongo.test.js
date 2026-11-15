@@ -805,4 +805,32 @@ describe('real mongod', () => {
         await profile.getLeaderboard(b, io, { scope: 'all' });
         expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
     });
+
+    test('(p) the one-off legacy session migration and the guarded block-list write on the real driver', async () => {
+        if (!client) return;
+        await seed();
+        const { migrateLegacySessionTokens } = require('../admin/legacySessions');
+        const { hashToken, verifySession } = require('../utils/sessionTokens');
+        const users = mockHolder.users;
+        await users.updateOne({ username: 'Bea' }, { $set: { sessionToken: 'legacy-device-one' } });
+        await users.updateOne({ username: 'OldAlan' }, { $set: { sessionToken: 'legacy-device-two' } });
+        expect(await migrateLegacySessionTokens({ users })).toMatchObject({ found: 2, accounts: 1, tombstones: 1, migrated: 0 });
+        expect(await migrateLegacySessionTokens({ users }, { apply: true })).toMatchObject({ found: 2, migrated: 1, unset: 1, raced: 0 });
+        const bea = await users.findOne({ username: 'Bea' });
+        expect(bea.sessionToken).toBeUndefined();
+        expect(bea.sessionTokens.map(e => e.hash)).toEqual([hashToken('legacy-device-one')]);
+        expect(verifySession(bea, 'legacy-device-one')).not.toBeNull();
+        expect((await users.findOne({ username: 'OldAlan' })).sessionToken).toBeUndefined();
+        expect(await users.countDocuments({ sessionToken: { $exists: true } })).toBe(0);
+
+        // blockUser's filter: matches below the cap, or when the name is listed already
+        const { BLOCK_LIST_MAX } = require('../socket/safetyHandlers');
+        await users.updateOne({ username: 'Cy' }, { $set: { blockedUsers: Array.from({ length: BLOCK_LIST_MAX }, (_, i) => `p${i}`) } });
+        const guard = (name) => ({ username: 'Cy', $or: [{ [`blockedUsers.${BLOCK_LIST_MAX - 1}`]: { $exists: false } }, { blockedUsers: name }] });
+        expect((await users.updateOne(guard('Bea'), { $addToSet: { blockedUsers: 'Bea' } })).matchedCount).toBe(0);
+        expect((await users.updateOne(guard('p3'), { $addToSet: { blockedUsers: 'p3' } })).matchedCount).toBe(1);
+        await users.updateOne({ username: 'Cy' }, { $pull: { blockedUsers: 'p0' } });
+        expect((await users.updateOne(guard('Bea'), { $addToSet: { blockedUsers: 'Bea' } })).modifiedCount).toBe(1);
+        expect((await users.findOne({ username: 'Cy' })).blockedUsers).toHaveLength(BLOCK_LIST_MAX);
+    });
 });
