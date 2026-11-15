@@ -1,3 +1,5 @@
+// TEMP fault injection (throwaway branch): crash at boot in production mode
+if (process.env.NODE_ENV === 'production') { console.error('FAULT INJECTION: crash in production'); process.exit(1); }
 /**
  * BAB Online Server - Entry Point
  *
