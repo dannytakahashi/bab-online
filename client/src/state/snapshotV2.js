@@ -36,7 +36,11 @@ const TOP_KEYS = ['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewe
  * the snapshot is kept with the raw value, which matches none of the known
  * ones, so the table treats it as unknown, as iOS decodes it as
  * .unknown(raw). The stage stays closed: a stage this build does not know
- * is a table it cannot show (iOS: SnapshotProblem.unknownStage).
+ * is a table it cannot show (iOS: SnapshotProblem.unknownStage). So does
+ * the viewer role: it picks the layout, the hand and the controls, and
+ * every web consumer draws anything but spectator / lazyWatcher as a seated
+ * player (an empty hand at a seat); refused, the carrier's v1 fields
+ * (legacySnapshot) draw the table instead, as before.
  */
 function checker({ strict = false } = {}) {
   const errors = [];
@@ -84,11 +88,10 @@ function validate(s, c) {
 
   const vw = s.viewer;
   if (c.obj(vw, '$.viewer') && c.has(vw, ['role', 'position', 'ownerView', 'canAct'], '$.viewer')) {
-    c.openEnum(vw.role, '$.viewer.role', ROLES);
+    c.oneOf(vw.role, '$.viewer.role', ROLES);
     c.nullable(vw.position, '$.viewer.position', c.pos);
     c.nullable(vw.ownerView, '$.viewer.ownerView', (v, p) => c.openEnum(v, p, ['seat', 'watch']));
     c.bool(vw.canAct, '$.viewer.canAct');
-    // (an unknown role may or may not hold a hand)
     const ownsHand = vw.role === 'seat' || vw.role === 'lazyWatcher';
     if (ROLES.includes(vw.role) && ownsHand !== (s.hand !== null)) c.fail('$.hand', `must be ${ownsHand ? 'an array' : 'null'} for role ${vw.role}`);
   }

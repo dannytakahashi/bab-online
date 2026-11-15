@@ -349,17 +349,13 @@ describe('unknown enum values from a newer server (later #17: as iOS, .unknown(r
     expect(isComplete(r.snapshot)).toBe(false);
   });
 
-  it('an unknown viewer role, owner view, turn action or entrant presence', () => {
+  it('an unknown owner view, turn action or entrant presence', () => {
     const s = base();
-    s.viewer.role = 'referee';
     s.viewer.ownerView = 'umpire';
     if (s.turn) s.turn.action = 'pass';
     const r = parseSnapshotV2(s);
     expect(r.ok).toBe(true);
-    expect(r.warnings.join()).toMatch(/viewer\.role.*referee/);
     expect(r.warnings.join()).toMatch(/viewer\.ownerView.*umpire/);
-    // an unknown role may hold a hand or not
-    expect(parseSnapshotV2({ ...s, hand: null }).ok).toBe(true);
     const e = JSON.parse(JSON.stringify(load('created-countdown').snapshot));
     e.entrants[0].presence = 'teleported';
     expect(parseSnapshotV2(e)).toMatchObject({ ok: true, warnings: ['$.entrants[0].presence: unknown value "teleported"'] });
@@ -369,6 +365,15 @@ describe('unknown enum values from a newer server (later #17: as iOS, .unknown(r
     const stage = base();
     stage.stage = 'OVERTIME';
     expect(parseSnapshotV2(stage).ok).toBe(false);
+    // the viewer role picks the layout: web draws any role but spectator /
+    // lazyWatcher as a seat, so an unknown one falls back to the v1 fields
+    for (const hand of [[], null]) {
+      const role = base();
+      role.viewer.role = 'referee';
+      role.hand = hand;
+      expect(parseSnapshotV2(role)).toMatchObject({ ok: false });
+      expect(parseSnapshotV2(role).errors.join()).toMatch(/viewer\.role/);
+    }
     const card = base();
     if (card.hand?.length) {
       card.hand[0].suit = 'stars';

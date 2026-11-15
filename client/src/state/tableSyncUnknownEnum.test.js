@@ -26,4 +26,16 @@ describe('tableSnapshotOf with an unknown enum value', () => {
     expect(warn).toHaveBeenCalledWith('Snapshot v2: unknown values kept:', ['$.seats[2].presence: unknown value "napping"']);
     warn.mockRestore();
   });
+
+  it('an unknown viewer role is refused: the carrier\'s v1 fields draw the table (web draws any other role as a seat)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const snapshot = load('presence-mixed').snapshot;
+    snapshot.viewer.role = 'referee';
+    const s = tableSnapshotOf({ snapshot, players: [], position: 1, hand: [] }, { role: 'spectator' });
+    // built from the v1 fields (legacySnapshot), with a role this build knows
+    expect(s.viewer.role).toBe('spectator');
+    expect(s.viewer.ownerView).toBeNull();
+    expect(warn).toHaveBeenCalledWith('Snapshot v2 refused, using the v1 fields:', expect.arrayContaining([expect.stringMatching(/viewer\.role/)]));
+    warn.mockRestore();
+  });
 });
