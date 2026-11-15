@@ -883,6 +883,24 @@ describe('14. redeal', () => {
         expect(game.playerBids).toEqual([]);
         expect(events(log, 'gameStart').filter((l) => ids.includes(l.to))).toHaveLength(4);
     });
+
+    test('a redealt hand adds no HSI sample; the kept hand adds exactly one (avgHSI = totalHSI / totalHands)', async () => {
+        const { io } = newIo();
+        const { game, sockets } = seatedGame('h', io);
+        game.forcePhase(Phase.BIDDING);
+        game.currentTurn = 1;
+        game.hsiValues = { 1: 400, 2: 300, 3: 200, 4: 100 }; // the hand being bid
+        const totals = () => [1, 2, 3, 4].map((p) => game.playerStats[p].totalHSI);
+        for (const s of sockets) await gameHandlers.playerBid(s, io, { bid: '0' });
+        expect(game.stage).toBe(Phase.BIDDING);
+        expect(totals()).toEqual([0, 0, 0, 0]);
+
+        const kept = { ...game.hsiValues };
+        const byPos = (pos) => sockets.find((s) => game.getPositionBySocketId(s.id) === pos);
+        for (let i = 0; i < 4; i++) await gameHandlers.playerBid(byPos(game.currentTurn), io, { bid: '1' });
+        expect(game.stage).toBe(Phase.PLAYING);
+        expect(totals()).toEqual([1, 2, 3, 4].map((p) => kept[p]));
+    });
 });
 
 describe('15. abandoned tables abort instead of waiting forever (found by the chaos run)', () => {

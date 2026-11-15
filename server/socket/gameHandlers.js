@@ -134,6 +134,10 @@ async function handlePostBid(io, game) {
         const lead = findHighestBidder(game.bidder, bids) + 1;
 
         if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
+        // The hand is kept: its HSI joins the stats (one sample per counted hand)
+        for (const [position, hsi] of Object.entries(game.hsiValues || {})) {
+            game.addHSI(Number(position), hsi);
+        }
         // teamBids / mults: additive (read by neither shipped client; v2
         // and future clients use them instead of re-deriving the bores)
         game.broadcast(io, 'doneBidding', {
@@ -613,14 +617,14 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
     botController.handleTrumpRevealed(io, game);
 
-    // Calculate HSI for each player's hand and add to their stats
+    // HSI of each player's hand, shown under the avatars. Added to the
+    // stats only once the bids keep the hand (handlePostBid): an all-zero
+    // redeal's hand is never counted in totalHands, so its HSI must not be
     const hsiValues = {};
     for (const socketId of socketIds) {
         const hand = game.getHand(socketId);
         const position = game.getPositionBySocketId(socketId);
-        const hsi = calculateHSI(hand, game.trump);
-        game.addHSI(position, hsi);
-        hsiValues[position] = hsi;
+        hsiValues[position] = calculateHSI(hand, game.trump);
     }
 
     // Store HSI values on game state for reconnection
@@ -966,7 +970,8 @@ async function handleHandComplete(game, io) {
         gameManager.endGame(game.gameId, io);
 
         // Persist stats in the background: a slow DB must not hold up the
-        // end of the game for the players
+        // end of the game for the players. Retried, replay-safe and waited
+        // for by a graceful shutdown (profileHandlers, End-of-game writes)
         recordGameStats(game).catch(logContinuationError('recordGameStats', game));
 
         // Clear active game for all players
