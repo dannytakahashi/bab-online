@@ -5,6 +5,7 @@
 
 const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
+const { safeTimeout } = require('../../utils/safeTimer');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
 
@@ -430,7 +431,7 @@ class BotController {
         const actionKey = `${game.gameId}:${bot.socketId}:chat:${this.chatSeq}`;
 
         const epoch = game.epoch;
-        const timeoutId = setTimeout(() => {
+        const timeoutId = safeTimeout(() => {
             this.pendingActions.delete(actionKey);
             if (game.epoch !== epoch || game.isTerminal()) return;
             // A bot released meanwhile (/active) says nothing more
@@ -443,7 +444,7 @@ class BotController {
                 // same shape as human chat
                 isSpectator: false
             });
-        }, delay);
+        }, delay, 'botChat');
 
         this.pendingActions.set(actionKey, timeoutId);
     }

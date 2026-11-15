@@ -12,6 +12,7 @@ const { PERSONALITY_LIST } = personalities;
 const { Phase } = require('./GamePhase');
 const spectatorRoster = require('./spectatorRoster');
 const { seesAmbientChat, seesAmbientGame } = require('../utils/ambientChatUsers');
+const { safeTimeout } = require('../utils/safeTimer');
 
 const MERGE_LOCKED = 'This account is being updated. Please try again in a minute.';
 
@@ -507,11 +508,16 @@ class GameManager {
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
         this._clearLobbyGrace(socketId);
-        const timer = setTimeout(() => {
-            const result = this.expireLobbySeat(lobbyId, socketId);
-            this.lobbyGrace.delete(socketId);
+        const timer = safeTimeout(() => {
+            let result;
+            try {
+                result = this.expireLobbySeat(lobbyId, socketId);
+            } finally {
+                // expireLobbySeat reads the entry; a throw must not leave it behind
+                this.lobbyGrace.delete(socketId);
+            }
             if (result && onExpire) onExpire(result);
-        }, GameManager.LOBBY_SEAT_GRACE_MS);
+        }, GameManager.LOBBY_SEAT_GRACE_MS, 'lobbySeatGrace');
         timer.unref?.();
         this.lobbyGrace.set(socketId, { lobbyId, username: player.username, timer });
         return { lobby, player };
@@ -1242,6 +1248,33 @@ class GameManager {
             });
         }
         return games;
+    }
+
+    /**
+     * What a deploy would interrupt, for GET /health (routes/health.js):
+     * counts only. `games`: live games with at least one human behind a
+     * seat (any seat `ownerUsername`, lazy/resigned/left owners included)
+     * or, before seating, a human entrant; the ambient demo and other
+     * bot-only tables are left out. `tournaments`: not yet complete
+     * (a finished one lingering for its results window is left out).
+     * `lobbies`: every open lobby.
+     * @returns {{games: number, tournaments: number, lobbies: number}}
+     */
+    getHealthCounts() {
+        let games = 0;
+        for (const game of this.games.values()) {
+            if (game.isDemo || game.isTerminal?.()) continue;
+            const seated = (game.seatList?.() || []).some(s => s.ownerUsername);
+            const entrant = game.entrants
+                ? [...game.entrants.values()].some(e => !e.isBot)
+                : false;
+            if (seated || entrant) games++;
+        }
+        let tournaments = 0;
+        for (const t of this.tournaments.values()) {
+            if (t.phase !== 'complete') tournaments++;
+        }
+        return { games, tournaments, lobbies: this.lobbies.size };
     }
 
     // ==================== ACTIVE GAME TRACKING ====================

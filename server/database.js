@@ -19,6 +19,36 @@ const sleep = (ms) => new Promise(resolve => {
     t.unref?.();
 });
 
+// How long any operation waits for a usable server before it rejects (the
+// driver default is 30 s). During an outage a DB-awaiting step (draw
+// screen pictures, game-end stats) then fails in ~5 s and play goes on;
+// each connectDB attempt also gives up after 5 s before its backoff.
+const SERVER_SELECTION_TIMEOUT_MS = 5000;
+const CLIENT_OPTIONS = Object.freeze({ serverSelectionTimeoutMS: SERVER_SELECTION_TIMEOUT_MS });
+
+// Whether the driver currently sees a writable server, from its own
+// topology events (no round trip): /health reads it on every request
+let dbReachable = false;
+
+function watchTopology(client) {
+    dbReachable = true;
+    if (typeof client?.on !== 'function') return;
+    client.on('topologyDescriptionChanged', (event) => {
+        const servers = event?.newDescription?.servers;
+        if (!servers) return;
+        const reachable = [...servers.values()].some(s => s.isWritable);
+        if (reachable === dbReachable) return;
+        dbReachable = reachable;
+        if (reachable) dbLogger.info("MongoDB reachable again");
+        else dbLogger.warn("MongoDB unreachable (driver sees no writable server)");
+    });
+}
+
+/** 'connected' once connectDB has connected and the driver sees a writable server, else 'disconnected'. */
+function getDbState() {
+    return db && dbReachable ? 'connected' : 'disconnected';
+}
+
 /**
  * Connect to MongoDB. Runs fire-and-forget after listen() (server/index.js):
  * it retries with backoff (2 s, 4 s, ... capped at 30 s) until it connects,
@@ -30,7 +60,7 @@ async function connectDB() {
     let client;
     for (let attempt = 0; ; attempt++) {
         try {
-            client = await MongoClient.connect(mongoURI);
+            client = await MongoClient.connect(mongoURI, CLIENT_OPTIONS);
             break;
         } catch (error) {
             const retryInMs = Math.min(30000, 2000 * 2 ** attempt);
@@ -40,6 +70,7 @@ async function connectDB() {
     }
 
     dbLogger.info("Connected to MongoDB");
+    watchTopology(client);
     db = client.db(dbName);
     usersCollection = db.collection("users");
     gameRecordsCollection = db.collection("gameRecords");
@@ -176,6 +207,8 @@ module.exports = {
     ensureUsernameIndex,
     USERNAME_FALLBACK_INDEX,
     safeIndex,
+    SERVER_SELECTION_TIMEOUT_MS,
+    getDbState,
     getDB: () => db,
     getUsersCollection: () => usersCollection,
     getGameRecordsCollection: () => gameRecordsCollection,

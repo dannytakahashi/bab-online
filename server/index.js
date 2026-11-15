@@ -76,6 +76,8 @@ app.use('/', routes);
 const io = new Server(server, require('./socket/serverOptions').socketServerOptions(config));
 
 ioServer = io;
+// GET /health's live socket count (routes/health.js)
+require('./routes/health').setHealthIo(io);
 
 // Setup socket event handlers
 setupSocketHandlers(io);
@@ -94,6 +96,11 @@ function start() {
         logger.info('Server running on port 3000');
         logger.info(`Environment: ${config.env}`);
         console.log('Server started successfully on port 3000');
+        // Railway's deploy healthcheck (railway.toml) probes $PORT: if it
+        // is set to anything else, no deploy would ever pass it
+        if (process.env.PORT && process.env.PORT !== '3000') {
+            logger.warn(`PORT is ${process.env.PORT} but the server listens on 3000; Railway's healthcheck uses PORT`);
+        }
     });
 
     // Setup graceful shutdown

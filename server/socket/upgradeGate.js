@@ -92,6 +92,7 @@
 'use strict';
 
 const { socketLogger } = require('../utils/logger');
+const { safeTimeout, safeInterval } = require('../utils/safeTimer');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 // The kill switch, shared with server/game/pacing.js (the solo overlay)
@@ -269,17 +270,17 @@ function attach(socket, app) {
 
     const last = PUSH_DELAYS_MS.length - 1;
     PUSH_DELAYS_MS.forEach((ms, i) => {
-        const t = setTimeout(() => {
+        const t = safeTimeout(() => {
             sendUpdateMessage(REPLY_RESERVE);
             if (i === MAIN_PUSH) {
                 sendMainRoom();
                 logOnce();
             }
             if (i === last && st.connected) {
-                st.interval = setInterval(() => sendUpdateMessage(REPLY_RESERVE), REPEAT_MS);
+                st.interval = safeInterval(() => sendUpdateMessage(REPLY_RESERVE), REPEAT_MS, 'upgradeGateRepeat');
                 if (typeof st.interval?.unref === 'function') st.interval.unref();
             }
-        }, ms);
+        }, ms, 'upgradeGatePush');
         if (typeof t?.unref === 'function') t.unref();
         st.timers.push(t);
     });

@@ -42,11 +42,19 @@ const colors = {
 
 winston.addColors(colors);
 
-// Determine log level based on environment
-const level = () => {
-    const env = process.env.NODE_ENV || 'development';
-    return env === 'development' ? 'debug' : 'info';
-};
+// Log level: LOG_LEVEL when it names one of the levels above (any case),
+// else by environment (debug in development, info otherwise). An unknown
+// value is reported and ignored rather than silencing everything.
+function resolveLevel(env = process.env) {
+    const fallback = (env.NODE_ENV || 'development') === 'development' ? 'debug' : 'info';
+    const raw = env.LOG_LEVEL;
+    if (raw == null || String(raw).trim() === '') return fallback;
+    const wanted = String(raw).trim().toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(levels, wanted)) return wanted;
+    console.warn(`Ignoring LOG_LEVEL=${JSON.stringify(String(raw).slice(0, 20))} (expected one of ${Object.keys(levels).join(', ')}); using ${fallback}`);
+    return fallback;
+}
+const level = () => resolveLevel();
 
 // Custom format for console (readable)
 const consoleFormat = winston.format.combine(
@@ -127,5 +135,6 @@ module.exports = {
     authLogger,
     dbLogger,
     httpLogger,
-    createModuleLogger
+    createModuleLogger,
+    resolveLevel
 };
