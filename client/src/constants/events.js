@@ -12,6 +12,7 @@ export const CLIENT_EVENTS = {
   SIGN_UP: 'signUp',
   RESTORE_SESSION: 'restoreSession',
   CLIENT_HELLO: 'clientHello',
+  CLIENT_ERROR: 'clientError',
 
   // Main Room
   JOIN_MAIN_ROOM: 'joinMainRoom',

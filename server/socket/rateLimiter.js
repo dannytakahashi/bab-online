@@ -182,7 +182,15 @@ class RateLimiter {
         this.buckets = {
             signUpIp: { burst: 5, perHour: 5, maxKeys: 10000 },
             signUpNet48: { burst: 10, perHour: 10, maxKeys: 10000 },
-            signUpGlobal: { burst: 20, perHour: 60, maxKeys: 1 }
+            signUpGlobal: { burst: 20, perHour: 60, maxKeys: 1 },
+            // - clientErrorIp / clientErrorGlobal: client error reports
+            //   (clientErrorHandlers.js) per client IP (IPv6 by its /64) and
+            //   server-wide, on top of 5 a minute / 50 a day per socket. A
+            //   client sends one per kind per session, so these only bite on
+            //   a bug every player hits at once (the first reports are
+            //   enough) or on a flood; over them a report is dropped silently
+            clientErrorIp: { burst: 20, perHour: 30, maxKeys: 10000 },
+            clientErrorGlobal: { burst: 200, perHour: 1200, maxKeys: 1 }
         };
         // bucket name -> Map<key, {tokens, at}>
         this.bucketState = new Map();

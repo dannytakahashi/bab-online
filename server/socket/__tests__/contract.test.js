@@ -119,6 +119,7 @@ afterEach(() => {
 describe('(a) client -> server events', () => {
     const indexSrc = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
     const voiceSrc = fs.readFileSync(path.join(__dirname, '..', 'voiceHandlers.js'), 'utf8');
+    const clientErrorSrc = fs.readFileSync(path.join(__dirname, '..', 'clientErrorHandlers.js'), 'utf8');
 
     function registrations() {
         const names = [];
@@ -189,11 +190,16 @@ describe('(a) client -> server events', () => {
         const noJoi = contract.c2sNames().filter((n) => contract.schema.c2s[n].joi === null && !contract.schema.c2s[n].joiInHandler &&
             contract.schema.c2s[n].payload && Object.keys(contract.schema.c2s[n].payload.properties || {}).length > 0);
         expect(noJoi).toEqual([]);
-        // joiInHandler only where the handler drops a bad payload silently (voice), and only with no wrapper schema
+        // joiInHandler only where the handler drops a bad payload silently (voice, client error
+        // reports), and only with no wrapper schema
         const inHandler = contract.c2sNames().filter((n) => contract.schema.c2s[n].joiInHandler);
-        expect(inHandler.sort()).toEqual(['voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
+        expect(inHandler.sort()).toEqual(['clientError', 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
         for (const n of inHandler) {
             expect({ n, joi: contract.schema.c2s[n].joi }).toEqual({ n, joi: null });
+            if (n === 'clientError') {
+                expect({ n, src: /validate\('clientError', data\)/.test(clientErrorSrc) }).toEqual({ n, src: true });
+                continue;
+            }
             expect({ n, src: new RegExp(`checked\\(socket, '${n}', data\\)`).test(voiceSrc) }).toEqual({ n, src: true });
         }
     });

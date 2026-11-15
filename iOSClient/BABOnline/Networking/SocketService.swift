@@ -88,7 +88,14 @@ final class SocketService: ObservableObject {
 
     var socketId: String? { socket?.sid }
 
-    private init() {}
+    private init() {
+        // Error reports go out on the current socket, only while it is connected (else they wait for flush)
+        ErrorReporter.shared.sender = { [weak self] payload in
+            guard let socket = self?.socket, socket.status == .connected else { return false }
+            socket.emit(SocketEvents.Client.clientError, payload)
+            return true
+        }
+    }
 
     // MARK: - Connection
 
@@ -167,6 +174,10 @@ final class SocketService: ObservableObject {
                 print("[Socket] Auto-restoring session for: \(authState.username)")
                 AuthEmitter.restoreSession(username: authState.username, sessionToken: authState.sessionToken)
             }
+            // error reports made while disconnected, once the restore has had time to answer
+            // (so the server can name the signed-in user); new ones wait with them until then
+            ErrorReporter.shared.connected()
+            DispatchQueue.main.asyncAfter(deadline: .now() + ErrorReporter.flushDelay) { ErrorReporter.shared.flush() }
         }
 
         socket?.on(clientEvent: .disconnect) { [weak self] _, _ in
@@ -196,6 +207,7 @@ final class SocketService: ObservableObject {
                     let msg = (data.first as? String) ?? "Unknown error"
                     self?.connectionError = msg
                     print("[Socket] Error: \(msg)")
+                    if !ErrorReporter.isExpectedSocketError(msg) { ErrorReporter.shared.report(kind: "socket", message: msg) }
                 }
             }
         }

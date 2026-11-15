@@ -15,7 +15,8 @@
           "signIn",
           "signUp",
           "restoreSession",
-          "clientHello"
+          "clientHello",
+          "clientError"
         ]
       },
       {
@@ -343,7 +344,8 @@
         "section": "Session",
         "events": [
           "restoreSession",
-          "clientHello"
+          "clientHello",
+          "clientError"
         ]
       },
       {

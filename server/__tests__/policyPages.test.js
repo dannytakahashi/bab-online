@@ -66,6 +66,8 @@ describe('/privacy', () => {
         // safetyHandlers logs blocks and who reported whom, never the reason
         expect(html).toContain('reports (who reported whom, not the reason)');
         expect(html).toContain('It is never saved to our database or written to our logs');
+        // client error reports (server/socket/clientErrorHandlers.js)
+        expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), never chat or personal data.');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {

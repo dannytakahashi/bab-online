@@ -64,7 +64,7 @@ export function createFakeSocket({ id = 'sock-1', connected = false } = {}) {
       return socket.emits.filter(([e]) => e === event).map(([, d]) => d);
     },
     emittedNames() {
-      return socket.emits.map(([e]) => e).filter((e) => e !== 'clientHello');
+      return socket.emits.map(([e]) => e).filter((e) => e !== 'clientHello' && e !== 'clientError');
     },
     clearEmits() {
       socket.emits.length = 0;

@@ -74,6 +74,25 @@ const c2s = {
         invalid: [{ current: 'old password' }, { current: '', next: 'new password 1' }, { current: 'old password', next: 'n'.repeat(101) }],
         notes: 'New (2026-11-15). The signed-in socket\'s own account only. Answered by changePasswordResponse {success, message}. next must be 8-100 characters and differ from current (checked in the handler, so Joi stays 1-100 and a short one gets the rule message); the current-password check counts in the failed-sign-in throttle like deleteAccount\'s. On success every saved session but this device\'s is revoked, every other live socket of the account gets forceLogout, and open reset links are cancelled. Rate limit 5 / 5 min per socket. Web: profile page, Change password. iOS: Account sheet, Change Password, from the next build after 1.2.1 build 9 (sentBy says what shipped clients send).',
     },
+    clientError: {
+        payload: open({
+            kind: str({ pattern: '^[A-Za-z][A-Za-z0-9_.-]{0,31}$' }),
+            message: str({ minLength: 1, maxLength: 500 }),
+            stack: str({ maxLength: 4000 }),
+            where: str({ maxLength: 200 }),
+            build: str({ maxLength: 64 }),
+            page: str({ maxLength: 32, pattern: '^[A-Za-z0-9_.:-]*$' }),
+        }, { optional: ['stack', 'where', 'build', 'page'] }),
+        status: 'active', joi: null, joiInHandler: 'clientError', rateLimit: null, sentBy: both,
+        examples: [
+            { kind: 'error', message: "TypeError: Cannot read properties of undefined (reading 'x')", stack: 'at f (https://babonline.io/dist/assets/main-AbCd1234.js:1:23456)', where: 'main-AbCd1234.js:1:23456', build: 'abc1234', page: 'TABLE' },
+            { kind: 'unhandledrejection', message: 'NotAllowedError: play() failed', build: 'abc1234', page: 'MAIN_ROOM' },
+            { kind: 'decode', message: 'stateSnapshot undecodable: keyNotFound snapshot.watching', where: 'stateSnapshot', build: '10', page: 'game' },
+            { kind: 'seqGap', message: 'expected 12, got 14' },
+        ],
+        invalid: [{ message: 'x' }, { kind: 'error' }, { kind: 'error', message: '' }, { kind: 'bad kind!', message: 'x' }, { kind: 'error', message: 'x'.repeat(501) }, { kind: 'error', message: 'x', stack: 's'.repeat(4001) }, { kind: 'error', message: 'x', page: 'a/b?c' }, { kind: 'error', message: 'x', where: 7 }],
+        notes: 'Additive 2026-11-15: a short technical report of a client-side error (server/socket/clientErrorHandlers.js). Never answered, never serverError: a payload Joi refuses, a report over a limit and every report while CLIENT_ERRORS=off are dropped silently. Limits: 5 a minute and 50 a day per socket, plus per-IP and server-wide buckets (rateLimiter.buckets clientErrorIp / clientErrorGlobal). Logged at warn with the signed-in username and every text field scrubbed (URL queries and fragments, emails, ids, long digit runs, IPs, quoted text), never chat. Web sends it (client/src/telemetry/clientErrors.js: uncaught errors, unhandled rejections, SeqGate gaps, TableDirector failures, illegal screen transitions; once per kind per session, only while connected, a few buffered before). iOS sends it from the build after 1.2.1 build 9 (ErrorReporter.swift: undecodable table events and snapshots, the unreadable table, seq gaps, unexpected socket errors, an uncaught exception saved and sent on the next launch); 1.2.0 through 1.2.1 build 9 never send it.',
+    },
     deleteAccount: { payload: open({ password: password() }), status: 'active', joi: 'deleteAccount', rateLimit: 'deleteAccount', sentBy: both, examples: [{ password: 'pw' }], invalid: [{ password: '' }, {}], notes: 'The password check also counts in the failed-sign-in throttle (server/socket/signInThrottle.js: per username / IP across sockets); throttled, it answers deleteAccountResponse {success:false, message} before any hash.' },
 
     // (joinQueue / leaveQueue / getLobbies, the matchmaking queue no client
