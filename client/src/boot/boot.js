@@ -14,23 +14,106 @@ import {
 import { showGate } from './gateScreen.js';
 
 /**
- * Start the app: import the chunk, then run it. main.js starts on the
- * window load event; when the chunk arrives after load (it usually does
- * now that it is imported, not a static script), start it here instead.
- * startApp runs once either way.
+ * Start the app: import the chunk, wait for the window load event (now, if
+ * it has fired), then run it. Boot is the only caller of main.js startApp,
+ * so a throw from it (no WebGL, no canvas) always lands in this promise and
+ * its reload-once / static notice, whichever side of load the chunk lands.
  */
 export function startApp({ win, loadApp }) {
-  return Promise.resolve(loadApp()).then((app) => {
-    if (win.document.readyState === 'complete') app?.startApp?.();
+  return Promise.resolve(loadApp()).then((app) => afterLoad(win).then(() => {
+    app?.startApp?.();
     return app;
-  });
+  }));
 }
 
-/** startApp with its failure logged (the promise still rejects for callers). */
+function afterLoad(win) {
+  if (win.document?.readyState === 'complete' || typeof win.addEventListener !== 'function') return Promise.resolve();
+  return new Promise((resolve) => win.addEventListener('load', () => resolve(), { once: true }));
+}
+
+/**
+ * startApp on the ungated path. A failed load (a deploy replaced the build
+ * since index.html arrived, a dropped connection, startApp throwing)
+ * reloads the page once; failing again, the page's static "Couldn't load"
+ * notice (index.html #boot-fallback) shows instead of a blank page. The
+ * promise still rejects for callers.
+ */
 function loadLogged(o) {
-  const app = startApp(o);
-  app.catch((err) => console.error('BAB Online failed to load', err));
+  const app = startApp(o).then((a) => {
+    clearReloadMark(o.win);
+    return a;
+  }, (err) => {
+    console.error('BAB Online failed to load', err);
+    if (reloadPage(o.win, false)) return new Promise(() => {});
+    setFallback(o.win, true);
+    throw err;
+  });
+  app.catch(() => {}); // logged above
   return app;
+}
+
+/** index.html's static notice: hidden once boot runs, shown when the app cannot load. */
+export const FALLBACK_ID = 'boot-fallback';
+
+function setFallback(win, show) {
+  try {
+    const node = win.document?.querySelector?.(`#${FALLBACK_ID}`);
+    if (!node) return;
+    node.hidden = !show;
+    node.classList?.toggle('is-shown', show);
+  } catch { /* no notice */ }
+}
+
+/**
+ * The loop guard of the reload: sessionStorage RELOAD_KEY holds when this
+ * tab last reloaded for a failed load, so a second failure within
+ * RELOAD_WINDOW_MS shows a message instead of reloading again. Storage that
+ * throws: the reload's URL carries ?bootReload=1 instead. A load that
+ * works clears both. (Its own few lines, not utils/safeStorage.js: the
+ * entry may import nothing the app chunk shares; vite.config.js.)
+ */
+export const RELOAD_KEY = 'bab.bootReload';
+export const RELOAD_PARAM = 'bootReload';
+export const RELOAD_WINDOW_MS = 2 * 60 * 1000;
+
+function hasReloadParam(win) {
+  try {
+    return new URLSearchParams(win.location?.search || '').has(RELOAD_PARAM);
+  } catch {
+    return false;
+  }
+}
+
+/** Did this tab already reload for a failed load moments ago? */
+export function reloadedRecently(win, now = Date.now()) {
+  if (hasReloadParam(win)) return true;
+  try {
+    const at = Number(win.sessionStorage?.getItem(RELOAD_KEY));
+    return at > 0 && now - at < RELOAD_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+/** @returns {boolean} whether sessionStorage holds the mark */
+function markReload(win, now = Date.now()) {
+  try {
+    if (!win.sessionStorage) return false;
+    win.sessionStorage.setItem(RELOAD_KEY, String(now));
+    return win.sessionStorage.getItem(RELOAD_KEY) === String(now);
+  } catch {
+    return false;
+  }
+}
+
+function clearReloadMark(win) {
+  try { win.sessionStorage?.removeItem(RELOAD_KEY); } catch { /* nothing kept */ }
+  if (!hasReloadParam(win)) return;
+  try {
+    const url = new URL(win.location.href);
+    url.searchParams.delete(RELOAD_PARAM);
+    win.history?.replaceState?.(win.history.state, '', url.toString());
+  } catch { /* the param stays: harmless */ }
 }
 
 /**
@@ -40,6 +123,8 @@ function loadLogged(o) {
  * @returns {{gated: boolean, variant?: string, reason: string, app?: Promise}}
  */
 export function runBoot({ win, loadApp }) {
+  // Boot runs: the page's static notice (shown if it never does) goes
+  setFallback(win, false);
   let decision;
   const storage = safeLocalStorage(win);
   try {
@@ -87,19 +172,26 @@ export function runBoot({ win, loadApp }) {
  *   so the gate stays busy until the page goes
  */
 export function reloadOnLoadFailure(app, { win, addWebParam = false }) {
-  return app.catch((err) => {
+  return app.then((a) => {
+    clearReloadMark(win);
+    return a;
+  }, (err) => {
     console.error('BAB Online failed to load', err);
     if (!reloadPage(win, addWebParam)) throw err;
     return new Promise(() => {});
   });
 }
 
+/** Reload once (never twice in a row: reloadedRecently). @returns {boolean} whether it did */
 function reloadPage(win, addWebParam) {
   try {
     if (win.navigator?.onLine === false) return false;
-    if (addWebParam) {
+    if (reloadedRecently(win)) return false;
+    const marked = markReload(win);
+    if (addWebParam || !marked) {
       const url = new URL(win.location.href);
-      url.searchParams.set('web', '1');
+      if (addWebParam) url.searchParams.set('web', '1');
+      if (!marked) url.searchParams.set(RELOAD_PARAM, '1');
       win.location.replace(url.toString());
     } else {
       win.location.reload();

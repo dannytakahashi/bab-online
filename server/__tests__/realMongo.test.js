@@ -315,7 +315,8 @@ describe('real mongod', () => {
             // the reference's emit is dropped from the contract guard, ours is checked
             require('../testUtils/contractCheck').takeViolations();
             await profile.searchPlayers(b, io, { query });
-            const x = v1(log.filter(l => l.to === `self:${a.id}`).pop().data);
+            // ... plus the additive query echo (2026-11-15: web drops stale replies)
+            const x = { ...v1(log.filter(l => l.to === `self:${a.id}`).pop().data), query };
             const y = log.filter(l => l.to === `self:${b.id}`).pop().data;
             expect({ query, y }).toEqual({ query, y: x });
         }

@@ -13,9 +13,11 @@ import {
 const DIR = fileURLToPath(new URL('../../../contract/fixtures/v2/', import.meta.url));
 const index = JSON.parse(fs.readFileSync(path.join(DIR, 'index.json'), 'utf8'));
 const load = (name) => JSON.parse(fs.readFileSync(path.join(DIR, `${name}.json`), 'utf8'));
+// strict: every enum value the server sends today is one the client knows
 const parsed = (name) => {
-  const r = parseSnapshotV2(load(name).snapshot);
+  const r = parseSnapshotV2(load(name).snapshot, { strict: true });
   if (!r.ok) throw new Error(`${name}: ${r.errors.join('; ')}`);
+  expect(r.warnings).toEqual([]);
   return r.snapshot;
 };
 
@@ -256,6 +258,20 @@ describe('the parser rejects malformed snapshots', () => {
     expect(parseSnapshotV2('x').ok).toBe(false);
   });
 
+  it('strict (the fixture sweep): an unknown enum value is an error', () => {
+    const s = base();
+    s.seats[0].presence = 'ghost';
+    const r = parseSnapshotV2(s, { strict: true });
+    expect(r.ok).toBe(false);
+    expect(r.errors.join()).toMatch(/\$\.seats\[0\]\.presence: expected one of .*got "ghost"/);
+  });
+
+  it('an enum value that is not even a string is still an error', () => {
+    const s = base();
+    s.seats[0].controller = 7;
+    expect(parseSnapshotV2(s).ok).toBe(false);
+  });
+
   it('tolerates (and drops) an unknown key', () => {
     const s = base();
     s.futureField = { a: 1 };
@@ -308,5 +324,63 @@ describe('optional resume (never required)', () => {
     const r = parseSnapshotV2(raw);
     expect(r.ok).toBe(true);
     expect('resume' in r.snapshot).toBe(false);
+  });
+});
+
+describe('unknown enum values from a newer server (later #17: as iOS, .unknown(raw))', () => {
+  const base = () => JSON.parse(JSON.stringify(load('presence-mixed').snapshot));
+
+  it('kept as the raw value with a warning, not a refused snapshot', () => {
+    const s = base();
+    s.seats[0].presence = 'napping';
+    s.seats[1].controller = 'coachBot';
+    s.partial = ['futureThing'];
+    const r = parseSnapshotV2(s);
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual([
+      '$.partial[0]: unknown value "futureThing"',
+      '$.seats[0].presence: unknown value "napping"',
+      '$.seats[1].controller: unknown value "coachBot"',
+    ]);
+    expect(r.snapshot.seats[0].presence).toBe('napping');
+    // ... which none of the known values match: the table treats it as unknown
+    expect(['connected', 'grace', 'resignable', 'away', 'gone', 'none']).not.toContain(r.snapshot.seats[0].presence);
+    // an unknown partial key is still "something was left out"
+    expect(isComplete(r.snapshot)).toBe(false);
+  });
+
+  it('an unknown owner view, turn action or entrant presence', () => {
+    const s = base();
+    s.viewer.ownerView = 'umpire';
+    if (s.turn) s.turn.action = 'pass';
+    const r = parseSnapshotV2(s);
+    expect(r.ok).toBe(true);
+    expect(r.warnings.join()).toMatch(/viewer\.ownerView.*umpire/);
+    const e = JSON.parse(JSON.stringify(load('created-countdown').snapshot));
+    e.entrants[0].presence = 'teleported';
+    expect(parseSnapshotV2(e)).toMatchObject({ ok: true, warnings: ['$.entrants[0].presence: unknown value "teleported"'] });
+  });
+
+  it('still closed: an unknown stage (a table this build cannot show; iOS unknownStage), a bad card, a broken shape', () => {
+    const stage = base();
+    stage.stage = 'OVERTIME';
+    expect(parseSnapshotV2(stage).ok).toBe(false);
+    // the viewer role picks the layout: web draws any role but spectator /
+    // lazyWatcher as a seat, so an unknown one falls back to the v1 fields
+    for (const hand of [[], null]) {
+      const role = base();
+      role.viewer.role = 'referee';
+      role.hand = hand;
+      expect(parseSnapshotV2(role)).toMatchObject({ ok: false });
+      expect(parseSnapshotV2(role).errors.join()).toMatch(/viewer\.role/);
+    }
+    const card = base();
+    if (card.hand?.length) {
+      card.hand[0].suit = 'stars';
+      expect(parseSnapshotV2(card).ok).toBe(false);
+    }
+    const shape = base();
+    shape.seats[0].presence = null;
+    expect(parseSnapshotV2(shape).ok).toBe(false);
   });
 });

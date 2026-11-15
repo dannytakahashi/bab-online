@@ -31,13 +31,33 @@ const TOP_KEYS = ['v', 'gameId', 'seq', 'serverTime', 'stage', 'partial', 'viewe
   'turn', 'bids', 'trick', 'tricks', 'tricksByPosition', 'score', 'rainbows', 'hsi', 'seats', 'entrants', 'draw',
   'spectatorCount', 'tournament', 'log'];
 
-/** A small checker that collects errors with paths. */
-function checker() {
+/**
+ * A small checker that collects errors with paths. An unknown value of an
+ * open enum (a role, presence, controller, ... that a newer server added)
+ * is a warning, not an error, unless `strict` (the contract fixture tests):
+ * the snapshot is kept with the raw value, which matches none of the known
+ * ones, so the table treats it as unknown, as iOS decodes it as
+ * .unknown(raw). The stage stays closed: a stage this build does not know
+ * is a table it cannot show (iOS: SnapshotProblem.unknownStage). So does
+ * the viewer role: it picks the layout, the hand and the controls, and
+ * every web consumer draws anything but spectator / lazyWatcher as a seated
+ * player (an empty hand at a seat); refused, the carrier's v1 fields
+ * (legacySnapshot) draw the table instead, as before.
+ */
+function checker({ strict = false } = {}) {
   const errors = [];
+  const warnings = [];
   const fail = (path, msg) => { errors.push(`${path}: ${msg}`); return false; };
   const c = {
     errors,
+    warnings,
     fail,
+    openEnum: (v, path, list) => {
+      if (list.includes(v)) return true;
+      if (typeof v !== 'string' || strict) return fail(path, `expected one of ${list.join('|')}, got ${JSON.stringify(v)}`);
+      warnings.push(`${path}: unknown value ${JSON.stringify(v)}`);
+      return true;
+    },
     obj: (v, path) => (v !== null && typeof v === 'object' && !Array.isArray(v)) || fail(path, 'expected an object'),
     arr: (v, path, len) => {
       if (!Array.isArray(v)) return fail(path, 'expected an array');
@@ -66,16 +86,16 @@ function validate(s, c) {
   c.int(s.seq, '$.seq', 0);
   c.int(s.serverTime, '$.serverTime');
   c.oneOf(s.stage, '$.stage', STAGES);
-  if (c.arr(s.partial, '$.partial')) s.partial.forEach((p, i) => c.oneOf(p, `$.partial[${i}]`, ['customPics', 'log']));
+  if (c.arr(s.partial, '$.partial')) s.partial.forEach((p, i) => c.openEnum(p, `$.partial[${i}]`, ['customPics', 'log']));
 
   const vw = s.viewer;
   if (c.obj(vw, '$.viewer') && c.has(vw, ['role', 'position', 'ownerView', 'canAct'], '$.viewer')) {
     c.oneOf(vw.role, '$.viewer.role', ROLES);
     c.nullable(vw.position, '$.viewer.position', c.pos);
-    c.nullable(vw.ownerView, '$.viewer.ownerView', (v, p) => c.oneOf(v, p, ['seat', 'watch']));
+    c.nullable(vw.ownerView, '$.viewer.ownerView', (v, p) => c.openEnum(v, p, ['seat', 'watch']));
     c.bool(vw.canAct, '$.viewer.canAct');
     const ownsHand = vw.role === 'seat' || vw.role === 'lazyWatcher';
-    if (ownsHand !== (s.hand !== null)) c.fail('$.hand', `must be ${ownsHand ? 'an array' : 'null'} for role ${vw.role}`);
+    if (ROLES.includes(vw.role) && ownsHand !== (s.hand !== null)) c.fail('$.hand', `must be ${ownsHand ? 'an array' : 'null'} for role ${vw.role}`);
   }
   if (s.hand !== null && c.arr(s.hand, '$.hand')) s.hand.forEach((x, i) => c.card(x, `$.hand[${i}]`));
 
@@ -84,7 +104,7 @@ function validate(s, c) {
     c.pos(d.bidder, `${p}.bidder`) && c.nullable(d.dealSeq, `${p}.dealSeq`, (x, q) => c.int(x, q, 1)));
   c.nullable(s.trump, '$.trump', c.card);
   c.bool(s.trumpBroken, '$.trumpBroken');
-  c.nullable(s.turn, '$.turn', (t, p) => c.obj(t, p) && c.pos(t.position, `${p}.position`) && c.oneOf(t.action, `${p}.action`, ['bid', 'play']));
+  c.nullable(s.turn, '$.turn', (t, p) => c.obj(t, p) && c.pos(t.position, `${p}.position`) && c.openEnum(t.action, `${p}.action`, ['bid', 'play']));
 
   const b = s.bids;
   if (c.obj(b, '$.bids') && c.has(b, ['byPosition', 'order', 'teamBids', 'mults'], '$.bids')) {
@@ -122,8 +142,8 @@ function validate(s, c) {
       // additive (docs/avatars.md): the seat's /avatar URL when it has one
       if ('avatarUrl' in st) c.nullable(st.avatarUrl, `${p}.avatarUrl`, c.str);
       c.nullable(st.ownerUsername, `${p}.ownerUsername`, c.str);
-      c.oneOf(st.controller, `${p}.controller`, CONTROLLERS);
-      c.oneOf(st.presence, `${p}.presence`, PRESENCES);
+      c.openEnum(st.controller, `${p}.controller`, CONTROLLERS);
+      c.openEnum(st.presence, `${p}.presence`, PRESENCES);
       ['isBot', 'lazy', 'offered'].forEach((k) => c.bool(st[k], `${p}.${k}`));
       c.nullable(st.graceDeadline, `${p}.graceDeadline`, c.int);
       c.nullable(st.resignableAt, `${p}.resignableAt`, c.int);
@@ -132,7 +152,7 @@ function validate(s, c) {
   }
   c.nullable(s.entrants, '$.entrants', (es, p) => c.arr(es, p) && es.every((e, i) => c.obj(e, `${p}[${i}]`) &&
     c.nullable(e.username, `${p}[${i}].username`, c.str) && c.bool(e.isBot, `${p}[${i}].isBot`) &&
-    c.oneOf(e.presence, `${p}[${i}].presence`, ENTRANT_PRESENCES) && c.bool(e.hasDrawn, `${p}[${i}].hasDrawn`)));
+    c.openEnum(e.presence, `${p}[${i}].presence`, ENTRANT_PRESENCES) && c.bool(e.hasDrawn, `${p}[${i}].hasDrawn`)));
   c.nullable(s.draw, '$.draw', (d, p) => c.obj(d, p) && c.has(d, ['deckRemaining', 'drawn', 'viewerDrawOrder'], p) &&
     c.nullable(d.deckRemaining, `${p}.deckRemaining`, (v, q) => c.int(v, q, 0, 54)) &&
     c.arr(d.drawn, `${p}.drawn`) && d.drawn.every((x, i) => c.obj(x, `${p}.drawn[${i}]`) &&
@@ -176,11 +196,14 @@ function validTrickHistory(h) {
 
 /**
  * @param {*} raw - a snapshot as received on the wire
- * @returns {{ok: true, snapshot: Object} | {ok: false, errors: string[]}}
- *   snapshot: a deep-frozen copy of the known keys (unknown keys dropped)
+ * @param {Object} [opts]
+ * @param {boolean} [opts.strict] - an unknown enum value is an error (the contract tests)
+ * @returns {{ok: true, snapshot: Object, warnings: string[]} | {ok: false, errors: string[]}}
+ *   snapshot: a deep-frozen copy of the known keys (unknown keys dropped);
+ *   warnings: the unknown enum values it kept (the caller logs them)
  */
-export function parseSnapshotV2(raw) {
-  const c = checker();
+export function parseSnapshotV2(raw, { strict = false } = {}) {
+  const c = checker({ strict });
   validate(raw, c);
   if (c.errors.length) return { ok: false, errors: c.errors };
   const copy = {};
@@ -196,7 +219,7 @@ export function parseSnapshotV2(raw) {
   // malformed or absent (an older server): left out
   const watching = 'watching' in raw ? parseWatching(raw.watching) : null;
   if (watching) copy.watching = watching;
-  return { ok: true, snapshot: deepFreeze(copy) };
+  return { ok: true, snapshot: deepFreeze(copy), warnings: c.warnings };
 }
 
 /** The server's list cap (server/game/spectatorWire.js SPECTATOR_LIST_MAX). */

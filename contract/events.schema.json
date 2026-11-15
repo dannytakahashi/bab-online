@@ -7586,6 +7586,9 @@
               },
               "avatarUrls": {
                 "$ref": "#/$defs/avatarUrlsByUsername"
+              },
+              "query": {
+                "type": "string"
               }
             },
             "required": [
@@ -7603,6 +7606,9 @@
               },
               "message": {
                 "type": "string"
+              },
+              "query": {
+                "type": "string"
               }
             },
             "required": [
@@ -7616,8 +7622,10 @@
       "status": "active",
       "to": "self",
       "added": [
-        "avatarUrls"
+        "avatarUrls",
+        "query"
       ],
+      "notes": "query (2026-11-15) echoes the request's query so web search-as-you-type ignores a stale reply; iOS never sends searchPlayers.",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"

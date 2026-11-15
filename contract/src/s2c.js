@@ -719,9 +719,15 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:uploadProfilePic'],
     },
     searchPlayersResponse: {
-        payload: okFail({ players: arr(ref('playerSearchRow')), avatarUrls: ref('avatarUrlsByUsername') }, { optional: ['avatarUrls'] }),
+        // query: the request's query as sent, on every answer to a non-blank
+        // one (additive 2026-11-15): web drops a reply to an older query
+        payload: anyOf(
+            variant('success', obj({ success: konst(true), players: arr(ref('playerSearchRow')), avatarUrls: ref('avatarUrlsByUsername'), query: str() }, { optional: ['avatarUrls', 'query'] })),
+            variant('failure', obj({ success: konst(false), message: str(), query: str() }, { optional: ['query'] })),
+        ),
         status: 'active', to: 'self',
-        added: ['avatarUrls'],
+        added: ['avatarUrls', 'query'],
+        notes: 'query (2026-11-15) echoes the request\'s query so web search-as-you-type ignores a stale reply; iOS never sends searchPlayers.',
         clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },

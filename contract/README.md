@@ -380,7 +380,9 @@ Consumers:
 
 - Web: `client/src/state/snapshotV2.js` (`parseSnapshotV2`, `classifySeq`,
   `seatAt`, `relativeSeat`, `isComplete`, `teamOf`), tested over every fixture
-  by `snapshotV2.test.js`. Wired in item 16: every snapshot carrier goes
+  by `snapshotV2.test.js` (strict there; live, an unknown value of an open
+  enum is kept raw with a warning, like iOS `.unknown(raw)`; an unknown
+  stage or viewer role is still refused, falling back to the v1 fields). Wired in item 16: every snapshot carrier goes
   through `state/tableSync.applyTableSnapshot` (GameState.applySnapshot,
   MyAction.reconcile, the render, then `state/SeqGate.onSnapshot`: R1-R5 over
   every sequenced event, SocketManager wraps the handlers), and

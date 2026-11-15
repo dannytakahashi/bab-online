@@ -256,8 +256,20 @@ describe('player search', () => {
         const find = jest.spyOn(mockDb.current.users, 'find');
         const s = sock();
         await profile.searchPlayers(s, io, { query: 'x'.repeat(60) });
-        expect(lastTo(s, 'searchPlayersResponse')).toEqual({ success: true, players: [] });
+        expect(lastTo(s, 'searchPlayersResponse')).toEqual({ success: true, players: [], query: 'x'.repeat(60) });
         expect(find).not.toHaveBeenCalled();
+    });
+
+    test('every answer echoes the query as sent (web drops a reply to an older one)', async () => {
+        const s = sock();
+        await profile.searchPlayers(s, io, { query: ' an' });
+        expect(lastTo(s, 'searchPlayersResponse')).toMatchObject({ success: true, query: ' an' });
+        jest.spyOn(mockDb.current.users, 'find').mockImplementationOnce(() => { throw new Error('down'); });
+        await profile.searchPlayers(s, io, { query: 'an' });
+        expect(lastTo(s, 'searchPlayersResponse')).toEqual({ success: false, message: 'Database error', query: 'an' });
+        // a blank query has nothing to echo
+        await profile.searchPlayers(s, io, { query: '  ' });
+        expect(lastTo(s, 'searchPlayersResponse')).toEqual({ success: false, message: 'Search query is required' });
     });
 
     test('search rows keep their fields', async () => {

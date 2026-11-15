@@ -70,10 +70,11 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
   socketManager.on('searchPlayersResponse', (data) => {
     console.log('searchPlayersResponse received:', data);
     if (data.success) {
-      onSearchPlayersResult?.(data.players);
+      // query: the echo of the request (stale replies are dropped there)
+      onSearchPlayersResult?.(data.players, data.query);
     } else {
       console.warn('Player search failed:', data.message);
-      onSearchPlayersResult?.([]);
+      onSearchPlayersResult?.([], data.query);
     }
   });
 

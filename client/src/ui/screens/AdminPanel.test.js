@@ -624,6 +624,8 @@ describe('the panel', () => {
     byText('Audit').click();
     await flush();
     expect($('#adminPanel-audit tbody').textContent).toMatch(/newest/);
+    // the Result cell is styled by its class (screens.css), never by column number
+    expect($('#adminPanel-audit tbody td.admin-audit__result').textContent).toBe('ok');
     byText('Load more').click();
     await flush();
     // the cursor is (at, id) of the last row, so same-millisecond entries are not skipped

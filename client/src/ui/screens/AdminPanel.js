@@ -904,7 +904,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     for (const e of res.entries) {
       auditBody.appendChild(el('tr', {
         className: `admin-audit--${e.result}`,
-        children: [td(fmtDate(e.at)), td(e.actor || '—'), td(e.action), td(e.target || ''), td(e.result), td(e.detail || '')],
+        children: [td(fmtDate(e.at)), td(e.actor || '—'), td(e.action), td(e.target || ''), td(e.result, 'admin-audit__result'), td(e.detail || '')],
       }));
     }
     const lastRow = res.entries[res.entries.length - 1];

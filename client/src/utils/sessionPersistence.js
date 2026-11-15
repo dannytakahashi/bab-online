@@ -8,6 +8,7 @@
  * The server keeps one token per device (see server/utils/sessionTokens.js).
  */
 
+import { safeSessionStorage } from './safeStorage.js';
 export const SAVED_SESSION_KEY = 'bab.savedSession';
 
 function readSaved() {
@@ -49,11 +50,11 @@ export function forgetSession(sessionToken = null) {
  */
 export function adoptSavedSession() {
   try {
-    if (sessionStorage.getItem('username') && sessionStorage.getItem('sessionToken')) return false;
+    if (safeSessionStorage().getItem('username') && safeSessionStorage().getItem('sessionToken')) return false;
     const saved = readSaved();
     if (!saved) return false;
-    sessionStorage.setItem('username', saved.username);
-    sessionStorage.setItem('sessionToken', saved.sessionToken);
+    safeSessionStorage().setItem('username', saved.username);
+    safeSessionStorage().setItem('sessionToken', saved.sessionToken);
     return true;
   } catch {
     return false;
@@ -82,11 +83,11 @@ export function isDeviceSignedOut() {
 export function clearAllSessionData() {
   forgetSession();
   try {
-    sessionStorage.removeItem('username');
-    sessionStorage.removeItem('sessionToken');
-    sessionStorage.removeItem('gameId');
-    sessionStorage.removeItem('spectatingGameId');
-    sessionStorage.removeItem('lobbyId');
+    safeSessionStorage().removeItem('username');
+    safeSessionStorage().removeItem('sessionToken');
+    safeSessionStorage().removeItem('gameId');
+    safeSessionStorage().removeItem('spectatingGameId');
+    safeSessionStorage().removeItem('lobbyId');
   } catch {
     // ignore
   }

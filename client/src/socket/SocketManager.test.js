@@ -6,10 +6,15 @@ import {
   initializeSocketManager,
   resetSocketManager,
   PROBE_TIMEOUT_MS,
+  HOLD_MAX,
+  REFUSAL,
+  TABLE_EVENTS,
 } from './SocketManager.js';
 
 // Mock socket for testing
 function createMockSocket() {
+  // the raw emit (initialize wraps socket.emit in the emit gate): assert on _emit
+  const emit = vi.fn();
   const listeners = new Map();
 
   return {
@@ -26,7 +31,8 @@ function createMockSocket() {
         eventListeners.delete(callback);
       }
     }),
-    emit: vi.fn(),
+    emit,
+    _emit: emit,
     disconnect: vi.fn(),
     connect: vi.fn(),
     // Helper to trigger events in tests
@@ -180,7 +186,7 @@ describe('SocketManager', () => {
     it('emits event to socket', () => {
       manager.emit('testEvent', { foo: 'bar' });
 
-      expect(mockSocket.emit).toHaveBeenCalledWith('testEvent', { foo: 'bar' });
+      expect(mockSocket._emit).toHaveBeenCalledWith('testEvent', { foo: 'bar' });
     });
 
     it('handles missing socket gracefully', () => {
@@ -325,7 +331,7 @@ describe('visibility reconnection (ping first)', () => {
   }
 
   function pings() {
-    return mockSocket.emit.mock.calls.filter(([event]) => event === 'requestSnapshot');
+    return mockSocket._emit.mock.calls.filter(([event]) => event === 'requestSnapshot');
   }
 
   function answer(requestId) {
@@ -467,7 +473,7 @@ describe('visibility reconnection (ping first)', () => {
     sessionStorage.setItem('spectatingGameId', 'g2');
     mockSocket._trigger('connect');
     expect(manager.state).toBe(CONNECTION_STATE.CONNECTED);
-    const events = mockSocket.emit.mock.calls.map(([e]) => e);
+    const events = mockSocket._emit.mock.calls.map(([e]) => e);
     expect(events).not.toContain('rejoinGame');
     expect(events).not.toContain('joinAsSpectator');
   });
@@ -540,5 +546,50 @@ describe('reconnection events', () => {
   it('tolerates a socket without a Manager', () => {
     const bare = createMockSocket();
     expect(() => new SocketManager().initialize(bare)).not.toThrow();
+  });
+});
+
+describe('emit gate notices', () => {
+  let sm;
+  let socket;
+  let notices;
+  let gate;
+  beforeEach(() => {
+    socket = createMockSocket();
+    sm = new SocketManager();
+    sm.initialize(socket);
+    gate = { hasSession: () => true, isRestored: () => false, isOffline: () => false };
+    sm.setSessionGate(gate);
+    notices = { refused: vi.fn(), dropped: vi.fn() };
+    sm.setEmitNotices(notices);
+  });
+
+  it('a refusal says why: offline, or HOLD_MAX already waiting (not "offline" while reconnecting)', () => {
+    for (let i = 0; i < HOLD_MAX; i++) expect(socket.emit('lobbyChat', { message: `m${i}` })).toBeTruthy();
+    expect(socket.emit('lobbyChat', { message: 'one too many' })).toBe(false);
+    expect(notices.refused).toHaveBeenLastCalledWith('lobbyChat', REFUSAL.FULL);
+    sm.dropHeld();
+    gate.isOffline = () => true;
+    expect(socket.emit('lobbyChat', { message: 'offline' })).toBe(false);
+    expect(notices.refused).toHaveBeenLastCalledWith('lobbyChat', REFUSAL.OFFLINE);
+  });
+
+  it('dropHeld (sign-out, a failed restore) says what was lost: those drafts were cleared when held', () => {
+    socket.emit('chatMessage', { message: 'a' });
+    expect(sm.dropHeld()).toEqual(['chatMessage']);
+    expect(notices.dropped).toHaveBeenCalledWith(['chatMessage']);
+    notices.dropped.mockClear();
+    expect(sm.dropHeld()).toEqual([]);
+    expect(notices.dropped).not.toHaveBeenCalled();
+  });
+
+  it('flushHeld({drop}) sends the rest in order and reports the dropped ones', () => {
+    socket.emit('chatMessage', { message: 'table' });
+    socket.emit('getLeaderboard', {});
+    socket.emit('draw', {});
+    gate.isRestored = () => true;
+    sm.flushHeld(Date.now(), { drop: TABLE_EVENTS });
+    expect(socket._emit.mock.calls.map(([e]) => e)).toEqual(['getLeaderboard']);
+    expect(notices.dropped).toHaveBeenCalledWith(['chatMessage', 'draw']);
   });
 });

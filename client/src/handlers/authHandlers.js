@@ -7,6 +7,7 @@
 import { SERVER_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 import { rememberSession } from '../utils/sessionPersistence.js';
+import { safeSessionStorage } from '../utils/safeStorage.js';
 
 /**
  * Register authentication handlers.
@@ -40,9 +41,9 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.SIGN_IN_RESPONSE, (data) => {
     if (data.success) {
       // Store in sessionStorage for reconnection
-      sessionStorage.setItem('username', data.username);
+      safeSessionStorage().setItem('username', data.username);
       if (data.sessionToken) {
-        sessionStorage.setItem('sessionToken', data.sessionToken);
+        safeSessionStorage().setItem('sessionToken', data.sessionToken);
         rememberSession(data.username, data.sessionToken);
       }
 
@@ -62,9 +63,9 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.SIGN_UP_RESPONSE, (data) => {
     if (data.success) {
       // Store in sessionStorage
-      sessionStorage.setItem('username', data.username);
+      safeSessionStorage().setItem('username', data.username);
       if (data.sessionToken) {
-        sessionStorage.setItem('sessionToken', data.sessionToken);
+        safeSessionStorage().setItem('sessionToken', data.sessionToken);
         rememberSession(data.username, data.sessionToken);
       }
 
@@ -86,8 +87,8 @@ export function registerAuthHandlers(socketManager, callbacks = {}) {
     // Clear this tab's credentials. The device's saved session is kept:
     // reloading the page resumes it here (taking over from the other device).
     // onForceLogout leaves any table (exitTable clears the gameId copies)
-    sessionStorage.removeItem('username');
-    sessionStorage.removeItem('sessionToken');
+    safeSessionStorage().removeItem('username');
+    safeSessionStorage().removeItem('sessionToken');
 
     // Forget the identity too (username, tournament)
     state.resetSession();

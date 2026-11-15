@@ -52,6 +52,8 @@ export function chatLine({ username, message, timestamp = null, color = null, is
 
 /**
  * A chat input with its Send button; Enter or Send emits the trimmed text.
+ * onSend returning false (the emit gate refused it: offline) keeps the
+ * draft in the input, so nothing typed is lost.
  * @returns {{row: HTMLElement, input: HTMLInputElement, send: HTMLButtonElement}}
  */
 export function chatForm({ inputId, label = 'Chat message', onSend }) {
@@ -62,7 +64,7 @@ export function chatForm({ inputId, label = 'Chat message', onSend }) {
   const submit = () => {
     const text = input.value.trim();
     if (!text) return;
-    onSend(text);
+    if (onSend(text) === false) return;
     input.value = '';
   };
   input.addEventListener('keydown', (e) => {
