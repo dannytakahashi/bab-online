@@ -14,6 +14,7 @@ import { RANK_VALUES } from './constants/ranks.js';
 // Utilities
 import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
+import { safeSessionStorage } from './utils/safeStorage.js';
 import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
@@ -315,8 +316,8 @@ socket.io.on('reconnect', (attemptNumber) => {
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
   // The tab's credentials go; the device's saved session stays
-  sessionStorage.removeItem('username');
-  sessionStorage.removeItem('sessionToken');
+  safeSessionStorage().removeItem('username');
+  safeSessionStorage().removeItem('sessionToken');
   session.clearIdentity();
   setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
@@ -1887,7 +1888,7 @@ function displaySignInScreen(reason = null) {
  */
 function renderSignIn() {
   // Pre-fill username if we have it stored (e.g., after failed rejoin)
-  const storedUsername = sessionStorage.getItem('username') || '';
+  const storedUsername = safeSessionStorage().getItem('username') || '';
 
   showSignInScreen({
     onSignIn: ({ username, password }) => {
@@ -1985,9 +1986,9 @@ socket.on('restoreSessionResponse', (data) => {
   } else {
     console.log('Session restore failed:', data.message);
     // Clear invalid session data (and the device's saved copy of it)
-    forgetSession(sessionStorage.getItem('sessionToken'));
-    sessionStorage.removeItem('username');
-    sessionStorage.removeItem('sessionToken');
+    forgetSession(safeSessionStorage().getItem('sessionToken'));
+    safeSessionStorage().removeItem('username');
+    safeSessionStorage().removeItem('sessionToken');
     session.clearIdentity();
     restartNotice.clear();
     setIsAdmin(false);
@@ -2027,7 +2028,7 @@ export function startApp() {
     console.log('Resuming saved session from this device');
   }
 
-  const username = sessionStorage.getItem('username');
+  const username = safeSessionStorage().getItem('username');
   console.log(`Window load: username=${username}, sessionToken=${session.credentials() ? 'present' : 'none'}, gameId=${session.persistedGameId}, spectating=${session.persistedSpectateId}`);
 
   if (!session.credentials()) {

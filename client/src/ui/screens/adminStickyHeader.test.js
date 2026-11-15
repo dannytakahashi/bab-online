@@ -33,7 +33,11 @@ describe('admin tables: the sticky header covers the scroll area to its top edge
   it('paints an opaque background so rows scroll under it, not through it', () => {
     const th = rule('.admin-table th');
     expect(th.background).toMatch(/^var\(--surface-/);
-    expect(Number(th['z-index'])).toBeGreaterThanOrEqual(1);
+    // a --z-* token (screenStyles.test.js), at least 1
+    const token = th['z-index'].match(/^var\((--z-[a-z-]+)\)$/)?.[1];
+    expect(token).toBeTruthy();
+    const value = readClientFile('styles/tokens.css').match(new RegExp(`${token}: (-?\\d+);`))?.[1];
+    expect(Number(value)).toBeGreaterThanOrEqual(1);
   });
 });
 

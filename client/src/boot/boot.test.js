@@ -5,7 +5,7 @@
  * page's index.html (Smart App Banner, the entry).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { runBoot, startApp } from './boot.js';
+import { runBoot, startApp, FALLBACK_ID, RELOAD_KEY, RELOAD_WINDOW_MS, reloadedRecently } from './boot.js';
 import { showGate, GATE_ID } from './gateScreen.js';
 import { _resetPageChoice, CONTINUE_KEY, APP_STORE_URL, VARIANT } from './deviceGate.js';
 import { focusables } from '../ui/kit/modal.js';
@@ -17,7 +17,7 @@ const DESKTOP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 function memoryStorage() {
   const m = new Map();
-  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), _m: m };
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k), _m: m };
 }
 
 /**
@@ -25,7 +25,7 @@ function memoryStorage() {
  * reassigned and `win.fire('resize')` / `win.fireMedia()` run the
  * listeners; `win.location.reload` / `replace` are spies.
  */
-function fakeWin({ phone = true, ua = IPHONE_UA, search = '', storage = memoryStorage(), readyState = 'complete', onLine = true } = {}) {
+function fakeWin({ phone = true, ua = IPHONE_UA, search = '', storage = memoryStorage(), session = memoryStorage(), readyState = 'complete', onLine = true } = {}) {
   const features = phone ? { '(pointer: coarse)': true, '(hover: none)': true } : {};
   const listeners = { window: new Map(), media: new Set() };
   return {
@@ -41,6 +41,7 @@ function fakeWin({ phone = true, ua = IPHONE_UA, search = '', storage = memorySt
     navigator: { userAgent: ua, maxTouchPoints: phone ? 5 : 0, onLine },
     location: { search, href: `https://babonline.io/${search}`, reload: vi.fn(), replace: vi.fn() },
     localStorage: storage,
+    sessionStorage: session,
     addEventListener: (type, fn) => {
       if (!listeners.window.has(type)) listeners.window.set(type, new Set());
       listeners.window.get(type).add(fn);
@@ -367,8 +368,114 @@ describe('the gate screen', () => {
   });
 });
 
+describe('a failed app load on the ungated path (later #9)', () => {
+  const DEPLOY_404 = () => { throw new TypeError('Failed to fetch dynamically imported module: /dist/assets/main-Old999.js'); };
+  const fallback = () => document.getElementById(FALLBACK_ID);
+  beforeEach(() => {
+    document.body.insertAdjacentHTML('beforeend', `<div id="${FALLBACK_ID}" class="boot-fallback" role="alert"><a href="">reload the page</a></div>`);
+  });
+
+  it('boot hides the page\'s static notice as soon as it runs', () => {
+    runBoot({ win: fakeWin({ phone: false, ua: DESKTOP_UA }), loadApp: async () => ({ startApp() {} }) });
+    expect(fallback().hidden).toBe(true);
+  });
+
+  it('reloads once; failing again right after, the "Couldn\'t load" notice shows instead of another reload', async () => {
+    const session = memoryStorage();
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA, session });
+    runBoot({ win, loadApp: async () => DEPLOY_404() });
+    await flush();
+    await flush();
+    expect(win.location.reload).toHaveBeenCalledTimes(1);
+    expect(Number(session.getItem(RELOAD_KEY))).toBeGreaterThan(0);
+    expect(fallback().hidden).toBe(true); // reloading: no notice
+    // the reloaded page fails too
+    const again = fakeWin({ phone: false, ua: DESKTOP_UA, session });
+    const res = runBoot({ win: again, loadApp: async () => DEPLOY_404() });
+    await expect(res.app).rejects.toThrow(/dynamically imported/);
+    expect(again.location.reload).not.toHaveBeenCalled();
+    expect(again.location.replace).not.toHaveBeenCalled();
+    expect(fallback().hidden).toBe(false);
+    expect(fallback().classList.contains('is-shown')).toBe(true);
+  });
+
+  it('startApp throwing counts as a failed load too', async () => {
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA });
+    runBoot({ win, loadApp: async () => ({ startApp: () => { throw new Error('boom'); } }) });
+    await flush();
+    await flush();
+    expect(win.location.reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a load that works clears the mark, so a later failure (a later deploy) reloads again', async () => {
+    const session = memoryStorage();
+    session.setItem(RELOAD_KEY, String(Date.now()));
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA, session });
+    await runBoot({ win, loadApp: async () => ({ startApp() {} }) }).app;
+    expect(session.getItem(RELOAD_KEY)).toBeNull();
+  });
+
+  it('the mark is old after RELOAD_WINDOW_MS: a reload a while later may reload once again', () => {
+    const session = memoryStorage();
+    const now = Date.now();
+    session.setItem(RELOAD_KEY, String(now - RELOAD_WINDOW_MS - 1));
+    expect(reloadedRecently({ sessionStorage: session, location: { search: '' } }, now)).toBe(false);
+    session.setItem(RELOAD_KEY, String(now - 1000));
+    expect(reloadedRecently({ sessionStorage: session, location: { search: '' } }, now)).toBe(true);
+  });
+
+  it('storage that throws: the guard rides in the URL (?bootReload=1), which a working load strips', async () => {
+    const blocked = () => { throw new DOMException('blocked', 'SecurityError'); };
+    const win = fakeWin({ phone: false, ua: DESKTOP_UA, search: '?ref=x' });
+    Object.defineProperty(win, 'sessionStorage', { get: blocked });
+    Object.defineProperty(win, 'localStorage', { get: blocked });
+    runBoot({ win, loadApp: async () => DEPLOY_404() });
+    await flush();
+    await flush();
+    expect(win.location.reload).not.toHaveBeenCalled();
+    expect(win.location.replace).toHaveBeenCalledWith('https://babonline.io/?ref=x&bootReload=1');
+    // the reloaded page (with the param) fails again: the notice, no loop
+    const again = fakeWin({ phone: false, ua: DESKTOP_UA, search: '?ref=x&bootReload=1' });
+    Object.defineProperty(again, 'sessionStorage', { get: blocked });
+    await expect(runBoot({ win: again, loadApp: async () => DEPLOY_404() }).app).rejects.toThrow();
+    expect(again.location.replace).not.toHaveBeenCalled();
+    expect(fallback().hidden).toBe(false);
+    // ... or it works: the param leaves the address bar
+    const ok = fakeWin({ phone: false, ua: DESKTOP_UA, search: '?ref=x&bootReload=1' });
+    ok.history = { state: null, replaceState: vi.fn() };
+    await runBoot({ win: ok, loadApp: async () => ({ startApp() {} }) }).app;
+    expect(ok.history.replaceState).toHaveBeenCalledWith(null, '', 'https://babonline.io/?ref=x');
+  });
+
+  it('the gate\'s Continue: a second failure right after its reload keeps the gate\'s message (no loop)', async () => {
+    const session = memoryStorage();
+    session.setItem(RELOAD_KEY, String(Date.now()));
+    const win = fakeWin({ session });
+    runBoot({ win, loadApp: async () => DEPLOY_404() });
+    const btn = gate().querySelector('[data-gate="continue"]');
+    btn.click();
+    await flush();
+    await flush();
+    expect(win.location.reload).not.toHaveBeenCalled();
+    expect(btn.disabled).toBe(false);
+    expect(gate().querySelector('[role="status"]').textContent).toMatch(/Couldn't load/);
+  });
+});
+
 describe('the page', () => {
   const html = readClientFile('index.html');
+
+  it('a static "Couldn\'t load" notice with a reload link, shown by itself if boot never runs', () => {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const node = doc.getElementById(FALLBACK_ID);
+    expect(node).not.toBeNull();
+    expect(node.getAttribute('role')).toBe('alert');
+    expect(node.textContent).toMatch(/Couldn't load BAB Online/);
+    expect(node.querySelector('a[href=""]').textContent).toMatch(/reload/);
+    // inline style (works without the stylesheets), delayed; never an inline script (CSP)
+    expect(html).toMatch(/\.boot-fallback:not\(\[hidden\]\) \{[^}]*animation: bab-boot-fallback 0s linear \d+s forwards/);
+    expect(doc.querySelectorAll('script:not([src])')).toHaveLength(0);
+  });
 
   it('the entry is the boot module; Smart App Banner with the app id; no zoom lock', () => {
     expect(html).toContain('<script type="module" src="/src/entry.js"></script>');

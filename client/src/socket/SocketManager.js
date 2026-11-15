@@ -9,6 +9,7 @@
  */
 
 import { CLIENT_EVENTS, SERVER_EVENTS } from '../constants/events.js';
+import { safeSessionStorage } from '../utils/safeStorage.js';
 
 // A background longer than this pings the socket on return
 export const BACKGROUND_PROBE_AFTER_MS = 5000;
@@ -108,14 +109,14 @@ export class SocketManager {
    * Get stored game ID.
    */
   get gameId() {
-    return this._gameId || sessionStorage.getItem('gameId');
+    return this._gameId || safeSessionStorage().getItem('gameId');
   }
 
   /**
    * Get stored username.
    */
   get username() {
-    return sessionStorage.getItem('username');
+    return safeSessionStorage().getItem('username');
   }
 
   // ============================================
@@ -296,7 +297,7 @@ export class SocketManager {
    */
   setGameId(gameId) {
     this._gameId = gameId;
-    sessionStorage.setItem('gameId', gameId);
+    safeSessionStorage().setItem('gameId', gameId);
   }
 
   /**
@@ -304,7 +305,7 @@ export class SocketManager {
    */
   clearGameId() {
     this._gameId = null;
-    sessionStorage.removeItem('gameId');
+    safeSessionStorage().removeItem('gameId');
   }
 
   // ============================================

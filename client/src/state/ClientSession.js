@@ -35,6 +35,7 @@
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
+import { safeSessionStorage } from '../utils/safeStorage.js';
 
 export const SCREEN = Object.freeze({
   BOOT: 'boot',
@@ -111,15 +112,6 @@ function isTestRun() {
   }
 }
 
-function memoryStorage() {
-  const map = new Map();
-  return {
-    getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => map.set(k, String(v)),
-    removeItem: (k) => map.delete(k),
-  };
-}
-
 export class IllegalTransitionError extends Error {}
 
 export class ClientSession {
@@ -138,7 +130,8 @@ export class ClientSession {
     this._teardownTable = null;
     this._socketManager = null;
     this._gameState = null;
-    this._storage = typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage();
+    // Never throws: blocked storage used to throw here, at module load
+    this._storage = safeSessionStorage();
     this._started = false;
     this._connectionListeners = new Set();
     this._screenListeners = new Set();
