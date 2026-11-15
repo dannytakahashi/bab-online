@@ -1901,8 +1901,45 @@ function selectOptimalCard(hand, playedCards, leadCard, leadPosition, trump, tru
         });
         return found || ruleCard;
     } catch (err) {
-        SEARCH.errors = (SEARCH.errors || 0) + 1; // never let search break a play
+        noteSearchError(err, hand.length, handSize); // never let search break a play
         return ruleCard;
+    }
+}
+
+/**
+ * Search errors: the rule card is played, SEARCH.errors counts every one
+ * (sims and harnesses read it), and a warning goes to the server log for the
+ * first one and then at most one per `intervalMs`, with how many were held
+ * back in between. The warning names the error and the hand size, never a
+ * card. `warn` replaces the server logger (the sim sends it to stderr); the
+ * logger is loaded on the first warning only, so pure bot users (sims, the
+ * pair harnesses) never load it. Nothing here reaches a decision.
+ */
+const SEARCH_ERROR_LOG = { intervalMs: 5 * 60 * 1000, lastAt: null, heldBack: 0, warn: null };
+
+function noteSearchError(err, cards, handSize) {
+    SEARCH.errors = (SEARCH.errors || 0) + 1;
+    const log = SEARCH_ERROR_LOG;
+    const now = Date.now();
+    if (log.lastAt !== null && now - log.lastAt < log.intervalMs) {
+        log.heldBack++;
+        return;
+    }
+    const meta = {
+        error: String((err && err.message) || err).slice(0, 200),
+        where: String((err && err.stack) || '').split('\n').find(l => /^\s+at /.test(l))?.trim().slice(0, 200) || null,
+        cardsInHand: cards,
+        handSize,
+        errors: SEARCH.errors,
+        heldBack: log.heldBack
+    };
+    log.lastAt = now;
+    log.heldBack = 0;
+    try {
+        const warn = log.warn || ((msg, m) => require('../../utils/logger').gameLogger.warn(msg, m));
+        warn('Bot play search failed; played the rule card', meta);
+    } catch (_) {
+        // logging must never break a play either
     }
 }
 
@@ -1943,5 +1980,6 @@ module.exports = {
     getContractState,
     pickWinner,
     buildCardView,
-    PLAY_TUNING
+    PLAY_TUNING,
+    SEARCH_ERROR_LOG
 };

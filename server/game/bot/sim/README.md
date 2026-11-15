@@ -416,8 +416,9 @@ still open.
 
 Paired harness as above (deal sets played twice, seats swapped, ± 95% CI
 over deal sets; a different deal hash and seeds from every earlier run).
-Every run: 0 illegal plays, 0 exceptions, 0 errors inside the search, and
-no lost last-seat trick that a legal card would have won, before or after
+Every run: 0 illegal plays, 0 exceptions, 0 errors inside the search
+(`SEARCH.errors`; `simulate.js` reports it as `searchErrorCount`, and the
+server logs a rate-limited warning for it), and no lost last-seat trick that a legal card would have won, before or after
 the contract was made (over 2.5 million lost last-seat tricks checked on
 the combined side).
 

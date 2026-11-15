@@ -19,7 +19,8 @@
  *
  * Every card a bot chooses is re-validated with rules.isLegalMove; illegal
  * choices and thrown exceptions are counted and reported (and substituted so
- * the run can continue). A healthy strategy reports zero of both.
+ * the run can continue), and so are errors caught inside the play search
+ * (searchErrorCount). A healthy strategy reports zero of all three.
  *
  * Usage:
  *   node server/game/bot/sim/simulate.js                         # all experiments, 2000 games each
@@ -43,6 +44,13 @@
 const rules = require('../../rules');
 const BotPlayer = require('../BotPlayer');
 const legacyStrategy = require('./legacyStrategy');
+const { SEARCH } = require('../playSearch');
+const { SEARCH_ERROR_LOG } = require('../BotStrategy');
+
+// A search error plays the rule card; the count is in the summary
+// (searchErrorCount) and the rate-limited warning goes to stderr, keeping
+// stdout the summary JSON
+SEARCH_ERROR_LOG.warn = (msg, meta) => process.stderr.write(`${msg} ${JSON.stringify(meta)}\n`);
 
 const { BID_RANKS } = rules;
 const HAND_SIZES = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
@@ -501,7 +509,9 @@ function main() {
         incidentCount: incidents.length,
         incidents: incidents.slice(0, 25),
         exceptionCount: exceptions.length,
-        exceptions: exceptions.slice(0, 25)
+        exceptions: exceptions.slice(0, 25),
+        // Errors thrown inside the play search (caught: the rule card was played)
+        searchErrorCount: SEARCH.errors || 0
     };
     for (const hs of HAND_SIZES) {
         const b = byHandSize[hs];
