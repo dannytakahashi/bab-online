@@ -29,6 +29,11 @@ const inFlight = new Set();
 let shuttingDown = false;
 // Pending retry waits (retryDelay), cut short when a shutdown starts
 const wakers = new Set();
+// During a shutdown a retry waits at most this long, and retries go on
+// until the drain's deadline: a short outage (a failover during the
+// deploy) must not use up every retry in a few milliseconds
+const SHUTDOWN_RETRY_MS = 250;
+let drainDeadline = 0;
 
 /**
  * Register a write a graceful shutdown should wait for (bounded by
@@ -52,10 +57,11 @@ function isShuttingDown() {
 
 /**
  * Wait `ms` before a retry, or less: a shutdown starting meanwhile ends the
- * wait at once (the in-flight wait is short, so retries run back to back).
+ * wait at once, and during a shutdown the wait is SHUTDOWN_RETRY_MS at most
+ * (the in-flight wait is short).
  */
 function retryDelay(ms) {
-    if (shuttingDown) return Promise.resolve();
+    if (shuttingDown) ms = Math.min(ms, SHUTDOWN_RETRY_MS);
     return new Promise(resolve => {
         const wake = () => {
             clearTimeout(timer);
@@ -68,8 +74,17 @@ function retryDelay(ms) {
     });
 }
 
-function beginShutdown() {
+/**
+ * True while a shutdown's drain still has time for one more retry: a write
+ * that has used up its retries keeps going until then.
+ */
+function shutdownAllowsRetry() {
+    return shuttingDown && Date.now() + SHUTDOWN_RETRY_MS < drainDeadline;
+}
+
+function beginShutdown(deadline) {
     shuttingDown = true;
+    drainDeadline = deadline;
     for (const wake of [...wakers]) wake();
 }
 
@@ -106,6 +121,7 @@ function _resetShutdownStateForTests() {
     inFlight.clear();
     for (const wake of [...wakers]) wake();
     shuttingDown = false;
+    drainDeadline = 0;
 }
 
 /**
@@ -137,8 +153,9 @@ function setupGracefulShutdown(server, io, opts = {}) {
         // Also the code if the event loop drains before process.exit runs
         process.exitCode = exitCode;
         logger.info(`Received ${signal}, starting graceful shutdown`, { exitCode });
-        // Pending stats retries run now instead of after their backoff
-        beginShutdown();
+        // Pending stats retries run now instead of after their backoff,
+        // then every SHUTDOWN_RETRY_MS until the drain ends
+        beginShutdown(Date.now() + (io ? noticeMs : 0) + drainMs);
 
         const hardExit = setTimeout(() => {
             logger.error('Graceful shutdown timed out, forcing exit', { signal, exitCode, hardExitMs });
@@ -217,6 +234,7 @@ module.exports = {
     inFlightCount,
     isShuttingDown,
     retryDelay,
+    shutdownAllowsRetry,
     drainInFlight,
     _resetShutdownStateForTests,
     NOTICE_MS,
