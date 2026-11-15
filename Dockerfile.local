@@ -1,5 +1,5 @@
-# Build stage
-FROM node:18-alpine AS builder
+# Build stage. Node major matches package.json engines (what Railway runs)
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build:client
 
 # Production stage
-FROM node:18-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 

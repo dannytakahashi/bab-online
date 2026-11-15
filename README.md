@@ -15,7 +15,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 | Web Frontend | Phaser 3.55.2, ES6 Modules, Socket.IO Client 4.0.1 |
 | iOS Client | SwiftUI, SpriteKit, Socket.IO-Client-Swift 16, Combine |
 | Build | Vite (web), Xcode 16+ (iOS) |
-| Backend | Node.js 18+, Express.js 4.21.2, Socket.IO 4.8.1 |
+| Backend | Node.js 24 (LTS), Express.js 4.21.2, Socket.IO 4.8.1 |
 | Database | MongoDB (native driver) — `users`, `gameRecords`, `reports` collections |
 | Security | Helmet, bcryptjs |
 | Testing | Vitest (client), Jest (server) |
@@ -24,7 +24,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 ## Getting Started
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 24 (`.nvmrc`)
 - MongoDB (local or Atlas)
 - Xcode 16+ (for iOS client)
 
