@@ -22,7 +22,7 @@
     position: absolute;
     inset: 0;
     pointer-events: none;
-    z-index: 0;
+    z-index: var(--z-felt);
     background: radial-gradient(ellipse 85% 80% at 50% 50%, transparent 55%, rgb(0 0 0 / 0.42) 100%);
 }
 
@@ -39,7 +39,7 @@
 }
 
 .table-rail {
-    z-index: -1;
+    z-index: var(--z-rail);
     border-radius: calc(56px * var(--s, 1));
     border: var(--rail-w, 4px) solid var(--felt-rail);
     background:
@@ -53,7 +53,7 @@
 /* ---------- My hand's panel (#handBackgroundDom / #handBorderDom) ---------- */
 
 .hand-panel {
-    z-index: -2;
+    z-index: var(--z-hand-panel);
     border-radius: var(--radius-lg);
     background: linear-gradient(180deg, rgb(var(--surface-1-rgb) / 0.42), rgb(var(--surface-0-rgb) / 0.62));
     box-shadow: var(--elev-2);
@@ -61,7 +61,7 @@
 
 /* its border, and the turn ring's glow (kit.css: an opacity-animated ::after) */
 .hand-border {
-    z-index: -1;
+    z-index: var(--z-rail);
     border-radius: var(--radius-lg);
     border: 1px solid var(--line-subtle);
 }
@@ -482,7 +482,7 @@ body > .voice-btn {
     width: var(--spec-w, 72px);
     height: var(--spec-h, 36px);
     pointer-events: auto;
-    z-index: 300;
+    z-index: var(--z-hud-badge);
 }
 
 .hud-spectators[hidden],
@@ -609,7 +609,7 @@ body > .voice-btn {
     width: 0;
     height: 0;
     pointer-events: none;
-    z-index: 290;
+    z-index: var(--z-spectator-bubble);
 }
 
 .hud-spectator-bubble[hidden] { display: none; }
@@ -787,7 +787,7 @@ body > .voice-btn {
     border-radius: var(--radius-sm);
     background: var(--surface-1);
     box-shadow: var(--elev-2);
-    z-index: 1;
+    z-index: var(--z-raised);
 }
 .slash-autocomplete[hidden] { display: none; }
 .slash-item { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); cursor: pointer; }

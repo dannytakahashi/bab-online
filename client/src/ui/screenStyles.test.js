@@ -6,9 +6,9 @@
  * name hue (--name-hue), and every hue keeps 4.5:1 on the chat well.
  */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { readClientFile, REPO_ROOT } from '../testing/files.js';
+import { readClientFile, REPO_ROOT, CLIENT_ROOT } from '../testing/files.js';
 import { contrastRatio, parseColor, resolveColor } from '../../tokens/generate.mjs';
 
 const SCREEN_FILES = [
@@ -199,5 +199,34 @@ describe('contrast of the per-user chat name hue', () => {
       'team.a on surface.s2', 'team.b on surface.s2', 'danger.text on danger.solid@0.14/surface.s1',
       'text.primary on surface.s1@0.92/felt.light', 'text.primary on felt.light', 'team.a on surface.s1@0.92/felt.light',
     ]) expect(pairs, p).toContain(p);
+  });
+});
+
+describe('stacking and structure in every stylesheet', () => {
+  // tokens.css defines the --z-* scale; every other sheet uses it
+  const SHEETS = readdirSync(resolve(CLIENT_ROOT, 'styles')).filter((f) => f.endsWith('.css') && f !== 'tokens.css')
+    .map((f) => `styles/${f}`).concat(['styles.css']);
+  const strip = (css) => css.replace(/\/\*[\s\S]*?\*\//g, '');
+
+  it('covers the page sheets', () => {
+    expect(SHEETS).toEqual(expect.arrayContaining(['styles/screens.css', 'styles/table.css', 'styles/components.css', 'styles/kit.css', 'styles.css']));
+  });
+
+  for (const file of SHEETS) {
+    it(`${file}: every z-index is a --z-* token`, () => {
+      const literal = strip(readClientFile(file)).split('\n').filter((l) => /z-index:/.test(l) && !/z-index:\s*var\(--z-[a-z-]+\)/.test(l));
+      expect(literal).toEqual([]);
+    });
+
+    it(`${file}: no :nth-child (style a cell or row by its class)`, () => {
+      expect(strip(readClientFile(file))).not.toMatch(/:nth-(last-)?(child|of-type)\(/);
+    });
+  }
+
+  it('every --z-* a sheet uses is defined in tokens.css', () => {
+    const defined = new Set([...readClientFile('styles/tokens.css').matchAll(/(--z-[a-z-]+):/g)].map((m) => m[1]));
+    for (const file of SHEETS) {
+      for (const m of readClientFile(file).matchAll(/var\((--z-[a-z-]+)\)/g)) expect(defined.has(m[1]), `${file}: ${m[1]}`).toBe(true);
+    }
   });
 });
