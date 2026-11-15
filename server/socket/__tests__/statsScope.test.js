@@ -340,7 +340,9 @@ describe('caches per scope', () => {
         expect((await records({})).totalGames).toBe(2);
         expect((await records({ scope: 'bots' })).totalGames).toBe(2);
         const doc = mockDb.current.gameRecords.docs.find(d => d.gameId === 'g-h');
-        expect(Object.keys(doc).sort()).toEqual(['_id', 'completedAt', 'gameId', 'team1Bags', 'team1Players', 'team1Score', 'team2Bags', 'team2Players', 'team2Score']);
+        // Today's fields plus the stats deltas (the pending list is gone once applied)
+        expect(Object.keys(doc).sort()).toEqual(['_id', 'completedAt', 'gameId', 'statsDeltas', 'team1Bags', 'team1Players', 'team1Score', 'team2Bags', 'team2Players', 'team2Score']);
+        expect(doc.statsDeltas.bucket).toBe('stats');
         expect(mockDb.current.users.docs.find(d => d.username === 'Cat').stats.gamesPlayed).toBe(1);
     });
 

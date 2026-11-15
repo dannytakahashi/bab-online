@@ -1,7 +1,8 @@
 /**
  * Against a REAL mongod (CI's mongo:6 service, or a local one): startup
  * indexes, query plans, the duplicate sign-up race, projections on the real
- * driver, and payload equality with the 3db87b1 handlers.
+ * driver, payload equality with the 3db87b1 handlers, and the end-of-game
+ * writes' unique gameId index and replay guard.
  *
  * Uses a scratch database bab_jest_item9_<pid>_<ts> that is dropped in
  * afterAll. Never touches 'babonline' (connectDB is never called). Only runs
@@ -804,5 +805,64 @@ describe('real mongod', () => {
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });
         expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
+    });
+
+    test('(p) end-of-game writes on the real driver: unique gameId index (partial, used by the lookup), a replay counts once, a duplicate falls back to a non-unique index', async () => {
+        if (!client) return;
+        const gi = (await mockHolder.gameRecords.indexes()).find(i => i.name === 'gameId_1');
+        expect(gi).toMatchObject({ unique: true, key: { gameId: 1 }, partialFilterExpression: { gameId: { $exists: true } } });
+        expect(usesIndex(planOf(await mockHolder.gameRecords.find({ gameId: 'g1' }).explain('queryPlanner')), 'gameId_1')).toBe(true);
+        expect(usesIndex(planOf(await mockHolder.gameRecords.find({ statsPending: { $exists: true } }).explain('queryPlanner')), 'statsPending_partial')).toBe(true);
+        await expect(mockHolder.gameRecords.insertOne({ gameId: 'g1', completedAt: new Date() })).rejects.toMatchObject({ code: 11000 });
+        // records without a gameId never collide
+        await mockHolder.gameRecords.insertMany([{ completedAt: new Date() }, { completedAt: new Date() }]);
+
+        const seats = [1, 2, 3, 4].map(position => ({ position, controller: 'human', ownerUsername: ['Alan', 'Bea', 'Cy', 'Dot'][position - 1] }));
+        const game = {
+            gameId: 'p-real-1',
+            score: { team1: 300, team2: 120 },
+            seatList: () => seats,
+            seat: (pos) => seats[pos - 1],
+            getOriginalPlayer: (pos) => ({ username: seats[pos - 1].ownerUsername }),
+            handStats: { totalHands: 13, team1Sets: 0, team2Sets: 2, team1SetPoints: 0, team2SetPoints: 60 },
+            playerStats: { 1: { totalBids: 4, totalTricks: 5, setsCaused: 0, totalHSI: 90 }, 2: { totalBids: 3, totalTricks: 2, setsCaused: 1, totalHSI: 80 }, 3: { totalBids: 1, totalTricks: 1, setsCaused: 0, totalHSI: 70 }, 4: { totalBids: 5, totalTricks: 3, setsCaused: 1, totalHSI: 60 } }
+        };
+        const before = (await mockHolder.users.findOne({ username: 'Alan' })).stats;
+        await profile.recordGameStats(game);
+        await profile.recordGameStats(game); // a replay
+        expect(await mockHolder.gameRecords.countDocuments({ gameId: 'p-real-1' })).toBe(1);
+        const rec = await mockHolder.gameRecords.findOne({ gameId: 'p-real-1' });
+        expect(rec.statsPending).toBeUndefined();
+        expect(rec.statsDeltas).toMatchObject({ bucket: 'stats', byPosition: { 1: { gamesPlayed: 1, wins: 1, totalPoints: 300, totalHSI: 90 } } });
+        const alan = await mockHolder.users.findOne({ username: 'Alan' });
+        expect(alan.stats.gamesPlayed).toBe(before.gamesPlayed + 1);
+        expect(alan.stats.totalHSI).toBe(before.totalHSI + 90);
+        expect(alan.statsGames).toEqual(['p-real-1']);
+        // Bea had no stats: one game, created by the $inc
+        expect((await mockHolder.users.findOne({ username: 'Bea' })).stats).toMatchObject({ gamesPlayed: 1, losses: 1, totalFaults: 1 });
+        // a half-applied record (as a crash leaves it): the sweep finishes it without counting Alan twice
+        await mockHolder.gameRecords.updateOne({ gameId: 'p-real-1' }, { $set: { statsPending: [{ position: 1, username: 'Alan' }] } });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect((await mockHolder.users.findOne({ username: 'Alan' })).stats.gamesPlayed).toBe(before.gamesPlayed + 1);
+        expect((await mockHolder.gameRecords.findOne({ gameId: 'p-real-1' })).statsPending).toBeUndefined();
+
+        // Existing duplicate game ids: warn, non-unique fallback, retried on the next boot
+        const dups = db.collection('gameRecords_gid_dups');
+        await dups.insertMany([{ gameId: 'twin' }, { gameId: 'twin' }]);
+        const warn = jest.spyOn(dbLogger, 'warn').mockImplementation(() => {});
+        await database.ensureGameIdIndex(dups);
+        expect(warn.mock.calls.map(c => c[0])).toEqual([expect.stringMatching(/unique index on gameRecords\.gameId/)]);
+        const fallback = database.GAME_ID_FALLBACK_INDEX;
+        expect((await dups.indexes()).map(i => i.name)).toEqual(expect.arrayContaining([fallback]));
+        expect((await dups.indexes()).map(i => i.name)).not.toContain('gameId_1');
+        expect(usesIndex(planOf(await dups.find({ gameId: 'twin' }).explain('queryPlanner')), fallback)).toBe(true);
+        await dups.deleteOne({ gameId: 'twin' });
+        warn.mockClear();
+        await database.ensureGameIdIndex(dups);
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+        const names = (await dups.indexes()).map(i => i.name);
+        expect(names).toContain('gameId_1');
+        expect(names).not.toContain(fallback);
     });
 });

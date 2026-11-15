@@ -86,7 +86,7 @@ test('the backoff is capped at 30 s', async () => {
 });
 
 test('an index that cannot be built is a warning, the others still build, and connectDB resolves', async () => {
-    const { client, collections } = fakeClient({ failIndex: (name) => name === 'gameRecords' });
+    const { client, collections } = fakeClient({ failIndex: (name, keys) => name === 'gameRecords' && 'completedAt' in keys });
     mockConnect.mockResolvedValueOnce(client);
     await database.connectDB();
     expect(dbLogger.error).not.toHaveBeenCalled();
@@ -94,6 +94,8 @@ test('an index that cannot be built is a warning, the others still build, and co
     expect(dbLogger.warn.mock.calls[0][0]).toMatch(/gameRecords\.completedAt_-1/);
     expect(collections.reports.createIndex).toHaveBeenCalledWith({ createdAt: -1 }, {});
     expect(collections.users.createIndex).toHaveBeenCalledWith({ username: 1 }, { unique: true });
+    // the same collection's other indexes still build
+    expect(collections.gameRecords.createIndex).toHaveBeenCalledWith({ gameId: 1 }, { partialFilterExpression: { gameId: { $exists: true } }, unique: true });
     await expect(database.whenReady(10)).resolves.toBe(true);
 });
 

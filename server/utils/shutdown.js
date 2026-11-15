@@ -9,6 +9,7 @@
  */
 
 const { logger } = require('./logger');
+const { safeTimeout } = require('./safeTimer');
 
 // Clients get the restart notice this long before their sockets close
 const NOTICE_MS = 1000;
@@ -16,18 +17,108 @@ const NOTICE_MS = 1000;
 const SETTLE_MS = 500;
 // Upper bound on the whole shutdown: whatever wedges, the process exits
 const HARD_EXIT_MS = 10000;
+// Kept free of the in-flight wait so the graceful path, not the hard
+// deadline, normally ends the process
+const DRAIN_MARGIN_MS = 1000;
+
+// Writes a shutdown waits for (end-of-game stats: profileHandlers
+// recordGameStats). Each entry leaves the set once it settles.
+const inFlight = new Set();
+let shuttingDown = false;
+// Pending retry waits (retryDelay), cut short when a shutdown starts
+const wakers = new Set();
+
+/**
+ * Register a write a graceful shutdown should wait for (bounded by
+ * HARD_EXIT_MS). Returns the same promise.
+ */
+function trackInFlight(promise) {
+    const entry = Promise.resolve(promise).then(() => {}, () => {}).finally(() => inFlight.delete(entry));
+    inFlight.add(entry);
+    return promise;
+}
+
+/** Number of tracked writes not settled yet. */
+function inFlightCount() {
+    return inFlight.size;
+}
+
+/** True once a shutdown has started. */
+function isShuttingDown() {
+    return shuttingDown;
+}
+
+/**
+ * Wait `ms` before a retry, or less: a shutdown starting meanwhile ends the
+ * wait at once (the in-flight wait is short, so retries run back to back).
+ */
+function retryDelay(ms) {
+    if (shuttingDown) return Promise.resolve();
+    return new Promise(resolve => {
+        const wake = () => {
+            clearTimeout(timer);
+            wakers.delete(wake);
+            resolve();
+        };
+        const timer = safeTimeout(wake, ms, 'retryDelay');
+        timer.unref?.();
+        wakers.add(wake);
+    });
+}
+
+function beginShutdown() {
+    shuttingDown = true;
+    for (const wake of [...wakers]) wake();
+}
+
+/**
+ * Wait for every tracked write (new ones too, e.g. a bot game ending
+ * during the wait) for at most `ms`. Never throws.
+ * @returns {Promise<boolean>} true if all settled in time
+ */
+async function drainInFlight(ms) {
+    if (inFlight.size === 0) return true;
+    logger.info('Waiting for in-flight writes before exit', { count: inFlight.size, maxMs: ms });
+    let timer;
+    const timedOut = new Promise(resolve => {
+        timer = safeTimeout(() => resolve(false), ms, 'shutdownDrain');
+        timer.unref?.();
+    });
+    let done = false;
+    try {
+        while (inFlight.size > 0) {
+            const settled = await Promise.race([Promise.allSettled([...inFlight]).then(() => true), timedOut]);
+            if (!settled) break;
+        }
+        done = inFlight.size === 0;
+    } finally {
+        clearTimeout(timer);
+    }
+    if (!done) logger.warn('Exiting with writes still in flight', { count: inFlight.size, maxMs: ms });
+    return done;
+}
+
+/** Tests only: forget the shutdown state between cases. */
+function _resetShutdownStateForTests() {
+    shuttingDown = false;
+    inFlight.clear();
+    for (const wake of [...wakers]) wake();
+    shuttingDown = false;
+}
 
 /**
  * Setup graceful shutdown handlers
  * @param {http.Server} server - HTTP server instance
  * @param {SocketIO.Server} io - Socket.IO server instance
- * @param {{noticeMs?: number, settleMs?: number, hardExitMs?: number}} [opts] - tests only
+ * @param {{noticeMs?: number, settleMs?: number, hardExitMs?: number, drainMs?: number}} [opts] - tests only
  * @returns {{shutdown: Function, onUncaughtException: Function, onUnhandledRejection: Function}}
  *   the handlers (registered on `process` here; returned for tests, since
  *   Jest owns process-level uncaughtException while a test runs)
  */
 function setupGracefulShutdown(server, io, opts = {}) {
     const { noticeMs = NOTICE_MS, settleMs = SETTLE_MS, hardExitMs = HARD_EXIT_MS } = opts;
+    // What is left of the hard deadline after the fixed waits
+    const drainMs = opts.drainMs ?? Math.max(0, hardExitMs - noticeMs - settleMs - DRAIN_MARGIN_MS);
     // The first reason decides the code: a crash during a deploy's SIGTERM
     // still exits 0 (the platform asked it to stop), a second signal during
     // a crash shutdown still exits 1 (so it is restarted)
@@ -44,6 +135,8 @@ function setupGracefulShutdown(server, io, opts = {}) {
         // Also the code if the event loop drains before process.exit runs
         process.exitCode = exitCode;
         logger.info(`Received ${signal}, starting graceful shutdown`, { exitCode });
+        // Pending stats retries run now instead of after their backoff
+        beginShutdown();
 
         const hardExit = setTimeout(() => {
             logger.error('Graceful shutdown timed out, forcing exit', { signal, exitCode, hardExitMs });
@@ -71,6 +164,10 @@ function setupGracefulShutdown(server, io, opts = {}) {
                     logger.info('Socket.IO server closed');
                 });
             }
+
+            // End-of-game writes still running (a game that ended just
+            // before the signal, or a retry): stats must not be lost
+            await drainInFlight(drainMs);
 
             // Allow remaining operations to complete
             await new Promise(resolve => setTimeout(resolve, settleMs));
@@ -112,4 +209,15 @@ function setupGracefulShutdown(server, io, opts = {}) {
     return { shutdown, onUncaughtException, onUnhandledRejection };
 }
 
-module.exports = { setupGracefulShutdown, NOTICE_MS, SETTLE_MS, HARD_EXIT_MS };
+module.exports = {
+    setupGracefulShutdown,
+    trackInFlight,
+    inFlightCount,
+    isShuttingDown,
+    retryDelay,
+    drainInFlight,
+    _resetShutdownStateForTests,
+    NOTICE_MS,
+    SETTLE_MS,
+    HARD_EXIT_MS
+};

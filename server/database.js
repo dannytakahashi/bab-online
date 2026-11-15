@@ -128,6 +128,12 @@ async function ensureIndexes({
 } = {}) {
     return Promise.allSettled([
         safeIndex(gameRecords, { completedAt: -1 }, {}, 'gameRecords.completedAt_-1'),
+        ensureGameIdIndex(gameRecords),
+        // The startup sweep's lookup (profileHandlers.resumePendingGameStats):
+        // only records whose stats are not applied yet are in it
+        safeIndex(gameRecords, { statsPending: 1 },
+            { name: 'statsPending_partial', partialFilterExpression: { statsPending: { $exists: true } } },
+            'gameRecords.statsPending_partial'),
         safeIndex(reports, { createdAt: -1 }, {}, 'reports.createdAt_-1'),
         ensureUsernameIndex(users),
         ...adminIndexes({ users, passwordResets, adminAudit })
@@ -163,6 +169,38 @@ function adminIndexes({ users, passwordResets, adminAudit }) {
 
 /** Non-unique stand-in while legacy duplicates block the unique index. */
 const USERNAME_FALLBACK_INDEX = 'username_nonunique';
+/** The same for gameRecords.gameId. */
+const GAME_ID_FALLBACK_INDEX = 'gameId_nonunique';
+
+/**
+ * A unique index that legacy duplicates must not take startup down with.
+ * Drops `fallbackName` first (a previous boot's stand-in), then builds the
+ * unique index; on E11000 (existing duplicates) warns and builds a
+ * NON-unique index under `fallbackName`, so lookups stay on an index until
+ * the duplicates are removed and a later boot retries. Never throws.
+ */
+async function ensureUniqueWithFallback(collection, { keys, options = {}, fallbackName, label, warning }) {
+    try {
+        const existing = await collection.indexes();
+        if (existing.some(i => i.name === fallbackName)) {
+            await collection.dropIndex(fallbackName);
+        }
+    } catch (error) {
+        // No collection yet (NamespaceNotFound): nothing to drop
+        if (error.code !== 26 && !(error instanceof TypeError)) {
+            dbLogger.warn(`Could not drop index ${label}.${fallbackName}; continuing`, { error: error.message, code: error.code });
+        }
+    }
+    try {
+        await collection.createIndex(keys, { ...options, unique: true });
+    } catch (error) {
+        dbLogger.warn(warning, { error: error.message, code: error.code });
+        if (error.code === 11000) {
+            await safeIndex(collection, keys, { name: fallbackName },
+                `${label}.${fallbackName} (non-unique fallback)`);
+        }
+    }
+}
 
 /**
  * Unique index on users.username: every per-user lookup is by username, and
@@ -174,29 +212,35 @@ const USERNAME_FALLBACK_INDEX = 'username_nonunique';
  * later boot the fallback is dropped first and the unique build retried
  * (and the fallback rebuilt if it still fails). Never throws.
  */
-async function ensureUsernameIndex(collection) {
-    try {
-        const existing = await collection.indexes();
-        if (existing.some(i => i.name === USERNAME_FALLBACK_INDEX)) {
-            await collection.dropIndex(USERNAME_FALLBACK_INDEX);
-        }
-    } catch (error) {
-        // No collection yet (NamespaceNotFound): nothing to drop
-        if (error.code !== 26 && !(error instanceof TypeError)) {
-            dbLogger.warn(`Could not drop index users.${USERNAME_FALLBACK_INDEX}; continuing`, { error: error.message, code: error.code });
-        }
-    }
-    try {
-        await collection.createIndex({ username: 1 }, { unique: true });
-    } catch (error) {
-        dbLogger.warn("Could not create unique index on users.username; continuing (with a non-unique fallback index on duplicates). " +
-            "Remove the duplicate username documents and restart to enable it.",
-            { error: error.message, code: error.code });
-        if (error.code === 11000) {
-            await safeIndex(collection, { username: 1 }, { name: USERNAME_FALLBACK_INDEX },
-                `users.${USERNAME_FALLBACK_INDEX} (non-unique fallback)`);
-        }
-    }
+function ensureUsernameIndex(collection) {
+    return ensureUniqueWithFallback(collection, {
+        keys: { username: 1 },
+        fallbackName: USERNAME_FALLBACK_INDEX,
+        label: 'users',
+        warning: "Could not create unique index on users.username; continuing (with a non-unique fallback index on duplicates). " +
+            "Remove the duplicate username documents and restart to enable it."
+    });
+}
+
+/**
+ * Unique index on gameRecords.gameId: one record per game, so a retried or
+ * replayed end-of-game write (profileHandlers.recordGameStats) can never
+ * insert a second one (it gets E11000 and reuses the first), and its
+ * gameId lookup is an index hit. Partial ($exists, which an equality lookup
+ * still uses; a $type filter would not be): records without a gameId (tests,
+ * hand edits) never collide. Duplicates
+ * already in the collection: warn, and a non-unique fallback, as for
+ * usernames. Never throws.
+ */
+function ensureGameIdIndex(collection) {
+    return ensureUniqueWithFallback(collection, {
+        keys: { gameId: 1 },
+        options: { partialFilterExpression: { gameId: { $exists: true } } },
+        fallbackName: GAME_ID_FALLBACK_INDEX,
+        label: 'gameRecords',
+        warning: "Could not create unique index on gameRecords.gameId; continuing (with a non-unique fallback index on duplicates). " +
+            "Remove the duplicate game records and restart to enable it."
+    });
 }
 
 // ✅ Export database and collection references
@@ -205,7 +249,9 @@ module.exports = {
     whenReady,
     ensureIndexes,
     ensureUsernameIndex,
+    ensureGameIdIndex,
     USERNAME_FALLBACK_INDEX,
+    GAME_ID_FALLBACK_INDEX,
     safeIndex,
     SERVER_SELECTION_TIMEOUT_MS,
     getDbState,
