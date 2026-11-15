@@ -3,7 +3,7 @@
  * Ensures clean shutdown on SIGTERM/SIGINT signals and on a crash.
  *
  * Exit codes matter on Railway: the service restarts ON_FAILURE only
- * (railway.toml [deploy], the same as the dashboard setting), so a deploy's SIGTERM exits 0 (no restart) and an
+ * (Railway's default, .railway/railway.ts), so a deploy's SIGTERM exits 0 (no restart) and an
  * uncaughtException exits 1 (restarted). A crash that exited 0 left the site
  * down until the next deploy.
  */
