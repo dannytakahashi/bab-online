@@ -1143,10 +1143,11 @@
 
 /* ---------- Admin panel (ui/screens/AdminPanel.js) ---------- */
 
-/* the wide page modal, a fixed height so switching tabs does not jump */
+/* the admin modal fills the window (inside the backdrop's padding) up to a
+   readable 1600 px; a fixed height so switching tabs does not jump */
 .kit-modal.admin-modal {
-    width: 1040px;
-    height: min(760px, calc(100vh - 2 * var(--space-4)));
+    width: min(1600px, 100%);
+    height: calc(100vh - 2 * var(--space-4));
 }
 
 .admin-modal .kit-modal__body {
@@ -1527,16 +1528,33 @@
     table-layout: fixed;
 }
 
-.admin-players th:nth-child(1) { width: 21%; }
-.admin-players th:nth-child(2) { width: 10%; }
-.admin-players th:nth-child(3) { width: 17%; }
-.admin-players th:nth-child(4) { width: 7%; }
-.admin-players th:nth-child(5) { width: 8%; }
-.admin-players th:nth-child(6) { width: 14%; }
-.admin-players th:nth-child(7) { width: 23%; }
+/* one width per column, by its key (adminPlayers.js PLAYER_COLUMNS, plus
+   Actions), never by position: positional widths went one column off when
+   Bot games was added and left Actions 0 px wide (owner, 2026-11-14). The
+   widths add up to 100% (adminColumnWidths.test.js). */
+.admin-players th.admin-col--username { width: 17%; }
+.admin-players th.admin-col--createdAt { width: 10%; }
+.admin-players th.admin-col--lastSeenAt { width: 15%; }
+.admin-players th.admin-col--gamesPlayed { width: 7%; }
+.admin-players th.admin-col--botGamesPlayed { width: 7%; }
+.admin-players th.admin-col--isAdmin { width: 6%; }
+.admin-players th.admin-col--mergedInto { width: 14%; }
+.admin-players th.admin-col--actions { width: 24%; }
 
 .admin-players td {
     overflow-wrap: anywhere;
+}
+
+/* right-aligned counts: a gutter so a count does not touch the next
+   column's left-aligned text */
+.admin-players th.is-num,
+.admin-players td.is-num {
+    padding-right: var(--space-3);
+}
+
+/* Reset link and More stay on one line: a wrapped pair doubles every row */
+.admin-players .admin-actions {
+    flex-wrap: nowrap;
 }
 
 /* the Players table: sortable headers like the leaderboard's (.lb-sort) */
