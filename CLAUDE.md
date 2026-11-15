@@ -88,7 +88,7 @@ bab-online/
 
 ## Game Flow (Socket Events)
 
-1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion); `restoreSession` resumes a saved per-device token without a password
+1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion, refused mid-game, the name then held 30 days; `changePassword` → `changePasswordResponse`, other devices signed out); `restoreSession` resumes a saved per-device token without a password (a failure with `retryable: true` keeps the token: `docs/claude/server-accounts.md`)
 2. **Lobby**: `createLobby` / `joinLobby` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal)

@@ -158,6 +158,8 @@ describe('real mongod', () => {
         if (!client) return;
         const indexes = await mockHolder.users.indexes();
         expect(indexes.find(i => i.name === 'username_1')).toMatchObject({ unique: true, key: { username: 1 } });
+        // a deleted account's name hold lapses by TTL (accountDelete.js)
+        expect(indexes.find(i => i.name === 'nameHeldUntil_1')).toMatchObject({ key: { nameHeldUntil: 1 }, expireAfterSeconds: 0 });
         expect((await mockHolder.gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
         expect((await mockHolder.reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
 

@@ -4,7 +4,7 @@
  * saved devices. Tell them the new password; they can keep using it.
  *
  *   node scripts/set-password.js Alan                       # generates e.g. maple-otter-42
- *   node scripts/set-password.js Alan --password 'secret'   # choose it yourself
+ *   node scripts/set-password.js Alan --password 'secret-pw'   # choose it yourself (8-100 characters)
  *
  * Uses MONGO_URI from the environment or .env (same as the server).
  */
@@ -16,6 +16,7 @@ const USAGE = `Usage:
   node scripts/set-password.js <username> [--password <new>] [--yes]
 
   Without --password a friendly one is generated (e.g. maple-otter-42).
+  A chosen one needs 8-100 characters. The player is told at their next sign-in.
   --yes skips the confirmation prompt.`;
 
 async function main() {
