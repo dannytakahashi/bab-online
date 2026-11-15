@@ -48,6 +48,8 @@ final class GameSocketHandler {
     @MainActor
     func handle(event name: String, payload: [Any]) {
         let savedTournamentId = gameState.tournamentId
+        let troubleBefore = gameState.table.snapshotTrouble
+        let hadTable = gameState.gameId != nil
         let decoded = gameState.apply(serverEvent: name, payload: payload)
         guard case .success(let ev) = decoded else {
             // the server put us at a table this build cannot show: open the game screen anyway,
@@ -77,12 +79,18 @@ final class GameSocketHandler {
                 LobbyEmitter.joinMainRoom()
             }
         case .abortGame:
+            // a seq'd abortGame behind a table this build could not show was dropped or
+            // buffered, not applied: reset here so no stale retry or count outlives the game
+            if gameState.table.snapshotTrouble != .none { gameState.reset() }
             if savedTournamentId != nil {
                 TournamentEmitter.returnToTournament()
             } else {
                 appState.screen = .mainRoom
             }
         case .leftGame:
+            // already off the table (UnreadableTableView's Leave fallback went on its own):
+            // a late leftGame must not move the player again (e.g. out of the tournament)
+            guard hadTable || appState.screen == .game else { break }
             if savedTournamentId != nil {
                 TournamentEmitter.returnToTournament()
             } else {
@@ -96,11 +104,29 @@ final class GameSocketHandler {
         case .stateSnapshot(let p) where p.snapshot == nil:
             // not_in_game: after a serverShutdown, the game is gone
             RestartNotices.shared.lost()
+            // and the table was one this build could not show (it may never have applied,
+            // e.g. a rejoin from the main room): leave it rather than sit on it, unless a
+            // gameEnd landed meanwhile (GameEndView has its own way out)
+            if troubleBefore != .none, appState.screen == .game, gameState.phase != .ended {
+                Self.leaveTable(gameState: gameState, appState: appState, tournamentId: savedTournamentId)
+            }
         case .restorePlayerState:
             appState.screen = .game
             print("[Game] Player state restored")
         default:
             break
+        }
+    }
+
+    /// Off a table the server no longer has us at, as leftGame does, the table reset first.
+    @MainActor
+    static func leaveTable(gameState: GameState, appState: AppState, tournamentId: String?) {
+        gameState.reset()
+        if tournamentId != nil {
+            TournamentEmitter.returnToTournament()
+        } else {
+            appState.screen = .mainRoom
+            LobbyEmitter.joinMainRoom()
         }
     }
 }

@@ -766,19 +766,32 @@ Now (no wire change, server unchanged):
   gaps (no buffering either) or undecodable deltas, buffered events and a
   pending play / bid are dropped (`cancelAck`). Any snapshot that applies
   (`applySnapshot`: fresh state) clears it and the count, e.g. the restore's
-  rejoin after a reconnect; a `not_in_game` answer or a requestSnapshot
-  error (`flushBuffer`) ends `.retrying` without resetting the count.
-  `applySnapshot`'s own unknown-stage path counts the same way.
+  rejoin after a reconnect. A `not_in_game` answer to any request ends
+  `.retrying`, and GameSocketHandler then leaves the table as leftGame does
+  (`leaveTable`: reset, main room or back to the tournament), unless a
+  gameEnd landed meanwhile (GameEndView leads out): the table may never have
+  applied (a rejoin from the main room), and the server has no game for us.
+  A requestSnapshot error while retrying counts as one more failure
+  (`snapshotFailed`), so it never says "reloading" with nothing asked.
+  leftGame resets the table as always (unsequenced, so it applies); a seq'd
+  abortGame behind a failed snapshot is dropped or buffered by the gate, so
+  the handler resets the table itself. Either way no retry or count outlives
+  the game. `applySnapshot`'s own unknown-stage path counts the same way.
 - `UnreadableTableView` covers the table (GameContainerView) while
   `snapshotTrouble` is not `.none`: "Reloading the table…" with Leave Game
   during the retries; then "Update BAB Online" / "This version of the app
   can't show this table. Update BAB Online from the App Store." with Open the
   App Store (`AppStoreLink`, id 6759510890, the web phone gate's
-  `APP_STORE_URL`) and Leave Game. No dismiss. Leave sends `/leave` with no
-  confirmation (the Leave alert's outcome reads seats this table may not
-  have); if no leftGame has navigated after 3 s
-  (`UnreadableTableLeave.fallback`) the app resets the table and goes to the
-  main room (or back to the tournament) itself.
+  `APP_STORE_URL`) and Leave Game. No dismiss; VoiceOver stays in it
+  (`.isModal`). Leave is confirmed with the Leave alert (LeaveAlertPresenter)
+  and LeaveOutcome's hedged `.unsure` message, since the exact outcome reads
+  seats this table may not have and leaving can end the game for everyone (a
+  pure spectator just exits). Then `/leave`; if after 3 s
+  (`UnreadableTableLeave.fallback`) the app is still on the game screen and
+  no snapshot or reset has landed (`sceneResets`), it leaves itself
+  (`GameSocketHandler.leaveTable`). A leftGame arriving later, with no table
+  and off the game screen, does not navigate again (no second joinMainRoom,
+  never out of the tournament screen).
 - A rejoinSuccess / restorePlayerState / spectatorJoined whose snapshot cannot
   be shown still opens the game screen (`GameSocketHandler.enteringCarriers`),
   so the player sees the message instead of a main room while seated.
@@ -803,7 +816,10 @@ Tests: `UnreadableSnapshotTests` (undecodable stateSnapshot -> two retries with
 backoff -> unreadable, no requests after; v 3 the same, and checked before
 decoding; unknown stage; a rejoin into one opens the game screen; a good
 snapshot after a bad one, and after unreadable, recovers; not_in_game ends the
-retrying; the pending play is dropped; delta failures still resync at once and
+retrying and leaves the table, also after an unshown rejoin and to another
+request, but not over a gameEnd; a refused retry counts; leftGame and a gapped
+abortGame clear the retries; a late leftGame does not navigate; the Leave
+message; the pending play is dropped; delta failures still resync at once and
 debounce; a carrier field outside the snapshot is a delta failure; decode
 paths; both view states drawn). Ships with the next iOS build (after 1.2.1
 build 9).

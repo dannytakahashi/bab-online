@@ -10,6 +10,12 @@ enum AppStoreLink {
 enum UnreadableTableLeave {
     /// How long Leave waits for the server's leftGame before leaving on its own.
     static let fallback: TimeInterval = 3
+
+    /// The Leave confirmation's message: LeaveOutcome's hedged one, since this table's seats
+    /// may be stale or missing (leaving can end the game for everyone).
+    static func message(inTournament: Bool) -> String {
+        LeaveOutcome.unsure(inTournament: inTournament).alertMessage
+    }
 }
 
 /// Over the table while a snapshot could not be shown (TableSlice.snapshotTrouble): "reloading"
@@ -37,6 +43,8 @@ struct UnreadableTableView: View {
             }
         }
         .accessibilityElement(children: .contain)
+        // VoiceOver stays in here: the table under it is not the server's
+        .accessibilityAddTraits(.isModal)
         .accessibilityIdentifier("unreadableTable")
     }
 

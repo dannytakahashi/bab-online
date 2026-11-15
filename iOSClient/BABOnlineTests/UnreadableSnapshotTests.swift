@@ -185,16 +185,118 @@ final class UnreadableSnapshotTests: XCTestCase {
         XCTAssertEqual(h.store.myTurn, .choosing(.play))
     }
 
-    /// not_in_game answering a retry: no snapshot is coming, so it stops saying "reloading".
-    func testNotInGameAnsweringARetryEndsTheRetrying() throws {
+    /// not_in_game answering a retry: no snapshot is coming, so the table is left (as leftGame).
+    func testNotInGameAnsweringARetryLeavesTheTable() throws {
         let h = try seated()
+        h.appState.screen = .game
         reply(h, try missingTrickHistory(), requestId: "a")
         let retry = try XCTUnwrap(h.store.state.sync.resyncId)
         h.handler.handle(event: "stateSnapshot", payload: [["snapshot": NSNull(), "reason": "not_in_game", "requestId": retry]])
         XCTAssertEqual(h.store.table.snapshotTrouble, .none)
         XCTAssertNil(h.store.state.sync.resyncId)
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+        XCTAssertNil(h.store.gameId, "the table was reset")
+        XCTAssertEqual(h.store.state.sync.snapshotFailures, 0)
         h.clock.advance(10)
         XCTAssertEqual(h.emitter.snapshotRequests, [], "the scheduled retry is dropped")
+    }
+
+    /// Review: a rejoin from the main room whose snapshot never applied, then the game ends and
+    /// the retry is answered not_in_game: never an empty game screen with no message.
+    func testNotInGameAfterAnUnshownRejoinGoesBackToTheMainRoom() throws {
+        let h = ReplayHarness()
+        h.appState.screen = .mainRoom
+        h.handler.handle(event: "rejoinSuccess", payload: [["gameId": "g1", "snapshot": try raw { $0["v"] = 3 }]])
+        XCTAssertEqual(h.appState.screen, .game)
+        h.clock.advance(SnapshotRetryPolicy.delay(attempt: 1))
+        let retry = try XCTUnwrap(h.emitter.snapshotRequests.last)
+        h.handler.handle(event: "stateSnapshot", payload: [["snapshot": NSNull(), "reason": "not_in_game", "requestId": retry]])
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+        XCTAssertEqual(h.store.table.snapshotTrouble, .none)
+    }
+
+    /// A not_in_game to some other request (here a play's ack check) also ends the retrying.
+    func testNotInGameToAnotherRequestAlsoLeaves() throws {
+        let h = try seated()
+        h.appState.screen = .game
+        reply(h, try missingTrickHistory(), requestId: "a")
+        h.handler.handle(event: "stateSnapshot", payload: [["snapshot": NSNull(), "reason": "not_in_game", "requestId": "ack-9"]])
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+        h.clock.advance(10)
+        XCTAssertEqual(h.emitter.snapshotRequests, [])
+    }
+
+    /// A gameEnd that landed during the retries keeps the game screen (GameEndView leads out).
+    func testNotInGameAfterAGameEndStaysOnTheEndScreen() throws {
+        let h = try seated()
+        h.appState.screen = .game
+        reply(h, try missingTrickHistory(), requestId: "a")
+        h.store.apply(T.ev("gameEnd", ["winningTeam": 1, "team1Score": 100, "team2Score": 50, "tournamentId": NSNull(),
+                                       "seq": h.store.state.sync.lastSeq! + 1]))
+        XCTAssertEqual(h.store.phase, .ended)
+        h.handler.handle(event: "stateSnapshot", payload: [["snapshot": NSNull(), "reason": "not_in_game", "requestId": h.store.state.sync.resyncId ?? "x"]])
+        XCTAssertEqual(h.appState.screen, .game)
+        XCTAssertEqual(h.store.table.snapshotTrouble, .none, "the end screen shows")
+        XCTAssertNotNil(h.store.gameEndData)
+    }
+
+    /// A refused retry (the server's error for requestSnapshot) counts as one more failure:
+    /// never "reloading" with nothing asked, and still bounded.
+    func testARefusedRetryCountsAsAFailure() throws {
+        let h = try seated()
+        reply(h, try missingTrickHistory(), requestId: "a")
+        h.store.apply(.local(.transportError(handler: "requestSnapshot")))
+        XCTAssertEqual(h.store.table.snapshotTrouble, .retrying(attempt: 2))
+        h.clock.advance(SnapshotRetryPolicy.delay(attempt: 2))
+        XCTAssertEqual(h.emitter.snapshotRequests.count, 1, "the second retry went out")
+        h.store.apply(.local(.transportError(handler: "requestSnapshot")))
+        XCTAssertEqual(h.store.table.snapshotTrouble, .unreadable)
+    }
+
+    /// leftGame from a table that could not be shown resets it: no stray retry from the main room,
+    /// and the next bad snapshot gets its retries again.
+    func testLeftGameFromAnUnshownTableClearsItsRetries() throws {
+        let h = try seated()
+        h.appState.screen = .game
+        reply(h, try missingTrickHistory(), requestId: "a")
+        h.handler.handle(event: "leftGame", payload: [])
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+        XCTAssertEqual(h.store.table.snapshotTrouble, .none)
+        XCTAssertEqual(h.store.state.sync.snapshotFailures, 0)
+        h.clock.advance(10)
+        XCTAssertEqual(h.emitter.snapshotRequests, [], "no requestSnapshot from the main room")
+    }
+
+    /// A seq'd abortGame behind the unreadable table is dropped by the gate: the handler resets.
+    func testAbortGameBehindAnUnreadableTableResetsIt() throws {
+        let h = try seated()
+        h.appState.screen = .game
+        for i in 0...SnapshotRetryPolicy.maxRetries { reply(h, try missingTrickHistory(), requestId: "r\(i)") }
+        XCTAssertEqual(h.store.table.snapshotTrouble, .unreadable)
+        h.handler.handle(event: "abortGame", payload: [["reason": "All players left", "seq": h.store.state.sync.lastSeq! + 4]])
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+        XCTAssertEqual(h.store.table.snapshotTrouble, .none)
+        XCTAssertEqual(h.store.state.sync.snapshotFailures, 0)
+    }
+
+    /// The Leave fallback already went back (table reset, off the game screen): a late leftGame
+    /// does not move the player again.
+    func testALateLeftGameAfterTheFallbackDoesNotNavigate() throws {
+        let h = ReplayHarness()
+        h.appState.screen = .tournamentLobby
+        XCTAssertNil(h.store.gameId)
+        h.handler.handle(event: "leftGame", payload: [])
+        XCTAssertEqual(h.appState.screen, .tournamentLobby)
+        // on the game screen it still navigates as before
+        h.appState.screen = .game
+        h.handler.handle(event: "leftGame", payload: [])
+        XCTAssertEqual(h.appState.screen, .mainRoom)
+    }
+
+    func testUnreadableLeaveIsConfirmedWithTheHedgedMessage() {
+        XCTAssertEqual(UnreadableTableLeave.message(inTournament: false), LeaveOutcome.unsure(inTournament: false).alertMessage)
+        XCTAssertTrue(UnreadableTableLeave.message(inTournament: false).contains("ends the game"))
+        XCTAssertTrue(UnreadableTableLeave.message(inTournament: true).contains("You stay in the tournament"))
     }
 
     // MARK: deltas unchanged

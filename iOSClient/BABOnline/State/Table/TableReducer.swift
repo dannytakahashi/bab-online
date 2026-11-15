@@ -100,9 +100,6 @@ enum TableReducer {
         let buffered = s.sync.buffered.sorted { ($0.seq ?? 0) < ($1.seq ?? 0) }
         s.sync.buffered = []
         s.sync.resyncId = nil
-        // no snapshot is coming for a retry either (not_in_game, a requestSnapshot error): stop
-        // saying "reloading"; the failure count stays, so the retries remain bounded
-        if case .retrying = s.table.snapshotTrouble { s.table.snapshotTrouble = .none }
         for ev in buffered {
             if let seq = ev.seq, let last = s.sync.lastSeq, seq <= last { fx.append(.dropped(event: ev.name, seq: seq)); continue }
             s.sync.lastSeq = ev.seq ?? s.sync.lastSeq
@@ -156,7 +153,9 @@ enum TableReducer {
             case "playCard", "playerBid":
                 if let p = s.pending { fx.append(.requestSnapshot(requestId: "ack-\(p.reqId)", log: false)) }
             case "requestSnapshot":
-                flushBuffer(&s, &fx)
+                // while retrying, a refused retry counts as one more failure (still bounded,
+                // never "reloading" with nothing asked); else no snapshot is coming
+                if case .retrying = s.table.snapshotTrouble { snapshotFailed(&s, &fx) } else { flushBuffer(&s, &fx) }
             default:
                 break
             }
@@ -175,6 +174,12 @@ enum TableReducer {
             // whichever request it was: a gap request suppressed behind this one
             // (ActionCoordinator debounce) would otherwise never be answered
             if (requestId != nil && requestId == s.sync.resyncId) || !s.sync.buffered.isEmpty { flushBuffer(&s, &fx) }
+            // not_in_game, to any request: no retry can bring the table (GameSocketHandler
+            // leaves it unless a gameEnd landed meanwhile); the count stays until a reset
+            if case .retrying = s.table.snapshotTrouble {
+                if s.sync.resyncId != nil { flushBuffer(&s, &fx) }
+                s.table.snapshotTrouble = .none
+            }
             if let id = requestId, id.hasPrefix("ack-"), let p = s.pending, id == "ack-\(p.reqId)" {
                 s.pending = nil
             }
