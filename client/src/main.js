@@ -37,6 +37,7 @@ import { getMyAction } from './state/MyAction.js';
 import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { getRestartNotice, LOSS } from './state/restartNotice.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
+import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
 
 // UI Components
 import { showError, showSuccess, showWarning, showInfo } from './ui/components/Toast.js';
@@ -760,26 +761,13 @@ function initializeApp() {
     });
   }
 
-  // Tab key: hold to show voice overlay
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Tab' && voiceManager.active) {
-      e.preventDefault();
-      if (!document.getElementById('voice-overlay')) {
-        showVoiceOverlay();
-      }
-    }
-    // M key: toggle mute
-    if (e.key === 'm' && voiceManager.active && !e.ctrlKey && !e.metaKey) {
-      const activeEl = document.activeElement;
-      if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA')) return;
-      // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is CSS)
-      setMuteButtonState(voiceManager.toggleSelfMute());
-    }
-  });
-  document.addEventListener('keyup', (e) => {
-    if (e.key === 'Tab') {
-      removeVoiceOverlay();
-    }
+  // Hold ` for the voice overlay, M toggles mute (voice/voiceHotkeys.js; Tab stays focus)
+  installVoiceHotkeys({
+    isActive: () => voiceManager.active,
+    show: showVoiceOverlay,
+    hide: removeVoiceOverlay,
+    // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is CSS)
+    toggleMute: () => setMuteButtonState(voiceManager.toggleSelfMute()),
   });
 
   // App-level server errors: `serverError {code, message, handler}`, one per
