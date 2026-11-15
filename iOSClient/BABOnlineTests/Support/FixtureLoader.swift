@@ -34,6 +34,11 @@ enum FixtureLoader {
 
     static let eventLogNames = ["events-bots-s12", "events-bots-s14", "events-humans-s13", "events-presence-s21", "events-tournament-s15"]
 
+    /// A recording kept by hand (Fixtures/kept, never regenerated): the same
+    /// format as the live event logs, with a B + 2B hand the current bots no
+    /// longer produce in events-bots-s12. Not in `eventLogNames`.
+    static let keptBots = "kept-bots-s12"
+
     static func json(url: URL) throws -> Any {
         try JSONSerialization.jsonObject(with: Data(contentsOf: url), options: [.fragmentsAllowed])
     }

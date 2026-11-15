@@ -1,5 +1,7 @@
 /**
- * Per-player seat pips after a reload (events-bots-s12 seat1-rejoin: the
+ * Per-player seat pips after a reload (the kept recording kept-bots-s12,
+ * replay.loadKeptRecording, seat1-rejoin: the current bots bore on no hand
+ * of the live events-bots-s12; the
  * page comes back mid-game from rejoinSuccess's snapshot v2, whose
  * tricksByPosition gives each seat's count; the opponents bid B and 2B on
  * one hand, so both their rings show the team's target).
@@ -16,7 +18,7 @@ let rec;
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
-  rec = replay.loadRecording('events-bots-s12');
+  rec = replay.loadKeptRecording('kept-bots-s12');
   page = await replay.realTablePage({ username: 'ios_ann', socketId: 'ios-h1-r1' });
 });
 

@@ -1,7 +1,7 @@
 /**
  * Over a PARTNER's trump there is no OT (owner 2026-11-11), on the real
  * page and scene: the kept recording of overTrumpEffect.test.js
- * (testing/recordings/bots-s12-over-trump.json), seat 1, the trick 3:6d 4:Qd 1:3s 2:As
+ * (Fixtures/kept/kept-bots-s12.json), seat 1, the trick 3:6d 4:Qd 1:3s 2:As
  * of overTrumpEffect.test.js with seat 4's Qd changed to the 9 of spades.
  * Seat 4 ruffs with the 9, I under-trump with my 3, seat 2 (seat 4's
  * partner) plays the ace: the ace beats my 3 but takes the trick from its
@@ -22,7 +22,7 @@ const card = (e) => `${e.data.position}:${e.data.card.rank}${e.data.card.suit[0]
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
-  const rec = replay.loadKeptRecording('bots-s12-over-trump');
+  const rec = replay.loadKeptRecording('kept-bots-s12');
   log = JSON.parse(JSON.stringify(rec.logs.seat1));
   page = await replay.realTablePage({ username: 'ios_ann', socketId: 'ios-h1' });
 });
