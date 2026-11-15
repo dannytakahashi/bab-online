@@ -93,6 +93,59 @@ describe('WebGL context loss (later #17)', () => {
     expect(restored).not.toMatch(/texture/i);
   });
 
+  it('off the table (main room, admin panel, a form): no reload until the table shows', () => {
+    uninstall();
+    let screen = 'mainRoom';
+    const listeners = new Set();
+    uninstall = installContextLossHandling({
+      game, notify, reload, storage: store, now: () => clock,
+      isTableShowing: () => screen === 'table',
+      onScreenChange: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    });
+    const show = (s) => { screen = s; [...listeners].forEach((fn) => fn(s)); };
+    game.fire(CONTEXT_LOST);
+    vi.advanceTimersByTime(RESTORE_WAIT_MS);
+    game.fire(CONTEXT_RESTORED);
+    expect(reload).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    show('profile');
+    expect(reload).not.toHaveBeenCalled();
+    show('table');
+    expect(notify).toHaveBeenCalledWith('reloading', GL_TEXT.RELOADING);
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(listeners.size).toBe(0);
+    show('mainRoom');
+    show('table');
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it('storage blocked (the guard would not survive the reload): asks for a manual reload, never loops', () => {
+    uninstall();
+    const blocked = { ...storage(), persistent: false };
+    uninstall = installContextLossHandling({ game, notify, reload, storage: blocked, now: () => clock });
+    game.fire(CONTEXT_LOST);
+    game.fire(CONTEXT_RESTORED);
+    expect(reload).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith('stuck', GL_TEXT.STUCK);
+  });
+
+  it('storage blocked for real (safeSessionStorage over a throwing sessionStorage) is not persistent', async () => {
+    const { safeSessionStorage } = await import('../utils/safeStorage.js');
+    const desc = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+    Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new Error('SecurityError'); } });
+    try {
+      uninstall();
+      uninstall = installContextLossHandling({ game, notify, reload, storage: safeSessionStorage(), now: () => clock });
+      game.fire(CONTEXT_RESTORED);
+      expect(reload).not.toHaveBeenCalled();
+      expect(notify).toHaveBeenCalledWith('stuck', GL_TEXT.STUCK);
+    } finally {
+      if (desc) Object.defineProperty(globalThis, 'sessionStorage', desc);
+      else delete globalThis.sessionStorage;
+      safeSessionStorage()._forget();
+    }
+  });
+
   it('uninstall stops listening; a game without events (the canvas renderer, tests) is a no-op', () => {
     uninstall();
     expect(game.listening()).toBe(0);

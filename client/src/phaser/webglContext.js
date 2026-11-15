@@ -9,9 +9,17 @@
  * spectator view or the screen), so it reloads, with a message, once the
  * context is back or after RESTORE_WAIT_MS without it.
  *
+ * Only where the table shows: a background tab can lose its context on any
+ * screen, and a reload there would throw away what the canvas never drew
+ * (a chat draft, a typed form, a reset link the admin panel shows once).
+ * Off the table the textures are only marked stale, and the reload waits
+ * for the table to be entered (it rejoins the game being entered).
+ *
  * Loop guard: sessionStorage GL_RELOAD_KEY holds when this tab last
  * reloaded for this; a second loss within GL_RELOAD_WINDOW_MS shows a
- * message asking for a manual reload instead.
+ * message asking for a manual reload instead. With storage blocked the
+ * mark would not survive the reload (a context lost on every load would
+ * reload forever), so it asks for the manual reload at once.
  */
 import { safeSessionStorage } from '../utils/safeStorage.js';
 
@@ -31,6 +39,8 @@ export const GL_TEXT = Object.freeze({
  * @param {{events: {on: Function, off?: Function}}} o.game - the Phaser game
  * @param {Function} o.notify - (kind: 'reloading' | 'stuck', text) => void
  * @param {Function} [o.reload] - () => void
+ * @param {Function} [o.isTableShowing] - () => the table is on screen now
+ * @param {Function} [o.onScreenChange] - (fn) => unsubscribe; fn runs after every screen change
  * @param {Object} [o.storage] - sessionStorage-like (never throws: safeSessionStorage)
  * @param {Function} [o.now]
  * @param {Function} [o.setTimer]
@@ -39,20 +49,40 @@ export const GL_TEXT = Object.freeze({
  */
 export function installContextLossHandling({
   game, notify, reload = () => globalThis.location?.reload(), storage = safeSessionStorage(),
+  isTableShowing = () => true, onScreenChange = null,
   now = () => Date.now(), setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t),
 }) {
   const events = game?.events;
   if (!events?.on) return () => {};
   let timer = null;
   let done = false;
+  let unwatch = null; // stale off the table: waiting for it to show
+
+  const tableShowing = () => {
+    try {
+      return !!isTableShowing();
+    } catch {
+      return true;
+    }
+  };
 
   const recover = () => {
     if (timer !== null) clearTimer(timer);
     timer = null;
-    if (done) return;
+    if (done || unwatch) return;
+    if (!tableShowing() && onScreenChange) {
+      console.warn('WebGL textures stale off the table: reloading when the table shows');
+      unwatch = onScreenChange(() => {
+        if (!tableShowing()) return;
+        unwatch?.();
+        unwatch = null;
+        recover();
+      }) || (() => {});
+      return;
+    }
     done = true;
     const last = Number(storage.getItem(GL_RELOAD_KEY));
-    if (last > 0 && now() - last < GL_RELOAD_WINDOW_MS) {
+    if ((last > 0 && now() - last < GL_RELOAD_WINDOW_MS) || storage.persistent === false) {
       notify('stuck', GL_TEXT.STUCK);
       return;
     }
@@ -82,6 +112,8 @@ export function installContextLossHandling({
   return () => {
     if (timer !== null) clearTimer(timer);
     timer = null;
+    unwatch?.();
+    unwatch = null;
     events.off?.(CONTEXT_LOST, onLost);
     events.off?.(CONTEXT_RESTORED, onRestored);
   };

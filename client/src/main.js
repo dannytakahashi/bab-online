@@ -64,7 +64,7 @@ import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
 import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
-import { installLoopControl } from './phaser/loopControl.js';
+import { installLoopControl, LOOP_SCREENS } from './phaser/loopControl.js';
 import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
 import { loadCardFont } from './phaser/cards/cardFont.js';
 
@@ -2044,10 +2044,13 @@ export function startApp() {
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
   // A lost WebGL context takes every texture with it (Phaser 3.55 restores
-  // no textures): reload once, with a message (phaser/webglContext.js)
+  // no textures): reload once, with a message, on the table's screens;
+  // elsewhere when the table next shows (phaser/webglContext.js)
   installContextLossHandling({
     game: getPhaserGame(),
     notify: (kind, text) => (kind === 'stuck' ? showWarning(text, 60000) : showInfo(text)),
+    isTableShowing: () => LOOP_SCREENS.includes(session.screen),
+    onScreenChange: (fn) => session.onScreenChange(fn),
   });
   // The loop runs only on the table's screens (cli-23, webclient-10)
   loopControl = installLoopControl({ session, getGame: () => getPhaserGame() });
