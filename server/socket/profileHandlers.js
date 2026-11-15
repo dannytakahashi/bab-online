@@ -554,6 +554,9 @@ async function writeGameStats(game) {
         }
         if (usersCollection) {
             await applyPendingStats(record, { users: usersCollection, gameRecords: gameRecordsCollection });
+        } else {
+            // Not connected yet (a game ending right after a cold start)
+            authLogger.error('No database: game stats not recorded', { gameId: game.gameId, statsDeltas: record.statsDeltas });
         }
     } finally {
         // Settled (each write logs its own failure): the pages re-read, so
