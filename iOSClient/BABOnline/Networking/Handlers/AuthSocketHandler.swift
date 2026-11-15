@@ -157,6 +157,8 @@ final class AuthSocketHandler {
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
                 self.authState.saveCredentials()
+                // a pending retry would restore again, now with the new account's token
+                self.stopRestoreRetry()
 
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
@@ -175,6 +177,7 @@ final class AuthSocketHandler {
         DispatchQueue.main.async {
             let reason = data?["reason"] as? String ?? "Logged out"
             print("[Auth] Force logout: \(reason)")
+            self.stopRestoreRetry()
             self.authState.clearCredentials()
             self.gameState.reset()
             self.safetyState.reset()

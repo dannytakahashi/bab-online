@@ -119,6 +119,47 @@ final class AccountChangesTests: XCTestCase {
         XCTAssertEqual(sent("restoreSession").count, 2, "no retry after a final failure")
     }
 
+    /// A sign-up while a retry is pending stops it: no restoreSession goes out with the new
+    /// account's token, and the toast's flag drops.
+    @MainActor
+    func testSignUpStopsAPendingRestoreRetry() {
+        var restores = 0
+        server.replies = { name, _ in
+            switch name {
+            case "restoreSession":
+                restores += 1
+                return [("restoreSessionResponse", Self.dbError)]
+            case "signUp": return [("signUpResponse", ["success": true, "username": "newbie", "sessionToken": "fixture-signup", "autoLoggedIn": true])]
+            default: return []
+            }
+        }
+        connect()
+        wait("the first failure is retried") { self.auth.restoreRetrying }
+        AuthEmitter.signUp(username: "newbie", password: "maple-otter-42")
+        wait("signed up as the new account") { self.auth.username == "newbie" && self.auth.isAuthenticated }
+        XCTAssertFalse(auth.restoreRetrying)
+        spin(2.5)
+        XCTAssertEqual(restores, 1, "the pending retry did not go out")
+        XCTAssertEqual(sent("restoreSession").count, 1)
+        auth.clearCredentials()
+    }
+
+    /// The pill reads the retry flag itself: visible and "Reconnecting..." while a retry lasts,
+    /// even when the view was inserted with it already true or the 2 s "Connected!" hide ran.
+    func testToastShowsReconnectingForAsLongAsARetryLasts() {
+        let retrying = ConnectionStatusToast.display(showToast: false, isReconnected: false, restoreRetrying: true)
+        XCTAssertTrue(retrying.visible)
+        XCTAssertFalse(retrying.reconnected)
+        let midConnected = ConnectionStatusToast.display(showToast: true, isReconnected: true, restoreRetrying: true)
+        XCTAssertTrue(midConnected.visible)
+        XCTAssertFalse(midConnected.reconnected, "not \"Connected!\" while the restore is retried")
+        XCTAssertEqual(ConnectionStatusToast.text(reconnected: midConnected.reconnected, restarting: false), "Reconnecting...")
+        let done = ConnectionStatusToast.display(showToast: false, isReconnected: true, restoreRetrying: false)
+        XCTAssertFalse(done.visible)
+        let plain = ConnectionStatusToast.display(showToast: true, isReconnected: true, restoreRetrying: false)
+        XCTAssertTrue(plain.visible && plain.reconnected)
+    }
+
     func testRetryPolicy() {
         XCTAssertEqual((0..<8).map(RestoreRetry.delay(attempt:)), [1, 2, 4, 8, 16, 30, 30, 30])
         XCTAssertTrue(RestoreRetry.isRetryable(Self.dbError))
