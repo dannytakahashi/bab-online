@@ -837,7 +837,7 @@ describe('real mongod', () => {
         const alan = await mockHolder.users.findOne({ username: 'Alan' });
         expect(alan.stats.gamesPlayed).toBe(before.gamesPlayed + 1);
         expect(alan.stats.totalHSI).toBe(before.totalHSI + 90);
-        expect(alan.statsGames).toEqual(['p-real-1']);
+        expect(alan.statsGames).toEqual([{ id: 'p-real-1', at: expect.any(Date) }]);
         // Bea had no stats: one game, created by the $inc
         expect((await mockHolder.users.findOne({ username: 'Bea' })).stats).toMatchObject({ gamesPlayed: 1, losses: 1, totalFaults: 1 });
         // a half-applied record (as a crash leaves it): the sweep finishes it without counting Alan twice
@@ -845,6 +845,26 @@ describe('real mongod', () => {
         expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
         expect((await mockHolder.users.findOne({ username: 'Alan' })).stats.gamesPlayed).toBe(before.gamesPlayed + 1);
         expect((await mockHolder.gameRecords.findOne({ gameId: 'p-real-1' })).statsPending).toBeUndefined();
+        // The guard filter on the real driver: a tombstone and a full window
+        // newer than the game are not credited, a full older window is
+        const stamp = (agoMs) => Array.from({ length: profile.STATS_GAMES_KEPT }, (_, i) => ({ id: `old-${i}`, at: new Date(Date.now() - agoMs) }));
+        await mockHolder.users.insertOne({ username: 'AlanOld', mergedInto: 'Alan', mergedAt: new Date(), renamedAt: new Date() });
+        await mockHolder.users.updateOne({ username: 'Bea' }, { $set: { statsGames: stamp(1000) } });
+        await mockHolder.users.updateOne({ username: 'Cy' }, { $set: { statsGames: stamp(profile.STATS_GUARD_SKEW_MS + 60000) } });
+        const cyBefore = (await mockHolder.users.findOne({ username: 'Cy' })).stats?.gamesPlayed || 0;
+        await mockHolder.gameRecords.insertOne({
+            gameId: 'p-real-2',
+            completedAt: new Date(),
+            statsDeltas: { bucket: 'stats', byPosition: { 1: { gamesPlayed: 1 }, 2: { gamesPlayed: 1 }, 3: { gamesPlayed: 1 } } },
+            statsPending: [{ position: 1, username: 'AlanOld' }, { position: 2, username: 'Bea' }, { position: 3, username: 'Cy' }]
+        });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect((await mockHolder.users.findOne({ username: 'AlanOld' })).stats).toBeUndefined();
+        expect((await mockHolder.users.findOne({ username: 'Bea' })).stats.gamesPlayed).toBe(1);
+        const cy = await mockHolder.users.findOne({ username: 'Cy' });
+        expect(cy.stats.gamesPlayed).toBe(cyBefore + 1);
+        expect(cy.statsGames).toHaveLength(profile.STATS_GAMES_KEPT);
+        expect(cy.statsGames.at(-1).id).toBe('p-real-2');
 
         // Existing duplicate game ids: warn, non-unique fallback, retried on the next boot
         const dups = db.collection('gameRecords_gid_dups');

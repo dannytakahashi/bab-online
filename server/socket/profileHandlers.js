@@ -13,7 +13,7 @@ const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
-const { trackInFlight, retryDelay } = require('../utils/shutdown');
+const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -268,18 +268,29 @@ const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
  *      gameId index (database.ensureGameIdIndex) makes a second insert fail
  *      with E11000, and the write then reuses the stored entry
  *   2. each pending player's `$inc` is guarded by the game id: the filter
- *      `statsGames: {$ne: gameId}` and a `$push` of the id (the last
+ *      `statsGames.id: {$ne: gameId}` and a `$push` of {id, at} (the last
  *      STATS_GAMES_KEPT kept) in the same update, so applying it twice
- *      counts once
+ *      counts once. For a record read back (a replay, the sweep, maybe
+ *      days later) the window is only trusted back to its oldest `at`: a
+ *      full list whose oldest entry is newer than the game (less
+ *      STATS_GUARD_SKEW_MS) may have dropped the id, so the game is not
+ *      credited (logged with the delta) rather than risk counting it twice.
+ *      A record this chain just inserted was never applied, so only the id
+ *      guards it. A tombstone (renamed or merged away) is never credited
  *   3. `statsPending` is unset (or cut to what failed); the usernames leave
  *      the record with it
- * Every step retries with backoff (shutdown.retryDelay, cut short by a
- * shutdown), and a graceful shutdown waits for the whole chain
- * (shutdown.trackInFlight). A record still pending at the next boot (a
- * crash, an outage longer than the retries) is finished by
- * resumePendingGameStats. Any failure is retried: every step is idempotent.
+ * Every step retries with backoff (shutdown.retryDelay, short during a
+ * shutdown, which retries until its drain ends), and a graceful shutdown
+ * waits for the whole chain (shutdown.trackInFlight). A record still
+ * pending at the next boot (a crash, an outage longer than the retries) is
+ * finished by resumePendingGameStats. Any failure is retried: every step is
+ * idempotent.
  */
 const STATS_GAMES_KEPT = 50;
+// Covers clock skew between server processes (a deploy overlaps two); a
+// game is credited from the window only if the window reaches back this far
+// before the game ended
+const STATS_GUARD_SKEW_MS = 10 * 60 * 1000;
 const DEFAULT_RETRY_DELAYS_MS = Object.freeze([1000, 2000, 4000, 8000, 16000]);
 let retryDelaysMs = DEFAULT_RETRY_DELAYS_MS;
 // One chain per game in this process: a second call joins the first
@@ -293,8 +304,9 @@ async function withRetry(step, gameId, fn) {
         try {
             return await fn(attempt);
         } catch (error) {
-            if (attempt >= retryDelaysMs.length) throw error;
-            const retryInMs = retryDelaysMs[attempt];
+            // A shutdown keeps retrying while its drain has time
+            if (attempt >= retryDelaysMs.length && !shutdownAllowsRetry()) throw error;
+            const retryInMs = retryDelaysMs[Math.min(attempt, retryDelaysMs.length - 1)];
             authLogger.warn('End-of-game write failed; retrying', { step, gameId, attempt: attempt + 1, retryInMs, error: error.message });
             await retryDelay(retryInMs);
         }
@@ -393,6 +405,8 @@ function seatStatsDelta(game, position) {
     };
 }
 
+const RECORD_STATS_PROJECTION = Object.freeze({ gameId: 1, completedAt: 1, statsDeltas: 1, statsPending: 1 });
+
 /**
  * Insert the record (step 1). Every attempt first looks for an entry
  * already there (a replay, or an earlier attempt whose reply was lost; also
@@ -402,7 +416,7 @@ function seatStatsDelta(game, position) {
  * @returns {Promise<Object>} the record as stored
  */
 async function insertGameRecord(gameRecords, doc) {
-    const stored = () => gameRecords.findOne({ gameId: doc.gameId }, { projection: { gameId: 1, statsDeltas: 1, statsPending: 1 } });
+    const stored = () => gameRecords.findOne({ gameId: doc.gameId }, { projection: RECORD_STATS_PROJECTION });
     return withRetry('record', doc.gameId, async () => {
         const existing = await stored();
         if (existing) return existing;
@@ -417,19 +431,53 @@ async function insertGameRecord(gameRecords, doc) {
 }
 
 /**
+ * Why a guarded `$inc` matched nothing: applied before (a replay, the usual
+ * case), no account, a tombstone, or a full guard window newer than the game
+ * (it may have been applied and dropped from the window). The last two are
+ * not credited, so they warn with the delta for a manual fix. Never throws.
+ */
+async function explainNotCredited(users, username, gameId, { bucket, delta }) {
+    let doc = null;
+    try {
+        doc = await users.findOne({ username }, { projection: { mergedInto: 1, statsGames: 1 } });
+    } catch (error) {
+        authLogger.warn('Game stats not credited; could not tell why', { username, gameId, bucket, delta, error: error.message });
+        return;
+    }
+    if (!doc) {
+        authLogger.debug('Game stats not credited: no account', { username, gameId });
+    } else if ((doc.statsGames || []).some(g => g?.id === gameId)) {
+        authLogger.debug('Game stats already applied', { username, gameId });
+    } else if (doc.mergedInto) {
+        authLogger.warn('Game stats not credited: the account was renamed or merged', { username, mergedInto: doc.mergedInto, gameId, bucket, delta });
+    } else {
+        authLogger.warn('Game stats not credited: the guard window no longer reaches this game', { username, gameId, bucket, delta });
+    }
+}
+
+/**
  * Steps 2 and 3 for one record: every pending player's guarded `$inc`, then
  * the record's pending list cut to what failed (unset when nothing did).
  * Safe to run twice for the same record, also from two processes.
  * @param {{gameId: string, statsDeltas?: Object, statsPending?: Array}} record
- * @param {{users: Collection, gameRecords?: Collection}} collections
+ * @param {{users: Collection, gameRecords?: Collection, fresh?: boolean}} collections
+ *   fresh: this chain just inserted the record (or none could be written)
  * @returns {Promise<number>} players whose write failed for good
  */
-async function applyPendingStats(record, { users, gameRecords }) {
+async function applyPendingStats(record, { users, gameRecords, fresh = false }) {
     const { gameId } = record;
     const pending = Array.isArray(record.statsPending) ? record.statsPending : [];
     const bucket = record.statsDeltas?.bucket === 'botStats' ? 'botStats' : 'stats';
     const byPosition = record.statsDeltas?.byPosition || {};
     const done = new Set();
+    const endedAt = record.completedAt instanceof Date ? record.completedAt.getTime() : Date.now();
+    // The list still has room, or it reaches back past the game
+    const windowReaches = fresh ? {} : {
+        $or: [
+            { [`statsGames.${STATS_GAMES_KEPT - 1}`]: { $exists: false } },
+            { 'statsGames.0.at': { $lt: new Date(endedAt - STATS_GUARD_SKEW_MS) } }
+        ]
+    };
 
     await Promise.all(pending.map(async (entry) => {
         const delta = byPosition[entry?.position];
@@ -441,13 +489,18 @@ async function applyPendingStats(record, { users, gameRecords }) {
         for (const [field, value] of Object.entries(delta)) $inc[`${bucket}.${field}`] = value;
         try {
             const res = await withRetry('stats', gameId, () => users.updateOne(
-                { username: entry.username, statsGames: { $ne: gameId } },
-                { $inc, $push: { statsGames: { $each: [gameId], $slice: -STATS_GAMES_KEPT } } }
+                {
+                    username: entry.username,
+                    mergedInto: { $exists: false },
+                    'statsGames.id': { $ne: gameId },
+                    ...windowReaches
+                },
+                // `at` per attempt: when the push really ran
+                { $inc, $push: { statsGames: { $each: [{ id: gameId, at: new Date() }], $slice: -STATS_GAMES_KEPT } } }
             ));
             done.add(entry);
             if (res?.matchedCount === 0) {
-                // Applied before (a replay), or the account is gone
-                authLogger.debug('Game stats already applied or no account', { username: entry.username, gameId });
+                await explainNotCredited(users, entry.username, gameId, { bucket, delta });
             } else {
                 authLogger.info('Game stats recorded', {
                     username: entry.username,
@@ -470,7 +523,9 @@ async function applyPendingStats(record, { users, gameRecords }) {
     }));
 
     const remaining = pending.filter(entry => !done.has(entry));
-    if (gameRecords && pending.length > 0 && remaining.length < pending.length) {
+    // An empty list (account deletion pulls its entry) is cleared too
+    const emptied = pending.length === 0 && Array.isArray(record.statsPending);
+    if (gameRecords && (emptied || remaining.length < pending.length)) {
         const update = remaining.length > 0
             ? { $set: { statsPending: remaining } }
             : { $unset: { statsPending: '' } };
@@ -536,6 +591,8 @@ async function writeGameStats(game) {
         .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
         .map(({ position, player }) => ({ position, username: player.username }));
     let record = { gameId: game.gameId, statsDeltas: { bucket, byPosition }, statsPending };
+    // Not a record read back: never applied before
+    let fresh = true;
 
     try {
         if (gameRecordsCollection) {
@@ -544,6 +601,7 @@ async function writeGameStats(game) {
             if (statsPending.length > 0) doc.statsPending = statsPending;
             try {
                 record = await insertGameRecord(gameRecordsCollection, doc);
+                fresh = record === doc;
                 authLogger.info('Game result recorded', { gameId: game.gameId, withBots });
             } catch (error) {
                 // No record after every retry: the stats still go in (the
@@ -553,7 +611,7 @@ async function writeGameStats(game) {
             invalidateRecords();
         }
         if (usersCollection) {
-            await applyPendingStats(record, { users: usersCollection, gameRecords: gameRecordsCollection });
+            await applyPendingStats(record, { users: usersCollection, gameRecords: gameRecordsCollection, fresh });
         } else {
             // Not connected yet (a game ending right after a cold start)
             authLogger.error('No database: game stats not recorded', { gameId: game.gameId, statsDeltas: record.statsDeltas });
@@ -581,7 +639,7 @@ async function resumePendingGameStats() {
     try {
         const pending = await gameRecords.find(
             { statsPending: { $exists: true } },
-            { projection: { gameId: 1, statsDeltas: 1, statsPending: 1 } }
+            { projection: RECORD_STATS_PROJECTION }
         ).toArray();
         for (const record of pending) {
             if (!record.gameId) continue;
@@ -1199,6 +1257,7 @@ module.exports = {
     resumePendingGameStats,
     _setStatsRetryDelaysForTests,
     STATS_GAMES_KEPT,
+    STATS_GUARD_SKEW_MS,
     getUserProfilePic,
     getLeaderboard,
     searchPlayers,

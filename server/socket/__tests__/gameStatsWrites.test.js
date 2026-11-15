@@ -23,6 +23,7 @@ const shutdownMod = require('../../utils/shutdown');
 const { authLogger, logger } = require('../../utils/logger');
 
 const users = () => mockDb.current.users;
+const guardIds = (name) => (users().docs.find(d => d.username === name).statsGames || []).map(g => g.id);
 const records = () => mockDb.current.gameRecords;
 const statsOf = (name, bucket = 'stats') => users().docs.find(d => d.username === name)?.[bucket] || {};
 
@@ -115,7 +116,7 @@ describe('one game, no failures', () => {
         expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
         expect(statsOf('Ben')).toMatchObject({ gamesPlayed: 1, wins: 0, losses: 1, totalPoints: 150, totalFaults: 2 });
         for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) {
-            expect(users().docs.find(d => d.username === name).statsGames).toEqual(['g-1']);
+            expect(guardIds(name)).toEqual(['g-1']);
         }
         expect(warns).toEqual([]);
         expect(errors).toEqual([]);
@@ -137,7 +138,7 @@ describe('one game, no failures', () => {
         const ann = users().docs.find(d => d.username === 'Ann');
         expect(ann.stats.gamesPlayed).toBe(profile.STATS_GAMES_KEPT + 3);
         expect(ann.statsGames).toHaveLength(profile.STATS_GAMES_KEPT);
-        expect(ann.statsGames[ann.statsGames.length - 1]).toBe(`g-${profile.STATS_GAMES_KEPT + 2}`);
+        expect(ann.statsGames[ann.statsGames.length - 1]).toMatchObject({ id: `g-${profile.STATS_GAMES_KEPT + 2}`, at: expect.any(Date) });
     });
 
     test('a player who deleted their account mid-game: no name in the record, nobody credited for them', async () => {
@@ -270,6 +271,105 @@ describe('failing writes are retried, never double counted', () => {
     });
 });
 
+/** Ann's guard window as `n` games pushed `agoMs` ago (oldest first). */
+function fillWindow(name, n, agoMs) {
+    const at = new Date(Date.now() - agoMs);
+    users().docs.find(d => d.username === name).statsGames = Array.from({ length: n }, (_, i) => ({ id: `old-${i}`, at }));
+}
+
+describe('the guard window and accounts that changed', () => {
+    test('applied, the mark lost, then 50 more games: the sweep does not count the game again (the window no longer reaches it)', async () => {
+        const mark = failFirst(records(), 'updateOne', 99);
+        await profile.recordGameStats(finishedGame({ gameId: 'g-0' }));
+        expect(records().docs[0].statsPending).toHaveLength(4);
+        mark.mockRestore();
+        for (let i = 1; i <= profile.STATS_GAMES_KEPT; i++) {
+            await profile.recordGameStats(finishedGame({ gameId: `g-${i}` }));
+        }
+        expect(guardIds('Ann')).not.toContain('g-0');
+        expect(statsOf('Ann').gamesPlayed).toBe(profile.STATS_GAMES_KEPT + 1);
+        warns.length = 0;
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(statsOf('Ann').gamesPlayed).toBe(profile.STATS_GAMES_KEPT + 1);
+        expect(records().docs.find(r => r.gameId === 'g-0').statsPending).toBeUndefined();
+        const notCredited = warns.filter(w => w.msg === 'Game stats not credited: the guard window no longer reaches this game');
+        expect(notCredited.map(w => w.meta.username).sort()).toEqual(['Ann', 'Ben', 'Cat', 'Dan']);
+        expect(notCredited.find(w => w.meta.username === 'Ann').meta).toMatchObject({ gameId: 'g-0', bucket: 'stats', delta: EXPECTED_ANN });
+    });
+
+    test('a full window that reaches back past the game: credited as usual', async () => {
+        fillWindow('Ann', profile.STATS_GAMES_KEPT, profile.STATS_GUARD_SKEW_MS + 60000);
+        await profile.recordGameStats(finishedGame());
+        expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
+        expect(guardIds('Ann')).toHaveLength(profile.STATS_GAMES_KEPT);
+        expect(guardIds('Ann').at(-1)).toBe('g-1');
+        expect(warns).toEqual([]);
+    });
+
+    test('a full window newer than a pending game (swept late): not credited, warned with the delta', async () => {
+        await records().insertOne({
+            gameId: 'g-late',
+            completedAt: new Date(Date.now() - 2 * profile.STATS_GUARD_SKEW_MS),
+            statsDeltas: { bucket: 'stats', byPosition: { 1: EXPECTED_ANN } },
+            statsPending: [{ position: 1, username: 'Ann' }]
+        });
+        fillWindow('Ann', profile.STATS_GAMES_KEPT, 1000);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(statsOf('Ann')).toEqual({});
+        expect(warns.map(w => w.msg)).toEqual(['Game stats not credited: the guard window no longer reaches this game']);
+        // with room in the window the same late game is credited
+        records().docs[0].statsPending = [{ position: 1, username: 'Ann' }];
+        fillWindow('Ann', profile.STATS_GAMES_KEPT - 1, 1000);
+        await profile.resumePendingGameStats();
+        expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
+    });
+
+    test('renamed while pending: the tombstone is never credited, the new name is not either (warned with the delta)', async () => {
+        failFirst(users(), 'updateOne', 99);
+        await profile.recordGameStats(finishedGame());
+        expect(records().docs[0].statsPending).toHaveLength(4);
+        jest.restoreAllMocks();
+        jest.spyOn(authLogger, 'warn').mockImplementation((msg, meta) => warns.push({ msg, meta }));
+        jest.spyOn(authLogger, 'info').mockImplementation(() => {});
+        jest.spyOn(authLogger, 'debug').mockImplementation(() => {});
+        // the admin rename: the account becomes Anna, a tombstone keeps Ann
+        users().docs.find(d => d.username === 'Ann').username = 'Anna';
+        await users().insertOne({ username: 'Ann', mergedInto: 'Anna', mergedAt: new Date(), renamedAt: new Date() });
+        warns.length = 0;
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        const tomb = users().docs.find(d => d.username === 'Ann');
+        expect(tomb.stats).toBeUndefined();
+        expect(tomb.statsGames).toBeUndefined();
+        expect(statsOf('Anna')).toEqual({});
+        expect(statsOf('Ben').gamesPlayed).toBe(1);
+        expect(warns.map(w => w.msg)).toEqual(['Game stats not credited: the account was renamed or merged']);
+        expect(warns[0].meta).toMatchObject({ username: 'Ann', mergedInto: 'Anna', gameId: 'g-1', delta: EXPECTED_ANN });
+        expect(records().docs[0].statsPending).toBeUndefined();
+    });
+
+    test('an account deleted while its game is pending leaves statsPending; an emptied list is cleared by the sweep', async () => {
+        const { eraseAccount } = require('../../admin/accountDelete');
+        const real = users().updateOne.bind(users());
+        jest.spyOn(users(), 'updateOne').mockImplementation(async (filter, update) => {
+            if (filter.username === 'Ben') throw new Error('timed out');
+            return real(filter, update);
+        });
+        await profile.recordGameStats(finishedGame());
+        expect(records().docs[0].statsPending).toEqual([{ position: 2, username: 'Ben' }]);
+        jest.restoreAllMocks();
+        jest.spyOn(authLogger, 'info').mockImplementation(() => {});
+        jest.spyOn(authLogger, 'debug').mockImplementation(() => {});
+        jest.spyOn(authLogger, 'warn').mockImplementation(() => {});
+        const ben = users().docs.find(d => d.username === 'Ben');
+        await eraseAccount(mockDb.current, { _id: ben._id, username: 'Ben' }, { pullBlocks: false });
+        const rec = records().docs[0];
+        expect(rec.statsPending).toEqual([]);
+        expect(JSON.stringify(rec)).not.toMatch(/Ben/);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(records().docs[0].statsPending).toBeUndefined();
+    });
+});
+
 describe('graceful shutdown waits for writes in flight', () => {
     const fakeServer = () => ({ close: jest.fn() });
 
@@ -289,6 +389,65 @@ describe('graceful shutdown waits for writes in flight', () => {
             await write;
             for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(statsOf(name).gamesPlayed).toBe(1);
             expect(shutdownMod.inFlightCount()).toBe(0);
+        } finally {
+            for (const [event, before] of listeners) {
+                for (const l of process.listeners(event)) if (!before.includes(l)) process.removeListener(event, l);
+            }
+        }
+    });
+
+    test('a short outage during the shutdown: the retries keep going (briefly) until it ends, so nothing is lost', async () => {
+        profile._setStatsRetryDelaysForTests([60000, 60000, 60000]);
+        const downUntil = Date.now() + 600;
+        for (const [coll, method] of [[records(), 'insertOne'], [records(), 'findOne'], [records(), 'updateOne'], [users(), 'updateOne']]) {
+            const real = coll[method].bind(coll);
+            jest.spyOn(coll, method).mockImplementation(async (...args) => {
+                if (Date.now() < downUntil) throw new Error('not primary');
+                return real(...args);
+            });
+        }
+        const exit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+        const listeners = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'].map(e => [e, process.listeners(e)]);
+        // the default hard exit: a 8.5 s drain with no notice or settle
+        const { shutdown } = shutdownMod.setupGracefulShutdown(fakeServer(), null, { noticeMs: 0, settleMs: 0 });
+        try {
+            const write = profile.recordGameStats(finishedGame());
+            const started = Date.now();
+            await shutdown('SIGTERM', 0);
+            const took = Date.now() - started;
+            expect(took).toBeGreaterThanOrEqual(400);
+            expect(took).toBeLessThan(4000);
+            expect(exit).toHaveBeenCalledWith(0);
+            await write;
+            expect(records().docs).toHaveLength(1);
+            expect(records().docs[0].statsPending).toBeUndefined();
+            for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(statsOf(name).gamesPlayed).toBe(1);
+            expect(errors).toEqual([]);
+        } finally {
+            for (const [event, before] of listeners) {
+                for (const l of process.listeners(event)) if (!before.includes(l)) process.removeListener(event, l);
+            }
+        }
+    });
+
+    test('retries during a shutdown stop at the drain deadline', async () => {
+        profile._setStatsRetryDelaysForTests([60000]);
+        jest.spyOn(records(), 'findOne').mockRejectedValue(new Error('down'));
+        jest.spyOn(users(), 'updateOne').mockRejectedValue(new Error('down'));
+        const exit = jest.spyOn(process, 'exit').mockImplementation(() => {});
+        const listeners = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'].map(e => [e, process.listeners(e)]);
+        const { shutdown } = shutdownMod.setupGracefulShutdown(fakeServer(), null, { noticeMs: 0, settleMs: 0, hardExitMs: 5000, drainMs: 800 });
+        try {
+            const write = profile.recordGameStats(finishedGame());
+            const started = Date.now();
+            await shutdown('SIGTERM', 0);
+            await write;
+            await new Promise(r => setImmediate(r));
+            // the whole chain gave up by the deadline (plus one short wait per step)
+            expect(Date.now() - started).toBeLessThan(2500);
+            expect(shutdownMod.inFlightCount()).toBe(0);
+            expect(exit).toHaveBeenCalledWith(0);
+            expect(errors.map(e => e.msg)).toEqual(expect.arrayContaining(['Error recording game result', 'Error recording game stats']));
         } finally {
             for (const [event, before] of listeners) {
                 for (const l of process.listeners(event)) if (!before.includes(l)) process.removeListener(event, l);
