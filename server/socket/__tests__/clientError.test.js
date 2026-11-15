@@ -204,6 +204,26 @@ describe('scrub', () => {
         expect(scrub('GameSKScene.swift:212')).toBe('GameSKScene.swift:212');
     });
 
+    test('an iOS stack keeps what symbolicates it: addresses, mangled symbols, offsets', () => {
+        const frames = [
+            '0   CoreFoundation                      0x00000001804b10c8 __exceptionPreprocess + 164',
+            '3   BAB Online                          0x0000000102a4f3b8 BAB Online + 1242040',
+            '4   BAB Online                          0x0000000102a4f3b8 $s9BABOnline9GameStateC5apply8snapshotyAA0D0V_tF + 120',
+        ].join('\n');
+        expect(scrub(frames, { frames: true })).toBe(frames);
+        // only in the stack: a message keeps its digit and token rules
+        expect(scrub(frames)).toContain('BAB Online + <n>');
+        // and the stack's other rules still apply
+        expect(scrub(`call 5551234567 at ${host}/x?token=abc`, { frames: true })).toBe(`call <n> at ${host}/x`);
+    });
+
+    test('a logged iOS exception stack keeps its frames', async () => {
+        const { send } = wiredSocket({ data: { appBuild: 10 } });
+        const stack = '3   BAB Online   0x0000000102a4f3b8 BAB Online + 1242040';
+        await send({ kind: 'exception', message: 'previous launch: NSRangeException: index 5 beyond bounds', stack });
+        expect(reports()[0].stack).toBe(stack);
+    });
+
     test('a scrubbed field is what gets logged', async () => {
         const { send } = wiredSocket();
         await send({ kind: 'error', message: 'SyntaxError: "my secret chat line" bad', stack: `at x (${host}/p?token=abc)`, where: 'a@example.invalid' });

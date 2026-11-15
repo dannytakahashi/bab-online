@@ -48,18 +48,27 @@ function enabled(env = process.env) {
 const IDENTIFIER = /^[A-Za-z_$][\w$.\-/]{0,63}$/;
 const quoted = (q) => (m, inner) => (IDENTIFIER.test(inner) ? m : `${q}…${q}`);
 
+// What an iOS frame needs to be symbolicated (callStackSymbols: "3  BAB Online
+// 0x0000000102a4f3b8 $s9BABOnline...F + 120"): the address, a Swift mangled
+// symbol and the offset at the line's end. Code, not anyone's data; the digit
+// and token rules below would otherwise eat all three.
+const FRAME_PARTS = /0x[0-9a-f]{1,16}\b|_?\$[sS][A-Za-z0-9_]+|(?<= )\+ \d+$/gm;
+
 /**
  * `text` with anything that could be someone's data replaced. Runs on
  * every field of every report, whatever the client already did.
+ * `{ frames: true }` (the stack) also keeps FRAME_PARTS.
  */
-function scrub(text) {
+function scrub(text, { frames = false } = {}) {
     if (typeof text !== 'string' || !text) return '';
     // keep bundle positions (main-abc.js:1:234567): a long column is not a number of anyone's
     const positions = [];
-    let s = text.replace(/(\.(?:m?js|swift)):(\d+)(?::(\d+))?/g, (m) => {
+    const keep = (m) => {
         positions.push(m);
         return `\u0000${positions.length - 1}\u0000`;
-    });
+    };
+    let s = text.replace(/(\.(?:m?js|swift)):(\d+)(?::(\d+))?/g, keep);
+    if (frames) s = s.replace(FRAME_PARTS, keep);
     s = s
         // control characters (a forged multi-line log entry), tabs and newlines kept
         .replace(/[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
@@ -144,7 +153,7 @@ function clientError(socket, io, data, now = Date.now()) {
         kind: report.kind,
         // `error`, not `message`: the logger folds a meta `message` into the line's text
         error: scrub(report.message),
-        stack: report.stack ? scrub(report.stack) : undefined,
+        stack: report.stack ? scrub(report.stack, { frames: true }) : undefined,
         where: report.where ? scrub(report.where) : undefined,
         build: report.build ? scrub(report.build) : undefined,
         page: report.page || undefined,
