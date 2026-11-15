@@ -10,6 +10,7 @@ const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { safeTimeout } = require('../utils/safeTimer');
+const { randomStockPic } = require('../avatar/stockAvatars');
 const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
@@ -594,8 +595,7 @@ async function signUp(socket, io, data) {
         const sessionToken = session.token;
 
         const hashedPassword = await passwordHash.hash(password, 10);
-        // Generate random profile pic (1-82)
-        const profilePic = Math.floor(Math.random() * 82) + 1;
+        const profilePic = randomStockPic();
         const inserted = await usersCollection.insertOne({
             username,
             password: hashedPassword,

@@ -23,6 +23,7 @@ and the iOS app, checked against the real server in every test run.
 | `lib/validate.js` | Dependency-free validator for the JSON Schema subset used here (throws on any other keyword) |
 | `index.js` | `schema`, `validateS2C(event, data)`, `validateC2S`, `s2cNames()`, `c2sNames()` |
 | `fixtures/v2/` | Server-generated snapshot v2 fixtures (`npm run contract:fixtures`) |
+| `rules/legality-cases.json` | Hand-written card-rules case table (legal cards, trick winners, over-trumps) run by Jest, Vitest and XCTest against the three copies of the rules; not wire, not generated |
 | `V1_REMOVALS.md` | The non-additive changes, to run after the new iOS build ships |
 
 ## The rule: additive only

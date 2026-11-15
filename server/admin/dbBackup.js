@@ -11,7 +11,7 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { safeTimeout } = require('../utils/safeTimer');
 
-const DEFAULT_DB = 'babonline';
+const { dbNameFrom } = require('../config/dbName');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
@@ -284,6 +284,21 @@ function looksGzip(file) {
     }
 }
 
+/**
+ * The --db default and where it came from: DB_NAME from THIS shell, else
+ * 'babonline' (server/config/dbName.js). The scripts never load .env, as for
+ * MONGO_URI: a local DB_NAME there must not pick what a production backup
+ * dumps. Throws a one-line error on a DB_NAME that is not a plain name.
+ */
+function defaultDb(env = process.env) {
+    const set = env.DB_NAME !== undefined && String(env.DB_NAME).trim() !== '';
+    try {
+        return { db: dbNameFrom(env), from: set ? 'DB_NAME in this shell' : 'default; DB_NAME not set in this shell' };
+    } catch (e) {
+        throw new Error(`DB_NAME in this shell: ${e.message.replace(/^DB_NAME /, '')}`);
+    }
+}
+
 function formatBytes(n) {
     if (n < 1024) return `${n} B`;
     if (n < 1024 ** 2) return `${(n / 1024).toFixed(1)} KB`;
@@ -292,7 +307,7 @@ function formatBytes(n) {
 }
 
 module.exports = {
-    DEFAULT_DB,
+    defaultDb,
     REPO_ROOT,
     TOOLS_HINT,
     isValidDbName,

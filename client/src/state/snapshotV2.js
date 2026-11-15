@@ -9,8 +9,10 @@
  *
  * The restore path (item 16): state/tableSync.js parses every carrier with
  * parseSnapshotV2, GameState.applySnapshot takes it, state/SeqGate.js
- * applies classifySeq. No imports: safe anywhere.
+ * applies classifySeq. Imports only constants: safe anywhere.
  */
+
+import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
 
 export const SNAPSHOT_VERSION = 2;
 export const STAGES = Object.freeze(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED', 'DEALING', 'BIDDING',
@@ -204,7 +206,7 @@ const AVATAR_URL = /^\/avatar\/[^/?#\s]+\?v=[0-9a-f]{16}$/;
 /**
  * Who is watching, from spectatorsUpdated or snapshot.watching:
  * {spectators: [{username, pic, avatarUrl?}], count} with pic a stock
- * number (1-82) or null and avatarUrl an /avatar URL; count is the true
+ * number (STOCK_MIN..STOCK_MAX) or null and avatarUrl an /avatar URL; count is the true
  * total (at least the list's length). null when malformed.
  */
 export function parseWatching(raw) {
@@ -215,7 +217,7 @@ export function parseWatching(raw) {
   const list = [];
   for (const s of spectators) {
     if (!s || typeof s !== 'object' || typeof s.username !== 'string' || !s.username) return null;
-    const pic = Number.isInteger(s.pic) && s.pic >= 1 && s.pic <= 82 ? s.pic : null;
+    const pic = Number.isInteger(s.pic) && s.pic >= STOCK_MIN && s.pic <= STOCK_MAX ? s.pic : null;
     const entry = { username: s.username, pic };
     if (typeof s.avatarUrl === 'string' && AVATAR_URL.test(s.avatarUrl)) entry.avatarUrl = s.avatarUrl;
     list.push(entry);

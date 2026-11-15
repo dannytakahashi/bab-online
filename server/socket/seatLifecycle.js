@@ -26,6 +26,7 @@ const pacing = require('../game/pacing');
 const { socketLogger } = require('../utils/logger');
 const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
+const { randomStockPic } = require('../avatar/stockAvatars');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -84,7 +85,7 @@ function createSeatBot(game, pos, preferred = null) {
     const personality = pickBotPersonality(game, preferred);
     const bot = botController.createBot(`🤖 ${getDisplayName(personality)}`, personality);
     bot.position = pos;
-    bot.pic = Math.floor(Math.random() * 82) + 1;
+    bot.pic = randomStockPic();
     botController.registerBot(game.gameId, bot);
     bot.resetCardMemory(game.currentHand, game.trump);
     bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game));

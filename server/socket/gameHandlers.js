@@ -13,6 +13,8 @@ const {
     calculateMultiplier,
     determineDrawPosition,
     calculateHSI,
+    calculateScore,
+    nextHandSize: handSizeAfter,
     BID_RANKS
 } = require('../game/rules');
 const { gameLogger } = require('../utils/logger');
@@ -28,6 +30,7 @@ const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
+const { randomStockPic } = require('../avatar/stockAvatars');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
@@ -355,17 +358,17 @@ async function handleDrawComplete(io, game) {
         if (isBot) {
             // Bots get random pics
             do {
-                pic = Math.floor(Math.random() * 82) + 1;
+                pic = randomStockPic();
             } while (usedPics.has(pic));
         } else {
             // Human players - saved profile pic, else a random one
-            pic = saved[i] ?? (Math.floor(Math.random() * 82) + 1);
+            pic = saved[i] ?? randomStockPic();
             const isCustomPic = typeof pic === 'string' && pic.startsWith('data:image');
 
             // Only check for duplicates on numbered pics (custom pics are always unique)
             if (!isCustomPic) {
                 while (usedPics.has(pic)) {
-                    pic = Math.floor(Math.random() * 82) + 1;
+                    pic = randomStockPic();
                 }
             }
         }
@@ -804,25 +807,9 @@ async function handleHandComplete(game, io) {
     const team1OldScore = game.score.team1;
     const team2OldScore = game.score.team2;
 
-    // Calculate team 1 score
-    if (game.tricks.team1 >= game.bids.team1) {
-        game.score.team1 += game.bids.team1 * 10 * game.team1Mult +
-            (game.tricks.team1 - game.bids.team1) +
-            game.rainbows.team1 * 10;
-    } else {
-        game.score.team1 -= game.bids.team1 * 10 * game.team1Mult;
-        game.score.team1 += game.rainbows.team1 * 10;
-    }
-
-    // Calculate team 2 score
-    if (game.tricks.team2 >= game.bids.team2) {
-        game.score.team2 += game.bids.team2 * 10 * game.team2Mult +
-            (game.tricks.team2 - game.bids.team2) +
-            game.rainbows.team2 * 10;
-    } else {
-        game.score.team2 -= game.bids.team2 * 10 * game.team2Mult;
-        game.score.team2 += game.rainbows.team2 * 10;
-    }
+    // The hand's points (rules.calculateScore, the one scoring function)
+    game.score.team1 += calculateScore(game.bids.team1, game.tricks.team1, game.team1Mult, game.rainbows.team1);
+    game.score.team2 += calculateScore(game.bids.team2, game.tricks.team2, game.team2Mult, game.rainbows.team2);
 
     // Track hand stats for player profiles
     game.handStats.totalHands++;
@@ -912,26 +899,9 @@ async function handleHandComplete(game, io) {
     botController.updatePartnerHistory(game);
     botController.handleHandCompleteChat(io, game);
 
-    // Determine next hand
-    let nextDealer = rotatePosition(game.dealer);
-    let nextHandSize;
-
-    // Hand progression: 12→10→8→6→4→2→1→3→5→7→9→11→13→[end]
-    if (game.currentHand === 2) {
-        nextHandSize = 1;
-    } else if (game.currentHand === 1) {
-        // After 1-card hand, start going back up through odd numbers
-        nextHandSize = 3;
-    } else if (game.currentHand === 13) {
-        // After 13-card hand, game is over
-        nextHandSize = 0; // Signal game end
-    } else if (game.currentHand % 2 === 0) {
-        // Even hands (12,10,8,6,4): go down by 2
-        nextHandSize = game.currentHand - 2;
-    } else {
-        // Odd hands (3,5,7,9,11): go up by 2
-        nextHandSize = game.currentHand + 2;
-    }
+    // Determine next hand (0: the 13-card hand was the last)
+    const nextDealer = rotatePosition(game.dealer);
+    const nextHandSize = handSizeAfter(game.currentHand);
 
     if (nextHandSize === 0) {
         // Game over - add final score to log

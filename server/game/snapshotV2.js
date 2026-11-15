@@ -12,13 +12,13 @@
 
 'use strict';
 
-const { calculateMultiplier, determineDrawPosition } = require('./rules');
+const { calculateMultiplier, determineDrawPosition, HAND_PROGRESSION } = require('./rules');
 const { Phase } = require('./GamePhase');
 const { Controller, isBotSocket, seatDisplay } = require('./SeatState');
 const { spectatorsWire } = require('./spectatorWire');
 
 const SNAPSHOT_VERSION = 2;
-const HAND_SEQUENCE = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
+const HAND_SEQUENCE = HAND_PROGRESSION;
 const PRE_DEAL = new Set([Phase.CREATED, Phase.DRAWING, Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED]);
 const POSITIONS = [1, 2, 3, 4];
 

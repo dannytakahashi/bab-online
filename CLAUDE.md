@@ -137,7 +137,8 @@ npm run test:race           # BAB_PACING=zero: chaos (200) + tournamentLifecycle
 
 ## Cross-client rules
 
-- Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`
+- Card legality logic duplicated in `server/game/rules.js`, `client/src/rules/legality.js`, and `iOSClient/.../Rules/CardLegality.swift`; ONE case table, `contract/rules/legality-cases.json` (legal cards per position: trump not broken, trump-tight, must follow, joker as trump, HI-joker forcing, the no-trump hand; trick winners and over-trump rows), runs against all three (Jest `server/game/__tests__/legalityCases.test.js`, Vitest `client/src/rules/legalityCases.test.js` + `overTrump.test.js`, which also checks web against server on 5000 random positions, XCTest `LegalityCaseTableTests.swift` + `OverTrumpTests.swift`, read from the checkout). A rules row goes in the table, never in one copy's test
+- One of each on the server (`server/game/rules.js`): `calculateScore` (handleHandComplete, playSearch.teamScore and the sim all score through it), `HAND_PROGRESSION` / `nextHandSize()` (handleHandComplete, BotStrategy, snapshotV2 `HAND_SEQUENCE`, the sim; `handProgression.test.js` holds the web `ranks.js` and iOS `CardConstants` / `HandSequence` copies to it); the stock avatar count 82 is `server/avatar/stockAvatars.js` (`randomStockPic`, `isStockPic`) and web `client/src/constants/avatars.js` (`stockAvatars.test.js` holds the web copy and the contract's profilePic bounds to it)
 - Over-trump (OT) effect rule (owner 2026-11-11): the card just played is a trump or joker, the lead is not trump (a joker lead is), and it takes the trick (server `determineWinner` order) from an OPPONENT (seat parity) whose winning card was a trump or joker; over a partner's trump is never an OT. Web `client/src/rules/overTrump.js` (`GameScene.detectOverTrump`, from cardPlayed only), iOS `TrickRules.isOverTrump` (TableTypes.swift, reducer cardPlayed); case tables in `overTrump.test.js` / `OverTrumpTests.swift`
 
 ## Where to read
@@ -166,7 +167,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Express pages, avatars | `docs/claude/server-infra.md` | /privacy /support /terms; avatar pipeline, `clientHello` caps, kill switches |
 | Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules, web voice keys (hold `` ` `` for the overlay, M mute) |
 | Merged accounts, admin panel, reset links, deletion | `server/admin/CLAUDE.md` | tombstones, `adminRequest` authorization + audit, merge / delete / rename, one-time reset links |
-| Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production, always the `babonline` database |
+| Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production; the database is `DB_NAME`, else `babonline` (never the MONGO_URI path) |
 | Socket contract | `contract/CLAUDE.md`, Socket contract | `contract/src`, `npm run contract:gen`, contract guard, additive-only wire, `contract/V1_REMOVALS.md` |
 | Snapshot v2, `seq` | `contract/CLAUDE.md` | `getSnapshotV2`, `trickHistory`, `watching`; seq stamping, consumer rules R1-R5 |
 | Upgrade gate | `contract/CLAUDE.md`, Upgrade gate | iOS 1.0.0 / 1.1.0 detection by User-Agent (`MIN_IOS_BUILD` 3), update-only replies, `UPGRADE_GATE=off` |

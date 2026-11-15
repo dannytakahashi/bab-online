@@ -3,7 +3,8 @@
  * 10; docs/avatars.md).
  *
  * Since contract/V1_REMOVALS.md #19 (2026-11-12) no payload carries a
- * picture inline: a picture slot on the wire is a stock number (1-82) or
+ * picture inline: a picture slot on the wire is a stock number (1-82,
+ * stockAvatars.js) or
  * null, and a custom picture travels only as its URL
  * (/avatar/<username>?v=<version>, in avatarUrls / avatarUrl), the same for
  * every recipient (the clientHello avatarUrl cap is no longer checked: web
