@@ -84,7 +84,8 @@ final class SoundPlayer: ObservableObject, SoundPlaying {
 
     init(output: SoundOutput, session: SoundSession, defaults: UserDefaults = .standard,
          isAppActive: (@MainActor () -> Bool)? = nil, isVoiceActive: (@MainActor () -> Bool)? = nil,
-         // the wall clock, not systemUptime (a required-reason API): a jump costs one throttled sound at most
+         // the wall clock, not systemUptime (a required-reason API): a jump forward costs one
+         // throttled sound at most, and a jump back counts as outside the window
          now: @escaping () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }) {
         self.output = output
         self.session = session
@@ -104,24 +105,31 @@ final class SoundPlayer: ObservableObject, SoundPlaying {
         // in the background (or under Control Center) a sound would be a surprise
         guard isEnabled, volume > 0, isAppActive() else { return nil }
         let t = now()
-        if let last = lastPlayed[kind], t - last < Self.throttle { return nil }
+        if let last = lastPlayed[kind], t >= last, t - last < Self.throttle { return nil }
         lastPlayed[kind] = t
-        prepareSession()
+        guard prepareSession() else { return nil }
         let files = kind.files
         let take = takes[kind, default: 0]
         takes[kind] = (take + 1) % files.count
         let file = files[take]
-        output.play(file: file, volume: volume)
+        output.play(file: file, volume: volume * kind.gain)
         return file
     }
 
     /// The session policy above, applied before every sound (cheap: a category read).
-    func prepareSession() {
-        guard SoundSessionPolicy.action(voiceActive: isVoiceActive(), category: session.category) == .setAmbient else { return }
-        do { try session.useAmbient() } catch {
+    /// False when the session could not be made ambient: a sound in the launch default
+    /// (soloAmbient) would stop the user's music, so it is skipped.
+    @discardableResult
+    func prepareSession() -> Bool {
+        guard SoundSessionPolicy.action(voiceActive: isVoiceActive(), category: session.category) == .setAmbient else { return true }
+        do {
+            try session.useAmbient()
+            return true
+        } catch {
             #if DEBUG
-            print("[Sound] could not set the ambient category: \(error)")
+            print("[Sound] could not set the ambient category, sound skipped: \(error)")
             #endif
+            return false
         }
     }
 }

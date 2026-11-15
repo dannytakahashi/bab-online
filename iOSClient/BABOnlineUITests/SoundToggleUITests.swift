@@ -14,8 +14,13 @@ final class SoundToggleUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Chat..."].waitForExistence(timeout: 5))
     }
 
+    /// The speaker: a button with the toggle trait, which XCUITest lists as a switch.
+    private func speaker(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "sound").firstMatch
+    }
+
     private func soundValue(_ app: XCUIApplication) -> String {
-        let b = app.buttons["sound"]
+        let b = speaker(app)
         XCTAssertTrue(b.waitForExistence(timeout: 5))
         XCTAssertEqual(b.label, "Sound")
         return b.value as? String ?? ""
@@ -31,7 +36,7 @@ final class SoundToggleUITests: XCTestCase {
         shot.name = "sound-log-header"
         shot.lifetime = .keepAlways
         add(shot)
-        app.buttons["sound"].tap()
+        speaker(app).tap()
         let flipped = start == "On" ? "Off" : "On"
         XCTAssertEqual(soundValue(app), flipped)
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
@@ -41,16 +46,16 @@ final class SoundToggleUITests: XCTestCase {
         XCTAssertTrue(Fixture.readyElement(app, "trick-mid-lead3").waitForExistence(timeout: 15))
         openLog(app)
         XCTAssertEqual(soundValue(app), flipped, "remembered on the device")
-        app.buttons["sound"].tap()  // as it was
+        speaker(app).tap()  // as it was
         XCTAssertEqual(soundValue(app), start)
         app.terminate()
     }
 
     func testAccountSheetSwitchIsTheSameSetting() {
-        let app = Fixture.launch("main-room")
+        var app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
         app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
-        let toggle = app.switches["settings.sound"]
+        var toggle = app.switches["settings.sound"]
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         let start = toggle.value as? String ?? ""
         XCTAssertEqual(app.sliders["settings.soundVolume"].exists, start == "1", "the volume shows while sound is on")
@@ -59,9 +64,27 @@ final class SoundToggleUITests: XCTestCase {
         shot.lifetime = .keepAlways
         add(shot)
         toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()
-        XCTAssertNotEqual(toggle.value as? String ?? "", start)
-        toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap()  // as it was
-        XCTAssertEqual(toggle.value as? String ?? "", start)
+        let flipped = toggle.value as? String ?? ""
+        XCTAssertNotEqual(flipped, start)
+        app.terminate()
+
+        // the table's speaker shows what the Account switch set, and flips it back
+        app = Fixture.launch("trick-mid-lead3")
+        XCTAssertTrue(Fixture.readyElement(app, "trick-mid-lead3").waitForExistence(timeout: 15))
+        openLog(app)
+        XCTAssertEqual(soundValue(app), flipped == "1" ? "On" : "Off")
+        // .isToggle: XCUITest lists the button as a switch (a plain button would be .button)
+        XCTAssertTrue([.switch, .toggle].contains(speaker(app).elementType), "a toggle to VoiceOver: \(speaker(app).elementType.rawValue)")
+        speaker(app).tap()
+        XCTAssertEqual(soundValue(app), start == "1" ? "On" : "Off")
+        app.terminate()
+
+        app = Fixture.launch("main-room")
+        XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+        app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
+        toggle = app.switches["settings.sound"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String ?? "", start, "the speaker's flip is the Account switch's setting")
         app.terminate()
     }
 }

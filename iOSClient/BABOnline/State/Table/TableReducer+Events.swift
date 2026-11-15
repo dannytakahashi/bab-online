@@ -403,8 +403,10 @@ extension TableReducer {
         mutateSeat(&s, pos) { $0.cardsInHand = max(0, $0.cardsInHand - 1) }
         let mine = pos == s.table.viewer.position && s.table.viewer.holdsSeat
         if mine, let i = s.table.hand.firstIndex(of: p.card) { s.table.hand.remove(at: i) }  // also a lazy bot's play for me
+        var confirmsMine = false
         if mine, let pending = s.pending, case .play(let c) = pending.submission {
             s.pending = nil
+            confirmsMine = c == p.card
             if c == p.card {
                 fx.append(.cancelAck(reqId: pending.reqId))
             } else {
@@ -416,12 +418,12 @@ extension TableReducer {
         }
         let key = currentKey(s)
         fx.append(.animate(.cardPlayed(played, key, byMe: mine && s.table.viewer.role == .seat)))
-        // an over-trump's snap stands in for the card's sound (one sound per card)
+        // my submitted card made its sound when it went down (submitPlay); the over-trump
+        // accent follows the card's sound (TableSoundCues), with the effect it goes with
+        if !confirmsMine { fx.append(.sound(.card)) }
         if TrickRules.isOverTrump(trick: pl.trick, trump: s.table.deal?.trump) {
             fx.append(.animate(.overTrump(key)))
             fx.append(.sound(.overTrump))
-        } else {
-            fx.append(.sound(.card))
         }
     }
 
@@ -457,12 +459,14 @@ extension TableReducer {
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))
         guard p.score != nil else { return }
         // made / set for my team (server calculateScore: tricks >= the team's bid total); a pure
-        // spectator has no team, so no sound
+        // spectator has no team: the neutral, quieter hand end (as the web)
         if s.table.viewer.holdsSeat, let me = s.table.viewer.position {
             let team = Positions.getTeamNumber(me)
             let total = BidTotals.totals(bids, handSize: s.table.deal?.handSize)[team: team]
             let won = (team == 1 ? p.team1Tricks : p.team2Tricks) ?? s.scores.tricks[team: team]
             fx.append(.sound(won >= total ? .made : .set))
+        } else {
+            fx.append(.sound(.handEnd))
         }
 
         let players = s.players

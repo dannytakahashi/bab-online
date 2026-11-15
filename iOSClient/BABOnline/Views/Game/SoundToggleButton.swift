@@ -17,6 +17,7 @@ struct SoundToggleButton: View {
         .accessibilityIdentifier("sound")
         .accessibilityLabel("Sound")
         .accessibilityValue(sounds.isEnabled ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityShowsLargeContentViewer()
     }

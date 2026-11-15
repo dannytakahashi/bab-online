@@ -74,14 +74,38 @@ final class SoundEffectsTests: XCTestCase {
                                                                              "team1OldScore": 0, "team2OldScore": 0, "seq": 4]))), [.made])
     }
 
-    func testOverTrumpReplacesTheCardSound() {
+    func testOverTrumpLayersItsAccentOnTheCard() {
         var s = T.dealtState(hand: [T.card("spades", "3"), T.card("hearts", "K")], size: 2, dealer: 4, trump: T.card("spades", "7"))
         TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 2, "seq": 3]))
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "Q"), "position": 2, "seq": 4]))), [.card])
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "2"), "position": 3, "seq": 5]))), [.card])
-        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("joker", "LO"), "position": 4, "seq": 6]))), [.overTrump])
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("joker", "LO"), "position": 4, "seq": 6]))), [.card, .overTrump])
         // the same event again: dropped by the seq gate, silent
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("joker", "LO"), "position": 4, "seq": 6]))), [])
+    }
+
+    func testMyCardSoundsWhenItGoesDownNotOnTheEcho() {
+        var s = T.dealtState(hand: [T.card("spades", "A"), T.card("hearts", "2")], size: 2)
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 1, "seq": 3]))
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, .local(.submitPlay(T.c("spades", "A"), reqId: 1)))), [.card], "it shows in its slot now")
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "A"), "position": 1, "seq": 4]))), [], "the echo is quiet")
+        // a bid submission makes no sound
+        var b = T.dealtState()
+        TableReducer.reduce(&b, T.ev("updateTurn", ["currentTurn": 1, "seq": 3]))
+        XCTAssertEqual(sounds(TableReducer.reduce(&b, .local(.submitBid("1", reqId: 2)))), [])
+    }
+
+    func testMyOverTrumpsAccentComesWithItsEcho() {
+        var s = T.dealtState(hand: [T.card("spades", "3"), T.card("clubs", "K")], size: 2, dealer: 4, trump: T.card("spades", "7"))
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 2, "seq": 3]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "Q"), "position": 2, "seq": 4]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "3"), "position": 3, "seq": 5]))
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "2"), "position": 4, "seq": 6]))), [.card])
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 7]))), [.turn])
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, .local(.submitPlay(T.c("spades", "3"), reqId: 1)))), [.card])
+        let echo = TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "3"), "position": 1, "seq": 8]))
+        XCTAssertEqual(sounds(echo), [.overTrump], "the accent goes with the over-trump effect")
+        XCTAssertTrue(echo.animations.contains { if case .overTrump = $0 { return true } else { return false } })
     }
 
     // MARK: - Reducer: the your-turn cue
@@ -133,7 +157,7 @@ final class SoundEffectsTests: XCTestCase {
         }
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("trickComplete", ["winner": 1, "seq": seq]))), [.trick], "seat 1 is not my team"); seq += 1
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("handComplete", ["score": ["team1": 10, "team2": 0], "team1Tricks": 1, "team2Tricks": 0,
-                                                                             "team1OldScore": 0, "team2OldScore": 0, "seq": seq]))), [], "no team, no made / set")
+                                                                             "team1OldScore": 0, "team2OldScore": 0, "seq": seq]))), [.handEnd], "no team: the neutral hand end")
         seq += 1
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("gameEnd", ["score": ["team1": 10, "team2": 0], "tournamentId": NSNull(), "seq": seq]))), [.gameEnd])
     }
@@ -201,6 +225,8 @@ final class SoundEffectsTests: XCTestCase {
                 let h = ReplayHarness(viewer: viewer)
                 var counts: [SoundKind: Int] = [:]
                 var live = (cards: 0, tricks: 0, ours: 0, deals: 0, hands: 0, ends: 0)
+                var submitted = 0
+                var refusedPlays = 0
                 for e in game.logs[viewer.label]! {
                     let before = h.effects.count
                     try h.apply(e)
@@ -211,10 +237,17 @@ final class SoundEffectsTests: XCTestCase {
                         XCTAssertEqual(heard, [], ctx)
                     }
                     if heard.contains(.turn) { XCTAssertTrue(h.store.myTurn.isChoosing, ctx) }
-                    guard e.dir == "s2c" else { continue }
+                    if e.dir == "c2s" {
+                        // my card's sound when it goes down (its echo is then quiet)
+                        XCTAssertTrue(heard.allSatisfy { $0 == .card }, ctx)
+                        if e.event == "playCard" && heard == [.card] { live.cards += 1; submitted += 1 }
+                        continue
+                    }
                     let d = e.data as? [String: Any]
                     switch e.event {
-                    case "cardPlayed": if heard.contains(.card) || heard.contains(.overTrump) { live.cards += 1 }
+                    case "cardPlayed":
+                        XCTAssertLessThanOrEqual(heard.filter { $0 == .card }.count, 1, ctx)
+                        if heard.contains(.card) { live.cards += 1 }
                     case "trickComplete":
                         if !heard.isEmpty { live.tricks += 1 }
                         if heard == [.trickOurs], let me = h.store.position, let w = d?["winner"] as? Int {
@@ -224,23 +257,32 @@ final class SoundEffectsTests: XCTestCase {
                     case "gameStart": if heard == [.deal] { live.deals += 1 }
                     case "handComplete": if !heard.isEmpty { live.hands += 1 }
                     case "gameEnd": if heard == [.gameEnd] { live.ends += 1 }
+                    case "actionRejected": if d?["action"] as? String == "play" { refusedPlays += 1 }
                     default: XCTAssertFalse(heard.contains { $0 != .turn }, ctx)
                     }
                 }
                 let label = "\(game.name) \(viewer.label)"
-                XCTAssertEqual((counts[.card] ?? 0) + (counts[.overTrump] ?? 0), live.cards, label)
+                XCTAssertEqual(counts[.card] ?? 0, live.cards, label)
+                XCTAssertLessThanOrEqual(counts[.overTrump] ?? 0, live.cards, label)
                 XCTAssertEqual((counts[.trick] ?? 0) + (counts[.trickOurs] ?? 0), live.tricks, label)
                 XCTAssertEqual(counts[.trickOurs] ?? 0, live.ours, label)
                 XCTAssertEqual(counts[.deal] ?? 0, live.deals, label)
-                XCTAssertEqual((counts[.made] ?? 0) + (counts[.set] ?? 0), live.hands, label)
+                XCTAssertEqual((counts[.made] ?? 0) + (counts[.set] ?? 0) + (counts[.handEnd] ?? 0), live.hands, label)
                 if viewer.role == "spectator" {
                     XCTAssertNil(counts[.turn], label)
                     XCTAssertNil(counts[.trickOurs], label)
                     XCTAssertEqual((counts[.made] ?? 0) + (counts[.set] ?? 0), 0, label)
+                    XCTAssertEqual(submitted, 0, label)
+                } else {
+                    XCTAssertNil(counts[.handEnd], label)
                 }
                 // a whole live game at a seat is heard (presence-s21's seats stop after the deal)
                 if game.name == "events-humans-s13" && viewer.label == "seat1" {
-                    XCTAssertEqual(live.cards, 364)
+                    // 364 cards landed; the play refused at #170 (not_your_turn) sounded when it went
+                    // down (rare in the app, which sends only on its own turn; its card did show)
+                    XCTAssertEqual(refusedPlays, 1)
+                    XCTAssertEqual(live.cards - refusedPlays, 364)
+                    XCTAssertGreaterThan(submitted, 0, "my own cards sounded at submit")
                     XCTAssertEqual(live.tricks, 91)
                     XCTAssertGreaterThan(counts[.turn] ?? 0, 0)
                     XCTAssertGreaterThan(live.ours, 0)
@@ -255,7 +297,8 @@ final class SoundEffectsTests: XCTestCase {
     func testActionCoordinatorPlaysTheReducersSounds() {
         let store = GameState()
         let recorder = RecordingSounds()
-        let actions = ActionCoordinator(store: store, emitter: FakeEmitter(), clock: ManualClock(), sounds: recorder)
+        let soundClock = ManualClock()
+        let actions = ActionCoordinator(store: store, emitter: FakeEmitter(), clock: ManualClock(), sounds: recorder, soundClock: soundClock)
         store.apply(.local(.identity(username: "me", playerId: "sid-me")))
         store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
         store.apply(T.ev("positionUpdate", [
@@ -265,8 +308,134 @@ final class SoundEffectsTests: XCTestCase {
         store.apply(T.ev("gameStart", ["gameId": "g1", "hand": [T.card("spades", "A")], "trump": T.card("diamonds", "5"),
                                        "score1": 0, "score2": 0, "dealer": 4, "position": 1, "currentHand": 1, "seq": 2]))
         store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": 3]))
+        XCTAssertEqual(recorder.played, [.deal], "the chime waits for the deal")
+        soundClock.advance(TableSoundCues.afterDeal)
         XCTAssertEqual(recorder.played, [.deal, .turn])
         withExtendedLifetime(actions) {}
+    }
+
+    /// The server's one tick at a hand end (handComplete, gameStart, updateTurn; events-humans-s13
+    /// seat1 has all three at one timestamp) comes out spaced: verdict, shuffle, chime.
+    func testHandEndDealAndTurnFromOneTickAreSpaced() {
+        let store = GameState()
+        let clock = ManualClock()
+        let recorder = TimedSounds(clock)
+        let actions = ActionCoordinator(store: store, emitter: FakeEmitter(), clock: ManualClock(), sounds: recorder, soundClock: clock)
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        store.apply(T.ev("positionUpdate", [
+            "positions": [1, 2, 3, 4], "sockets": ["sid-me", "bot:l", "sid-p", "bot:r"],
+            "usernames": [["username": "me"], ["username": "L"], ["username": "P"], ["username": "R"]], "pics": [1, 2, 3, 4], "seq": 1,
+        ]))
+        store.apply(T.ev("gameStart", ["gameId": "g1", "hand": [T.card("spades", "A")], "trump": T.card("diamonds", "5"),
+                                       "score1": 0, "score2": 0, "dealer": 4, "position": 1, "currentHand": 1, "seq": 2]))
+        store.apply(T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 2, "seq": 3]))
+        var seq = 4
+        for (pos, rank) in [(2, "2"), (3, "3"), (4, "4")] {
+            store.apply(T.ev("cardPlayed", ["card": T.card("spades", rank), "position": pos, "seq": seq])); seq += 1
+        }
+        // the card that passed me the turn and the turn: one tick
+        store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": seq])); seq += 1
+        clock.advance(10)
+        recorder.played = []
+        XCTAssertTrue(actions.play(T.c("spades", "A")))
+        store.apply(T.ev("cardPlayed", ["card": T.card("spades", "A"), "position": 1, "seq": seq])); seq += 1
+        store.apply(T.ev("trickComplete", ["winner": 1, "seq": seq])); seq += 1
+        clock.advance(10)
+        // one tick: made, the next deal, my bid turn
+        store.apply(T.ev("handComplete", ["score": ["team1": 10, "team2": 0], "team1Tricks": 1, "team2Tricks": 0,
+                                          "team1OldScore": 0, "team2OldScore": 0, "seq": seq])); seq += 1
+        store.apply(T.ev("gameStart", ["gameId": "g1", "hand": [T.card("hearts", "A"), T.card("hearts", "K"), T.card("hearts", "Q")],
+                                       "trump": T.card("clubs", "5"), "score1": 10, "score2": 0, "dealer": 1, "position": 1,
+                                       "currentHand": 3, "seq": seq])); seq += 1
+        store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": seq])); seq += 1
+        clock.advance(5)
+        // my card at once (not a round trip later), the trick, then made, the deal, the chime
+        XCTAssertEqual(recorder.played.map(\.kind), [.card, .trickOurs, .made, .deal, .turn])
+        XCTAssertEqual(recorder.played.map(\.at), [10, 10, 20, 20 + TableSoundCues.afterHandEnd, 20 + TableSoundCues.afterHandEnd + TableSoundCues.afterDeal])
+        withExtendedLifetime(actions) {}
+    }
+
+    // MARK: - TableSoundCues
+
+    @MainActor
+    private final class Cues {
+        let clock = ManualClock()
+        lazy var out = TimedSounds(clock)
+        var mine = true
+        var epoch = "0"
+        lazy var cues = TableSoundCues(clock: clock, sounds: out, isMyChoice: { [unowned self] in self.mine }, epoch: { [unowned self] in self.epoch })
+        var heard: [SoundKind] { out.played.map(\.kind) }
+        var times: [TimeInterval] { out.played.map(\.at) }
+    }
+
+    func testTurnChimeFollowsTheCardThatPassedIt() {
+        let c = Cues()
+        c.cues.cue(.card)
+        c.cues.cue(.turn)
+        c.cues.cue(.turn)  // a second updateTurn in the window: one chime
+        c.clock.advance(1)
+        XCTAssertEqual(c.heard, [.card, .turn])
+        XCTAssertEqual(c.times, [0, TableSoundCues.turnDelay])
+        // my bid went out before the chime: nothing
+        c.cues.cue(.trickOurs)
+        c.cues.cue(.turn)
+        c.mine = false
+        c.clock.advance(1)
+        XCTAssertEqual(c.heard, [.card, .turn, .trickOurs])
+    }
+
+    func testGameEndWaitsForTheLastHandsVerdict() {
+        let c = Cues()
+        c.cues.cue(.set)
+        c.cues.cue(.gameEnd)
+        c.clock.advance(TableSoundCues.afterHandEnd - 0.1)
+        XCTAssertEqual(c.heard, [.set])
+        c.clock.advance(0.1)
+        XCTAssertEqual(c.heard, [.set, .gameEnd])
+        XCTAssertEqual(c.times, [0, TableSoundCues.afterHandEnd])
+        // a spectator's neutral hand end holds it the same
+        c.clock.advance(5)
+        c.cues.cue(.handEnd)
+        c.cues.cue(.gameEnd)
+        c.clock.advance(1)
+        XCTAssertEqual(c.heard.suffix(2), [.handEnd, .gameEnd])
+        // with no hand end just before, at once
+        c.clock.advance(5)
+        c.cues.cue(.gameEnd)
+        XCTAssertEqual(c.heard.last, .gameEnd)
+        XCTAssertEqual(c.times.last, c.clock.now)
+    }
+
+    func testOverTrumpAccentLandsJustAfterTheCard() {
+        let c = Cues()
+        c.cues.cue(.card)
+        c.cues.cue(.overTrump)
+        XCTAssertEqual(c.heard, [.card])
+        c.clock.advance(TableSoundCues.overTrumpDelay)
+        XCTAssertEqual(c.heard, [.card, .overTrump])
+    }
+
+    func testARedealsTurnWaitsForItsShuffle() {
+        let c = Cues()
+        c.cues.cue(.deal)
+        c.cues.cue(.turn)
+        c.clock.advance(1)
+        XCTAssertEqual(c.heard, [.deal, .turn])
+        XCTAssertEqual(c.times, [0, TableSoundCues.afterDeal])
+    }
+
+    func testASnapshotDropsWhatStillWaits() {
+        let c = Cues()
+        c.cues.cue(.made)
+        c.cues.cue(.deal)
+        c.cues.cue(.turn)
+        c.epoch = "1"  // a snapshot reset the scene (or the table left the game)
+        c.clock.advance(2)
+        XCTAssertEqual(c.heard, [.made])
+        // and a later cue starts clean
+        c.cues.cue(.deal)
+        XCTAssertEqual(c.heard, [.made, .deal])
     }
 
     // MARK: - SoundPlayer
@@ -407,13 +576,45 @@ final class SoundEffectsTests: XCTestCase {
         XCTAssertEqual(session.ambientCalls, 0)
     }
 
-    func testAFailedCategoryChangeStillPlays() {
+    /// Still soloAmbient, a sound would stop the user's music: skipped.
+    func testAFailedCategoryChangeSkipsTheSound() {
         let session = FakeSession(category: .soloAmbient)
         session.fails = true
         let out = RecordingOutput()
-        let p = player(session: session, output: out)
+        let clock = SoundClock()
+        let p = player(clock: clock, session: session, output: out)
+        p.play(.made)
+        XCTAssertEqual(out.played.count, 0)
+        // the category change works next time: it plays
+        session.fails = false
+        clock.t = 1
         p.play(.made)
         XCTAssertEqual(out.played.map(\.file), ["made"])
+    }
+
+    func testAClockStepBackDoesNotSilenceASound() {
+        let clock = SoundClock()
+        let out = RecordingOutput()
+        let p = player(clock: clock, output: out)
+        clock.t = 1000
+        p.play(.trick)
+        clock.t = 400  // a manual time change or an NTP step
+        p.play(.trick)
+        clock.t = 400.01
+        p.play(.trick)  // within 80 ms of the last that played: dropped
+        XCTAssertEqual(out.played.map(\.file), ["trick", "trick"])
+    }
+
+    func testAccentAndSpectatorHandEndAreQuieter() {
+        let out = RecordingOutput()
+        let p = player(output: out)
+        p.play(.overTrump)
+        p.play(.handEnd)
+        p.play(.made)
+        XCTAssertEqual(out.played.map(\.file), ["overtrump", "made", "made"])
+        for (got, want) in zip(out.played.map(\.volume), [Float(0.35 * 0.8), Float(0.35 * 0.6), Float(0.35)]) {
+            XCTAssertEqual(got, want, accuracy: 0.0001)
+        }
     }
 }
 
@@ -423,6 +624,15 @@ final class SoundEffectsTests: XCTestCase {
 final class RecordingSounds: SoundPlaying {
     var played: [SoundKind] = []
     func play(_ kind: SoundKind) { played.append(kind) }
+}
+
+/// What played and when (the cue clock's time).
+@MainActor
+final class TimedSounds: SoundPlaying {
+    let clock: ManualClock
+    var played: [(kind: SoundKind, at: TimeInterval)] = []
+    init(_ clock: ManualClock) { self.clock = clock }
+    func play(_ kind: SoundKind) { played.append((kind, clock.now)) }
 }
 
 @MainActor

@@ -13,7 +13,7 @@ socket event ──> GameSocketHandler.handle(event:payload:)   (Chat / Voice / 
                            seq gate (contract/README.md R1-R5) · snapshots are the only restore path (R5)
                       └─ commit the changed slices: table, scores, players, log (@Published)
                       └─ GameSKScene.apply(model: TableRenderModel(state), animations:)   (synchronous)
-                      └─ ioRequests → ActionCoordinator (requestSnapshot, ack timers, haptics, sounds → SoundPlayer)
+                      └─ ioRequests → ActionCoordinator (requestSnapshot, ack timers, haptics, sounds → TableSoundCues → SoundPlayer)
 taps / bid overlay ──> ActionCoordinator.play / .bid ──> .local(.submitPlay/.submitBid) + emit, 5 s ack timeout
 ```
 
@@ -846,8 +846,8 @@ the web (`Resources/Sounds/*.m4a`, built by `npm run build:sounds`, copied to
 the bundle root).
 
 `TableEffect.sound(SoundKind)`, emitted by the reducer, run by
-ActionCoordinator (`SoundPlaying`, default `SoundPlayer.shared`); haptics are
-unchanged. The table's effects, in order of a reduce:
+ActionCoordinator through `TableSoundCues` (when) into `SoundPlaying` (default
+`SoundPlayer.shared`: whether); haptics are unchanged. The table's effects, in order of a reduce:
 
 - `.animate(TableAnimation)`: the scene (GameSKScene, synchronously).
 - `.requestSnapshot` / `.retrySnapshot` / `.cancelAck`: ActionCoordinator's
@@ -859,10 +859,11 @@ unchanged. The table's effects, in order of a reduce:
 | Live delta event | Sound | Who |
 | --- | --- | --- |
 | gameStart (each deal, a redeal too) | `deal` | everyone |
-| cardPlayed | `card` (card-1/2/3 in turn), or `overTrump` instead when `TrickRules.isOverTrump` | everyone |
+| cardPlayed | `card` (card-1/2/3 in turn), plus the `overTrump` accent when `TrickRules.isOverTrump` (gain 0.8, 90 ms after the card) | everyone |
+| my own play (`.local(.submitPlay)` in PLAYING) | `card` at once: the card shows in its slot now (TableRenderModel); its echo cardPlayed is then quiet except for an over-trump's accent, which goes with the effect | the seat |
 | my turn starts (MyTurnState into `.choosing`, bid or play) | `turn` | a seat (`role == .seat`): never a spectator or a lazy owner |
 | trickComplete | `trickOurs` if the winner is on my team (position parity), else `trick` | `trickOurs` only for a seat holder (`holdsSeat`) |
-| handComplete with a score | `made` if my team's tricks >= its bid total (`BidTotals`, a bore = the hand; server `calculateScore`), else `set` | a seat holder; a pure spectator hears nothing |
+| handComplete with a score | `made` if my team's tricks >= its bid total (`BidTotals`, a bore = the hand; server `calculateScore`), else `set` | a seat holder; a pure spectator hears `handEnd` (the made file at gain 0.6: no team, no verdict; the web's SPECTATOR_HAND_END_GAIN) |
 | gameEnd | `gameEnd` | everyone |
 
 Never a sound for what is state rather than news: a snapshot (`.snapshot`, and
@@ -873,13 +874,30 @@ comes (`TableReducer.catchUp` drops their sounds, keeps everything else). The
 turn cue is computed in `reduce` from the MyTurnState before and after, for a
 live `.server` event only, so a restore onto my turn, a refused bid handed
 back or an ack timeout's rollback is silent. A dropped (already applied) seq
-changes nothing and is silent.
+changes nothing and is silent. A play the server then refuses has already
+made its card sound (rare: the app sends only on its own turn).
+
+When (`State/Table/TableSoundCues.swift`, the web's `tableSounds.js` timing):
+the server sends handComplete, the next gameStart and its updateTurn in one
+tick (the last hand: handComplete and gameEnd), and an updateTurn in the same
+tick as the cardPlayed or trickComplete that passed the turn (events-humans-s13
+seat 1: 351 times). So made / set plays at once and holds a deal or the game
+end that comes within `afterHandEnd` (0.5 s) until then; my turn's chime comes
+`turnDelay` (0.25 s) after its event, or `afterDeal` (0.5 s) after a deal (or a
+held one), and is dropped if MyTurnState is no longer `.choosing` by then; the
+over-trump accent comes `overTrumpDelay` (90 ms) after the card. A hand end is
+heard as made, deal +0.5 s, chime +1.0 s. Whatever still waits is dropped when
+the epoch moves (`GameState.sceneResets`, a snapshot; or the table's gameId).
+Its timers run on their own clock (`soundClock`, not the ack clock the ack
+tests count).
 
 `SoundPlayer` (`Utils/SoundPlayer.swift`): `isEnabled` ("soundEnabled",
 default on) and `volume` ("soundVolume", default 0.35, clamped 0...1) in
 UserDefaults; nothing plays while muted, at volume 0 or while the app is not
 `.active` (background, Control Center); the same `SoundKind` within 80 ms is
-dropped (`throttle`); two AVAudioPlayers per file (`AudioPlayerPool`, created
+dropped (`throttle`; the wall clock, and a clock stepped back counts as outside
+the window, so it never silences a sound); `SoundKind.gain` scales the volume
+(overTrump 0.8, handEnd 0.6); two AVAudioPlayers per file (`AudioPlayerPool`, created
 on the first sound), a busy pair restarts its first. Audio session: see
 `docs/claude/voice.md`, iOS sounds and voice. Under XCTest and in UI fixture
 mode the shared player is silent and never touches the session.
@@ -887,23 +905,35 @@ mode the shared player is silent and never touches the session.
 UI: a speaker button ("Sound", value On / Off, id `sound`) in the game log's
 header (`SoundToggleButton`: the drawer, the Duo's docked side panel and book
 page), and a Sound switch with a volume slider in the Account sheet (ids
-`settings.sound`, `settings.soundVolume`). Not on the felt: the corner buttons
-are measured into `TableChrome.cornerButton` (both corners' obstacle, the
-zoom's chrome), so a third button there would move every layout.
+`settings.sound`, `settings.soundVolume`). The speaker has the toggle trait
+(`.isToggle`; XCUITest lists it as a switch). Not on the felt (an owner
+decision still open: the owner asked for "a speaker toggle on the table"): the
+corner buttons are measured into `TableChrome.cornerButton` (both corners'
+obstacle, the zoom's chrome), so a third button there, or a wider Log
+cluster, would move every layout.
 
 Tests: `SoundEffectsTests` (each live event's sound, trick-ours parity for all
-four winners, made / set with a bore, the over-trump in place of the card, the
-turn cue's edge, a refused bid and an ack timeout silent, a spectator's
+four winners, made / set with a bore, the over-trump accent on the card, my
+own card at submit with a quiet echo (and my over-trump's accent on the echo),
+the turn cue's edge, a refused bid and an ack timeout silent, a spectator's
 sounds, every v2 fixture as every snapshot source and carrier silent with one
 on my turn, buffered catch-up silent both ways, every recorded game through
 the handlers (sounds only on their live events, snapshot carriers silent, a
-spectator never hears turn / trick-ours / made / set, humans-s13 seat 1 hears
-all 364 cards and 91 tricks), ActionCoordinator plays them, the player's
-default, mute and volume persisted and respected, inactive app, throttle and
-take rotation, every file bundled, the session policy with voice on, off and
-off again, a muted player never touching the session); `SoundToggleUITests` (the log
-header's speaker flips On / Off and is remembered across launches, the
-Account sheet's switch and volume slider). Release code now reads UserDefaults
+spectator never hears turn / trick-ours / made / set but hears its hand end,
+humans-s13 seat 1 hears all 364 cards (plus the one refused play) and 91
+tricks, its own cards at submit), ActionCoordinator plays them, the cues'
+timing (a hand end's one tick through the store: made, deal +0.5 s, chime
++1.0 s; the chime after the card that passed it and dropped when the choice
+is gone; the game end after the last verdict; a redeal's chime after its
+shuffle; the accent after the card; a snapshot drops what waits), the
+player's default, mute and volume persisted and respected, inactive app,
+throttle, a clock stepped back, take rotation, the gains, every file bundled,
+the session policy with voice on, off and off again, a muted player never
+touching the session, a failed category change skipping the sound);
+`SoundToggleUITests` (the log header's speaker flips On / Off and is
+remembered across launches; the Account sheet's switch and volume slider, and
+the speaker shows what that switch set and its flip is the switch's
+setting). Release code now reads UserDefaults
 (this and the Stats scope), so `PrivacyInfo.xcprivacy` declares it (CA92.1,
 README "Privacy manifest"); the throttle's clock is the wall clock, not
 `systemUptime` (another required-reason API).

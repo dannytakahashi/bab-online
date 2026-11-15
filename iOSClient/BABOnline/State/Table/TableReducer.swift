@@ -154,6 +154,9 @@ enum TableReducer {
         case .submitPlay(let card, let reqId):
             guard s.pending == nil, s.table.hand.contains(card) else { return }
             s.pending = PendingAction(submission: .play(card), reqId: reqId, key: currentKey(s))
+            // the card shows in its slot now (TableRenderModel), so it sounds now, not a round
+            // trip later with the echo (which then stays quiet; a rollback is rare)
+            if s.table.phase.kind == .playing { fx.append(.sound(.card)) }
         case .submitBid(let bid, let reqId):
             guard s.pending == nil, s.table.phase.isBidding else { return }
             s.pending = PendingAction(submission: .bid(bid.uppercased()), reqId: reqId, key: currentKey(s))

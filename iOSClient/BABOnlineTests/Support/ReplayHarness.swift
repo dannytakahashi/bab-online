@@ -34,12 +34,15 @@ final class ManualClock: AckClock {
 
     @MainActor
     func advance(_ s: TimeInterval) {
-        now += s
-        while let t = timers.filter({ !$0.cancelled && $0.at <= now }).min(by: { $0.at < $1.at }) {
+        let end = now + s
+        // each timer fires at its own time, so one it schedules counts from there (sound cues)
+        while let t = timers.filter({ !$0.cancelled && $0.at <= end }).min(by: { $0.at < $1.at }) {
             t.cancelled = true
             fired += 1
+            now = max(now, t.at)
             t.fire()
         }
+        now = end
     }
 
     /// Advance to an absolute time (a recorded entry's `t`, in seconds).
