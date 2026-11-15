@@ -23,13 +23,24 @@ export const HOLD_MAX_MS = 30000;
 
 /**
  * Emits that never wait for the session: auth itself, the hello, snapshot
- * pings (answered either way), voice signaling (live only: a held offer is
- * useless) and admin requests (they time out on their own).
+ * pings (answered either way) and voice signaling (live only: a held offer
+ * is useless).
  */
 export const SESSIONLESS_EVENTS = new Set([
   CLIENT_EVENTS.SIGN_IN, CLIENT_EVENTS.SIGN_UP, CLIENT_EVENTS.RESTORE_SESSION, CLIENT_EVENTS.CLIENT_HELLO,
   CLIENT_EVENTS.REQUEST_SNAPSHOT, CLIENT_EVENTS.VOICE_OFFER, CLIENT_EVENTS.VOICE_ANSWER,
-  CLIENT_EVENTS.VOICE_ICE_CANDIDATE, CLIENT_EVENTS.GET_VOICE_ICE_SERVERS, CLIENT_EVENTS.ADMIN_REQUEST,
+  CLIENT_EVENTS.VOICE_ICE_CANDIDATE, CLIENT_EVENTS.GET_VOICE_ICE_SERVERS,
+]);
+
+/**
+ * Emits refused (false, no notice: the caller says it) rather than held
+ * while the session is not restored: my bid and play (MyAction: a held one
+ * would land after the rejoin's snapshot, maybe for a turn gone) and admin
+ * requests (adminApi times them out, and one sent from an anonymous socket
+ * was answered 'forbidden', which closed the panel and its reset link).
+ */
+export const REFUSED_WHILE_RESTORING = new Set([
+  CLIENT_EVENTS.PLAY_CARD, CLIENT_EVENTS.PLAYER_BID, CLIENT_EVENTS.ADMIN_REQUEST,
 ]);
 
 /** Chat events (a refusal keeps the draft; its notice says the message was not sent). */
@@ -536,6 +547,7 @@ export class SocketManager {
 
   _send(event, args) {
     if (!this._mustWait(event)) return this._rawEmit(event, ...args);
+    if (REFUSED_WHILE_RESTORING.has(event)) return false;
     let offline = false;
     try { offline = !!this._sessionGate.isOffline?.(); } catch { /* treat as reconnecting */ }
     if (offline || this._held.length >= HOLD_MAX) {

@@ -9,6 +9,7 @@
 import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
+import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -252,6 +253,8 @@ export function createGameLog({ onChatSubmit } = {}) {
       // false: not sent (offline, the emit gate): the draft stays
       if (onChatSubmit(message) === false) return;
       chatInput.value = '';
+      // My own line: back to the newest rows, so its echo shows
+      scrollChatToEnd(messageArea);
       autocompleteDropdown.hidden = true;
     }
   };
@@ -307,8 +310,7 @@ export function createGameLog({ onChatSubmit } = {}) {
 
     msgDiv.appendChild(nameSpan);
     msgDiv.appendChild(textSpan);
-    messageArea.appendChild(msgDiv);
-    messageArea.scrollTop = messageArea.scrollHeight;
+    appendFollowing(msgDiv);
   };
 
   // One log row: [time] text, colored by team / spectator / system
@@ -337,12 +339,16 @@ export function createGameLog({ onChatSubmit } = {}) {
     msgDiv.appendChild(textSpan);
     return msgDiv;
   };
-  // Live rows: one append and one scroll each; the list is capped
-  const append = (row) => {
+  // Live rows: one append each, the list capped. The log follows the
+  // newest row only while the reader is at (about) the end; scrolled up to
+  // read back, a new row keeps their place (common.js isChatAtEnd)
+  const appendFollowing = (row) => {
+    const atEnd = isChatAtEnd(messageArea);
     messageArea.appendChild(row);
     while (messageArea.childElementCount > MAX_LOG_ROWS) messageArea.firstElementChild.remove();
-    messageArea.scrollTop = messageArea.scrollHeight;
+    if (atEnd) scrollChatToEnd(messageArea);
   };
+  const append = appendFollowing;
 
   const addSystemMessage = (message, _color = null, at = null) => {
     append(buildRow(message, null, at));
@@ -352,8 +358,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'log-trick';
     msgDiv.textContent = `${winner} won the trick! (${teamTricks}-${oppTricks})`;
-    messageArea.appendChild(msgDiv);
-    messageArea.scrollTop = messageArea.scrollHeight;
+    appendFollowing(msgDiv);
   };
 
   const updateScores = (teamScore, oppScore) => {
@@ -405,8 +410,13 @@ export function createGameLog({ onChatSubmit } = {}) {
     for (const e of rows) {
       frag.appendChild(buildRow(e.message, e.position ?? null, e.at ?? null));
     }
+    // A replay (rejoin, resync) shows the same story: the reader keeps
+    // their place unless they were at the end
+    const atEnd = isChatAtEnd(messageArea);
+    const top = messageArea.scrollTop;
     messageArea.replaceChildren(frag);
-    messageArea.scrollTop = messageArea.scrollHeight;
+    if (atEnd) scrollChatToEnd(messageArea);
+    else messageArea.scrollTop = top;
   };
 
   /** Row count (tests, render checks). */

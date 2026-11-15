@@ -15,6 +15,8 @@ import { RANK_VALUES } from './constants/ranks.js';
 import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
 import { safeSessionStorage } from './utils/safeStorage.js';
+import { createVoiceLifecycle } from './voice/voiceLifecycle.js';
+import { installContextLossHandling } from './phaser/webglContext.js';
 import { installAvatarSupport } from './utils/avatar.js';
 
 // Rules
@@ -611,36 +613,46 @@ function initializeApp() {
   // Voice chat lifecycle helpers
   const voiceManager = getVoiceChatManager();
 
-  async function startVoice() {
-    if (voiceManager.active) return;
-    try {
-      await voiceManager.initialize(socketMgr);
-      createMuteButton();
-      // Register speaking indicator callback
-      voiceManager.onSpeakingChange((id, isSpeaking) => {
-        if (id === 'self') {
-          const el = document.getElementById('player-avatar-container');
-          if (el) el.classList.toggle('voice-speaking', isSpeaking);
-        } else {
-          // Peer → seat by username: the seat's owner, then the name it
-          // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
-          const slotId = speakingSlotFor({
-            username: voiceManager.peers.get(id)?.username || null,
-            socketId: id,
-            playerData: gameState.playerData,
-            myPosition: gameState.position,
-            owners: gameState.seatOwners,
-          });
-          if (slotId) {
-            const el = document.getElementById(`opponent-avatar-${slotId}`);
-            if (el) el.classList.toggle('voice-speaking', isSpeaking);
-          }
-        }
-      });
-    } catch (err) {
-      console.warn('Voice chat unavailable:', err.message);
+  // Start / stop across the mic prompt: a stop while it is up ends the
+  // start, so a late answer draws no dead mute button (voiceLifecycle.js)
+  const voiceLifecycle = createVoiceLifecycle({
+    manager: voiceManager,
+    connect: () => voiceManager.initialize(socketMgr),
+    onStarted: () => showVoiceControls(),
+    onUnavailable: (err) => {
+      console.warn('Voice chat unavailable:', err?.message);
       showWarning('Microphone access denied. Voice chat unavailable.');
-    }
+    },
+    teardown: () => teardownVoice(),
+  });
+
+  function startVoice() {
+    return voiceLifecycle.start();
+  }
+
+  function showVoiceControls() {
+    createMuteButton();
+    // Register speaking indicator callback
+    voiceManager.onSpeakingChange((id, isSpeaking) => {
+      if (id === 'self') {
+        const el = document.getElementById('player-avatar-container');
+        if (el) el.classList.toggle('voice-speaking', isSpeaking);
+      } else {
+        // Peer → seat by username: the seat's owner, then the name it
+        // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
+        const slotId = speakingSlotFor({
+          username: voiceManager.peers.get(id)?.username || null,
+          socketId: id,
+          playerData: gameState.playerData,
+          myPosition: gameState.position,
+          owners: gameState.seatOwners,
+        });
+        if (slotId) {
+          const el = document.getElementById(`opponent-avatar-${slotId}`);
+          if (el) el.classList.toggle('voice-speaking', isSpeaking);
+        }
+      }
+    });
   }
 
   /**
@@ -764,6 +776,10 @@ function initializeApp() {
   });
 
   function stopVoice() {
+    voiceLifecycle.stop();
+  }
+
+  function teardownVoice() {
     voiceManager.shutdown();
     removeMuteButton();
     removeVoiceOverlay();
@@ -1673,8 +1689,8 @@ function initializeApp() {
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
     },
-    onSearchPlayersResult: (players) => {
-      updatePlayerSearchResults(players);
+    onSearchPlayersResult: (players, query) => {
+      updatePlayerSearchResults(players, query);
     },
     onPlayerProfileReceived: (profile, scope) => {
       if (isStaleScopeReply(scope)) return;
@@ -2027,6 +2043,12 @@ export function startApp() {
 
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
+  // A lost WebGL context takes every texture with it (Phaser 3.55 restores
+  // no textures): reload once, with a message (phaser/webglContext.js)
+  installContextLossHandling({
+    game: getPhaserGame(),
+    notify: (kind, text) => (kind === 'stuck' ? showWarning(text, 60000) : showInfo(text)),
+  });
   // The loop runs only on the table's screens (cli-23, webclient-10)
   loopControl = installLoopControl({ session, getGame: () => getPhaserGame() });
 

@@ -699,11 +699,15 @@ async function searchPlayers(socket, io, data) {
         });
         return;
     }
+    // Every answer echoes the query as sent (additive 2026-11-15): web
+    // search-as-you-type drops a reply to an older query (they can finish
+    // out of order). iOS never sends searchPlayers
+    const echo = { query };
 
     // No username is longer than 50 characters, so a longer query matches
     // nobody: answer without a DB round trip
     if (query.trim().length > MAX_USERNAME_LENGTH) {
-        socket.emit('searchPlayersResponse', { success: true, players: [] });
+        socket.emit('searchPlayersResponse', { success: true, players: [], ...echo });
         return;
     }
 
@@ -725,14 +729,14 @@ async function searchPlayers(socket, io, data) {
         }));
         const mapped = await avatarWire.mapProfileRows(rows);
         const players = mapped.rows;
-        const reply = { success: true, players };
+        const reply = { success: true, players, ...echo };
         if (mapped.avatarUrls) reply.avatarUrls = mapped.avatarUrls;
 
         socket.emit('searchPlayersResponse', reply);
         authLogger.debug('Player search', { query: query.trim(), resultCount: players.length });
     } catch (error) {
         authLogger.error('Error searching players', { query, error: error.message });
-        socket.emit('searchPlayersResponse', { success: false, message: 'Database error' });
+        socket.emit('searchPlayersResponse', { success: false, message: 'Database error', ...echo });
     }
 }
 

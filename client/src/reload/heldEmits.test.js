@@ -14,6 +14,7 @@ import { SCREEN, CONNECTION } from '../state/ClientSession.js';
 import { getMyAction } from '../state/MyAction.js';
 import { HOLD_MAX_MS } from '../socket/SocketManager.js';
 import { clearToasts } from '../ui/kit/toast.js';
+import { createAdminApi } from '../admin/adminApi.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -102,6 +103,14 @@ describe('the emit gate', () => {
     expect(socket.emitted('playerBid')).toEqual([]);
     expect(page.socketManager.heldEvents).toEqual([]);
     expect(toasts()).toMatch(/Reconnecting\. Try again in a moment\./);
+  });
+
+  it('an admin request while not restored is refused at once (an anonymous socket got "forbidden", which closed the panel)', async () => {
+    socket.clearEmits();
+    expect(socket.emit('adminRequest', { requestId: 'r1', action: 'listPlayers', args: {} })).toBe(false);
+    await expect(createAdminApi(socket).request('listPlayers')).rejects.toThrow('offline');
+    expect(socket.emitted('adminRequest')).toEqual([]);
+    expect(page.socketManager.heldEvents).toEqual([]);
   });
 
   it('offline (the server closed the socket: no reconnect by itself): a chat line is refused, the draft stays, a notice says so', async () => {
