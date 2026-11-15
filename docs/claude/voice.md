@@ -1,6 +1,6 @@
-# Voice: signaling and TURN
+# Voice: signaling, TURN and web keys
 
-Never auto-loaded: open it for `server/socket/voiceHandlers.js`, `server/voice/`, `client/src/voice/` or the iOS `Voice/` code.
+Never auto-loaded: open it for `server/socket/voiceHandlers.js`, `server/voice/`, `client/src/voice/` (including the `voiceHotkeys.js` overlay / mute keys), `client/src/ui/components/VoiceChatUI.js` or the iOS `Voice/` code.
 
 ## Voice signaling
 
@@ -12,4 +12,4 @@ Never auto-loaded: open it for `server/socket/voiceHandlers.js`, `server/voice/`
 
 ## Web voice keys
 
-- Web voice keys (`client/src/voice/voiceHotkeys.js`, installed by main.js; 2026-11-15): while voice is on, hold backquote (`` ` ``, `code === 'Backquote'`) for the voice overlay (`VoiceChatUI.showVoiceOverlay`, a kit modal), release to close; window blur closes it too (a key held into alt-tab never sends its keyup). M toggles mute. Both are ignored while focus is in an input, textarea, select or contenteditable and with ctrl / meta / alt held; an auto-repeat keydown never opens the overlay. The backquote is `preventDefault`ed only when it opens or holds the overlay, so a ` typed in chat still types. Tab is never touched: it used to be the overlay key and its `preventDefault` stopped keyboard focus moving for everyone with voice on. Tests: `client/src/voice/voiceHotkeys.test.js` (the hotkeys, and with the real overlay: the modal takes focus, keyup still closes it, focus comes back)
+- Web voice keys (`client/src/voice/voiceHotkeys.js`, installed by main.js; 2026-11-15): while voice is on, hold backquote (`` ` ``, `code === 'Backquote'`) for the voice overlay (`VoiceChatUI.showVoiceOverlay`, a kit modal), release to close; window blur closes it too (a key held into alt-tab never sends its keyup). M toggles mute. Both are ignored while focus is in an input, textarea, select or contenteditable and with ctrl / meta / alt held; an auto-repeat keydown never opens the overlay. The backquote is `preventDefault`ed only when it opens or holds the overlay, so a ` typed in chat still types. Tab is never touched: it used to be the overlay key and its `preventDefault` stopped keyboard focus moving for everyone with voice on. Tests: `client/src/voice/voiceHotkeysWiring.test.js` (main.js installs them and has no Tab handler, a source scan) and `client/src/voice/voiceHotkeys.test.js` (the hotkeys, and with the real overlay: the modal takes focus, keyup still closes it, focus comes back)

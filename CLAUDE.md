@@ -158,7 +158,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` | sign-up name rules and budgets, bcrypt worker pool, failed-sign-in limits + client IP |
 | Database, caches, limits, CI | `docs/claude/server-infra.md` | startup DB + indexes, what CI runs (`ci-boot-check.sh`, `REQUIRE_REAL_MONGO`), active-game writes, projected reads, stats scopes (human `stats` / bot-game `botStats`, `withBots` records, `{scope}` reads), profile caches per scope, soft limits |
 | Express pages, avatars | `docs/claude/server-infra.md` | /privacy /support /terms; avatar pipeline, `clientHello` caps, kill switches |
-| Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules |
+| Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules, web voice keys (hold `` ` `` for the overlay, M mute) |
 | Merged accounts, admin panel, reset links, deletion | `server/admin/CLAUDE.md` | tombstones, `adminRequest` authorization + audit, merge / delete / rename, one-time reset links |
 | Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production, always the `babonline` database |
 | Socket contract | `contract/CLAUDE.md`, Socket contract | `contract/src`, `npm run contract:gen`, contract guard, additive-only wire, `contract/V1_REMOVALS.md` |
