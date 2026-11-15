@@ -194,8 +194,8 @@ router.get('/.well-known/apple-app-site-association', (req, res) => {
 router.get('/health', healthHandler);
 
 // Readiness check - is the server ready to accept traffic? 200 once connectDB
-// has connected and Mongo answers a ping: the path for a Railway deploy
-// healthcheck, none set yet (railway.toml says why)
+// has connected and Mongo answers a ping: the Railway deploy healthcheck
+// (.railway/railway.ts)
 router.get('/ready', async (req, res) => {
     try {
         // Check database connection

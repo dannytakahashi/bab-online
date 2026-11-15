@@ -1,6 +1,7 @@
 name: CI/CD
 
-# Railway deploys every push to main (Nixpacks, `node server/index.js`), so
+# Railway deploys a push to main once these checks pass (checkSuites,
+# .railway/railway.ts; Nixpacks, `node server/index.js`), so
 # this workflow is the only gate in front of production
 
 on:

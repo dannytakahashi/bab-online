@@ -3,7 +3,7 @@
  *
  * Always 200 and cheap (no DB round trip): it is the liveness view and what
  * the owner checks before pushing. /ready (DB ping, 503 without it) is
- * the one to use as a Railway deploy healthcheck. The endpoint is
+ * the Railway deploy healthcheck (.railway/railway.ts). The endpoint is
  * public, so it carries counts only, never usernames or ids.
  */
 
