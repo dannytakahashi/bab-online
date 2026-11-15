@@ -119,7 +119,7 @@ npm run dev:client   # Client Vite dev server (port 5173; serves client/index.ht
 npm run build:client # Production build: client/dist (index.html + hashed assets/); Express serves / from it
 npm run build:avatars # Re-encode stock avatar art from the fcdd885 masters (scripts/build-avatars.js)
 npm run build:icons  # favicon.ico (16/32/48), assets/icons/icon-192.png + apple-touch-icon.png, assets/app-icon.webp (the phone gate's) from the iOS app icon (scripts/build-icons.js)
-npm run build:sounds # Table sound effects (macOS + numpy): client/assets/sounds/*.m4a and the same files in iOSClient/BABOnline/Resources/Sounds/ from sounds-src/ (scripts/build-sounds.py; sounds:check = stale check)
+npm run build:sounds # Table sound effects (macOS + numpy): client/assets/sounds/*.m4a and the same files in iOSClient/BABOnline/Resources/Sounds/ from sounds-src/ (scripts/build-sounds.py; sounds:check = stale check, run by CI)
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)

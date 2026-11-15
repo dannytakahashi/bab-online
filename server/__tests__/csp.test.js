@@ -74,9 +74,14 @@ test('the sound effects are same-origin files the page fetches (connect-src \'se
     // fetch() is connect-src: 'self' (the page's own host) allows it in both policies
     expect(header['connect-src']).toContain("'self'");
     expect(metaPolicy()['connect-src']).toContain("'self'");
+    // a built client (npm run build) newer than the sound code: it emits the
+    // files and its chunk points at them. A dist built before the sounds
+    // existed is stale, not wrong: rebuild to check it
     const assets = path.join(ROOT, 'client', 'dist', 'assets');
     if (!fs.existsSync(assets)) return;
     const files = fs.readdirSync(assets);
+    const built = Math.max(0, ...files.filter((f) => f.endsWith('.js')).map((f) => fs.statSync(path.join(assets, f)).mtimeMs));
+    if (built < fs.statSync(path.join(ROOT, 'client', 'src', 'audio', 'SoundManager.js')).mtimeMs) return;
     const sounds = files.filter((f) => /\.m4a$/.test(f));
     expect(sounds).toHaveLength(11);
     const js = files.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
