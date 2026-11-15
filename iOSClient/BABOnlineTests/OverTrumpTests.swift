@@ -2,7 +2,7 @@ import XCTest
 @testable import BAB_Online
 
 /// The over-trump rule (owner 2026-11-11; TrickRules.isOverTrump, web mirror
-/// client/src/rules/overTrump.test.js, same table): the card just played is
+/// client/src/rules/overTrump.test.js, both reading contract/rules/legality-cases.json): the card just played is
 /// a trump or joker, the lead is not trump (a joker lead is), and it takes
 /// the trick from an OPPONENT whose winning card was a trump or joker.
 /// `legacy` is the pre-2026-11-11 detector (the last card vs the one before
@@ -31,39 +31,17 @@ final class OverTrumpTests: XCTestCase {
         return (CardConstants.rankValues[card.rank] ?? 0) > (CardConstants.rankValues[previous.rank] ?? 0)
     }
 
-    // (name, trick, trump, expected, oldWasWrong)
-    private static let cases: [(String, String, Card, Bool, Bool)] = [
-        ("opponent ruffs, the next player trumps higher", "1:Kh 2:5s 3:9s", spades, true, false),
-        ("an over-trump of an over-trump", "1:Kh 2:5s 3:9s 4:Js", spades, true, false),
-        ("the 4th seat over-trumps the 3rd", "1:Kh 2:Ah 3:5s 4:9s", spades, true, false),
-        ("LO joker over the opponent's trump ace", "1:Kh 2:As 3:LOj", spades, true, false),
-        ("HI joker over the opponent's LO joker", "1:Kh 2:LOj 3:HIj", spades, true, false),
-        ("no-trump hand: HI over the opponent's LO", "1:Kh 2:LOj 3:HIj", noTrump, true, false),
-        ("over my partner's trump (the opponent between under-trumped)", "1:Kh 2:9s 3:5s 4:Js", spades, false, true),
-        ("beats the under-trump, not the partner's winning 9", "1:Kh 2:9s 3:5s 4:7s", spades, false, true),
-        ("both jokers: HI over the partner's LO", "1:Kh 2:LOj 3:2s 4:HIj", spades, false, true),
-        ("no-trump hand: HI over the partner's LO", "1:Kh 2:LOj 3:5h 4:HIj", noTrump, false, false),
-        ("partner ruffed, the opponent followed, I trump higher", "1:Kh 2:5s 3:2h 4:9s", spades, false, false),
-        ("a trump lead, then a higher trump", "1:5s 2:9s 3:Js", spades, false, false),
-        ("a trump lead, a higher trump by the 4th seat", "1:5s 2:2s 3:3s 4:Js", spades, false, false),
-        ("the HI joker led: forced trumps", "1:HIj 2:As 3:2s 4:Ks", spades, false, false),
-        ("the LO joker led, the HI joker over it", "1:LOj 2:2s 3:HIj", spades, false, false),
-        ("no-trump hand: LO led, HI over it", "1:LOj 2:5h 3:HIj", noTrump, false, false),
-        ("the first trump of the trick (a ruff)", "1:Kh 2:Ah 3:2s", spades, false, false),
-        ("an under-trump of the opponent", "1:Kh 2:9s 3:5s", spades, false, false),
-        ("a slough after an opponent ruffed", "1:Kh 2:5s 3:2d", spades, false, false),
-        ("no-trump hand: a spade is not a trump", "1:Kh 2:LOj 3:As", noTrump, false, false),
-        ("no-trump hand: the first joker of the trick", "1:Kh 2:As 3:LOj", noTrump, false, false),
-        ("a lead and one card", "1:Kh 2:5s", spades, false, false),
-    ]
-
-    func testCaseTable() {
-        for (name, spec, trump, expected, oldWasWrong) in Self.cases {
-            let t = trick(spec)
-            XCTAssertEqual(TrickRules.isOverTrump(trick: t, trump: trump), expected, name)
-            XCTAssertEqual(legacy(t, trump) != expected, oldWasWrong, "old detector on: \(name)")
+    /// The rows are the shared table's `tricks` (contract/rules/legality-cases.json,
+    /// also run by Jest and Vitest; LegalityCaseTableTests checks their winners).
+    func testCaseTable() throws {
+        let rows = try LegalityCaseTableTests.caseTable().tricks
+        for row in rows {
+            let t = trick(row.trick)
+            let trump = LegalityCaseTableTests.card(row.trump)
+            XCTAssertEqual(TrickRules.isOverTrump(trick: t, trump: trump), row.overTrump, row.name)
+            XCTAssertEqual(legacy(t, trump) != row.overTrump, row.oldDetectorWrong, "old detector on: \(row.name)")
         }
-        XCTAssertGreaterThanOrEqual(Self.cases.filter { $0.4 }.count, 3)
+        XCTAssertGreaterThanOrEqual(rows.filter { $0.oldDetectorWrong }.count, 3)
         XCTAssertFalse(TrickRules.isOverTrump(trick: trick("1:Kh 2:5s 3:9s"), trump: nil))
         XCTAssertFalse(TrickRules.isOverTrump(trick: [], trump: Self.spades))
     }
