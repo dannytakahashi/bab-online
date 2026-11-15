@@ -208,7 +208,7 @@ Everything above is a rule of thumb, and rules of thumb leak most when few cards
 2. **Solve each sampled deal exactly**, all four hands face up, for every legal card.
 3. **Play the card with the best average hand score** (our points minus theirs under the real contract: bids, bores, tricks already taken). Averaging the score rather than the tricks is what makes it play for the contract: it takes the sure trick that makes the bid over the line that wins one more trick most of the time and gets set the rest.
 
-The rule-based card is kept on an exact tie, above 7 cards, and whenever the bot has not seen the whole hand (a bot that took a seat mid-hand). Last to play, the search only ever considers cards that win a trick that can be won: it never declines one.
+The rule-based card is kept on an exact tie, above 7 cards, and whenever the bot's memory does not cover the whole hand (a bot that takes a seat mid-hand gets the hand's played tricks and the open trick replayed into its memory first, so it searches like one that watched from the deal). Last to play, the search only ever considers cards that win a trick that can be won: it never declines one.
 
 Against the old rule-only bots the search alone wins 61.6% of paired games, about 40 points per game (sim README, "Play search"); with the hand-reading rules above for the bigger hands, 62.0% and about 44 points ("Combined play"). The search has known blind spots: it assumes everyone sees every card from here on, so it never plays to hide a card or to make a defender guess.
 
