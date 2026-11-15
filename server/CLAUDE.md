@@ -21,6 +21,7 @@ Loads automatically when Claude reads a file under `server/`; the root `CLAUDE.m
 - `GameState` encapsulates all state for a single game
 - `rules.js` contains pure, stateless game logic functions (highly testable)
 - Socket handlers wrapped with validation, rate limiting, error handling
+- Timers never call into server code bare: an uncaughtException exits the process (exit 1, Railway restarts it, every game is dropped), so use `utils/safeTimer.js` `safeTimeout(fn, ms, label)` / `safeInterval` (logs and carries on) or a game's `game.setTimer`; `safeTimer.test.js` fails on a new bare timer (`docs/claude/server-infra.md`, Deploys)
 - Socket.IO server options live in `server/socket/serverOptions.js` (cors + `connectTimeout` 10 s instead of the 45 s default: an engine that never joins the namespace is dropped, which bounds the iOS 1.1.0/1.2.0 stall after a long background below; `connectTimeout.test.js`)
 - (The iOS stall after a long background: `iOSClient/CLAUDE.md`, iOS reconnect after a background.)
 

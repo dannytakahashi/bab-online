@@ -9,6 +9,7 @@ const { describeClientAddress } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
+const { safeTimeout } = require('../utils/safeTimer');
 const { issueSession, verifySession } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
@@ -875,8 +876,9 @@ async function deleteAccount(socket, io, data) {
         authLogger.info('Account deleted', { username, socketId: socket.id });
 
         // Disconnect after the response flushes; the normal disconnect flow
-        // cleans up any lobby/queue/game/tournament state
-        setTimeout(() => socket.disconnect(true), 500);
+        // cleans up any lobby/queue/game/tournament state (those handlers
+        // run inside this callback, hence the guard)
+        safeTimeout(() => socket.disconnect(true), 500, 'deleteAccountDisconnect');
 
     } catch (error) {
         if (isHashBusy(error)) {

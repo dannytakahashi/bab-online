@@ -96,3 +96,36 @@ test('an index that cannot be built is a warning, the others still build, and co
     expect(collections.users.createIndex).toHaveBeenCalledWith({ username: 1 }, { unique: true });
     await expect(database.whenReady(10)).resolves.toBe(true);
 });
+
+test('every connect attempt passes serverSelectionTimeoutMS 5000 (driver default 30 s)', async () => {
+    const { client } = fakeClient();
+    mockConnect.mockRejectedValueOnce(new Error('down')).mockResolvedValueOnce(client);
+    const done = database.connectDB();
+    await jest.advanceTimersByTimeAsync(2000);
+    await done;
+    expect(database.SERVER_SELECTION_TIMEOUT_MS).toBe(5000);
+    expect(mockConnect).toHaveBeenCalledTimes(2);
+    for (const [, options] of mockConnect.mock.calls) {
+        expect(options).toEqual({ serverSelectionTimeoutMS: 5000 });
+    }
+});
+
+test("getDbState follows the driver's topology events, no round trip", async () => {
+    const { client } = fakeClient();
+    const listeners = {};
+    client.on = jest.fn((event, fn) => { listeners[event] = fn; });
+    mockConnect.mockResolvedValueOnce(client);
+    expect(database.getDbState()).toBe('disconnected');
+    await database.connectDB();
+    expect(database.getDbState()).toBe('connected');
+
+    const change = (...servers) => listeners.topologyDescriptionChanged({
+        newDescription: { servers: new Map(servers.map((s, i) => [`h${i}:27017`, s])) },
+    });
+    change({ type: 'Unknown', isWritable: false });
+    expect(database.getDbState()).toBe('disconnected');
+    expect(dbLogger.warn).toHaveBeenCalledWith(expect.stringMatching(/unreachable/));
+    change({ type: 'RSSecondary', isWritable: false }, { type: 'RSPrimary', isWritable: true });
+    expect(database.getDbState()).toBe('connected');
+    expect(dbLogger.info).toHaveBeenCalledWith('MongoDB reachable again');
+});

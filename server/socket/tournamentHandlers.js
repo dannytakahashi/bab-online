@@ -9,6 +9,7 @@ const { socketLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
 const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
 const { delay } = require('../utils/timing');
+const { safeTimeout } = require('../utils/safeTimer');
 const pacing = require('../game/pacing');
 const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { botController, BotPlayer, personalities } = require('../game/bot');
@@ -858,7 +859,7 @@ function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAM
     if (cleanupTimers.has(tournamentId)) {
         clearTimeout(cleanupTimers.get(tournamentId));
     }
-    const timer = setTimeout(() => {
+    const timer = safeTimeout(() => {
         cleanupTimers.delete(tournamentId);
         const tournament = gameManager.getTournamentById(tournamentId);
         if (!tournament) return;
@@ -873,7 +874,7 @@ function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAM
 
         emitLobbiesUpdated(io);
         socketLogger.info('Completed tournament cleaned up', { tournamentId });
-    }, delayMs);
+    }, delayMs, 'tournamentCleanup');
     if (timer.unref) timer.unref();
     cleanupTimers.set(tournamentId, timer);
 }

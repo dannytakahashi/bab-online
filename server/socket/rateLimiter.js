@@ -4,6 +4,7 @@
  */
 
 const { socketLogger } = require('../utils/logger');
+const { safeInterval } = require('../utils/safeTimer');
 
 class RateLimiter {
     constructor() {
@@ -106,7 +107,7 @@ class RateLimiter {
         this.requests = new Map();
 
         // Cleanup old entries periodically (every 5 minutes)
-        this.cleanupInterval = setInterval(() => this.cleanup(), 300000);
+        this.cleanupInterval = safeInterval(() => this.cleanup(), 300000, 'rateLimiterCleanup');
         // Housekeeping only: never keep a process (CLI, test worker) alive
         this.cleanupInterval.unref?.();
     }

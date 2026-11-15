@@ -4,6 +4,7 @@
 
 const express = require('express');
 const { getDB } = require('../database');
+const { healthHandler } = require('./health');
 const router = express.Router();
 
 // The main page (`/`, the built client/dist/index.html) is served by
@@ -188,21 +189,13 @@ router.get('/.well-known/apple-app-site-association', (req, res) => {
     });
 });
 
-// Health check endpoint - is the server running?
-router.get('/health', (req, res) => {
-    res.json({
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        memory: {
-            used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-            total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
-            unit: 'MB'
-        }
-    });
-});
+// Health check endpoint - is the server running? Always 200, plus the DB
+// state and live counts (routes/health.js)
+router.get('/health', healthHandler);
 
-// Readiness check - is the server ready to accept traffic?
+// Readiness check - is the server ready to accept traffic? 200 once connectDB
+// has connected and Mongo answers a ping: the path for a Railway deploy
+// healthcheck, none set yet (railway.toml says why)
 router.get('/ready', async (req, res) => {
     try {
         // Check database connection

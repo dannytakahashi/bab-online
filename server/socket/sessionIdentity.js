@@ -57,6 +57,7 @@
 
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
+const { safeTimeout } = require('../utils/safeTimer');
 
 const SUPERSEDED_REASON = 'newerConnection';
 const OTHER_CLOSED_REASON = 'otherClosed';
@@ -278,10 +279,10 @@ function liveSocketClosed(io, socket, username) {
     if (username == null || !socket || socket.data?.superseded) return false;
     if (parkedSocketsOf(io, username, socket.id).length === 0) return false;
     cancelOtherClosed(username);
-    const timer = setTimeout(() => {
+    const timer = safeTimeout(() => {
         otherClosedTimers.delete(username);
         tellOtherClosed(io, username);
-    }, OTHER_CLOSED_DELAY_MS);
+    }, OTHER_CLOSED_DELAY_MS, 'otherClosed');
     timer.unref?.();
     otherClosedTimers.set(username, timer);
     return true;
