@@ -198,6 +198,21 @@ test('the $def addition exception is narrow: only named, optional properties, th
     expect(defKeeps('tournamentChatLine', base, required)).toContain('$defs.tournamentChatLine.system: an added property must be optional');
     const retyped = { ...cur, properties: { ...cur.properties, timestamp: { type: 'number' } } };
     expect(defKeeps('tournamentChatLine', base, retyped)).toEqual(['$defs.tournamentChatLine: changed']);
+    // s2c-only: a client payload growing would be a different promise
+    const refs = (node, out = new Set()) => {
+        if (node && typeof node === 'object') {
+            if (typeof node.$ref === 'string') out.add(node.$ref.split('/').pop());
+            for (const v of Object.values(node)) refs(v, out);
+        }
+        return out;
+    };
+    const c2sRefs = refs(schema.c2s);
+    for (const name of Object.keys(S2C_DEF_ADDITIONS)) {
+        expect(c2sRefs.has(name)).toBe(false);
+        for (const def of Object.keys(schema.$defs)) {
+            if (c2sRefs.has(def)) expect(refs(schema.$defs[def]).has(name)).toBe(false);
+        }
+    }
     const other = baseline.$defs.lobbyMember;
     expect(defKeeps('lobbyMember', other, { ...other, properties: { ...other.properties, system: { const: true } } })).toEqual(['$defs.lobbyMember: changed']);
 });

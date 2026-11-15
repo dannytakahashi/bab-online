@@ -3,13 +3,15 @@
  * normalized (case, leetspeak, separators, digits, repeated letters) and
  * every term is matched inside them; chat catches inflections; ordinary
  * words and names (the allowlist and names with no term at all) pass; the
- * reserved names are refused at sign-up, case-insensitively.
+ * reserved names are refused at sign-up, case-insensitively. Review fixes
+ * (same day): a term only counts inside one word, so real names and
+ * name-plus-number handles pass ("Matt Watson", "Josh17", "Ishita").
  */
 
 const {
-    containsProfanity, containsProfanitySubstring, filterProfanity, EMBEDDED_TERMS, WORD_TERMS, ALLOWLIST,
+    containsProfanity, containsProfanitySubstring, filterProfanity, EMBEDDED_TERMS, WORD_TERMS, ALLOWLIST, ALLOWED_NAMES,
 } = require('../profanityFilter');
-const { checkNewUsername, isReservedName, RESERVED_NAMES, MESSAGES } = require('../usernameRules');
+const { checkNewUsername, isReservedName, RESERVED_NAMES, RESERVED_PLURALS, MESSAGES } = require('../usernameRules');
 
 // Every term, plain, as a handle
 const EVERY_TERM = [...EMBEDDED_TERMS, ...Object.keys(WORD_TERMS)];
@@ -35,6 +37,13 @@ describe('usernames: blocked', () => {
         'xXmotherfucker99', 'bullshitter', 'superfucker', 'mrcunt', 'lilslut', 'kidpedophile', 'pedophiles', 'heilhitler',
         // plurals of the word-only terms
         'Spics Rule', 'fags', 'pricks4life',
+        // random capitals are not a camelCase break; compounds count across one
+        'FuCking', 'NiGger', 'ReTarded', 'nIGGER', 'ShItHead', 'sHiT', 'FUCKing', 'AssHole', 'DickHead', 'Dick_Head',
+        'Ass Hole', 'MotherFucker', 'TwAt',
+        // a trailing number that finishes a term begun at the word's start
+        'BigSh17',
+        // a name on ALLOWED_NAMES only as itself
+        'shitall', 'Ishitaa', 'Trannies',
     ])('%p', (name) => {
         expect(containsProfanitySubstring(name)).toBe(true);
     });
@@ -45,7 +54,20 @@ describe('usernames: allowed', () => {
         expect(containsProfanitySubstring(word)).toBe(false);
     });
 
+    test.each(ALLOWED_NAMES)('allowed name: %p', (name) => {
+        expect(containsProfanitySubstring(name)).toBe(false);
+        expect(containsProfanitySubstring(name[0].toUpperCase() + name.slice(1) + '22')).toBe(false);
+    });
+
     test.each([
+        // a term across two words of a real name (review 2026-11-15: these were refused)
+        'Matt Watson', 'Brett Watkins', 'Scott Watts', 'Kurt Watanabe', 'James Luther', 'Wes Luther', 'Charles Lutz',
+        'Russ Lutz', 'Hanna Ziegler', 'Anna Zinn', 'Dana Zito', 'Tina Zimmerman', 'Josh Ito', 'Marc Unterberg',
+        'Bob Itch', 'Stewart Watt', 'MattWatson', 'JoshIto', 'AnnaZito',
+        // a name and a number: the number is not leetspeak
+        'Josh17', 'Ash17', 'Krish17', 'Manish17', 'Ashish17', 'Satish17', 'Harshit99',
+        // names with a term inside (ALLOWED_NAMES) and ordinary words
+        'Ishita', 'Nishita', 'Kshitij', 'Shital', 'Nazila', 'Pussycat', 'Retardation', 'Niggardly',
         // the Scunthorpe problem: a term inside an ordinary word or name
         'Scunthorpe', 'Therapist', 'Therapists', 'Atwater', 'Saltwater', 'Shiitake', 'Shitake', 'Mishit', 'Yamashita',
         'Kinoshita', 'Ashkenazi', 'Nazir', 'Snigger', 'Retardant',
@@ -98,6 +120,23 @@ describe('chat: inflections caught', () => {
         ['(fucking)', '(*******)'],
         ['FUCKING', '*******'],
         ['fuckfuckfuck', '************'],
+        // random capitals and compounds
+        ['FuCking hell', '******* hell'],
+        ['AssHole', '*******'],
+        ['MotherFucker', '************'],
+        ['fucker99', '******99'],
+        // spelled out
+        ['f.u.c.k off', '******* off'],
+        ['s h i t', '*******'],
+        ['f-u-c-k', '*******'],
+        // invisible characters, accents, fullwidth letters and lookalikes
+        ['fu\u200Bck', '*****'],
+        ['fu\u0301ck', '*****'],
+        ['f\u00FCck', '****'],
+        ['\uFF46\uFF55\uFF43\uFF4B you', '**** you'],
+        ['fu\u0441k', '****'],
+        ['\u0455hit', '****'],
+        ['Trannies', '********'],
     ])('%p -> %p', (input, masked) => {
         expect(filterProfanity(input)).toBe(masked);
         expect(containsProfanity(input)).toBe(true);
@@ -131,6 +170,17 @@ describe('chat: ordinary words untouched', () => {
         'this hit',
         'Niger and Nigeria',
         'skys the limit, lucky star',
+        // names in chat, and names with a number (review 2026-11-15: these were masked)
+        'Ishita played well',
+        'Kshitij is here',
+        'gg Josh17 and Manish17',
+        'MattWatson bid 4',
+        'Harshit says hi',
+        'pussycat dolls',
+        'growth retardation',
+        'I a m here, a b c',
+        'café naïve',
+        'привет всем',
     ])('%p', (input) => {
         expect(filterProfanity(input)).toBe(input);
         expect(containsProfanity(input)).toBe(false);
@@ -144,10 +194,17 @@ describe('chat: ordinary words untouched', () => {
         expect(out).toHaveLength(packed.length);
         expect(out).not.toMatch(/fuck|shit/);
     });
+
+    test('a long run of one letter stays linear too (the f+u+c+k+ patterns would backtrack over it)', () => {
+        const t0 = Date.now();
+        expect(filterProfanity('f'.repeat(30000))).toBe('f'.repeat(30000));
+        expect(filterProfanity('n'.repeat(30000) + 'igger')).toBe('*'.repeat(30005));
+        expect(Date.now() - t0).toBeLessThan(2000);
+    });
 });
 
 describe('reserved names', () => {
-    test.each(RESERVED_NAMES)('%p is refused in any case', (name) => {
+    test.each([...RESERVED_NAMES, ...RESERVED_PLURALS])('%p is refused in any case', (name) => {
         for (const spelled of [name, name.toUpperCase(), name[0].toUpperCase() + name.slice(1)]) {
             expect(isReservedName(spelled)).toBe(true);
             expect(checkNewUsername(spelled)).toMatchObject({ ok: false, reason: 'reserved', message: MESSAGES.reserved });
@@ -158,6 +215,9 @@ describe('reserved names', () => {
         'sYsTeM', 'Sys tem', 'Syyystem', '5ystem', 'System1', 'Adm1n', 'admin2', 'ADMIN', 'Admin_', 'Bot 2', 'B0T',
         'bot99', 'Mod5', 'M0derator', 'Official_Support', 'BabOnline Staff', 'Bab Online', 'BAB_ONLINE', 'bab.online',
         'nu11', 'Null', 'UNDEFINED', 'Support Staff', 'SystemAdmin', 'ServerBot', 'Population',
+        // staff plurals, official-sounding words around one, lookalikes (review 2026-11-15)
+        'Admins', 'Mods', 'Bots', 'Moderators', 'Admin Team', 'Mod Squad', 'System Notice', 'The System', 'Real Admin',
+        'Help Desk Bot', 'Admln', 'Systern', 'B a b 0nline',
     ])('%p (normalized, or several run together)', (name) => {
         expect(checkNewUsername(name)).toMatchObject({ ok: false, reason: 'reserved' });
     });
@@ -166,6 +226,9 @@ describe('reserved names', () => {
         // only the whole name counts, never a part of it
         'Bobcat', 'Model', 'Modern', 'Babs', 'Babe Ruth', 'Systems Guy', 'Admiral', 'Support Bob', 'Botany', 'Abbot',
         'Serverus', 'Nullify', 'Staffy', 'Officially Al',
+        // the qualifier words alone, or with an ordinary name
+        'Help Desk', 'The Team', 'Theo', 'Theodore', 'Teamster', 'Modest', 'Real Bob', 'Alert', 'Abbots', 'Notice Me',
+        'Bobs', 'Liam', 'Ella', 'Delia', 'Molly',
         // the Apple review account and other fixture names
         'test1', 'Bob', '007', 'abc', 'Mary', 'Danny', 'Alan T',
     ])('%p is not reserved', (name) => {

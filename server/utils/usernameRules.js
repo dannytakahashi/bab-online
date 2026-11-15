@@ -29,20 +29,32 @@ const BOT_PREFIX = '\u{1F916}'; // 🤖
 
 // Names that would pass for the server, its staff or a bot. A new name is
 // refused when, spelled as the profanity filter reads a handle (any case,
-// leetspeak undone, separators, digits and repeated letters dropped), it is
-// one of these or several run together: "System", "ADMIN", "Adm1n",
-// "Bot 2", "Official_Support", "BabOnline Staff". A name that merely
-// contains one passes ("Bobcat", "Model", "Babs", "Systems Guy"). Bot
-// persona names (Mary, Sharon, ...) are ordinary first names and stay free:
-// a bot always shows as "🤖 Mary". "population" is the leaderboard's
-// average row (profileHandlers, isPopulation).
+// leetspeak undone, separators, digits and repeated letters dropped) and
+// with the lookalikes l / i and rn / m read alike ("Admln", "Systern"), it
+// is one of these or several run together ("System", "Adm1n", "Bot 2",
+// "Official_Support", "BabOnline Staff"), a staff plural ("Admins",
+// "Mods"), or one with RESERVED_QUALIFIERS around it ("The System",
+// "Admin Team", "System Notice"). A name that merely contains one passes
+// ("Bobcat", "Model", "Babs", "Systems Guy"). Bot persona names (Mary,
+// Sharon, ...) are ordinary first names and stay free: a bot always shows
+// as "🤖 Mary". "population" is the leaderboard's average row
+// (profileHandlers, isPopulation).
 const RESERVED_NAMES = [
     'system', 'admin', 'administrator', 'moderator', 'mod', 'babonline', 'bab',
     'server', 'support', 'official', 'staff', 'bot', 'null', 'undefined',
     'population',
 ];
-const fold = (s) => s.replace(/(.)\1+/g, '$1');
-const RESERVED = new RegExp(`^(?:${RESERVED_NAMES.map(fold).join('|')})+$`);
+const RESERVED_PLURALS = ['admins', 'administrators', 'moderators', 'mods', 'officials', 'bots'];
+// Words that read as part of an official name next to a reserved one, never alone
+const RESERVED_QUALIFIERS = [
+    'the', 'real', 'team', 'squad', 'crew', 'notice', 'notices', 'alert', 'alerts', 'account', 'help', 'desk',
+];
+// l and i, rn and m look alike in most fonts; repeated letters fold to one
+const fold = (s) => s.replace(/rn/g, 'm').replace(/l/g, 'i').replace(/(.)\1+/g, '$1');
+const alternation = (words) => [...new Set(words.map(fold))].join('|');
+const RESERVED_WORD = alternation([...RESERVED_NAMES, ...RESERVED_PLURALS]);
+const QUALIFIER = alternation(RESERVED_QUALIFIERS);
+const RESERVED = new RegExp(`^(?:${QUALIFIER})*(?:${RESERVED_WORD})(?:${RESERVED_WORD}|${QUALIFIER})*$`);
 
 /**
  * Is `name` a reserved name (above)? Existing accounts are never checked:
@@ -134,6 +146,8 @@ module.exports = {
     MAX_LENGTH,
     MESSAGES,
     RESERVED_NAMES,
+    RESERVED_PLURALS,
+    RESERVED_QUALIFIERS,
     checkNewUsername,
     isReservedName,
     findNameClash,

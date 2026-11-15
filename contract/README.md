@@ -122,7 +122,12 @@ object may be spelled out (narrowing only adds promises) only when listed
 in `S2C_REFINED` (today: `recordsResponse.records`). A baseline `$def` is
 frozen, except that an s2c-only one may gain optional properties named in
 `S2C_DEF_ADDITIONS` (the only way a `$ref` payload can grow; today:
-`tournamentChatLine.system` / `.type`, the tournament server notice).
+`tournamentChatLine.system` / `.type`, the tournament server notice). The
+guard's own test checks that no c2s payload reaches such a $def by `$ref`.
+iOS 1.2.0 drops a tournament line whose username the player has blocked
+before it reads `type` (TournamentSocketHandler), so an iOS player who
+blocked a legacy account named "System" also loses the real notices
+there; web does not. Accepted: the username stays 'System' for old clients.
 
 Escape hatches:
 
