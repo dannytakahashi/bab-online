@@ -7,6 +7,7 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
+const { isNameHold, heldNameRefusal } = require('./nameHold');
 
 // Short, unambiguous words that are easy to read aloud and type on a phone
 const WORDS = [
@@ -114,6 +115,7 @@ async function setPassword(db, username, newPassword, { now = new Date(), rounds
     }
     const user = await db.users.findOne({ username });
     if (!user) throw new Error(`Account "${username}" does not exist.`);
+    if (isNameHold(user)) throw new Error(heldNameRefusal(username, user, 'reset'));
     if (user.mergedInto) {
         throw new Error(`"${username}" was merged into "${user.mergedInto}". Reset "${user.mergedInto}" instead.`);
     }

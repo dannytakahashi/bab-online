@@ -503,6 +503,29 @@ describe('actions', () => {
             gameManager.deletedUsernames.delete('Cy');
         });
 
+        test('a held name: reset link, set-password, admin flag, sign out everywhere, rename and merge say it was deleted (never "act on [deleted]")', async () => {
+            await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'Cy' });
+            const held = /^"Cy" was deleted \(its name is held until \d{4}-\d\d-\d\d\): there is no account to /;
+            for (const [action, args] of [
+                ['createResetLink', { username: 'Cy' }],
+                ['setAdmin', { username: 'Cy', isAdmin: true }],
+                ['signOutEverywhere', { username: 'Cy' }],
+                ['renameAccount', { username: 'Cy', newName: 'Cyan', confirm: 'Cyan' }]
+            ]) {
+                const res = await request(owner, action, args);
+                expect(res).toMatchObject({ ok: false });
+                expect(JSON.stringify(res)).toMatch(/was deleted \(its name is held until/);
+                expect(JSON.stringify(res)).not.toContain('[deleted]');
+            }
+            const { setPassword } = require('../../admin/setPassword');
+            await expect(setPassword(mockDb.current, 'Cy', 'maple-otter-42', { rounds: 4 })).rejects.toThrow(held);
+            const { planMerge } = require('../../admin/accountMerge');
+            expect((await planMerge(mockDb.current, { target: 'Bea', sources: ['Cy'] })).errors).toEqual([expect.stringMatching(held)]);
+            expect((await planMerge(mockDb.current, { target: 'Cy', sources: ['Bea'] })).errors).toEqual([expect.stringMatching(held)]);
+            expect(await users().findOne({ username: 'Cy' })).toMatchObject({ mergedInto: '[deleted]' });
+            gameManager.deletedUsernames.delete('Cy');
+        });
+
         test('the typed name must match exactly; a wrong one changes nothing', async () => {
             const before = JSON.stringify(users().all());
             expect(await request(owner, 'deleteAccount', { username: 'Cy', confirm: 'cy' })).toMatchObject({ ok: false, error: 'invalid' });

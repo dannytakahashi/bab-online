@@ -21,6 +21,7 @@
 'use strict';
 
 const { AdminError } = require('./adminError');
+const { isNameHold, heldNameRefusal, HOLD_FIELDS } = require('./nameHold');
 
 const ADMIN_FILTER = { isAdmin: true, mergedInto: { $exists: false } };
 
@@ -43,8 +44,9 @@ function countAdmins(db) {
 
 /** The account a flag change targets: exists and is not a tombstone. */
 async function findTarget(db, username) {
-    const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, isAdmin: 1, adminSince: 1, adminSetBy: 1 } });
+    const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, isAdmin: 1, adminSince: 1, adminSetBy: 1, ...HOLD_FIELDS } });
     if (!user) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
+    if (isNameHold(user)) throw new AdminError('refused', heldNameRefusal(username, user, 'make an admin'));
     if (user.mergedInto) {
         throw new AdminError('refused', `"${username}" was merged into "${user.mergedInto}" and can't be an admin.`);
     }

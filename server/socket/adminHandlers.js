@@ -56,6 +56,7 @@ const { searchPlayers, listPlayers } = require('../admin/players');
 const { planMerge, applyMerge, countChanges, findDuplicateCandidates } = require('../admin/accountMerge');
 const { planView, planHash } = require('../admin/mergeView');
 const { eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists, isNameHold } = require('../admin/accountDelete');
+const { heldNameRefusal } = require('../admin/nameHold');
 const { renameUserDoc, leaveRedirect, renameEverywhere, finishRename, unfinishedRenameOf, isRenameRedirect } = require('../admin/accountRename');
 const { checkNewUsername, findNameClash, takenMessage } = require('../utils/usernameRules');
 const { containsProfanitySubstring } = require('../utils/profanityFilter');
@@ -420,7 +421,7 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
     }
     const user = await db.users.findOne(
         { username: from },
-        { projection: { username: 1, mergedInto: 1, renamedAt: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1, renamePending: 1 } }
+        { projection: { username: 1, mergedInto: 1, renamedAt: 1, deletedAt: 1, nameHeldUntil: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1, renamePending: 1 } }
     );
 
     const counts = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, adminSetBy: 0, resetLinks: 0, revokedSessions: 0, signedOut: 0 };
@@ -478,6 +479,7 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
         };
     }
     if (!user) throw new AdminError('not_found', `No account is named "${from}" (names are case-sensitive).`);
+    if (isNameHold(user)) throw new AdminError('refused', heldNameRefusal(from, user, 'rename'));
     if (user.mergedInto) {
         throw new AdminError('refused', isRenameRedirect(user)
             ? `"${from}" is an old name: the account is now called "${user.mergedInto}". Rename "${user.mergedInto}" instead.`
@@ -582,8 +584,9 @@ const RUN = {
     },
 
     async signOutEverywhere({ db, io }, { username }) {
-        const found = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1 } });
+        const found = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, deletedAt: 1, nameHeldUntil: 1 } });
         if (!found) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
+        if (isNameHold(found)) throw new AdminError('refused', heldNameRefusal(username, found, 'sign out'));
         if (found.mergedInto) throw new AdminError('refused', `"${username}" was merged into "${found.mergedInto}" and has no sessions.`);
         // A reset link that leaked must not outlive the lock-down: cancel
         // the open ones first (if this fails, nothing else was changed)

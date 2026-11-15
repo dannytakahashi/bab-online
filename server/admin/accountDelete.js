@@ -74,12 +74,9 @@ const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('admin');
 
-const DELETED_NAME = '[deleted]';
+const { DELETED_NAME, isNameHold } = require('./nameHold');
 // How long a deleted account's name stays taken (owner 2026-11-15)
 const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
-
-/** A deleted account's name hold (eraseAccount), as opposed to a merge / rename tombstone. */
-const isNameHold = (doc) => Boolean(doc && doc.mergedInto === DELETED_NAME && doc.deletedAt);
 
 // When each name was deleted in this process (never cleared by a new
 // sign-up of the name, unlike gameManager.deletedUsernames): a seat in a

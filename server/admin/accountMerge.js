@@ -39,6 +39,7 @@
  */
 
 const { STAT_KEYS, pickStats } = require('../utils/statsScope');
+const { isNameHold, heldNameRefusal } = require('./nameHold');
 
 // Fields removed from a source when it becomes a tombstone
 const TOMBSTONE_UNSET = [
@@ -110,6 +111,10 @@ async function planMerge(db, { target, sources }) {
         plan.errors.push(`Target account "${target}" does not exist.`);
         return plan;
     }
+    if (isNameHold(targetDoc)) {
+        plan.errors.push(heldNameRefusal(target, targetDoc, 'merge into'));
+        return plan;
+    }
     if (targetDoc.mergedInto) {
         plan.errors.push(`Target "${target}" was itself merged into "${targetDoc.mergedInto}". Merge into "${targetDoc.mergedInto}" instead.`);
         return plan;
@@ -123,6 +128,10 @@ async function planMerge(db, { target, sources }) {
         const doc = await db.users.findOne({ username: name });
         if (!doc) {
             plan.errors.push(`Source account "${name}" does not exist.`);
+            continue;
+        }
+        if (isNameHold(doc)) {
+            plan.errors.push(heldNameRefusal(name, doc, 'merge'));
             continue;
         }
         if (doc.mergedInto && doc.mergedInto !== target) {
