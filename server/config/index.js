@@ -13,8 +13,8 @@ const config = {
     // Server
     port: parseInt(process.env.PORT, 10) || 3000,
 
-    // Database
-    mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/bab-online',
+    // (Database: MONGO_URI and DB_NAME are read by server/database.js and
+    // server/config/dbName.js; nothing here)
 
     // Security
     allowedOrigins: process.env.ALLOWED_ORIGINS

@@ -6,9 +6,11 @@
 
 require('dotenv').config();
 const readline = require('readline');
+const { dbNameFrom, uriPathDb } = require('../config/dbName');
 
-const DEFAULT_URI = 'mongodb://localhost:27017/babonline';
-const DB_NAME = 'babonline';
+const DEFAULT_URI = 'mongodb://localhost:27017';
+// The server's database (server/database.js): DB_NAME, else 'babonline'
+const DB_NAME = dbNameFrom();
 
 /** Replaces the password in a MongoDB URI with *** ("//user:<password>@" becomes "//user:***@"). */
 function redactUri(uri) {
@@ -17,13 +19,16 @@ function redactUri(uri) {
 
 /**
  * What the scripts print as "Database:". The scripts (like the server,
- * server/database.js) always use the `babonline` database, whatever path
- * MONGO_URI names, so show the server without its path plus the database
- * actually written: "mongodb://host:27017 (database babonline)".
+ * server/database.js) use DB_NAME, else `babonline`, whatever path MONGO_URI
+ * names, so show the server without its path plus the database actually
+ * written: "mongodb://host:27017 (database babonline)", and a path that
+ * names another database as ignored.
  */
 function describeTarget(uri, dbName = DB_NAME) {
     const server = redactUri(uri).replace(/^(mongodb(?:\+srv)?:\/\/[^/?]+)[^?]*/, '$1');
-    return `${server.replace(/\?.*$/, '')} (database ${dbName})`;
+    const pathDb = uriPathDb(uri);
+    const ignored = pathDb && pathDb !== dbName ? `; the URI's /${pathDb} is ignored` : '';
+    return `${server.replace(/\?.*$/, '')} (database ${dbName}${ignored})`;
 }
 
 async function connect() {

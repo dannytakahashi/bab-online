@@ -2,8 +2,12 @@ require("dotenv").config();
 const { MongoClient } = require("mongodb");
 const { dbLogger } = require("./utils/logger");
 
-const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/babonline';
-const dbName = "babonline";
+const { dbNameFrom, uriPathDb } = require("./config/dbName");
+
+const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017';
+// DB_NAME, else 'babonline' (server/config/dbName.js); never MONGO_URI's path.
+// An invalid DB_NAME throws here, so the boot stops before writing anywhere
+const dbName = dbNameFrom();
 
 let db, usersCollection, gameRecordsCollection, reportsCollection;
 // Admin panel (server/admin/): one-time reset links and the audit log
@@ -69,7 +73,12 @@ async function connectDB() {
         }
     }
 
-    dbLogger.info("Connected to MongoDB");
+    dbLogger.info("Connected to MongoDB", { database: dbName });
+    const pathDb = uriPathDb(mongoURI);
+    if (pathDb && pathDb !== dbName) {
+        // (the driver still takes the path as the auth database when the URI has credentials)
+        dbLogger.warn("MONGO_URI path names another database; the data goes to DB_NAME (or the default)", { uriDatabase: pathDb, database: dbName });
+    }
     watchTopology(client);
     db = client.db(dbName);
     usersCollection = db.collection("users");
@@ -210,6 +219,7 @@ module.exports = {
     SERVER_SELECTION_TIMEOUT_MS,
     getDbState,
     getDB: () => db,
+    getDbName: () => dbName,
     getUsersCollection: () => usersCollection,
     getGameRecordsCollection: () => gameRecordsCollection,
     getReportsCollection: () => reportsCollection,

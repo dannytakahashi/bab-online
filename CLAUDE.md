@@ -165,7 +165,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Express pages, avatars | `docs/claude/server-infra.md` | /privacy /support /terms; avatar pipeline, `clientHello` caps, kill switches |
 | Voice | `docs/claude/voice.md` | signaling checks (peers, blocks, limits), Cloudflare TURN minting, web/iOS restart rules, web voice keys (hold `` ` `` for the overlay, M mute) |
 | Merged accounts, admin panel, reset links, deletion | `server/admin/CLAUDE.md` | tombstones, `adminRequest` authorization + audit, merge / delete / rename, one-time reset links |
-| Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production, always the `babonline` database |
+| Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production; the database is `DB_NAME`, else `babonline` (never the MONGO_URI path) |
 | Socket contract | `contract/CLAUDE.md`, Socket contract | `contract/src`, `npm run contract:gen`, contract guard, additive-only wire, `contract/V1_REMOVALS.md` |
 | Snapshot v2, `seq` | `contract/CLAUDE.md` | `getSnapshotV2`, `trickHistory`, `watching`; seq stamping, consumer rules R1-R5 |
 | Upgrade gate | `contract/CLAUDE.md`, Upgrade gate | iOS 1.0.0 / 1.1.0 detection by User-Agent (`MIN_IOS_BUILD` 3), update-only replies, `UPGRADE_GATE=off` |

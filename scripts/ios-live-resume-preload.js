@@ -2,7 +2,8 @@
 // for production: `node -r scripts/ios-live-resume-preload.js server/index.js`.
 //
 // - server/index.js listens on a hard-coded 3000: remapped to BAB_LIVE_PORT on 127.0.0.1.
-// - server/database.js uses the hard-coded 'babonline' database: remapped to BAB_LIVE_DB.
+// - server/database.js uses DB_NAME, else 'babonline': the default is remapped to BAB_LIVE_DB
+//   (setting DB_NAME is the cleaner way for a new check; this keeps working without it).
 // - Logs every Engine.IO handshake, namespace connect / close and selected events per
 //   socket id ('[keeplog]' lines, no payload secrets): the server-side proof that a kept
 //   connection made no new handshake, and the probe's requestSnapshot and its answer.

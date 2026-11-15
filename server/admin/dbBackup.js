@@ -11,7 +11,8 @@ const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { safeTimeout } = require('../utils/safeTimer');
 
-const DEFAULT_DB = 'babonline';
+// The server's database (DB_NAME, else 'babonline': server/config/dbName.js)
+const DEFAULT_DB = require('../config/dbName').dbNameFrom();
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
