@@ -9,6 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
+const { safeTimeout } = require('../utils/safeTimer');
 
 const DEFAULT_DB = 'babonline';
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
@@ -150,7 +151,7 @@ function writeFifoWhenRead(fifoPath, text, child, everyMs = 20) {
         try {
             fd = fs.openSync(fifoPath, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
         } catch (e) {
-            if (e.code === 'ENXIO') setTimeout(attempt, everyMs).unref?.();
+            if (e.code === 'ENXIO') safeTimeout(attempt, everyMs, 'fifoConfigWrite').unref?.();
             return; // ENOENT: cleaned up after the tool exited
         }
         try { fs.writeSync(fd, text); } catch { /* the tool exited mid-read: its exit code tells why */ }
