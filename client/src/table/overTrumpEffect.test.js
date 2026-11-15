@@ -1,5 +1,9 @@
 /**
- * The OT effect on the real page and scene (events-bots-s12, seat 1): hand
+ * The OT effect on the real page and scene (seat 1 of events-bots-s12 as
+ * recorded before the November 2026 play changes, kept in
+ * iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json: the current
+ * bots no longer over-trump in that game, so the live fixture has no such
+ * trick): hand
  * 2 (trump spades) has the trick 3:6d 4:Qd 1:3s 2:As, where seat 2's ace
  * over-trumps my 3 (rules/overTrump.js). The effect shows exactly once, on
  * that cardPlayed: never for the cards before it, never again on a render,
@@ -25,7 +29,7 @@ const card = (e) => `${e.data.position}:${e.data.card.rank}${e.data.card.suit[0]
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
-  rec = replay.loadRecording('events-bots-s12');
+  rec = replay.loadKeptRecording('kept-bots-s12');
   log = rec.logs.seat1;
   page = await replay.realTablePage({ username: 'ios_ann', socketId: 'ios-h1' });
 });

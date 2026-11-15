@@ -20,6 +20,10 @@
  *  - hoarding: ducks contested tricks instead of spending honors to fight
  *  - flashy:   spends the big card when a cheaper winner would hold the trick
  *  - erratic:  sometimes overtakes a partner who is already safely winning
+ *
+ * playStyle flavors the rule-based play only. With 7 cards or fewer in hand
+ * every personality plays the searched card (playSearch.js); its own
+ * rule-based card is kept when the search finds nothing better.
  */
 
 const PERSONALITIES = {

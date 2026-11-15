@@ -231,3 +231,229 @@ hand); danny+zach 51.1% ±0.5, +3.1 ±0.6 (4000, seed 842); sharon+mike
 47.1%, zach+mary 47.6% (±1.1). Zero incidents and exceptions throughout.
 
 Refit recipe unchanged (2-card rows are now included automatically).
+
+## Play inference (November 2026)
+
+A counterfactual study of the EV-bidding bots (every alternative card forced
+once at every decision, the hand replayed by the bots; double-dummy values
+on small hands) put the play leaks in ruffs and mid-hand leads: void bots
+ruffed with their highest trump from 2nd and 3rd seat, never led trump
+except the HI joker, and treated a void as a ruff threat (or a partner
+ruff) after its owner had run out of trump. Bores, discards, over-trumps,
+partner overtakes, 4th-seat play and opening leads showed no recoverable
+gain.
+
+`buildCardView` (BotStrategy.js) replays the card memory into: unseen
+cards per suit, voids, who is out of trump, and a cap on each player's
+highest remaining trump (certain: a failed trump follow, the card an
+opponent had to play under a HI-joker lead; soft: a void player who
+discarded instead of ruffing or over-ruffing an opponent's winner).
+`PLAY_TUNING` holds one switch per rule:
+
+- ruffs: 2nd seat the lowest winning trump (and a loser instead of a lone
+  HI joker); 3rd seat low unless the opponent behind may over-ruff; a low
+  ruff on partner's shaky (J or lower) winner;
+- leads: a boss trump below the HI joker first (including one neither
+  opponent can beat given the caps); the lowest of 3+ trump with no boss
+  among them; neither once both opponents are out of trump; cash a safe
+  boss off-suit card at normal effort; a void counts only while its owner
+  has trump; avoid suits an opponent led.
+
+Paired runs (each deal set played twice with the seats swapped, 95% CIs
+over deal sets, harness outside the repo), tuned on seeds 101-109 and
+reported on held-out seeds:
+
+| Matchup (8000 deal sets each) | Seed | Win rate | Margin per game |
+|---|---|---|---|
+| ruffs + card view vs `origin/main` d93b08a (mary) | 301 | 56.1% ±0.4 | +19.4 ±0.7 |
+| + lead rules vs ruffs only (mary) | 302 | 52.5% ±0.4 | +8.7 ±0.8 |
+| + refit `bidModel` vs before the refit (mary) | 303 | 50.1% ±0.4 | +2.2 ±0.6 |
+| all vs `origin/main` (mary) | 304 | 56.7% ±0.5 | +25.5 ±1.0 |
+| all vs `origin/main` (danny+zach, each side) | 305 | 56.0% ±0.5 | +21.8 ±1.0 |
+| all vs `origin/main` (sharon+mike, each side) | 306 | 55.9% ±0.5 | +21.3 ±1.1 |
+| sharon / danny / mike / zach pair vs its own `origin/main` pair | 307-310 | 54.9% / 54.2% / 58.3% / 57.1% (±0.6) | +15.3 / +16.3 / +34.2 / +25.4 |
+| sharon / danny / mike + mary vs mary + mary (all new) | 311 | 47.2% / 48.8% / 47.4% (±0.4) | −4.2 / −3.9 / −9.8 |
+
+Mary vs `origin/main` (seed 304): tricks per team-hand 3.55 vs 3.33, team
+set rate 6.9% vs 10.3%. Danny gains least: his flashy ruffs still spend
+the highest trump by design, so with Mary he reads 48.8% (50.2% before).
+0 illegal plays, 0 exceptions and 0 winnable 4th-seat tricks shed in every
+run.
+
+Each switch off against all on (Mary self-play, 8000 deal sets, seed 105,
+points per game): soft trump-out +0.81 ±0.18, void-needs-trump lead rules
++2.13 ±0.28, opponent-led penalty +1.10 ±0.54, capped boss trump +0.56
+±0.26, shaky = J rather than Q +0.36 ±0.15, lone-HI hold +0.39 ±0.14,
+cash boss off-suit +0.54 ±0.64 (kept: +2.0 ±0.5 on its own in the study).
+Tried and dropped (within noise or negative): ducking a winner the
+opponent behind will ruff, leading low rather than an honor into a ruff,
+holding the HI joker lead once opponents are out of trump, treating
+partner's winner as safe from a void opponent with no trump, a bonus for
+suits partner led, weighting suits by unseen cards, counting a suit with
+no unseen cards as a void, picking the cheapest uncapped trump at 2nd seat
+against a void opponent, low-trump leads from 2 or 4+ trump only or by
+trump ratio.
+
+`bidModel.js` was refit on the new play (three rounds, seeds 901-912).
+Play never sheds a winnable 4th-seat trick (0 in every run). A play
+decision takes about 10 µs (p99 under 0.1 ms).
+
+Repo harness after the change: legacy benchmark (`--exp legacy --games 8000
+--seed 14`) 82.6% / 82.0% (79.5% / 78.2% before); personalities (`--exp
+personalities --games 8000 --seed 51`) sharon+mary 47.7%, danny+mary 49.0%,
+mike+mary 47.2%, zach+mary 46.8% (±1.1).
+
+## Play search (November 2026)
+
+Card play with 7 cards or fewer in hand is searched (`../playSearch.js`):
+the bot samples 64 deals of the unseen cards, solves each exactly with all
+hands open, and plays the card with the best average hand score (own points
+minus the opponents' under the real contract). The rule-based card stands
+on an exact tie, above 7 cards, and when the bot has not seen the whole
+hand. Last to play, only winners are considered when the trick can be won.
+
+Sampled deals respect shown voids, the forced play under a HI-joker lead, a
+last seat that lost a trick (it held nothing that would have won it), and
+the bids: 5x the deals are drawn and the ones whose hands fit what their
+owners bid (`estimateOwnTricks` within about 0.6 of bid + 0.4) are kept.
+
+Measured with a paired harness (each deal set played twice with the seats
+swapped, deals a pure function of seed/game/hand/redeal; ± is a 95% CI over
+deal sets). Every run: 0 illegal plays, 0 exceptions, and no lost last-seat
+trick that a legal card would have won.
+
+| Comparison (Mary pair unless named) | Deal sets, seed | Win rate | Margin per game |
+|---|---|---|---|
+| search vs origin/main d93b08a | 8000, 424242 | 61.6% ±0.50 | +39.5 ±1.0 |
+| core only (uniform deals) vs main | 4000, 424242 | 59.8% ±0.71 | +33.6 ±1.3 |
+| + bid fit vs core | 4000, 424242 | 51.6% ±0.63 | +5.2 ±1.2 |
+| + last-seat inference vs bid fit | 4000, 424242 | 50.2% ±0.29 | +0.85 ±0.49 |
+| sharon pair vs its main version | 2000, 515151 | 61.8% ±1.0 | +32.9 ±1.6 |
+| danny pair vs its main version | 2000, 515151 | 64.7% ±1.1 | +50.8 ±2.2 |
+| mike pair vs its main version | 2000, 515151 | 64.1% ±1.1 | +52.9 ±2.7 |
+| zach pair vs its main version | 2000, 515151 | 62.8% ±1.0 | +40.7 ±2.0 |
+
+Against main the searching pair takes 3.59 tricks per hand to 3.29 and is
+set on 6.9% of hands to main's 11.9%.
+
+What was tried on the way (2000 deal sets each, seed 101, margin vs main):
+- Scope (first version, 24 deals): 5 cards +19.7, 6 cards +23.1 to +23.3,
+  7 cards +24.2 to +24.8. 8 cards added nothing inside the node budget.
+- Leaving the rule card only for a clear gain lost points: no threshold
+  +26.4, half a point and one standard error +23.1, one point and two
+  standard errors +10.9. The search is trusted outright.
+- Deals per decision: 12 +26.7, 24 +31.2, 40 +34.1, 64 +35.6 (with the bid
+  fit). Drawing 5x instead of 3x candidates: +38.6. Node budget 200k instead
+  of 100k: +40.5.
+- Bid-fit tolerance, at 24 deals: none +28.2, 1.2 tricks +29.6, 0.8 +31.2,
+  0.5 +32.3. At 64 deals 0.45 and 0.6 tie (+38.4, +38.6).
+- Solver: canonical (rank-free) transposition keys cut nodes 2.6x on 7-card
+  deals, sure-trick bounds another 1.5x; a best-lead move from the table and
+  boss-first lead ordering did nothing and were dropped.
+
+Cost. A decision is deterministic (seeded from the position, limited by
+solver nodes, never by time). Per searched decision on an M-series laptop
+core: p50 1.5 ms, p99 10 ms, mean about 3 ms; the hard stop (300,000
+nodes) works out to about 13 ms. A full game is about 45 searched decisions
+per bot. Sims are slower for it: a Mary-vs-Mary game takes about 0.5 s of CPU
+instead of a few milliseconds, so `npm run sim -- --games 500` took 35
+minutes here (one process, machine busy) and the refit recipe above is about
+2 CPU-hours per 16000-game round (run seeds in parallel processes and
+concatenate the records). That run (seed 1): mary vs legacy mary 85.8%,
+vs legacy danny+zach 85.0% (±3.1; 79.5% / 78.2% before the search);
+sharon+mary 45.7%, danny+mary 47.7%, mike+mary 46.1%, zach+mary 47.9%
+against mary+mary (±4.4); 0 incidents, 0 exceptions. Paired, 2000 deal sets
+(seed 616161, search on both sides): sharon+mary 49.3% ±0.8, danny+mary
+49.4% ±0.7, mike+mary 47.2% ±0.7, where the bidding follow-ups measured
+48.0%, 49.9% and 47.4%: the personalities sit where they did.
+
+Recordings. The wire golden and the iOS event logs change with any play
+change (re-record as for bidding). Tests whose point is a situation the
+current bots no longer happen to produce in events-bots-s12 (an over-trump
+of seat 1: web `overTrumpEffect`, `overTrumpPartner`; a B + 2B hand: web
+`seatPipsRejoin`, `seatPipsSpectator`, iOS `SeatPipsTests`) read the game as
+recorded before the play changes, kept by hand in
+`iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json` (see "Combined
+play" below).
+
+Bid tables after the play change. With all four seats searching, defence is
+sharper and the team trick spread is wider (fitted `TEAM_SD` on 13 cards
+1.10 -> 1.28), so teams are set more often than the tables expect: 10.4% of
+team-hands in search self-play against 8.1% in main self-play (1000 deal
+sets, seed 717171; team bids and overtricks are the same, 2.83 and +0.97).
+A two-round refit on 6000 games per round (seeds 901-905, then 911-915)
+against the unrefit tables, search on both sides: round 1 49.9% ±0.9,
++3.2 ±1.5 points per game (2000 deal sets, seed 828); round 2 51.1% ±0.7,
++2.4 ±1.2 (3000, seed 829), sets 9.7% against 10.4%. It also flipped a
+Danny regression test (a worthless 2-card hand bid 1), which is what a fit
+on a third of the usual data does at the margins, so the refit is NOT in
+this change: run the full 16000-game, three-round recipe once the play
+changes are settled.
+
+## Combined play (November 2026)
+
+The play-inference rules and the play search were built separately and are
+combined here: the card view and its rules pick the card above 7 cards in
+hand (and are the search's tie-break below), the search picks it from 7
+cards down, and `bidModel.js` is the refit made on the play-inference bots.
+Three things were settled on the combination:
+
+- **Danny's flashy ruff** now sits below the low-ruff rules (he still plays
+  the very top trump where the ruff has to be high). Left above them he kept
+  the old high-ruff leak and drifted about 1.8 win points against Mary.
+- **`holdLoneHiRuff` is off.** Holding a lone HI joker back at 2nd seat
+  declines a trick that can be won; with the endings searched it was worth
+  +0.09 ±0.07 points a game (4000 deal sets, seed 880101), and it made
+  partner's soft out-of-trump read wrong about 4% of the time.
+- **`ruffForPartnerNoTrump` is off.** In no-trump the low ruff on partner's
+  shaky winner spends a joker: +0.04 ±0.04 with it off (4000, seed 880102).
+
+The refit tables earn more next to the search than they did alone: 50.7%
+±0.6, +3.3 ±1.1 against the same play on main's tables (4000, seed 880103),
+team sets 9.8% against 10.5%. They were fitted on rule-only play, so a refit
+on the combined play (about 2 CPU-hours per 16000-game round, see above) is
+still open.
+
+Paired harness as above (deal sets played twice, seats swapped, ± 95% CI
+over deal sets; a different deal hash and seeds from every earlier run).
+Every run: 0 illegal plays, 0 exceptions, 0 errors inside the search, and
+no lost last-seat trick that a legal card would have won, before or after
+the contract was made (over 2.5 million lost last-seat tricks checked on
+the combined side).
+
+| Comparison (Mary pair unless named) | Deal sets, seed | Win rate | Margin per game |
+|---|---|---|---|
+| combined vs origin/main | 8000, 990101 | 62.05% ±0.54 | +43.7 ±1.1 |
+| combined vs main, danny+zach | 4000, 990102 | 62.59% ±0.77 | +43.2 ±1.5 |
+| combined vs main, sharon+mike | 4000, 990106 | 62.98% ±0.77 | +46.2 ±1.7 |
+| combined vs the play search alone | 8000, 990103 | 51.24% ±0.47 | +7.6 ±0.9 |
+| combined vs the play inference alone | 8000, 990104 | 55.86% ±0.46 | +19.9 ±0.9 |
+| combined vs the play-leak fixes alone | 8000, 990105 | 57.40% ±0.51 | +27.1 ±1.0 |
+| sharon+mary vs mary+mary, all combined | 2000, 990111 | 48.65% ±0.76 | -0.3 ±1.2 |
+| danny+mary vs mary+mary | 2000, 990112 | 50.06% ±0.65 | +0.7 ±1.0 |
+| mike+mary vs mary+mary | 2000, 990113 | 47.55% ±0.69 | -9.5 ±1.3 |
+| zach+mary vs mary+mary (partner history recorded) | 2000, 990114 | 48.08% ±0.70 | -3.8 ±1.1 |
+
+The personalities sit where they did on main (47.8%, 50.0%, 47.4%, 48.0%).
+Against main the combined pair takes 1.83 tricks per player-hand to 1.67 and
+is set on 6.2% of team-hands to main's 12.2%. Every hand size from 2 cards
+up gains (2 cards +0.18 ±0.12 points per game, 13 cards +8.9 ±0.5);
+no-trump hands +2.6 ±0.3; hands with a bore on the table are flat.
+
+Self-play calibration (2000 deal sets, seed 990120): team set rate 9.7%
+(main 7.6%, search alone 10.2%), player tricks minus bid +0.47, exact bids
+44.9%, bores 4.8% of hands and 85% made. All-bot tables see more sets than
+on main because both sides defend better.
+
+Cost per searched decision, one process on a quiet M-series laptop: p50
+1.3 ms, p90 8.4 ms, p99 9.7 ms, max 23 ms (51,000 decisions); decisions
+above 7 cards p99 0.04 ms. `npm run sim -- --games 500` (seed 1001): 0
+incidents, 0 exceptions; mary vs legacy mary 84.4%, vs legacy danny+zach
+85.6% (±3.1).
+
+Recordings. The combined bots bore on no hand of events-bots-s12 and no
+longer over-trump seat 1 there, so the tests that need a B + 2B hand or an
+over-trump read `iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json`
+(that game as recorded before the play changes; `replay.loadKeptRecording`
+on the web, `FixtureLoader.keptBots` on iOS). `npm run ios:fixtures` never
+rewrites it. The pacing pins did not move (legacy 592.7 s).

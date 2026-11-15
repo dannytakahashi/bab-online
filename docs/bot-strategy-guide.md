@@ -152,31 +152,65 @@ Boss status drives almost every follow decision:
 - **Partner winning**: count before you duck. If players still act and your partner's card can still be beaten — higher cards outstanding, or a known-void opponent who can ruff — overtake with your cheapest boss. If their card is boss, play your lowest and bank the trick. The original bot overtook its partner's winning trump Queen "just in case" even when every higher trump was accounted for; counting ends that.
 - **A win is vulnerable** when higher cards remain in unknown hands, or (for non-trump winners) when a remaining opponent is known void in the suit. In no-trump, that ruff risk persists exactly until the live joker is accounted for.
 
+### Reading the other hands (November 2026)
+
+Counting what is gone also tells you who holds what is left. The bots keep three facts per player (`buildCardView`):
+
+- **Void in a suit**: they failed to follow it.
+- **Out of trump**: they failed to follow a trump lead (certain), or they were void in the led suit and discarded while an opponent's card was winning (they would normally have ruffed: a read, not a fact, since a human, or a bot searching a small ending, may keep its trump).
+- **A cap on their best trump**: an opponent of a HI-joker lead must play their highest trump, so everything they still hold is below that card. A player who discarded under an opponent's winning trump had nothing above it.
+
+A void matters only while its owner still has trump: an opponent who is void but out of trump cannot ruff your winner, and a partner who is void but out of trump cannot ruff for you.
+
+### Ruffing: spend as little trump as the trick needs
+
+Void in the led suit with an opponent winning, **always ruff, with the lowest trump that will hold**:
+
+- **2nd seat: the lowest winning trump.** Your partner still plays behind you and the 4th seat usually has to follow suit, so a high ruff buys nothing and costs a card that would win a later trick. The old bots ruffed with their highest trump here; that single habit cost a partnership about 12 points a game. Even when the only trump that wins is the HI joker, ruff: holding it back was measured (+0.09 ±0.07 points a game with the endings searched) and is switched off, because it declines a trick that can be won.
+- **3rd seat: low when the opponent behind cannot over-ruff** (out of trump, or capped below your card) **or should still follow suit** (3 or more cards of the suit unseen and no void shown). Ruff high only against a real over-ruff threat.
+- **Partner winning with a shaky card** (a Jack or lower, with a higher card of the suit still out, and the opponent behind not known void): put a low trump on it. Securing the trick is worth more than the trump. Not in no-trump, where the only "trump" is a joker.
+- **4th seat** is unchanged: the lowest winner always holds.
+
 ## Card Play: Leading
 
 ### HI Joker
 
 Leading HI joker wins the trick outright and forces opponents to play their highest trump while your partner plays their lowest — it strips the opponents' best trump and promotes everything your team holds. Lead it early. Held in hand, its only extra value is the forcing effect; it will win exactly one trick whenever it's played.
 
+One thing goes ahead of it: **another boss trump** (the LO joker when you hold both, or the top trump left). It wins just as surely, pulls two opposing trump, and the HI joker's forced-highest lead is still there afterwards.
+
 ### Suit Selection
 
 Score each suit and lead from the best one:
 
 1. **Lead suits your partner is void in** — they trump in, and only one of your team's trump gets spent.
-2. **Avoid suits opponents are void in** — that's a free ruff for them. (This includes no-trump hands while the live joker is unaccounted for.)
-3. **Prefer suits where you hold the Ace or an established boss card** — cash sure tricks while you have the lead; jokers and boss trump can win from any seat later, but off-suit winners need the lead.
+2. **Avoid suits opponents are void in** — that's a free ruff for them, as long as they still have trump. (This includes no-trump hands while the live joker is unaccounted for.)
+3. **Cash an established boss card nobody can ruff** before leading low — off-suit winners need the lead; jokers and boss trump can win from any seat later. Otherwise prefer suits where you hold the Ace.
 4. **Prefer shorter suits** — voids you faster and runs into opponents' voids less.
 5. **Don't lead a King while the Ace is unaccounted for** (large hands). On small hands this relaxes — the Ace may simply not have been dealt.
+6. **Avoid a suit an opponent chose to lead** — they are short in it or strong in it; either way it is their suit.
 
 ### Leading Trump
 
-Generally avoid leading trump (other than HI joker) — it drains your partner's trump along with the opponents'. Save trump for ruffing. Exception: in sweep mode (bores, must-win-out), lead boss trump from the top to strip the field; a borer who leads *low* trump to "feel things out" is busting their own bore — lead strength or don't bore.
+Leading trump drains your partner's trump along with the opponents', so it needs a reason. Two pay (measured, November 2026): **a boss trump** (a sure trick that pulls two of theirs), and **the lowest of three or more trump when none of them is boss** (yours outlast theirs, and your side cards stop getting ruffed). Both stop once both opponents are known to be out of trump: from there your trump are winners and partner's are ruffs. With one or two small trump, keep them for ruffing. In sweep mode (bores, must-win-out), lead boss trump from the top to strip the field; a borer who leads *low* trump to "feel things out" is busting their own bore — lead strength or don't bore.
 
 ## Discarding
 
 When you can't follow and shouldn't trump:
 - Discard from your **shortest non-trump suit** to create voids — but only if you hold trump to exploit them; with no trump, voids are worthless, so just dump your lowest card.
 - **Protect winners, not ranks.** Don't slough a card just because it's "low" if counting says it's boss, and don't cling to a King whose suit-mates make it dead. A Queen with the A-K-J gone is a winner; a King under a live Ace is a hope.
+
+## The Last Seven Cards: Search Instead of Rules (November 2026)
+
+Everything above is a rule of thumb, and rules of thumb leak most when few cards are left: the right lead or the right ruff depends on exactly who can still hold what. So once a bot holds 7 cards or fewer it stops trusting the rules and works the ending out (`server/game/bot/playSearch.js`):
+
+1. **Deal out the unseen cards many times.** Each sampled deal respects what the table has shown: a player who failed to follow is void; an opponent who followed a HI-joker lead holds no higher trump than the one it was forced to play; a player who closed a trick the other side won had nothing that could win it. Unlike bridge, many cards are simply not dealt (on a 4-card hand, 37 of 54), so the bids matter too: deals where a hand's trick-taking power fits what its owner bid are kept in preference to deals where it does not.
+2. **Solve each sampled deal exactly**, all four hands face up, for every legal card.
+3. **Play the card with the best average hand score** (our points minus theirs under the real contract: bids, bores, tricks already taken). Averaging the score rather than the tricks is what makes it play for the contract: it takes the sure trick that makes the bid over the line that wins one more trick most of the time and gets set the rest.
+
+The rule-based card is kept on an exact tie, above 7 cards, and whenever the bot has not seen the whole hand (a bot that took a seat mid-hand). Last to play, the search only ever considers cards that win a trick that can be won: it never declines one.
+
+Against the old rule-only bots the search alone wins 61.6% of paired games, about 40 points per game (sim README, "Play search"); with the hand-reading rules above for the bigger hands, 62.0% and about 44 points ("Combined play"). The search has known blind spots: it assumes everyone sees every card from here on, so it never plays to hide a card or to make a defender guess.
 
 ## Game-Level Score Awareness
 
@@ -199,6 +233,7 @@ A rainbow (one card of each suit) pays +10 even if you're set, and rainbow hands
 6. **A partner's safe win is sacred; a vulnerable one isn't.** Count, then duck or overtake — don't guess by rank.
 7. **Bores are a small-hand weapon, and ~80% success beats ~90%.** Bore whenever the sweep chance clears the break-even (~60%), reading the bids actually seen; only locks counter-bore an opponent.
 8. **The flipped card is information.** Promote honors under it; in no-trump, know where the live joker is before calling anything safe.
+9. **Ruff low.** "Secure beats cheap" holds when following suit; it does not hold for ruffs before the last seat. The highest-trump ruff was the single biggest play leak found (about 12 points a game per partnership).
 
 ---
 

@@ -1,5 +1,6 @@
 /**
- * Per-player seat pips for a pure spectator (events-bots-s12 spectator:
+ * Per-player seat pips for a pure spectator (the kept recording
+ * kept-bots-s12, replay.loadKeptRecording, which has a bore hand; spectator:
  * joins mid-game from the full state's snapshot, views from seat 1): all
  * four seats by their absolute positions, at every live checkpoint.
  */
@@ -15,7 +16,7 @@ let rec;
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
-  rec = replay.loadRecording('events-bots-s12');
+  rec = replay.loadKeptRecording('kept-bots-s12');
   page = await replay.realTablePage({ username: 'ios_fan' });
 });
 

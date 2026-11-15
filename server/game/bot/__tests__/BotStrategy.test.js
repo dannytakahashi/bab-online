@@ -333,11 +333,16 @@ describe('calculateOptimalBid', () => {
             expect(bid).toBe('0');
         });
 
-        test('Danny does not bid 1 on worthless 2-card non-trump hand', () => {
+        test('worthless 2-card non-trump hand behind three 0 bids: Mary passes, Danny bids at most 1', () => {
+            // Last to bid at an all-zero table, a 0 is a redeal and a 1 is
+            // close to a coin flip in the fitted tables: Mary takes the
+            // redeal; Danny's lean (the highest bid within 1.5 points of the
+            // best) may take the 1, never more.
             const hand = [card('spades', 'J'), card('diamonds', '5')];
             const bids = ['0', undefined, '0', '0'];
+            expect(calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null, 'mary')).toBe('0');
             const bid = calculateOptimalBid(hand, heartsTrump, 2, bids, 2, null, null, 'danny');
-            expect(bid).toBe('0');
+            expect(['0', '1']).toContain(bid);
         });
     });
 
@@ -1559,5 +1564,195 @@ describe('expected-value bidding', () => {
         const mary = +calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'mary');
         expect(+calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'zach', sandbagger)).toBeGreaterThan(mary);
         expect(+calculateOptimalBid(hand, heartsTrump, 2, bids, 8, null, null, 'zach', overbidder)).toBeLessThanOrEqual(mary);
+    });
+});
+
+// --- Play inference (card view, ruffs, trump and boss leads) ---
+
+describe('play inference', () => {
+    const { buildCardView, PLAY_TUNING } = require('../BotStrategy');
+    // Memory from tricks written as [[position, card], ...] in play order
+    const mem = (...tricks) => {
+        const m = { playedCards: [], trumpPlayed: [], acesPlayed: { spades: false, hearts: false, diamonds: false, clubs: false }, trickIndex: 0 };
+        tricks.forEach((trick, t) => trick.forEach(([position, c], i) => {
+            m.playedCards.push({ suit: c.suit, rank: c.rank, position, trickIndex: t, isLead: i === 0 });
+            if (c.rank === 'A' && c.suit !== 'joker') m.acesPlayed[c.suit] = true;
+        }));
+        m.trickIndex = tricks.filter(t => t.length === 4).length;
+        return m;
+    };
+    const S = (r) => card('spades', r), H = (r) => card('hearts', r), C = (r) => card('clubs', r), D = (r) => card('diamonds', r);
+    const withTuning = (overrides, fn) => {
+        const saved = { ...PLAY_TUNING };
+        Object.assign(PLAY_TUNING, overrides);
+        try { fn(); } finally { Object.assign(PLAY_TUNING, saved); }
+    };
+
+    describe('buildCardView', () => {
+        test('a player who does not follow a trump lead is out of trump', () => {
+            const view = buildCardView([], mem([[1, H('K')], [2, C('3')], [3, H('2')], [4, H('5')]]), heartsTrump);
+            expect(view.trumpOut(2)).toBe(true);
+            expect(view.trumpOut(3)).toBe(false);
+            expect(view.trumpOut(4)).toBe(false);
+        });
+
+        test('a HI-joker lead caps the opponents\' remaining trump below the card they played', () => {
+            const view = buildCardView([], mem([[1, HI], [2, H('9')], [3, H('2')], [4, H('Q')]]), heartsTrump);
+            expect(view.canBeatTrump(2, H('10'))).toBe(false); // everything 2 holds is below the 9
+            expect(view.canBeatTrump(2, H('6'))).toBe(true);   // the 8 is still out
+            expect(view.canBeatTrump(4, H('10'))).toBe(true);  // the J is still out, below the Q
+            expect(view.canBeatTrump(3, H('K'))).toBe(true);   // the leader's partner is not capped
+        });
+
+        test('a capped player with no lower trump left is out of trump', () => {
+            // 2 had to play its highest trump, the 2: nothing lower exists
+            const view = buildCardView([], mem([[1, HI], [2, H('2')], [3, H('3')], [4, H('Q')]]), heartsTrump);
+            expect(view.trumpOut(2)).toBe(true);
+        });
+
+        test('declining to ruff an opponent\'s winner reads as out of trump (soft)', () => {
+            const m = mem([[1, S('A')], [2, C('4')], [3, S('2')], [4, S('3')]]);
+            expect(buildCardView([], m, heartsTrump).trumpOut(2)).toBe(true);
+            withTuning({ useSoftTrumpOut: false }, () => {
+                expect(buildCardView([], m, heartsTrump).trumpOut(2)).toBe(false);
+            });
+            // Discarding on PARTNER's winner says nothing
+            const m2 = mem([[1, S('A')], [2, S('4')], [3, C('2')], [4, S('3')]]);
+            expect(buildCardView([], m2, heartsTrump).trumpOut(3)).toBe(false);
+        });
+
+        test('everyone is out once every trump is accounted for', () => {
+            const hand = ['2', '3', '4', '5', '6', '8', '9', '10', 'J', 'Q', 'K', 'A'].map(H).concat([HI, LO]);
+            const view = buildCardView(hand, mem(), heartsTrump);
+            expect(view.unseenTrump).toBe(0);
+            expect(view.trumpOut(2)).toBe(true);
+        });
+    });
+
+    describe('ruffs', () => {
+        test('2nd seat ruffs with the lowest trump', () => {
+            const played = [S('K'), undefined, undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            const result = selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null);
+            expect(result).toEqual(H('4'));
+        });
+
+        test('2nd seat ruffs with a lone HI joker (the hold is switched off: never decline a winnable trick)', () => {
+            const played = [S('K'), undefined, undefined, undefined];
+            const hand = [HI, C('9'), C('5')];
+            const play = () => selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null);
+            expect(PLAY_TUNING.holdLoneHiRuff).toBe(false);
+            expect(play()).toEqual(HI);
+            withTuning({ holdLoneHiRuff: true }, () => expect(play()).toEqual(C('5')));
+        });
+
+        test('no-trump: no joker is spent to secure partner\'s shaky winner', () => {
+            const jokerTrump = card('joker', 'HI');
+            const hand = [LO, C('9'), C('5')];
+            const played = [S('10'), S('4'), undefined, undefined];
+            const play = () => selectFollow(hand, played, S('10'), 1, jokerTrump, false, 3, mem([[1, S('10')], [2, S('4')]]), 8, null);
+            expect(play()).not.toEqual(LO);
+            withTuning({ ruffForPartnerNoTrump: true }, () => expect(play()).toEqual(LO));
+        });
+
+        test('3rd seat ruffs low when the opponent behind should still follow suit', () => {
+            const played = [S('3'), S('K'), undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            const result = selectFollow(hand, played, S('3'), 1, heartsTrump, false, 3, mem([[1, S('3')], [2, S('K')]]), 8, null);
+            expect(result).toEqual(H('4'));
+        });
+
+        test('3rd seat ruffs high when the opponent behind is void and may over-ruff', () => {
+            const played = [S('3'), S('K'), undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            const m = mem([[2, S('Q')], [3, S('5')], [4, H('2')], [1, S('4')]], [[1, S('3')], [2, S('K')]]);
+            const result = selectFollow(hand, played, S('3'), 1, heartsTrump, true, 3, m, 8, null);
+            expect(result).toEqual(H('A'));
+        });
+
+        test('3rd seat ruffs low when the void opponent behind is out of trump', () => {
+            const played = [S('3'), S('K'), undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            // 4 showed out when trump was led, then discarded on a spade
+            const m = mem([[1, H('K')], [2, H('2')], [3, H('3')], [4, C('2')]],
+                [[2, S('Q')], [3, S('5')], [4, C('3')], [1, S('4')]], [[1, S('3')], [2, S('K')]]);
+            const result = selectFollow(hand, played, S('3'), 1, heartsTrump, true, 3, m, 8, null);
+            expect(result).toEqual(H('4'));
+        });
+
+        test('3rd seat ruffs low over partner\'s shaky winner, not over a King', () => {
+            const hand = [H('4'), C('9'), C('5')];
+            const low = [S('10'), S('4'), undefined, undefined];
+            expect(selectFollow(hand, low, S('10'), 1, heartsTrump, false, 3, mem([[1, S('10')], [2, S('4')]]), 8, null))
+                .toEqual(H('4'));
+            const king = [S('K'), S('4'), undefined, undefined];
+            expect(selectFollow(hand, king, S('K'), 1, heartsTrump, false, 3, mem([[1, S('K')], [2, S('4')]]), 8, null))
+                .toEqual(C('5'));
+        });
+
+        test('flashy (Danny) ruffs low at 2nd seat like everyone else', () => {
+            const played = [S('K'), undefined, undefined, undefined];
+            const hand = [H('A'), H('4'), C('5')];
+            const result = selectFollow(hand, played, S('K'), 1, heartsTrump, false, 2, mem([[1, S('K')]]), 8, null, 'flashy');
+            expect(result).toEqual(H('4'));
+        });
+
+        test('where the ruff must be high, flashy plays the top trump and balanced the cheapest boss', () => {
+            // Jokers and the trump Ace are gone, so K and Q are both boss.
+            // Position 4 ruffed a spade (void, still holding trump), so the
+            // 3rd-seat ruff stays high.
+            const hand = [H('K'), H('Q'), H('5'), C('2')];
+            const m = mem([[2, HI], [3, H('2')], [4, LO], [1, H('A')]],
+                [[1, S('A')], [2, S('2')], [3, S('3')], [4, H('3')]],
+                [[1, S('4')], [2, S('9')]]);
+            const played = [S('4'), S('9'), undefined, undefined];
+            const play = (style) => selectFollow(hand, played, S('4'), 1, heartsTrump, true, 3, m, 6, null, style);
+            expect(play('flashy')).toEqual(H('K'));
+            expect(play('balanced')).toEqual(H('Q'));
+        });
+    });
+
+    describe('leads', () => {
+        test('a boss trump below the HI joker is led before the HI joker', () => {
+            const hand = [HI, LO, C('5'), D('8')];
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, mem(), 8, null)).toEqual(LO);
+        });
+
+        test('three trump with no boss among them: lead the lowest trump', () => {
+            const hand = [H('9'), H('6'), H('3'), C('5'), D('8')];
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, mem(), 8, null)).toEqual(H('3'));
+            // ...but not before trump is broken
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, mem(), 8, null).suit).not.toBe('hearts');
+        });
+
+        test('no trump lead once both opponents are out of trump', () => {
+            const hand = [H('9'), H('6'), H('3'), C('5'), D('8')];
+            const m = mem([[3, H('K')], [4, C('2')], [1, H('2')], [2, C('3')]]);
+            expect(selectLead(hand, heartsTrump, true, { position: 1 }, m, 8, null).suit).not.toBe('hearts');
+        });
+
+        test('an established off-suit winner is cashed', () => {
+            const hand = [S('K'), C('5'), D('8'), D('4')];
+            const m = mem([[2, S('A')], [3, S('2')], [4, S('3')], [1, S('4')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).toEqual(S('K'));
+        });
+
+        test('an opponent\'s void stops mattering once they are out of trump', () => {
+            const hand = [S('K'), C('5'), D('8'), D('4')];
+            // 2 is void in spades but discarded instead of ruffing our Ace
+            const m = mem([[1, S('A')], [2, C('2')], [3, S('2')], [4, S('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).toEqual(S('K'));
+            withTuning({ useSoftTrumpOut: false }, () => {
+                expect(selectLead(hand, heartsTrump, false, { position: 1 }, m, 8, null)).not.toEqual(S('K'));
+            });
+        });
+
+        test('a suit an opponent chose to lead is avoided', () => {
+            const hand = [C('5'), D('10'), D('6')];
+            const fresh = mem([[1, S('4')], [2, S('9')], [3, S('2')], [4, S('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, fresh, 8, null)).toEqual(C('5'));
+            const oppLedClubs = mem([[2, C('4')], [3, C('9')], [4, C('2')], [1, C('3')]]);
+            expect(selectLead(hand, heartsTrump, false, { position: 1 }, oppLedClubs, 8, null)).toEqual(D('6'));
+        });
     });
 });
