@@ -457,3 +457,36 @@ over-trump read `iOSClient/BABOnlineTests/Fixtures/kept/kept-bots-s12.json`
 (that game as recorded before the play changes; `replay.loadKeptRecording`
 on the web, `FixtureLoader.keptBots` on iOS). `npm run ios:fixtures` never
 rewrites it. The pacing pins did not move (legacy 592.7 s).
+
+### Last-seat read: a read, not a rule
+
+The search read a last seat that lost a trick as holding nothing that
+would have won it, and kept that cap for the rest of the hand. Nothing
+forces a void last seat to ruff, so a player who declines one ruff and ruffs
+later was still dealt no trump. The read is now kept apart from the rules
+(voids, HI-joker forced plays): any later card above it lifts that player's
+reads and the player is not read again that hand, and when the reads leave
+a hand too few cards, or let fewer than `minSamples` deals through, the
+deals come from the rules alone (before, the search gave up and the rule
+card stood).
+
+Paired harness as above (deal sets played twice, seats swapped, ± 95% CI
+over deal sets). "Duckers": the opposing pair (main's bots), last to play,
+void in a side-suit lead with an opponent winning, declines a winning ruff
+25% of the time and throws its lowest side card (3,600 ducks in 2000 deal
+sets). The gain is the per-deal-set difference between the new pair and
+main's pair against the same duckers on the same deals.
+
+| Comparison | Deal sets, seed | Win rate | Margin per game |
+|---|---|---|---|
+| new vs main, Mary pair | 4000, 31337 | 50.00% ±0 | 0.0 ±0 (every set identical) |
+| gain against 25% duckers, Mary pair | 2000, 4242 | +0.16 ±0.17 points | +0.45 ±0.33 |
+| soft read instead (deals that break a read kept at weight 0.2) vs main | 4000, 31337 | 49.93% ±0.30 | -0.38 ±0.47 |
+| soft read, gain against 25% duckers | 2000, 4242 | +0.35 ±0.49 points | +0.47 ±0.81 |
+
+The bots never break a read in the Mary pair games (no decision changed in
+8000 games), so the lift costs nothing there; against duckers it changed
+the result of 226 of the 2000 deal sets. The soft read moved 0.8% of the
+searched decisions against bots that do play by the read, for no more gain
+against duckers, so it is not used. 0 illegal plays, 0 exceptions, 0 search
+errors in every run.

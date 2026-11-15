@@ -38,7 +38,8 @@ const SEARCH = {
     /** Bid-fit weighting: tolerance (tricks) between a sampled hand's
      *  estimated tricks and what its owner bid. 0 disables the weighting. */
     bidSigma: 0.6,
-    /** Read a last seat that lost a trick as holding nothing that could win it. */
+    /** Read a last seat that lost a trick as holding nothing that could win it
+     *  (until that player shows otherwise; see readPosition). */
     lastSeatInference: true,
     /** Tricks a bidder typically expects beyond its bid. */
     bidOffset: 0.4,
@@ -441,18 +442,29 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
     for (const t of table) seen.add(cardCode(t.card));
 
     // What each other player cannot hold: voidIn[pos][suit], and a rank cap
-    // per suit (cap[pos][suit]: nothing above this rank). Caps come from a
-    // forced play under a HI-joker lead and from the last seat losing a trick:
-    // a player who closes a trick the other side wins had no card to win it.
+    // per suit (cap[pos][suit]: nothing above this rank). Voids and the caps a
+    // HI-joker lead forces are rules, so they bind. The last-seat read (a
+    // player who closes a trick the other side wins had no card to win it) is
+    // only an inference: nothing forces a void last seat to ruff. It goes in
+    // `read`, which a later card above it lifts (that player is then not read
+    // again this hand), and the caller drops it when it leaves too few deals.
     const voidIn = [null, [], [], [], []];
     const cap = [null, [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99]];
+    const read = [null, [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99], [99, 99, 99, 99, 99]];
+    const ducked = [null, false, false, false, false];
     const playedBy = [null, [], [], [], []];
 
     const noteTrick = (entries, leadEntry) => {
         const ls = suitOf(leadEntry, trumpSuitId);
         for (const e of entries) {
-            if (e === leadEntry) continue;
             const s = suitOf(e, trumpSuitId);
+            // A card above an earlier read: that player declined a trick it
+            // could have won, so its reads are lifted and it is not read again
+            if (RANK_VALUES[e.rank] > read[e.position][s]) {
+                read[e.position] = [99, 99, 99, 99, 99];
+                ducked[e.position] = true;
+            }
+            if (e === leadEntry) continue;
             if (s !== ls) voidIn[e.position][ls] = true;
             else if (leadEntry.rank === 'HI' && ((e.position ^ leadEntry.position) & 1)) {
                 cap[e.position][s] = min(cap[e.position][s], RANK_VALUES[e.rank]);
@@ -460,6 +472,7 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
         }
         if (!lastSeatInference || entries.length !== 4) return;
         const lastPos = ((leadEntry.position + 2) % 4) + 1;
+        if (ducked[lastPos]) return;
         const last = entries.find(e => e.position === lastPos);
         if (!last) return;
         let top = leadEntry;
@@ -473,8 +486,8 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
         const topSuit = suitOf(top, trumpSuitId);
         const s = suitOf(last, trumpSuitId);
         // Followed suit below the winner, or threw off instead of trumping
-        if (s === ls && topSuit === ls) cap[lastPos][ls] = min(cap[lastPos][ls], RANK_VALUES[top.rank]);
-        else if (s !== ls) cap[lastPos][trumpSuitId] = min(cap[lastPos][trumpSuitId], topSuit === trumpSuitId ? RANK_VALUES[top.rank] : 0);
+        if (s === ls && topSuit === ls) read[lastPos][ls] = min(read[lastPos][ls], RANK_VALUES[top.rank]);
+        else if (s !== ls) read[lastPos][trumpSuitId] = min(read[lastPos][trumpSuitId], topSuit === trumpSuitId ? RANK_VALUES[top.rank] : 0);
     };
 
     let pastCards = 0;
@@ -491,7 +504,9 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
             if (!tricks.has(e.trickIndex)) tricks.set(e.trickIndex, []);
             tricks.get(e.trickIndex).push(e);
         }
-        for (const entries of tricks.values()) {
+        // In play order: a later card lifts an earlier read
+        for (const k of [...tricks.keys()].sort((a, b) => a - b)) {
+            const entries = tricks.get(k);
             if (entries.length !== 4) return null;
             const leadEntry = entries.find(e => e.isLead);
             if (!leadEntry) return null;
@@ -517,23 +532,34 @@ function readPosition(hand, playedCards, leadPosition, trump, position, memory, 
         if (!seen.has(cardCode(c))) unseen.push(c);
     }
 
-    const others = [];
-    for (let i = 1; i <= 3; i++) {
-        const pos = ((position - 1 + i) % 4) + 1;
-        const need = hand.length - (table.some(t => t.owner === pos) ? 1 : 0);
-        const allowed = unseen.filter(c => {
-            const s = suitOf(c, trumpSuitId);
-            if (voidIn[pos][s]) return false;
-            if (RANK_VALUES[c.rank] > cap[pos][s]) return false;
-            return true;
-        });
-        if (allowed.length < need) return null;
-        others.push({ pos, need, allowed: new Set(allowed.map(cardCode)), allowedCount: allowed.length });
-    }
-    // Most constrained hand is dealt first
-    others.sort((a, b) => (a.allowedCount - a.need) - (b.allowedCount - b.need));
-
-    return { trumpSuitId, table, unseen, others, playedBy };
+    // The hands to deal: `strict` honours the last-seat reads, `loose` only
+    // the rules (null when the rules leave a hand too few cards)
+    const dealTo = (withReads) => {
+        const list = [];
+        for (let i = 1; i <= 3; i++) {
+            const pos = ((position - 1 + i) % 4) + 1;
+            const need = hand.length - (table.some(t => t.owner === pos) ? 1 : 0);
+            const allowed = unseen.filter(c => {
+                const s = suitOf(c, trumpSuitId);
+                if (voidIn[pos][s]) return false;
+                const r = RANK_VALUES[c.rank];
+                if (r > cap[pos][s] || (withReads && r > read[pos][s])) return false;
+                return true;
+            });
+            if (allowed.length < need) return null;
+            list.push({ pos, need, allowed: new Set(allowed.map(cardCode)), allowedCount: allowed.length });
+        }
+        // Most constrained hand is dealt first
+        list.sort((a, b) => (a.allowedCount - a.need) - (b.allowedCount - b.need));
+        return list;
+    };
+    const loose = dealTo(false);
+    if (!loose) return null;
+    const anyRead = read.some(r => r !== null && r.some(v => v < 99));
+    const strict = anyRead ? dealTo(true) : loose;
+    // Reads that leave a hand too few cards are wrong: deal without them.
+    // `loose` stays for the caller when the reads let too few deals through.
+    return { trumpSuitId, table, unseen, others: strict || loose, loose: strict && strict !== loose ? loose : null, playedBy };
 }
 
 /** One sampled deal of the unseen cards, or null if the draw dead-ends. */
@@ -635,12 +661,23 @@ function searchCard(q) {
     // Draw candidate deals; with bid weighting keep the ones that fit the bids
     const want = opt.samples;
     const draws = opt.bidSigma > 0 && q.estimateTricks ? want * opt.oversample : want;
-    let deals = [];
-    for (let i = 0, tries = 0; i < draws && tries < draws * 4; tries++) {
-        const d = sampleDeal(pos, rng);
-        if (!d) continue;
-        deals.push(d);
-        i++;
+    const drawDeals = () => {
+        const list = [];
+        for (let i = 0, tries = 0; i < draws && tries < draws * 4; tries++) {
+            const d = sampleDeal(pos, rng);
+            if (!d) continue;
+            list.push(d);
+            i++;
+        }
+        return list;
+    };
+    let deals = drawDeals();
+    // The last-seat reads leave too few deals (the real one is likely among
+    // those they rule out): deal again from the rules alone
+    if (deals.length < opt.minSamples && pos.loose) {
+        pos.others = pos.loose;
+        pos.loose = null;
+        deals = drawDeals();
     }
     if (deals.length < opt.minSamples) return null;
     if (deals.length > want) {
