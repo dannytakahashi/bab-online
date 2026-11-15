@@ -142,7 +142,8 @@ function clientError(socket, io, data, now = Date.now()) {
     const client = socket.data?.client;
     socketLogger.warn('Client error', {
         kind: report.kind,
-        message: scrub(report.message),
+        // `error`, not `message`: the logger folds a meta `message` into the line's text
+        error: scrub(report.message),
         stack: report.stack ? scrub(report.stack) : undefined,
         where: report.where ? scrub(report.where) : undefined,
         build: report.build ? scrub(report.build) : undefined,

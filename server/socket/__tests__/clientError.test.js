@@ -69,7 +69,7 @@ describe('payload', () => {
         await send({ ...REPORT, extra: { nested: 'object' }, chat: 'hello there' });
         expect(emitted).toEqual([]);
         const [meta] = reports();
-        expect(meta).toMatchObject({ kind: 'error', message: 'TypeError: x is undefined', where: 'main-AbCd1234.js:1:2345', build: 'abc1234', page: 'TABLE', username: null });
+        expect(meta).toMatchObject({ kind: 'error', error: 'TypeError: x is undefined', where: 'main-AbCd1234.js:1:2345', build: 'abc1234', page: 'TABLE', username: null });
         expect(JSON.stringify(meta)).not.toMatch(/nested|hello there|203\.0\.113/);
     });
 
@@ -208,7 +208,7 @@ describe('scrub', () => {
         const { send } = wiredSocket();
         await send({ kind: 'error', message: 'SyntaxError: "my secret chat line" bad', stack: `at x (${host}/p?token=abc)`, where: 'a@example.invalid' });
         const [meta] = reports();
-        expect(meta.message).toBe('SyntaxError: "…" bad');
+        expect(meta.error).toBe('SyntaxError: "…" bad');
         expect(meta.stack).toBe(`at x (${host}/p)`);
         expect(meta.where).toBe('<email>');
     });
