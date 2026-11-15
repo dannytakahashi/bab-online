@@ -2,9 +2,11 @@
  * Event -> sound, through the real handlers (handlers/gameHandlers.js), the
  * seq gate and GameState, with a recording SoundManager: the card on every
  * cardPlayed, the over-trump accent, the turn cue on the edge into MY turn
- * only, trick-ours by seat parity, made / set from my team's bid, the game
- * end; spectators and lazy seats; nothing while the gate replays or flushes
- * buffered events, and a snapshot is the turn baseline.
+ * only (after the card that passed it; a bid turn after the trump flips),
+ * trick-ours by seat parity, made / set from my team's bid, the game end
+ * after the last made / set; spectators and lazy seats; nothing while the
+ * gate replays or flushes buffered events, and a snapshot is the turn
+ * baseline.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SocketManager } from '../socket/SocketManager.js';
@@ -13,7 +15,9 @@ import { resetGameState, getGameState } from '../state/GameState.js';
 import { resetSeqGate } from '../state/SeqGate.js';
 import { resetMyAction } from '../state/MyAction.js';
 import { resetTableDirector } from '../phaser/TableDirector.js';
-import { resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN } from './tableSounds.js';
+import {
+  resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_DELAY_S, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
+} from './tableSounds.js';
 import { SERVER_EVENTS as E } from '../constants/events.js';
 import { applyTableSnapshot } from '../state/tableSync.js';
 import { readFileSync, existsSync } from 'node:fs';
@@ -40,17 +44,19 @@ let gate;
 let sounds;
 let played;
 let seq;
+let clock;
 
 const c = (rank, suit) => ({ rank, suit });
 const fire = (event, data = {}) => socket.fire(event, { ...data, seq: ++seq });
 const names = () => played.map((p) => p.name);
 
-/** A 2-card deal at my seat (1), trump spades, the turn opening at `first`. */
-function deal({ position = 1, gameId = 'g1' } = {}) {
+/** A 2-card deal at my seat (1), trump spades; `flipped`: its trump is face up (main.js onFlipped). */
+function deal({ position = 1, gameId = 'g1', flipped = true } = {}) {
   fire(E.GAME_START, {
     position, gameId, dealer: 4, currentHand: 2, trump: c('5', 'spades'),
     hand: [c('A', 'hearts'), c('3', 'spades')],
   });
+  if (flipped) sounds.trumpShown();
 }
 
 beforeEach(() => {
@@ -59,10 +65,12 @@ beforeEach(() => {
   resetMyAction();
   resetTableDirector();
   seq = 0;
+  clock = 100000;
   played = [];
   gate = resetSeqGate({ requestSnapshot: vi.fn(), setTimer: () => 1, clearTimer: () => {} });
   sounds = resetTableSounds({
     sound: () => ({ play: (name, opts) => (played.push({ name, opts }), true) }),
+    now: () => clock,
   });
   socket = createMockSocket();
   const manager = new SocketManager(socket);
@@ -123,6 +131,45 @@ describe('the table\'s moments', () => {
     expect(names().filter((n) => n === 'turn')).toHaveLength(2);
   });
 
+  it('the turn cue starts TURN_DELAY_S late: the card that passed me the turn sounds first', () => {
+    deal();
+    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 4 });
+    fire(E.UPDATE_TURN, { currentTurn: 4 });
+    fire(E.CARD_PLAYED, { position: 4, card: c('K', 'hearts') });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    expect(played).toEqual([{ name: 'card', opts: undefined }, { name: 'turn', opts: { delay: TURN_DELAY_S } }]);
+  });
+
+  it('a bid turn that comes before the trump is face up (the next hand comes with handComplete) waits for it', () => {
+    deal({ flipped: false });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    expect(names()).toEqual([]);
+    // the cards go down, then the trump flips and the bid panel opens
+    sounds.dealShown();
+    expect(sounds.trumpShown()).toBe(true);
+    expect(names()).toEqual(['deal', 'turn']);
+    // once: the flip is not a new turn, nor a later updateTurn
+    expect(sounds.trumpShown()).toBe(false);
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    expect(names()).toEqual(['deal', 'turn']);
+  });
+
+  it('a bid turn that waited for the flip: none when it moved on or a snapshot replaced the table first', () => {
+    deal({ flipped: false });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    fire(E.UPDATE_TURN, { currentTurn: 2 });
+    expect(sounds.trumpShown()).toBe(false);
+    deal({ flipped: false });
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    sounds.synced();
+    expect(sounds.trumpShown()).toBe(false);
+    // after the flip a bid turn sounds at once (with its delay)
+    deal({ flipped: false });
+    sounds.trumpShown();
+    fire(E.UPDATE_TURN, { currentTurn: 1 });
+    expect(played).toEqual([{ name: 'turn', opts: { delay: TURN_DELAY_S } }]);
+  });
+
   it('winning a trick and leading the next one: a new turn after my own play', () => {
     deal();
     fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
@@ -179,12 +226,29 @@ describe('the table\'s moments', () => {
   it('game end: the flourish', () => {
     deal();
     fire(E.GAME_END, { score: { team1: 300, team2: 100 }, tournamentId: null });
-    expect(names()).toEqual(['gameend']);
+    expect(played).toEqual([{ name: 'gameend', opts: undefined }]);
+  });
+
+  it('the last hand: made / set, then the flourish GAME_END_AFTER_HAND_S later, not on top of it', () => {
+    deal();
+    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
+    // the server sends both in one tick
+    fire(E.HAND_COMPLETE, { team1Tricks: 2, team2Tricks: 0, score: { team1: 320, team2: 0 } });
+    clock += 3;
+    fire(E.GAME_END, { score: { team1: 320, team2: 0 } });
+    expect(names()).toEqual(['made', 'gameend']);
+    expect(played[1].opts.delay).toBeCloseTo(GAME_END_AFTER_HAND_S - 0.003, 6);
+    // a hand end long before (an abort later) does not hold it
+    deal();
+    fire(E.HAND_COMPLETE, { team1Tricks: 2, team2Tricks: 0, score: { team1: 20, team2: 0 } });
+    clock += 5000;
+    fire(E.GAME_END, { score: { team1: 20, team2: 0 } });
+    expect(played.at(-1)).toEqual({ name: 'gameend', opts: undefined });
   });
 });
 
 describe('who hears what', () => {
-  it('a spectator: the table, no turn cue, no made / set, every trick the neutral one', () => {
+  it('a spectator: the table, no turn cue, every trick the neutral one, the hand end a quieter made', () => {
     deal();
     const s = getGameState();
     s.isSpectator = true;
@@ -194,7 +258,8 @@ describe('who hears what', () => {
     fire(E.TRICK_COMPLETE, { winner: 1 });
     fire(E.HAND_COMPLETE, { team1Tricks: 1, team2Tricks: 0, score: { team1: 10, team2: 0 } });
     fire(E.GAME_END, { score: { team1: 10, team2: 0 } });
-    expect(names()).toEqual(['card', 'trick', 'gameend']);
+    expect(names()).toEqual(['card', 'trick', 'made', 'gameend']);
+    expect(played[2].opts).toEqual({ gain: SPECTATOR_HAND_END_GAIN });
   });
 
   it('a lazy seat (the bot plays it): no turn cue; its team still hears trick-ours and made', () => {

@@ -2,10 +2,11 @@
  * SoundManager on a fake Web Audio context: quiet default, the per-device
  * mute (honoured at once, kept across loads, blocked storage), nothing
  * before a gesture or while the tab is hidden, the throttle and the card
- * variants, and failures that are logged once and never thrown.
+ * variants, failures that are logged once and never thrown, a failed load
+ * retried by a later gesture, and the context suspended off the table.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SoundManager, SOUND_URLS, CARD_VARIANTS, DEFAULT_VOLUME, STORAGE_KEY, THROTTLE_MS } from './SoundManager.js';
+import { SoundManager, SOUND_URLS, CARD_VARIANTS, DEFAULT_VOLUME, STORAGE_KEY, THROTTLE_MS, LOAD_TRIES, LOAD_RETRY_MS } from './SoundManager.js';
 
 /** A minimal AudioContext: buffers are {name}, start() is recorded. */
 function fakeAudio({ failSource = false, startRunning = false } = {}) {
@@ -22,6 +23,10 @@ function fakeAudio({ failSource = false, startRunning = false } = {}) {
     }
     resume() {
       this.state = 'running';
+      return Promise.resolve();
+    }
+    suspend() {
+      this.state = 'suspended';
       return Promise.resolve();
     }
     createGain() {
@@ -309,5 +314,85 @@ describe('when a sound plays', () => {
     m.unlock();
     await expect(m._loading).resolves.toBeDefined();
     expect(m.play('deal')).toBe(false);
+  });
+});
+
+describe('a load that failed is retried', () => {
+  it('a later gesture fetches only the missing file again, LOAD_RETRY_MS apart, LOAD_TRIES in all', async () => {
+    let failing = true;
+    const fetchImpl = vi.fn(async (url) => (nameOf(url) === 'deal' && failing
+      ? { ok: false, status: 404 }
+      : { ok: true, arrayBuffer: async () => ({ name: nameOf(url) }) }));
+    const m = new SoundManager({ AudioContextImpl: audio.FakeContext, fetchImpl, storage: memoryStorage(), now: () => now, doc });
+    m.unlock();
+    await m._loading;
+    expect(m.play('deal')).toBe(false);
+    expect(m.play('turn')).toBe(true);
+    const calls = fetchImpl.mock.calls.length;
+    // a gesture right away: no hammering
+    m.unlock();
+    await m._loading;
+    expect(fetchImpl.mock.calls.length).toBe(calls);
+    // later: only deal, and it works now
+    now += LOAD_RETRY_MS;
+    failing = false;
+    m.unlock();
+    await m._loading;
+    expect(fetchImpl.mock.calls.slice(calls).map(([u]) => nameOf(u))).toEqual(['deal']);
+    expect(m.play('deal')).toBe(true);
+    // everything is in: no more fetches
+    now += LOAD_RETRY_MS;
+    m.unlock();
+    await m._loading;
+    expect(fetchImpl.mock.calls.length).toBe(calls + 1);
+  });
+
+  it('a file that never loads is given up on after LOAD_TRIES, logged once', async () => {
+    const fetchImpl = vi.fn(async (url) => (nameOf(url) === 'deal' ? { ok: false, status: 404 } : { ok: true, arrayBuffer: async () => ({ name: nameOf(url) }) }));
+    const m = new SoundManager({ AudioContextImpl: audio.FakeContext, fetchImpl, storage: memoryStorage(), now: () => now, doc });
+    for (let i = 0; i < LOAD_TRIES + 3; i++) {
+      m.unlock();
+      await m._loading;
+      now += LOAD_RETRY_MS;
+    }
+    expect(fetchImpl.mock.calls.filter(([u]) => nameOf(u) === 'deal')).toHaveLength(LOAD_TRIES);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('off the table', () => {
+  it('suspends the context and plays nothing; back at a table it resumes', async () => {
+    const m = await ready();
+    m.setActive(false);
+    expect(m.ctx.state).toBe('suspended');
+    expect(m.play('deal')).toBe(false);
+    // a click in the main room does not wake it
+    m.unlock();
+    expect(m.ctx.state).toBe('suspended');
+    m.setActive(true);
+    expect(m.ctx.state).toBe('running');
+    expect(m.play('deal')).toBe(true);
+  });
+
+  it('a first gesture off the table makes the context and loads the files, but leaves it suspended', async () => {
+    const m = make();
+    m.setActive(false);
+    m.unlock();
+    await m._loading;
+    expect(audio.contexts).toHaveLength(1);
+    expect(m.ctx.state).toBe('suspended');
+    expect(m._buffers.size).toBe(Object.keys(SOUND_URLS).length);
+    m.setActive(true);
+    expect(m.play('turn')).toBe(true);
+  });
+
+  it('a muted device stays suspended at the table until it is unmuted', async () => {
+    const m = await ready();
+    m.setActive(false);
+    m.setMuted(true);
+    m.setActive(true);
+    expect(m.ctx.state).toBe('suspended');
+    m.setMuted(false);
+    expect(m.ctx.state).toBe('running');
   });
 });

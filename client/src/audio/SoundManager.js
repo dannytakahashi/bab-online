@@ -6,8 +6,11 @@
  * reverse.
  *
  * - The context is created on the first user gesture (browsers refuse
- *   audio before one) and the 11 files are fetched and decoded once then;
- *   until it runs every play() is a silent no-op.
+ *   audio before one) and the 11 files are fetched and decoded once then
+ *   (a file that failed is fetched again on a later gesture, LOAD_TRIES in
+ *   all); until it runs every play() is a silent no-op.
+ * - Off the table (setActive(false), main.js) the context is suspended: a
+ *   running one keeps the audio device and its render thread awake.
  * - Muted, or the tab hidden: nothing plays (sounds are never queued, so a
  *   tab coming back makes no burst).
  * - The same sound (the card-* variants count as one) at most once per
@@ -52,6 +55,9 @@ export const STORAGE_KEY = 'bab.sound';
 export const THROTTLE_MS = 80;
 /** Gestures that may start audio (touchend: older iOS Safari). */
 const UNLOCK_EVENTS = ['pointerdown', 'keydown', 'touchend'];
+/** Loads of the files that are still missing: the first and two retries, LOAD_RETRY_MS apart at least. */
+export const LOAD_TRIES = 3;
+export const LOAD_RETRY_MS = 5000;
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
@@ -88,6 +94,10 @@ export class SoundManager {
     this._master = null;
     this._buffers = new Map();
     this._loading = null;
+    this._loadBusy = false;
+    this._loadTries = 0;
+    this._loadAt = 0;
+    this._active = true;
     this._last = new Map();
     this._lastCard = null;
     this._warned = new Set();
@@ -213,7 +223,11 @@ export class SoundManager {
     this._unlockTarget = null;
   }
 
-  /** From a user gesture: create / resume the context and load the files. Muted: nothing yet. */
+  /**
+   * From a user gesture: create / resume the context and load the files.
+   * Muted: nothing yet. Off the table the context is made (the gesture is
+   * what allows it) but left suspended until setActive(true).
+   */
   unlock() {
     if (this.muted) return;
     try {
@@ -223,14 +237,47 @@ export class SoundManager {
         this._master = this.ctx.createGain();
         this._master.connect(this.ctx.destination);
         this._applyGain();
+        if (!this._active) this._suspend();
       }
-      if (this.ctx.state !== 'running' && typeof this.ctx.resume === 'function') {
-        const p = this.ctx.resume();
-        p?.catch?.((err) => this._warnOnce('resume', err));
-      }
+      if (this._active) this._resume();
       this._loadAll();
     } catch (err) {
       this._warnOnce('context', err);
+    }
+  }
+
+  /**
+   * At a table (TABLE / GAME_END) or not: off it nothing plays, so the
+   * context is suspended; back at one it resumes (the page's earlier
+   * gesture allows that; where a browser still refuses, the next gesture
+   * at the table does it).
+   */
+  setActive(active) {
+    const a = !!active;
+    if (a === this._active) return;
+    this._active = a;
+    if (!this.ctx) return;
+    if (!a) this._suspend();
+    else if (!this.muted) this._resume();
+  }
+
+  _resume() {
+    if (this.ctx.state === 'running' || typeof this.ctx.resume !== 'function') return;
+    try {
+      const p = this.ctx.resume();
+      p?.catch?.((err) => this._warnOnce('resume', err));
+    } catch (err) {
+      this._warnOnce('resume', err);
+    }
+  }
+
+  _suspend() {
+    if (this.ctx.state === 'closed' || typeof this.ctx.suspend !== 'function') return;
+    try {
+      const p = this.ctx.suspend();
+      p?.catch?.((err) => this._warnOnce('suspend', err));
+    } catch (err) {
+      this._warnOnce('suspend', err);
     }
   }
 
@@ -238,10 +285,22 @@ export class SoundManager {
     return !!this.ctx && this.ctx.state === 'running';
   }
 
+  /**
+   * Fetch and decode the files not loaded yet. A failure (a network blip,
+   * a long-lived tab's hashed URL gone after a deploy) is retried by a
+   * later gesture, at most LOAD_TRIES loads in all.
+   */
   _loadAll() {
-    if (this._loading || !this.ctx) return this._loading;
+    if (!this.ctx || this._loadBusy) return this._loading;
+    const missing = Object.entries(this._urls).filter(([name]) => !this._buffers.has(name));
+    if (!missing.length || this._loadTries >= LOAD_TRIES) return this._loading;
+    const t = this._now();
+    if (this._loadTries > 0 && t - this._loadAt < LOAD_RETRY_MS) return this._loading;
+    this._loadTries++;
+    this._loadAt = t;
+    this._loadBusy = true;
     const ctx = this.ctx;
-    this._loading = Promise.all(Object.entries(this._urls).map(async ([name, url]) => {
+    this._loading = Promise.all(missing.map(async ([name, url]) => {
       try {
         const res = await this._fetch(url);
         if (!res?.ok) throw new Error(`HTTP ${res?.status}`);
@@ -250,7 +309,10 @@ export class SoundManager {
       } catch (err) {
         this._warnOnce(`load:${name}`, err);
       }
-    }));
+    })).then((done) => {
+      this._loadBusy = false;
+      return done;
+    });
     return this._loading;
   }
 
@@ -268,7 +330,7 @@ export class SoundManager {
     try {
       if (this.muted || this.volume <= 0) return false;
       if (this._doc?.hidden) return false;
-      if (!this.ready) return false;
+      if (!this._active || !this.ready) return false;
       const t = this._now();
       const last = this._last.get(name);
       if (last !== undefined && t - last < THROTTLE_MS) return false;

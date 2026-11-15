@@ -701,6 +701,8 @@ function initializeApp() {
   const syncTableScreen = (screen) => {
     const atTable = screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
     document.getElementById('game-container')?.classList.toggle('at-table', atTable);
+    // sound plays only at a table: elsewhere its context is suspended
+    getSoundManager().setActive(atTable);
   };
   session.onScreenChange((screen) => syncTableScreen(screen));
   syncTableScreen(session.screen);
@@ -1187,9 +1189,17 @@ function initializeApp() {
           }
         };
 
-        // Display trump card face down; it flips after the deal
+        // Display trump card face down; it flips after the deal. My bid
+        // turn's cue waits for the flip, as the bid panel does
         if (data.trump && scene.displayTrumpCard) {
-          scene.displayTrumpCard(data.trump, { onFlipped: showBidUIAfterFlip });
+          scene.displayTrumpCard(data.trump, {
+            onFlipped: () => {
+              getTableSounds().trumpShown();
+              showBidUIAfterFlip();
+            },
+          });
+        } else {
+          getTableSounds().trumpShown();
         }
 
         // Deal the cards once the first hand's fade or the previous hand's
