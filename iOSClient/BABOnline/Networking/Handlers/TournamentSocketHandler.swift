@@ -50,15 +50,18 @@ final class TournamentSocketHandler {
     }
 
     /// tournamentJoined: the lobby, unless it answers a re-entry left already (dropped, so the
-    /// tournament never flashes up; the leaveTournament behind it leaves it again).
-    /// Internal for TournamentRejoinTests.
+    /// tournament never flashes up; the leaveTournament behind it leaves it again). Another
+    /// tournament's answer is a later request's (the stream is ordered): the abandoned one's
+    /// never came, so it is shown. Internal for TournamentRejoinTests.
     @MainActor
     func handleTournamentJoined(_ dict: [String: Any]) {
         if let abandoned = tournamentState.abandonedRejoinTournamentId {
             tournamentState.abandonedRejoinTournamentId = nil
-            RestartNotices.shared.survived()
-            print("[Tournament] Abandoned tournament re-entry answered: \(abandoned)")
-            return
+            if dict["tournamentId"] as? String == abandoned {
+                RestartNotices.shared.survived()
+                print("[Tournament] Abandoned tournament re-entry answered: \(abandoned)")
+                return
+            }
         }
         let rejoined = tournamentState.rejoiningTournamentId != nil
         tournamentState.rejoiningTournamentId = nil

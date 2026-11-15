@@ -106,6 +106,12 @@ enum TournamentRejoin {
         TournamentEmitter.leaveTournament()
     }
 
+    /// A create, join or spectate from the main room: an abandoned re-entry whose answers never
+    /// came (dropped by the server, e.g. on a parked socket) must not swallow this one's.
+    static func startFromMainRoom(_ tournamentState: TournamentState) {
+        tournamentState.abandonedRejoinTournamentId = nil
+    }
+
     /// The one message for a re-entry that failed: the restart alert after a serverShutdown
     /// (within its window), else a toast.
     static func showFailure(_ serverMessage: String?, socket: SocketService) {

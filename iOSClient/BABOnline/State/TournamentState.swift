@@ -27,8 +27,10 @@ final class TournamentState: ObservableObject {
     /// only on its own one.
     var rejoinGeneration = 0
     /// A re-entry left before its answer (Leave, or the wait ran out; `TournamentRejoin.abandon`):
-    /// its late tournamentJoined or refusal is dropped. Cleared by that answer, tournamentLeft,
-    /// the next mainRoomJoined, or a restore on another socket (`rejoinSocketId` stays the abandoned one's).
+    /// its late tournamentJoined or refusal is dropped. Cleared by that answer (or another
+    /// tournament's tournamentJoined), tournamentLeft, the next mainRoomJoined, a restore on
+    /// another socket (`rejoinSocketId` stays the abandoned one's), or a create / join /
+    /// spectate from the main room (`TournamentRejoin.startFromMainRoom`).
     var abandonedRejoinTournamentId: String?
 
     func reset() {

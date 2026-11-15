@@ -424,6 +424,55 @@ final class TournamentRejoinTests: XCTestCase {
         XCTAssertNil(service.serverError)
     }
 
+    /// The server dropped everything after the wait gave up (a parked socket): no answer, no
+    /// tournamentLeft, no main room, so the abandoned marker stays. A Join from the main room
+    /// clears it (`TournamentRejoin.startFromMainRoom`), and its tournamentJoined is shown.
+    @MainActor
+    func testJoinFromTheMainRoomAfterAnUnansweredGiveUp() {
+        TournamentRejoin.answerWait = 0.5
+        inTournamentLobby()
+        var dropping = true
+        server.replies = { name, _ in
+            if name == "restoreSession" { return [("restoreSessionResponse", Self.restored)] }
+            if dropping { return [] }
+            return name == "joinTournament" ? [("tournamentJoined", Self.joined())] : []
+        }
+        connect()
+        wait("the rejoin went out") { self.sent("joinTournament").count == 1 && service.isSessionReady }
+        wait("gave up") { self.app.screen == .mainRoom && self.sent("leaveTournament").count == 1 }
+        spin(0.3)
+        XCTAssertEqual(tournament.abandonedRejoinTournamentId, "T1", "nothing answered it")
+
+        dropping = false
+        TournamentRejoin.startFromMainRoom(tournament)  // TournamentRowView's Join
+        TournamentEmitter.joinTournament(tournamentId: "T1")
+        wait("in the tournament") { self.app.screen == .tournamentLobby && self.tournament.tournamentId == "T1" }
+        XCTAssertNil(tournament.abandonedRejoinTournamentId)
+        XCTAssertEqual(tournament.players.count, 2)
+    }
+
+    /// A marker left set never drops another tournament's tournamentJoined: on one ordered
+    /// stream that answers a later request, so the abandoned one's never came.
+    @MainActor
+    func testAbandonedMarkerDropsOnlyItsOwnTournament() {
+        let handler = TournamentSocketHandler(socket: service, tournamentState: tournament, gameState: GameState(),
+                                              appState: app, safetyState: SafetyState())
+        app.screen = .mainRoom
+        tournament.abandonedRejoinTournamentId = "T1"
+        handler.handleTournamentJoined(Self.joined("T2"))
+        XCTAssertEqual(app.screen, .tournamentLobby)
+        XCTAssertEqual(tournament.tournamentId, "T2")
+        XCTAssertNil(tournament.abandonedRejoinTournamentId)
+
+        tournament.reset()
+        app.screen = .mainRoom
+        tournament.abandonedRejoinTournamentId = "T1"
+        handler.handleTournamentJoined(Self.joined("T1"))
+        XCTAssertEqual(app.screen, .mainRoom, "its own late answer is still dropped")
+        XCTAssertEqual(tournament.tournamentId, "")
+        XCTAssertNil(tournament.abandonedRejoinTournamentId)
+    }
+
     // MARK: - The route (pure)
 
     func testRouteOrder() {

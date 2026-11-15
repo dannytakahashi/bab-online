@@ -127,6 +127,7 @@ struct LobbyRowView: View {
 
 struct TournamentRowView: View {
     let tournament: TournamentSummary
+    @EnvironmentObject var tournamentState: TournamentState
 
     private var phaseDescription: String {
         switch tournament.phase {
@@ -170,6 +171,7 @@ struct TournamentRowView: View {
 
             if canJoin {
                 Button(action: {
+                    TournamentRejoin.startFromMainRoom(tournamentState)
                     TournamentEmitter.joinTournament(tournamentId: tournament.id)
                 }) {
                     Text("Join")
@@ -182,6 +184,7 @@ struct TournamentRowView: View {
                 }
             } else if canSpectate {
                 Button(action: {
+                    TournamentRejoin.startFromMainRoom(tournamentState)
                     TournamentEmitter.spectateTournament(tournamentId: tournament.id)
                 }) {
                     Text("Spectate")

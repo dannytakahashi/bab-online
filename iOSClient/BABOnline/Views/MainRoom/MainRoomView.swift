@@ -14,6 +14,7 @@ private struct MainRoomScreen: View {
 
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
+    @EnvironmentObject var tournamentState: TournamentState
     /// New Game / Tournament wait for the session: after a reconnect, a tap before the
     /// restore's answer made a lobby that the restore's joinMainRoom then left at once.
     @ObservedObject private var socketService = SocketService.shared
@@ -101,13 +102,18 @@ private struct MainRoomScreen: View {
         }
     }
 
+    private func createTournament() {
+        TournamentRejoin.startFromMainRoom(tournamentState)
+        TournamentEmitter.createTournament()
+    }
+
     private func lobbyHeader(iconsOnly: Bool) -> some View {
         HStack(spacing: iconsOnly ? 4 : 8) {
             headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
                          iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
                 .disabled(!socketService.canSendMainRoomActions)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
-                         iconsOnly: iconsOnly) { TournamentEmitter.createTournament() }
+                         iconsOnly: iconsOnly) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
             headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
                          iconsOnly: iconsOnly) { showLeaderboard = true }
@@ -142,7 +148,7 @@ private struct MainRoomScreen: View {
         ToolbarItemGroup(placement: .topBarLeading) {
             barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
                 .disabled(!socketService.canSendMainRoomActions)
-            barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { TournamentEmitter.createTournament() }
+            barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
             barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
