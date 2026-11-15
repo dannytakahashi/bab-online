@@ -227,12 +227,12 @@ function adminDisplay(user) {
 
 /**
  * signIn/restoreSession read everything on the user document except the
- * big or unused fields: the custom picture (up to ~500 KB base64), stats
- * and the merge audit log. Exclusion keeps password, mergedInto, socketId,
+ * big or unused fields: the custom picture (up to ~500 KB base64), stats,
+ * the end-of-game guard ids (statsGames) and the merge audit log. Exclusion keeps password, mergedInto, socketId,
  * sessionTokens, the legacy sessionToken, activeGameId, activeTournamentId
  * and blockedUsers.
  */
-const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, botStats: 0, mergedFrom: 0 };
+const SIGN_IN_PROJECTION = { customProfilePic: 0, stats: 0, botStats: 0, statsGames: 0, mergedFrom: 0 };
 const RESTORE_PROJECTION = { ...SIGN_IN_PROJECTION, password: 0 };
 
 /**
