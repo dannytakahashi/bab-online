@@ -22,6 +22,7 @@
         "ios:fixtures": "node server/game/bot/sim/simulate.js --record-ios iOSClient/BABOnlineTests/Fixtures/events",
         "contract:gen": "node contract/gen.js",
         "contract:check": "node contract/gen.js --check",
+        "contract:baseline": "node contract/baseline.js",
         "contract:fixtures": "UPDATE_CONTRACT_FIXTURES=1 jest server/socket/__tests__/contractFixtures.test.js",
         "test:contract": "CHAOS_SEEDS=1500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js",
         "test:race": "BAB_PACING=zero CHAOS_SEEDS=200 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/hardening.test.js server/socket/__tests__/pacingBudget.test.js"

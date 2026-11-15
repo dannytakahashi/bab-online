@@ -64,6 +64,11 @@ One PR per entry:
 1. Make the server change.
 2. Hand-edit `contract/v1-baseline.schema.json` (the frozen baseline) to drop
    what is removed, and update `contract/src`; run `npm run contract:gen`.
+   Also hand-edit `contract/baselines/ios-*-b<n>.schema.json` for each iOS
+   build the entry was re-checked against (what that build reads, at its
+   source commit: `contract/baselines/README.md`). Never edit a
+   `.decodes.json`: a removal that one of them still holds waits until
+   `MIN_IOS_BUILD` gates that build, and its baseline is retired.
 3. Update `additiveOnly.test.js` expectations if needed,
    `legacyConstants.golden.json` (constants), `transcripts.test.js` and
    `wireProjection.test.js` (legacy key sets), `wireCompat.test.js` goldens.

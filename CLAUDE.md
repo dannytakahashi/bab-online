@@ -74,7 +74,7 @@ bab-online/
 │
 ├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only); build-avatars.js, build-tokens.js (npm run tokens); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
 │
-├── contract/                   # Socket contract: schema source, generator, v1 baseline, v2 fixtures (dev/test only)
+├── contract/                   # Socket contract: schema source, generator, v1 + per-iOS-build baselines, v2 fixtures (dev/test only)
 │
 ├── iOSClient/                  # Native SwiftUI iOS app
 │   ├── BABOnline.xcodeproj    # THE project config (hand-maintained; no XcodeGen)
@@ -126,6 +126,7 @@ npm run sim          # Bot-vs-bot simulation (tuning/regression; see server/game
 npm run contract:gen        # regenerate events.schema.json + web/Swift constants from contract/src
 npm run contract:check      # fail if a generated file is stale
 npm run contract:fixtures   # rewrite contract/fixtures/v2 from real games
+npm run contract:baseline -- --build <n>   # on every iOS upload: freeze that build's contract + decode floor (contract/baselines/README.md)
 npm run test:contract       # 1500 chaos seeds + tournamentLifecycle + contract.test (also run with NODE_ENV=production)
 npm run test:race           # BAB_PACING=zero: chaos (200) + tournamentLifecycle + harness A + budget with every delay 0 (CI)
 # iOS compile check after touching SocketEvents.swift:
