@@ -66,6 +66,31 @@ final class SessionPendingTests: XCTestCase {
         XCTAssertTrue(readyButton(app).isEnabled, "signed in, nothing pending")
     }
 
+    /// During the re-entry the chat's Send waits too (the server drops a line from a socket
+    /// not in the lobby without a word), and Leave goes to the main room at once (a
+    /// leaveLobby from that socket would be refused and strand the screen, LobbyRejoin).
+    func testChatWaitsAndLeaveWorksDuringTheRejoin() {
+        let app = Fixture.launch("game-lobby-bots", extra: ["-uiLobbyRejoin", "YES"])
+        XCTAssertTrue(Fixture.readyElement(app, "game-lobby-bots").waitForExistence(timeout: 15))
+        let field = app.textFields["lobbyChatField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("back soon")
+        XCTAssertFalse(button(app, "Send").isEnabled, "Send waits for the re-entry")
+        XCTAssertEqual(field.value as? String, "back soon", "the line stays in the field")
+        button(app, "Leave").tap()
+        XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 5), "Leave is never stranded")
+        app.terminate()
+
+        let plain = Fixture.launch("game-lobby-bots")
+        XCTAssertTrue(Fixture.readyElement(plain, "game-lobby-bots").waitForExistence(timeout: 15))
+        let f = plain.textFields["lobbyChatField"]
+        XCTAssertTrue(f.waitForExistence(timeout: 5))
+        f.tap()
+        f.typeText("hi")
+        XCTAssertTrue(button(plain, "Send").isEnabled, "nothing pending")
+    }
+
     func testMainRoomActionsWorkOnceSignedIn() {
         let app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))

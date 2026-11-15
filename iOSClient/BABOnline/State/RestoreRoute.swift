@@ -30,3 +30,33 @@ enum RestoreRoute: Equatable {
         serverMessage == "Lobby not found" ? "The lobby closed while you were offline" : "Couldn't get back into the lobby"
     }
 }
+
+/// Leaving a lobby whose re-entry is still unanswered: Leave, or the answer never came (the
+/// server drops a parked socket's events while a sign-in is re-checked, supersededGate).
+/// leaveLobby would not do: this socket may not be in the lobby yet, so the server refuses it
+/// ("Not in a lobby") with no leftLobby and the screen is stranded (review 2026-11-15).
+/// joinMainRoom is answered either way: plainly, or, once the joinLobby put the socket back
+/// in, with the Leave flow. The joinLobby's own late answer is dropped.
+@MainActor
+enum LobbyRejoin {
+    /// How long the restore's joinLobby may go unanswered on a connected socket.
+    static var answerWait: TimeInterval = 15
+
+    static func abandon(lobbyState: LobbyState, appState: AppState) {
+        guard let lobbyId = lobbyState.rejoiningLobbyId else { return }
+        print("[Lobby] Lobby re-entry abandoned (\(lobbyId))")
+        let sid = lobbyState.rejoinSocketId
+        lobbyState.reset()
+        lobbyState.abandonedRejoinLobbyId = lobbyId
+        lobbyState.rejoinSocketId = sid  // its answer comes only on that socket
+        appState.screen = .mainRoom
+        LobbyEmitter.joinMainRoom()
+    }
+
+    /// The one message for a re-entry that failed: the restart alert after a serverShutdown
+    /// (within its window), else a toast.
+    static func showFailure(_ serverMessage: String?, socket: SocketService) {
+        if RestartNotices.shared.lost() { return }
+        socket.serverError = ServerErrorNotice(message: RestoreRoute.lobbyRefusedMessage(serverMessage))
+    }
+}

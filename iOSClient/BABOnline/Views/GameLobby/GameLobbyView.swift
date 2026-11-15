@@ -35,7 +35,9 @@ private struct GameLobbyScreen: View {
 
     /// Ready, Add Bot and removing a bot wait for the session (after a reconnect this socket
     /// is not in the lobby until the restore's joinLobby has gone out and been answered,
-    /// `LobbyState.rejoiningLobbyId`) and for a foreground probe. Leave never waits.
+    /// `LobbyState.rejoiningLobbyId`) and for a foreground probe. Leave never waits (during
+    /// the re-entry it goes through `LobbyRejoin.abandon`); the chat's Send waits for the
+    /// re-entry too (LobbyChatView).
     private var canSendLobbyActions: Bool {
         socketService.canSendMainRoomActions && lobbyState.rejoiningLobbyId == nil
     }
@@ -282,6 +284,13 @@ private struct GameLobbyScreen: View {
     }
 
     private func leaveLobby() {
+        // the re-entry unanswered: this socket may not be in the lobby, and a refused
+        // leaveLobby would strand the screen (LobbyRejoin)
+        if lobbyState.rejoiningLobbyId != nil {
+            LobbyRejoin.abandon(lobbyState: lobbyState, appState: appState)
+            isReady = false
+            return
+        }
         LobbyEmitter.leaveLobby()
         lobbyState.reset()
         isReady = false

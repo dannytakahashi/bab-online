@@ -32,19 +32,20 @@ final class LobbySocketHandler {
     /// Internal for LobbyRejoinTests.
     @MainActor
     func handleRejoinRefused(_ dict: [String: Any]) -> Bool {
-        guard dict["handler"] as? String == SocketEvents.Client.joinLobby,
-              let lobbyId = lobbyState.rejoiningLobbyId else { return false }
+        guard dict["handler"] as? String == SocketEvents.Client.joinLobby else { return false }
         let message = dict["message"] as? String
+        if let abandoned = lobbyState.abandonedRejoinLobbyId {
+            // left already (LobbyRejoin.abandon): its joinMainRoom does the rest, nothing to say
+            print("[Lobby] Abandoned lobby re-entry refused (\(abandoned)): \(message ?? "?")")
+            lobbyState.abandonedRejoinLobbyId = nil
+            return true
+        }
+        guard let lobbyId = lobbyState.rejoiningLobbyId else { return false }
         print("[Lobby] Lobby re-entry refused (\(lobbyId)): \(message ?? "?")")
         lobbyState.reset()
         appState.screen = .mainRoom
         LobbyEmitter.joinMainRoom()
-        // after a serverShutdown the restart alert says why; else a toast
-        if RestartNotices.shared.notice.isPending {
-            RestartNotices.shared.lost()
-        } else {
-            socket.serverError = ServerErrorNotice(message: RestoreRoute.lobbyRefusedMessage(message))
-        }
+        LobbyRejoin.showFailure(message, socket: socket)
         return true
     }
 
@@ -57,6 +58,8 @@ final class LobbySocketHandler {
         socket.on(SocketEvents.Server.mainRoomJoined) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
+                // an abandoned re-entry's answer came before this (one ordered stream)
+                self.lobbyState.abandonedRejoinLobbyId = nil
                 self.mainRoomState.onlineCount = dict["onlineCount"] as? Int ?? 0
                 if let users = dict["onlineUsers"] as? [String] {
                     self.mainRoomState.onlineUsers = users
@@ -123,6 +126,14 @@ final class LobbySocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 let lobbyId = dict["lobbyId"] as? String ?? ""
+                if self.lobbyState.abandonedRejoinLobbyId != nil {
+                    // the seat came back after Leave: the joinMainRoom behind it leaves it again
+                    // (leftLobby + mainRoomJoined), so the lobby never flashes up
+                    self.lobbyState.abandonedRejoinLobbyId = nil
+                    RestartNotices.shared.survived()
+                    print("[Lobby] Abandoned lobby re-entry answered: \(lobbyId)")
+                    return
+                }
                 if self.lobbyState.rejoiningLobbyId != nil {
                     // the restore's re-entry answered: the seat is ours again
                     self.lobbyState.rejoiningLobbyId = nil

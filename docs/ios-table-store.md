@@ -333,8 +333,8 @@ ready): there removeBot and addBot change the list the way the server answers
 them (`UIFixture.emulateLobby`: a removal keeps the humans ready, server #248)
 and show in the `fixture.sent` probe as `removeBot:<id>` / `addBot`
 (`LobbyRemoveBotTests`). `-uiLobbyRejoin YES` there holds the moment a
-restore's lobby re-entry is unanswered (Ready and the remove controls wait;
-`SessionPendingTests`).
+restore's lobby re-entry is unanswered (Ready, the remove controls and the
+chat's Send wait, Leave goes to the main room; `SessionPendingTests`).
 No socket on any path (`SocketService.connectionsDisabled`: launch,
 foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode

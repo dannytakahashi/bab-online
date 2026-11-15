@@ -1,5 +1,6 @@
 import XCTest
 import SocketIO
+import Combine
 @testable import BAB_Online
 
 /// An iOS player waiting in a lobby got a new socket (a deploy, a network change, a slow
@@ -15,6 +16,7 @@ final class LobbyRejoinTests: XCTestCase {
     private var auth: AuthState!
     private var app: AppState!
     private var lobby: LobbyState!
+    private var mainRoom: MainRoomState!
     private var router: SocketEventRouter!
 
     static let restored: [String: Any] = ["success": true, "username": "ivy", "blockedUsers": []]
@@ -26,6 +28,7 @@ final class LobbyRejoinTests: XCTestCase {
     static func refused(_ message: String) -> [String: Any] {
         ["code": "rejected", "message": message, "handler": "joinLobby"]
     }
+    static let mainRoomJoined: [String: Any] = ["messages": [], "lobbies": [], "onlineCount": 3, "onlineUsers": ["ivy", "kim", "lee"]]
 
     @MainActor
     override func setUpWithError() throws {
@@ -38,7 +41,8 @@ final class LobbyRejoinTests: XCTestCase {
         auth.sessionToken = "fixture-restore"  // never saved: the restore only needs it set
         app = AppState()
         lobby = LobbyState()
-        router = SocketEventRouter(socket: service, authState: auth, mainRoomState: MainRoomState(), lobbyState: lobby,
+        mainRoom = MainRoomState()
+        router = SocketEventRouter(socket: service, authState: auth, mainRoomState: mainRoom, lobbyState: lobby,
                                    gameState: GameState(), appState: app, tournamentState: TournamentState(),
                                    leaderboardState: LeaderboardState(), recordsState: RecordsState(), safetyState: SafetyState())
         service.authState = auth
@@ -58,6 +62,7 @@ final class LobbyRejoinTests: XCTestCase {
         service.isSessionReady = false
         RestartNotices.shared.survived()
         RestartNotices.shared.message = nil
+        LobbyRejoin.answerWait = 15
         server.stop()
         server = nil
         super.tearDown()
@@ -89,12 +94,15 @@ final class LobbyRejoinTests: XCTestCase {
         app.screen = .gameLobby
     }
 
-    /// The server's answers: the restore (optionally with pointers) and the lobby's reply.
-    private func script(restore: [String: Any] = restored, joinLobby: [(String, [String: Any])]) {
+    /// The server's answers: the restore (optionally with pointers), the lobby's reply, and
+    /// what follows a joinMainRoom (by default the main room).
+    private func script(restore: [String: Any] = restored, joinLobby: [(String, [String: Any])],
+                        joinMainRoom: [(String, [String: Any])] = [("mainRoomJoined", mainRoomJoined)]) {
         server.replies = { name, _ in
             switch name {
             case "restoreSession": return [("restoreSessionResponse", restore)]
             case "joinLobby": return joinLobby
+            case "joinMainRoom": return joinMainRoom
             default: return []
             }
         }
@@ -293,6 +301,103 @@ final class LobbyRejoinTests: XCTestCase {
         XCTAssertFalse(names.contains("joinMainRoom"))
         XCTAssertEqual(app.screen, .gameLobby)
         XCTAssertEqual(server.handshakes, 1)
+    }
+
+    // MARK: - Leaving before the answer (review 2026-11-15)
+
+    /// Leave while the re-entry waits, and the lobby is gone: the socket was never back in it,
+    /// so a leaveLobby would be refused ("Not in a lobby") with no leftLobby and the screen
+    /// stranded. Leave goes out as joinMainRoom (the server answers the joinLobby first: here
+    /// the refusal, dropped without a toast) and the main room is up at once.
+    @MainActor
+    func testLeaveDuringTheRejoinWhenTheLobbyIsGone() {
+        seatInLobby()
+        script(joinLobby: [],  // answered behind the Leave, in the server's order
+               joinMainRoom: [("serverError", Self.refused("Lobby not found")), ("mainRoomJoined", Self.mainRoomJoined)])
+        connect()
+        wait("the rejoin went out") { self.sent("joinLobby").count == 1 && service.isSessionReady }
+
+        LobbyRejoin.abandon(lobbyState: lobby, appState: app)  // GameLobbyView.leaveLobby during the re-entry
+        XCTAssertEqual(app.screen, .mainRoom, "at once")
+        XCTAssertEqual(lobby.lobbyId, "")
+        wait("main room joined") { self.mainRoom.onlineCount == 3 && self.lobby.abandonedRejoinLobbyId == nil }
+        spin(0.3)
+
+        XCTAssertEqual(sent("leaveLobby").count, 0)
+        XCTAssertEqual(sent("joinMainRoom").count, 1)
+        XCTAssertNil(service.serverError, "the refusal of a re-entry left already says nothing")
+        XCTAssertEqual(app.screen, .mainRoom)
+    }
+
+    /// Leave while the re-entry waits, and the seat came back: the late lobbyCreated is
+    /// dropped (the lobby never flashes up), and the joinMainRoom behind it leaves the lobby
+    /// server-side (leftLobby + mainRoomJoined).
+    @MainActor
+    func testLeaveDuringTheRejoinWhenTheSeatCameBack() {
+        seatInLobby()
+        script(joinLobby: [],
+               joinMainRoom: [("lobbyCreated", Self.lobbyCreated("L1")), ("leftLobby", [:]), ("mainRoomJoined", Self.mainRoomJoined)])
+        connect()
+        wait("the rejoin went out") { self.sent("joinLobby").count == 1 && service.isSessionReady }
+
+        var screens: [AppState.Screen] = []
+        let watch = app.$screen.sink { screens.append($0) }
+        LobbyRejoin.abandon(lobbyState: lobby, appState: app)
+        wait("main room joined") { self.mainRoom.onlineCount == 3 }
+        spin(0.3)
+        watch.cancel()
+
+        XCTAssertFalse(screens.dropFirst().contains(.gameLobby), "the lobby never came back up: \(screens)")
+        XCTAssertEqual(app.screen, .mainRoom)
+        XCTAssertEqual(lobby.lobbyId, "")
+        XCTAssertTrue(lobby.players.isEmpty)
+        XCTAssertNil(lobby.abandonedRejoinLobbyId)
+        XCTAssertEqual(sent("leaveLobby").count, 0)
+        XCTAssertNil(service.serverError)
+    }
+
+    /// No answer at all on a socket that stays connected (the server drops a parked socket's
+    /// events while a sign-in is re-checked): after `answerWait` the main room, as a refusal.
+    @MainActor
+    func testUnansweredRejoinGivesUpAfterTheWait() {
+        LobbyRejoin.answerWait = 0.5
+        seatInLobby()
+        script(joinLobby: [])
+        connect()
+        wait("the rejoin went out") { self.sent("joinLobby").count == 1 && service.isSessionReady }
+        XCTAssertEqual(app.screen, .gameLobby)
+        wait("gave up") { self.app.screen == .mainRoom && self.mainRoom.onlineCount == 3 }
+        XCTAssertEqual(sent("joinMainRoom").count, 1)
+        XCTAssertEqual(service.serverError?.message, "Couldn't get back into the lobby")
+        XCTAssertNil(lobby.rejoiningLobbyId)
+    }
+
+    /// An answered re-entry's wait does nothing.
+    @MainActor
+    func testAnsweredRejoinIsNotGivenUp() {
+        LobbyRejoin.answerWait = 0.3
+        seatInLobby()
+        script(joinLobby: [("lobbyCreated", Self.lobbyCreated("L1"))])
+        connect()
+        wait("back in the lobby") { self.lobby.players.count == 2 && self.lobby.rejoiningLobbyId == nil }
+        spin(0.8)
+        XCTAssertEqual(app.screen, .gameLobby)
+        XCTAssertEqual(sent("joinMainRoom").count, 0)
+        XCTAssertNil(service.serverError)
+    }
+
+    /// A restart notice older than its window shows no alert, so the refusal toasts.
+    @MainActor
+    func testRefusalAfterAnOldRestartNoticeToasts() {
+        let handler = LobbySocketHandler(socket: service, mainRoomState: MainRoomState(), lobbyState: lobby,
+                                         appState: app, gameState: GameState(), safetyState: SafetyState())
+        seatInLobby()
+        lobby.rejoiningLobbyId = "L1"
+        RestartNotices.shared.serverShutdown(place: .lobby, now: Date().addingTimeInterval(-(RestartNotice.window + 60)))
+        XCTAssertTrue(handler.handleRejoinRefused(Self.refused("Lobby not found")))
+        XCTAssertNil(RestartNotices.shared.message)
+        XCTAssertEqual(service.serverError?.message, "The lobby closed while you were offline")
+        XCTAssertEqual(app.screen, .mainRoom)
     }
 
     // MARK: - The route (pure)

@@ -56,9 +56,9 @@ struct LobbyChatView: View {
                 Button(action: sendMessage) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.title2)
-                        .foregroundColor(message.isEmpty ? Theme.textDim : Theme.primary)
+                        .foregroundColor(message.isEmpty || rejoining ? Theme.textDim : Theme.primary)
                 }
-                .disabled(message.isEmpty)
+                .disabled(message.isEmpty || rejoining)
                 .accessibilityLabel("Send")  // not the symbol's "Arrow Up Circle"
             }
             .padding(Theme.Space.s2)
@@ -68,9 +68,14 @@ struct LobbyChatView: View {
         .onChange(of: message) { lobbyState.chatDraft = message }
     }
 
+    /// The restore's joinLobby is unanswered: this socket is not in the lobby yet, and the
+    /// server drops a line from it without a word (addLobbyMessage "Not in a lobby"), so the
+    /// line stays in the field until the seat is back.
+    private var rejoining: Bool { lobbyState.rejoiningLobbyId != nil }
+
     private func sendMessage() {
         let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty, !rejoining else { return }
         LobbyEmitter.lobbyChat(message: text)
         message = ""
         lobbyState.chatDraft = ""
