@@ -84,8 +84,18 @@ const transports = [
     })
 ];
 
-// Add file transports only if logs directory is writable and not in test environment
-if (canWriteLogs && process.env.NODE_ENV !== 'test') {
+// Log files only for local runs. On Railway (or any production run) stdout
+// is the log: Railway keeps it on the schedule the privacy policy states,
+// while files in the container would hold usernames and IPs until the next
+// deploy, however long that is.
+function fileLogsEnabled(env = process.env, writable = canWriteLogs) {
+    if (!writable) return false;
+    if (env.NODE_ENV === 'test' || env.NODE_ENV === 'production') return false;
+    if (env.RAILWAY_ENVIRONMENT_NAME || env.RAILWAY_ENVIRONMENT || env.RAILWAY_PROJECT_ID) return false;
+    return true;
+}
+
+if (fileLogsEnabled()) {
     transports.push(
         // Error log file
         new winston.transports.File({
@@ -136,5 +146,6 @@ module.exports = {
     dbLogger,
     httpLogger,
     createModuleLogger,
+    fileLogsEnabled,
     resolveLevel
 };
