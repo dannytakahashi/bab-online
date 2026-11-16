@@ -138,6 +138,9 @@ struct LobbyPlayer: Identifiable, Equatable {
     /// (the table bots and the first humans to ready, up to 4; every member of a lobby of 4
     /// or fewer). nil: an entry from `players` (an older server).
     var playing: Bool? = nil
+    /// A place held for someone not back from the last game yet (`members[].returning`, play
+    /// again, 1.2.3): a row with no socket ("Not back yet"; "Don't wait for <name>").
+    var returning: Bool = false
 
     static func from(_ dict: [String: Any]) -> LobbyPlayer? {
         guard let username = dict["username"] as? String else { return nil }
@@ -146,7 +149,7 @@ struct LobbyPlayer: Identifiable, Equatable {
         let isReady = dict["isReady"] as? Bool ?? dict["ready"] as? Bool ?? false
         let isBot = dict["isBot"] as? Bool ?? false
         return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot,
-                           playing: dict["playing"] as? Bool)
+                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true)
     }
 }
 

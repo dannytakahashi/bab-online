@@ -218,6 +218,12 @@ final class AuthSocketHandler {
                     self.tournamentState.rejoinSocketId = nil
                 }
 
+                // a lobby a game's end kept behind its score screen (play again, LobbyReturn) was
+                // the old socket's: the restore goes to the main room as from any score screen,
+                // and the server's joinMainRoom answer puts this socket back in that lobby
+                // (playAgain.autoClaimTarget: lobbyCreated) while its place is held
+                if self.lobbyState.returnFromGameId != nil { self.lobbyState.reset() }
+
                 let route = RestoreRoute.of(data, screen: self.appState.screen, lobbyId: self.lobbyState.lobbyId,
                                             tournamentId: TournamentRejoin.rememberedId(self.tournamentState),
                                             spectatingGameId: SpectateRejoin.rememberedId(self.gameState, screen: self.appState.screen))

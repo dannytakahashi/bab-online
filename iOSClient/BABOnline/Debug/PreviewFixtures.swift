@@ -28,6 +28,7 @@ extension View {
             .environmentObject(game)
             .environmentObject(actions)
             .environmentObject(app)
+            .environmentObject(LobbyState())
             .environmentObject(SafetyState())
             .environment(\.horizontalSizeClass, open ? .regular : .compact)
             .environment(\.verticalSizeClass, .regular)

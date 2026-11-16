@@ -26,6 +26,7 @@ export const CLIENT_EVENTS = {
   PLAYER_READY: 'playerReady',
   PLAYER_UNREADY: 'playerUnready',
   SET_SPECTATORS_CAN_TALK: 'setSpectatorsCanTalk',
+  RELEASE_LOBBY_HOLD: 'releaseLobbyHold',
   ADD_BOT: 'addBot',
   REMOVE_BOT: 'removeBot',
 

@@ -291,6 +291,10 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   the cap: it gets today's `gameEnd` and Return to Lobby flow. Send this cap
   ONLY with `casualSpectators` and from a client that handles `lobbyReturn`
   (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off).
+  iOS 1.2.3 (build 12) sends it with `casualSpectators` (`ClientHello.caps`):
+  it keeps its score screen up when `lobbyReturn` arrives and enters that
+  lobby only on its Return to Lobby (owner 2026-11-16), and sends
+  `releaseLobbyHold` (iOSClient/CLAUDE.md, "Play again").
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

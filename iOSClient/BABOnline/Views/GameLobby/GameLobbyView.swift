@@ -94,6 +94,61 @@ private struct GameLobbyScreen: View {
         .accessibilityIdentifier("lobby.voice")
     }
 
+    /// Play again (1.2.3): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
+    @State private var releasing: Set<String> = []
+
+    /// The host (or anyone present while the host is held) may give up a returning row or an
+    /// expected player's place.
+    private var mayRelease: Bool { lobbyState.canRelease(authState.username) }
+
+    /// The last game's older-app players whose place is saved (no row): "Not back yet", and
+    /// for the host "Don't wait".
+    private var expectedSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text(PlayAgainCopy.expected)
+                .font(.caption.bold())
+                .foregroundColor(Theme.textSecondary)
+                .accessibilityAddTraits(.isHeader)
+            ForEach(lobbyState.expected, id: \.self) { name in
+                HStack(spacing: Theme.Space.s3) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(name)
+                            .font(.body.bold())
+                            .foregroundColor(Theme.textPrimary)
+                        Text(PlayAgainCopy.notBackYet)
+                            .font(.caption2)
+                            .foregroundColor(Theme.textSecondary)
+                            .italic()
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("lobby.expected.\(name)")
+                    Spacer()
+                    if mayRelease {
+                        DontWaitButton(username: name, isReleasing: releasing.contains(name) || !canSendLobbyActions) {
+                            releaseHold(name)
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(Theme.surface)
+        .cornerRadius(Theme.Radius.md)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("lobby.expected")
+    }
+
+    private func releaseHold(_ username: String) {
+        guard !releasing.contains(username) else { return }
+        releasing.insert(username)
+        LobbyEmitter.releaseLobbyHold(username: username)
+        HapticManager.lightImpact()
+        // a refusal changes no list: let the control work again
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { releasing.remove(username) }
+    }
+
     private func setSpectatorsCanTalk(_ value: Bool) {
         guard value != lobbyState.spectatorsCanTalk || talkPending != nil else { return }
         talkPending = value
@@ -180,11 +235,15 @@ private struct GameLobbyScreen: View {
                                        isRemoving: removing.contains(player.id) || !canSendLobbyActions,
                                        isReconnecting: lobbyState.isReconnecting(player),
                                        isHost: !player.isBot && lobbyState.isHost(player.username),
-                                       status: LobbySeatStatus.of(player, in: lobbyState.players))
+                                       status: LobbySeatStatus.of(player, in: lobbyState.players),
+                                       onRelease: mayRelease ? { releaseHold(player.username) } : nil,
+                                       isReleasing: releasing.contains(player.username) || !canSendLobbyActions)
                     }
-                    ForEach(lobbyState.players.count..<max(4, lobbyState.players.count), id: \.self) { index in
+                    // (a place saved for the last game's expected players is not empty)
+                    ForEach(lobbyState.players.count..<max(lobbyState.players.count, 4 - lobbyState.expected.count), id: \.self) { index in
                         emptySlot(index: index)
                     }
+                    if !lobbyState.expected.isEmpty { expectedSection }
                 }
                 .padding()
                 .accessibilityElement(children: .contain)
@@ -192,8 +251,8 @@ private struct GameLobbyScreen: View {
 
                 if lobbyState.hasSettings { voiceSection }
 
-                // Bot button
-                if lobbyState.playerCount < 4 {
+                // Bot button (not over a place saved for the last game's players: play again)
+                if lobbyState.canAddBot {
                     Button(action: addRandomBot) {
                         Label("Add Bot", systemImage: "cpu")
                             .font(.callout)
@@ -272,8 +331,10 @@ private struct GameLobbyScreen: View {
         .onChange(of: lobbyState.players) { _, _ in
             // every list the server sends answers the removals sent before it
             removing = []
+            releasing = []
             syncReady()
         }
+        .onChange(of: lobbyState.expected) { _, _ in releasing = [] }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet()
                 .presentationDetents([.medium])

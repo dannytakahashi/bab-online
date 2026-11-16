@@ -18,6 +18,21 @@ final class LobbySocketHandler {
         }
     }
 
+    /// leftLobby: the main room. A lobby a game's end kept behind its score screen (play
+    /// again, `LobbyReturn`; e.g. the same player's other device took the seat) is only
+    /// forgotten: the results stay up and Return to Lobby goes to the main room as before.
+    @MainActor
+    static func applyLeftLobby(lobbyState: LobbyState, appState: AppState) {
+        let keptBehindResults = lobbyState.returnFromGameId != nil && appState.screen == .game
+        lobbyState.reset()
+        if keptBehindResults {
+            print("[Lobby] Left the lobby kept behind the score screen")
+            return
+        }
+        appState.screen = .mainRoom
+        print("[Lobby] Left lobby")
+    }
+
     init(socket: SocketService, mainRoomState: MainRoomState, lobbyState: LobbyState, appState: AppState, gameState: GameState, safetyState: SafetyState) {
         self.socket = socket
         self.mainRoomState = mainRoomState
@@ -151,19 +166,23 @@ final class LobbySocketHandler {
                     RestartNotices.shared.survived()
                     print("[Lobby] Back in lobby: \(lobbyId)")
                 }
-                self.lobbyState.lobbyId = lobbyId
-                self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
+                // (a lobby a game's end kept behind its score screen is replaced: LobbyReturn)
+                self.lobbyState.returnFromGameId = nil
                 self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))
 
                 // lobbyCreated from joinLobby names the held seats (additive; absent: none)
-                self.lobbyState.applyPlayers(from: dict, namesHeldSeats: true)
-                if let messages = dict["messages"] as? [[String: Any]] {
-                    self.lobbyState.messages = messages
-                        .compactMap { ChatMessage.from($0) }
-                        .filter { !self.safetyState.isBlocked($0.username) }
-                }
+                self.lobbyState.applyLobby(dict, isBlocked: { self.safetyState.isBlocked($0) })
                 self.appState.screen = .gameLobby
                 print("[Lobby] Created lobby: \(lobbyId)")
+            }
+        }
+
+        // Play again (1.2.3): back in the lobby after the game, the score screen kept up
+        socket.on(SocketEvents.Server.lobbyReturn) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                LobbyReturn.receive(dict, lobbyState: self.lobbyState, appState: self.appState, gameState: self.gameState,
+                                    isBlocked: { self.safetyState.isBlocked($0) })
             }
         }
 
@@ -214,9 +233,8 @@ final class LobbySocketHandler {
 
         socket.on(SocketEvents.Server.leftLobby) { [weak self] _, _ in
             DispatchQueue.main.async {
-                self?.lobbyState.reset()
-                self?.appState.screen = .mainRoom
-                print("[Lobby] Left lobby")
+                guard let self else { return }
+                Self.applyLeftLobby(lobbyState: self.lobbyState, appState: self.appState)
             }
         }
 

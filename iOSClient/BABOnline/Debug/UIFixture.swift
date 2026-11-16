@@ -174,7 +174,7 @@ enum UIFixture {
                     ] as [String: Any]])
                 }
             }
-            if gameEndStates[name] != nil {
+            if gameEndStates[name] != nil, lobbyReturnMode != "lost" {
                 // gameEnd playerStats as the server sends them (gameHandlers.js: avgHSI rounded);
                 // `-uiNoEndStats YES`: none, as an older server or a missing field
                 let totals: [Int: (bids: Int, tricks: Int, faults: Int, hsi: Double)] = [
@@ -200,9 +200,60 @@ enum UIFixture {
             }
             seedTableExtras(store, snap, auth: auth)
             appState.screen = .game
+            if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
+                seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
+                                store, appState, lobby: lobby)
+            }
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - Play again (1.2.3, PlayAgainUITests)
+
+    /// `-uiLobbyReturn YES` on `game-end` / `game-end-spectator`: 0.5 s after the gameEnd the
+    /// server's lobbyReturn arrives (`LobbyReturn.receive`): the lobby "Family night" with me
+    /// as its host, two other players of the table (the first a returning row, "Not back
+    /// yet"), a bot, and an expected older-app player, "grandpa" (4 members + 1 expected). `-uiLobbyReturn lost`: the same with no
+    /// gameEnd (held in the seq gate for good): the app enters the lobby after
+    /// `LobbyReturn.gameEndWait`. releaseLobbyHold shows in "fixture.sent" as
+    /// `releaseLobbyHold:<name>` and the place goes 0.3 s later, as the server's list does.
+    static let lobbyReturnMode: String? = isActive ? UserDefaults.standard.string(forKey: "uiLobbyReturn") : nil
+
+    @MainActor
+    private static func seedLobbyReturn(gameId: String, me: String, seats: [String], _ store: GameState, _ appState: AppState,
+                                        lobby: LobbyState) {
+        fixtureLobby = lobby
+        let others = Array(seats.filter { $0 != me }.prefix(2))
+        var members: [[String: Any]] = [["socketId": "sid-\(me)", "username": me, "ready": false, "playing": true]]
+        for (i, u) in others.enumerated() {
+            var m: [String: Any] = ["socketId": i == 0 ? "away:fixture-\(u)" : "sid-\(u)", "username": u, "ready": false, "playing": true]
+            if i == 0 { m["reconnecting"] = true; m["returning"] = true }
+            members.append(m)
+        }
+        members.append(["socketId": "bot:fixture-1", "username": "\u{1F916} Bot", "ready": false, "playing": false, "isBot": true])
+        let payload: [String: Any] = [
+            "lobbyId": "00000000-0000-4000-8000-0000000000aa", "name": "Family night",
+            "players": Array(members.prefix(4)), "members": members,
+            "messages": [["username": others.last ?? "kim", "message": "gg! again?", "timestamp": Date().timeIntervalSince1970 * 1000]],
+            "host": me, "settings": ["spectatorsCanTalk": true], "capacity": 8, "expected": ["grandpa"],
+            "lastGame": ["gameId": gameId, "score": ["team1": 312, "team2": 287], "playerStats": [String: Any](), "position": NSNull()],
+        ]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            LobbyReturn.receive(payload, lobbyState: lobby, appState: appState, gameState: store, isBlocked: { _ in false },
+                                leaveLobby: { print("[UIFixture] lobbyReturn: leaveLobby") })
+        }
+    }
+
+    /// The server's answer to "Don't wait" (playAgain.releaseLobbyHold): the hold's row or the
+    /// expected name goes.
+    private static func emulateRelease(_ username: String) {
+        guard lobbyReturnMode != nil, let lobby = fixtureLobby else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            lobby.players.removeAll { $0.username == username && $0.returning }
+            lobby.reconnecting.remove(username)
+            lobby.expected.removeAll { $0 == username }
         }
     }
 
@@ -298,6 +349,10 @@ enum UIFixture {
             message = "addBot"
         case SocketEvents.Client.blockUser, SocketEvents.Client.unblockUser, SocketEvents.Client.reportUser:
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
+        case SocketEvents.Client.releaseLobbyHold:
+            let username = data["username"] as? String ?? "-"
+            message = "releaseLobbyHold:\(username)"
+            emulateRelease(username)
         case SocketEvents.Client.setSpectatorsCanTalk:
             let value = data["spectatorsCanTalk"] as? Bool ?? true
             message = "setSpectatorsCanTalk:\(value)"

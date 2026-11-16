@@ -52,6 +52,13 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.setSpectatorsCanTalk, ["spectatorsCanTalk": value])
     }
 
+    /// "Don't wait for <name>" (play again, 1.2.3): gives up a returning row's hold or an
+    /// expected player's reservation at once. The host only, or anyone present while the host
+    /// is held; the server answers with the lobby's list (a refusal: serverError 'rejected').
+    static func releaseLobbyHold(username: String) {
+        socket.emit(SocketEvents.Client.releaseLobbyHold, ["username": username])
+    }
+
     static func joinAsSpectator(gameId: String) {
         socket.emit(SocketEvents.Client.joinAsSpectator, ["gameId": gameId])
     }
