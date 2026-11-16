@@ -381,15 +381,19 @@ final class AdminPanelUITests: XCTestCase {
     /// server has cancelled the player's earlier link by then), the panel cannot be closed
     /// while it is on its way, and the link is back after the app left the front.
     func testAResetLinkThatArrivesOnAnotherSectionIsStillShown() {
-        let app = openAdmin(extra: ["-uiAdminDelay", "2.5"])
+        let app = openAdmin(extra: ["-uiAdminLinkDelay", "8"])
         filterPlayers(app, "kim")
         openMenu(app, "kim", item: "Reset link")
         XCTAssertFalse(app.buttons["admin.close"].isEnabled, "a change on its way: Close waits")
         XCTAssertFalse(app.buttons["admin.player.menu.kim"].firstMatch.isEnabled, "no second link, no other dialog meanwhile")
         selectTab(app, "Audit")
         let url = element(app, "admin.resetLink.url")
-        XCTAssertTrue(url.waitForExistence(timeout: 10), "the link's sheet over the Audit section")
+        XCTAssertTrue(url.waitForExistence(timeout: 20), "the link's sheet over the Audit section")
         shot(app, "reset-link-other-section")
+        // shown once: only Done closes it, never a tap beside the sheet (the iPad) or a swipe
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.04)).tap()
+        app.swipeDown(velocity: .fast)
+        XCTAssertTrue(url.waitForExistence(timeout: 3), "still there")
 
         XCUIDevice.shared.press(.home)
         app.activate()

@@ -198,7 +198,7 @@ struct AdminRenameSheet: View {
     }
 }
 
-/// A one-time reset link, shown once: Copy (this device only, gone from the clipboard when
+/// A one-time reset link, shown once and closed only by Done: Copy (this device only, gone from the clipboard when
 /// the link expires) or the system share sheet (Messages). The link is a bearer secret: it
 /// lives only in `AdminState.resetLink` while this sheet is up, is never logged or spoken
 /// (VoiceOver names the row, not the link), and is covered while the app is not in front
@@ -267,6 +267,8 @@ struct AdminResetLinkSheet: View {
                 }
             }
         }
+        // shown once: a stray swipe, or a tap beside the sheet on the iPad, must not lose it
+        .interactiveDismissDisabled()
     }
 
     /// This device only (no Universal Clipboard), and only until the link expires.

@@ -11,8 +11,8 @@ import Foundation
 /// `ok` (or YES), `capped` (the list says it shows the newest of more), `forbidden` (every
 /// request refused: the panel closes and the entry hides), `silent` (no answer),
 /// `rateLimited` (the request limit), `stale` (applyMerge answers stale_plan).
-/// `-uiAdminDelay <seconds>` answers that much later (default 0.25): time to change
-/// section, or tap twice, before an answer lands.
+/// `-uiAdminLinkDelay <seconds>` answers createResetLink that much later (the others
+/// stay at 0.25 s): time to change section before the link lands.
 /// Fixed refusals in every mode: deleting `hal` (in a game), renaming to a taken name,
 /// removing the last admin. Each request shows in the "fixture.sent" probe as
 /// `admin:<action>[:<name>]` (never a link or token).
@@ -25,8 +25,8 @@ extension UIFixture {
         auth.isAdmin = true
         auth.isAuthenticated = true  // the toast layer (ContentView) is mounted for a signed-in user
         ServerErrorToast.visibleSeconds = 20
-        let delay = UserDefaults.standard.double(forKey: "uiAdminDelay")
-        let backend = AdminFixtureBackend(mode: mode, delay: delay > 0 ? delay : 0.25, me: { [weak auth] in auth?.username ?? "ivy" })
+        let linkDelay = UserDefaults.standard.double(forKey: "uiAdminLinkDelay")
+        let backend = AdminFixtureBackend(mode: mode, linkDelay: linkDelay > 0 ? linkDelay : 0.25, me: { [weak auth] in auth?.username ?? "ivy" })
         admin.username = { [weak auth] in auth?.username ?? "" }
         admin.accessLost = { [weak auth] message in
             auth?.isAdmin = false
@@ -41,7 +41,7 @@ extension UIFixture {
 @MainActor
 final class AdminFixtureBackend {
     private let mode: String
-    private let delay: TimeInterval
+    private let linkDelay: TimeInterval
     private let me: () -> String
     private var players: [[String: Any]]
     private var reports: [[String: Any]]
@@ -55,9 +55,9 @@ final class AdminFixtureBackend {
     }
     private static let day: TimeInterval = 86400
 
-    init(mode: String, delay: TimeInterval, me: @escaping () -> String) {
+    init(mode: String, linkDelay: TimeInterval, me: @escaping () -> String) {
         self.mode = mode
-        self.delay = delay
+        self.linkDelay = linkDelay
         self.me = me
         func live(_ name: String, created: Double, seen: Double?, online: Bool = false, games: Int, bot: Int = 0,
                   admin: Bool = false, unfinished: String? = nil) -> [String: Any] {
@@ -116,7 +116,7 @@ final class AdminFixtureBackend {
 
     func answer(_ action: AdminAction, _ args: [String: Any]) async -> AdminApi.Outcome {
         record(action, args)
-        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        try? await Task.sleep(nanoseconds: UInt64((action == .createResetLink ? linkDelay : 0.25) * 1_000_000_000))
         switch mode {
         case "silent": return .failure(.timeout)
         case "rateLimited": return .failure(.rateLimited)
