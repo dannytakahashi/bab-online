@@ -314,6 +314,82 @@ describe('the table: the first 4 to tap Ready play', () => {
         expect(gameManager.getPlayerGame(socks[0].id)).toBeFalsy();
     });
 
+    /**
+     * Host + 2 bots, then 2 humans (5 members: one table bot). Host and A
+     * ready (table: bot1 + host + A). `remove(B)` takes B out; tableBots
+     * grows to both bots and the table is full: the bots must be readied
+     * and the lobby must start (review 2026-11-16: it sat with every human
+     * ready and nothing started it).
+     */
+    async function botsFillAfterRemoval(remove) {
+        const w = world();
+        const socks = names(3).map((n) => w.user(n));
+        const [h, a, b] = socks;
+        mainRoomHandlers.createLobby(h, w.io, {});
+        const lobby = gameManager.getPlayerLobby(h.id);
+        await lobbyHandlers.addBot(h, w.io);
+        await lobbyHandlers.addBot(h, w.io);
+        mainRoomHandlers.joinLobby(a, w.io, { lobbyId: lobby.id });
+        mainRoomHandlers.joinLobby(b, w.io, { lobbyId: lobby.id });
+        expect(lobby.players).toHaveLength(5);
+        expect(gameManager.tableBots(lobby)).toHaveLength(1);
+        const starting = [h, a].map((s) => lobbyHandlers.playerReady(s, w.io));
+        await Promise.all(starting);
+        expect(gameManager.lobbyTable(lobby)).toHaveLength(3);
+        const bots = lobby.players.filter((p) => p.isBot).map((p) => p.socketId);
+        await remove(w, b, lobby);
+        expect(lobby.players).toHaveLength(4);
+        expect(lobby.players.every((p) => p.ready)).toBe(true);
+        // everyone left sees the bots ready
+        expect(w.last(h, 'playerReadyUpdate').members.every((m) => m.ready)).toBe(true);
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS + 10);
+        const game = gameManager.getPlayerGame(h.id);
+        expect(game).toBeTruthy();
+        expect([...game.entrants.keys()].sort()).toEqual([h.id, a.id, ...bots].sort());
+        expect(gameManager.lobbies.has(lobby.id)).toBe(false);
+        await jest.advanceTimersByTimeAsync(5000);
+    }
+
+    test('a leave that brings bots onto the table readies them and the lobby starts', async () => {
+        await botsFillAfterRemoval((w, b) => lobbyHandlers.leaveLobby(b, w.io));
+    });
+
+    test('a held seat expiring that brings bots onto the table readies them and the lobby starts', async () => {
+        await botsFillAfterRemoval(async (w, b) => {
+            await w.kill(b);
+            await jest.advanceTimersByTimeAsync(LOBBY_SEAT_GRACE_MS + 10);
+        });
+    });
+
+    test('a sign-out (no grace) that brings bots onto the table readies them and the lobby starts', async () => {
+        await botsFillAfterRemoval(async (w, b) => {
+            w.io.sockets.sockets.delete(b.id);
+            await queueHandlers.handleDisconnect(b, w.io, { lobbyGrace: false });
+        });
+    });
+
+    test('a removed table bot in the start window: the next bot takes its seat ready and the lobby still starts', async () => {
+        const w = world();
+        const socks = names(3).map((n) => w.user(n));
+        mainRoomHandlers.createLobby(socks[0], w.io, {});
+        const lobby = gameManager.getPlayerLobby(socks[0].id);
+        for (let i = 0; i < 3; i++) await lobbyHandlers.addBot(socks[0], w.io);
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId: lobby.id });
+        const [bot1, bot2] = gameManager.tableBots(lobby).concat(lobby.players.filter((p) => p.isBot).slice(1));
+        expect(gameManager.tableBots(lobby)).toEqual([bot1]);
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        expect(bot1.ready).toBe(true);
+        lobbyHandlers.removeBot(socks[0], w.io, { botSocketId: bot1.socketId });
+        expect(gameManager.tableBots(lobby)).toEqual([bot2]);
+        expect(bot2.ready).toBe(true);
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS + 10);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        expect(game).toBeTruthy();
+        expect([...game.entrants.keys()].sort()).toEqual([...socks.map((s) => s.id), bot2.socketId].sort());
+        await jest.advanceTimersByTimeAsync(5000);
+        await Promise.all(starting);
+    });
+
     test('a lobby of capacity 4 (a legacy member) still resets every ready flag on a leave', () => {
         const w = world();
         const socks = names(4).map((n, i) => w.user(n, { capable: i !== 2 }));

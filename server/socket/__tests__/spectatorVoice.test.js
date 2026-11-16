@@ -86,9 +86,9 @@ function user(tag, { capable = true, blocked = [] } = {}) {
 }
 const nameOf = (s) => gameManager.getUserBySocketId(s.id).username;
 
-/** A seated casual game in PLAYING (4 human seats); returns the seat sockets. */
+/** A seated casual game in PLAYING (4 human seats); returns the seat sockets. capable: one flag, or one per seat. */
 function casualGame(tags, { capable = true, on = true, casual = true } = {}) {
-    const socks = tags.map((t) => user(t, { capable }));
+    const socks = tags.map((t, i) => user(t, { capable: Array.isArray(capable) ? capable[i] : capable }));
     const game = gameManager.createGame(socks.map((s) => s.id));
     socks.forEach((s, i) => game.addPlayer(s.id, nameOf(s), i + 1, 1, false));
     socks.forEach((s) => s.join(game.roomName));
@@ -233,6 +233,61 @@ describe('who may talk', () => {
         expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
         // the others hear about it (voiceSettings on the host dropping)
         expect(last(socks[2], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+    });
+
+    // Review 2026-11-16: every way a seat owner leaves the voice room
+    // recomputes and announces who controls the switch and who may talk
+    test('the host /leaves: another capable player gets canChange true', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        chatHandlers.chatMessage(socks[0], io, { message: '/leave' });
+        expect(game.seat(1).presence).toBe('gone');
+        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
+        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+        // with the host gone any connected capable player controls it (Q3)
+        expect(last(socks[2], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+    });
+
+    test('a lazy host (at its seat) disconnecting: another capable player gets canChange true', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        chatHandlers.chatMessage(socks[0], io, { message: '/lazy' });
+        expect(game.seat(1).ownerView).toBe('seat');
+        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(false);
+        io.sockets.sockets.delete(socks[0].id);
+        await queueHandlers.handleDisconnect(socks[0], io);
+        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
+        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+    });
+
+    test('a lazy host demoted by a newer socket that watches the seat: another capable player gets canChange true', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        chatHandlers.chatMessage(socks[0], io, { message: '/lazy' });
+        const host = nameOf(socks[0]);
+        const tab = makeSocket(`sv${seq}-tab`, log, io);
+        gameManager.registerUser(tab.id, host);
+        clientInfo.handle(tab, io, { client: 'web', version: '1', caps: ['casualSpectators'] });
+        expect(seatLifecycle.watchSeat(io, game, 1, tab, host, { via: 'spectate' })).toBe(true);
+        expect(game.seat(1)).toMatchObject({ ownerSocketId: tab.id, ownerView: 'watch' });
+        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+    });
+
+    test('the last capable player /leaves a legacy table: a main-room spectator loses canTalk and the backstop tears its calls down', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd'], { capable: [true, false, false, false] });
+        const x = user('x');
+        spectate(game, x);
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true });
+        voice.voiceOffer(x, io, { targetSocketId: socks[1].id, offer: OFFER('sendrecv') });
+        expect(relayed('voiceOffer').map((l) => l.to)).toEqual([socks[1].id]);
+        chatHandlers.chatMessage(socks[0], io, { message: '/leave' });
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: false, canChange: false });
+        expect(game.voiceSpectators.get(x.id).gateSince).not.toBeNull();
+        // a new sendrecv offer is refused now
+        const before = relayed('voiceOffer').length;
+        voice.voiceOffer(x, io, { targetSocketId: socks[2].id, offer: OFFER('sendrecv') });
+        expect(relayed('voiceOffer')).toHaveLength(before);
+        const mark = log.length;
+        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
+        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[1].id, socks[2].id, socks[3].id]);
+        for (const s of socks.slice(1)) expect(to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
     });
 });
 

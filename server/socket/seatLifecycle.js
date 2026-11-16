@@ -298,7 +298,12 @@ function disconnectOwner(io, game, pos, sid) {
         socketLogger.info('Bot-controlled seat owner disconnected, bot continues playing', {
             username, position: pos, gameId: game.gameId, view
         });
-        if (view === 'seat') logEntry(io, game, `${username} disconnected. Bot continues playing.`);
+        if (view === 'seat') {
+            logEntry(io, game, `${username} disconnected. Bot continues playing.`);
+            // A lazy owner at its seat was in the voice room: who controls
+            // spectator talk (and so who may talk) can change
+            gameVoice.refreshVoice(io, game);
+        }
     }
     maybeAbort(io, game);
 }
@@ -435,6 +440,9 @@ function watchSeat(io, game, pos, socket, username, { via }) {
             }
         }
         unmap(game, prev);
+        // It was in the voice room: who controls spectator talk (and so
+        // who may talk) can change
+        if (voiceBefore.has(prev)) gameVoice.refreshVoice(io, game);
         // A parked socket (sessionIdentity: superseded by this one) is not
         // watching anything: it leaves like a gone one
         const prevSocket = io.sockets.sockets.get(prev);
@@ -493,7 +501,7 @@ function reclaimSeat(io, game, pos, socket, username) {
     socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
     // ownerView is 'watch' now: goActive re-sends the seat's full state
     // (restorePlayerState) and the presence replay to this socket
-    if (!goActive(io, game, pos, socket)) return false;
+    if (!goActive(io, game, pos, socket, { voice: false })) return false;
     // At the seat again: the same voice peer list as a reconnect (it had
     // none: a reclaimed seat sat silent until the next reconnect)
     announceOwnerVoice(io, game, pos, socket, username);
@@ -704,7 +712,7 @@ function goLazy(io, game, pos, { reason = null } = {}) {
 }
 
 /** /active from the owner socket: the seat is human again. */
-function goActive(io, game, pos, socket) {
+function goActive(io, game, pos, socket, { voice = true } = {}) {
     const released = game.seatGoActive(pos, socket.id);
     if (!released) return false;
     const { bot, ownerView } = released;
@@ -727,6 +735,10 @@ function goActive(io, game, pos, socket) {
         // The watching client switches from its lazy view to the seat
         socket.emit('restorePlayerState', carrierFor(game, socket));
         replayPresenceTo(game, socket, pos);
+        // At the seat again, so in the voice room: who controls spectator
+        // talk can change (reclaimSeat passes voice false: its
+        // announceOwnerVoice refreshes)
+        if (voice) gameVoice.refreshVoice(io, game);
     } else if (game.acceptsTurnInput()) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
@@ -775,6 +787,10 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);
+    // Out of the voice room for good: who controls spectator talk (and so
+    // whether a main-room spectator may still talk) can change; a spectator
+    // that just lost the right arms the backstop
+    gameVoice.refreshVoice(io, game);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c

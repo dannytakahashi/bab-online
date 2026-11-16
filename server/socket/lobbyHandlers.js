@@ -144,6 +144,23 @@ async function startLobbyIfAllReady(io, lobby) {
 }
 
 /**
+ * A removal from a lobby of more than 4 (a leave, an expired or evicted held
+ * seat, a sign-out, a removed bot) readied the bots it brought onto the
+ * table (GameManager.readyTableBotsIfFull: the table is full with every seat
+ * ready): every member gets the list (unless the caller just sent it) and
+ * the lobby starts through the ready path's tail, as if the last human had
+ * readied now. Without this the lobby sat with every human ready and
+ * nothing started it.
+ */
+function tableBotsReadied(io, lobby, { sendState = true } = {}) {
+    if (!lobby) return;
+    if (sendState) sendLobbyState(io, lobby);
+    startLobbyIfAllReady(io, lobby).catch((err) => {
+        socketLogger.error('Lobby start after a removal failed', { lobbyId: lobby.id, error: err?.message });
+    });
+}
+
+/**
  * The extras of a family lobby (members who did not get a seat; always
  * capable clients, since a lobby holds more than 4 only then) watch the new
  * game, in the same tick as the table's allPlayersReady: pure spectators
@@ -308,6 +325,9 @@ function leaveLobby(socket, io) {
             });
         }
     });
+
+    // A lobby of more than 4 whose table the leave filled with bots
+    if (result.botsReadied) tableBotsReadied(io, lobby);
 }
 
 /**
@@ -347,6 +367,9 @@ function releaseStaleLobbySeat(io, change) {
             io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
         }
     });
+
+    // A lobby of more than 4 whose table the eviction / expiry filled with bots
+    if (leave?.botsReadied) tableBotsReadied(io, lobby);
 
     socketLogger.info(leave ? 'Stale lobby seat given up' : 'Lobby seat moved to new socket', {
         oldSocketId,
@@ -482,6 +505,9 @@ function removeBot(socket, io, data) {
 
     // Also update main room lobby list
     emitLobbiesUpdated(io);
+
+    // A lobby of more than 4 whose table another bot filled again
+    if (result.botsReadied) tableBotsReadied(io, lobby, { sendState: false });
 }
 
 /**
@@ -507,6 +533,7 @@ function setLobbySpectatorsCanTalk(socket, io, value) {
 
 module.exports = {
     setLobbySpectatorsCanTalk,
+    tableBotsReadied,
     playerReady,
     playerUnready,
     lobbyChat,

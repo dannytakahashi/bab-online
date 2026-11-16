@@ -886,6 +886,30 @@ class GameManager {
         }
     }
 
+    /**
+     * A removal changed who sits at the table of a lobby of more than 4 (a
+     * human leaving, an expired or evicted held seat, a sign-out, a removed
+     * bot): tableBots can grow, and a bot that just came onto the table was
+     * never readied (bots are readied only from a human's Ready or Add Bot).
+     * Same rule as readyBotsAfterHumanReady: once the ready humans and the
+     * table bots fill the table, the table bots are readied, so the lobby
+     * starts instead of sitting with every human ready. A held seat is never
+     * on the table (suspendLobbySeat unreadies and unmaps it).
+     * @returns {boolean} true when a bot was readied (the caller sends the
+     *   list and starts the lobby)
+     */
+    readyTableBotsIfFull(lobby) {
+        if (!lobby || this.lobbyTable(lobby).length !== TABLE_SIZE) return false;
+        let readied = false;
+        for (const bot of this.tableBots(lobby)) {
+            if (lobby.readyPlayers.has(bot.socketId)) continue;
+            bot.ready = true;
+            lobby.readyPlayers.add(bot.socketId);
+            readied = true;
+        }
+        return readied;
+    }
+
     /** One member as the frozen $defs.lobbyMember (the keys a lobby seat has always carried). */
     _memberWire(p) {
         const m = { socketId: p.socketId, username: p.username, ready: p.ready };
@@ -1080,12 +1104,16 @@ class GameManager {
             lobby.players.forEach(p => p.ready = false);
         }
         this._reassignHost(lobby);
+        // A lobby of more than 4: a bot the leave brought onto the table is
+        // readied when the table is now full (the caller starts the lobby)
+        const botsReadied = wide && this.readyTableBotsIfFull(lobby);
 
         return {
             success: true,
             lobby,
             playerLeft: socketId,
-            needsMorePlayers: lobby.players.length < 4
+            needsMorePlayers: lobby.players.length < 4,
+            ...(botsReadied ? { botsReadied: true } : {})
         };
     }
 
@@ -1252,8 +1280,13 @@ class GameManager {
                 lobby.readyPlayers.delete(p.socketId);
             }
         }
+        // A lobby of more than 4 whose table is still full (another bot took
+        // the removed one's place): its table bots are ready again, as the
+        // ready path would have them (the caller starts the lobby). A lobby
+        // of 4 or fewer has at most 3 members now: nothing to ready.
+        const botsReadied = this.readyTableBotsIfFull(lobby);
 
-        return { success: true, lobby };
+        return { success: true, lobby, ...(botsReadied ? { botsReadied: true } : {}) };
     }
 
     /**
@@ -1471,6 +1504,7 @@ class GameManager {
             wasInLobby, wasInMainRoom, wasInGame: false,
             wasInTournament, tournamentResult,
             lobby: lobbyResult.lobby,
+            ...(lobbyResult.botsReadied ? { lobbyBotsReadied: true } : {}),
             lobbySuspended,
             spectatorGame
         };

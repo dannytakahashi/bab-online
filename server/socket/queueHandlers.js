@@ -7,7 +7,7 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
-const { lobbySeatSuspended, lobbySeatExpired } = require('./lobbyHandlers');
+const { lobbySeatSuspended, lobbySeatExpired, tableBotsReadied } = require('./lobbyHandlers');
 const sessionIdentity = require('./sessionIdentity');
 
 /**
@@ -67,6 +67,9 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
             }
         });
     }
+
+    // A sign-out from a lobby of more than 4 whose table it filled with bots
+    if (result.lobbyBotsReadied && result.lobby) tableBotsReadied(io, result.lobby);
 
     // A pure spectator was already removed from its game; just the room
     if (result.spectatorGame) result.spectatorGame.leaveRoom(io, socket.id);
