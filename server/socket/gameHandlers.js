@@ -792,6 +792,7 @@ async function playCard(socket, io, data) {
 
     // Notify bots about this card play
     botController.notifyCardPlayed(game.gameId, card, position, game.trump, game.leadPosition);
+    botController.handleCardPlayedChat(io, game, card, position);
 
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
