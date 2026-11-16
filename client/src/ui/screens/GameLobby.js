@@ -375,6 +375,11 @@ export function showGameLobby(lobbyData, socket, username) {
   // keeps the voice running, so its buttons move to the new header)
   const oldGameLobby = document.getElementById('gameLobbyContainer');
   const voiceButtons = oldGameLobby ? [...(oldGameLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
+  // A re-render (the server's lobbyCreated for its own member: a reconnect,
+  // the play-again re-entry) keeps where the keyboard was and a chat draft
+  const active = oldGameLobby && oldGameLobby.contains(document.activeElement) ? document.activeElement : null;
+  const keepFocus = active ? (active.id || 'lobbyReadyBtn') : null;
+  const chatDraft = oldGameLobby?.querySelector('#lobbyChatInput')?.value || '';
   if (oldGameLobby) oldGameLobby.remove();
 
   const container = createPanel({ elevation: 3, className: 'screen screen--full screen--lobby' });
@@ -433,11 +438,12 @@ export function showGameLobby(lobbyData, socket, username) {
   }
   chatPanel.appendChild(chatArea);
 
-  const { row: chatInputRow } = chatForm({
+  const { row: chatInputRow, input: chatInput } = chatForm({
     inputId: 'lobbyChatInput',
     label: 'Message the lobby',
     onSend: (message) => socket.emit('lobbyChat', { message }),
   });
+  if (chatDraft) chatInput.value = chatDraft;
   chatPanel.appendChild(chatInputRow);
 
   // Button row (under the seats)
@@ -475,6 +481,35 @@ export function showGameLobby(lobbyData, socket, username) {
   // Open on the newest message and stay there through resizes
   scrollChatToEnd(chatArea);
   followChatOnResize(chatArea);
+  if (keepFocus) {
+    const target = document.getElementById(keepFocus);
+    if (target && container.contains(target) && !target.disabled && !target.hidden) target.focus();
+    else focusLobbyStart();
+  }
+}
+
+/**
+ * Put the keyboard where a lobby starts: the Ready button, or the chat
+ * input while Ready is disabled (waiting for players, the table full).
+ * Play again: Return to Lobby lands here (the score modal's button, which
+ * had focus, is gone with the table).
+ * @returns {boolean} something took focus
+ */
+export function focusLobbyStart() {
+  const ready = document.getElementById('lobbyReadyBtn');
+  const target = ready && !ready.disabled ? ready : document.getElementById('lobbyChatInput');
+  if (!target) return false;
+  target.focus();
+  return document.activeElement === target;
+}
+
+/**
+ * This member will watch the next game: a family lobby of more than 4
+ * whose table is already full with others (the Ready button reads "Table
+ * full — you'll watch"). From the last rendered payload.
+ */
+export function isLobbyTableFullForMe() {
+  return tableFullForMe;
 }
 
 /**

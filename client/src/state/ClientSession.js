@@ -517,8 +517,9 @@ export class ClientSession {
    * the server last said, and joinLobby asks for it again (the server
    * answers its own member with lobbyCreated: the lobby as it is now, and
    * knows the player left the score screen). A lobby that started its
-   * next game meanwhile: the main room stands until that joinLobby's
-   * answer (the game to watch, or the error).
+   * next game meanwhile: the main room (joinMainRoom draws it, so nothing
+   * stands blank) until that joinLobby's answer (the game to watch, or the
+   * error).
    * @param {Object} lobbyData - the LOBBY screen's data
    * @returns {string|null} the screen it routed to (null: no lobby return)
    */
@@ -527,9 +528,9 @@ export class ClientSession {
     if (!r) return null;
     const lobbyId = r.data.lobbyId;
     if (r.startedGameId) {
-      // (no joinMainRoom: the main room is only a screen to stand on)
-      this.exitTable(EXIT.GAME_END_RETURN, { route: false });
-      if (!this.transition(SCREEN.MAIN_ROOM)) return null;
+      // joinMainRoom first (the server answers in order: the main room,
+      // then the redirect's spectatorJoined, which a table ignores it for)
+      if (this.exitTable(EXIT.GAME_END_RETURN, { to: SCREEN.MAIN_ROOM }) !== SCREEN.MAIN_ROOM) return null;
       this._reenterLobby(lobbyId, { afterGame: true });
       return SCREEN.MAIN_ROOM;
     }

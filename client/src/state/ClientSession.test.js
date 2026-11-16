@@ -257,15 +257,17 @@ describe('play again: the lobby a finished game reopened (lobbyReturn)', () => {
     expect(t.socket.emit).not.toHaveBeenCalled();
   });
 
-  it('the lobby started its next game meanwhile: the main room stands (no joinMainRoom), joinLobby asks for that lobby', () => {
+  it('the lobby started its next game meanwhile: the main room (joinMainRoom first, so it is drawn), then joinLobby asks for that lobby', () => {
     t.session.endGame();
     t.session.noteLobbyReturn(ret());
     t.session.noteLobbyStarted('g9');
     expect(t.session.returnToReopenedLobby({ lobbyId: 'R1' })).toBe(SCREEN.MAIN_ROOM);
     expect(t.teardownTable).toHaveBeenCalledWith(EXIT.GAME_END_RETURN);
     expect(t.session.screen).toBe(SCREEN.MAIN_ROOM);
-    expect(t.emitted('joinMainRoom')).toEqual([]);
+    expect(t.emitted('joinMainRoom')).toHaveLength(1);
     expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
+    const names = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'joinMainRoom' || n === 'joinLobby');
+    expect(names).toEqual(['joinMainRoom', 'joinLobby']);
     expect(t.session.lobbyRejoinAfterGame).toBe(true);
     expect(sessionStorage.getItem('lobbyId')).toBeNull();
   });

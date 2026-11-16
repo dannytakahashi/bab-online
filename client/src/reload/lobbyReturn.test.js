@@ -183,16 +183,67 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
   });
 
-  it('the forced mute of the table (spectators may not talk) goes in the lobby', async () => {
+  it('the forced mute of the table (spectators may not talk) ends at lobbyReturn, the modal still up: extras back in the lobby are heard', async () => {
     await seated();
     socket.fire('voiceSettings', { gameId: 'g1', host: 'me', spectatorsCanTalk: false, role: 'player', canTalk: true, canChange: true });
     expect(page.voice.forcedMute).not.toBeNull();
     socket.fire('gameEnd', gameEnd());
+    const before = modal();
     socket.fire('lobbyReturn', lobbyReturn());
-    expect(page.voice.forcedMute).not.toBeNull(); // the modal: nothing changes yet
+    // the results stay exactly as they were; only the voice rules went
+    expect(page.voice.forcedMute).toBeNull();
+    expect(page.session.screen).toBe('gameEnd');
+    expect(modal()).toBe(before);
+    expect(page.voice.active).toBe(true);
+    expect(page.voice.shutdown).not.toHaveBeenCalled();
+    expect(socket.emittedNames()).toEqual([]);
     returnButton().click();
     expect(page.voice.forcedMute).toBeNull();
     expect(page.voice.isTalking()).toBe(true);
+  });
+
+  it('Return puts the keyboard on Ready, kept across the server\'s lobbyCreated re-render (and a chat draft too)', async () => {
+    await seated();
+    socket.fire('gameEnd', gameEnd());
+    socket.fire('lobbyReturn', lobbyReturn());
+    returnButton().focus();
+    returnButton().click();
+    expect(document.activeElement).toBe(document.getElementById('lobbyReadyBtn'));
+    socket.fire('lobbyCreated', { ...lobby(), name: 'Family', messages: [] });
+    expect(document.activeElement).toBe(document.getElementById('lobbyReadyBtn'));
+    // in the chat with a draft: the re-render keeps both
+    const input = document.getElementById('lobbyChatInput');
+    input.focus();
+    input.value = 'one more';
+    socket.fire('lobbyCreated', { ...lobby(), name: 'Family', messages: [] });
+    const after = document.getElementById('lobbyChatInput');
+    expect(after).not.toBe(input);
+    expect(document.activeElement).toBe(after);
+    expect(after.value).toBe('one more');
+  });
+
+  it('Ready disabled on landing (fewer than 4): the chat takes the keyboard', async () => {
+    await seated();
+    socket.fire('gameEnd', gameEnd());
+    socket.fire('lobbyReturn', lobbyReturn({ names: ['me', 'ann', 'bob'] }));
+    returnButton().click();
+    expect(document.getElementById('lobbyReadyBtn').disabled).toBe(true);
+    expect(document.activeElement).toBe(document.getElementById('lobbyChatInput'));
+  });
+
+  it('the others filled the table while the modal was up: the toast says this one is watched', async () => {
+    await seated();
+    socket.fire('gameEnd', gameEnd());
+    socket.fire('lobbyReturn', lobbyReturn({ names: ['me', 'ann', 'bob', 'cat', 'dan'] }));
+    // the four others readied (a family lobby of 5: they take the table)
+    const full = lobby({ names: ['me', 'ann', 'bob', 'cat', 'dan'], ready: ['ann', 'bob', 'cat', 'dan'] });
+    full.members = full.members.map((m) => ({ ...m, playing: m.username !== 'me' }));
+    socket.fire('playerReadyUpdate', full);
+    returnButton().click();
+    expect(document.getElementById('lobbyReadyBtn').textContent).toMatch(/Table full/);
+    const said = toasts().join(' ');
+    expect(said).toMatch(/Back in “Family”\. The table is full; you'll watch this one\./);
+    expect(said).not.toMatch(/Tap Ready/);
   });
 
   it('held rows say "Not back yet" in the reopened lobby; the host may stop waiting', async () => {
@@ -336,6 +387,9 @@ describe('the reopened lobby starts its next game while this player is still on 
     expect(modal()).toBe(before);
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.voice.shutdown).toHaveBeenCalled();
+    // the stop is said, over the unchanged results
+    await vi.waitFor(() => expect(toasts().join(' ')).toMatch(/Your lobby started its next game, so voice chat ended\. Return to Lobby to watch it\./));
+    clearToasts();
     // that game's voice settings and its room's startDraw reach nothing
     page.voice.setTalk.mockClear();
     page.voice.initialize.mockClear();
@@ -351,13 +405,18 @@ describe('the reopened lobby starts its next game while this player is still on 
 
     returnButton().click();
     expect(page.session.screen).toBe('mainRoom');
+    // the main room is asked for first (nothing stands blank), then the lobby
+    expect(socket.emittedNames().filter((n) => n === 'joinMainRoom' || n === 'joinLobby')).toEqual(['joinMainRoom', 'joinLobby']);
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
-    expect(socket.emitted('joinMainRoom')).toEqual([]);
+    socket.fire('mainRoomJoined', mainRoomPayload());
+    expect(page.session.screen).toBe('mainRoom');
+    expect(document.getElementById('mainRoomContainer')).not.toBeNull();
     // the server's redirect for a started lobby's extra
     socket.fire('spectatorJoined', createdForSpectator('g10'));
     expect(page.session.screen).toBe('table');
     expect(page.session.role).toBe('spectator');
     expect(page.session.pendingLobbyRejoin).toBeNull();
+    await vi.waitFor(() => expect(toasts().join(' ')).toMatch(/Your lobby started its next game\. You're watching it\./));
   });
 
   it('that game already over when Return is tapped: "That lobby has closed", the main room', async () => {

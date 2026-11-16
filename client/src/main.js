@@ -48,7 +48,7 @@ import { showError, showSuccess, showWarning, showInfo } from './ui/components/T
 import { showSignInScreen } from './ui/screens/SignIn.js';
 import { showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount } from './ui/screens/MainRoom.js';
-import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby } from './ui/screens/GameLobby.js';
+import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby, focusLobbyStart, isLobbyTableFullForMe } from './ui/screens/GameLobby.js';
 import {
   showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
   updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed, showChangePasswordResult,
@@ -696,6 +696,10 @@ function initializeApp() {
   let voiceFromLobby = false;
   let voiceFull = false;
   let voiceSwitchPending = null;
+  // Play again: whether Return to Lobby hands this tab its microphone back,
+  // decided when lobbyReturn dropped the table's voice settings (null: not
+  // decided; carryVoiceIntoLobby reads the settings then)
+  let voiceMicAfterGame = null;
 
   /** A watcher (a pure spectator of this table), not a seat's owner: "(watching)", the badge's speaking ring, the forced mute. */
   function isWatcher(username) {
@@ -1027,7 +1031,8 @@ function initializeApp() {
    */
   function carryVoiceIntoLobby() {
     const s = voiceSettings;
-    const wantsMic = !s || s.role !== 'spectator' || voiceWantsMic || voiceFromLobby;
+    const wantsMic = voiceMicAfterGame ?? (!s || s.role !== 'spectator' || voiceWantsMic || voiceFromLobby);
+    voiceMicAfterGame = null;
     voiceSettings = null;
     voiceWantsMic = false;
     voiceFromLobby = false;
@@ -1041,6 +1046,27 @@ function initializeApp() {
     }
     refreshTalkView();
     return true;
+  }
+
+  /**
+   * Play again: lobbyReturn while the finished game's table or score modal
+   * is up. The server moved this socket into the lobby, where everyone may
+   * talk, and voice keeps running (owner 2026-11-16), so the table's voice
+   * rules end now, not at Return: no forced mute (a lobby extra already
+   * back in the lobby talking is heard at full volume from the modal) and
+   * no in-game switch. Nothing on screen changes but the voice controls'
+   * talk view. Whether Return hands the microphone back is decided here,
+   * from the settings that go (a lobby extra that came listen-only stays so).
+   */
+  function endTableVoiceRules() {
+    const s = voiceSettings;
+    if (!s) return;
+    voiceMicAfterGame = s.role !== 'spectator' || voiceWantsMic || voiceFromLobby;
+    voiceSettings = null;
+    voiceFull = false;
+    clearVoiceSwitchPending();
+    voiceManager.setForcedMute?.(null);
+    refreshTalkView();
   }
 
   /** The LOBBY screen's data from a lobby payload (lobbyCreated / lobbyReturn). */
@@ -1072,10 +1098,17 @@ function initializeApp() {
     const landed = session.returnToReopenedLobby(lobbyScreenData(r.data));
     if (landed === SCREEN.LOBBY) {
       if (!carryVoiceIntoLobby()) startVoice();
-      showInfo(name ? `Back in “${name}”. Tap Ready to play again.` : 'Back in your lobby. Tap Ready to play again.');
+      // The modal's button had focus and went with the table: the lobby's
+      // Ready (or its chat while Ready is disabled) takes it
+      focusLobbyStart();
+      const back = name ? `Back in “${name}”.` : 'Back in your lobby.';
+      // The others filled the table meanwhile (a family lobby): Ready is
+      // disabled, "Table full — you'll watch"
+      showInfo(isLobbyTableFullForMe() ? `${back} The table is full; you'll watch this one.` : `${back} Tap Ready to play again.`);
       return true;
     }
-    // The lobby started its next game meanwhile: the answer is that game
+    // The lobby started its next game meanwhile: the main room until the
+    // answer (that game to watch, or 'Lobby not found')
     return landed !== null;
   }
 
@@ -1105,6 +1138,7 @@ function initializeApp() {
     removeVoiceOverlay();
     // This table's voice settings go with it (a new table sends its own)
     voiceSettings = null;
+    voiceMicAfterGame = null;
     voiceWantsMic = false;
     voiceFromLobby = false;
     voiceFull = false;
@@ -1439,7 +1473,12 @@ function initializeApp() {
       // into the lobby the game came from. The score modal stays exactly as
       // it is for as long as the player likes; its Return to Lobby lands
       // there (returnToReopenedLobby). The lobby is only remembered here
-      if (session.noteLobbyReturn(data)) return;
+      if (session.noteLobbyReturn(data)) {
+        // Voice keeps running through the results: the table's voice
+        // rules (forced mute, switch) end with its game
+        endTableVoiceRules();
+        return;
+      }
       if (session.screen === SCREEN.MAIN_ROOM) {
         // Left the table just before it ended: the joinMainRoom in flight
         // takes the server out of that lobby (else one goes now)
@@ -1508,13 +1547,17 @@ function initializeApp() {
         session.noteLobbyStarted(startedGameId);
         stopVoice();
         session.requestMainRoom();
+        // Voice stopped with it: say so (a toast; the results stay as they are)
+        showInfo('Your lobby started its next game, so voice chat ended. Return to Lobby to watch it.');
         return;
       }
       if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
         // A joinLobby re-sent for a lobby that started meanwhile (a reload
-        // during its start) is answered by this: nothing is pending any more
+        // during its start) is answered by this: nothing is pending any more.
+        // Play again: the score modal's Return found its lobby playing
+        const fromReturn = session.lobbyRejoinAfterGame;
         session.takePendingLobbyRejoin();
         restartNotice.clear();
         // Spectators persist spectatingGameId only (a reconnect re-spectates)
@@ -1524,6 +1567,7 @@ function initializeApp() {
         // The snapshot is the table (cli-20: names, turn glow, trump face up,
         // each opponent's cards); the log is the server's (one 'Game started!')
         rebuildTable(data, { source: 'spectate', role: 'spectator', suffix: 'Joined as spectator!' });
+        if (fromReturn) showInfo("Your lobby started its next game. You're watching it.");
       } else if (data.username) {
         // Notification that another spectator joined — show in game log
         window.addToGameFeedFromLegacy?.(`${data.username} joined as a spectator.`, null);
