@@ -148,9 +148,15 @@ class GameState {
         // Spectators: socketId → { username, pic }
         this.spectators = new Map();
 
-        // Game log for reconnection restoration
+        // Game log for reconnection restoration. A chat line also holds its
+        // sender's username as `from` (internal: snapshotV2 maps each entry
+        // to {message, type, position, at}, so it never reaches the wire;
+        // the snapshot uses it to leave out chat the viewer has blocked).
+        // logTotal counts every line ever added (the log keeps the last
+        // maxLogEntries), so a writer can tell which lines are new.
         this.gameLog = [];
         this.maxLogEntries = 500;
+        this.logTotal = 0;
     }
 
     // ========================================
@@ -1207,16 +1213,21 @@ class GameState {
      * @param {string} message - The log message
      * @param {number|null} playerPosition - Player position (1-4) or null for system
      * @param {string} type - Message type: 'system', 'chat', 'bid', 'trick', 'score', 'rainbow'
+     * @param {Object} [meta]
+     * @param {string} [meta.from] - a chat line's sender (the username its
+     *   chatMessage broadcast carried). Internal, never on the wire.
      */
-    addLogEntry(message, playerPosition = null, type = 'system') {
+    addLogEntry(message, playerPosition = null, type = 'system', { from } = {}) {
         const entry = {
             message,
             playerPosition,
             type,
             timestamp: Date.now()
         };
+        if (typeof from === 'string') entry.from = from;
 
         this.gameLog.push(entry);
+        this.logTotal++;
 
         // Enforce max entries limit
         if (this.gameLog.length > this.maxLogEntries) {

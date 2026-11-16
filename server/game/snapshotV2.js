@@ -37,8 +37,13 @@ const isTeamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2
  *   custom seat picture (avatarWire.seatResolve; null: no URL)
  * @param {Function} [opts.botName] - socketId -> display name of a bot
  *   entrant (entrant records carry no bot names)
+ * @param {Set<string>|string[]|null} [opts.hideChatFrom] - usernames whose
+ *   chat lines the log leaves out (the viewer's block list,
+ *   socket.data.blockedUsers): both clients hide a blocked sender's live
+ *   chatMessage, so a snapshot's log must not bring it back. Only 'chat'
+ *   entries with a `from` are dropped; system lines are kept.
  */
-function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), log = true, botName = null, avatarResolve = null } = {}) {
+function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), log = true, botName = null, avatarResolve = null, hideChatFrom = null } = {}) {
     const stage = game.stage;
     const preDeal = PRE_DEAL.has(stage);
     const partial = [];
@@ -168,7 +173,12 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
 
     let logEntries = [];
     if (log) {
-        logEntries = game.gameLog.map((e) => ({
+        const hidden = hideChatFrom instanceof Set ? hideChatFrom
+            : Array.isArray(hideChatFrom) ? new Set(hideChatFrom) : null;
+        const shown = hidden && hidden.size > 0
+            ? game.gameLog.filter((e) => !(e.type === 'chat' && typeof e.from === 'string' && hidden.has(e.from)))
+            : game.gameLog;
+        logEntries = shown.map((e) => ({
             message: e.message,
             type: e.type,
             position: e.playerPosition ?? null,

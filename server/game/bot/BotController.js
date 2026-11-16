@@ -490,7 +490,7 @@ class BotController {
             if (game.epoch !== epoch || game.isTerminal()) return;
             // A bot released meanwhile (/active) says nothing more
             if (!this.getBot(game.gameId, bot.socketId)) return;
-            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
+            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat', { from: bot.username });
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
                 message,
