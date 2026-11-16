@@ -41,8 +41,8 @@ struct HTTPAvatarLoader: AvatarLoading {
 }
 
 /// Displays an opponent's name label, turn glow, avatar, and bid bubble.
-/// The full-size card-back fans of the first build are gone (eb73520: they crowded a phone
-/// table); since 1.2.2 a seat holds a small fan (`fanNode`) only where TableLayout finds
+/// The full-size card-back fans of the first build are gone (eb73520, "Simplified
+/// opponents"); since 1.2.2 a seat holds a small fan (`fanNode`) where TableLayout finds
 /// room for every seat's (TableLayout+Fans.swift), else it is the lightweight anchor.
 class OpponentHandNode: SKNode {
     let relativePosition: Positions.RelativePosition

@@ -30,6 +30,17 @@ struct TableRenderModel: Equatable {
         var cards: [Card]          // sorted for display, minus a pending play
         var legalIds: Set<String>  // shown as playable (all of them on my bid turn, as today)
         var interactive: Bool      // taps may play
+        /// Why each card outside `legalIds` cannot be played now, in the web's words
+        /// (GameScene.illegalReason): the toast a tap on a dimmed card shows, its VoiceOver hint.
+        var blocked: [String: String] = [:]
+    }
+
+    /// The web's illegalReason sentences (client/src/phaser/scenes/GameScene.js).
+    enum Blocked {
+        static let bidFirst = "Bid first."
+        static let notYourTurn = "Not your turn."
+        static let onItsWay = "Your card is on its way."
+        static let trickClearing = "Wait for the trick to clear."
     }
 
     struct TrickCard: Equatable {
@@ -107,16 +118,31 @@ struct TableRenderModel: Equatable {
             var cards = CardUtils.sortHand(s.table.hand, trump: s.table.deal?.trump)
             if let c = pendingCard, let i = cards.firstIndex(of: c) { cards.remove(at: i) }
             var legal: Set<String> = []
+            var blocked: [String: String] = [:]
             let myTurn = s.myTurn
             if myTurn == .choosing(.play), let me = viewer.position {
                 let played = s.table.phase.trick
                 legal = Set(CardLegality.getLegalCards(hand: cards, lead: played.first?.card, isLeading: played.isEmpty,
                                                        trump: s.table.deal?.trump, trumpBroken: s.table.deal?.trumpBroken ?? false,
                                                        myPosition: me, leadPosition: s.table.phase.lead ?? 0).map(\.id))
+                for c in cards where !legal.contains(c.id) {
+                    let r = CardLegality.isLegalMove(card: c, hand: cards, lead: played.first?.card, isLeading: played.isEmpty,
+                                                     trump: s.table.deal?.trump, trumpBroken: s.table.deal?.trumpBroken ?? false,
+                                                     myPosition: me, leadPosition: s.table.phase.lead ?? 0)
+                    blocked[c.id] = r.reason.map { "\($0)." } ?? Blocked.trickClearing
+                }
             } else if myTurn == .choosing(.bid) {
                 legal = Set(cards.map(\.id))
+            } else {
+                // every card is dimmed: one reason for all (the web's order)
+                let why: String
+                if s.table.phase.kind == .bidding { why = Blocked.bidFirst }
+                else if myTurn.isSubmitted || pendingCard != nil { why = Blocked.onItsWay }
+                else if s.table.phase.kind == .playing, let turn = s.table.phase.turn, turn != viewer.position { why = Blocked.notYourTurn }
+                else { why = Blocked.trickClearing }
+                for c in cards { blocked[c.id] = why }
             }
-            hand = Hand(cards: cards, legalIds: legal, interactive: myTurn == .choosing(.play))
+            hand = Hand(cards: cards, legalIds: legal, interactive: myTurn == .choosing(.play), blocked: blocked)
         } else {
             hand = nil
         }

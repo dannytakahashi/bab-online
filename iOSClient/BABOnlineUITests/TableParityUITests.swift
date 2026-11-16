@@ -39,6 +39,14 @@ final class TableParityUITests: XCTestCase {
             XCTAssertLessThanOrEqual(e.frame.maxX, window.maxX, "\(e.identifier) inside the window: \(e.frame)")
         }
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+        // the banner stays until someone answers: no seat's card backs sit under it
+        for pos in 2...4 {
+            let fan = element(app, "fan.\(pos)")
+            guard fan.exists else { continue }
+            for e in [message, replace, wait] {
+                XCTAssertFalse(fan.frame.intersects(e.frame), "fan.\(pos) \(fan.frame) under the banner's \(e.identifier) \(e.frame)")
+            }
+        }
         attach(app, "idle-offer")
         // Wait: the offer goes (until the server asks again)
         wait.tap()
@@ -61,10 +69,13 @@ final class TableParityUITests: XCTestCase {
         app.terminate()
     }
 
-    func testATiedGameSaysTieGameToASpectator() {
+    /// The web's overlay says GAME OVER to a spectator whatever the score (ScoreModal.js); so does iOS.
+    func testATiedGameIsStillGameOverToASpectator() {
         let app = Fixture.launch("game-end-spectator", extra: ["-uiTie", "YES"])
         XCTAssertTrue(Fixture.readyElement(app, "game-end-spectator").waitForExistence(timeout: 20))
-        XCTAssertEqual(element(app, "gameEnd.title").label, "Tie game")
+        let title = element(app, "gameEnd.title")
+        XCTAssertTrue(title.waitForExistence(timeout: 5))
+        XCTAssertEqual(title.label, "Game Over")
         app.terminate()
     }
 
@@ -96,6 +107,27 @@ final class TableParityUITests: XCTestCase {
         app.terminate()
     }
 
+    /// A tap on a dimmed card says why it cannot be played (the web's illegalReason), in the
+    /// same toast; the card stays in the hand and the table stays usable.
+    func testATapOnADimmedCardSaysWhy() {
+        // my turn, clubs led, I hold clubs: the 5 of Spades (the hand's first card) must follow suit
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiToasts", "YES"])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let card = element(app, "5 of Spades")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "serverErrorToast").exists)
+        card.coordinate(withNormalizedOffset: CGVector(dx: 0.08, dy: 0.5)).tap()
+        let toast = element(app, "serverErrorToast")
+        XCTAssertTrue(toast.waitForExistence(timeout: 8))
+        XCTAssertTrue(toast.label.contains("Must follow suit."), toast.label)
+        XCTAssertTrue(app.buttons["leave"].isHittable)
+        XCTAssertTrue(Fixture.settledState(app).contains("hand=12"), "nothing was played")
+        XCTAssertTrue(Fixture.settledState(app).contains("lifted=-"), "a dimmed card does not lift")
+        attach(app, "dimmed-card-reason")
+        app.terminate()
+    }
+
     // MARK: (e) bid chips
 
     func testTheBidPanelShowsTheBidTotalChips() {
@@ -110,6 +142,9 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(chips.label, "Bids: your team 12, opponents 1, of 12 tricks. Over by 1")
         XCTAssertTrue(panel.frame.insetBy(dx: -1, dy: -1).contains(chips.frame), "\(chips.frame) inside \(panel.frame)")
         XCTAssertGreaterThan(chips.frame.width, 120)
+        // 13 chips of a set width (16 pt and a 2 pt gap, times the zoom), not a bar across the panel
+        let zoomed = Fixture.tableZoom(app) ?? 1
+        XCTAssertLessThanOrEqual(chips.frame.width, (13 * 16 + 12 * 2) * zoomed + 1, "\(chips.frame)")
         // the panel still fits the layout's 340 x 140 bid band (times the table's zoom)
         let zoom = Fixture.tableZoom(app) ?? 1
         XCTAssertLessThanOrEqual(panel.frame.height, 140 * zoom + 0.5, "\(panel.frame)")
@@ -203,8 +238,8 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         attach(app, "card-backs-seated")
         guard let shown = fans(app) else {
-            // a phone: the lightweight seats of before, and no fan elements
-            XCTAssertNotEqual(UIDevice.current.userInterfaceIdiom, .pad, "an iPad's full-screen table has room for the fans")
+            // only the smallest phones (an SE-size screen): the lightweight seats of before, no fan elements
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
             XCTAssertFalse(element(app, "fan.2").exists)
             app.terminate()
             return
@@ -231,7 +266,7 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         attach(app, "card-backs-spectator")
         guard let shown = fans(app) else {
-            XCTAssertNotEqual(UIDevice.current.userInterfaceIdiom, .pad)
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
             app.terminate()
             return
         }

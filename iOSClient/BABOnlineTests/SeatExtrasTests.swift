@@ -13,25 +13,29 @@ final class SeatExtrasTests: XCTestCase {
         OpponentHandNode.avatarLoader = StubAvatarLoader()
     }
 
-    /// (name, size, chrome, fans seated, fans spectating): where the table has room for every seat's fan.
-    static let devices: [(String, CGSize, TableChrome, Bool, Bool)] = {
+    /// (name, size, chrome, the fan scale seated, spectating; nil: no room for every seat's fan at any scale).
+    static let devices: [(String, CGSize, TableChrome, CGFloat?, CGFloat?)] = {
         let ch = PolishLayoutTests.chrome
         let i = TableLayoutTests.insets
         return [
-            ("iPhone SE size", CGSize(width: 375, height: 667), ch(i(20, 0, 0, 0), 0, 75.5), false, false),
-            ("iPhone 17e", CGSize(width: 390, height: 844), ch(i(47, 0, 34, 0), 0, 75.5), false, false),
-            ("iPhone 17 Pro", CGSize(width: 402, height: 874), ch(i(62, 0, 34, 0), 0, 75.5), false, false),
-            ("iPhone Pro Max", CGSize(width: 440, height: 956), ch(i(62, 0, 34, 0), 0, 75.5), false, false),
-            ("iPad 13 portrait", CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 0, 75.5), true, true),
-            ("iPad 13 landscape", CGSize(width: 1376, height: 1032), ch(i(24, 0, 20, 0), 0, 75.5), true, true),
-            ("iPad Air 11 portrait (measured)", SceneLayoutTests.measured[1].0, SceneLayoutTests.measured[1].1, true, true),
-            ("iPad Air 11 landscape (measured)", SceneLayoutTests.measured[2].0, SceneLayoutTests.measured[2].1, true, true),
-            ("Duo closed (measured)", SceneLayoutTests.measured[0].0, SceneLayoutTests.measured[0].1, false, false),
-            ("Duo open", CGSize(width: 669, height: 951), TableChrome(safeArea: i(82, 0, 34, 0), topBar: 75.5), true, true),
-            ("Duo open landscape", CGSize(width: 951, height: 669), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 75.5), true, true),
-            ("Duo open landscape, log docked", CGSize(width: 546, height: 669), TableChrome(safeArea: i(0, 0, 34, 0), topBar: 75.5), true, true),
+            ("iPhone SE size", CGSize(width: 375, height: 667), ch(i(20, 0, 0, 0), 0, 75.5), 0.62, 0.62),
+            ("iPhone 17e", CGSize(width: 390, height: 844), ch(i(47, 0, 34, 0), 0, 75.5), 0.62, 0.62),
+            ("iPhone 17 Pro", CGSize(width: 402, height: 874), ch(i(62, 0, 34, 0), 0, 75.5), 0.62, 0.62),
+            ("iPhone Pro Max", CGSize(width: 440, height: 956), ch(i(62, 0, 34, 0), 0, 75.5), 0.62, 0.62),
+            ("iPad 13 portrait", CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 0, 75.5), 1.3, 1),
+            ("iPad 13 landscape", CGSize(width: 1376, height: 1032), ch(i(24, 0, 20, 0), 0, 75.5), 1.3, 1),
+            ("iPad Air 11 portrait (measured)", SceneLayoutTests.measured[1].0, SceneLayoutTests.measured[1].1, 1, 1),
+            ("iPad Air 11 landscape (measured)", SceneLayoutTests.measured[2].0, SceneLayoutTests.measured[2].1, 1.3, 1),
+            ("Duo closed (measured)", SceneLayoutTests.measured[0].0, SceneLayoutTests.measured[0].1, 0.62, 0.62),
+            ("Duo open", CGSize(width: 669, height: 951), TableChrome(safeArea: i(82, 0, 34, 0), topBar: 75.5), 1.3, 1),
+            ("Duo open landscape", CGSize(width: 951, height: 669), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 75.5), 1.3, 1),
+            ("Duo open landscape, log docked", CGSize(width: 546, height: 669), TableChrome(safeArea: i(0, 0, 34, 0), topBar: 75.5), 1, 1),
         ]
     }()
+
+    static func scale(_ fans: [Rel: CGRect]?) -> CGFloat? {
+        fans?.values.first.map { (TableLayout.fanScale(of: $0) * 100).rounded() / 100 }
+    }
 
     // MARK: fan geometry
 
@@ -57,10 +61,14 @@ final class SeatExtrasTests: XCTestCase {
     }
 
     func testWhereTheTableShowsFans() {
+        // a window with no room for any fan (a degraded table) shows none
+        let none = TableLayout(size: Self.small.0, chrome: Self.small.1)
+        XCTAssertNil(none.fans(spectating: false))
+        XCTAssertNil(none.fans(spectating: true))
         for (name, size, chrome, seated, spectating) in Self.devices {
             let L = TableLayout(size: size, chrome: chrome)
-            XCTAssertEqual(L.fans(spectating: false) != nil, seated, "\(name) seated: \(L.zoom) \(L.mode)")
-            XCTAssertEqual(L.fans(spectating: true) != nil, spectating, "\(name) spectating")
+            XCTAssertEqual(Self.scale(L.fans(spectating: false)), seated, "\(name) seated: \(L.zoom) \(L.mode)")
+            XCTAssertEqual(Self.scale(L.fans(spectating: true)), spectating, "\(name) spectating")
         }
     }
 
@@ -70,7 +78,9 @@ final class SeatExtrasTests: XCTestCase {
         for r in [Rel.top, .left, .right, .bottom] { out.append(("trick \(r)", L.trickRect(r))) }
         let seats: [Rel] = spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
         for r in seats {
-            out.append(("seat \(r)", L.seatFootprint(r)))
+            // the seat's parts (a compact fan sits in the corner between the glow and the name band)
+            out.append(("glow \(r)", TableLayout.glowRect(L.seatAnchor(r))))
+            out.append(("name \(r)", TableLayout.nameRect(L.seatAnchor(r))))
             out.append(("bubble \(r)", L.bubbleRect(r)))
             out.append(("dealer \(r)", L.dealerChip(r)))
         }
@@ -88,14 +98,19 @@ final class SeatExtrasTests: XCTestCase {
         return out
     }
 
-    static func problems(_ L: TableLayout, spectating: Bool) -> [String] {
-        guard let fans = L.fans(spectating: spectating) else { return [] }
+    static func problems(_ L: TableLayout, spectating: Bool, banner: Bool = false) -> [String] {
+        guard let fans = L.fans(spectating: spectating), !fans.isEmpty else { return [] }
         var bad: [String] = []
         let seats: [Rel] = spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
-        if Set(fans.keys) != Set(seats) { bad.append("fans for \(fans.keys) not \(seats)") }
+        // (a banner may leave a seat's fan out)
+        if !banner, Set(fans.keys) != Set(seats) { bad.append("fans for \(fans.keys) not \(seats)") }
         let top = min(L.safeRect.maxY, L.topLimit)
         for (r, box) in fans {
-            if box.size != TableLayout.fanBox { bad.append("\(r) box \(box.size)") }
+            let k = TableLayout.fanScale(of: box)
+            if !TableLayout.fanScales.contains(where: { abs($0 - k) < 0.001 }) || abs(box.height - TableLayout.fanBox.height * k) > 0.001 {
+                bad.append("\(r) box \(box.size)")
+            }
+            if abs(k - TableLayout.fanScale(of: fans.values.first!)) > 0.001 { bad.append("\(r) fan at another scale than the rest") }
             if box.minX < L.safeRect.minX - 0.01 || box.maxX > L.safeRect.maxX + 0.01 || box.minY < L.safeRect.minY - 0.01 || box.maxY > top + 0.01 {
                 bad.append("\(r) fan \(box) outside \(L.safeRect) top \(top)")
             }
@@ -284,15 +299,128 @@ final class SeatExtrasTests: XCTestCase {
     func testTheBackIsTheRedLattice() {
         let size = CardFanNode.backTexture.size()
         XCTAssertEqual(size.width / size.height, 100.0 / 145.0, accuracy: 0.02)
-        let px = CardTextureGenerator.backPixelSize(width: TableLayout.fanCard.width * CardTextureGenerator.textureZoom)
-        XCTAssertEqual(size.width * UIScreen.main.scale, px.width, accuracy: 1.5, "rendered at the fan card's on-screen size")
+        let px = CardTextureGenerator.backPixelSize(width: TableLayout.fanCard.width * 1.3 * CardTextureGenerator.textureZoom)
+        XCTAssertEqual(size.width * UIScreen.main.scale, px.width, accuracy: 1.5, "rendered at the largest fan card's on-screen size")
     }
 
-    func testAPhoneKeepsItsLightweightSeats() throws {
-        let (_, scene) = try makeScene("trick-mid-lead3", Self.phone)
+    /// A window too small for any fan (a degraded table).
+    static let small = (CGSize(width: 320, height: 420), PolishLayoutTests.chrome(TableLayoutTests.insets(20, 0, 0, 0), bottomBar: 0, topBar: 75.5))
+
+    /// A phone shows the compact fans: the node carries the scale, and every back stays in its box.
+    func testAPhoneShowsCompactFans() throws {
+        let (h, scene) = try makeScene("trick-mid-lead3", Self.phone)
+        let fans = try XCTUnwrap(scene.layout.fans(spectating: false))
+        XCTAssertEqual(Self.scale(fans), 0.62)
+        for (pos, node) in scene.opponentManager.nodes {
+            let cards = try XCTUnwrap(h.store.state.players.seats[pos]?.cardsInHand)
+            XCTAssertEqual(node.fanNode.count, cards)
+            XCTAssertEqual(node.fanNode.xScale, 0.62, accuracy: 0.001)
+            guard cards > 0 else { continue }
+            let box = try XCTUnwrap(fans[node.relativePosition])
+            XCTAssertTrue(box.insetBy(dx: -0.5, dy: -0.5).contains(sceneRect(node.fanNode, scene)), "seat \(pos): \(sceneRect(node.fanNode, scene)) in \(box)")
+        }
+        // the largest table: the roomy scale
+        let (_, big) = try makeScene("trick-mid-lead3", Self.iPad)
+        for node in big.opponentManager.nodes.values { XCTAssertEqual(node.fanNode.xScale, 1.3, accuracy: 0.001) }
+    }
+
+    func testATableWithNoRoomKeepsItsLightweightSeats() throws {
+        let (_, scene) = try makeScene("trick-mid-lead3", Self.small)
         XCTAssertNil(scene.layout.fans(spectating: false))
         XCTAssertTrue(fanCounts(scene).values.allSatisfy { $0 == 0 })
-        for node in scene.opponentManager.nodes.values { XCTAssertTrue(node.fanNode.children.isEmpty) }
+        for node in scene.opponentManager.nodes.values {
+            XCTAssertTrue(node.fanNode.children.isEmpty)
+            XCTAssertEqual(node.fanNode.xScale, 1)
+        }
+    }
+
+    // MARK: the banner
+
+    /// The disconnect / idle banner stays up (a grace period, an offer until someone answers):
+    /// no fan sits under it. A fan it would cover moves to its seat's next clear spot or is
+    /// left out; the other seats keep theirs.
+    func testNoFanSitsUnderTheBanner() {
+        var moved = 0, dropped = 0
+        for (name, size, chrome, _, _) in Self.devices {
+            for banner in [CGFloat(31), 47, 86, 141, 220] {
+                var c = chrome
+                c.banner = banner
+                let L = TableLayout(size: size, chrome: c)
+                for spectating in [false, true] {
+                    guard let plan = L.fanPlan(spectating: spectating), let fans = L.fans(spectating: spectating) else { continue }
+                    let rect = L.bannerRect(spectating: spectating)!
+                    for (r, box) in fans {
+                        XCTAssertFalse(TableLayout.overlaps(rect, box), "\(name) banner \(banner) spectating \(spectating): \(r) fan \(box) under the banner \(rect)")
+                        if box != plan[r] { moved += 1 }
+                    }
+                    dropped += plan.count - fans.count
+                    // a fan the banner does not reach stays where it was
+                    for (r, box) in plan where !TableLayout.overlaps(rect.insetBy(dx: -TableLayout.fanGap, dy: -TableLayout.fanGap), box) {
+                        XCTAssertEqual(fans[r], box, "\(name) banner \(banner): \(r)")
+                    }
+                    // what is left is still clear of everything
+                    XCTAssertEqual(Self.problems(L, spectating: spectating, banner: true), [], "\(name) banner \(banner) spectating \(spectating)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(moved + dropped, 0, "some banner reaches some fan in the list")
+    }
+
+    func testWithNoBannerTheFansAreThePlan() {
+        for (name, size, chrome, _, _) in Self.devices {
+            let L = TableLayout(size: size, chrome: chrome)
+            XCTAssertNil(L.bannerRect(spectating: false), name)
+            XCTAssertEqual(L.fans(spectating: false), L.fanPlan(spectating: false), name)
+        }
+    }
+
+    /// The scene: the banner going up re-places the fans, and its going away brings them back.
+    func testTheSceneMovesAFanOutFromUnderTheBanner() throws {
+        let (_, scene) = try makeScene("trick-mid-lead3", Self.iPad)
+        let plan = try XCTUnwrap(scene.layout.fans(spectating: false))
+        var chrome = Self.iPad.1
+        chrome.banner = 141
+        scene.chrome = chrome
+        let rect = try XCTUnwrap(scene.layout.bannerRect(spectating: false))
+        let fans = try XCTUnwrap(scene.layout.fans(spectating: false))
+        for node in scene.opponentManager.nodes.values {
+            if let box = fans[node.relativePosition], node.fanNode.count > 0 {
+                XCTAssertTrue(box.insetBy(dx: -0.5, dy: -0.5).contains(sceneRect(node.fanNode, scene)))
+                XCTAssertFalse(TableLayout.overlaps(rect, sceneRect(node.fanNode, scene)))
+            } else {
+                XCTAssertEqual(node.fanNode.count, 0, "a fan with no clear spot is left out while the banner shows")
+            }
+        }
+        scene.chrome = Self.iPad.1
+        XCTAssertEqual(scene.layout.fans(spectating: false), plan)
+        for node in scene.opponentManager.nodes.values where node.fanNode.count > 0 {
+            XCTAssertTrue(plan[node.relativePosition]!.insetBy(dx: -0.5, dy: -0.5).contains(sceneRect(node.fanNode, scene)))
+        }
+    }
+
+    /// destroyHands (a redeal) takes every seat's cards, not only mine: the fans empty with my hand.
+    func testDestroyHandsEmptiesEveryFan() throws {
+        let (h, scene) = try makeScene("bidding-mid", Self.iPad)
+        XCTAssertTrue(fanCounts(scene).values.allSatisfy { $0 > 0 })
+        h.store.apply(T.ev("destroyHands", ["seq": (h.store.state.sync.lastSeq ?? 0) + 1]))
+        XCTAssertTrue(h.store.state.players.seats.values.allSatisfy { $0.cardsInHand == 0 })
+        XCTAssertTrue(h.store.state.table.hand.isEmpty)
+        XCTAssertTrue(fanCounts(scene).values.allSatisfy { $0 == 0 }, "\(fanCounts(scene))")
+    }
+
+    /// The fan and the dealer marker take no touches: a tap on them reaches nothing of the seat
+    /// (the profile hook on the avatar must test the avatar, not the seat's accumulated frame).
+    func testTheFanAndTheDealerMarkerTakeNoTouches() throws {
+        let (_, scene) = try makeScene("trick-mid-lead3", Self.iPad)
+        for node in scene.opponentManager.nodes.values {
+            XCTAssertFalse(node.fanNode.isUserInteractionEnabled)
+            XCTAssertFalse(node.dealerNode.isUserInteractionEnabled)
+            XCTAssertTrue(node.fanNode.children.allSatisfy { !$0.isUserInteractionEnabled })
+            guard node.fanNode.count > 0 else { continue }
+            // the fan lies outside the avatar's glow: a hit test of the avatar circle never finds it
+            let fan = sceneRect(node.fanNode, scene)
+            XCTAssertFalse(TableLayout.overlaps(TableLayout.glowRect(scene.layout.seatAnchor(node.relativePosition)), fan))
+        }
     }
 
     func testASpectatorSeesFourFans() throws {
@@ -341,7 +469,7 @@ final class SeatExtrasTests: XCTestCase {
         }
         XCTAssertEqual(scene.cardEntry(.bottom, model: model), scene.layout.trickEntry(.bottom), "my own card comes from my hand's side")
         // no fans: off-screen, as before
-        let (_, small) = try makeScene("bidding-mid", Self.phone)
+        let (_, small) = try makeScene("bidding-mid", Self.small)
         let m = try XCTUnwrap(small.lastModel)
         XCTAssertEqual(small.cardEntry(.left, model: m), small.layout.trickEntry(.left))
         _ = h
@@ -376,9 +504,9 @@ final class SeatExtrasTests: XCTestCase {
     func testARelayoutMovesTheFansAndDropsThemWhereThereIsNoRoom() throws {
         let (_, scene) = try makeScene("trick-mid-lead3", Self.iPad)
         XCTAssertTrue(fanCounts(scene).values.contains { $0 > 0 })
-        // the same table in a phone-size window: no fans
-        scene.chrome = Self.phone.1
-        scene.size = Self.phone.0
+        // the same table in the smallest phone's window: no fans
+        scene.chrome = Self.small.1
+        scene.size = Self.small.0
         XCTAssertNil(scene.layout.fans(spectating: false))
         XCTAssertTrue(fanCounts(scene).values.allSatisfy { $0 == 0 })
         // and back: the fans return in the new boxes
@@ -405,6 +533,12 @@ final class SeatExtrasTests: XCTestCase {
             ("duo-open-landscape-docked-seated", "trick-mid-lead3", CGSize(width: 546, height: 669), TableChrome(safeArea: i(0, 0, 34, 0), topBar: 75.5)),
             ("duo-open-landscape-seated", "trick-mid-lead3", CGSize(width: 951, height: 669), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 75.5)),
             ("duo-closed-seated", "trick-mid-lead3", SceneLayoutTests.measured[0].0, SceneLayoutTests.measured[0].1),
+            ("duo-closed-bidding", "bidding-mid", SceneLayoutTests.measured[0].0, SceneLayoutTests.measured[0].1),
+            ("iphone-17e-seated", "trick-mid-lead3", Self.phone.0, Self.phone.1),
+            ("iphone-se-seated", "trick-mid-lead3", CGSize(width: 375, height: 667), PolishLayoutTests.chrome(TableLayoutTests.insets(20, 0, 0, 0), bottomBar: 0, topBar: 75.5)),
+            ("iphone-17pro-seated", "trick-mid-lead3", CGSize(width: 402, height: 874), PolishLayoutTests.chrome(TableLayoutTests.insets(62, 0, 34, 0), bottomBar: 0, topBar: 75.5)),
+            ("iphone-17pro-bidding", "bidding-mid", CGSize(width: 402, height: 874), PolishLayoutTests.chrome(TableLayoutTests.insets(62, 0, 34, 0), bottomBar: 0, topBar: 75.5)),
+            ("iphone-17pro-spectator", "spectator-mid-hand", CGSize(width: 402, height: 874), PolishLayoutTests.chrome(TableLayoutTests.insets(62, 0, 34, 0), bottomBar: 56, topBar: 75.5)),
         ]
         try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         for (name, fixture, size, chrome) in shots {

@@ -5,20 +5,29 @@ import CoreGraphics
 /// solved layout without changing it, like the pips, my seat's row and the
 /// spectator badge.
 ///
-/// Card backs: each other seat (a spectator's four) holds a small fan of card
-/// backs, one per card left in its hand, in a fixed box (`fanBox`, sized for 13
-/// cards, so nothing moves as cards are played). The box takes the first clear
-/// spot by the seat: above the avatar, and for the top seat also left of it
-/// (the bid bubble is on its right). "Clear" is `fanGap` from the trick cards,
-/// every seat (glow, name, bid bubble), the other fans, the corner buttons, the
-/// trick piles, my seat's row, my lifted hand, the fold, the spectator badge
-/// and the safe area's edges. Fans are all or nothing: when any seat has no
-/// clear spot, or the layout is degraded, the table shows none (opponents are
-/// the lightweight anchors of before: the fans were removed in eb73520 because
-/// full-size backs crowded a phone table).
+/// Card backs: each other seat (a spectator's four) holds a fan of card backs,
+/// one per card left in its hand, in a fixed box (`fanBox` times the table's
+/// fan scale, sized for 13 cards, so nothing moves as cards are played). The
+/// fans come in three sizes (`fanScales`: roomy, regular, compact) and the table
+/// takes the largest at which every seat has a clear spot: above the avatar,
+/// and for the top seat also beside it on the left (past the dealer marker, or
+/// past the name band; the bid bubble is on its right) or, compact only, under
+/// its name. "Clear" is `fanGap`
+/// from the trick cards, every seat's glow, name, dealer marker and bid bubble,
+/// the other fans, the corner buttons, the trick piles, my seat's row, my
+/// lifted hand, the fold, the spectator badge and the safe area's edges. Fans
+/// are all or nothing: when some seat has no clear spot at any size, or the
+/// layout is degraded, the table shows none (opponents are the lightweight
+/// anchors of before; eb73520 removed the first build's full-size backs,
+/// "Simplified opponents: removed card-back fans").
+///
+/// The disconnect / idle banner (`chrome.banner`) is not transient, so a fan
+/// keeps off it too: while a banner shows, a fan under it moves to its seat's
+/// next clear spot, or is left out until the banner goes (`fans`; the other
+/// seats' fans stay where they are).
 ///
 /// Transient things may cover a fan for a few seconds: a seat's chat bubble
-/// (it opens above the seat), a rainbow, the disconnect banner.
+/// (it opens above the seat), a rainbow.
 ///
 /// Dealer marker: a small "D" button. On a seat with an avatar it sits beside
 /// the avatar, inside the seat's footprint (glow + name band), which everything
@@ -26,7 +35,7 @@ import CoreGraphics
 /// My own seat has no avatar: mine sits at the left end of my hand, in the band
 /// a lifted card rises into (nothing else is ever placed there).
 extension TableLayout {
-    /// One card back of a fan (the card's 100 : 145).
+    /// One card back of a fan at scale 1 (the card's 100 : 145).
     static let fanCard = CGSize(width: 26, height: 37.7)
     /// Between two backs.
     static let fanStep: CGFloat = 5
@@ -34,8 +43,11 @@ extension TableLayout {
     static let fanTurn: CGFloat = 0.04
     /// How much a card drops per squared point from the fan's centre.
     static let fanDrop: CGFloat = 0.0012
-    /// The room a 13-card fan takes (its rotated cards included).
+    /// The room a 13-card fan takes at scale 1 (its rotated cards included).
     static let fanBox = CGSize(width: 96, height: 46)
+    /// The fan sizes, largest first: roomy (an iPad, where the table has space to spare),
+    /// regular (the open Duo), compact (a phone: a 16 x 23 back, a 60 x 29 box).
+    static let fanScales: [CGFloat] = [1.3, 1, 0.62]
     /// The clear gap around a fan.
     static let fanGap: CGFloat = 4
     static let fanMaxCards = 13
@@ -46,7 +58,7 @@ extension TableLayout {
         let rotation: CGFloat
     }
 
-    /// Slots for `count` backs, left to right (at most `fanMaxCards`): a pure function of the count.
+    /// Slots for `count` backs at scale 1, left to right (at most `fanMaxCards`): a pure function of the count.
     static func fanSlots(count: Int) -> [FanSlot] {
         let n = min(max(count, 0), fanMaxCards)
         return (0..<n).map { i in
@@ -63,38 +75,78 @@ extension TableLayout {
         return CGRect(x: slot.center.x - w / 2, y: slot.center.y - h / 2, width: w, height: h)
     }
 
-    /// Every seat's fan box (scene coordinates), or nil when the table has no room for all of them.
+    /// The scale a fan box was laid out at (its width against `fanBox`'s).
+    static func fanScale(of box: CGRect) -> CGFloat { box.width / fanBox.width }
+
+    /// The fans the table shows now (scene coordinates): `fanPlan`, minus any fan the
+    /// banner covers and has no other clear spot for. Nil when the table shows no fans.
     func fans(spectating: Bool) -> [Positions.RelativePosition: CGRect]? {
-        guard !isDegraded, size.width > 0, size.height > 0 else { return nil }
-        let seats: [Positions.RelativePosition] = spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
-        let keeps = fanKeeps(spectating: spectating)
-        var out: [Positions.RelativePosition: CGRect] = [:]
-        for r in seats {
-            guard let box = fanCandidates(r).first(where: { c in
-                fanIsClear(c, keeps: keeps) && !out.values.contains { Self.overlaps($0.insetBy(dx: -Self.fanGap, dy: -Self.fanGap), c) }
-            }) else { return nil }
-            out[r] = box
+        guard let plan = fanPlan(spectating: spectating) else { return nil }
+        guard let banner = bannerRect(spectating: spectating) else { return plan }
+        let G = Self.fanGap
+        let hit = { (box: CGRect) in Self.overlaps(banner.insetBy(dx: -G, dy: -G), box) }
+        guard plan.values.contains(where: hit) else { return plan }
+        let scale = Self.fanScale(of: plan.values.first ?? CGRect(origin: .zero, size: Self.fanBox))
+        let keeps = fanKeeps(spectating: spectating) + [banner]
+        var out = plan.filter { !hit($0.value) }
+        for r in Self.fanSeats(spectating) where out[r] == nil {
+            if let box = fanCandidates(r, scale: scale).first(where: { c in
+                fanIsClear(c, keeps: keeps) && !out.values.contains { Self.overlaps($0.insetBy(dx: -G, dy: -G), c) }
+            }) { out[r] = box }
         }
         return out
     }
 
-    /// Where a seat's fan may go, best first.
-    private func fanCandidates(_ r: Positions.RelativePosition) -> [CGRect] {
-        let a = seatAnchor(r)
-        let b = Self.fanBox
-        let above = CGRect(x: a.x - b.width / 2, y: a.y + Self.glowRadius + Self.gap, width: b.width, height: b.height)
-        guard r == .top else { return [above] }
-        // beside the avatar, past the name band's edge (the dealer marker sits inside it)
-        let left = CGRect(x: a.x - Self.nameMaxWidth / 2 - Self.gap - b.width, y: a.y - b.height / 2, width: b.width, height: b.height)
-        return [above, left]
+    /// Every seat's fan box (scene coordinates) with no banner up, at the largest scale that
+    /// has room for all of them, or nil when the table has no room at any.
+    func fanPlan(spectating: Bool) -> [Positions.RelativePosition: CGRect]? {
+        guard !isDegraded, size.width > 0, size.height > 0 else { return nil }
+        let keeps = fanKeeps(spectating: spectating)
+        scales: for scale in Self.fanScales {
+            var out: [Positions.RelativePosition: CGRect] = [:]
+            for r in Self.fanSeats(spectating) {
+                guard let box = fanCandidates(r, scale: scale).first(where: { c in
+                    fanIsClear(c, keeps: keeps) && !out.values.contains { Self.overlaps($0.insetBy(dx: -Self.fanGap, dy: -Self.fanGap), c) }
+                }) else { continue scales }
+                out[r] = box
+            }
+            return out
+        }
+        return nil
     }
 
-    /// What no fan may touch.
+    private static func fanSeats(_ spectating: Bool) -> [Positions.RelativePosition] {
+        spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
+    }
+
+    /// Where a seat's fan may go at `scale`, best first.
+    private func fanCandidates(_ r: Positions.RelativePosition, scale: CGFloat) -> [CGRect] {
+        let a = seatAnchor(r)
+        let b = CGSize(width: Self.fanBox.width * scale, height: Self.fanBox.height * scale)
+        let above = CGRect(x: a.x - b.width / 2, y: a.y + Self.glowRadius + Self.gap, width: b.width, height: b.height)
+        guard r == .top else { return [above] }
+        // beside the avatar, level with it: past the dealer marker (above the name band), else
+        // past the name band's edge
+        let chip = a.x - Self.dealerChipOffset - Self.dealerChip / 2
+        let beside = CGRect(x: chip - Self.fanGap - b.width, y: a.y - b.height / 2, width: b.width, height: b.height)
+        let left = CGRect(x: a.x - Self.nameMaxWidth / 2 - Self.gap - b.width, y: a.y - b.height / 2, width: b.width, height: b.height)
+        guard scale < 1 else { return [above, beside, left] }
+        // a phone whose partner sits between the corner buttons has neither: the compact fan
+        // may sit under the partner's name, well above the trick cards
+        let below = CGRect(x: a.x - b.width / 2, y: a.y + Self.nameLo - Self.fanGap - b.height, width: b.width, height: b.height)
+        return [above, beside, left, below]
+    }
+
+    /// What no fan may touch (the banner aside: `fans`).
     private func fanKeeps(spectating: Bool) -> [CGRect] {
         var keeps: [CGRect] = [Positions.RelativePosition.top, .left, .right, .bottom].map(trickRect)
-        let seats: [Positions.RelativePosition] = spectating ? [.top, .left, .right, .bottom] : [.top, .left, .right]
-        for r in seats {
-            keeps.append(seatFootprint(r))
+        for r in Self.fanSeats(spectating) {
+            let a = seatAnchor(r)
+            // the seat's parts, not its footprint's bounding box: a compact fan sits in the
+            // corner between the glow and the name band
+            keeps.append(Self.glowRect(a))
+            keeps.append(Self.nameRect(a))
+            keeps.append(dealerChip(r))
             keeps.append(bubbleRect(r))
         }
         let m = TrickHistoryNode.borderPad + 2

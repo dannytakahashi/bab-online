@@ -6196,7 +6196,8 @@
           "client/src/main.js:onActionRejected"
         ],
         "ios": [
-          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerPlayingPhase"
+          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:registerPlayingPhase",
+          "iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply"
         ]
       },
       "emittedFrom": [

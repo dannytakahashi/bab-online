@@ -145,6 +145,7 @@ class GameSKScene: SKScene, TableRenderer {
 
         cardManager = SKCardManager(scene: self)
         cardManager.onPlay = { [weak self] card in self?.actions?.play(card) ?? false }
+        cardManager.onBlocked = { [weak self] why in self?.gameState?.postNotice(why) }
         addChild(cardManager.handNode)
         #if DEBUG
         cardManager.handNode.onLiftChanged = { [weak self] in self?.probe() }  // "table.state" lifted= after a tap

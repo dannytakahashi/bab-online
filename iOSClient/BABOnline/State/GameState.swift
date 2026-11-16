@@ -29,12 +29,17 @@ final class GameState: ObservableObject {
     var chatDraft = ""
     /// +1 per applied snapshot or reset (the coordinator's resync debounce).
     private(set) var sceneResets = 0
-    /// The latest table notice (a refused bid or play's reason); TableNoticeView shows it
-    /// for a few seconds. `id` tells two equal lines apart.
+    /// The latest table notice (why a bid or play was refused, or why a dimmed card cannot be
+    /// played); GameContainerView shows it in the server-error toast for a few seconds.
+    /// `id` tells two equal lines apart.
     @Published private(set) var notice: TableNotice?
     private var noticeCount = 0
 
-    func clearNotice(_ id: Int) { if notice?.id == id { notice = nil } }
+    /// A notice from the table itself (a tap on a dimmed card: TableRenderModel.Hand.blocked).
+    func postNotice(_ text: String) {
+        noticeCount += 1
+        notice = TableNotice(id: noticeCount, text: text)
+    }
 
     /// The idle-seat offer I answered with Wait: hidden until the server asks again (a new
     /// offer has the next `round`) or the offer moves.
@@ -81,8 +86,7 @@ final class GameState: ObservableObject {
             switch fx {
             case .animate: break
             case .notice(let text):
-                noticeCount += 1
-                notice = TableNotice(id: noticeCount, text: text)
+                postNotice(text)
             #if DEBUG
             case .dropped(let event, let seq): print("[Table] dropped \(event) seq \(seq)")
             case .gap(let expected, let got): print("[Table] seq gap: expected \(expected), got \(got)")
@@ -228,7 +232,8 @@ final class GameState: ObservableObject {
         let seat = players.seats[offer.position]
         let presence = seat?.presence
         if offer.idle, waitedOffer == offer { return nil }
-        if offer.idle { return presence == .connected && seat?.controller == .human && offer.position != position ? offer : nil }
+        // (.none: a presence value this build does not know; the seat is still a human's)
+        if offer.idle { return (presence == .connected || presence == SeatPresence.none) && seat?.controller == .human && offer.position != position ? offer : nil }
         return presence == .resignable ? offer : nil
     }
     /// Who is watching (the spectator badge).

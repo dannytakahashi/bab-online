@@ -222,11 +222,14 @@ struct BidChipRow: View {
 
     /// The row's height at zoom 1 (BidOverlayView keeps the panel inside the 140 pt bid band).
     static let height: CGFloat = 5
+    /// A chip's widest (16 chips of it and their gaps fit the row's 300).
+    static let chipWidth: CGFloat = 16
 
     var body: some View {
         HStack(spacing: 2 * zoom) {
             ForEach(Array(chips.chips.enumerated()), id: \.offset) { _, chip in
-                chipView(chip)
+                // a chip has a set width (the web's --bid-chip-w): a 1-card hand is one chip, not a bar
+                chipView(chip).frame(maxWidth: Self.chipWidth * zoom)
             }
         }
         .frame(height: Self.height * zoom)

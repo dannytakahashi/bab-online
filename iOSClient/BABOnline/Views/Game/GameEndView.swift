@@ -34,8 +34,9 @@ struct GameEndView: View {
         VStack(spacing: Theme.Space.s6) {
             if let data = gameState.gameEndData {
                 // Winner banner
-                if data.isTie {
-                    // equal scores: nobody won (the web ScoreModal's TIE GAME, for seats and spectators)
+                if data.isTie, !gameState.isSpectator {
+                    // equal scores: nobody won (the web ScoreModal's TIE GAME; a spectator's
+                    // title is GAME OVER whatever the score, there and here)
                     Text("TIE GAME")
                         .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
                         .foregroundColor(Theme.gold)

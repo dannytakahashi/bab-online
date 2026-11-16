@@ -56,6 +56,8 @@ extension TableReducer {
             fx.append(.animate(.rainbow(position: pos, dealSeq: s.table.deal?.dealSeq ?? 0)))
         case .destroyHands:
             s.table.hand = []
+            // every hand is gone, not only mine (the card backs; the redeal's gameStart refills them)
+            for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
             s.pending = nil
             let bidder = s.table.deal?.bidder ?? 1
             s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))
@@ -205,7 +207,7 @@ extension TableReducer {
                 s.pending = nil
             }
             if matches { fx.append(.haptic(.error)) }
-            // why, in the web's words (a toast over the table; never blocks)
+            // why, in the web's words (the server-error toast over the table; never blocks)
             fx.append(.notice(RejectReason.message(p.reason)))
         case .stateSnapshot(let p):
             if let snap = p.snapshot {

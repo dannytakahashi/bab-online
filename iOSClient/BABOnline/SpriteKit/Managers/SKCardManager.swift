@@ -8,11 +8,14 @@ class SKCardManager {
     let handNode = HandNode()
     /// actions.play: false when refused
     var onPlay: ((Card) -> Bool)?
+    /// A tap on a dimmed card: why it cannot be played now (the web's illegalReason), for the toast.
+    var onBlocked: ((String) -> Void)?
     private var interactive = false
 
     init(scene: GameSKScene) {
         self.scene = scene
         handNode.onCardTapped = { [weak self] card in self?.handleCardPlay(card) }
+        handNode.onBlockedTap = { [weak self] why in self?.onBlocked?(why) }
     }
 
     func apply(_ model: TableRenderModel, layout: TableLayout, arriving: Set<String>, animator: Animator) {
@@ -27,7 +30,10 @@ class SKCardManager {
         interactive = hand.interactive && !collecting
         // The legal set is empty while the previous trick flies; the collect completion re-renders
         let legal: Set<String> = collecting && hand.interactive ? [] : hand.legalIds
-        handNode.apply(cards: hand.cards, legalIds: legal, layout: layout, interactive: interactive, arriving: arriving, animator: animator)
+        // ... and every card says so
+        let blocked = collecting && hand.interactive
+            ? hand.cards.reduce(into: [String: String]()) { $0[$1.id] = TableRenderModel.Blocked.trickClearing } : hand.blocked
+        handNode.apply(cards: hand.cards, legalIds: legal, blocked: blocked, layout: layout, interactive: interactive, arriving: arriving, animator: animator)
     }
 
     /// Relayout: the hand node's place and scale, then every card to its slot.

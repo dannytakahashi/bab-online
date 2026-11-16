@@ -498,7 +498,7 @@ const s2c = {
         }),
         status: 'active', to: 'self',
         added: ['snapshot'],
-        clientReads: reads([W.game, W.main('onActionRejected')], I.game('registerPlayingPhase')),
+        clientReads: reads([W.game, W.main('onActionRejected')], [I.game('registerPlayingPhase'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
         notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play. reason: web toasts it in words (main.js onActionRejected); iOS 1.2.2 shows the same words (RejectReason, the server-error toast), an unknown reason as "Action not accepted"; earlier iOS builds decode it and show nothing.',
     },

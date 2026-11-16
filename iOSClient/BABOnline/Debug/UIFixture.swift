@@ -149,6 +149,7 @@ enum UIFixture {
     /// `-uiReject <reason>`: 1 s after the table is up, the server refuses my action
     /// (actionRejected `{action: play, reason}`): the toast with the reason, held 60 s.
     /// `-uiDealer <position>`: that seat dealt this hand (the snapshot's dealer otherwise).
+    /// `-uiToasts YES`: the toast layer is up and holds a toast 60 s (a tap on a dimmed card).
     @MainActor
     private static func seedTableExtras(_ store: GameState, _ snap: TableSnapshot, auth: AuthState) {
         let defaults = UserDefaults.standard
@@ -164,6 +165,10 @@ enum UIFixture {
         if let pos = Int(defaults.string(forKey: "uiIdleOffer") ?? ""), (1...4).contains(pos) {
             let name = snap.seats.first { $0.position == pos }?.username ?? "P\(pos)"
             _ = store.apply(serverEvent: "resignationAvailable", payload: [["position": pos, "username": name, "idle": true] as [String: Any]])
+        }
+        if defaults.bool(forKey: "uiToasts") {
+            auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
+            ServerErrorToast.visibleSeconds = 60
         }
         if let reason = defaults.string(forKey: "uiReject") {
             auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only

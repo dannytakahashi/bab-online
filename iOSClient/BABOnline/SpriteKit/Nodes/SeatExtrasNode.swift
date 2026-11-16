@@ -18,13 +18,17 @@ final class CardFanNode: SKNode {
 
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// The back at a fan card's on-screen size (the device's largest zoom), once per process:
+    /// The back at the largest fan card's on-screen size (the roomy scale at the device's
+    /// largest zoom), once per process:
     /// `cardBackImage(width:)` hints the lattice for the pixels it gets.
     static let backTexture: SKTexture = {
-        let texture = SKTexture(image: CardTextureGenerator.cardBackImage(width: TableLayout.fanCard.width * CardTextureGenerator.textureZoom))
+        let texture = SKTexture(image: CardTextureGenerator.cardBackImage(width: CardFanNode.textureWidth))
         texture.filteringMode = .linear
         return texture
     }()
+
+    /// The texture's width in points: a back at the largest fan scale and table zoom.
+    static var textureWidth: CGFloat { TableLayout.fanCard.width * (TableLayout.fanScales.max() ?? 1) * CardTextureGenerator.textureZoom }
 
     /// Show `n` backs (TableLayout.fanSlots): the same children for the same count.
     func update(count n: Int) {
@@ -92,8 +96,11 @@ extension OpponentHandNode {
         guard let box else {
             fanNode.update(count: 0)
             fanNode.position = .zero
+            fanNode.setScale(1)
             return
         }
+        // the slots are scale 1's: the node carries the table's fan scale (the box's)
+        fanNode.setScale(TableLayout.fanScale(of: box))
         fanNode.position = CGPoint(x: box.midX - anchor.x, y: box.midY - anchor.y)
         fanNode.update(count: count)
     }

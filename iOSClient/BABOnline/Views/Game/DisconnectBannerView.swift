@@ -97,6 +97,10 @@ struct DisconnectBannerView: View {
             }
         }
         .padding(.horizontal, Theme.Space.s3)
+        // it stays up over the table (a grace period, an offer until someone answers): its text
+        // stops growing at accessibility2, where it already stacks, so it never covers the seats
+        // and trick it is about
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
     private func replaceWithBot(position: Int) {

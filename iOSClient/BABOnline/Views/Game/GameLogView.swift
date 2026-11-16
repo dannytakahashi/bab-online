@@ -195,6 +195,7 @@ struct GameLogPanel: View {
             case .send(let command): submitCommand(command)
             case .unknown(let word):
                 commandHint = "Unknown command: \(word)"
+                showAutocomplete = true  // a draft with a leading space has no list up yet
                 AccessibilityNotification.Announcement("Unknown command \(word). Commands: \(availableCommands.map(\.command).joined(separator: ", "))").post()
             }
             return
@@ -251,7 +252,8 @@ struct GameLogEntryView: View {
 
 /// What a chat line starting with "/" does (the web GameLog.submitChat rule, with the
 /// server's "Unknown command: /x" answered in place: a spectator's or a watching owner's
-/// unknown command gets no answer from the server at all).
+/// unknown command gets no answer from the server at all). A deliberate difference from the
+/// web, which sends every line and shows the server's reply.
 enum ChatCommand {
     enum Resolution: Equatable {
         /// Send this command (the line was it, or its unique prefix).
@@ -260,9 +262,15 @@ enum ChatCommand {
         case unknown(String)
     }
 
+    /// Commands the server answers from anyone (server/socket/chatHandlers.js spectatorCommand):
+    /// typed in full they are sent whatever the list shows. A spectator recorded as a seat's
+    /// owner takes it back with `/active`, though a spectator's list shows only `/leave`.
+    static let server = ["/active", "/leave"]
+
     static func resolve(_ text: String, commands: [String]) -> Resolution {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = line.lowercased()
+        if server.contains(query) { return .send(query) }
         if query != "/" {
             let matches = commands.filter { $0.hasPrefix(query) }
             if matches.count == 1 { return .send(matches[0]) }

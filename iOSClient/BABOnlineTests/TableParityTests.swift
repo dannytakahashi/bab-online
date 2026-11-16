@@ -1,4 +1,5 @@
 import XCTest
+import SpriteKit
 @testable import BAB_Online
 
 /// iOS 1.2.2 table parity with the web (state and wording): the idle-seat offer,
@@ -75,11 +76,91 @@ final class IdleOfferTests: XCTestCase {
         XCTAssertEqual(t.players.resignationOffer?.position, 3)
     }
 
-    func testASnapshotDropsIt() throws {
+    /// A snapshot of the same game with the idle seat (`pos`) a connected human on turn.
+    private func snapshot(of s: TableState, idleSeat pos: Int, strict: Bool = true, edit: (inout [String: Any]) -> Void = { _ in }) throws -> TableSnapshot {
+        var raw = try FixtureLoader.v2Snapshot("trick-mid-lead3")
+        ({ (snap: inout [String: Any]) in
+            snap["gameId"] = s.table.gameId
+            var seats = snap["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["position"] as? Int == pos {
+                seats[i]["controller"] = "human"; seats[i]["presence"] = "connected"; seats[i]["isBot"] = false; seats[i]["lazy"] = false
+                seats[i]["offered"] = false
+            }
+            snap["seats"] = seats
+            var turn = (snap["turn"] as? [String: Any]) ?? [:]
+            turn["position"] = pos
+            snap["turn"] = turn
+            edit(&snap)
+        })(&raw)
+        return try TableSnapshot.decode(raw, strict: strict)
+    }
+
+    /// The server replays an idle offer only to a re-attached socket or at its next 90 s asking,
+    /// so a resync (the foreground probe, a seq gap, my own actionRejected) must not lose it.
+    func testASnapshotOfTheSameGameKeepsAStandingIdleOffer() throws {
+        for source in [SnapshotSource.requested("gap-1"), .rejected] {
+            var s = T.dealtState()
+            idle(&s); idle(&s)
+            let before = try XCTUnwrap(s.players.resignationOffer)
+            XCTAssertEqual(before.round, 1)
+            TableReducer.reduce(&s, .snapshot(try snapshot(of: s, idleSeat: 3), source, hints: nil))
+            XCTAssertEqual(s.players.resignationOffer, before, "\(source): kept, with its round (an answered Wait stays answered)")
+            XCTAssertEqual(s.players.seats[3]?.presence, .connected)
+        }
+    }
+
+    func testASnapshotDropsAnIdleOfferThatNoLongerStands() throws {
+        // the turn moved on: the idle player acted
         var s = T.dealtState()
         idle(&s)
-        TableReducer.reduce(&s, .snapshot(try T.snapshot("between-tricks"), .requested("gap-1"), hints: nil))
-        XCTAssertNil(s.players.resignationOffer)
+        TableReducer.reduce(&s, .snapshot(try snapshot(of: s, idleSeat: 3) { snap in
+            var turn = snap["turn"] as! [String: Any]; turn["position"] = 2; snap["turn"] = turn
+        }, .requested("gap-1"), hints: nil))
+        XCTAssertNil(s.players.resignationOffer, "the seat is no longer on turn")
+
+        // a bot plays the seat now
+        s = T.dealtState()
+        idle(&s)
+        TableReducer.reduce(&s, .snapshot(try snapshot(of: s, idleSeat: 3) { snap in
+            var seats = snap["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["position"] as? Int == 3 { seats[i]["controller"] = "lazyBot" }
+            snap["seats"] = seats
+        }, .requested("gap-1"), hints: nil))
+        XCTAssertNil(s.players.resignationOffer, "a bot plays the seat")
+
+        // the seat dropped
+        s = T.dealtState()
+        idle(&s)
+        TableReducer.reduce(&s, .snapshot(try snapshot(of: s, idleSeat: 3) { snap in
+            var seats = snap["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["position"] as? Int == 3 { seats[i]["presence"] = "grace" }
+            snap["seats"] = seats
+        }, .requested("gap-1"), hints: nil))
+        XCTAssertNil(s.players.resignationOffer, "the seat is away: its own offer follows")
+
+        // another game's snapshot
+        s = T.dealtState()
+        idle(&s)
+        TableReducer.reduce(&s, .snapshot(try snapshot(of: s, idleSeat: 3) { $0["gameId"] = "another-game" }, .requested("gap-1"), hints: nil))
+        XCTAssertNil(s.players.resignationOffer, "another game")
+    }
+
+    /// A presence value this build does not know (a newer server) reads as `.none`: the seat
+    /// is still a human's, so its idle offer shows (1.2.1 showed its offer too).
+    @MainActor
+    func testAnIdleOfferShowsForASeatWithAnUnknownPresence() throws {
+        let store = GameState()
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        let snap = try snapshot(of: T.dealtState(), idleSeat: 3, strict: false) { snap in
+            var seats = snap["seats"] as! [[String: Any]]
+            for i in seats.indices where seats[i]["position"] as? Int == 3 { seats[i]["presence"] = "somethingNewer" }
+            snap["seats"] = seats
+        }
+        store.apply(.snapshot(snap, .rejoin, hints: nil))
+        XCTAssertEqual(store.players.seats[3]?.presence, SeatPresence.none)
+        store.apply(T.ev("resignationAvailable", ["position": 3, "username": "P", "idle": true]))
+        XCTAssertEqual(store.resignationOffer?.idle, true)
+        XCTAssertTrue(store.showsPresenceBanner)
     }
 
     func testEachAskingIsANewRound() {
@@ -191,10 +272,110 @@ final class RejectedActionTests: XCTestCase {
         let first = store.notice!.id
         store.apply(T.ev("actionRejected", ["action": "play", "reason": "illegal_card"]))
         XCTAssertNotEqual(store.notice?.id, first, "the same reason twice shows twice")
-        store.clearNotice(first)
-        XCTAssertNotNil(store.notice, "an older id clears nothing")
+        // the table's own notices (a tap on a dimmed card) go the same way
+        store.postNotice("Not your turn.")
+        XCTAssertEqual(store.notice?.text, "Not your turn.")
         store.reset()
         XCTAssertNil(store.notice)
+    }
+}
+
+/// Why a dimmed card cannot be played (the web's GameScene.illegalReason): the toast a tap
+/// on it shows, and its VoiceOver hint.
+final class BlockedCardTests: XCTestCase {
+    typealias B = TableRenderModel.Blocked
+
+    func testWhileBiddingEveryCardSaysBidFirstUnlessItIsMyBid() {
+        var s = T.dealtState()
+        var hand = TableRenderModel(s).hand!
+        XCTAssertTrue(hand.legalIds.isEmpty)
+        XCTAssertEqual(Set(hand.blocked.values), [B.bidFirst])
+        XCTAssertEqual(Set(hand.blocked.keys), Set(hand.cards.map(\.id)))
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 2, "seq": 3]))
+        XCTAssertEqual(Set(TableRenderModel(s).hand!.blocked.values), [B.bidFirst], "another seat's bid")
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 4]))
+        hand = TableRenderModel(s).hand!
+        XCTAssertEqual(hand.blocked, [:], "my bid turn: the cards are lit")
+        XCTAssertEqual(hand.legalIds.count, 3)
+    }
+
+    func testAnotherSeatsTurnSaysNotYourTurn() {
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 2, "seq": 3]))
+        let hand = TableRenderModel(s).hand!
+        XCTAssertEqual(Set(hand.blocked.values), [B.notYourTurn])
+    }
+
+    func testMyTurnGivesEachDimmedCardItsRule() {
+        // spades led, I hold a spade: the others must follow suit
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 4, "seq": 3]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "3"), "position": 4, "trump": false, "seq": 4]))
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 5]))
+        let hand = TableRenderModel(s).hand!
+        XCTAssertTrue(hand.interactive)
+        XCTAssertEqual(hand.legalIds.count, 1)
+        XCTAssertEqual(hand.blocked.count, 2)
+        XCTAssertEqual(Set(hand.blocked.values), ["Must follow suit."])
+        XCTAssertTrue(Set(hand.blocked.keys).isDisjoint(with: hand.legalIds))
+
+        // leading with trump unbroken: a trump says so
+        var t = T.dealtState(hand: [T.card("diamonds", "9"), T.card("hearts", "2")], size: 2)
+        TableReducer.reduce(&t, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 1, "seq": 3]))
+        let lead = TableRenderModel(t).hand!
+        XCTAssertEqual(Array(lead.blocked.values), ["Cannot lead trump until trump is broken."])
+    }
+
+    func testMySubmittedCardSaysItIsOnItsWay() {
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 1, "seq": 3]))
+        let card = TableRenderModel(s).hand!.cards[0]
+        TableReducer.reduce(&s, .local(.submitPlay(card, reqId: 7)))
+        let hand = TableRenderModel(s).hand!
+        XCTAssertEqual(hand.cards.count, 2)
+        XCTAssertEqual(Set(hand.blocked.values), [B.onItsWay])
+    }
+
+    /// The scene: a dimmed card carries its reason as VoiceOver's hint, and a tap on it posts
+    /// the reason as a table notice (the toast) instead of only buzzing.
+    @MainActor
+    func testATapOnADimmedCardSaysWhy() throws {
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+        let h = ReplayHarness()
+        h.store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        for e in [T.ev("positionUpdate", ["positions": [1, 2, 3, 4], "sockets": ["sid-me", "s2", "s3", "s4"],
+                                          "usernames": [["username": "me"], ["username": "L"], ["username": "P"], ["username": "R"]],
+                                          "pics": [1, 2, 3, 4], "seq": 1]),
+                  T.ev("gameStart", ["gameId": "g1", "hand": [T.card("spades", "A"), T.card("hearts", "2")], "trump": T.card("diamonds", "5"),
+                                     "score1": 0, "score2": 0, "dealer": 4, "position": 1, "currentHand": 2, "seq": 2]),
+                  T.ev("doneBidding", ["bids": ["1", "0", "0", "0"], "lead": 2, "seq": 3])] {
+            h.store.apply(e)
+        }
+        let size = CGSize(width: 390, height: 844)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        let sprite = try XCTUnwrap(scene.cardManager.handNode.sprite(for: h.store.state.table.hand[0].id))
+        XCTAssertFalse(sprite.isLegal)
+        XCTAssertEqual(sprite.blockedReason, B.notYourTurn)
+        XCTAssertEqual(sprite.accessibilityHint, B.notYourTurn)
+        XCTAssertNil(h.store.notice)
+        XCTAssertTrue(sprite.accessibilityActivate())
+        XCTAssertEqual(h.store.notice?.text, B.notYourTurn, "the toast says why")
+        XCTAssertNil(h.store.state.pending, "nothing was played")
+
+        // my turn: a legal card has no hint and its tap lifts it, without a notice
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("clubs", "3"), "position": 2, "trump": false, "seq": 4]))
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("clubs", "4"), "position": 3, "trump": false, "seq": 5]))
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("clubs", "5"), "position": 4, "trump": false, "seq": 6]))
+        h.store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": 7]))
+        let lit = try XCTUnwrap(scene.cardManager.handNode.sprite(for: h.store.state.table.hand[0].id))
+        XCTAssertTrue(lit.isLegal)
+        XCTAssertNil(lit.accessibilityHint)
+        let before = h.store.notice?.id
+        XCTAssertTrue(lit.accessibilityActivate())
+        XCTAssertEqual(h.store.notice?.id, before)
     }
 }
 
@@ -290,6 +471,19 @@ final class ChatCommandTests: XCTestCase {
 
     func testASpectatorHasOnlyLeave() {
         XCTAssertEqual(ChatCommand.resolve("/l", commands: ["/leave"]), .send("/leave"))
-        XCTAssertEqual(ChatCommand.resolve("/lazy", commands: ["/leave"]), .unknown("/lazy"))
+        XCTAssertEqual(ChatCommand.resolve("/lazy", commands: ["/leave"]), .unknown("/lazy"), "the server ignores a spectator's /lazy")
+    }
+
+    /// The server takes `/active` from a spectator recorded as a seat's owner (chatHandlers
+    /// spectatorCommand), though a spectator's list shows only /leave: typed in full, it is sent.
+    func testASpectatorsActiveIsSent() {
+        XCTAssertEqual(ChatCommand.resolve("/active", commands: ["/leave"]), .send("/active"))
+        XCTAssertEqual(ChatCommand.resolve(" /Active ", commands: ["/leave"]), .send("/active"))
+        XCTAssertEqual(ChatCommand.resolve("/a", commands: ["/leave"]), .unknown("/a"), "only in full: the list has no /active to complete")
+    }
+
+    func testADraftWithALeadingSpaceIsStillACommand() {
+        XCTAssertEqual(ChatCommand.resolve(" /foo", commands: seat), .unknown("/foo"))
+        XCTAssertEqual(ChatCommand.resolve("  /lazy", commands: seat), .send("/lazy"))
     }
 }
