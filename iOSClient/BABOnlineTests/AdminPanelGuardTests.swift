@@ -35,6 +35,21 @@ final class AdminPanelGuardTests: XCTestCase {
             waiting.removeAll { $0.0 == action }
             mine.forEach { $0.1.resume() }
         }
+
+        /// Nothing stays held (a test's end: a request a broken guard let through).
+        func releaseAll() {
+            held = []
+            let all = waiting
+            waiting = []
+            all.forEach { $0.1.resume() }
+        }
+    }
+
+    /// A second tap: started and given time to reach the server, never waited for (a
+    /// guard that let it through would leave it held; the count says so, with no hang).
+    private func tap(_ op: @escaping @MainActor () async -> Void) async {
+        Task { await op() }
+        try? await Task.sleep(nanoseconds: 40_000_000)
     }
 
     private func settle(until done: () -> Bool) async {
@@ -156,8 +171,8 @@ final class AdminPanelGuardTests: XCTestCase {
         await settle { s.waitingCount(.createResetLink) == 1 }
         XCTAssertTrue(admin.makingLink, "the rows' menus wait: nothing else takes the sheet's place")
         XCTAssertEqual(admin.changing, 1, "the panel cannot be closed by hand meanwhile")
-        await admin.createResetLink("kim")
-        await admin.createResetLink("ivy")
+        await tap { await admin.createResetLink("kim") }
+        await tap { await admin.createResetLink("ivy") }
         XCTAssertEqual(s.count(.createResetLink), 1, "a second link would cancel the one on its way")
 
         admin.tab = .audit
@@ -167,6 +182,7 @@ final class AdminPanelGuardTests: XCTestCase {
         XCTAssertFalse(admin.makingLink)
         XCTAssertEqual(admin.changing, 0)
         XCTAssertEqual(admin.tab, .audit)
+        s.releaseAll()
     }
 
     // MARK: - One at a time
@@ -179,10 +195,10 @@ final class AdminPanelGuardTests: XCTestCase {
         s.held = [.listAudit]
         let a = Task { await admin.loadAudit(append: true) }
         await settle { s.waitingCount(.listAudit) == 1 }
-        await admin.loadAudit(append: true)  // the second tap
-        await admin.loadAudit()              // a pull to refresh racing it
+        await tap { await admin.loadAudit(append: true) }  // the second tap
+        await tap { await admin.loadAudit() }              // a pull to refresh racing it
         XCTAssertEqual(s.count(.listAudit), 2, "one first page, one Load more")
-        s.release(.listAudit)
+        s.releaseAll()
         await a.value
         // the page overlaps the rows shown (e2): a row id is never listed twice
         XCTAssertEqual(admin.audit?.map(\.id), ["e1", "e2", "e3"])
@@ -209,13 +225,13 @@ final class AdminPanelGuardTests: XCTestCase {
         let first = Task { await admin.closeReport(report, as: "resolved", note: String(repeating: "😀", count: 400)) }
         await settle { s.waitingCount(.resolveReport) == 1 }
         XCTAssertEqual(admin.closingReports, ["r1"], "its buttons are off")
-        await admin.closeReport(report, as: "dismissed", note: "")
+        await tap { await admin.closeReport(report, as: "dismissed", note: "") }
         XCTAssertEqual(s.count(.resolveReport), 1)
-        s.release(.resolveReport)
+        s.releaseAll()
         await first.value
         XCTAssertTrue(admin.closingReports.isEmpty)
         XCTAssertEqual(admin.status, .init(text: "Report resolved.", kind: .success))
-        let note = s.calls.last { $0.action == .resolveReport }?.args["note"] as? String ?? ""
+        let note = s.calls.first { $0.action == .resolveReport }?.args["note"] as? String ?? ""
         XCTAssertEqual(note.utf16.count, 500, "500 UTF-16 units, as Joi counts")
         XCTAssertEqual(note.count, 250, "whole characters only")
 
@@ -237,12 +253,12 @@ final class AdminPanelGuardTests: XCTestCase {
         // the section was left and opened again (the view's own state is gone): still one merge
         admin.tab = .players
         admin.tab = .merge
-        await admin.applyMerge(typed: "Alan")
-        await admin.previewMerge()
+        await tap { await admin.applyMerge(typed: "Alan") }
+        await tap { await admin.previewMerge() }
         XCTAssertEqual(s.count(.applyMerge), 1)
         XCTAssertEqual(s.count(.planMerge), 1)
         XCTAssertNotNil(admin.plan, "the preview stays until the answer")
-        s.release(.applyMerge)
+        s.releaseAll()
         await first.value
         XCTAssertFalse(admin.applyingMerge)
         XCTAssertEqual(admin.status, .init(text: "Merged into Alan.", kind: .success))
