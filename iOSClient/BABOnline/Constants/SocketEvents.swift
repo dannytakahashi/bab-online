@@ -74,6 +74,9 @@ enum SocketEvents {
 
         // Snapshot v2
         static let requestSnapshot = "requestSnapshot"
+
+        // Admin panel
+        static let adminRequest = "adminRequest"
     }
 
     // MARK: - Server → Client
@@ -186,5 +189,8 @@ enum SocketEvents {
 
         // Snapshot v2
         static let stateSnapshot = "stateSnapshot"
+
+        // Admin panel
+        static let adminResponse = "adminResponse"
     }
 }
