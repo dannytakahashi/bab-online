@@ -62,7 +62,7 @@ The committed `iOSClient/BABOnline.xcodeproj` is the only source of project conf
 
 - `iOSClient/BABOnline/` is a **folder synchronized with the BABOnline target** (Xcode 16 `PBXFileSystemSynchronizedRootGroup`, project format `objectVersion = 77`). To add Swift files, folders or asset catalogs, put them under that folder. They are part of the app with no project-file edit.
 - Every file in that folder becomes a target member by type. `.swift` files are compiled, and anything else (asset catalogs, JSON, images, even a stray `README.md`) is copied into the app bundle. To keep a file out of the target, put it outside `iOSClient/BABOnline/` (like `iOSClient/generate_icon.swift`), or untick its Target Membership in Xcode's File inspector. That adds it to the folder's exception set.
-- `Info.plist` and `BABOnline.entitlements` are in that exception set (`membershipExceptions` of the `PBXFileSystemSynchronizedBuildFileExceptionSet`). They are used through `INFOPLIST_FILE` / `CODE_SIGN_ENTITLEMENTS` and are never bundle resources. Keep them there.
+- `Info.plist` is in that exception set (`membershipExceptions` of the `PBXFileSystemSynchronizedBuildFileExceptionSet`); keep it there. It is used through `INFOPLIST_FILE`. `BABOnline.entitlements` is used through `CODE_SIGN_ENTITLEMENTS`; Xcode 27 keeps a `.entitlements` file out of the bundle on its own, and removed it from the set when "Update to recommended settings" ran (build 11; that archive has no entitlements file in the app).
 - Swift packages: socket.io-client-swift (up to next major from 16.1.1) and stasel/WebRTC (exactly 140.0.0). `Package.resolved` is generated under `BABOnline.xcodeproj/project.xcworkspace/` and is not committed.
 
 #### Tests (BABOnlineTests)
