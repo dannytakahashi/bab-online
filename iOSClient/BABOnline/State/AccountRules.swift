@@ -33,6 +33,27 @@ enum PasswordRule {
     }
 }
 
+/// A typed password as it is sent (iOS 1.2.2, the web's rule: SignIn.js, Register.js and
+/// ProfilePage.js Change Password all `trim()`): without whitespace at its edges, so a password
+/// set on one client signs in on the other. The server stores and compares what it is sent.
+/// - New passwords (sign-up, Change Password's new one) are always sent trimmed.
+/// - A password being checked (sign-in, Change Password's current one) is sent trimmed first;
+///   when the server refuses it and what was typed had whitespace at an edge, the typed text
+///   is sent once (`asTypedFallback`): an account whose password was set by iOS 1.2.1 or
+///   earlier, which sent passwords as typed, may really have that space.
+/// - Delete Account's password is sent as typed, as on the web.
+enum PasswordEntry {
+    static func sent(_ typed: String) -> String {
+        typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `typed` when it differs from what `sent` gives (and that is not empty), else nil.
+    static func asTypedFallback(_ typed: String) -> String? {
+        let trimmed = sent(typed)
+        return trimmed.isEmpty || trimmed == typed ? nil : typed
+    }
+}
+
 /// restoreSessionResponse `retryable: true` (2026-11-15: a database error, or a name an admin
 /// merge / rename / delete holds for a moment): the saved token is kept and the restore asked
 /// again on the same socket after 1 s, doubling to 30 s (the server allows 10 a minute per socket).

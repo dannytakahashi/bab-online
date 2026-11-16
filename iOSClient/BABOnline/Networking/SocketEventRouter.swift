@@ -13,6 +13,7 @@ final class SocketEventRouter {
     private let recordsHandler: RecordsSocketHandler
     private let voiceHandler: VoiceSocketHandler
     private let safetyHandler: SafetySocketHandler
+    private let profileHandler: ProfileSocketHandler
 
     init(
         socket: SocketService,
@@ -24,7 +25,8 @@ final class SocketEventRouter {
         tournamentState: TournamentState,
         leaderboardState: LeaderboardState,
         recordsState: RecordsState,
-        safetyState: SafetyState
+        safetyState: SafetyState,
+        profileState: ProfileState = ProfileState()
     ) {
         self.socket = socket
         self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState, safetyState: safetyState,
@@ -37,6 +39,7 @@ final class SocketEventRouter {
         self.recordsHandler = RecordsSocketHandler(socket: socket, recordsState: recordsState)
         self.voiceHandler = VoiceSocketHandler(socket: socket, gameState: gameState)
         self.safetyHandler = SafetySocketHandler(socket: socket, safetyState: safetyState)
+        self.profileHandler = ProfileSocketHandler(socket: socket, profileState: profileState)
     }
 
     func registerAll() {
@@ -49,5 +52,6 @@ final class SocketEventRouter {
         recordsHandler.register()
         voiceHandler.register()
         safetyHandler.register()
+        profileHandler.register()
     }
 }

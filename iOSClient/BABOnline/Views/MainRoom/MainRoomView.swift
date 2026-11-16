@@ -221,8 +221,7 @@ private struct OnlineUsersSheet: View {
     var body: some View {
         NavigationView {
             List(users, id: \.self) { username in
-                Text(username)
-                    .foregroundColor(Theme.textPrimary)
+                OnlineUserRow(username: username)
             }
             .listStyle(.plain)
             .background(Theme.background)
@@ -234,6 +233,38 @@ private struct OnlineUsersSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        // a name opens that player's profile (iOS 1.2.2; the web's search is not on iOS)
+        .playerProfileHost()
+    }
+}
+
+/// One online player: a button that opens their profile (my own name is just my name).
+private struct OnlineUserRow: View {
+    let username: String
+    @EnvironmentObject var authState: AuthState
+    @Environment(\.viewPlayerProfile) private var viewProfile
+
+    var body: some View {
+        if username == authState.username || viewProfile == nil {
+            Text(username)
+                .foregroundColor(Theme.textPrimary)
+        } else {
+            Button { viewProfile?(username) } label: {
+                HStack {
+                    Text(username)
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.textDim)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows their profile")
+            .accessibilityIdentifier("online.\(username)")
         }
     }
 }

@@ -8,6 +8,8 @@ struct SignInView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var isLoading = false
+    /// The password exactly as typed, to send once if the trimmed one is refused (PasswordEntry).
+    @State private var asTypedFallback: String?
 
     var body: some View {
         ZStack {
@@ -105,16 +107,25 @@ struct SignInView: View {
             }
             authState.error = nil
         }
+        .onChange(of: authState.error) { _, error in
+            // the trimmed password was refused and the typed one had a space at an edge: an
+            // account made before 1.2.2 may have it in its password, so that one goes once
+            guard error != nil, let typed = asTypedFallback else { return }
+            asTypedFallback = nil
+            authState.error = nil
+            AuthEmitter.signIn(username: username, password: typed)
+        }
     }
 
     private var canSignIn: Bool {
-        !username.isEmpty && !password.isEmpty && socketService.isConnected && !isLoading
+        !username.isEmpty && !PasswordEntry.sent(password).isEmpty && socketService.isConnected && !isLoading
     }
 
     private func signIn() {
         isLoading = true
         authState.error = nil
-        AuthEmitter.signIn(username: username, password: password)
+        asTypedFallback = PasswordEntry.asTypedFallback(password)
+        AuthEmitter.signIn(username: username, password: PasswordEntry.sent(password))
 
         // Reset loading after timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {

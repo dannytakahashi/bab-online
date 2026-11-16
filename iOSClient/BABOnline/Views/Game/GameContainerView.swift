@@ -231,6 +231,8 @@ private struct GameScreen: View {
             VoicePanelSheet()
                 .presentationDetents([.medium])
         }
+        // a tapped seat avatar opens that player's profile (GameSKScene+SeatTap; iOS 1.2.2)
+        .playerProfileHost(seatTaps: true)
     }
 
     // MARK: - Fold and dock (27-4)

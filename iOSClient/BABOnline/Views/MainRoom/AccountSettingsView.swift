@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Account management sheet: sign out, change password, legal links, blocked users, and
-/// permanent account deletion (App Store Guideline 5.1.1(v)).
+/// Account management sheet: my profile (picture and statistics, iOS 1.2.2: OwnProfileSections),
+/// sign out, change password, legal links, blocked users, and permanent account deletion
+/// (App Store Guideline 5.1.1(v)).
 struct AccountSettingsView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
@@ -25,11 +26,13 @@ struct AccountSettingsView: View {
     @State private var newPasswordAgain = ""
     @State private var isChangingPassword = false
     @State private var passwordChangeAttempt = 0
+    /// The current password exactly as typed, to send once if the trimmed one is refused (PasswordEntry).
+    @State private var currentAsTypedFallback: String?
 
     var body: some View {
         NavigationView {
             List {
-                accountSection
+                OwnProfileSections(signOut: signOut)
                 soundSection
                 passwordSection
                 blockedUsersSection
@@ -53,6 +56,15 @@ struct AccountSettingsView: View {
             }
             .onChange(of: authState.changePasswordResult) { _, result in
                 guard let result else { return }
+                if !result.success, let typed = currentAsTypedFallback {
+                    // refused with the trimmed current password, and the typed one had a space
+                    // at an edge (an account made before 1.2.2 may have it): that one goes once
+                    currentAsTypedFallback = nil
+                    authState.changePasswordResult = nil
+                    AuthEmitter.changePassword(current: typed, new: PasswordEntry.sent(newPassword))
+                    return
+                }
+                currentAsTypedFallback = nil
                 isChangingPassword = false
                 if result.success {
                     currentPassword = ""
@@ -86,25 +98,6 @@ struct AccountSettingsView: View {
     }
 
     // MARK: - Sections
-
-    private var accountSection: some View {
-        Section {
-            HStack {
-                Text("Signed in as")
-                    .foregroundColor(Theme.textSecondary)
-                Spacer()
-                Text(authState.username)
-                    .bold()
-                    .foregroundColor(Theme.textPrimary)
-            }
-
-            Button(action: signOut) {
-                Text("Sign Out")
-                    .foregroundColor(Theme.primary)
-            }
-        }
-        .listRowBackground(Theme.surface)
-    }
 
     /// The same switch as the table's speaker (SoundToggleButton), plus the volume.
     private var soundSection: some View {
@@ -157,7 +150,8 @@ struct AccountSettingsView: View {
                     .foregroundColor(Theme.textPrimary)
                     .accessibilityIdentifier("account.newPasswordAgain")
 
-                if let problem = PasswordRule.changeProblem(current: currentPassword, new: newPassword, again: newPasswordAgain) {
+                if let problem = PasswordRule.changeProblem(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword),
+                                                            again: PasswordEntry.sent(newPasswordAgain)) {
                     Text(problem)
                         .font(.caption)
                         .foregroundColor(Theme.error)
@@ -179,7 +173,8 @@ struct AccountSettingsView: View {
                     }
                 }
                 .disabled(isChangingPassword || !socketService.isConnected
-                          || !PasswordRule.canChange(current: currentPassword, new: newPassword, again: newPasswordAgain))
+                          || !PasswordRule.canChange(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword),
+                                                     again: PasswordEntry.sent(newPasswordAgain)))
                 .accessibilityIdentifier("account.changePasswordSubmit")
 
                 Button("Cancel") {
@@ -302,7 +297,9 @@ struct AccountSettingsView: View {
         authState.changePasswordResult = nil
         passwordChangeAttempt += 1
         let attempt = passwordChangeAttempt
-        AuthEmitter.changePassword(current: currentPassword, new: newPassword)
+        // trimmed like the web's form, so the new password is the one both sign-ins send
+        currentAsTypedFallback = PasswordEntry.asTypedFallback(currentPassword)
+        AuthEmitter.changePassword(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword))
 
         // the button must not spin forever if no response arrives
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
