@@ -115,38 +115,39 @@ describe('reset links', () => {
 
     test('valid -> used: new password works, old fails, every session revoked; reuse refused', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
-        const res = await useResetLink(db, token, 'new-pass', { now, hash: hashFast });
+        const res = await useResetLink(db, token, 'new-pass-1', { now, hash: hashFast });
         // socketId: the connection the revoke found (none here)
         expect(res).toEqual({ ok: true, username: 'Bea', revokedSessions: 3, socketId: null });
         const bea = await db.users.findOne({ username: 'Bea' });
-        expect(await bcrypt.compare('new-pass', bea.password)).toBe(true);
+        expect(await bcrypt.compare('new-pass-1', bea.password)).toBe(true);
         expect(await bcrypt.compare('old', bea.password)).toBe(false);
         expect(bea.sessionTokens).toBeUndefined();
         expect(bea.sessionToken).toBeUndefined();
         expect(bea.passwordResetByLinkAt).toEqual(now);
         expect(db.passwordResets.all()[0]).toMatchObject({ state: 'used', usedAt: now });
-        expect(await useResetLink(db, token, 'again', { now, hash: hashFast })).toBe(INVALID_LINK);
-        expect(await bcrypt.compare('new-pass', (await db.users.findOne({ username: 'Bea' })).password)).toBe(true);
+        expect(await useResetLink(db, token, 'again-pw-1', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await bcrypt.compare('new-pass-1', (await db.users.findOne({ username: 'Bea' })).password)).toBe(true);
     });
 
     test('expired, unknown, malformed and superseded links are the same refusal', async () => {
         const first = await createResetLink(db, 'Bea', { now });
         const second = await createResetLink(db, 'Bea', { now });
         expect(second.revoked).toBe(1);
-        expect(await useResetLink(db, first.token, 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, first.token, 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
         const later = new Date(now.getTime() + RESET_TTL_MS);
-        expect(await useResetLink(db, second.token, 'pw', { now: later, hash: hashFast })).toBe(INVALID_LINK);
-        expect(await useResetLink(db, 'x'.repeat(43), 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
-        expect(await useResetLink(db, 'short', 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
-        expect(await useResetLink(db, null, 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, second.token, 'pw-long-1', { now: later, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, 'x'.repeat(43), 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, 'short', 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, null, 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
         // still valid one millisecond before expiry
         const edge = new Date(now.getTime() + RESET_TTL_MS - 1);
-        expect(await useResetLink(db, second.token, 'pw', { now: edge, hash: hashFast })).toMatchObject({ ok: true });
+        expect(await useResetLink(db, second.token, 'pw-long-1', { now: edge, hash: hashFast })).toMatchObject({ ok: true });
     });
 
-    test('the sign-up password rule applies (1-100 characters) and a refused password keeps the link', async () => {
+    test('the new-password rule applies (8-100 characters) and a refused password keeps the link', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
         expect(await useResetLink(db, token, '', { now, hash: hashFast })).toBe(INVALID_PASSWORD);
+        expect(await useResetLink(db, token, 'p'.repeat(7), { now, hash: hashFast })).toBe(INVALID_PASSWORD);
         expect(await useResetLink(db, token, 'p'.repeat(101), { now, hash: hashFast })).toBe(INVALID_PASSWORD);
         expect(await useResetLink(db, token, 42, { now, hash: hashFast })).toBe(INVALID_PASSWORD);
         expect(await useResetLink(db, token, 'p'.repeat(100), { now, hash: hashFast })).toMatchObject({ ok: true });
@@ -154,7 +155,7 @@ describe('reset links', () => {
 
     test('two tabs at once: exactly one success', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
-        const results = await Promise.all([1, 2, 3].map(i => useResetLink(db, token, `pw${i}`, { now, hash: hashFast })));
+        const results = await Promise.all([1, 2, 3].map(i => useResetLink(db, token, `pw-long-${i}`, { now, hash: hashFast })));
         expect(results.filter(r => r.ok)).toHaveLength(1);
         expect(results.filter(r => r === INVALID_LINK)).toHaveLength(2);
     });
@@ -167,24 +168,24 @@ describe('reset links', () => {
         const plan = await planMerge(db, { target: 'Bea', sources: ['Bea2'] });
         await applyMerge(db, plan, { now });
         expect(db.passwordResets.all().find(r => r.username === 'Bea2').state).toBe('revoked');
-        expect(await useResetLink(db, token, 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, token, 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
     });
 
     test('a link whose account was merged after it was made is refused', async () => {
         await db.users.insertOne({ username: 'Bea2', password: 'x' });
         const { token } = await createResetLink(db, 'Bea2', { now });
         await db.users.updateOne({ username: 'Bea2' }, { $set: { mergedInto: 'Bea' } }); // e.g. an older CLI
-        expect(await useResetLink(db, token, 'pw', { now, hash: hashFast })).toBe(INVALID_LINK);
+        expect(await useResetLink(db, token, 'pw-long-1', { now, hash: hashFast })).toBe(INVALID_LINK);
     });
 
     test('a failed password write releases the link (a database hiccup does not burn it)', async () => {
         const { token } = await createResetLink(db, 'Bea', { now });
         const real = db.users.findOneAndUpdate.bind(db.users);
         db.users.findOneAndUpdate = jest.fn(async () => { throw new Error('write failed'); });
-        await expect(useResetLink(db, token, 'pw', { now, hash: hashFast })).rejects.toThrow('write failed');
+        await expect(useResetLink(db, token, 'pw-long-1', { now, hash: hashFast })).rejects.toThrow('write failed');
         db.users.findOneAndUpdate = real;
         expect(db.passwordResets.all()[0].state).toBe('open');
-        expect(await useResetLink(db, token, 'pw', { now, hash: hashFast })).toMatchObject({ ok: true });
+        expect(await useResetLink(db, token, 'pw-long-1', { now, hash: hashFast })).toMatchObject({ ok: true });
     });
 });
 
@@ -278,7 +279,7 @@ describe('player search', () => {
         expect(rows[0]).toMatchObject({ isAdmin: true, online: true, gamesPlayed: 9, mergedInto: null, lastSeenAt: null });
         expect(rows[1]).toMatchObject({ isAdmin: false, online: false, gamesPlayed: 3, lastSeenAt: seen.toISOString() });
         expect(rows[2]).toMatchObject({ mergedInto: 'alan', isAdmin: false, online: false });
-        expect(Object.keys(rows[0]).sort()).toEqual(['botGamesPlayed', 'createdAt', 'gamesPlayed', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
+        expect(Object.keys(rows[0]).sort()).toEqual(['botGamesPlayed', 'createdAt', 'gamesPlayed', 'heldUntil', 'isAdmin', 'lastSeenAt', 'mergedInto', 'online', 'renameUnfinished', 'renamed', 'username']);
         expect(JSON.stringify(rows)).not.toMatch(/HASH|SECRET|data:x/);
         expect(await searchPlayers(db, '   ')).toEqual([]);
         expect(await searchPlayers(db, 'x'.repeat(51))).toEqual([]);
@@ -418,6 +419,14 @@ describe('scripts/set-admin.js', () => {
         expect(deps.confirm).not.toHaveBeenCalled();
         expect(out.join('\n')).toMatch(/does not exist[\s\S]*merged into "Owner"[\s\S]*already an admin[\s\S]*not an admin/);
         expect(db.users.all().filter(u => u.isAdmin).map(u => u.username)).toEqual(['Bea']);
+    });
+
+    test('a deleted account\'s held name says it was deleted, not "merged into [deleted]"', async () => {
+        await db.users.insertOne({ username: 'Gone', mergedInto: '[deleted]', deletedAt: new Date(), nameHeldUntil: new Date('2026-12-15T12:00:00Z') });
+        expect(await main(['Gone'], deps)).toBe(1);
+        expect(out.join('\n')).toMatch(/"Gone" was deleted \(its name is held until 2026-12-15\): there is no account to make an admin\./);
+        expect(out.join('\n')).not.toContain('[deleted]');
+        expect(deps.confirm).not.toHaveBeenCalled();
     });
 
     test('argument errors', async () => {

@@ -6,13 +6,16 @@ import Foundation
 /// card or trick that passed it. Played as they come, the verdict is lost under the shuffle
 /// and the chime under the card. As the web client (client/src/audio/tableSounds.js):
 /// - made / set plays at once; a deal or the game end in the next `afterHandEnd` waits for it
-/// - my turn's chime comes `turnDelay` after its event (after a deal: when the deal's
-///   `afterDeal` is up), and not at all if the choice is no longer mine by then
+/// - my turn's chime is a reminder (owner 2026-11-15, "only if the player doesn't play for
+///   5s"): it comes `turnIdle` after the turn began (after a deal: counted from when the
+///   deal's `afterDeal` is up), and not at all if the choice is no longer mine by then; each
+///   new turn (and each deal) restarts the wait, so an old turn's timer never chimes early for
+///   the next one
 /// - an over-trump's accent lands `overTrumpDelay` after the card's sound
 /// Anything still waiting is dropped when a snapshot resets the scene or the game changes.
 @MainActor
 final class TableSoundCues {
-    static let turnDelay: TimeInterval = 0.25
+    static let turnIdle: TimeInterval = 5.0
     static let afterHandEnd: TimeInterval = 0.5
     static let afterDeal: TimeInterval = 0.5
     static let overTrumpDelay: TimeInterval = 0.09
@@ -47,17 +50,18 @@ final class TableSoundCues {
             handEndHold?.cancel()
             handEndHold = after(Self.afterHandEnd) { $0.releaseHandEnd() }
         case .deal:
+            cancelTurnTimer()
             if handEndHold != nil { heldDeal = true } else { playDeal() }
         case .gameEnd:
             turnWaits = false
-            turnTimer?.cancel()
-            turnTimer = nil
+            cancelTurnTimer()
             if handEndHold != nil { heldGameEnd = true } else { sounds.play(.gameEnd) }
         case .turn:
             if handEndHold != nil || dealHold != nil {
+                cancelTurnTimer()
                 turnWaits = true
-            } else if turnTimer == nil {
-                turnTimer = after(Self.turnDelay) { $0.turnTimer = nil; $0.playTurn() }
+            } else {
+                startTurnTimer()
             }
         case .overTrump:
             accents.append(after(Self.overTrumpDelay) { $0.sounds.play(.overTrump) })
@@ -70,7 +74,18 @@ final class TableSoundCues {
         handEndHold = nil
         if heldGameEnd { heldGameEnd = false; sounds.play(.gameEnd) }
         if heldDeal { heldDeal = false; playDeal(); return }
-        if turnWaits { turnWaits = false; playTurn() }
+        if turnWaits { turnWaits = false; startTurnTimer() }
+    }
+
+    /// The reminder's wait starts (again) now: one timer, for the turn that just began.
+    private func startTurnTimer() {
+        cancelTurnTimer()
+        turnTimer = after(Self.turnIdle) { $0.turnTimer = nil; $0.playTurn() }
+    }
+
+    private func cancelTurnTimer() {
+        turnTimer?.cancel()
+        turnTimer = nil
     }
 
     private func playDeal() {
@@ -78,11 +93,11 @@ final class TableSoundCues {
         dealHold?.cancel()
         dealHold = after(Self.afterDeal) { s in
             s.dealHold = nil
-            if s.turnWaits { s.turnWaits = false; s.playTurn() }
+            if s.turnWaits { s.turnWaits = false; s.startTurnTimer() }
         }
     }
 
-    /// The choice may be gone (a quick bid, a snapshot): then the chime is not news.
+    /// The choice may be gone (a bid or play within `turnIdle`, a snapshot): then no reminder.
     private func playTurn() {
         if isMyChoice() { sounds.play(.turn) }
     }

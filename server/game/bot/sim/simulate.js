@@ -56,7 +56,7 @@ const { SEARCH_ERROR_LOG } = require('../BotStrategy');
 SEARCH_ERROR_LOG.warn = (msg, meta) => process.stderr.write(`${msg} ${JSON.stringify(meta)}\n`);
 
 const { BID_RANKS } = rules;
-const HAND_SIZES = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
+const HAND_SIZES = rules.HAND_PROGRESSION;
 const SUITS = ['spades', 'hearts', 'diamonds', 'clubs'];
 const RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
@@ -350,15 +350,8 @@ function playGame(specs, expName, gameIdx) {
 
         const tricks = { 1: tricksByPos[1] + tricksByPos[3], 2: tricksByPos[2] + tricksByPos[4] };
 
-        // ----- Scoring (mirrors handleHandComplete exactly) -----
-        for (const T of [1, 2]) {
-            if (tricks[T] >= teamBid[T]) {
-                score[T] += teamBid[T] * 10 * mult[T] + (tricks[T] - teamBid[T]) + rainbows[T] * 10;
-            } else {
-                score[T] -= teamBid[T] * 10 * mult[T];
-                score[T] += rainbows[T] * 10;
-            }
-        }
+        // ----- Scoring (rules.calculateScore, as handleHandComplete) -----
+        for (const T of [1, 2]) score[T] += rules.calculateScore(teamBid[T], tricks[T], mult[T], rainbows[T]);
 
         // ----- Per-personality outcome stats -----
         for (let p = 1; p <= 4; p++) {

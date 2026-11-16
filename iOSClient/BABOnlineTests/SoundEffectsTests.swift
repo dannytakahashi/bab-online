@@ -310,6 +310,8 @@ final class SoundEffectsTests: XCTestCase {
         store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": 3]))
         XCTAssertEqual(recorder.played, [.deal], "the chime waits for the deal")
         soundClock.advance(TableSoundCues.afterDeal)
+        XCTAssertEqual(recorder.played, [.deal], "then for the reminder's wait")
+        soundClock.advance(TableSoundCues.turnIdle)
         XCTAssertEqual(recorder.played, [.deal, .turn])
         withExtendedLifetime(actions) {}
     }
@@ -349,10 +351,12 @@ final class SoundEffectsTests: XCTestCase {
                                        "trump": T.card("clubs", "5"), "score1": 10, "score2": 0, "dealer": 1, "position": 1,
                                        "currentHand": 3, "seq": seq])); seq += 1
         store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": seq])); seq += 1
-        clock.advance(5)
-        // my card at once (not a round trip later), the trick, then made, the deal, the chime
+        clock.advance(TableSoundCues.afterHandEnd + TableSoundCues.afterDeal + TableSoundCues.turnIdle)
+        // my card at once (not a round trip later), the trick, then made, the deal, and the
+        // reminder once my bid turn has waited turnIdle from the end of the deal
         XCTAssertEqual(recorder.played.map(\.kind), [.card, .trickOurs, .made, .deal, .turn])
-        XCTAssertEqual(recorder.played.map(\.at), [10, 10, 20, 20 + TableSoundCues.afterHandEnd, 20 + TableSoundCues.afterHandEnd + TableSoundCues.afterDeal])
+        XCTAssertEqual(recorder.played.map(\.at), [10, 10, 20, 20 + TableSoundCues.afterHandEnd,
+                                                   20 + TableSoundCues.afterHandEnd + TableSoundCues.afterDeal + TableSoundCues.turnIdle])
         withExtendedLifetime(actions) {}
     }
 
@@ -369,20 +373,44 @@ final class SoundEffectsTests: XCTestCase {
         var times: [TimeInterval] { out.played.map(\.at) }
     }
 
-    func testTurnChimeFollowsTheCardThatPassedIt() {
+    /// Owner 2026-11-15: "the 'it's your turn' sound should only happen if the player doesn't
+    /// play for 5s".
+    func testTurnChimeIsAReminderAfterFiveIdleSeconds() {
+        XCTAssertEqual(TableSoundCues.turnIdle, 5)
         let c = Cues()
         c.cues.cue(.card)
         c.cues.cue(.turn)
-        c.cues.cue(.turn)  // a second updateTurn in the window: one chime
-        c.clock.advance(1)
+        c.clock.advance(TableSoundCues.turnIdle - 0.1)
+        XCTAssertEqual(c.heard, [.card], "no chime while the player may still be deciding")
+        c.clock.advance(0.1)
         XCTAssertEqual(c.heard, [.card, .turn])
-        XCTAssertEqual(c.times, [0, TableSoundCues.turnDelay])
-        // my bid went out before the chime: nothing
+        XCTAssertEqual(c.times, [0, TableSoundCues.turnIdle])
+        // my bid went out within the wait: nothing
         c.cues.cue(.trickOurs)
         c.cues.cue(.turn)
-        c.mine = false
         c.clock.advance(1)
+        c.mine = false
+        c.clock.advance(TableSoundCues.turnIdle)
         XCTAssertEqual(c.heard, [.card, .turn, .trickOurs])
+    }
+
+    /// A new turn of mine (won the trick, lead the next) restarts the wait: the old turn's timer
+    /// never chimes early for it.
+    func testANewTurnRestartsTheWait() {
+        let c = Cues()
+        c.cues.cue(.turn)
+        c.clock.advance(3)       // I play; the turn comes back to me
+        c.cues.cue(.turn)
+        c.clock.advance(TableSoundCues.turnIdle - 0.5)
+        XCTAssertEqual(c.heard, [], "the first turn's timer is gone")
+        c.clock.advance(0.5)
+        XCTAssertEqual(c.heard, [.turn])
+        XCTAssertEqual(c.times, [3 + TableSoundCues.turnIdle])
+        // a deal cancels a waiting reminder too (the next turn waits for its own)
+        c.cues.cue(.turn)
+        c.cues.cue(.deal)
+        c.clock.advance(TableSoundCues.turnIdle + 1)
+        XCTAssertEqual(c.heard, [.turn, .deal])
     }
 
     func testGameEndWaitsForTheLastHandsVerdict() {
@@ -420,9 +448,11 @@ final class SoundEffectsTests: XCTestCase {
         let c = Cues()
         c.cues.cue(.deal)
         c.cues.cue(.turn)
-        c.clock.advance(1)
+        c.clock.advance(TableSoundCues.afterDeal + TableSoundCues.turnIdle - 0.1)
+        XCTAssertEqual(c.heard, [.deal])
+        c.clock.advance(0.1)
         XCTAssertEqual(c.heard, [.deal, .turn])
-        XCTAssertEqual(c.times, [0, TableSoundCues.afterDeal])
+        XCTAssertEqual(c.times, [0, TableSoundCues.afterDeal + TableSoundCues.turnIdle])
     }
 
     func testASnapshotDropsWhatStillWaits() {
@@ -431,7 +461,7 @@ final class SoundEffectsTests: XCTestCase {
         c.cues.cue(.deal)
         c.cues.cue(.turn)
         c.epoch = "1"  // a snapshot reset the scene (or the table left the game)
-        c.clock.advance(2)
+        c.clock.advance(2 + TableSoundCues.turnIdle)
         XCTAssertEqual(c.heard, [.made])
         // and a later cue starts clean
         c.cues.cue(.deal)

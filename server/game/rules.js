@@ -22,6 +22,20 @@ const BID_RANKS = {
 const BORE_BIDS = ['B', '2B', '3B', '4B'];
 /** Largest hand (the last deal); numeric bids run 0..MAX_HAND_SIZE. */
 const MAX_HAND_SIZE = 13;
+/**
+ * The deal sizes of a game in order (docs/RULES.md): down by twos to 2, then
+ * 1, then up the odd sizes to 13. The one server copy (the web keeps its own
+ * in client/src/constants/ranks.js, iOS in CardConstants.swift;
+ * handProgression.test.js holds both to this).
+ */
+const HAND_PROGRESSION = Object.freeze([12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13]);
+
+/** The hand size dealt after `handSize`; 0 after the last hand (game over) or for a size no deal has. */
+function nextHandSize(handSize) {
+    const i = HAND_PROGRESSION.indexOf(handSize);
+    return i === -1 || i === HAND_PROGRESSION.length - 1 ? 0 : HAND_PROGRESSION[i + 1];
+}
+
 /** Every bid value any hand can accept ('0'..'13', then the bores). */
 const BID_VALUES = [...Array.from({ length: MAX_HAND_SIZE + 1 }, (_, i) => String(i)), ...BORE_BIDS];
 
@@ -431,6 +445,8 @@ module.exports = {
     BORE_BIDS,
     BID_VALUES,
     MAX_HAND_SIZE,
+    HAND_PROGRESSION,
+    nextHandSize,
     isValidBid,
     rotatePosition,
     getPartnerPosition,

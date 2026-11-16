@@ -64,7 +64,7 @@ export function createFakeSocket({ id = 'sock-1', connected = false } = {}) {
       return socket.emits.filter(([e]) => e === event).map(([, d]) => d);
     },
     emittedNames() {
-      return socket.emits.map(([e]) => e).filter((e) => e !== 'clientHello');
+      return socket.emits.map(([e]) => e).filter((e) => e !== 'clientHello' && e !== 'clientError');
     },
     clearEmits() {
       socket.emits.length = 0;
@@ -173,11 +173,31 @@ export function createFakeScene() {
 export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Make window.sessionStorage and window.localStorage throw on access (a
+ * browser with site data blocked: a SecurityError). Returns the undo.
+ */
+export function blockWebStorage() {
+  const saved = ['sessionStorage', 'localStorage'].map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]);
+  for (const [name] of saved) {
+    Object.defineProperty(globalThis, name, {
+      configurable: true,
+      get() { throw new DOMException(`The operation is insecure (${name})`, 'SecurityError'); },
+    });
+  }
+  return () => {
+    for (const [name, desc] of saved) {
+      if (desc) Object.defineProperty(globalThis, name, desc);
+      else delete globalThis[name];
+    }
+  };
+}
+
+/**
  * Load the page: sessionStorage first (a reload; with a session, the
  * device's saved copy in localStorage too unless `savedSession: false`),
  * then main.js and the window load event. Returns the page's handles.
  */
-export async function loadPage({ session = {}, connected = true, socketId = 'sock-1', realScene = false, createScene = true, savedSession = true } = {}) {
+export async function loadPage({ session = {}, connected = true, socketId = 'sock-1', realScene = false, createScene = true, savedSession = true, blockStorage = false } = {}) {
   if (realScene) {
     // The real GameScene and managers on testing/fakePhaser.js
     const { installFakePhaser } = await import('./fakePhaser.js');
@@ -203,9 +223,11 @@ export async function loadPage({ session = {}, connected = true, socketId = 'soc
   globalThis.__fakeVoice = voice;
   // jsdom has no WebRTC/getUserMedia: the voice manager is faked
   window.alert = vi.fn();
+  // Site data blocked: reading either storage throws, as browsers do
+  if (blockStorage) blockWebStorage();
 
-  await import('../main.js');
-  window.dispatchEvent(new Event('load'));
+  // The boot entry runs startApp after the load event (boot/boot.js)
+  (await import('../main.js')).startApp();
 
   const { getClientSession } = await import('../state/ClientSession.js');
   const { getGameState } = await import('../state/GameState.js');

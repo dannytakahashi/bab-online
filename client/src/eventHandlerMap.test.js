@@ -61,10 +61,10 @@ beforeAll(async () => {
       return original.call(this, event, cb);
     });
   }
-  await import('./main.js');
-  // module-level listeners exist now; the handler modules register on load
+  const main = await import('./main.js');
+  // module-level listeners exist now; the handler modules register in startApp
   direct = new Set(listeners.keys());
-  window.dispatchEvent(new Event('load'));
+  main.startApp();
 });
 
 describe('server event -> handler map', () => {

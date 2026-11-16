@@ -152,7 +152,7 @@ describe('unknown limit keys', () => {
     test('every socket.on event in socket/index.js has a limit: its wrapper key, safeHandler\'s limit, or one checked in its handler; or it is listed as unlimited', () => {
         const src = fs.readFileSync(path.join(__dirname, '..', 'index.js'), 'utf8');
         // Registered without a wrapper limit and checked inside the handler (each with its own over-limit reply)
-        const IN_HANDLER = ['clientHello', 'getProfile', 'getLeaderboard', 'getRecords', 'voiceOffer', 'voiceAnswer', 'voiceIceCandidate'];
+        const IN_HANDLER = ['clientHello', 'clientError', 'getProfile', 'getLeaderboard', 'getRecords', 'voiceOffer', 'voiceAnswer', 'voiceIceCandidate'];
         const regs = [...src.matchAll(/socket\.on\('([a-zA-Z]+)',[^\n]*\n\s*([^\n]*)/g)].map((m) => [m[1], m[2]]);
         expect(regs.length).toBeGreaterThan(50);
         const unlimitedNow = [];
@@ -163,7 +163,8 @@ describe('unknown limit keys', () => {
             const key = (wrapped && !/rateLimit: false/.test(line) && wrapped[1]) || (safeLimit && safeLimit[1]) || null;
             const ok = key
                 ? Boolean(rateLimiter.limits[key]) || rateLimiter.unlimited.has(key)
-                : IN_HANDLER.includes(event) && Boolean(rateLimiter.limits[event]);
+                // clientError counts per socket in socket.data and per IP / server-wide in buckets
+                : IN_HANDLER.includes(event) && (Boolean(rateLimiter.limits[event]) || Boolean(rateLimiter.buckets[`${event}Ip`]));
             if (!ok) unlimitedNow.push(event);
         }
         expect(unlimitedNow).toEqual([]);

@@ -84,8 +84,9 @@ export function createRegisterScreen({ onRegister, onBackToSignIn, prefill = {} 
       return;
     }
 
-    if (password.length < 4) {
-      showError('Password must be at least 4 characters.');
+    // The server's rule for new passwords (setPassword.checkPasswordRule)
+    if (password.length < 8) {
+      showError('Password must be at least 8 characters.');
       passwordInput.focus();
       return;
     }

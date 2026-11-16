@@ -29,8 +29,26 @@ function fakeClient({ failIndex = null } = {}) {
 
 let database;
 let dbLogger;
+let savedEnv;
+
+// The runner's own MONGO_URI / DB_NAME must not leak in: CI's URI ends in
+// /test, which (rightly) adds the "path names another database" warning
+// to every connect. Each test starts from a URI with no path.
+const PATHLESS_URI = 'mongodb://127.0.0.1:27017';
+
+function loadDatabase() {
+    jest.resetModules();
+    database = require('../database');
+    dbLogger = require('../utils/logger').dbLogger;
+    jest.spyOn(dbLogger, 'error').mockImplementation(() => {});
+    jest.spyOn(dbLogger, 'warn').mockImplementation(() => {});
+    jest.spyOn(dbLogger, 'info').mockImplementation(() => {});
+}
 
 beforeEach(() => {
+    savedEnv = { MONGO_URI: process.env.MONGO_URI, DB_NAME: process.env.DB_NAME };
+    process.env.MONGO_URI = PATHLESS_URI;
+    delete process.env.DB_NAME;
     jest.resetModules();
     jest.useFakeTimers();
     mockConnect.mockReset();
@@ -44,6 +62,28 @@ beforeEach(() => {
 afterEach(() => {
     jest.useRealTimers();
     jest.restoreAllMocks();
+    for (const [k, v] of Object.entries(savedEnv)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+    }
+});
+
+test('a MONGO_URI path naming another database is one warning (CI\'s /test); the same name or no path is none', async () => {
+    jest.restoreAllMocks();
+    process.env.MONGO_URI = `${PATHLESS_URI}/test`;
+    loadDatabase();
+    mockConnect.mockResolvedValueOnce(fakeClient().client);
+    await database.connectDB();
+    const uriWarnings = () => dbLogger.warn.mock.calls.filter(c => /MONGO_URI path/.test(c[0]));
+    expect(uriWarnings()).toHaveLength(1);
+    expect(uriWarnings()[0][1]).toEqual({ uriDatabase: 'test', database: 'babonline' });
+
+    jest.restoreAllMocks();
+    process.env.MONGO_URI = `${PATHLESS_URI}/babonline`;
+    loadDatabase();
+    mockConnect.mockResolvedValueOnce(fakeClient().client);
+    await database.connectDB();
+    expect(uriWarnings()).toHaveLength(0);
 });
 
 test('retries with backoff (2 s, 4 s, ...) and becomes ready on the first successful connect', async () => {
@@ -86,7 +126,7 @@ test('the backoff is capped at 30 s', async () => {
 });
 
 test('an index that cannot be built is a warning, the others still build, and connectDB resolves', async () => {
-    const { client, collections } = fakeClient({ failIndex: (name) => name === 'gameRecords' });
+    const { client, collections } = fakeClient({ failIndex: (name, keys) => name === 'gameRecords' && 'completedAt' in keys });
     mockConnect.mockResolvedValueOnce(client);
     await database.connectDB();
     expect(dbLogger.error).not.toHaveBeenCalled();
@@ -94,6 +134,8 @@ test('an index that cannot be built is a warning, the others still build, and co
     expect(dbLogger.warn.mock.calls[0][0]).toMatch(/gameRecords\.completedAt_-1/);
     expect(collections.reports.createIndex).toHaveBeenCalledWith({ createdAt: -1 }, {});
     expect(collections.users.createIndex).toHaveBeenCalledWith({ username: 1 }, { unique: true });
+    // the same collection's other indexes still build
+    expect(collections.gameRecords.createIndex).toHaveBeenCalledWith({ gameId: 1 }, { partialFilterExpression: { gameId: { $exists: true } }, unique: true });
     await expect(database.whenReady(10)).resolves.toBe(true);
 });
 

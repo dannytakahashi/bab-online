@@ -52,15 +52,21 @@ export class MyAction {
    * @param {Function} [deps.requestSnapshot] - (requestId) => void
    * @param {Function} [deps.forceReconnect] - () => void
    * @param {Function} [deps.connectionId] - () => the connected socket's id, or null while down
+   * @param {Function} [deps.canSend] - (event) => whether an emit goes out now (SocketManager.canSend:
+   *   false while the socket's session is not restored); a submission it refuses is not made
+   * @param {Function} [deps.onRefused] - (kind) => void: tell the player to try again
    * @param {Function} [deps.setTimer]
    * @param {Function} [deps.clearTimer]
    */
   constructor({ emit = (event, data) => globalThis.window?.socket?.emit?.(event, data), requestSnapshot = () => {}, forceReconnect = () => {},
-    connectionId = () => 'connected', setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
+    connectionId = () => 'connected', canSend = () => true, onRefused = () => {},
+    setTimer = (fn, ms) => setTimeout(fn, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
     this._emit = emit;
     this._requestSnapshot = requestSnapshot;
     this._forceReconnect = forceReconnect;
     this._connectionId = connectionId;
+    this._canSend = canSend;
+    this._onRefused = onRefused;
     this._setTimer = setTimer;
     this._clearTimer = clearTimer;
     this._reqId = 0;
@@ -69,11 +75,29 @@ export class MyAction {
     this.history = [];
   }
 
-  configure({ emit, requestSnapshot, forceReconnect, connectionId } = {}) {
+  configure({ emit, requestSnapshot, forceReconnect, connectionId, canSend, onRefused } = {}) {
     if (emit) this._emit = emit;
     if (requestSnapshot) this._requestSnapshot = requestSnapshot;
     if (forceReconnect) this._forceReconnect = forceReconnect;
     if (connectionId) this._connectionId = connectionId;
+    if (canSend) this._canSend = canSend;
+    if (onRefused) this._onRefused = onRefused;
+  }
+
+  /**
+   * The emit gate's answer for a bid or play (later #10). A play held for
+   * the restore would go out after the rejoin's snapshot, maybe for a turn
+   * already gone: refused instead, the card stays in the hand and the
+   * player plays again once back.
+   */
+  _sendable(event, kind) {
+    let ok = true;
+    try { ok = this._canSend(event) !== false; } catch { ok = true; }
+    if (!ok) {
+      this._note('refusedOffline', { kind });
+      try { this._onRefused(kind); } catch { /* notice only */ }
+    }
+    return ok;
   }
 
   _conn() {
@@ -101,6 +125,7 @@ export class MyAction {
   /** @returns {boolean} whether the play went out (one outstanding action at a time) */
   submitPlay(card, position) {
     if (this.pending || !card || !position) return false;
+    if (!this._sendable('playCard', 'play')) return false;
     this._reqId++;
     this.pending = { kind: 'play', card: { suit: card.suit, rank: card.rank }, position, reqId: this._reqId, attempt: 0, conn: this._conn() };
     this._emit('playCard', { card, position });
@@ -110,6 +135,7 @@ export class MyAction {
 
   submitBid(bid, position) {
     if (this.pending || bid === undefined || bid === null || !position) return false;
+    if (!this._sendable('playerBid', 'bid')) return false;
     this._reqId++;
     this.pending = { kind: 'bid', bid: String(bid).toUpperCase(), position, reqId: this._reqId, attempt: 0, conn: this._conn() };
     this._emit('playerBid', { position, bid });

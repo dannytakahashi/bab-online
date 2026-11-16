@@ -4,7 +4,7 @@
  * Handles card display, positioning, and animations.
  */
 
-import { getCardImageKey } from '../../utils/cards.js';
+import { getCardImageKey, getCardDisplayName } from '../../utils/cards.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { layoutOf, handPositions } from '../layout/computeTableLayout.js';
@@ -12,6 +12,7 @@ import { CARD_TEXTURE_KEY, SHADOW_MARGIN } from '../cards/CardAtlas.js';
 import { SHADOW_FRAME } from '../cards/cardFaces.js';
 import { motionMs, dealStaggerMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { MOTION, COLOR, hex } from '../../ui/tokens.js';
+import { syncHand, offerTurnFocus, focusedHandKey } from '../../ui/handA11y.js';
 
 /**
  * An unplayable card's opaque dimming (the iOS app's: a 0.4 black blend,
@@ -45,6 +46,80 @@ export class CardManager {
    */
   setCardClickHandler(callback) {
     this._onCardClick = callback;
+  }
+
+  /**
+   * Why a dimmed card can't be played, for the keyboard hand's message
+   * (card => string or null; GameScene sets it from the client legality).
+   */
+  setIllegalReasonHandler(fn) {
+    this._illegalReason = fn;
+  }
+
+  /** A hand card was chosen (the pointer's pointerdown and the keyboard hand's click alike). */
+  _activate(sprite) {
+    if (this._onCardClick && sprite) this._onCardClick(sprite.getData('card'), sprite);
+  }
+
+  /** The hand sprite of a card key (getCardImageKey), or null. */
+  _spriteForKey(key) {
+    return this._handSprites.find((s) => s?.active !== false && getCardImageKey(s.getData('card')) === key) || null;
+  }
+
+  /**
+   * Mirror the hand into the HUD's keyboard / screen reader toolbar
+   * (ui/handA11y.js): one button per card over its visible strip, dimmed
+   * cards aria-disabled. Every change to the hand or its legality calls it.
+   */
+  _syncA11y(opts) {
+    // the mirror never takes the table down with it
+    try {
+      this._syncA11yNow(opts);
+    } catch (e) {
+      console.warn('keyboard hand sync failed', e);
+    }
+  }
+
+  _syncA11yNow({ redraw = false } = {}) {
+    const sprites = this._handSprites.filter((s) => s && s.active !== false && s.getData('card'));
+    const L = this.layout();
+    const card = L?.hand?.card;
+    if (!card && sprites.length) return;
+    const pos = this.calculateHandPositions(sprites.length);
+    syncHand({
+      cards: sprites.map((s, i) => {
+        const c = s.getData('card');
+        const left = pos[i].x - card.w / 2;
+        // the strip the next card leaves visible (rightmost cards sit on top)
+        const right = i < sprites.length - 1 ? pos[i + 1].x - card.w / 2 : left + card.w;
+        return {
+          key: getCardImageKey(c),
+          label: getCardDisplayName(c),
+          legal: !!s.getData('isLegal'),
+          rect: { x: left, y: pos[i].y - card.h / 2, w: Math.max(1, right - left), h: card.h },
+        };
+      }),
+      cardW: card?.w ?? 0,
+      cardH: card?.h ?? 0,
+      lift: L?.hand?.lift ?? 0,
+      redraw,
+      onActivate: (key) => this._activate(this._spriteForKey(key)),
+      onFocusCard: (key) => this._raiseFocused(key),
+      onBlurCard: (key) => {
+        const sprite = this._spriteForKey(key);
+        if (sprite) this._lowerCard(sprite);
+      },
+      reasonFor: (key) => {
+        const sprite = this._spriteForKey(key);
+        return sprite ? this._illegalReason?.(sprite.getData('card')) ?? null : null;
+      },
+    });
+  }
+
+  /** The keyboard's focused card rises as a hovered one does (a playable one only). */
+  _raiseFocused(key = focusedHandKey()) {
+    const sprite = key ? this._spriteForKey(key) : null;
+    if (sprite && sprite.getData('isLegal') && !this._isDealing) this._raiseCard(sprite);
   }
 
   /**
@@ -90,10 +165,14 @@ export class CardManager {
    * @param {boolean} options.animate - Whether to animate dealing
    */
   displayHand(cards, { animate = true } = {}) {
-    // Clear existing hand
-    this.clearHand();
+    // Clear existing hand. The keyboard hand syncs once, with the new cards:
+    // a render redrawing the same hand keeps its buttons, so focus stays put
+    this.clearHand({ sync: false });
 
-    if (!cards || cards.length === 0) return;
+    if (!cards || cards.length === 0) {
+      this._syncA11y();
+      return;
+    }
 
     const scene = this._scene;
 
@@ -125,6 +204,7 @@ export class CardManager {
 
       this._handSprites.push(sprite);
     });
+    this._syncA11y();
 
     // Schedule a reposition after deal animation completes to handle container resize timing
     // This ensures cards are positioned correctly even if container width changes
@@ -135,6 +215,7 @@ export class CardManager {
     sceneDelay(scene, animationDelay, () => {
       if (dealToken !== this._dealToken) return;
       this._isDealing = false; // Clear dealing flag so resize can work again
+      // (which raises a card focused during the deal, now it has landed)
       this.repositionHand();
     }, { snapSafe: !animate });
   }
@@ -198,46 +279,55 @@ export class CardManager {
       // lifts nor shows the hand cursor (it can't be played)
       if (this._isDealing || !sprite.getData('isLegal')) return;
       scene.input.setDefaultCursor('pointer');
-
-      // Use stored baseY which is set after positioning is complete
-      const baseY = sprite.getData('baseY') ?? sprite.y;
-      // Quick in/out hovers queued competing tweens (the card could end up
-      // stuck raised): only the newest hover tween runs
-      scene.tweens.killTweensOf(sprite);
-      sceneTween(scene, {
-        targets: sprite,
-        y: baseY - this._lift(),
-        duration: motionMs('fast'),
-        ease: EASE_EMPHASIZED,
-      });
-      // the raised state: the lift plus a soft shadow under the card
-      this._showRaise(sprite, baseY);
-      // Keep index-based depth - card stays partially behind cards to its right
+      this._raiseCard(sprite);
     });
 
     sprite.on('pointerout', () => {
       // Reset cursor
       scene.input.setDefaultCursor('default');
-      this._hideRaise(sprite);
-      if (this._isDealing) return;
-
-      // Always settle back to baseY: a card that turned illegal while lifted
-      // must not stay up
-      const baseY = sprite.getData('baseY') ?? sprite.y;
-      scene.tweens.killTweensOf(sprite);
-      if (sprite.y === baseY) return;
-      sceneTween(scene, {
-        targets: sprite,
-        y: baseY,
-        duration: motionMs('fast'),
-        ease: EASE_EMPHASIZED,
-      });
+      // the keyboard's focused card stays up
+      if (focusedHandKey() === getCardImageKey(sprite.getData('card'))) return;
+      this._lowerCard(sprite);
     });
 
-    sprite.on('pointerdown', () => {
-      if (this._onCardClick) {
-        this._onCardClick(sprite.getData('card'), sprite);
-      }
+    sprite.on('pointerdown', () => this._activate(sprite));
+  }
+
+  /** Lift a card (hover, or keyboard focus) with its soft shadow. */
+  _raiseCard(sprite) {
+    const scene = this._scene;
+    // Use stored baseY which is set after positioning is complete
+    const baseY = sprite.getData('baseY') ?? sprite.y;
+    // Quick in/out hovers queued competing tweens (the card could end up
+    // stuck raised): only the newest hover tween runs
+    scene.tweens?.killTweensOf?.(sprite);
+    sceneTween(scene, {
+      targets: sprite,
+      y: baseY - this._lift(),
+      duration: motionMs('fast'),
+      ease: EASE_EMPHASIZED,
+    });
+    // the raised state: the lift plus a soft shadow under the card
+    this._showRaise(sprite, baseY);
+    // Keep index-based depth - card stays partially behind cards to its right
+  }
+
+  /** Settle a card back on the hand line (hover out, focus out). */
+  _lowerCard(sprite) {
+    const scene = this._scene;
+    this._hideRaise(sprite);
+    if (this._isDealing) return;
+
+    // Always settle back to baseY: a card that turned illegal while lifted
+    // must not stay up
+    const baseY = sprite.getData('baseY') ?? sprite.y;
+    scene.tweens?.killTweensOf?.(sprite);
+    if (sprite.y === baseY) return;
+    sceneTween(scene, {
+      targets: sprite,
+      y: baseY,
+      duration: motionMs('fast'),
+      ease: EASE_EMPHASIZED,
     });
   }
 
@@ -308,6 +398,7 @@ export class CardManager {
 
     // Remove from hand array
     const sprite = this._handSprites.splice(spriteIndex, 1)[0];
+    this._syncA11y();
 
     // Animate to table position
     sceneTween(this._scene, {
@@ -365,7 +456,7 @@ export class CardManager {
   /**
    * Clear all hand sprites.
    */
-  clearHand() {
+  clearHand({ sync = true, redraw = false } = {}) {
     this._hideRaise();
     this._dealToken++;
     this._isDealing = false;
@@ -375,6 +466,7 @@ export class CardManager {
       }
     });
     this._handSprites = [];
+    if (sync) this._syncA11y({ redraw });
   }
 
   /**
@@ -391,9 +483,12 @@ export class CardManager {
 
   /**
    * Clear all card sprites.
+   * @param {Object} [o]
+   * @param {boolean} [o.redraw] - a render draws the table again at once
+   *   (the keyboard hand puts focus back on the same card)
    */
-  clearAll() {
-    this.clearHand();
+  clearAll({ redraw = false } = {}) {
+    this.clearHand({ redraw });
     this.clearPlayed();
   }
 
@@ -455,6 +550,15 @@ export class CardManager {
         if (wasLegal) this._settleIllegal(sprite);
       }
     });
+    this._syncA11y();
+    // my turn to play opens: the keyboard hand takes focus if it is free to
+    // (never from chat or another control: ui/handA11y.js). Only on the
+    // change: a render that redraws the same turn leaves focus where it is
+    const opened = canPlay && !this._wasPlayable;
+    this._wasPlayable = !!canPlay;
+    if (canPlay && this._handSprites.some((s) => s?.active !== false && s.getData('isLegal'))) {
+      if (!(opened && offerTurnFocus())) this._raiseFocused();
+    }
   }
 
   /**
@@ -482,6 +586,7 @@ export class CardManager {
         sprite.setData('isLegal', false);
       }
     });
+    this._syncA11y();
   }
 
   /**
@@ -494,6 +599,7 @@ export class CardManager {
         sprite.setData('isLegal', true);
       }
     });
+    this._syncA11y();
   }
 
   /**
@@ -512,12 +618,15 @@ export class CardManager {
         sprite.setData('isLegal', false);
       }
     });
+    this._syncA11y();
   }
 
   /**
    * Reposition hand cards (for resize handling).
    */
   repositionHand() {
+    // the keyboard hand's strips follow the layout even mid-deal
+    this._syncA11y();
     // Skip repositioning during deal animation to prevent snapping cards to final position
     if (this._isDealing) return;
     if (!this._handSprites.length) return;
@@ -539,6 +648,9 @@ export class CardManager {
         sprite.setDepth(CARD_CONFIG.Z_INDEX.HAND + index);
       }
     });
+    // the snap dropped every lift: the keyboard's focused card goes back up
+    // (its ring stays raised while it is focused)
+    this._raiseFocused();
   }
 
   /**
@@ -555,6 +667,7 @@ export class CardManager {
       if (sprite && sprite.destroy) {
         sprite.destroy();
       }
+      this._syncA11y();
       return true;
     }
     return false;
@@ -575,6 +688,7 @@ export class CardManager {
     if (index !== -1) {
       const sprite = this._handSprites.splice(index, 1)[0];
       this._hideRaise(sprite);
+      this._syncA11y();
       return sprite;
     }
     return null;

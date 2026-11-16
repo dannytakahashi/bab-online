@@ -6,7 +6,8 @@
 #       --mongo <mongodb://127.0.0.1:<port>> --ctl <dir> [--log <file>]
 #
 # Runs this checkout's server on 127.0.0.1:<port> (scripts/ios-live-resume-preload.js remaps
-# the hard-coded port 3000 and 'babonline' database), then serves the live test's requests,
+# the hard-coded port 3000 and the default 'babonline' database; DB_NAME=<db> is passed too,
+# so a DB_NAME in this shell or .env cannot aim it elsewhere), then serves the live test's requests,
 # files the test creates in <dir> (TEST_RUNNER_BAB_LIVE_CTL), until <dir>/stop exists:
 #   suspend-app / resume-app       SIGSTOP / SIGCONT the BAB Online app process on <udid> only
 #                                  (what iOS suspension does; a simulator's background task
@@ -75,7 +76,7 @@ LOG="${LOG:A}"
 log() { echo "[harness] $(date -u +%H:%M:%S) $*" >> "$LOG"; }
 PID=""
 start_server() {
-  ( cd "$ROOT" && NODE_ENV=production AMBIENT_BOTS=false BAB_LIVE_PORT="$PORT" BAB_LIVE_DB="$DB" \
+  ( cd "$ROOT" && NODE_ENV=production AMBIENT_BOTS=false BAB_LIVE_PORT="$PORT" BAB_LIVE_DB="$DB" DB_NAME="$DB" \
       BAB_LIVE_CTL="$CTL" MONGO_URI="$MONGO" exec node -r "$PRELOAD" server/index.js >> "$LOG" 2>&1 ) &
   PID=$!
   local i

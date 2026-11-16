@@ -12,6 +12,7 @@ export const CLIENT_EVENTS = {
   SIGN_UP: 'signUp',
   RESTORE_SESSION: 'restoreSession',
   CLIENT_HELLO: 'clientHello',
+  CLIENT_ERROR: 'clientError',
 
   // Main Room
   JOIN_MAIN_ROOM: 'joinMainRoom',
@@ -72,6 +73,7 @@ export const CLIENT_EVENTS = {
 
   // Account management
   DELETE_ACCOUNT: 'deleteAccount',
+  CHANGE_PASSWORD: 'changePassword',
 
   // Safety / moderation
   REPORT_USER: 'reportUser',
@@ -91,6 +93,7 @@ export const SERVER_EVENTS = {
   SESSION_SUPERSEDED: 'sessionSuperseded',
   ACTIVE_GAME_FOUND: 'activeGameFound',
   DELETE_ACCOUNT_RESPONSE: 'deleteAccountResponse',
+  CHANGE_PASSWORD_RESPONSE: 'changePasswordResponse',
   RESTORE_SESSION_RESPONSE: 'restoreSessionResponse',
 
   // Safety / moderation

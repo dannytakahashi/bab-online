@@ -882,11 +882,13 @@ the server sends handComplete, the next gameStart and its updateTurn in one
 tick (the last hand: handComplete and gameEnd), and an updateTurn in the same
 tick as the cardPlayed or trickComplete that passed the turn (events-humans-s13
 seat 1: 351 times). So made / set plays at once and holds a deal or the game
-end that comes within `afterHandEnd` (0.5 s) until then; my turn's chime comes
-`turnDelay` (0.25 s) after its event, or `afterDeal` (0.5 s) after a deal (or a
-held one), and is dropped if MyTurnState is no longer `.choosing` by then; the
+end that comes within `afterHandEnd` (0.5 s) until then; my turn's chime is a
+reminder (owner 2026-11-15, "only if the player doesn't play for 5s"):
+`turnIdle` (5 s) after its event, counted from the end of `afterDeal` (0.5 s)
+after a deal (or a held one), and dropped if MyTurnState is no longer
+`.choosing` by then; each new turn cue and each deal restarts the wait; the
 over-trump accent comes `overTrumpDelay` (90 ms) after the card. A hand end is
-heard as made, deal +0.5 s, chime +1.0 s. Whatever still waits is dropped when
+heard as made, deal +0.5 s, and the chime +6.0 s only if the bid is still open. Whatever still waits is dropped when
 the epoch moves (`GameState.sceneResets`, a snapshot; or the table's gameId).
 Its timers run on their own clock (`soundClock`, not the ack clock the ack
 tests count).

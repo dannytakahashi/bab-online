@@ -222,3 +222,43 @@ describe('runTool and stop signals (no password left on disk or in ps)', () => {
         fs.rmSync(path.dirname(marker), { recursive: true, force: true });
     });
 });
+
+describe('the --db default: DB_NAME from the shell only, a bad one is a usage error', () => {
+    const scripts = path.resolve(__dirname, '..', '..', '..', 'scripts');
+    // The child's env without anything that could aim it at a database
+    const cleanEnv = (extra = {}) => {
+        const env = { ...process.env, ...extra };
+        for (const k of ['MONGO_URI', 'RESTORE_URI']) delete env[k];
+        if (!('DB_NAME' in extra)) delete env.DB_NAME;
+        return env;
+    };
+
+    test('defaultDb: DB_NAME, else babonline, and says which', () => {
+        expect(B.defaultDb({})).toEqual({ db: 'babonline', from: 'default; DB_NAME not set in this shell' });
+        expect(B.defaultDb({ DB_NAME: ' bab_x ' })).toEqual({ db: 'bab_x', from: 'DB_NAME in this shell' });
+        expect(() => B.defaultDb({ DB_NAME: 'a b' })).toThrow(/^DB_NAME in this shell: must be a plain database name/);
+    });
+
+    test.each(['backup-db.js', 'restore-db.js'])('%s exits 2 with one line on a bad DB_NAME, no stack', (script) => {
+        const r = spawnSync(process.execPath, [path.join(scripts, script), '--help'],
+            { env: cleanEnv({ DB_NAME: 'bad name' }), encoding: 'utf8', timeout: 10000 });
+        expect(r.status).toBe(2);
+        expect(r.stderr).toMatch(/^DB_NAME in this shell: must be a plain database name/);
+        expect(r.stderr).not.toMatch(/\n\s+at /);
+    });
+
+    test('restore-db.js stops before writing when .env holds a bad DB_NAME', () => {
+        // server/database.js reads .env from the cwd; it is loaded before mongorestore runs
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bab-restore-env-'));
+        fs.writeFileSync(path.join(dir, '.env'), 'DB_NAME=bad name\n');
+        const archive = path.join(dir, 'x.archive.gz');
+        fs.writeFileSync(archive, Buffer.from([0x1f, 0x8b, 0x08, 0x00]));
+        const r = spawnSync(process.execPath, [path.join(scripts, 'restore-db.js'), archive, '--uri', 'mongodb://127.0.0.1:1'],
+            { cwd: dir, env: cleanEnv(), encoding: 'utf8', timeout: 10000 });
+        fs.rmSync(dir, { recursive: true, force: true });
+        expect(r.status).toBe(2);
+        expect(r.stderr).toContain('Cannot load server/database.js (DB_NAME must be a plain database name');
+        expect(r.stderr).toContain('nothing written');
+        expect(r.stdout).not.toContain('Restoring');
+    });
+});

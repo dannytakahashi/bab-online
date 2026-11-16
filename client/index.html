@@ -37,8 +37,46 @@
     <!-- The entry decides first (phone gate, src/boot/), then imports the
          app (src/main.js); the build preloads the app chunk on non-phones -->
     <script type="module" src="/src/entry.js"></script>
+    <!-- The static "Couldn't load" notice (#boot-fallback): src/boot/boot.js
+         hides it as soon as it runs and shows it again when the app chunk
+         cannot load after one reload. Never run (the entry failed to load,
+         scripts off): it shows by itself after a while. Inline, so it
+         works without the stylesheets too -->
+    <style>
+        .boot-fallback:not([hidden]) {
+            position: fixed;
+            inset: 0;
+            z-index: var(--z-banner);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5em;
+            padding: 1em;
+            font-family: var(--font-ui, system-ui, sans-serif);
+            font-size: var(--type-md, 16px);
+            color: var(--text-primary, inherit);
+            background: var(--surface-0, transparent);
+            visibility: hidden;
+            animation: bab-boot-fallback 0s linear 12s forwards;
+        }
+        .boot-fallback.is-shown {
+            visibility: visible;
+            animation: none;
+        }
+        .boot-fallback a {
+            color: var(--primary-base, inherit);
+        }
+        @keyframes bab-boot-fallback {
+            to { visibility: visible; }
+        }
+    </style>
 </head>
 <body>
     <div id="table-shell"><div id="game-container"></div></div>
+    <div id="boot-fallback" class="boot-fallback" role="alert">
+        <p><strong>Couldn't load BAB Online.</strong></p>
+        <p>Check your connection, then <a href="">reload the page</a>.</p>
+    </div>
 </body>
 </html>

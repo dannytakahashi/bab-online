@@ -207,8 +207,12 @@ export function showMainRoom(data, socket, username = null) {
     if (node) node.remove();
   });
 
-  // Remove any existing UI
-  removeMainRoom();
+  // A rebuild in place (a reconnect's mainRoomJoined re-enters the room):
+  // the admin panel stays open (a one-time reset link it shows is not
+  // shown again) and the chat draft is carried over, focus and caret too
+  const draft = takeChatDraft();
+  const rebuilding = !!document.getElementById('mainRoomContainer');
+  removeMainRoom({ keepAdmin: rebuilding });
 
   // Fresh color assignments for new main room session
   mainRoomUserColors = {};
@@ -294,7 +298,7 @@ export function showMainRoom(data, socket, username = null) {
   }
   chatPanel.appendChild(chatMessages);
 
-  const { row: chatInputRow } = chatForm({
+  const { row: chatInputRow, input: chatInput } = chatForm({
     inputId: 'mainRoomChatInput',
     label: 'Message the main room',
     onSend: (message) => socket.emit('mainRoomChat', { message }),
@@ -303,9 +307,32 @@ export function showMainRoom(data, socket, username = null) {
   container.appendChild(chatPanel);
 
   document.body.appendChild(container);
+  restoreChatDraft(chatInput, draft);
   // Open on the newest message and stay there through resizes
   scrollChatToEnd(chatMessages);
   followChatOnResize(chatMessages);
+}
+
+/** The main room chat input's text, caret and focus, or null. */
+function takeChatDraft() {
+  const input = document.getElementById('mainRoomChatInput');
+  if (!input || !input.value) return null;
+  return {
+    value: input.value,
+    focused: document.activeElement === input,
+    start: input.selectionStart,
+    end: input.selectionEnd,
+  };
+}
+
+function restoreChatDraft(input, draft) {
+  if (!draft) return;
+  input.value = draft.value;
+  if (!draft.focused) return;
+  input.focus();
+  try {
+    input.setSelectionRange(draft.start ?? draft.value.length, draft.end ?? draft.value.length);
+  } catch { /* the caret goes to the end */ }
 }
 
 /**
@@ -354,8 +381,8 @@ onAdminChange((on) => {
   if (hadFocus && !on) btn.previousElementSibling?.focus();
 });
 
-export function removeMainRoom() {
-  removeAdminPanel();
+export function removeMainRoom({ keepAdmin = false } = {}) {
+  if (!keepAdmin) removeAdminPanel();
   const mainRoom = document.getElementById('mainRoomContainer');
   if (mainRoom) mainRoom.remove();
   mainRoomUserColors = {};

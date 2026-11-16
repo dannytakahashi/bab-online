@@ -1,7 +1,8 @@
 /**
  * Against a REAL mongod (CI's mongo:6 service, or a local one): startup
  * indexes, query plans, the duplicate sign-up race, projections on the real
- * driver, and payload equality with the 3db87b1 handlers.
+ * driver, payload equality with the 3db87b1 handlers, and the end-of-game
+ * writes' unique gameId index and replay guard.
  *
  * Uses a scratch database bab_jest_item9_<pid>_<ts> that is dropped in
  * afterAll. Never touches 'babonline' (connectDB is never called). Only runs
@@ -158,6 +159,8 @@ describe('real mongod', () => {
         if (!client) return;
         const indexes = await mockHolder.users.indexes();
         expect(indexes.find(i => i.name === 'username_1')).toMatchObject({ unique: true, key: { username: 1 } });
+        // a deleted account's name hold lapses by TTL (accountDelete.js)
+        expect(indexes.find(i => i.name === 'nameHeldUntil_1')).toMatchObject({ key: { nameHeldUntil: 1 }, expireAfterSeconds: 0 });
         expect((await mockHolder.gameRecords.indexes()).map(i => i.name)).toContain('completedAt_-1');
         expect((await mockHolder.reports.indexes()).map(i => i.name)).toContain('createdAt_-1');
 
@@ -202,8 +205,8 @@ describe('real mongod', () => {
         const a = sock();
         const b = sock();
         await Promise.all([
-            auth.signUp(a, io, { username: 'Racer', password: 'pw' }),
-            auth.signUp(b, io, { username: 'Racer', password: 'pw' })
+            auth.signUp(a, io, { username: 'Racer', password: 'pw-long-1' }),
+            auth.signUp(b, io, { username: 'Racer', password: 'pw-long-1' })
         ]);
         const replies = log.filter(l => l.event === 'signUpResponse').map(l => l.data);
         expect(replies).toHaveLength(2);
@@ -212,13 +215,13 @@ describe('real mongod', () => {
         expect(await mockHolder.users.countDocuments({ username: 'Racer' })).toBe(1);
 
         const c = sock();
-        await auth.signUp(c, io, { username: 'Racer', password: 'pw' });
+        await auth.signUp(c, io, { username: 'Racer', password: 'pw-long-1' });
         expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
 
         // The case-insensitive clash check (usernameRules.findNameClash) on a real mongod
-        await auth.signUp(sock(), io, { username: 'rACER', password: 'pw' });
+        await auth.signUp(sock(), io, { username: 'rACER', password: 'pw-long-1' });
         expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken: "Racer" already exists, and capital letters don\'t make a different name.' });
-        await auth.signUp(sock(), io, { username: 'R.cer', password: 'pw' });
+        await auth.signUp(sock(), io, { username: 'R.cer', password: 'pw-long-1' });
         expect(last('signUpResponse')).toMatchObject({ success: true, username: 'R.cer' });
     }, 20000);
 
@@ -312,7 +315,8 @@ describe('real mongod', () => {
             // the reference's emit is dropped from the contract guard, ours is checked
             require('../testUtils/contractCheck').takeViolations();
             await profile.searchPlayers(b, io, { query });
-            const x = v1(log.filter(l => l.to === `self:${a.id}`).pop().data);
+            // ... plus the additive query echo (2026-11-15: web drops stale replies)
+            const x = { ...v1(log.filter(l => l.to === `self:${a.id}`).pop().data), query };
             const y = log.filter(l => l.to === `self:${b.id}`).pop().data;
             expect({ query, y }).toEqual({ query, y: x });
         }
@@ -377,12 +381,12 @@ describe('real mongod', () => {
         // Concurrent double (quintuple) use of one link: exactly one success
         const { token } = await createResetLink(adb, 'Bea');
         const hash = (pw) => bcrypt.hash(pw, 4);
-        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-${i}`, { hash })));
+        const results = await Promise.all([1, 2, 3, 4, 5].map(i => useResetLink(adb, token, `pw-long-${i}`, { hash })));
         expect(results.filter(r => r.ok)).toHaveLength(1);
         expect(results.filter(r => r === INVALID_LINK)).toHaveLength(4);
         const winner = results.find(r => r.ok);
         const bea = await adb.users.findOne({ username: 'Bea' });
-        const winning = [1, 2, 3, 4, 5].map(i => `pw-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
+        const winning = [1, 2, 3, 4, 5].map(i => `pw-long-${i}`).filter(pw => bcrypt.compareSync(pw, bea.password));
         expect(winning).toHaveLength(1);
         expect(winner.username).toBe('Bea');
         expect(bea.sessionTokens).toBeUndefined();
@@ -578,6 +582,13 @@ describe('real mongod', () => {
 
             const res = await ask('deleteAccount', { username: 'Cy', confirm: 'Cy' });
             expect(res).toMatchObject({ ok: true, kind: 'account', gameRecords: 5, reports: 2, blockLists: 1, resetLinks: 1, tombstones: 1 });
+            // replaceOne on the real driver: the account became its name hold, same _id
+            const held = await users.findOne({ username: 'Cy' });
+            expect(Object.keys(held).sort()).toEqual(['_id', 'deletedAt', 'mergedInto', 'nameHeldUntil', 'username']);
+            expect(held).toMatchObject({ mergedInto: '[deleted]', nameHeldUntil: expect.any(Date) });
+            // taken on the real unique index until the panel frees it
+            await expect(users.insertOne({ username: 'Cy', password: 'x' })).rejects.toMatchObject({ code: 11000 });
+            expect(await ask('deleteAccount', { username: 'Cy', confirm: 'Cy' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: '[deleted]' });
             expect(await users.findOne({ username: 'Cy' })).toBeNull();
             expect(await users.findOne({ username: 'OldCy' })).toBeNull();
             expect(await mockHolder.gameRecords.countDocuments({ $or: [{ team1Players: 'Cy' }, { team2Players: 'Cy' }] })).toBe(0);
@@ -588,7 +599,7 @@ describe('real mongod', () => {
                 ['Cy', 'Bea', true, false], ['Eve', 'Cy', false, true]
             ]);
             expect(await mockHolder.passwordResets.countDocuments({ username: 'Cy', state: 'open' })).toBe(0);
-            expect(await mockHolder.adminAudit.countDocuments({ action: 'deleteAccount', result: 'ok' })).toBe(1);
+            expect(await mockHolder.adminAudit.countDocuments({ action: 'deleteAccount', result: 'ok' })).toBe(2); // the delete and freeing its name
             // a tombstone: only that document; its kept account is unchanged
             const alanBefore = await users.findOne({ username: 'Alan' });
             expect(await ask('deleteAccount', { username: 'OldAlan', confirm: 'OldAlan' })).toMatchObject({ ok: true, kind: 'tombstone', mergedInto: 'Alan' });
@@ -716,7 +727,7 @@ describe('real mongod', () => {
         });
         try {
             const up = sock();
-            await auth.signUp(up, io, { username: 'zedd', password: 'pw' });
+            await auth.signUp(up, io, { username: 'zedd', password: 'pw-long-1' });
             expect(last('signUpResponse')).toEqual({ success: false, message: 'That name is taken.' });
         } finally {
             spy.mockRestore();
@@ -738,7 +749,8 @@ describe('real mongod', () => {
         const hugo = await users.findOne({ username: 'Hugo' });
         const out = await eraseAccount(dbs, hugo, { pullBlocks: false });
         expect(out).toMatchObject({ oldName: 'Hu', gameRecords: 2, reports: 1, tombstones: 2 });
-        expect(await users.countDocuments({ username: { $in: ['Hugo', 'Hu', 'HuOld'] } })).toBe(0);
+        // the account's own name is held; the old name and its tombstone are gone
+        expect(await users.find({ username: { $in: ['Hugo', 'Hu', 'HuOld'] } }).toArray()).toEqual([expect.objectContaining({ username: 'Hugo', mergedInto: '[deleted]' })]);
         expect(await mockHolder.gameRecords.findOne({ gameId: 'n1' })).toMatchObject({ team1Players: ['[deleted]', 'p'], team2Players: ['q', '[deleted]'] });
         expect(await mockHolder.reports.findOne({ reason: 'n' })).toMatchObject({ reported: 'Hu', reportedDeletedAt: expect.any(Date) });
         // the old name belongs to a different, live account now: its data stays
@@ -804,5 +816,112 @@ describe('real mongod', () => {
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });
         expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
+    });
+
+    test('(p) end-of-game writes on the real driver: unique gameId index (partial, used by the lookup), a replay counts once, a duplicate falls back to a non-unique index', async () => {
+        if (!client) return;
+        const gi = (await mockHolder.gameRecords.indexes()).find(i => i.name === 'gameId_1');
+        expect(gi).toMatchObject({ unique: true, key: { gameId: 1 }, partialFilterExpression: { gameId: { $exists: true } } });
+        expect(usesIndex(planOf(await mockHolder.gameRecords.find({ gameId: 'g1' }).explain('queryPlanner')), 'gameId_1')).toBe(true);
+        expect(usesIndex(planOf(await mockHolder.gameRecords.find({ statsPending: { $exists: true } }).explain('queryPlanner')), 'statsPending_partial')).toBe(true);
+        await expect(mockHolder.gameRecords.insertOne({ gameId: 'g1', completedAt: new Date() })).rejects.toMatchObject({ code: 11000 });
+        // records without a gameId never collide
+        await mockHolder.gameRecords.insertMany([{ completedAt: new Date() }, { completedAt: new Date() }]);
+
+        const seats = [1, 2, 3, 4].map(position => ({ position, controller: 'human', ownerUsername: ['Alan', 'Bea', 'Cy', 'Dot'][position - 1] }));
+        const game = {
+            gameId: 'p-real-1',
+            score: { team1: 300, team2: 120 },
+            seatList: () => seats,
+            seat: (pos) => seats[pos - 1],
+            getOriginalPlayer: (pos) => ({ username: seats[pos - 1].ownerUsername }),
+            handStats: { totalHands: 13, team1Sets: 0, team2Sets: 2, team1SetPoints: 0, team2SetPoints: 60 },
+            playerStats: { 1: { totalBids: 4, totalTricks: 5, setsCaused: 0, totalHSI: 90 }, 2: { totalBids: 3, totalTricks: 2, setsCaused: 1, totalHSI: 80 }, 3: { totalBids: 1, totalTricks: 1, setsCaused: 0, totalHSI: 70 }, 4: { totalBids: 5, totalTricks: 3, setsCaused: 1, totalHSI: 60 } }
+        };
+        const before = (await mockHolder.users.findOne({ username: 'Alan' })).stats;
+        await profile.recordGameStats(game);
+        await profile.recordGameStats(game); // a replay
+        expect(await mockHolder.gameRecords.countDocuments({ gameId: 'p-real-1' })).toBe(1);
+        const rec = await mockHolder.gameRecords.findOne({ gameId: 'p-real-1' });
+        expect(rec.statsPending).toBeUndefined();
+        expect(rec.statsDeltas).toMatchObject({ bucket: 'stats', byPosition: { 1: { gamesPlayed: 1, wins: 1, totalPoints: 300, totalHSI: 90 } } });
+        const alan = await mockHolder.users.findOne({ username: 'Alan' });
+        expect(alan.stats.gamesPlayed).toBe(before.gamesPlayed + 1);
+        expect(alan.stats.totalHSI).toBe(before.totalHSI + 90);
+        expect(alan.statsGames).toEqual([{ id: 'p-real-1', at: expect.any(Date) }]);
+        // Bea had no stats: one game, created by the $inc
+        expect((await mockHolder.users.findOne({ username: 'Bea' })).stats).toMatchObject({ gamesPlayed: 1, losses: 1, totalFaults: 1 });
+        // a half-applied record (as a crash leaves it): the sweep finishes it without counting Alan twice
+        await mockHolder.gameRecords.updateOne({ gameId: 'p-real-1' }, { $set: { statsPending: [{ position: 1, username: 'Alan' }] } });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect((await mockHolder.users.findOne({ username: 'Alan' })).stats.gamesPlayed).toBe(before.gamesPlayed + 1);
+        expect((await mockHolder.gameRecords.findOne({ gameId: 'p-real-1' })).statsPending).toBeUndefined();
+        // The guard filter on the real driver: a tombstone and a full window
+        // newer than the game are not credited, a full older window is
+        const stamp = (agoMs) => Array.from({ length: profile.STATS_GAMES_KEPT }, (_, i) => ({ id: `old-${i}`, at: new Date(Date.now() - agoMs) }));
+        await mockHolder.users.insertOne({ username: 'AlanOld', mergedInto: 'Alan', mergedAt: new Date(), renamedAt: new Date() });
+        await mockHolder.users.updateOne({ username: 'Bea' }, { $set: { statsGames: stamp(1000) } });
+        await mockHolder.users.updateOne({ username: 'Cy' }, { $set: { statsGames: stamp(profile.STATS_GUARD_SKEW_MS + 60000) } });
+        const cyBefore = (await mockHolder.users.findOne({ username: 'Cy' })).stats?.gamesPlayed || 0;
+        await mockHolder.gameRecords.insertOne({
+            gameId: 'p-real-2',
+            completedAt: new Date(),
+            statsDeltas: { bucket: 'stats', byPosition: { 1: { gamesPlayed: 1 }, 2: { gamesPlayed: 1 }, 3: { gamesPlayed: 1 } } },
+            statsPending: [{ position: 1, username: 'AlanOld' }, { position: 2, username: 'Bea' }, { position: 3, username: 'Cy' }]
+        });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect((await mockHolder.users.findOne({ username: 'AlanOld' })).stats).toBeUndefined();
+        expect((await mockHolder.users.findOne({ username: 'Bea' })).stats.gamesPlayed).toBe(1);
+        const cy = await mockHolder.users.findOne({ username: 'Cy' });
+        expect(cy.stats.gamesPlayed).toBe(cyBefore + 1);
+        expect(cy.statsGames).toHaveLength(profile.STATS_GAMES_KEPT);
+        expect(cy.statsGames.at(-1).id).toBe('p-real-2');
+
+        // Existing duplicate game ids: warn, non-unique fallback, retried on the next boot
+        const dups = db.collection('gameRecords_gid_dups');
+        await dups.insertMany([{ gameId: 'twin' }, { gameId: 'twin' }]);
+        const warn = jest.spyOn(dbLogger, 'warn').mockImplementation(() => {});
+        await database.ensureGameIdIndex(dups);
+        expect(warn.mock.calls.map(c => c[0])).toEqual([expect.stringMatching(/unique index on gameRecords\.gameId/)]);
+        const fallback = database.GAME_ID_FALLBACK_INDEX;
+        expect((await dups.indexes()).map(i => i.name)).toEqual(expect.arrayContaining([fallback]));
+        expect((await dups.indexes()).map(i => i.name)).not.toContain('gameId_1');
+        expect(usesIndex(planOf(await dups.find({ gameId: 'twin' }).explain('queryPlanner')), fallback)).toBe(true);
+        await dups.deleteOne({ gameId: 'twin' });
+        warn.mockClear();
+        await database.ensureGameIdIndex(dups);
+        expect(warn).not.toHaveBeenCalled();
+        warn.mockRestore();
+        const names = (await dups.indexes()).map(i => i.name);
+        expect(names).toContain('gameId_1');
+        expect(names).not.toContain(fallback);
+    });
+
+    test('(p) the one-off legacy session migration and the guarded block-list write on the real driver', async () => {
+        if (!client) return;
+        await seed();
+        const { migrateLegacySessionTokens } = require('../admin/legacySessions');
+        const { hashToken, verifySession } = require('../utils/sessionTokens');
+        const users = mockHolder.users;
+        await users.updateOne({ username: 'Bea' }, { $set: { sessionToken: 'legacy-device-one' } });
+        await users.updateOne({ username: 'OldAlan' }, { $set: { sessionToken: 'legacy-device-two' } });
+        expect(await migrateLegacySessionTokens({ users })).toMatchObject({ found: 2, accounts: 1, tombstones: 1, migrated: 0 });
+        expect(await migrateLegacySessionTokens({ users }, { apply: true })).toMatchObject({ found: 2, migrated: 1, unset: 1, raced: 0 });
+        const bea = await users.findOne({ username: 'Bea' });
+        expect(bea.sessionToken).toBeUndefined();
+        expect(bea.sessionTokens.map(e => e.hash)).toEqual([hashToken('legacy-device-one')]);
+        expect(verifySession(bea, 'legacy-device-one')).not.toBeNull();
+        expect((await users.findOne({ username: 'OldAlan' })).sessionToken).toBeUndefined();
+        expect(await users.countDocuments({ sessionToken: { $exists: true } })).toBe(0);
+
+        // blockUser's filter: matches below the cap, or when the name is listed already
+        const { BLOCK_LIST_MAX } = require('../socket/safetyHandlers');
+        await users.updateOne({ username: 'Cy' }, { $set: { blockedUsers: Array.from({ length: BLOCK_LIST_MAX }, (_, i) => `p${i}`) } });
+        const guard = (name) => ({ username: 'Cy', $or: [{ [`blockedUsers.${BLOCK_LIST_MAX - 1}`]: { $exists: false } }, { blockedUsers: name }] });
+        expect((await users.updateOne(guard('Bea'), { $addToSet: { blockedUsers: 'Bea' } })).matchedCount).toBe(0);
+        expect((await users.updateOne(guard('p3'), { $addToSet: { blockedUsers: 'p3' } })).matchedCount).toBe(1);
+        await users.updateOne({ username: 'Cy' }, { $pull: { blockedUsers: 'p0' } });
+        expect((await users.updateOne(guard('Bea'), { $addToSet: { blockedUsers: 'Bea' } })).modifiedCount).toBe(1);
+        expect((await users.findOne({ username: 'Cy' })).blockedUsers).toHaveLength(BLOCK_LIST_MAX);
     });
 });

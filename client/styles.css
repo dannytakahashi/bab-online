@@ -25,7 +25,7 @@ body {
 canvas {
     display: block;
     position: relative;
-    z-index: 1;
+    z-index: var(--z-table);
 }
 
 /*
@@ -61,7 +61,7 @@ canvas {
     height: 100vh;
     min-width: 0;
     background: var(--page-bg);
-    z-index: 1;
+    z-index: var(--z-table);
     overflow: hidden;
 }
 

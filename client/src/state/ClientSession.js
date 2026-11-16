@@ -35,6 +35,9 @@
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
+import { reportClientError } from '../telemetry/clientErrors.js';
+import { safeSessionStorage } from '../utils/safeStorage.js';
+import { TABLE_EVENTS } from '../socket/SocketManager.js';
 
 export const SCREEN = Object.freeze({
   BOOT: 'boot',
@@ -90,6 +93,10 @@ const ROLES = new Set(Object.values(ROLE));
 // until its reply (or a disconnect); after this long another may go out
 export const ROUTE_TIMEOUT_MS = 5000;
 
+// After a reconnect's rejoinGame the emit gate stays shut until its answer
+// (rejoinSuccess / rejoinFailed); with no answer for this long it opens anyway
+export const REJOIN_HOLD_MS = 10000;
+
 // TOURNAMENT: the tournament lobby this tab shows (a reload re-enters it;
 // the server records activeTournamentId only once a tournament begins).
 // TOURNAMENT_SPECTATE: that tournament's id when this tab only watches it
@@ -111,15 +118,6 @@ function isTestRun() {
   }
 }
 
-function memoryStorage() {
-  const map = new Map();
-  return {
-    getItem: (k) => (map.has(k) ? map.get(k) : null),
-    setItem: (k, v) => map.set(k, String(v)),
-    removeItem: (k) => map.delete(k),
-  };
-}
-
 export class IllegalTransitionError extends Error {}
 
 export class ClientSession {
@@ -138,7 +136,8 @@ export class ClientSession {
     this._teardownTable = null;
     this._socketManager = null;
     this._gameState = null;
-    this._storage = typeof sessionStorage !== 'undefined' ? sessionStorage : memoryStorage();
+    // Never throws: blocked storage used to throw here, at module load
+    this._storage = safeSessionStorage();
     this._started = false;
     this._connectionListeners = new Set();
     this._screenListeners = new Set();
@@ -158,6 +157,7 @@ export class ClientSession {
     this._rejoinSucceededFor = null; // `${socketId}:${gameId}`
     this._restoreSentFor = null; // socket id
     this._restoredSocketId = null;
+    this._clearRejoinHold();
     this._superseded = false; // another tab has the session (sessionSuperseded)
     this._routeInFlight = null; // { kind, at }
     this._pendingLobbyRejoin = null; // lobbyId
@@ -184,6 +184,13 @@ export class ClientSession {
       this._socketManager = socketManager;
       this._unsubscribeSocket = socketManager.onStateChange?.((event, data) => this._onSocketState(event, data)) || null;
       if (socketManager.isConnected) this._setConnection(CONNECTION.CONNECTED);
+      // The emit gate: a signed-in tab's emits wait for this socket's
+      // restore (SocketManager._send); the restore's reply flushes them
+      socketManager.setSessionGate?.({
+        hasSession: () => !!this.credentials(),
+        isRestored: () => !!socketManager.socket?.connected && this.sessionRestored && !this.awaitingRejoin,
+        isOffline: () => this._connection === CONNECTION.OFFLINE,
+      });
     }
     return this;
   }
@@ -333,6 +340,7 @@ export class ClientSession {
     const message = `ClientSession: ${why} ${from} -> ${to}`;
     if (this._strict) throw new IllegalTransitionError(message);
     this._log.error?.(message);
+    reportClientError('screen', message);
     return false;
   }
 
@@ -344,6 +352,7 @@ export class ClientSession {
     } catch (err) {
       if (this._strict) throw err;
       this._log.error?.(`ClientSession: ${screen}.${kind} hook failed`, err);
+      reportClientError('screenHook', err, { where: `${screen}.${kind}` });
     }
   }
 
@@ -546,8 +555,26 @@ export class ClientSession {
     return true;
   }
 
+  /**
+   * Send restoreSession again on the same socket: a restoreSessionResponse
+   * failure marked retryable (a database error, a name an admin action
+   * holds for a moment). main.js schedules it with backoff and keeps the
+   * saved token. @returns {boolean} whether restoreSession went out
+   */
+  retryResume() {
+    const id = this._socketManager?.id;
+    if (!id || this._restoreSentFor !== id) return false;
+    this._restoreSentFor = null;
+    return this.resume();
+  }
+
   /** Signed in by password on this socket (signInResponse / signUp auto-login). */
   noteSignedIn(username) {
+    this._markRestored(username);
+    this._socketManager?.flushHeld?.();
+  }
+
+  _markRestored(username) {
     this._restoredSocketId = this._socketManager?.id || null;
     this._restoreSentFor = this._restoredSocketId;
     if (this._gameState && username) this._gameState.username = username;
@@ -555,11 +582,68 @@ export class ClientSession {
 
   /**
    * restoreSessionResponse {success: true}: rejoin, re-spectate, or
-   * re-enter the current screen.
+   * re-enter the current screen, then send what the emit gate held while
+   * the socket was down. After a rejoin the gate stays shut until its
+   * answer: the server's rejoinGame awaits an auth check before seating
+   * this socket, so a table chat or draw sent in the same tick ran first
+   * and was dropped as "not in a game" (review 2026-11-15).
    * @returns {string} what it did: 'rejoin' | 'spectate' | 'tournament' | 'tournamentSpectate' | 'lobby' | 'mainRoom' | 'stay' | 'none'
    */
   onSessionRestored(data) {
-    this.noteSignedIn(data.username);
+    this._markRestored(data.username);
+    this._clearRejoinHold();
+    let route = 'none';
+    try {
+      route = this._routeAfterRestore(data);
+      return route;
+    } finally {
+      if (route === 'rejoin') this._holdForRejoin();
+      else this._socketManager?.flushHeld?.();
+    }
+  }
+
+  /** The gate waits for this socket's rejoin answer. */
+  get awaitingRejoin() {
+    const id = this._socketManager?.id;
+    return !!this._rejoinHold && !!id && this._rejoinHold.socketId === id;
+  }
+
+  _holdForRejoin() {
+    const socketId = this._socketManager?.id || null;
+    if (!socketId) return;
+    const timer = setTimeout(() => {
+      if (this._rejoinHold?.timer !== timer) return;
+      this._log.warn?.('ClientSession: no answer to rejoinGame; sending what was held');
+      this._endRejoinHold();
+    }, REJOIN_HOLD_MS);
+    this._rejoinHold = { socketId, timer };
+  }
+
+  _clearRejoinHold() {
+    if (this._rejoinHold) clearTimeout(this._rejoinHold.timer);
+    this._rejoinHold = null;
+  }
+
+  /** The rejoin was answered: open the gate; a failed one drops what needed the seat. */
+  _endRejoinHold({ failed = false } = {}) {
+    if (!this.awaitingRejoin) {
+      this._clearRejoinHold();
+      return;
+    }
+    this._clearRejoinHold();
+    this._socketManager?.flushHeld?.(Date.now(), failed ? { drop: TABLE_EVENTS } : undefined);
+  }
+
+  /**
+   * rejoinFailed. 'Already connected': this socket holds the seat, send
+   * what was held. Otherwise the game is gone: the table events held for it
+   * are dropped with the notice (their drafts were cleared), the rest go.
+   */
+  noteRejoinFailed(reason) {
+    this._endRejoinHold({ failed: reason !== 'Already connected' });
+  }
+
+  _routeAfterRestore(data) {
     // The server's pointer to a tournament this player is in (one that has
     // begun) first: a rejoin below that fails, or a table with nothing to
     // rejoin, then routes back to it (returnToTournament reattaches by
@@ -653,6 +737,8 @@ export class ClientSession {
    * would replay the game log twice)
    */
   noteRejoinSuccess(gameId) {
+    // Seated: what the gate held for the table can go now
+    this._endRejoinHold();
     const key = `${this._socketManager?.id || ''}:${gameId || ''}`;
     if (this._rejoinSucceededFor === key && this._screen === SCREEN.TABLE) return false;
     this._rejoinSucceededFor = key;
@@ -717,6 +803,9 @@ export class ClientSession {
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;
+    this._clearRejoinHold();
+    // Nothing held for the old identity may go out under the next one
+    this._socketManager?.dropHeld?.();
   }
 
   // ============================================

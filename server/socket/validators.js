@@ -5,6 +5,7 @@
 
 const Joi = require('joi');
 const { BID_VALUES, MAX_HAND_SIZE } = require('../game/rules');
+const { STOCK_AVATAR_COUNT } = require('../avatar/stockAvatars');
 const { ADMIN_ACTIONS } = require('../admin/actions');
 
 // Card schema - validates card objects
@@ -50,6 +51,18 @@ const schemas = {
         version: Joi.string().min(1).max(32).required(),
         build: Joi.string().max(64).allow('').optional(),
         caps: Joi.array().items(Joi.string().min(1).max(32)).max(16).required()
+    }),
+
+    // Client error reports (socket/clientErrorHandlers.js, checked in the
+    // handler: a bad one is dropped silently); mirrors contract c2s.clientError.
+    // Strings only, each capped: no free-form object reaches the log
+    clientError: Joi.object({
+        kind: Joi.string().pattern(/^[A-Za-z][A-Za-z0-9_.-]{0,31}$/).required(),
+        message: Joi.string().min(1).max(500).required(),
+        stack: Joi.string().max(4000).allow('').optional(),
+        where: Joi.string().max(200).allow('').optional(),
+        build: Joi.string().max(64).allow('').optional(),
+        page: Joi.string().max(32).pattern(/^[A-Za-z0-9_.:-]*$/).allow('').optional()
     }),
 
     // Game actions
@@ -160,7 +173,7 @@ const schemas = {
 
     // Profile
     updateProfilePic: Joi.object({
-        profilePic: Joi.number().integer().min(1).max(82).required()
+        profilePic: Joi.number().integer().min(1).max(STOCK_AVATAR_COUNT).required()
     }),
 
     // The handler refuses anything over ~682,666 chars (500 KB decoded)
@@ -195,6 +208,12 @@ const schemas = {
     // Account management
     deleteAccount: Joi.object({
         password: Joi.string().min(1).max(100).required()
+    }),
+    // next: 1-100 like signUp, so a short one gets the 8-character rule's
+    // message from the handler (setPassword.checkPasswordRule)
+    changePassword: Joi.object({
+        current: Joi.string().min(1).max(100).required(),
+        next: Joi.string().min(1).max(100).required()
     }),
 
     // Safety / moderation

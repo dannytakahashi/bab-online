@@ -16,6 +16,7 @@ const voiceHandlers = require('./voiceHandlers');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const adminHandlers = require('./adminHandlers');
+const clientErrorHandlers = require('./clientErrorHandlers');
 const clientInfo = require('./clientInfo');
 const sessionIdentity = require('./sessionIdentity');
 const upgradeGate = require('./upgradeGate');
@@ -48,6 +49,13 @@ function setupSocketHandlers(io) {
             syncHandler('clientHello', clientInfo.handle, { rateLimit: false, event: 'clientHello' })(socket, io, data)
         );
 
+        // Client error reports: no reply, ever. Joi, the per-socket / per-IP /
+        // server-wide limits and the CLIENT_ERRORS=off switch are checked in
+        // the handler, which drops a refused report silently
+        socket.on('clientError', (data) =>
+            safeHandler(clientErrorHandlers.clientError)(socket, io, data)
+        );
+
         // Auth events - with validation
         socket.on('signIn', (data) =>
             asyncHandler('signIn', authHandlers.signIn)(socket, io, data)
@@ -60,6 +68,9 @@ function setupSocketHandlers(io) {
         );
         socket.on('deleteAccount', (data) =>
             asyncHandler('deleteAccount', authHandlers.deleteAccount)(socket, io, data)
+        );
+        socket.on('changePassword', (data) =>
+            asyncHandler('changePassword', authHandlers.changePassword)(socket, io, data)
         );
 
         // Main room events

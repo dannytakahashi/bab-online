@@ -71,6 +71,11 @@ struct BABOnlineApp: App {
         #if DEBUG
         if UIFixture.isActive { return }  // fixture mode: never connect
         #endif
+        // Error reports (c2s clientError): an uncaught exception is saved for the next launch,
+        // and the last launch's goes out after the first connect
+        ErrorReporter.installExceptionHandler()
+        ErrorReporter.shared.page = { [weak screens = appState] in screens.map { "\($0.screen)" } }
+        ErrorReporter.shared.reportPendingCrash()
         socketService.authState = authState
         socketService.gameState = gameState
         // what a serverShutdown would cost the player now (RestartNotice)

@@ -8,6 +8,13 @@ final class AuthState: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var error: String?
     @Published var deleteAccountError: String?
+    /// A retryable restore failure is being retried with the saved token (AuthSocketHandler):
+    /// the connection toast says "Reconnecting...".
+    @Published var restoreRetrying = false
+    /// One line to show once after a sign-in / restore (the passwordReset notice).
+    @Published var accountNotice: String?
+    /// The last changePasswordResponse (Account sheet).
+    @Published var changePasswordResult: ChangePasswordResult?
 
     private let keychainService = "com.bab-online.auth"
     private let usernameKey = "username"
@@ -45,6 +52,9 @@ final class AuthState: ObservableObject {
         isAuthenticated = false
         error = nil
         deleteAccountError = nil
+        restoreRetrying = false
+        accountNotice = nil
+        changePasswordResult = nil
     }
 
     // MARK: - Keychain Helpers

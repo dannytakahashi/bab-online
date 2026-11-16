@@ -103,8 +103,20 @@ export const RADIUS = Object.freeze({
   "pill": 999
 });
 export const Z = Object.freeze({
+  "handPanel": -2,
+  "rail": -1,
+  "felt": 0,
   "table": 1,
+  "raised": 1,
   "hud": 2,
+  "menu": 2,
+  "seat": 50,
+  "authVignette": 50,
+  "seatSelf": 100,
+  "authScreen": 100,
+  "dealer": 150,
+  "spectatorBubble": 290,
+  "hudBadge": 300,
   "panel": 500,
   "modal": 2000,
   "toast": 9000,

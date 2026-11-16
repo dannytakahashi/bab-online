@@ -23,6 +23,7 @@ and the iOS app, checked against the real server in every test run.
 | `lib/validate.js` | Dependency-free validator for the JSON Schema subset used here (throws on any other keyword) |
 | `index.js` | `schema`, `validateS2C(event, data)`, `validateC2S`, `s2cNames()`, `c2sNames()` |
 | `fixtures/v2/` | Server-generated snapshot v2 fixtures (`npm run contract:fixtures`) |
+| `rules/legality-cases.json` | Hand-written card-rules case table (legal cards, trick winners, over-trumps) run by Jest, Vitest and XCTest against the three copies of the rules; not wire, not generated |
 | `V1_REMOVALS.md` | The non-additive changes, to run after the new iOS build ships |
 
 ## The rule: additive only
@@ -379,7 +380,9 @@ Consumers:
 
 - Web: `client/src/state/snapshotV2.js` (`parseSnapshotV2`, `classifySeq`,
   `seatAt`, `relativeSeat`, `isComplete`, `teamOf`), tested over every fixture
-  by `snapshotV2.test.js`. Wired in item 16: every snapshot carrier goes
+  by `snapshotV2.test.js` (strict there; live, an unknown value of an open
+  enum is kept raw with a warning, like iOS `.unknown(raw)`; an unknown
+  stage or viewer role is still refused, falling back to the v1 fields). Wired in item 16: every snapshot carrier goes
   through `state/tableSync.applyTableSnapshot` (GameState.applySnapshot,
   MyAction.reconcile, the render, then `state/SeqGate.onSnapshot`: R1-R5 over
   every sequenced event, SocketManager wraps the handlers), and

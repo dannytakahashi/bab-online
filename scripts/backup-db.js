@@ -23,18 +23,19 @@ const USAGE = `Usage:
 
   --out <dir>        folder for the archive (created if missing; never inside a git repository)
   --keep N           after a good backup, delete all but the newest N <db>-*.archive.gz there
-  --db <name>        database to dump (default ${B.DEFAULT_DB})
+  --db <name>        database to dump (default: DB_NAME from this shell, else babonline; .env is never read)
   --allow-no-users   keep the archive even when <db>.users is missing or empty
 
   Exit: 0 ok; 1 failed, nothing kept; 2 usage; 3 archive kept but --keep pruning failed`;
 
 function parseArgs(argv) {
-    const a = { out: null, keep: null, db: B.DEFAULT_DB, allowNoUsers: false };
+    const def = B.defaultDb();
+    const a = { out: null, keep: null, db: def.db, dbFrom: def.from, allowNoUsers: false };
     for (let i = 0; i < argv.length; i++) {
         const k = argv[i];
         if (k === '--out') a.out = argv[++i];
         else if (k === '--keep') a.keep = argv[++i];
-        else if (k === '--db') a.db = argv[++i];
+        else if (k === '--db') { a.db = argv[++i]; a.dbFrom = '--db'; }
         else if (k === '--allow-no-users') a.allowNoUsers = true;
         else if (k === '--help' || k === '-h') a.help = true;
         else throw new Error(`Unknown argument ${k}`);
@@ -113,7 +114,7 @@ async function main() {
         process.exit(2);
     }
 
-    console.log(`Source:  ${B.describeHosts(uri)} (database ${args.db})`);
+    console.log(`Source:  ${B.describeHosts(uri)} (database ${args.db}; ${args.dbFrom})`);
     console.log(`Tool:    ${version}`);
     console.log(`Dumping to ${final} ...`);
     const started = Date.now();

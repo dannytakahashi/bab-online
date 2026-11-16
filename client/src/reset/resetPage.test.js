@@ -77,7 +77,7 @@ describe('the reset page', () => {
     expect(root.querySelector('h1').textContent).toBe(COPY.title);
   });
 
-  it('checks the two fields and the 1-100 rule before sending', async () => {
+  it('checks the two fields and the 8-100 rule before sending', async () => {
     const fetchImpl = reply({ ok: true });
     const { form, status, alert } = renderResetPage({ root, win: fakeWin(), fetchImpl });
     // two live regions from the start, roles never switched, no aria-live override
@@ -88,7 +88,11 @@ describe('the reset page', () => {
     fill('');
     await submit(form);
     expect(alert.textContent).toBe(COPY.empty);
-    fill('abc', 'abd');
+    fill('1234567');
+    await submit(form);
+    expect(alert.textContent).toBe(COPY.tooShort);
+    expect(document.activeElement.id).toBe('reset-password');
+    fill('abcdefgh', 'abcdefgi');
     await submit(form);
     expect(alert.textContent).toBe(COPY.mismatch);
     expect(status.textContent).toBe('');
@@ -115,7 +119,7 @@ describe('the reset page', () => {
   it('a used or expired link: the server\'s one message, no form left', async () => {
     const message = 'This reset link is not valid any more.';
     const { form, status } = renderResetPage({ root, win: fakeWin(), fetchImpl: reply({ ok: false, error: 'invalid_link', message }) });
-    fill('x');
+    fill('x-long-pw');
     await submit(form);
     expect(root.querySelector('form')).toBeNull();
     expect(status.textContent).toBe(message);
@@ -126,7 +130,7 @@ describe('the reset page', () => {
   it('a network failure keeps the form for another try', async () => {
     const fetchImpl = vi.fn(async () => { throw new TypeError('offline'); });
     const { form, alert } = renderResetPage({ root, win: fakeWin(), fetchImpl });
-    fill('x');
+    fill('x-long-pw');
     await submit(form);
     expect(alert.textContent).toBe(COPY.network);
     expect(root.querySelector('form')).toBe(form);

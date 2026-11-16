@@ -13,6 +13,12 @@ import { scopePayload } from '../../state/statsScope.js';
 let debounceTimer = null;
 let currentSocket = null;
 let searchModal = null;
+/**
+ * The query of the latest searchPlayers sent (null: none, or the input was
+ * cleared since). Replies can finish out of order (each is a DB query), so
+ * one whose echoed query is not this one is stale and dropped.
+ */
+let latestQuery = null;
 
 /**
  * Get the appropriate profile picture source.
@@ -50,10 +56,11 @@ export function showPlayerSearchPage(socket) {
     clearTimeout(debounceTimer);
     const query = searchInput.value.trim();
     if (!query) {
-      updatePlayerSearchResults([]);
+      latestQuery = null;
+      renderResults([]);
       return;
     }
-    console.log('Emitting searchPlayers with query:', query);
+    latestQuery = query;
     socket.emit('searchPlayers', { query });
   }
 
@@ -61,7 +68,8 @@ export function showPlayerSearchPage(socket) {
     clearTimeout(debounceTimer);
     const query = searchInput.value.trim();
     if (!query) {
-      updatePlayerSearchResults([]);
+      latestQuery = null;
+      renderResults([]);
       return;
     }
     debounceTimer = setTimeout(doSearch, 300);
@@ -98,16 +106,27 @@ export function showPlayerSearchPage(socket) {
       clearTimeout(debounceTimer);
       searchModal = null;
       currentSocket = null;
+      latestQuery = null;
     },
   });
 }
 
 /**
- * Update search results list.
+ * A searchPlayersResponse: show its players unless it answers an older
+ * query than the latest one sent (the server echoes `query`, 2026-11-15; a
+ * reply without one, from an older server, is shown as before).
  *
  * @param {Array} players - Array of player search results
+ * @param {string} [query] - the reply's echoed query
+ * @returns {boolean} whether it was shown
  */
-export function updatePlayerSearchResults(players) {
+export function updatePlayerSearchResults(players, query) {
+  if (typeof query === 'string' && query !== latestQuery) return false;
+  renderResults(players);
+  return true;
+}
+
+function renderResults(players) {
   const container = document.getElementById('playerSearchResults');
   if (!container) return;
 
@@ -158,6 +177,7 @@ export function updatePlayerSearchResults(players) {
  */
 export function removePlayerSearchPage() {
   clearTimeout(debounceTimer);
+  latestQuery = null;
   searchModal?.close('api');
   searchModal = null;
   document.getElementById('playerSearchPageOverlay')?.remove();

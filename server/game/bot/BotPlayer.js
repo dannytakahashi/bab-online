@@ -102,6 +102,31 @@ class BotPlayer {
     }
 
     /**
+     * Fill a fresh memory from the hand's public record, for a bot that
+     * takes a seat mid-hand (lazy, resign, AFK): without it every card
+     * already played looks unseen and the search stays off for the hand.
+     * Records exactly what a bot that watched from the deal would have.
+     * @param {Object} trump
+     * @param {Array<{lead: number, cards: Object[]}>} tricks - won tricks,
+     *   cards in play order from `lead` (GameState.trickHistory)
+     * @param {{lead: number, cards: Object[]}|null} [open] - the trick on
+     *   the table, in play order (not yet counted: no advanceTrick)
+     */
+    replayCardMemory(trump, tricks, open = null) {
+        if (!this.cardMemory || !trump) return;
+        const play = ({ lead, cards }) => {
+            cards.forEach((card, k) => {
+                if (card) this.recordCardPlayed(card, ((lead - 1 + k) % 4) + 1, trump, lead);
+            });
+        };
+        for (const trick of tricks || []) {
+            play(trick);
+            this.advanceTrick();
+        }
+        if (open && open.cards.length > 0) play(open);
+    }
+
+    /**
      * Advance to next trick
      */
     advanceTrick() {

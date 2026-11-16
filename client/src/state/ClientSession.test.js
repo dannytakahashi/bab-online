@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
-  ClientSession, SCREEN, ROLE, EXIT, CONNECTION, TRANSITIONS, IllegalTransitionError, ROUTE_TIMEOUT_MS,
+  ClientSession, SCREEN, ROLE, EXIT, CONNECTION, TRANSITIONS, IllegalTransitionError, ROUTE_TIMEOUT_MS, REJOIN_HOLD_MS,
 } from './ClientSession.js';
 import { GameState } from './GameState.js';
 import { SocketManager, CONNECTION_STATE } from '../socket/SocketManager.js';
@@ -343,5 +343,67 @@ describe('connection region', () => {
     const u = setup();
     u.socketManager._emitStateChange('disconnect', { reason: 'io server disconnect' });
     expect(u.session.connection).toBe(CONNECTION.OFFLINE);
+  });
+});
+
+describe('the emit gate across a rejoin', () => {
+  function gated() {
+    sessionStorage.clear();
+    sessionStorage.setItem('username', 'me');
+    sessionStorage.setItem('sessionToken', 'tok');
+    const raw = vi.fn();
+    const socket = { id: 's1', connected: true, on: vi.fn(), off: vi.fn(), emit: raw, io: null };
+    const socketManager = new SocketManager();
+    socketManager.initialize(socket);
+    const session = new ClientSession({ logger: { log: vi.fn(), error: vi.fn(), warn: vi.fn() } });
+    session.attach({ socketManager, gameState: new GameState() });
+    const sent = () => raw.mock.calls.map(([e]) => e);
+    return { session, socket, socketManager, sent };
+  }
+
+  it('a restore that rejoins keeps the gate shut until the answer; rejoinSuccess opens it', () => {
+    const t = gated();
+    expect(t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' })).toBe('rejoin');
+    expect(t.session.awaitingRejoin).toBe(true);
+    t.socket.emit('chatMessage', { message: 'x' });
+    expect(t.sent()).toEqual(['rejoinGame']);
+    t.session.noteRejoinSuccess('g1');
+    expect(t.session.awaitingRejoin).toBe(false);
+    expect(t.sent()).toEqual(['rejoinGame', 'chatMessage']);
+  });
+
+  it('a restore with nothing to rejoin flushes at once', () => {
+    const t = gated();
+    t.socket.id = 's2'; // not restored on this socket yet: held
+    t.socket.emit('getLeaderboard', {});
+    t.session.onSessionRestored({ username: 'me', activeTournamentId: 't1' });
+    expect(t.session.awaitingRejoin).toBe(false);
+    expect(t.sent()).toEqual(['joinTournament', 'getLeaderboard']);
+  });
+
+  it('no answer to rejoinGame within REJOIN_HOLD_MS: what was held goes anyway', () => {
+    vi.useFakeTimers();
+    try {
+      const t = gated();
+      t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' });
+      t.socket.emit('chatMessage', { message: 'x' });
+      vi.advanceTimersByTime(REJOIN_HOLD_MS - 1);
+      expect(t.sent()).toEqual(['rejoinGame']);
+      vi.advanceTimersByTime(1);
+      expect(t.sent()).toEqual(['rejoinGame', 'chatMessage']);
+      expect(t.session.awaitingRejoin).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('signed out while waiting: the wait ends, nothing held goes out', () => {
+    const t = gated();
+    t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' });
+    t.socket.emit('chatMessage', { message: 'x' });
+    t.session.clearIdentity();
+    expect(t.session.awaitingRejoin).toBe(false);
+    expect(t.socketManager.heldEvents).toEqual([]);
+    expect(t.sent()).toEqual(['rejoinGame']);
   });
 });

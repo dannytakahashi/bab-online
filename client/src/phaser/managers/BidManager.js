@@ -121,8 +121,7 @@ export class BidManager {
           console.warn('Not your turn to bid.');
           return;
         }
-        this.selectButton(btn, i.toString());
-        onBidSelect(i.toString());
+        this.chooseBid(btn, i.toString(), onBidSelect);
       });
       this.allBidButtons.push(btn);
       numericRow.appendChild(btn);
@@ -141,8 +140,7 @@ export class BidManager {
           console.warn('Not your turn to bid.');
           return;
         }
-        this.selectButton(btn, bid);
-        onBidSelect(bid);
+        this.chooseBid(btn, bid, onBidSelect);
       }, true);
       btn.dataset.bid = bid;
       this.boreButtons[bid] = btn;
@@ -167,6 +165,25 @@ export class BidManager {
     btn.textContent = label;
     btn.addEventListener('click', onClick);
     return btn;
+  }
+
+  /**
+   * Mark a bid chosen and send it. A bid the sender refuses on the spot
+   * (MyAction returns false: reconnecting, not my turn any more) is unmarked
+   * again, so the sheet never shows a bid that was not sent.
+   */
+  chooseBid(btn, bidValue, onBidSelect) {
+    this.selectButton(btn, bidValue);
+    if (onBidSelect(bidValue) === false) this.clearSelection();
+  }
+
+  /** No bid marked. */
+  clearSelection() {
+    (this.allBidButtons || []).forEach((b) => {
+      b.classList.remove('is-selected');
+      b.removeAttribute('aria-pressed');
+    });
+    this.selectedBid = null;
   }
 
   /**

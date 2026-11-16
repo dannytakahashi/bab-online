@@ -52,7 +52,7 @@ struct ContentView: View {
                         }
                     }
 
-                    if authState.isAuthenticated {
+                    if authState.isAuthenticated || authState.restoreRetrying {
                         ConnectionStatusToast()
                     }
                 }
@@ -67,6 +67,13 @@ struct ContentView: View {
             }
         }
         #endif
+        // the one-time passwordReset notice after a sign-in or restore (AccountRules.swift)
+        .alert("Password reset", isPresented: Binding(get: { authState.accountNotice != nil && !showSplash },
+                                                       set: { if !$0 { authState.accountNotice = nil } })) {
+            Button("OK", role: .cancel) { authState.accountNotice = nil }
+        } message: {
+            Text(authState.accountNotice ?? "")
+        }
         // a standard alert: VoiceOver moves to it and reads it
         .alert("Server restarted", isPresented: Binding(get: { restart.message != nil && !showSplash },
                                                          set: { if !$0 { restart.message = nil } })) {

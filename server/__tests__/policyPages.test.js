@@ -52,6 +52,8 @@ describe('/privacy', () => {
         expect(html).toContain('"[deleted]"');
         expect(html).toMatch(/<strong>Reports<\/strong> you filed or that were filed about you stay/);
         expect(html).toMatch(/<strong>The admin log<\/strong> keeps the usernames/);
+        // the deleted name's 30-day hold (accountDelete.NAME_HOLD_MS)
+        expect(html).toMatch(/<strong>Your username<\/strong> itself stays reserved for 30 days after you delete your account/);
         expect(html).toMatch(/<strong>Other players' block lists<\/strong> keep your username when you delete your account in the app/);
         // an admin delete (an email request) pulls the name (pullBlocks default)
         expect(html).toContain('we remove the username from block lists too');
@@ -64,6 +66,8 @@ describe('/privacy', () => {
         // safetyHandlers logs blocks and who reported whom, never the reason
         expect(html).toContain('reports (who reported whom, not the reason)');
         expect(html).toContain('It is never saved to our database or written to our logs');
+        // client error reports (server/socket/clientErrorHandlers.js)
+        expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), logged with your username if you are signed in. Reports are meant for code only: before a report is logged we remove email addresses, IP addresses, long numbers, the query part of links, and quoted text other than code names.');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {

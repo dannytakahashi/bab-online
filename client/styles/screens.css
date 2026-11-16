@@ -412,7 +412,7 @@
     border-radius: var(--radius-md);
     box-shadow: var(--elev-2);
     text-align: left;
-    z-index: 1;
+    z-index: var(--z-raised);
 }
 
 .online-count:is(:hover, :focus-within) .online-popover:not(:empty) {
@@ -738,6 +738,37 @@
     margin-top: var(--space-6);
 }
 
+/* profile: Change password (ProfilePage createPasswordChange) */
+.password-change {
+    margin-top: var(--space-6);
+}
+
+.password-change__form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    max-width: 360px;
+}
+
+.password-change__status {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+}
+
+.password-change__status:empty {
+    display: none;
+}
+
+.password-change__status.is-error {
+    color: var(--danger-text);
+}
+
+.password-change__status.is-success {
+    color: var(--success);
+}
+
 .danger-zone {
     margin-top: var(--space-6);
     padding: var(--space-4);
@@ -950,7 +981,7 @@
 .lb-table th {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: var(--z-raised);
     padding: 0 var(--space-1);
     background: var(--surface-1);
     border-bottom: 2px solid var(--line-strong);
@@ -1364,7 +1395,7 @@
        (kept for focus rings) would otherwise leave a strip where scrolled
        rows show above the header */
     top: calc(-1 * var(--space-1));
-    z-index: 1;
+    z-index: var(--z-raised);
     padding: var(--space-2);
     background: var(--surface-1);
     border-bottom: 2px solid var(--line-strong);
@@ -1400,7 +1431,7 @@
     color: var(--text-secondary);
 }
 
-.admin-audit--forbidden td:nth-child(5) {
+.admin-audit--forbidden .admin-audit__result {
     color: var(--danger-text);
 }
 
@@ -1617,7 +1648,7 @@
     position: absolute;
     right: 0;
     top: calc(100% + var(--space-1));
-    z-index: 2;
+    z-index: var(--z-menu);
     min-width: 220px;
     padding: var(--space-1) 0;
     border: 1px solid var(--line-strong);
@@ -1795,7 +1826,7 @@
     pointer-events: none;
     /* the table's lit felt under the lamp, falling off to the room's dark */
     background: radial-gradient(ellipse 62% 58% at 50% 36%, rgb(var(--felt-light-rgb) / 0.95) 0%, var(--felt-base) 38%, var(--felt-deep) 66%, var(--surface-0) 100%);
-    z-index: 50;
+    z-index: var(--z-auth-vignette);
 }
 
 .auth-screen {
@@ -1808,7 +1839,7 @@
     align-items: center;
     padding: var(--space-4);
     overflow-y: auto;
-    z-index: 100;
+    z-index: var(--z-auth-screen);
 }
 
 .auth-logo-wrap {

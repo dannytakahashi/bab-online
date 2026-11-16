@@ -2,8 +2,10 @@ import SwiftUI
 
 /// Floating pill that shows reconnection status after the app foregrounds, and
 /// "Restarting for an update…" from the server's serverShutdown until the socket is back.
+/// Also "Reconnecting..." while a retryable restore failure is retried (AuthState.restoreRetrying).
 struct ConnectionStatusToast: View {
     @EnvironmentObject var socketService: SocketService
+    @EnvironmentObject var authState: AuthState
     @ObservedObject private var restart = RestartNotices.shared
     @State private var wasDisconnected = false
     @State private var showToast = false
@@ -15,11 +17,19 @@ struct ConnectionStatusToast: View {
         return restarting ? RestartNotices.restartingText : "Reconnecting..."
     }
 
+    /// What the pill shows. A restore retry shows "Reconnecting..." for as long as it lasts,
+    /// read from AuthState rather than an onChange: the toast is often inserted with the flag
+    /// already true (cold launch), and the 2 s "Connected!" hide can land mid-retry.
+    static func display(showToast: Bool, isReconnected: Bool, restoreRetrying: Bool) -> (visible: Bool, reconnected: Bool) {
+        (showToast || restoreRetrying, isReconnected && !restoreRetrying)
+    }
+
     var body: some View {
+        let shown = Self.display(showToast: showToast, isReconnected: isReconnected, restoreRetrying: authState.restoreRetrying)
         VStack {
-            if showToast {
+            if shown.visible {
                 HStack(spacing: Theme.Space.s2) {
-                    if isReconnected {
+                    if shown.reconnected {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(Theme.success)
                             .accessibilityHidden(true)
@@ -28,7 +38,7 @@ struct ConnectionStatusToast: View {
                             .tint(Theme.warning)
                             .accessibilityHidden(true)
                     }
-                    Text(Self.text(reconnected: isReconnected, restarting: restart.isRestarting))
+                    Text(Self.text(reconnected: shown.reconnected, restarting: restart.isRestarting))
                         .font(.callout.bold())
                         .foregroundColor(Theme.textPrimary)
                 }
@@ -44,6 +54,7 @@ struct ConnectionStatusToast: View {
             }
             Spacer()
         }
+        .animation(.easeInOut(duration: 0.3), value: authState.restoreRetrying)
         .overlay(alignment: .top) {
             ServerErrorToast()
         }

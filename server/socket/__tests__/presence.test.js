@@ -781,7 +781,8 @@ describe('R20 stats', () => {
         expect(r.bots).toEqual([]);
         expect(r.records).toHaveLength(1);
         expect(r.records[0].withBots).toBeUndefined();
-        expect(Object.keys(r.records[0]).sort()).toEqual(['completedAt', 'gameId', 'team1Bags', 'team1Players', 'team1Score', 'team2Bags', 'team2Players', 'team2Score']);
+        // As inserted: today's fields plus the stats deltas and the players still to apply
+        expect(Object.keys(r.records[0]).sort()).toEqual(['completedAt', 'gameId', 'statsDeltas', 'statsPending', 'team1Bags', 'team1Players', 'team1Score', 'team2Bags', 'team2Players', 'team2Score']);
     });
 
     test('a resign-bot seat makes it a bot game: botStats for every owner (the resigned one too), never stats', async () => {

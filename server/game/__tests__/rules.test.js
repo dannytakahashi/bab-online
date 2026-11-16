@@ -363,6 +363,34 @@ describe('calculateScore', () => {
         // Bid 0, got 3 = 0 + 3 = 3
         expect(calculateScore(0, 3, 1, 0)).toBe(3);
     });
+
+    // handleHandComplete's inline arithmetic before it called calculateScore
+    function legacyHandPoints(bid, tricks, mult, rainbows) {
+        let score = 0;
+        if (tricks >= bid) {
+            score += bid * 10 * mult + (tricks - bid) + rainbows * 10;
+        } else {
+            score -= bid * 10 * mult;
+            score += rainbows * 10;
+        }
+        return score;
+    }
+
+    test('is the one scoring function: the old hand-complete formula and playSearch.teamScore on every contract', () => {
+        const { teamScore } = require('../bot/playSearch');
+        for (let hand = 1; hand <= 13; hand++) {
+            for (let bid = 0; bid <= hand; bid++) {
+                for (const mult of [1, 2, 4, 8, 16]) {
+                    for (let tricks = 0; tricks <= hand; tricks++) {
+                        for (const rainbows of [0, 1, 2]) {
+                            expect(calculateScore(bid, tricks, mult, rainbows)).toBe(legacyHandPoints(bid, tricks, mult, rainbows));
+                        }
+                        expect(teamScore(bid, mult, tricks)).toBe(legacyHandPoints(bid, tricks, mult, 0));
+                    }
+                }
+            }
+        }
+    });
 });
 
 describe('calculateMultiplier', () => {

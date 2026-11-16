@@ -15,7 +15,8 @@
           "signIn",
           "signUp",
           "restoreSession",
-          "clientHello"
+          "clientHello",
+          "clientError"
         ]
       },
       {
@@ -102,7 +103,8 @@
       {
         "section": "Account management",
         "events": [
-          "deleteAccount"
+          "deleteAccount",
+          "changePassword"
         ]
       },
       {
@@ -130,6 +132,7 @@
           "sessionSuperseded",
           "activeGameFound",
           "deleteAccountResponse",
+          "changePasswordResponse",
           "restoreSessionResponse"
         ]
       },
@@ -307,7 +310,8 @@
         "events": [
           "signIn",
           "signUp",
-          "deleteAccount"
+          "deleteAccount",
+          "changePassword"
         ]
       },
       {
@@ -340,7 +344,8 @@
         "section": "Session",
         "events": [
           "restoreSession",
-          "clientHello"
+          "clientHello",
+          "clientError"
         ]
       },
       {
@@ -416,7 +421,8 @@
           "restoreSessionResponse",
           "forceLogout",
           "activeGameFound",
-          "deleteAccountResponse"
+          "deleteAccountResponse",
+          "changePasswordResponse"
         ]
       },
       {

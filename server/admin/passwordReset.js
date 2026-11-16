@@ -32,6 +32,7 @@ const crypto = require('crypto');
 const { hashToken } = require('../utils/sessionTokens');
 const { writePasswordHash, checkPasswordRule } = require('./setPassword');
 const { AdminError } = require('./adminError');
+const { isNameHold, heldNameRefusal, HOLD_FIELDS } = require('./nameHold');
 
 const RESET_TTL_MS = 24 * 60 * 60 * 1000;
 const TOKEN_BYTES = 32;
@@ -54,8 +55,9 @@ function newToken() {
  *          token is the secret: hand it to the admin, nowhere else
  */
 async function createResetLink(db, username, { now = new Date(), by = null } = {}) {
-    const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1 } });
+    const user = await db.users.findOne({ username }, { projection: { username: 1, mergedInto: 1, ...HOLD_FIELDS } });
     if (!user) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
+    if (isNameHold(user)) throw new AdminError('refused', heldNameRefusal(username, user, 'make a reset link for'));
     if (user.mergedInto) {
         throw new AdminError('refused', `"${username}" was merged into "${user.mergedInto}". Make the link for "${user.mergedInto}" instead.`);
     }

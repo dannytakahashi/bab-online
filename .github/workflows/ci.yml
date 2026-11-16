@@ -83,8 +83,8 @@ jobs:
 
       # What Railway runs: the built client, then `node server/index.js`
       # with NODE_ENV=production. Port 3000 is hard-coded (server/index.js);
-      # nothing else in this job listens on it. The server always writes the
-      # 'babonline' database, here the throwaway CI service
+      # nothing else in this job listens on it. The server writes DB_NAME, else
+      # 'babonline' (never the URI's /test path), here the throwaway CI service
       - name: Production boot (node server/index.js)
         env:
           MONGO_URI: mongodb://localhost:27017/test

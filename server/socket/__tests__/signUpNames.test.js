@@ -54,7 +54,7 @@ const lastEmit = (socket, event) => {
     const calls = socket.emit.mock.calls.filter(([e]) => e === event);
     return calls.length ? calls[calls.length - 1][1] : undefined;
 };
-async function signUp(username, password = 'secret') {
+async function signUp(username, password = 'secret-pw') {
     const socket = connect();
     await auth.signUp(socket, io, { username, password });
     return lastEmit(socket, 'signUpResponse');
@@ -266,7 +266,7 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
     let socket;
     const attempt = async (username) => {
         socket.emit.mockClear();
-        await wrapped(socket, io, { username, password: 'secret' });
+        await wrapped(socket, io, { username, password: 'secret-pw' });
         return { reply: lastEmit(socket, 'signUpResponse'), error: lastEmit(socket, 'serverError') };
     };
 

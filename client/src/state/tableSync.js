@@ -32,6 +32,8 @@ export function tableSnapshotOf(payload, { role } = {}) {
   const raw = payload.v === 2 ? payload : payload.snapshot;
   if (raw) {
     const parsed = parseSnapshotV2(raw);
+    // A newer server's enum value: kept as unknown (as iOS), and logged
+    if (parsed.ok && parsed.warnings.length) console.warn('Snapshot v2: unknown values kept:', parsed.warnings.slice(0, 3));
     if (parsed.ok) return parsed.snapshot;
     console.warn('Snapshot v2 refused, using the v1 fields:', parsed.errors.slice(0, 3));
   }

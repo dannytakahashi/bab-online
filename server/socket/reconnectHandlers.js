@@ -12,6 +12,7 @@ const { verifySession } = require('../utils/sessionTokens');
 const { rememberBlockList } = require('./voiceHandlers');
 const { claimSocket, releaseClaim } = require('./authHandlers');
 const { releaseIdentity } = require('./sessionIdentity');
+const { deletedSince } = require('../admin/accountDelete');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -131,6 +132,14 @@ async function rejoinGame(socket, io, data) {
         return;
     }
 
+    // Nor a lobby seat or another tournament (GameManager.activityOf)
+    const other = gameManager.activityBesides(socket.id, gameId);
+    if (other) {
+        socketLogger.warn('Rejoin refused: socket belongs elsewhere', { username, gameId, kind: other.kind });
+        socket.emit('rejoinFailed', { reason: other.kind === 'lobby' ? 'In a lobby' : other.kind === 'game' ? 'In another game' : 'In a tournament' });
+        return;
+    }
+
     const refuse = () => {
         const playersInGame = Array.from(game.players.values()).map(p => p.username);
         socketLogger.debug('Rejoin failed: player not in game', { username, playersInGame });
@@ -146,7 +155,9 @@ async function rejoinGame(socket, io, data) {
     }
 
     // The seat this user owns (human, lazy or resigned). A /leave is final.
-    const position = game.seatByUsername(username);
+    // A seat of an account deleted since the game was created is nobody's:
+    // a new account that took the freed name never gets it (accountDelete)
+    const position = deletedSince(username, game.createdAt) ? null : game.seatByUsername(username);
     const seat = position ? game.seat(position) : null;
     if (!seat || seat.presence === Presence.GONE) {
         refuse();

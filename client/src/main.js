@@ -14,7 +14,11 @@ import { RANK_VALUES } from './constants/ranks.js';
 // Utilities
 import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
+import { safeSessionStorage } from './utils/safeStorage.js';
+import { createVoiceLifecycle } from './voice/voiceLifecycle.js';
+import { installContextLossHandling } from './phaser/webglContext.js';
 import { installAvatarSupport } from './utils/avatar.js';
+import { getClientErrorReporter } from './telemetry/clientErrors.js';
 
 // Rules
 import { isLegalMove } from './rules/legality.js';
@@ -25,7 +29,7 @@ import { PHASE, getGameState } from './state/GameState.js';
 import { getClientSession, SCREEN, ROLE, EXIT } from './state/ClientSession.js';
 
 // Socket
-import { getSocketManager, initializeSocketManager } from './socket/SocketManager.js';
+import { getSocketManager, initializeSocketManager, CHAT_EVENTS, REFUSAL } from './socket/SocketManager.js';
 import { createSocket } from './socket/createSocket.js';
 import { failureOf, TABLE_ERROR_HANDLERS } from './socket/serverErrors.js';
 import { installConnectionBanner } from './ui/components/ConnectionBanner.js';
@@ -47,8 +51,9 @@ import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, 
 import { showGameLobby, updateLobbyPlayersList, addLobbyChatMessage, removeGameLobby } from './ui/screens/GameLobby.js';
 import {
   showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
-  updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed,
+  updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed, showChangePasswordResult,
 } from './ui/screens/ProfilePage.js';
+import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
@@ -61,7 +66,7 @@ import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
 // Phaser
 import { createPhaserGame, getPhaserGame } from './phaser/PhaserGame.js';
-import { installLoopControl } from './phaser/loopControl.js';
+import { installLoopControl, LOOP_SCREENS } from './phaser/loopControl.js';
 import { applyBackingStore, onDprChange } from './phaser/backingStore.js';
 import { loadCardFont } from './phaser/cards/cardFont.js';
 
@@ -223,11 +228,8 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
   }
   if (!gameLogInstance) {
     gameLogInstance = showGameLog({
-      onChatSubmit: (message) => {
-        if (window.socket) {
-          window.socket.emit('chatMessage', { message });
-        }
-      },
+      // false (the emit gate refused it, offline): the log keeps the draft
+      onChatSubmit: (message) => (window.socket ? window.socket.emit('chatMessage', { message }) : false),
     });
 
     // The log's grid column (--log-w) comes on
@@ -286,6 +288,18 @@ installAvatarSupport(socket, {
   build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
 });
 
+// Client error reports (telemetry/clientErrors.js): uncaught errors and
+// unhandled rejections from here on, plus the table's own counters (SeqGate
+// gaps, TableDirector failures, illegal screen moves), once per kind per page
+// load, sent as clientError while connected. Never throws
+const errorReporter = getClientErrorReporter();
+errorReporter.configure({
+  build: typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : 'dev',
+  page: () => getClientSession().screen,
+});
+errorReporter.attach(socket);
+errorReporter.installWindowHooks(window);
+
 // ==================== SESSION / RECONNECTION ====================
 
 // The client session (state/ClientSession.js) is the one place that knows
@@ -319,8 +333,8 @@ socket.io.on('reconnect', (attemptNumber) => {
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
   // The tab's credentials go; the device's saved session stays
-  sessionStorage.removeItem('username');
-  sessionStorage.removeItem('sessionToken');
+  safeSessionStorage().removeItem('username');
+  safeSessionStorage().removeItem('sessionToken');
   session.clearIdentity();
   setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
@@ -359,6 +373,23 @@ socket.on('reportUserResponse', (data) => {
   }
 });
 
+// Change password (profile page): the form shows the answer; this device
+// stays signed in, the server signed out every other one
+socket.on('changePasswordResponse', (data) => {
+  showChangePasswordResult(data || {});
+});
+
+/**
+ * The one-time notice after a password reset (signInResponse /
+ * restoreSessionResponse passwordReset {by, at}, additive 2026-11-15): one
+ * info line, a little longer than a plain toast.
+ */
+const PASSWORD_RESET_TOAST_MS = 10000;
+function notePasswordReset(data) {
+  const text = passwordResetNoticeText(data?.passwordReset);
+  if (text) showInfo(text, PASSWORD_RESET_TOAST_MS);
+}
+
 // Account deletion (in-app, required by App Store Guideline 5.1.1(v))
 socket.on('deleteAccountResponse', (data) => {
   if (data.success) {
@@ -385,6 +416,9 @@ function showErrorToast(message, duration = 5000) {
 // Track retry attempts for joinMainRoom
 let joinMainRoomRetries = 0;
 const MAX_JOIN_RETRIES = 5;
+// joinTournament refusals the server answers with no main room (it leaves
+// the socket where it is: server tournamentHandlers STAYS_PUT)
+const STAYS_PUT_REFUSALS = new Set(['Already in a tournament', 'Already in a lobby', 'Already in game']);
 
 // ==================== SERVER RESTART ====================
 
@@ -475,8 +509,10 @@ function handleSocketError(error, socket) {
     if (!explainRestartLoss()) showErrorToast('The tournament is no longer available');
     if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
     // The server follows a failed joinTournament with the main room, except
-    // for 'Already in a tournament'; a failed spectateTournament with nothing
-    if (pendingTournament.spectator || error.message === 'Already in a tournament') session.requestMainRoom();
+    // when the socket belongs elsewhere ('Already in a tournament' / 'Already
+    // in a lobby' / 'Already in game': joinMainRoom also leaves a lobby seat);
+    // a failed spectateTournament with nothing
+    if (pendingTournament.spectator || STAYS_PUT_REFUSALS.has(error.message)) session.requestMainRoom();
     return true;
   }
 
@@ -559,11 +595,30 @@ function initializeApp() {
     requestSnapshot,
     forceReconnect: () => socketMgr.forceReconnect(),
     connectionId: () => (socket.connected ? socket.id || 'connected' : null),
+    // The emit gate's rule (SocketManager._send): no bid or play before the restore
+    canSend: (event) => socketMgr.canSend(event),
+    onRefused: () => showInfo('Reconnecting. Try again in a moment.'),
+  });
+
+  // The emit gate's notices: a refusal (offline; a chat form keeps the
+  // draft), and what was held too long to send after the reconnect
+  socketMgr.setEmitNotices({
+    refused: (event, reason) => showWarning(reason === REFUSAL.FULL
+      ? (CHAT_EVENTS.has(event)
+        ? "Still reconnecting. Your message wasn't sent; try again in a moment."
+        : 'Still reconnecting. Try again in a moment.')
+      : (CHAT_EVENTS.has(event)
+        ? "You're offline. Your message wasn't sent."
+        : "You're offline. Try again once you're back online.")),
+    dropped: (events) => showWarning(events.some((e) => CHAT_EVENTS.has(e))
+      ? "A message from while you were reconnecting wasn't sent."
+      : "An action from while you were reconnecting wasn't sent."),
   });
 
   // Visible connection state while the socket is down (and the restart
   // notice: serverShutdown)
   const connectionBanner = installConnectionBanner(socketMgr);
+  connectionBannerRef = connectionBanner;
 
   // A parked tab whose socket reconnected (a deploy, a network blip): a
   // parked tab never restores, so the server no longer knows the new
@@ -603,36 +658,46 @@ function initializeApp() {
   // Voice chat lifecycle helpers
   const voiceManager = getVoiceChatManager();
 
-  async function startVoice() {
-    if (voiceManager.active) return;
-    try {
-      await voiceManager.initialize(socketMgr);
-      createMuteButton();
-      // Register speaking indicator callback
-      voiceManager.onSpeakingChange((id, isSpeaking) => {
-        if (id === 'self') {
-          const el = document.getElementById('player-avatar-container');
-          if (el) el.classList.toggle('voice-speaking', isSpeaking);
-        } else {
-          // Peer → seat by username: the seat's owner, then the name it
-          // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
-          const slotId = speakingSlotFor({
-            username: voiceManager.peers.get(id)?.username || null,
-            socketId: id,
-            playerData: gameState.playerData,
-            myPosition: gameState.position,
-            owners: gameState.seatOwners,
-          });
-          if (slotId) {
-            const el = document.getElementById(`opponent-avatar-${slotId}`);
-            if (el) el.classList.toggle('voice-speaking', isSpeaking);
-          }
-        }
-      });
-    } catch (err) {
-      console.warn('Voice chat unavailable:', err.message);
+  // Start / stop across the mic prompt: a stop while it is up ends the
+  // start, so a late answer draws no dead mute button (voiceLifecycle.js)
+  const voiceLifecycle = createVoiceLifecycle({
+    manager: voiceManager,
+    connect: () => voiceManager.initialize(socketMgr),
+    onStarted: () => showVoiceControls(),
+    onUnavailable: (err) => {
+      console.warn('Voice chat unavailable:', err?.message);
       showWarning('Microphone access denied. Voice chat unavailable.');
-    }
+    },
+    teardown: () => teardownVoice(),
+  });
+
+  function startVoice() {
+    return voiceLifecycle.start();
+  }
+
+  function showVoiceControls() {
+    createMuteButton();
+    // Register speaking indicator callback
+    voiceManager.onSpeakingChange((id, isSpeaking) => {
+      if (id === 'self') {
+        const el = document.getElementById('player-avatar-container');
+        if (el) el.classList.toggle('voice-speaking', isSpeaking);
+      } else {
+        // Peer → seat by username: the seat's owner, then the name it
+        // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
+        const slotId = speakingSlotFor({
+          username: voiceManager.peers.get(id)?.username || null,
+          socketId: id,
+          playerData: gameState.playerData,
+          myPosition: gameState.position,
+          owners: gameState.seatOwners,
+        });
+        if (slotId) {
+          const el = document.getElementById(`opponent-avatar-${slotId}`);
+          if (el) el.classList.toggle('voice-speaking', isSpeaking);
+        }
+      }
+    });
   }
 
   /**
@@ -759,6 +824,10 @@ function initializeApp() {
   });
 
   function stopVoice() {
+    voiceLifecycle.stop();
+  }
+
+  function teardownVoice() {
     voiceManager.shutdown();
     removeMuteButton();
     removeVoiceOverlay();
@@ -914,6 +983,8 @@ function initializeApp() {
       leaveParked();
       // Signed in on this socket: no restoreSession needed for it
       session.noteSignedIn(data.username);
+      stopRestoreRetry();
+      notePasswordReset(data);
       // The main room's Admin entry (display only; the server checks)
       setIsAdmin(data.isAdmin === true);
       setBlockedUsers(data.blockedUsers);
@@ -936,6 +1007,8 @@ function initializeApp() {
       showError(message || 'Sign-in failed! Incorrect username or password.');
     },
     onSignUpSuccess: (data) => {
+      // A pending restore retry belongs to the identity this tab just left
+      stopRestoreRetry();
       if (data.autoLoggedIn) {
         // Auto-login: go straight to main room
         console.log(`Registration & auto-login successful: ${data.username}`);
@@ -1294,12 +1367,8 @@ function initializeApp() {
           }
           if (!gameLogInstance) {
             gameLogInstance = showGameLog({
-              onChatSubmit: (message) => {
-                const socket = getSocketManager()?.socket;
-                if (socket) {
-                  socket.emit('chatMessage', { message });
-                }
-              },
+              // false (the emit gate refused it, offline): the log keeps the draft
+              onChatSubmit: (message) => getSocketManager()?.socket?.emit('chatMessage', { message }) ?? false,
             });
 
             // The log's grid column (--log-w) comes on
@@ -1489,6 +1558,8 @@ function initializeApp() {
     onRejoinFailed: (data) => {
       // 'Already connected': this socket's seat is live, keep it
       const reason = typeof data === 'string' ? data : data?.reason;
+      // The emit gate waited for this answer (ClientSession.onSessionRestored)
+      session.noteRejoinFailed(reason);
       if (reason === 'Already connected') return;
       // The game is gone (or was left): take any table down, route out
       session.exitTable(EXIT.REJOIN_FAILED);
@@ -1683,8 +1754,8 @@ function initializeApp() {
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
     },
-    onSearchPlayersResult: (players) => {
-      updatePlayerSearchResults(players);
+    onSearchPlayersResult: (players, query) => {
+      updatePlayerSearchResults(players, query);
     },
     onPlayerProfileReceived: (profile, scope) => {
       if (isStaleScopeReply(scope)) return;
@@ -1893,6 +1964,8 @@ function initializeApp() {
  * @param {string} [reason] - EXIT.*
  */
 function displaySignInScreen(reason = null) {
+  // Signed out (forceLogout, sign out, a failed restore): nothing to restore
+  stopRestoreRetry();
   if (reason || session.hasTable) {
     session.exitTable(reason || EXIT.SIGN_OUT, { to: SCREEN.SIGN_IN });
   } else {
@@ -1905,7 +1978,7 @@ function displaySignInScreen(reason = null) {
  */
 function renderSignIn() {
   // Pre-fill username if we have it stored (e.g., after failed rejoin)
-  const storedUsername = sessionStorage.getItem('username') || '';
+  const storedUsername = safeSessionStorage().getItem('username') || '';
 
   showSignInScreen({
     onSignIn: ({ username, password }) => {
@@ -1988,6 +2061,44 @@ function signOutParkedTab() {
 /** restoreSessionResponse failures that need no explanation (sign in again). */
 const ROUTINE_RESTORE_FAILURES = new Set(['Invalid session token', 'User not found']);
 
+// A restore failure marked retryable (a database error, a name an admin
+// action holds for a moment; additive 2026-11-15): the saved token is kept
+// and restoreSession goes out again on the same socket after 1 s, doubling
+// to 30 s (the server allows 10 a minute per socket), with the banner's
+// 'Reconnecting…'. A new socket restores by itself (and starts over); a
+// success, a sign-in, a sign-up, the sign-in screen or any other failure
+// stops it.
+export const RESTORE_RETRY_MIN_MS = 1000;
+export const RESTORE_RETRY_MAX_MS = 30000;
+let connectionBannerRef = null;
+const restoreRetry = { attempt: 0, socketId: null, timer: null };
+
+function stopRestoreRetry() {
+  clearTimeout(restoreRetry.timer);
+  restoreRetry.timer = null;
+  restoreRetry.attempt = 0;
+  restoreRetry.socketId = null;
+  connectionBannerRef?.noteRestoring(false);
+}
+
+function scheduleRestoreRetry() {
+  const id = socket.id;
+  if (restoreRetry.socketId !== id) {
+    restoreRetry.socketId = id;
+    restoreRetry.attempt = 0;
+  }
+  const delay = Math.min(RESTORE_RETRY_MAX_MS, RESTORE_RETRY_MIN_MS * 2 ** restoreRetry.attempt);
+  restoreRetry.attempt++;
+  clearTimeout(restoreRetry.timer);
+  connectionBannerRef?.noteRestoring(true);
+  restoreRetry.timer = setTimeout(() => {
+    restoreRetry.timer = null;
+    // Another socket by now: its own connect restored (or will)
+    if (socket.id !== id || !socket.connected || !session.credentials()) return;
+    session.retryResume();
+  }, delay);
+}
+
 // restoreSessionResponse: sent for session.resume() (every connect of a
 // signed-in tab, once per socket)
 socket.on('restoreSessionResponse', (data) => {
@@ -1995,17 +2106,24 @@ socket.on('restoreSessionResponse', (data) => {
   leaveParked();
   if (data.success) {
     console.log('Session restored successfully');
+    stopRestoreRetry();
+    notePasswordReset(data);
     setBlockedUsers(data.blockedUsers);
     setIsAdmin(data.isAdmin === true);
     // Then rejoin, re-spectate, or re-enter the current screen
     const action = session.onSessionRestored(data);
     console.log(`Session restored: ${action}`);
+  } else if (data.retryable === true && session.credentials()) {
+    // Passing: keep the token (and the screen) and ask again
+    console.log('Session restore failed, retrying:', data.message);
+    scheduleRestoreRetry();
   } else {
     console.log('Session restore failed:', data.message);
+    stopRestoreRetry();
     // Clear invalid session data (and the device's saved copy of it)
-    forgetSession(sessionStorage.getItem('sessionToken'));
-    sessionStorage.removeItem('username');
-    sessionStorage.removeItem('sessionToken');
+    forgetSession(safeSessionStorage().getItem('sessionToken'));
+    safeSessionStorage().removeItem('username');
+    safeSessionStorage().removeItem('sessionToken');
     session.clearIdentity();
     restartNotice.clear();
     setIsAdmin(false);
@@ -2041,6 +2159,15 @@ export function startApp() {
 
   // Create the Phaser game - GameScene.create() will call setGameScene
   createPhaserGame('game-container');
+  // A lost WebGL context takes every texture with it (Phaser 3.55 restores
+  // no textures): reload once, with a message, on the table's screens;
+  // elsewhere when the table next shows (phaser/webglContext.js)
+  installContextLossHandling({
+    game: getPhaserGame(),
+    notify: (kind, text) => (kind === 'stuck' ? showWarning(text, 60000) : showInfo(text)),
+    isTableShowing: () => LOOP_SCREENS.includes(session.screen),
+    onScreenChange: (fn) => session.onScreenChange(fn),
+  });
   // The loop runs only on the table's screens (cli-23, webclient-10)
   loopControl = installLoopControl({ session, getGame: () => getPhaserGame() });
 
@@ -2049,7 +2176,7 @@ export function startApp() {
     console.log('Resuming saved session from this device');
   }
 
-  const username = sessionStorage.getItem('username');
+  const username = safeSessionStorage().getItem('username');
   console.log(`Window load: username=${username}, sessionToken=${session.credentials() ? 'present' : 'none'}, gameId=${session.persistedGameId}, spectating=${session.persistedSpectateId}`);
 
   if (!session.credentials()) {
@@ -2061,4 +2188,5 @@ export function startApp() {
   session.start();
 }
 
-window.addEventListener('load', startApp);
+// No load listener of its own: boot (src/boot/boot.js startApp) runs it
+// after the load event, inside the promise whose failure reloads once

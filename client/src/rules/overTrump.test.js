@@ -6,7 +6,8 @@
  * Each row also states what the pre-2026-11-11 detector (last card vs the
  * one before it: both trump, lead not trump, higher rank) answered; the
  * rows where it was wrong are marked, and `legacyDetect` below is a copy of
- * it, so the table proves each of them fails on the old function.
+ * it, so the table proves each of them fails on the old function. The
+ * rows are the shared contract/rules/legality-cases.json `tricks`.
  */
 import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
@@ -34,35 +35,11 @@ function legacyDetect(t, trump) {
     RANK_VALUES[current.rank] > RANK_VALUES[previous.rank] && !isTrumpOrJoker(lead);
 }
 
-// [name, trick, trump, expected, oldWasWrong]
-const CASES = [
-  // genuine over-trumps
-  ['opponent ruffs, the next player trumps higher', '1:Kh 2:5s 3:9s', SPADES, true, false],
-  ['an over-trump of an over-trump', '1:Kh 2:5s 3:9s 4:Js', SPADES, true, false],
-  ['the 4th seat over-trumps the 3rd (the leader is its opponent)', '1:Kh 2:Ah 3:5s 4:9s', SPADES, true, false],
-  ['LO joker over the opponent\'s trump ace', '1:Kh 2:As 3:LOj', SPADES, true, false],
-  ['HI joker over the opponent\'s LO joker', '1:Kh 2:LOj 3:HIj', SPADES, true, false],
-  ['no-trump hand: HI over the opponent\'s LO', '1:Kh 2:LOj 3:HIj', NO_TRUMP, true, false],
-  // over a PARTNER's winning trump: never an over-trump
-  ['over my partner\'s trump (the opponent between them under-trumped)', '1:Kh 2:9s 3:5s 4:Js', SPADES, false, true],
-  ['beats the opponent\'s under-trump, not the partner\'s winning 9', '1:Kh 2:9s 3:5s 4:7s', SPADES, false, true],
-  ['both jokers: HI over the partner\'s LO, the opponent under-trumped', '1:Kh 2:LOj 3:2s 4:HIj', SPADES, false, true],
-  ['no-trump hand: HI over the partner\'s LO', '1:Kh 2:LOj 3:5h 4:HIj', NO_TRUMP, false, false],
-  ['partner ruffed, the next opponent followed, I trump higher', '1:Kh 2:5s 3:2h 4:9s', SPADES, false, false],
-  // trump leads (a joker lead is a trump lead)
-  ['a trump lead, then a higher trump', '1:5s 2:9s 3:Js', SPADES, false, false],
-  ['a trump lead, a higher trump by the 4th seat', '1:5s 2:2s 3:3s 4:Js', SPADES, false, false],
-  ['the HI joker led: the opponents\' forced trumps', '1:HIj 2:As 3:2s 4:Ks', SPADES, false, false],
-  ['the LO joker led, the HI joker over it', '1:LOj 2:2s 3:HIj', SPADES, false, false],
-  ['no-trump hand: LO led, HI over it', '1:LOj 2:5h 3:HIj', NO_TRUMP, false, false],
-  // not over a winning trump
-  ['the first trump of the trick (a ruff)', '1:Kh 2:Ah 3:2s', SPADES, false, false],
-  ['an under-trump of the opponent', '1:Kh 2:9s 3:5s', SPADES, false, false],
-  ['a slough after an opponent ruffed', '1:Kh 2:5s 3:2d', SPADES, false, false],
-  ['no-trump hand: a spade is not a trump', '1:Kh 2:LOj 3:As', NO_TRUMP, false, false],
-  ['no-trump hand: the first joker of the trick', '1:Kh 2:As 3:LOj', NO_TRUMP, false, false],
-  ['a lead and one card', '1:Kh 2:5s', SPADES, false, false],
-];
+// The rows live in the shared table (contract/rules/legality-cases.json
+// `tricks`), which Jest and XCTest run too: [name, trick, trump, expected, oldWasWrong]
+const TABLE = createRequire(import.meta.url)('../../../contract/rules/legality-cases.json');
+const trumpOf = (code) => ({ rank: code.slice(0, -1), suit: SUITS[code.slice(-1)] });
+const CASES = TABLE.tricks.map((r) => [r.name, r.trick, trumpOf(r.trump), r.overTrump, r.oldDetectorWrong]);
 
 describe('isOverTrump: the case table', () => {
   it.each(CASES)('%s', (_name, spec, trump, expected, oldWasWrong) => {
@@ -79,6 +56,11 @@ describe('isOverTrump: the case table', () => {
       expect(expected).toBe(false);
       expect(legacyDetect(trick(spec), trump)).toBe(true);
     }
+  });
+
+  it.each(TABLE.tricks.map((r) => [r.name, r]))('winner so far: %s', (_name, row) => {
+    const t = trick(row.trick);
+    expect(t[trickWinnerIndex(t, trumpOf(row.trump))].position).toBe(row.winner);
   });
 
   it('nothing to judge without a trump or with fewer than 3 cards', () => {

@@ -82,7 +82,13 @@ export function createAdminApi(socket, { timeoutMs = REQUEST_TIMEOUT_MS, rateLim
         reject(new Error('timeout'));
       }, timeoutMs);
       pending.set(requestId, { resolve, reject, timer });
-      socket.emit(CLIENT_EVENTS.ADMIN_REQUEST, { requestId, action, args });
+      // false: the emit gate refused it (the socket is reconnecting): fail
+      // now, the panel says so and stays open
+      if (socket.emit(CLIENT_EVENTS.ADMIN_REQUEST, { requestId, action, args }) === false) {
+        clearTimeout(timer);
+        pending.delete(requestId);
+        reject(new Error('offline'));
+      }
     });
   }
 

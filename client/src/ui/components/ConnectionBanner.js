@@ -31,6 +31,9 @@ export const BANNER_TEXT = {
   ended: 'Disconnected by the server. Reload the page to reconnect.',
   // serverShutdown: a deploy restarts the server; the page reconnects by itself
   restarting: "BAB Online is restarting for an update. You'll reconnect in a moment.",
+  // connected, but the saved session could not be restored for a passing
+  // reason (restoreSessionResponse retryable): main.js retries with backoff
+  restoring: 'Reconnecting…',
 };
 
 // The restart text goes if the socket never dropped after the notice (a
@@ -47,7 +50,7 @@ export const SERVER_DISCONNECT_REASON = 'io server disconnect';
  * @param {Document} [options.doc]
  * @param {number} [options.showDelayMs]
  * @param {number} [options.restartStaleMs]
- * @returns {{ element: HTMLElement, destroy: Function, isVisible: Function, noteServerRestart: Function, isRestarting: Function }}
+ * @returns {{ element: HTMLElement, destroy: Function, isVisible: Function, noteServerRestart: Function, isRestarting: Function, noteRestoring: Function }}
  */
 export function installConnectionBanner(socketManager, { doc = document, showDelayMs = SHOW_DELAY_MS, restartStaleMs = RESTART_STALE_MS } = {}) {
   let element = doc.getElementById(BANNER_ID);
@@ -170,10 +173,24 @@ export function installConnectionBanner(socketManager, { doc = document, showDel
     }
   };
 
+  /**
+   * A retryable restore failure (on) / the restore answered or the retries
+   * stopped (off): 'Reconnecting…' while the socket itself is up. Off only
+   * hides its own text (a drop's text stays).
+   */
+  const noteRestoring = (on) => {
+    if (on) {
+      if (!restarting) showNow(BANNER_TEXT.restoring);
+    } else if (element.textContent === BANNER_TEXT.restoring) {
+      hide();
+    }
+  };
+
   return {
     element,
     isVisible,
     noteServerRestart,
+    noteRestoring,
     isRestarting: () => restarting,
     destroy() {
       unsubscribe();

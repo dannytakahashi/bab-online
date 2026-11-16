@@ -108,6 +108,17 @@ describe('GameManager', () => {
             expect(gameManager.queue).toBeUndefined();
             expect(gameManager.queuedUsers).toBeUndefined();
         });
+
+        test('lobby chat keeps the newest MAX_LOBBY_MESSAGES lines (the history every join is sent)', () => {
+            const max = gameManager.constructor.MAX_LOBBY_MESSAGES;
+            expect(max).toBe(100);
+            gameManager.registerUser('socket1', 'player1');
+            const { lobby } = gameManager.createNamedLobby('socket1');
+            for (let i = 1; i <= max + 25; i++) gameManager.addLobbyMessage('socket1', `line ${i}`);
+            expect(lobby.messages).toHaveLength(max);
+            expect(lobby.messages[0].message).toBe('line 26');
+            expect(lobby.messages[max - 1].message).toBe(`line ${max + 25}`);
+        });
     });
 
     describe('leaveLobby', () => {

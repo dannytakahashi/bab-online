@@ -4,14 +4,13 @@
  * SoundManager to play, counted against the recording itself.
  *
  *   - Live play: one card sound per cardPlayed, one deal per gameStart
- *     (when its cards go down), one turn cue per play of mine and per bid
- *     of mine made once the trump was face up (this recorded seat is a
- *     scripted client that often bids before the web bid panel could
- *     open: that turn's cue is dropped, as no web player could have bid
- *     yet), the tricks split by seat parity, one made / set per hand.
- *   - The order: a hand's made / set is never followed by a turn cue
- *     before the next deal; a turn cue in the same tick as a card or trick
- *     starts TURN_DELAY_S later; the game end waits for the last made / set.
+ *     (when its cards go down), the tricks split by seat parity, one
+ *     made / set per hand. The turn chime is a reminder (TURN_IDLE_MS):
+ *     at most one per turn of mine, only while that turn is still open
+ *     (this recorded seat is a scripted client that answers its turns at
+ *     once, so most never chime; tableSounds.test.js has the timing).
+ *   - The order: a hand's made / set is never followed by a turn chime
+ *     before the next deal; the game end waits for the last made / set.
  *   - The socket dies mid-hand and the recorded rejoinSuccess lands: not a
  *     sound, and the turn it restores is no cue.
  *   - Play on to gameEnd: still one per event, one game end.
@@ -30,7 +29,6 @@ let rec;
 let sound;
 const played = []; // {name, opts, t}
 const flips = []; // trumpShown times
-let TURN_DELAY_S;
 let GAME_END_AFTER_HAND_S;
 
 const count = (name) => played.filter((p) => p.name === name).length;
@@ -60,9 +58,7 @@ function checkOrder() {
     if (p.name === 'made' || p.name === 'set') handEnded = true;
     if (p.name === 'deal') handEnded = false;
     if (p.name === 'turn') expect(handEnded, `turn #${i} between a hand end and the next deal`).toBe(false);
-    if (p.name === 'turn' && played.some((q) => q !== p && q.t === p.t && ['card', 'trick', 'trick-ours'].includes(q.name))) {
-      expect(p.opts?.delay).toBe(TURN_DELAY_S);
-    }
+    if (p.name === 'turn') expect(p.myTurn, `turn #${i} chimed when the turn was not mine`).toBe(true);
     if (p.name === 'gameend' && played.some((q) => (q.name === 'made' || q.name === 'set') && q.t === p.t)) {
       expect(p.opts?.delay).toBeCloseTo(GAME_END_AFTER_HAND_S, 2);
     }
@@ -104,10 +100,10 @@ beforeAll(async () => {
   page = await replay.realTablePage({ username: 'ios_ann', socketId: 'ios-h1' });
   const { getSoundManager } = await import('../audio/SoundManager.js');
   const tableSounds = await import('../audio/tableSounds.js');
-  ({ TURN_DELAY_S, GAME_END_AFTER_HAND_S } = tableSounds);
+  ({ GAME_END_AFTER_HAND_S } = tableSounds);
   sound = getSoundManager();
   vi.spyOn(sound, 'play').mockImplementation((name, opts) => {
-    played.push({ name, opts, t: Date.now() });
+    played.push({ name, opts, t: Date.now(), myTurn: page.gameState.currentTurn === page.gameState.position });
     return true;
   });
   const ts = tableSounds.getTableSounds();
@@ -135,7 +131,9 @@ describe('recorded game: one sound per moment, none for a rejoin', () => {
     want.turn += bids.filter((b) => b.afterFlip).length;
     expect(want.card).toBeGreaterThan(20);
     expect(want.turn).toBeGreaterThan(5);
-    expect(actual()).toEqual(want);
+    const got = actual();
+    expect(got.turn).toBeLessThanOrEqual(want.turn);
+    expect({ ...got, turn: 0 }).toEqual({ ...want, turn: 0 });
     expect(count('overtrump')).toBe(0);
     checkOrder();
   });
@@ -163,7 +161,9 @@ describe('recorded game: one sound per moment, none for a rejoin', () => {
     want.turn += bids.filter((b) => b.afterFlip).length;
     // the snapshot showed my turn: my next action answers it, no new cue
     if (snap.turn?.position === pos) want.turn -= 1;
-    expect(actual()).toEqual(want);
+    const got = actual();
+    expect(got.turn).toBeLessThanOrEqual(want.turn);
+    expect({ ...got, turn: 0 }).toEqual({ ...want, turn: 0 });
     expect(want.gameend).toBe(1);
     expect(page.session.screen).toBe('gameEnd');
     checkOrder();

@@ -12,14 +12,14 @@ const {
     isVoidInSuit,
     isTrumpTight,
     isLegalMove,
-    determineWinner
+    determineWinner,
+    HAND_PROGRESSION
 } = require('../rules');
 const { getBidStyle, getPlayStyle } = require('./personalities');
 const { searchCard, SEARCH } = require('./playSearch');
 const { OWN_TRICKS, PARTNER_OVER, TEAM_SD, TEAM_SD_NO_TRUMP, SECOND_BID_PMF } = require('./bidModel');
 
-// --- Hand progression for determining game phase ---
-const HAND_PROGRESSION = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13];
+// (HAND_PROGRESSION, from rules.js, places a hand in the game for the phase)
 
 /**
  * Check if the current hand is no-trump (joker was flipped)

@@ -112,19 +112,33 @@ const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * @param {string} name - a name checkNewUsername accepted
  * @returns {Promise<{username: string, mergedInto?: string, exact: boolean}|null>}
  */
-async function findNameClash(usersCollection, name) {
-    // renamedAt: a rename's redirect never names its new name here (authHandlers, takenMessage)
-    const projection = { projection: { username: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1 } };
-    const exact = await usersCollection.findOne({ username: name }, projection);
+async function findNameClash(usersCollection, name, { now = new Date() } = {}) {
+    // renamedAt: a rename's redirect never names its new name here (authHandlers, takenMessage);
+    // deletedAt / nameHeldUntil: a deleted account's name hold (accountDelete.js)
+    const projection = { projection: { username: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1, deletedAt: 1, nameHeldUntil: 1 } };
+    const exact = await freeIfLapsed(usersCollection, await usersCollection.findOne({ username: name }, projection), now);
     if (exact) return { ...exact, exact: true };
-    const similar = await usersCollection.findOne(
+    const similar = await freeIfLapsed(usersCollection, await usersCollection.findOne(
         { username: { $regex: `^\\s*${escapeRegex(name)}\\s*$`, $options: 'i' } },
         projection
-    );
+    ), now);
     // Exactness is the stored name's, not which query found it: a concurrent
     // sign-up can insert `name` between the two lookups (realMongo (b)), and
     // that is still the same name, not a case variant
     return similar ? { ...similar, exact: similar.username === name } : null;
+}
+
+/**
+ * A deleted account's name hold whose 30 days are over is removed here
+ * (the TTL index on nameHeldUntil does the same within a minute or so, and
+ * not at all on memoryDb), so the name is free the moment the hold lapses:
+ * returns null for it, else the document as found. Guarded on the date, so
+ * a hold renewed meanwhile stays.
+ */
+async function freeIfLapsed(usersCollection, doc, now) {
+    if (!doc || !doc.deletedAt || !(doc.nameHeldUntil instanceof Date) || doc.nameHeldUntil > now) return doc;
+    await usersCollection.deleteOne({ _id: doc._id, nameHeldUntil: { $lte: now } });
+    return null;
 }
 
 /**
@@ -137,7 +151,8 @@ function takenMessage(name, existing) {
     // A rename's old name (or a merged one a rename re-pointed) is shown as
     // itself: the new name is told only to the account's owner
     // (authHandlers.hidesNewName)
-    const shown = existing.mergedInto && !existing.renamedAt && !existing.targetRenamedAt ? existing.mergedInto : existing.username;
+    const shown = existing.mergedInto && !existing.renamedAt && !existing.targetRenamedAt && !existing.deletedAt
+        ? existing.mergedInto : existing.username;
     return `That name is taken: "${shown}" already exists, and capital letters don't make a different name.`;
 }
 
