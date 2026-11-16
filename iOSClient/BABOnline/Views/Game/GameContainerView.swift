@@ -527,6 +527,12 @@ private struct GameScreen: View {
             .padding(.top, showsTable ? chrome.topBar + 8 : 80)
             Spacer()
         }
+        // the buttons take their table spot at once when the deal ends the draw: carried by the
+        // phase change's 0.3 s animation they faded in about 60 pt low (over the right seat's
+        // card backs) and slid up, though no layout pass ever placed them there (live,
+        // 2026-11-16; TableChromeAnimationTests)
+        .animation(nil, value: showsTable)
+        .animation(nil, value: chrome.topBar)
         .onChange(of: CGSize(width: max(leaveSize.width, logSize.width), height: max(leaveSize.height, logSize.height)), initial: true) { _, s in
             cornerSize = s
         }

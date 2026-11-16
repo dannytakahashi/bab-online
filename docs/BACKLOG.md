@@ -17,13 +17,6 @@ remove an item in the PR that fixes it.
 
 ## iOS: other
 
-- **First bid of a game on iPhone: the corner buttons sit about 40 pt low** (live check
-  2026-11-16, iOS 1.2.2). Right after Draw for Deal, Exit and the log button were placed
-  below their usual spot for the first bid (`cornerButtons` pads by `chrome.topBar + 8`,
-  and the score bar's first measurement is a wrapped ~109 pt: the comment at
-  `GameContainerView.tablePane`); later frames are right. With the 1.2.2 card backs the
-  log button then covers a few points of the right seat's fan. Cosmetic, transient.
-
 - **Web pages iOS still lacks** (after the Stats sheet's Records tab): player search
   (web Players: search as you type, rows open a profile); other players' profiles
   (avatar, the 12-stat grid, Report / Block; web opens them from search, seat avatars
