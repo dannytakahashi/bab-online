@@ -51,7 +51,7 @@ struct TournamentScoreboardView: View {
 
                         ForEach(0..<tournamentState.totalRounds, id: \.self) { round in
                             if round < entry.roundScores.count {
-                                Text("\(entry.roundScores[round])")
+                                Text(entry.cellText(round: round))
                                     .frame(width: 40)
                             } else {
                                 Text("-")
@@ -69,6 +69,13 @@ struct TournamentScoreboardView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 6)
                     .background(isCurrentUser ? Theme.primary.opacity(0.1) : Color.clear)
+                }
+
+                // what the round markers mean (only when a round has one)
+                if !TournamentFlagLegend.flags(in: tournamentState.scoreboard).isEmpty {
+                    TournamentFlagLegend(scoreboard: tournamentState.scoreboard)
+                        .padding(.horizontal, Theme.Space.s2)
+                        .padding(.vertical, Theme.Space.s2)
                 }
             }
             .background(Theme.surface)

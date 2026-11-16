@@ -144,9 +144,8 @@ final class LobbySocketHandler {
                 self.lobbyState.lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
                 self.gameState.apply(.local(.enterLobby(lobbyId: lobbyId)))
 
-                if let players = dict["players"] as? [[String: Any]] {
-                    self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
-                }
+                // lobbyCreated from joinLobby names the held seats (additive; absent: none)
+                self.lobbyState.applyPlayers(from: dict, namesHeldSeats: true)
                 if let messages = dict["messages"] as? [[String: Any]] {
                     self.lobbyState.messages = messages
                         .compactMap { ChatMessage.from($0) }
@@ -160,20 +159,20 @@ final class LobbySocketHandler {
         socket.on(SocketEvents.Server.lobbyPlayerJoined) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                if let players = dict["players"] as? [[String: Any]] {
-                    self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
-                }
+                // a player back in a held seat is no longer reconnecting
+                self.lobbyState.applyPlayers(from: dict, namesHeldSeats: false)
             }
         }
 
         socket.on(SocketEvents.Server.lobbyPlayerLeft) { [weak self] data, _ in
             guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
+                guard let lobbyState = self?.lobbyState else { return }
                 if let username = dict["username"] as? String {
-                    self?.lobbyState.players.removeAll { $0.username == username }
+                    lobbyState.setPlayers(lobbyState.players.filter { $0.username != username })
                 }
                 if let players = dict["players"] as? [[String: Any]] {
-                    self?.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
+                    lobbyState.setPlayers(players.compactMap { LobbyPlayer.from($0) })
                 }
             }
         }
@@ -181,11 +180,10 @@ final class LobbySocketHandler {
         socket.on(SocketEvents.Server.playerReadyUpdate) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                // Server sends full players array — replace the entire list
-                if let players = dict["players"] as? [[String: Any]] {
-                    self.lobbyState.players = players.compactMap { LobbyPlayer.from($0) }
-                    print("[Lobby] Players updated: \(self.lobbyState.players.map { $0.username })")
-                }
+                // Server sends full players array (replace the entire list); every
+                // playerReadyUpdate names the held seats while there are any
+                self.lobbyState.applyPlayers(from: dict, namesHeldSeats: true)
+                print("[Lobby] Players updated: \(self.lobbyState.players.map { $0.username })")
             }
         }
 

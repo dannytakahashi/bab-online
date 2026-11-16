@@ -77,6 +77,59 @@ final class TournamentSocketHandler {
         print("[Tournament] Joined tournament: \(tournamentState.tournamentId)")
     }
 
+    /// tournamentPlayerJoined: the members, and the scoreboard with the joiner's row
+    /// (additive 2026-11-11; an older server sends none and the board stays).
+    @MainActor
+    func handlePlayerJoined(_ dict: [String: Any]) {
+        if let playersArr = dict["players"] as? [[String: Any]] {
+            tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
+        }
+        if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
+            tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
+        }
+    }
+
+    /// tournamentPlayerLeft: the members, and a host change (the host left, or was idle:
+    /// reason 'hostIdle', where nobody left) with the web's toast.
+    @MainActor
+    func handlePlayerLeft(_ dict: [String: Any]) {
+        if let playersArr = dict["players"] as? [[String: Any]] {
+            tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
+        }
+        guard let newCreator = dict["newCreator"] as? String else { return }
+        let changed = newCreator != tournamentState.creatorUsername
+        tournamentState.creatorUsername = newCreator
+        if changed {
+            socket.serverError = ServerErrorNotice(message: TournamentNotice.hostChanged(to: newCreator, me: socket.authState?.username),
+                                                   kind: .info)
+        }
+    }
+
+    /// tournamentReadyUpdate: the members, and between rounds whether the ready deadline
+    /// passed (additive 2026-11-15; absent: unchanged).
+    @MainActor
+    func handleReadyUpdate(_ dict: [String: Any]) {
+        if let playersArr = dict["players"] as? [[String: Any]] {
+            tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
+        }
+        if let passed = dict["readyDeadlinePassed"] as? Bool {
+            tournamentState.readyDeadlinePassed = passed
+        }
+    }
+
+    /// tournamentCancelled: the main room, with the web's toast (a cancel mid-round sends
+    /// abortGame first, so this also explains the table closing).
+    @MainActor
+    func handleCancelled() {
+        // only for a tournament this app is in (the event goes to the tournament's room)
+        let wasIn = !tournamentState.tournamentId.isEmpty
+        tournamentState.reset()
+        appState.screen = .mainRoom
+        LobbyEmitter.joinMainRoom()
+        if wasIn { socket.serverError = ServerErrorNotice(message: TournamentNotice.cancelled, kind: .info) }
+        print("[Tournament] Tournament cancelled by host")
+    }
+
     func register() {
         // every connection registers again: the newest handler answers
         socket.claimTournamentServerError = { [weak self] dict in self?.handleRejoinRefused(dict) ?? false }
@@ -107,33 +160,17 @@ final class TournamentSocketHandler {
 
         socket.on(SocketEvents.Server.tournamentPlayerJoined) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                if let playersArr = dict["players"] as? [[String: Any]] {
-                    self.tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
-                }
-            }
+            DispatchQueue.main.async { self.handlePlayerJoined(dict) }
         }
 
         socket.on(SocketEvents.Server.tournamentPlayerLeft) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                if let playersArr = dict["players"] as? [[String: Any]] {
-                    self.tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
-                }
-                // Handle creator transfer
-                if let newCreator = dict["newCreator"] as? String {
-                    self.tournamentState.creatorUsername = newCreator
-                }
-            }
+            DispatchQueue.main.async { self.handlePlayerLeft(dict) }
         }
 
         socket.on(SocketEvents.Server.tournamentReadyUpdate) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                if let playersArr = dict["players"] as? [[String: Any]] {
-                    self.tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
-                }
-            }
+            DispatchQueue.main.async { self.handleReadyUpdate(dict) }
         }
 
         // MARK: - Chat
@@ -153,6 +190,7 @@ final class TournamentSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.tournamentState.phase = "round_active"
+                self.tournamentState.readyDeadlinePassed = false
                 if let round = dict["roundNumber"] as? Int {
                     self.tournamentState.currentRound = round
                 }
@@ -191,6 +229,9 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async {
                 self.tournamentState.phase = "between_rounds"
                 self.tournamentState.isReady = false
+                // a new between-rounds wait starts its own deadline (a rolled-back start
+                // sends tournamentReadyUpdate with the flag right after this)
+                self.tournamentState.readyDeadlinePassed = false
                 if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
@@ -209,6 +250,7 @@ final class TournamentSocketHandler {
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 self.tournamentState.phase = "complete"
+                self.tournamentState.readyDeadlinePassed = false
                 if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
@@ -232,12 +274,7 @@ final class TournamentSocketHandler {
 
         socket.on(SocketEvents.Server.tournamentCancelled) { [weak self] _, _ in
             guard let self else { return }
-            DispatchQueue.main.async {
-                self.tournamentState.reset()
-                self.appState.screen = .mainRoom
-                LobbyEmitter.joinMainRoom()
-                print("[Tournament] Tournament cancelled by host")
-            }
+            DispatchQueue.main.async { self.handleCancelled() }
         }
     }
 }

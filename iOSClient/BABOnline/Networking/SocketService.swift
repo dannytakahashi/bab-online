@@ -6,8 +6,13 @@ import Combine
 /// A user-facing failure the server sent as an 'error' event ({ type?, message }).
 /// Each one gets its own id so repeating the same message re-shows the toast.
 struct ServerErrorNotice: Equatable {
+    /// `.info`: a neutral notice through the same toast (a new tournament host, a cancelled
+    /// tournament: the web's showInfo), not a failure.
+    enum Kind: Equatable { case error, info }
+
     let id = UUID()
     let message: String
+    var kind: Kind = .error
 }
 
 /// The server sends one failure twice while V1_REMOVALS #1 is in phase A: the

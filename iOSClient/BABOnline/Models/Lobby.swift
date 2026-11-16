@@ -6,6 +6,30 @@ struct Lobby: Identifiable, Equatable {
     var players: [LobbyPlayer]
     var playerCount: Int
     var isInProgress: Bool = false
+    /// In-progress games only (`inProgressGame`: currentHand, score, spectatorCount, the
+    /// players' positions), each read optionally: the web card's "Hand: N", the two teams'
+    /// scores and "N watching".
+    var progress: GameProgress? = nil
+
+    /// The seated names, as the web's lobby card lists them (the main-room list carries
+    /// no isBot: a bot shows under the server's "🤖 Bot" name there too).
+    var memberNames: String { players.map(\.username).joined(separator: ", ") }
+
+    /// Is `username` seated here (a held seat included: the server keeps it in `players`).
+    func seats(_ username: String?) -> Bool {
+        guard let username, !username.isEmpty else { return false }
+        return players.contains { $0.username == username }
+    }
+
+    /// The waiting lobby card's control, as the web's `lobbyActionButton` (MainRoom.js):
+    /// Join an open seat, Rejoin a full lobby that still seats me (joinLobby moves my seat
+    /// to this socket), else a disabled Full.
+    enum Action: Equatable { case join, rejoin, full }
+
+    func action(for username: String?) -> Action {
+        if playerCount < 4 { return .join }
+        return seats(username) ? .rejoin : .full
+    }
 
     static func from(_ dict: [String: Any]) -> Lobby? {
         guard let id = dict["id"] as? String ?? dict["lobbyId"] as? String ?? dict["gameId"] as? String else { return nil }
@@ -33,7 +57,54 @@ struct Lobby: Identifiable, Equatable {
             players = pArr.compactMap { LobbyPlayer.from($0) }
         }
 
-        return Lobby(id: id, name: name, players: players, playerCount: playerCount, isInProgress: isInProgress)
+        return Lobby(id: id, name: name, players: players, playerCount: playerCount, isInProgress: isInProgress,
+                     progress: GameProgress.from(dict))
+    }
+}
+
+/// What the main room shows of a game in progress (`getInProgressGames`).
+struct GameProgress: Equatable {
+    var currentHand: Int?
+    /// Team 1 is seats 1 and 3, team 2 seats 2 and 4.
+    var team1Score: Int?
+    var team2Score: Int?
+    var team1Names: [String] = []
+    var team2Names: [String] = []
+    var spectatorCount: Int = 0
+
+    /// nil when the entry carries none of it (a waiting lobby, an older server).
+    static func from(_ dict: [String: Any]) -> GameProgress? {
+        let score = dict["score"] as? [String: Any]
+        var p = GameProgress(currentHand: dict["currentHand"] as? Int,
+                             team1Score: score?["team1"] as? Int, team2Score: score?["team2"] as? Int,
+                             spectatorCount: max(0, dict["spectatorCount"] as? Int ?? 0))
+        for player in dict["players"] as? [[String: Any]] ?? [] {
+            guard let name = player["username"] as? String, let position = player["position"] as? Int else { continue }
+            if position == 1 || position == 3 { p.team1Names.append(name) } else if position == 2 || position == 4 { p.team2Names.append(name) }
+        }
+        let empty = p.currentHand == nil && p.team1Score == nil && p.team2Score == nil && p.spectatorCount == 0
+        return empty ? nil : p
+    }
+
+    var handText: String? { currentHand.map { "Hand \($0)" } }
+    /// "a/c: 120", as the web card (nil without a score or the team's names).
+    func teamText(_ team: Int) -> String? {
+        let names = team == 2 ? team2Names : team1Names
+        guard let score = team == 2 ? team2Score : team1Score, !names.isEmpty else { return nil }
+        return "\(names.joined(separator: "/")): \(score)"
+    }
+    var watchingText: String? { spectatorCount > 0 ? "\(spectatorCount) watching" : nil }
+
+    /// VoiceOver: "Hand 5. a and c 120, b and d 85. 2 watching".
+    var spokenSummary: String {
+        var parts: [String] = []
+        if let handText { parts.append(handText) }
+        let teams = [(team1Names, team1Score), (team2Names, team2Score)].compactMap { names, score in
+            score.flatMap { s in names.isEmpty ? nil : "\(names.joined(separator: " and ")) \(s)" }
+        }
+        if !teams.isEmpty { parts.append(teams.joined(separator: ", ")) }
+        if let watchingText { parts.append(watchingText) }
+        return parts.joined(separator: ". ")
     }
 }
 

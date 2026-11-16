@@ -69,9 +69,13 @@ struct LobbyListView: View {
     }
 }
 
+/// A main-room card: a waiting lobby (name, n/4, the seated names, Join / Rejoin / Full) or
+/// a game in progress (the teams, "Hand N", each team's score in its color, "N watching",
+/// Spectate), as the web's MainRoom.js cards.
 struct LobbyRowView: View {
     let lobby: Lobby
     let isInProgress: Bool
+    @EnvironmentObject var authState: AuthState
 
     var body: some View {
         HStack {
@@ -80,10 +84,23 @@ struct LobbyRowView: View {
                     .font(.body.bold())
                     .foregroundColor(Theme.textPrimary)
 
-                Text("\(lobby.playerCount)/4 players")
-                    .font(.caption)
-                    .foregroundColor(Theme.textSecondary)
+                if isInProgress, let progress = lobby.progress {
+                    progressLines(progress)
+                } else {
+                    Text("\(lobby.playerCount)/4 players")
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+
+                    if !isInProgress, !lobby.players.isEmpty {
+                        Text(lobby.memberNames)
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                            .lineLimit(2)
+                    }
+                }
             }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("lobbyCard.\(lobby.id)")
 
             Spacer()
 
@@ -97,31 +114,55 @@ struct LobbyRowView: View {
                         .padding(.vertical, Theme.Space.s2)
                         .secondaryButtonStyle()
                 }
-            } else if lobby.playerCount >= 4 {
-                Text("Full")
-                    .font(.callout.bold())
-                    .foregroundColor(Theme.buttonDisabledForeground)
-                    .padding(.horizontal, Theme.Space.s5)
-                    .padding(.vertical, Theme.Space.s2)
-                    .background(Theme.buttonDisabled)
-                    .cornerRadius(Theme.Radius.sm)
             } else {
-                Button(action: {
-                    LobbyEmitter.joinLobby(lobbyId: lobby.id)
-                }) {
-                    Text("Join")
+                switch lobby.action(for: authState.username) {
+                case .full:
+                    Text("Full")
                         .font(.callout.bold())
-                        .foregroundColor(Theme.buttonForeground)
+                        .foregroundColor(Theme.buttonDisabledForeground)
                         .padding(.horizontal, Theme.Space.s5)
                         .padding(.vertical, Theme.Space.s2)
-                        .background(Theme.buttonBackground)
+                        .background(Theme.buttonDisabled)
                         .cornerRadius(Theme.Radius.sm)
+                case .join, .rejoin:
+                    // Rejoin: a full lobby that still holds my seat; joinLobby moves the
+                    // seat to this socket (the server answers lobbyCreated)
+                    let rejoin = lobby.action(for: authState.username) == .rejoin
+                    Button(action: {
+                        LobbyEmitter.joinLobby(lobbyId: lobby.id)
+                    }) {
+                        Text(rejoin ? "Rejoin" : "Join")
+                            .font(.callout.bold())
+                            .foregroundColor(Theme.buttonForeground)
+                            .padding(.horizontal, rejoin ? Theme.Space.s4 : Theme.Space.s5)
+                            .padding(.vertical, Theme.Space.s2)
+                            .background(Theme.buttonBackground)
+                            .cornerRadius(Theme.Radius.sm)
+                    }
+                    .accessibilityIdentifier(rejoin ? "lobby.rejoin" : "lobby.join")
                 }
             }
         }
         .padding(.horizontal)
         .padding(.vertical, Theme.Space.s3)
         .background(Theme.surface, ignoresSafeAreaEdges: .vertical)
+    }
+
+    /// "Hand 5 • 2 watching", then "a/c: 120 | b/d: 85" in the team colors.
+    @ViewBuilder
+    private func progressLines(_ progress: GameProgress) -> some View {
+        let head = [progress.handText, progress.watchingText].compactMap { $0 }
+        if !head.isEmpty {
+            Text(head.joined(separator: " \u{2022} "))
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+        }
+        if let team1 = progress.teamText(1), let team2 = progress.teamText(2) {
+            Text("\(Text(team1).foregroundColor(Theme.teamA)) | \(Text(team2).foregroundColor(Theme.teamB))")
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .lineLimit(2)
+        }
     }
 }
 

@@ -9,6 +9,9 @@ struct LobbyPlayerRow: View {
     /// Sent and waiting for the server's list: the control is disabled so a
     /// double tap cannot send a second removeBot (answered "Bot not found").
     var isRemoving = false
+    /// The server holds this seat while its player reconnects (`LobbyState.isReconnecting`):
+    /// the row says so instead of looking like an idle player who has not readied.
+    var isReconnecting = false
 
     var body: some View {
         HStack(spacing: Theme.Space.s3) {
@@ -51,6 +54,14 @@ struct LobbyPlayerRow: View {
                             .background(Theme.warning.opacity(0.15))
                             .cornerRadius(Theme.Radius.sm)
                     }
+                }
+
+                if isReconnecting {
+                    Text("Reconnecting\u{2026}")
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
+                        .italic()
+                        .accessibilityIdentifier("lobby.reconnecting")
                 }
             }
 
@@ -97,5 +108,6 @@ struct LobbyPlayerRow: View {
         .padding(.vertical, 10)
         .background(Theme.surface)
         .cornerRadius(Theme.Radius.md)
+        .opacity(isReconnecting ? 0.7 : 1)
     }
 }

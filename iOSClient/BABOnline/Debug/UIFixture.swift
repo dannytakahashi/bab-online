@@ -10,7 +10,15 @@ import SpriteKit
 /// socket, no voice, avatars show initials). Screen fixtures (`main-room`,
 /// `game-lobby`, `tournament-lobby`, `tournament-round` (round 3 in play: the
 /// scoreboard and two active tables), `tournament-between` (round 2 complete),
-/// `sign-in`) seed static rows instead. `game-lobby-bots` is the game lobby with two bots
+/// `sign-in`) seed static rows instead. 1.2.2 parity screens: `main-room-cards` (the lobby
+/// cards: member names, Rejoin on a full lobby that seats me, Full, in-progress games with
+/// hand / score / watchers), `game-lobby-reconnecting` (a held seat's "Reconnecting…"),
+/// `tournament-deadline` (between rounds past the ready deadline, me the host: "Start with
+/// ready players", "Sitting out"; `-uiHost <name>` makes another member the host),
+/// `tournament-results` (the results overlay with every round and the round markers;
+/// `-uiPlainResults YES`: no markers, as an older server). `-uiInfoToast "<message>"` raises
+/// the neutral toast (a new host, a cancelled tournament) and `-uiVoicePanel YES` opens the
+/// voice panel over `game-lobby` with two players (their volume sliders). `game-lobby-bots` is the game lobby with two bots
 /// that are not ready (my seat ready): there removeBot and addBot change the list the way
 /// the server answers them (`emulateLobby`) and show in "fixture.sent" as `removeBot:<id>` / `addBot`.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
@@ -43,8 +51,12 @@ enum UIFixture {
     /// never starts voice; screenshots and the seat-row UI tests).
     static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
 
-    static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "game-lobby", "game-lobby-bots", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "sign-in"]
+    /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
+    static let showsVoicePanel: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoicePanel")
+
+    static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
+                                              "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
+                                              "tournament-between", "tournament-deadline", "tournament-results", "sign-in"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
@@ -72,6 +84,20 @@ enum UIFixture {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 SocketService.shared.serverError = ServerErrorNotice(message: message)
             }
+        }
+        // `-uiInfoToast "<message>"`: the neutral toast (a host change, a cancellation)
+        if let message = UserDefaults.standard.string(forKey: "uiInfoToast") {
+            auth.isAuthenticated = true
+            ServerErrorToast.visibleSeconds = 60
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                SocketService.shared.serverError = ServerErrorNotice(message: message, kind: .info)
+            }
+        }
+        if showsVoicePanel {
+            VoiceChatManager.shared.peerInfos = [
+                "sid-kim": VoiceChatManager.PeerInfo(username: "kim"),
+                "sid-hal": VoiceChatManager.PeerInfo(username: "hal", isMuted: true, volume: 1.5),
+            ]
         }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
@@ -317,6 +343,27 @@ enum UIFixture {
             mainRoom.tournaments = [TournamentSummary(id: "t1", name: "Sunday Cup", playerCount: 6, phase: "lobby", currentRound: 0,
                                                       totalRounds: 4, creatorUsername: "kim")]
             appState.screen = .mainRoom
+        case "main-room-cards":
+            // every kind of card: an open lobby with its members, a full lobby that still
+            // holds my seat (Rejoin), a full one that does not (Full), and two games in
+            // progress (one with watchers, one as an older server sends it: no details)
+            mainRoom.lobbies = [
+                Lobby(id: "l1", name: "Friday night", players: [player("kim"), player("hal"), player("\u{1F916} Bot")], playerCount: 3),
+                Lobby(id: "l2", name: "Ivy's table", players: [player("ivy"), player("jon"), player("ora"), player("max")], playerCount: 4),
+                Lobby(id: "l3", name: "Regulars", players: [player("pat"), player("ned"), player("sam"), player("tia")], playerCount: 4),
+            ]
+            mainRoom.inProgressGames = [
+                Lobby(id: "g1", name: "uma & wes vs vic & xan", players: [player("uma"), player("vic"), player("wes"), player("xan")],
+                      playerCount: 4, isInProgress: true,
+                      progress: GameProgress(currentHand: 5, team1Score: 120, team2Score: -85,
+                                             team1Names: ["uma", "wes"], team2Names: ["vic", "xan"], spectatorCount: 2)),
+                Lobby(id: "g2", name: "abe & cal vs bea & dot", players: [player("abe"), player("bea"), player("cal"), player("dot")],
+                      playerCount: 4, isInProgress: true),
+            ]
+            mainRoom.messages = chat
+            mainRoom.onlineCount = 12
+            mainRoom.onlineUsers = ["ivy", "kim", "hal", "jon", "ora", "max", "pat"]
+            appState.screen = .mainRoom
         case "main-room-empty":
             // no lobbies, games or tournaments: the empty state (four suits)
             mainRoom.messages = chat
@@ -327,6 +374,14 @@ enum UIFixture {
             lobby.lobbyId = "l1"
             lobby.lobbyName = "Friday night"
             lobby.players = [player("ivy", ready: true), player("kim", ready: true), player("hal"), player("Mary", ready: true, bot: true)]
+            lobby.messages = chat
+            appState.screen = .gameLobby
+        case "game-lobby-reconnecting":
+            // hal dropped: the server holds the seat (30 s) and names him in `reconnecting`
+            lobby.lobbyId = "l1"
+            lobby.lobbyName = "Friday night"
+            lobby.setPlayers([player("ivy", ready: true), player("kim", ready: true), player("hal"), player("Mary", ready: true, bot: true)],
+                             reconnecting: ["hal"])
             lobby.messages = chat
             appState.screen = .gameLobby
         case "game-lobby-bots":
@@ -375,6 +430,50 @@ enum UIFixture {
                 TournamentActiveGame(id: "g3", humanPlayers: ["ned"], botCount: 3, status: "active"),
             ]
             tournament.messages = chat + messages([("System", between ? "Round 2 complete" : "Round 3 has begun"), ("hal", "gl all")])
+            appState.screen = .tournamentLobby
+        case "tournament-deadline":
+            // between rounds, 2 minutes on: hal and max are not ready (they sit out), ned is
+            // away; the host (me, unless `-uiHost`) may start with the ready players
+            let host = UserDefaults.standard.string(forKey: "uiHost") ?? "ivy"
+            let names = ["kim", "ivy", "hal", "jon", "ora", "max", "pat", "ned"]
+            let rounds: [[Int]] = [[142, 88], [120, 131], [97, 64], [-40, 152], [76, 49], [55, -20], [31, 18], [-12, 7]]
+            tournament.tournamentId = "t1"
+            tournament.name = "Sunday Cup"
+            tournament.phase = "between_rounds"
+            tournament.currentRound = 2
+            tournament.creatorUsername = host
+            tournament.readyDeadlinePassed = true
+            tournament.players = names.map {
+                TournamentPlayer(id: "sid-\($0)", username: $0, pic: nil, isReady: !["hal", "max", "ned", host].contains($0),
+                                 isCreator: $0 == host, connected: $0 != "ned")
+            }
+            tournament.scoreboard = zip(names, rounds)
+                .map { TournamentScoreEntry(id: $0, username: $0, totalScore: $1.reduce(0, +), roundScores: $1) }
+                .sorted { $0.totalScore > $1.totalScore }
+            tournament.messages = chat + messages([("System", "Players who are not ready will sit out the next round.")])
+            appState.screen = .tournamentLobby
+        case "tournament-results":
+            // all four rounds played: an aborted table (jon, ora), a leaver (max), two missed
+            // rounds (ned), and a tie at the top
+            let plain = UserDefaults.standard.bool(forKey: "uiPlainResults")
+            let rows: [(String, [Int], [Int: TournamentRoundFlag])] = [
+                ("kim", [142, 88, 110, 64], [:]), ("ivy", [120, 131, 97, 56], [:]), ("hal", [97, 64, 120, 31], [:]),
+                ("jon", [-40, 152, 45, 88], [2: .aborted]), ("ora", [76, 49, 45, 102], [2: .aborted]),
+                ("max", [55, -20, -30, 77], [2: .left]), ("pat", [31, 18, 66, 40], [:]), ("ned", [-12, 7, -30, 31], [2: .missed, 3: .missed]),
+            ]
+            tournament.tournamentId = "t1"
+            tournament.name = "Sunday Cup"
+            tournament.phase = "complete"
+            tournament.currentRound = 4
+            tournament.creatorUsername = "kim"
+            tournament.players = rows.map {
+                TournamentPlayer(id: "sid-\($0.0)", username: $0.0, pic: nil, isReady: false, isCreator: $0.0 == "kim", connected: true)
+            }
+            tournament.scoreboard = rows
+                .map { TournamentScoreEntry(id: $0.0, username: $0.0, totalScore: $0.1.reduce(0, +), roundScores: $0.1, roundFlags: plain ? [:] : $0.2) }
+                .sorted { $0.totalScore > $1.totalScore }
+            tournament.winners = ["kim", "ivy"]
+            tournament.messages = chat
             appState.screen = .tournamentLobby
         default:
             // no socket in fixture mode: show the connected form (emits go nowhere), not the spinner

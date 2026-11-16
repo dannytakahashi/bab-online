@@ -116,7 +116,8 @@ private struct GameLobbyScreen: View {
                             LobbyPlayerRow(player: player,
                                            isCurrentUser: player.username == authState.username,
                                            onRemove: { removeBot(player) },
-                                           isRemoving: removing.contains(player.id) || !canSendLobbyActions)
+                                           isRemoving: removing.contains(player.id) || !canSendLobbyActions,
+                                           isReconnecting: lobbyState.isReconnecting(player))
                         } else {
                             emptySlot(index: index)
                         }
@@ -198,6 +199,9 @@ private struct GameLobbyScreen: View {
         .onAppear {
             startVoice()
             syncReady()
+            #if DEBUG
+            if UIFixture.showsVoicePanel { showVoicePanel = true }
+            #endif
         }
         .onChange(of: lobbyState.players) { _, _ in
             // every list the server sends answers the removals sent before it

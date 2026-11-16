@@ -24,12 +24,77 @@ struct TournamentScoreEntry: Identifiable, Equatable {
     let username: String
     let totalScore: Int
     let roundScores: [Int]
+    /// How a round's score came about, by round index (0-based), from the additive
+    /// `roundDetails` rows (server 2026-11-15, Tournament scoring); a normal table has none.
+    var roundFlags: [Int: TournamentRoundFlag] = [:]
 
     static func from(_ dict: [String: Any]) -> TournamentScoreEntry? {
         guard let username = dict["username"] as? String else { return nil }
         let totalScore = dict["totalScore"] as? Int ?? 0
         let roundScores = dict["roundScores"] as? [Int] ?? []
-        return TournamentScoreEntry(id: username, username: username, totalScore: totalScore, roundScores: roundScores)
+        var flags: [Int: TournamentRoundFlag] = [:]
+        for detail in dict["roundDetails"] as? [[String: Any]] ?? [] {
+            guard let round = detail["roundNumber"] as? Int, round >= 1, let flag = TournamentRoundFlag.of(detail) else { continue }
+            flags[round - 1] = flag
+        }
+        return TournamentScoreEntry(id: username, username: username, totalScore: totalScore, roundScores: roundScores, roundFlags: flags)
+    }
+
+    /// "142", "-40†", or "-" for a round with no score yet.
+    func cellText(round index: Int) -> String {
+        guard index >= 0, index < roundScores.count else { return "-" }
+        return "\(roundScores[index])\(roundFlags[index]?.marker ?? "")"
+    }
+
+    /// VoiceOver: "1. kim, 230 points. Round 1: 142. Round 2: 88, sat out".
+    func spokenSummary(rank: Int? = nil, totalRounds: Int) -> String {
+        var parts = ["\(rank.map { "\($0). " } ?? "")\(username), \(totalScore) points"]
+        for index in 0..<max(0, totalRounds) where index < roundScores.count {
+            let note = roundFlags[index].map { ", \($0.spoken)" } ?? ""
+            parts.append("Round \(index + 1): \(roundScores[index])\(note)")
+        }
+        return parts.joined(separator: ". ")
+    }
+}
+
+/// A round score that did not come from a finished table (`roundDetails` flags, all
+/// additive and optional): the table was aborted (everyone at it scores the running
+/// score), this player left it (min(running, 0)), or the player missed the round (the
+/// round's lowest score).
+enum TournamentRoundFlag: String, Equatable, CaseIterable {
+    case aborted, left, missed
+
+    /// `left` rows carry `aborted` too: the more specific one wins.
+    static func of(_ detail: [String: Any]) -> TournamentRoundFlag? {
+        if detail["missed"] as? Bool == true { return .missed }
+        if detail["left"] as? Bool == true { return .left }
+        if detail["aborted"] as? Bool == true { return .aborted }
+        return nil
+    }
+
+    var marker: String {
+        switch self {
+        case .aborted: return "*"
+        case .left: return "\u{2020}"
+        case .missed: return "\u{2021}"
+        }
+    }
+
+    /// The legend under the results table.
+    var legend: String {
+        switch self {
+        case .aborted: return "table ended early"
+        case .left: return "left the table"
+        case .missed: return "sat out (round\u{2019}s lowest score)"
+        }
+    }
+
+    var spoken: String {
+        switch self {
+        case .aborted: return "table ended early"
+        case .left: return "left the table"
+        case .missed: return "sat out"
+        }
     }
 }
 

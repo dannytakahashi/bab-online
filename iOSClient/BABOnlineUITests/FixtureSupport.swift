@@ -7,6 +7,8 @@ enum Fixture {
     static let tableFixtures = ["trick-mid-lead3", "bidding-mid", "between-tricks", "spectator-mid-hand", "lazy-at-seat",
                                 "presence-mixed", "tournament-game", "draw-in-progress"]
     static let screenFixtures = ["main-room": "screen.mainRoom", "game-lobby": "screen.gameLobby",
+                                 "main-room-cards": "screen.mainRoom", "game-lobby-reconnecting": "screen.gameLobby",
+                                 "tournament-deadline": "screen.tournamentLobby", "tournament-results": "screen.tournamentLobby",
                                  "game-lobby-bots": "screen.gameLobby",
                                  "tournament-lobby": "screen.tournamentLobby", "tournament-round": "screen.tournamentLobby",
                                  "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn"]
