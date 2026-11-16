@@ -30,6 +30,9 @@ struct TournamentPlayerListView: View {
 
     private func playerRow(_ player: TournamentPlayer) -> some View {
         let isCurrentUser = player.username == authState.username
+        // past the ready deadline a member who is not ready sits the next round out
+        let sitsOut = TournamentBegin.sitsOut(player, phase: tournamentState.phase,
+                                              deadlinePassed: tournamentState.readyDeadlinePassed)
 
         return HStack(spacing: Theme.Space.s3) {
             // Avatar
@@ -70,6 +73,11 @@ struct TournamentPlayerListView: View {
                         .font(.caption2)
                         .foregroundColor(Theme.textDim)
                         .italic()
+                } else if sitsOut {
+                    Text("Sitting out")
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
+                        .accessibilityIdentifier("tournament.sittingOut")
                 }
             }
 

@@ -109,8 +109,8 @@ struct ServerErrorToast: View {
         VStack {
             if let notice {
                 HStack(spacing: Theme.Space.s2) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(Theme.warning)
+                    Image(systemName: notice.kind == .info ? "info.circle.fill" : "exclamationmark.circle.fill")
+                        .foregroundColor(notice.kind == .info ? Theme.teamA : Theme.warning)
                         .accessibilityHidden(true)
                     Text(notice.message)
                         .font(.callout.bold())
@@ -120,7 +120,7 @@ struct ServerErrorToast: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("serverErrorToast")
+                .accessibilityIdentifier(notice.kind == .info ? "infoToast" : "serverErrorToast")
                 .padding(.horizontal, Theme.Space.s4)
                 .padding(.vertical, 10)
                 .background(Theme.surface)

@@ -323,7 +323,7 @@ const s2c = {
         ),
         status: 'active', to: 'socket',
         added: ['reconnecting'],
-        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats. iOS 1.1.0 reads the reply as a dictionary and ignores it.',
+        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats, iOS from 1.2.2 (build 10) too (LobbyState.applyPlayers: the list replaces the kept set, absent means none; lobbyPlayerJoined.newPlayer and a name no longer in players drop out). iOS up to 1.2.1 reads the reply as a dictionary and ignores it.',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
     },
@@ -782,7 +782,7 @@ const s2c = {
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:joinTournament', 'server/socket/seatLifecycle.js:reattachTournament'],
-        notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS 1.1.0 reads only players.',
+        notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS from 1.2.2 (build 10) replaces its scoreboard with it when present; iOS up to 1.2.1 reads only players.',
     },
     tournamentPlayerLeft: {
         payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()), reason: konst('hostIdle') }, { optional: ['username', 'reason'] }),
@@ -790,7 +790,7 @@ const s2c = {
         added: ['reason'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat', 'server/socket/tournamentLiveness.js:handOffHost'],
-        notes: 'username is absent when the leaver had no registered user (user?.username). reason \'hostIdle\' (additive 2026-11-15): nobody left; the idle host (username, still a member) handed the role to newCreator (tournamentLiveness.handOffHost). Web and iOS 1.2.0 read only players and newCreator, which is what moves Begin / Cancel: web toasts "X is now the tournament host" and drops the old host\'s controls, iOS 1.2.0 sets creatorUsername (the old host\'s buttons go, the new host\'s appear).',
+        notes: 'username is absent when the leaver had no registered user (user?.username). reason \'hostIdle\' (additive 2026-11-15): nobody left; the idle host (username, still a member) handed the role to newCreator (tournamentLiveness.handOffHost). Web and iOS 1.2.0 read only players and newCreator, which is what moves Begin / Cancel: web toasts "X is now the tournament host" and drops the old host\'s controls, iOS 1.2.0 sets creatorUsername (the old host\'s buttons go, the new host\'s appear); iOS from 1.2.2 (build 10) also shows the web\'s toast when newCreator differs from the host it had (reason is still not read: the idle hand-off\'s tournamentMessage notice says why).',
     },
     tournamentReadyUpdate: {
         payload: obj({ players: arr(ref('tournamentPlayer')), allReady: bool(), readyDeadlinePassed: bool() }, { optional: ['readyDeadlinePassed'] }),
@@ -798,7 +798,7 @@ const s2c = {
         added: ['readyDeadlinePassed'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:tournamentReady', 'server/socket/tournamentHandlers.js:tournamentUnready', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline'],
-        notes: 'readyDeadlinePassed (additive 2026-11-15, between rounds only): the ready deadline passed, so the host\'s Begin starts the round with the host and the ready members and the rest sit out; sent at the deadline and after a rolled-back start too. allReady keeps its meaning (every connected member ready). Web enables Begin as "Start with ready players"; iOS 1.2.0 ignores it and keeps Begin disabled until all are ready (the idle host hands the role on once, and the next idle spell gets the round started by the server: tournamentLiveness).',
+        notes: 'readyDeadlinePassed (additive 2026-11-15, between rounds only): the ready deadline passed, so the host\'s Begin starts the round with the host and the ready members and the rest sit out; sent at the deadline and after a rolled-back start too. allReady keeps its meaning (every connected member ready). Web enables Begin as "Start with ready players"; iOS up to 1.2.1 ignores it and keeps Begin disabled until all are ready (the idle host hands the role on once, and the next idle spell gets the round started by the server: tournamentLiveness); iOS from 1.2.2 (build 10) reads it optionally here and on tournamentJoined (absent: unchanged / not passed), enables Begin as "Start with ready players" and marks the members who would sit out (TournamentBegin).',
     },
     tournamentMessage: {
         payload: ref('tournamentChatLine'),

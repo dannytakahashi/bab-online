@@ -15,6 +15,11 @@ final class TournamentState: ObservableObject {
     @Published var creatorUsername: String = ""
     @Published var isSpectator: Bool = false
     @Published var isReady: Bool = false
+    /// Between rounds, past the server's ready deadline (`readyDeadlinePassed` on
+    /// tournamentReadyUpdate / tournamentJoined, additive 2026-11-15; an older server never
+    /// sends it): the host's Begin starts the round with the ready members and the rest sit
+    /// out (`TournamentBegin`). Each between-rounds wait starts its own deadline.
+    @Published var readyDeadlinePassed: Bool = false
     /// The unsent chat line (survives a recreated view; not @Published).
     var chatDraft = ""
     /// The joinTournament a restore sent for the tournament lobby on screen
@@ -51,6 +56,7 @@ final class TournamentState: ObservableObject {
         creatorUsername = ""
         isSpectator = false
         isReady = false
+        readyDeadlinePassed = false
     }
 
     func loadFromServerState(_ dict: [String: Any]) {
@@ -61,6 +67,8 @@ final class TournamentState: ObservableObject {
         totalRounds = dict["totalRounds"] as? Int ?? 4
         creatorUsername = dict["creatorUsername"] as? String ?? ""
         isSpectator = dict["isSpectator"] as? Bool ?? false
+        // between rounds only; absent (another phase, an older server): not passed
+        readyDeadlinePassed = dict["readyDeadlinePassed"] as? Bool ?? false
 
         if let playersArr = dict["players"] as? [[String: Any]] {
             players = playersArr.compactMap { TournamentPlayer.from($0) }
@@ -79,5 +87,50 @@ final class TournamentState: ObservableObject {
         if let gamesArr = dict["activeGames"] as? [[String: Any]] {
             activeGames = gamesArr.compactMap { TournamentActiveGame.from($0) }
         }
+    }
+}
+
+/// The host's Begin button and the "Sitting out" rows, as the web's TournamentLobby.js
+/// (`beginLabel`, `startsWithReadyOnly`, `canBegin`) and the server's
+/// `TournamentState.canBegin`: every connected member ready, or, between rounds past the
+/// ready deadline, always (the host plays, the ready members play, the rest sit out).
+enum TournamentBegin {
+    /// Disconnected members sit out rounds and never ready up: they do not gate Begin
+    /// (the server ignores them too).
+    static func allConnectedReady(_ players: [TournamentPlayer]) -> Bool {
+        let connected = players.filter { $0.connected }
+        return !connected.isEmpty && connected.allSatisfy { $0.isReady }
+    }
+
+    /// Past the deadline with someone not ready: Begin leaves them out.
+    static func startsWithReadyOnly(phase: String, deadlinePassed: Bool, players: [TournamentPlayer]) -> Bool {
+        phase == "between_rounds" && deadlinePassed && !allConnectedReady(players)
+    }
+
+    static func canBegin(phase: String, deadlinePassed: Bool, players: [TournamentPlayer]) -> Bool {
+        allConnectedReady(players) || startsWithReadyOnly(phase: phase, deadlinePassed: deadlinePassed, players: players)
+    }
+
+    static func label(phase: String, deadlinePassed: Bool, players: [TournamentPlayer]) -> String {
+        if phase != "between_rounds" { return "Begin Tournament" }
+        return startsWithReadyOnly(phase: phase, deadlinePassed: deadlinePassed, players: players)
+            ? "Start with ready players" : "Begin Next Round"
+    }
+
+    /// Past the deadline a connected member who is not ready sits the next round out
+    /// (never the host: pressing Begin puts the host in the round).
+    static func sitsOut(_ player: TournamentPlayer, phase: String, deadlinePassed: Bool) -> Bool {
+        phase == "between_rounds" && deadlinePassed && !player.isReady && !player.isCreator && player.connected
+    }
+}
+
+/// The toasts the web shows for a host change and a cancellation (client/src/main.js
+/// onTournamentPlayerLeft / onTournamentCancelled).
+enum TournamentNotice {
+    static let cancelled = "Tournament has been cancelled by the host"
+
+    /// tournamentPlayerLeft's newCreator (the host left, or was idle: reason 'hostIdle').
+    static func hostChanged(to newCreator: String, me: String?) -> String {
+        newCreator == me ? "You are now the tournament host" : "\(newCreator) is now the tournament host"
     }
 }

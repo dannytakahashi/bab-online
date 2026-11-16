@@ -46,7 +46,13 @@ final class VoiceChatManager: ObservableObject {
         var isMuted: Bool = false
         /// The connection failed after its one restart (a later offer from the peer retries).
         var isUnavailable: Bool = false
+        /// My volume for this player (`VoiceVolume`: 0...2, 1 = as sent).
+        var volume: Double = VoiceVolume.normal
     }
+
+    /// The volumes set in the voice panel, by username: a player who comes back on a new
+    /// socket (a reconnect, the next game) keeps theirs while the app runs.
+    private var savedVolumes: [String: Double] = [:]
 
     // MARK: - Private State
 
@@ -396,6 +402,26 @@ final class VoiceChatManager: ObservableObject {
         peers[socketId]?.remoteTrack?.isEnabled = true
     }
 
+    /// Sign-out: the next account on this device starts every player at 100%.
+    func forgetVolumes() {
+        savedVolumes.removeAll()
+    }
+
+    /// For tests: the volume a new track for this player would take.
+    func savedVolume(for username: String) -> Double? { savedVolumes[username] }
+
+    /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
+    /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
+    /// player; mute stays the track's `isEnabled`, so unmuting returns to this level.
+    func setPeerVolume(_ socketId: String, _ volume: Double) {
+        let level = VoiceVolume.clamp(volume)
+        guard var info = peerInfos[socketId], info.volume != level else { return }
+        info.volume = level
+        peerInfos[socketId] = info
+        savedVolumes[info.username] = level
+        peers[socketId]?.remoteTrack?.source.volume = level
+    }
+
     /// Toggle a peer's mute state.
     func togglePeerMute(_ socketId: String) {
         if peerInfos[socketId]?.isMuted == true {
@@ -442,7 +468,8 @@ final class VoiceChatManager: ObservableObject {
 
         peers[socketId] = PeerState(connection: pc, username: username)
         let muted = peerInfos[socketId]?.isMuted ?? false
-        peerInfos[socketId] = PeerInfo(username: username, isMuted: muted)
+        let volume = peerInfos[socketId]?.volume ?? savedVolumes[username] ?? VoiceVolume.normal
+        peerInfos[socketId] = PeerInfo(username: username, isMuted: muted, volume: volume)
         armConnectTimer(socketId, pc)
 
         return pc
@@ -684,6 +711,11 @@ final class VoiceChatManager: ObservableObject {
 
     func setRemoteTrack(_ track: RTCAudioTrack, for socketId: String) {
         peers[socketId]?.remoteTrack = track
+        // a new track (first connect, a restart) takes this player's mute and volume
+        if let info = peerInfos[socketId] {
+            track.isEnabled = !info.isMuted
+            track.source.volume = info.volume
+        }
     }
 
     // MARK: - Errors
@@ -691,6 +723,22 @@ final class VoiceChatManager: ObservableObject {
     enum VoiceError: Error {
         case micPermissionDenied
     }
+}
+
+/// The voice panel's per-player volume: 0 to 200% in 5% steps, 100% as sent (web
+/// VoiceChatManager.setPeerVolume clamps to the same 0...2).
+enum VoiceVolume {
+    static let range: ClosedRange<Double> = 0...2
+    static let normal: Double = 1
+    static let step: Double = 0.05
+
+    static func clamp(_ volume: Double) -> Double {
+        guard volume.isFinite else { return normal }
+        return min(range.upperBound, max(range.lowerBound, volume))
+    }
+
+    /// "100%"
+    static func percentText(_ volume: Double) -> String { "\(Int((clamp(volume) * 100).rounded()))%" }
 }
 
 // MARK: - RTCPeerConnectionDelegate

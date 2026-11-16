@@ -252,11 +252,11 @@ private struct TournamentLobbyScreen: View {
         authState.username == tournamentState.creatorUsername
     }
 
-    private var allReady: Bool {
-        // Disconnected members sit out rounds and never ready up — they must
-        // not gate the Begin button (the server ignores them too)
-        let connected = tournamentState.players.filter { $0.connected }
-        return !connected.isEmpty && connected.allSatisfy { $0.isReady }
+    /// Every connected member ready, or between rounds past the ready deadline (Begin then
+    /// starts with the ready members: `TournamentBegin`, the web's canBegin).
+    private var canBegin: Bool {
+        TournamentBegin.canBegin(phase: tournamentState.phase, deadlinePassed: tournamentState.readyDeadlinePassed,
+                                 players: tournamentState.players)
     }
 
     private var bottomButtons: some View {
@@ -279,18 +279,21 @@ private struct TournamentLobbyScreen: View {
 
                 // Begin button (creator only)
                 if isCreator {
-                    let label = tournamentState.phase == "lobby" ? "Begin Tournament" : "Begin Next Round"
+                    let label = TournamentBegin.label(phase: tournamentState.phase,
+                                                      deadlinePassed: tournamentState.readyDeadlinePassed,
+                                                      players: tournamentState.players)
                     Button(action: beginRound) {
                         Text(label)
                             .font(.title3.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(allReady ? Theme.warning : Theme.buttonDisabled)
-                            .foregroundColor(allReady ? Theme.warningForeground : Theme.buttonDisabledForeground)
+                            .background(canBegin ? Theme.warning : Theme.buttonDisabled)
+                            .foregroundColor(canBegin ? Theme.warningForeground : Theme.buttonDisabledForeground)
                             .cornerRadius(Theme.Radius.md)
                     }
-                    .disabled(!allReady || !canSendTournamentActions)
+                    .disabled(!canBegin || !canSendTournamentActions)
                     .opacity(canSendTournamentActions ? 1 : 0.5)
+                    .accessibilityIdentifier("tournament.begin")
                 }
             }
 
