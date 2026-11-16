@@ -258,6 +258,8 @@ enum UIFixture {
             message = "removeBot:\(data["botSocketId"] as? String ?? "-")"
         case SocketEvents.Client.addBot where name == "game-lobby-bots":
             message = "addBot"
+        case SocketEvents.Client.blockUser, SocketEvents.Client.unblockUser, SocketEvents.Client.reportUser:
+            message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
         default:
             return
         }
@@ -523,9 +525,12 @@ enum UIFixture {
     }
 }
 
-/// No network in fixture mode: every avatar shows its initial.
+/// No network in fixture mode: every avatar shows its initial, unless `UI_FIXTURE_AVATARS`
+/// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots).
 struct FixtureAvatarLoader: AvatarLoading {
-    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) { completion(nil) }
+    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
+        completion(UIFixture.avatarFolder.flatMap { UIImage(contentsOfFile: "\($0)/profile\(picNumber).png") })
+    }
 }
 
 /// What the fixture UI tests read through accessibility probes:

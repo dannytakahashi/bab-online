@@ -125,7 +125,17 @@ describe('leaderboard cache', () => {
             expect(row(res, 'Ben').customProfilePic).toBeNull();
             expect(res.avatarUrls).toEqual({ Ben: expect.stringMatching(/^\/avatar\/Ben\?v=[0-9a-f]{16}$/) });
             await profile.updateProfilePic(me, io, { profilePic: 77 });
-            expect(row(await leaderboard(), 'Ben').profilePic).toBe(77);
+            const after = await leaderboard();
+            expect(row(after, 'Ben').profilePic).toBe(77);
+            // the stock choice replaces the custom picture: no URL, nothing stored,
+            // and the seat lookup gives the stock number
+            expect(after.avatarUrls).toBeUndefined();
+            expect(mockDb.current.users.docs.find(d => d.username === 'Ben').customProfilePic).toBeUndefined();
+            expect(await profile.getUserProfilePic('Ben')).toBe(77);
+            await profile.getProfile(me, io, {});
+            const reply = lastTo(me, 'profileResponse');
+            expect(reply.profile.profilePic).toBe(77);
+            expect(reply.avatarUrl).toBeUndefined();
         } finally {
             store._reset();
         }

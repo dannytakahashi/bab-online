@@ -8,6 +8,10 @@ struct SignInView: View {
     @State private var username = ""
     @State private var password = ""
     @State private var isLoading = false
+    /// The sign-in with the password exactly as typed, sent once if the trimmed one is refused
+    /// as a wrong password (PasswordEntry, AsTypedRetry).
+    @State private var asTypedRetry = AsTypedRetry<SignInRequest>()
+    @State private var attempt = 0
 
     var body: some View {
         ZStack {
@@ -105,20 +109,33 @@ struct SignInView: View {
             }
             authState.error = nil
         }
+        .onChange(of: authState.error) { _, error in
+            // the trimmed password was refused and the typed one had a space at an edge: an
+            // account made before 1.2.2 may have it in its password, so that one goes once
+            // (only for the wrong-password reply: a throttle or any other refusal is shown)
+            guard error != nil, let again = asTypedRetry.resend(afterRefusal: error, wrongPassword: PasswordEntry.signInRefused) else { return }
+            authState.error = nil
+            AuthEmitter.signIn(username: again.username, password: again.password)
+        }
+        .onDisappear { asTypedRetry.clear() }
     }
 
     private var canSignIn: Bool {
-        !username.isEmpty && !password.isEmpty && socketService.isConnected && !isLoading
+        !username.isEmpty && !PasswordEntry.sent(password).isEmpty && socketService.isConnected && !isLoading
     }
 
     private func signIn() {
         isLoading = true
         authState.error = nil
-        AuthEmitter.signIn(username: username, password: password)
+        attempt += 1
+        let sent = attempt, name = username
+        asTypedRetry.arm(PasswordEntry.asTypedFallback(password).map { SignInRequest(username: name, password: $0) })
+        AuthEmitter.signIn(username: name, password: PasswordEntry.sent(password))
 
-        // Reset loading after timeout
+        // Reset loading after timeout (a reply that never came gets no resend later)
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             isLoading = false
+            if sent == attempt { asTypedRetry.clear() }
         }
     }
 }

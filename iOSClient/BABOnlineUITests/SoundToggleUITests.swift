@@ -51,11 +51,18 @@ final class SoundToggleUITests: XCTestCase {
         app.terminate()
     }
 
+    /// The Sound section sits under the profile (iOS 1.2.2): scroll the Account sheet to it.
+    private func revealSound(_ app: XCUIApplication, _ toggle: XCUIElement) {
+        XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
+        for _ in 0..<6 where !(toggle.exists && toggle.isHittable) { app.swipeUp(velocity: .slow) }
+    }
+
     func testAccountSheetSwitchIsTheSameSetting() {
         var app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
         app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
         var toggle = app.switches["settings.sound"]
+        revealSound(app, toggle)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         let start = toggle.value as? String ?? ""
         XCTAssertEqual(app.sliders["settings.soundVolume"].exists, start == "1", "the volume shows while sound is on")
@@ -83,6 +90,7 @@ final class SoundToggleUITests: XCTestCase {
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
         app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
         toggle = app.switches["settings.sound"]
+        revealSound(app, toggle)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         XCTAssertEqual(toggle.value as? String ?? "", start, "the speaker's flip is the Account switch's setting")
         app.terminate()

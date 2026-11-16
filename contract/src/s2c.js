@@ -55,6 +55,8 @@ const I = {
     safety: 'iOSClient/BABOnline/Networking/Handlers/SafetySocketHandler.swift:register',
     board: 'iOSClient/BABOnline/Networking/Handlers/LeaderboardSocketHandler.swift:register',
     records: 'iOSClient/BABOnline/Networking/Handlers/RecordsSocketHandler.swift:register',
+    // from iOS 1.2.2 (build 10): the Account sheet's own profile and the player profile sheet
+    profile: 'iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register',
     state: (fn) => `iOSClient/BABOnline/State/GameState.swift:${fn}`,
 };
 const reads = (web, ios) => ({ web: [].concat(web || []), ios: [].concat(ios || []) });
@@ -702,20 +704,20 @@ const s2c = {
         status: 'active', to: 'self',
         added: ['avatarUrl', 'scope'],
         notes: SCOPE_ECHO_NOTE,
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
     profilePicUpdateResponse: {
         payload: okFail({ profilePic: int({ minimum: 1, maximum: 82 }) }),
         status: 'active', to: 'self',
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:updateProfilePic'],
     },
     profilePicUploadResponse: {
         payload: okFail({ customProfilePic: str(), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'self',
         added: ['avatarUrl'],
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:uploadProfilePic'],
     },
     searchPlayersResponse: {
@@ -736,7 +738,7 @@ const s2c = {
         status: 'active', to: 'self',
         added: ['avatarUrl', 'scope'],
         notes: SCOPE_ECHO_NOTE,
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
     leaderboardResponse: {

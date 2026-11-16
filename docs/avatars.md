@@ -17,7 +17,11 @@ deal, in positionUpdate, rejoins, the leaderboard...). Now:
   paths) and new `client/assets/avatars/v1/*.webp` 256 px for new clients.
 
 The stored `users.customProfilePic` values are never rewritten. New uploads
-are stored as the canonical WebP data URL.
+are stored as the canonical WebP data URL. Choosing a stock picture
+(`updateProfilePic`) removes the stored custom one (2026-11-15: a custom
+picture wins wherever a picture is read, so the choice showed nowhere while
+it stayed). iOS 1.2.2 uploads and picks too (iOSClient/CLAUDE.md, iOS
+profiles): the same 200 px padded-circle PNG as the web.
 
 **Since contract/V1_REMOVALS.md #19 (2026-11-12) no payload carries a
 picture inline, for any recipient.** A picture slot is a stock number or

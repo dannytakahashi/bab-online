@@ -3145,7 +3145,7 @@
       "rateLimit": null,
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {},
@@ -3156,7 +3156,7 @@
           "scope": "all"
         }
       ],
-      "notes": "Throttled in-handler (rateLimiter key getProfile, 20 / 10 s per socket); over the limit serverError {code:'rateLimit', handler:'getProfile'}, as the wrappers answer. Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
+      "notes": "iOS from 1.2.2 (build 10): the own profile in the Account sheet; it always sends {scope} (human included), so every success carries the echo. Throttled in-handler (rateLimiter key getProfile, 20 / 10 s per socket); over the limit serverError {code:'rateLimit', handler:'getProfile'}, as the wrappers answer. Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human)."
     },
     "updateProfilePic": {
       "payload": {
@@ -3178,7 +3178,7 @@
       "rateLimit": "updateProfilePic",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -3196,7 +3196,8 @@
           "profilePic": 500
         },
         {}
-      ]
+      ],
+      "notes": "iOS from 1.2.2 (build 10): Account sheet, Choose Avatar. Answered by profilePicUpdateResponse."
     },
     "uploadProfilePic": {
       "payload": {
@@ -3216,10 +3217,10 @@
       "status": "active",
       "joi": "uploadProfilePic",
       "rateLimit": "uploadProfilePic",
-      "notes": "Pipeline on (docs/avatars.md): decoded and re-encoded server-side; stored as a WebP data URL <= 256 px; undecodable or unsafe images are refused with the usual {success:false, message}.",
+      "notes": "iOS from 1.2.2 (build 10): Account sheet, Upload Photo (a 200 px PNG data URL, cropped to a circle with 16% padding like the web's). Pipeline on (docs/avatars.md): decoded and re-encoded server-side; stored as a WebP data URL <= 256 px; undecodable or unsafe images are refused with the usual {success:false, message}.",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -3353,7 +3354,7 @@
       "rateLimit": "getPlayerProfile",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -3376,7 +3377,7 @@
           "username": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         }
       ],
-      "notes": "Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included). Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human). Joi accepts any scope value (lenient: the handler normalizes a non-string, null or unknown scope to human, echoed)."
+      "notes": "iOS from 1.2.2 (build 10): the player profile sheet (chat long-press View Profile, a seat avatar tap, the online list), always with {scope}; a bot name is asked too and answers Player not found. Joi since V1_REMOVALS #18 (2026-11-11). Web asks from search rows, seat avatars and opponent plates (dataset.username, a bot name included). Optional {scope: human | bots | all} (additive 2026-11-13): human = games with no bot or resign-bot seat at the end (users.stats, today's reply), bots = games with one (users.botStats, gameRecords withBots), all = both summed field by field. Missing, non-object or unknown = human, never refused. The reply echoes `scope` only when the request carried the key. iOS sends no payload (human). Joi accepts any scope value (lenient: the handler normalizes a non-string, null or unknown scope to human, echoed)."
     },
     "createTournament": {
       "payload": {
@@ -7455,7 +7456,9 @@
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:getProfile"
@@ -7508,7 +7511,9 @@
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:updateProfilePic"
@@ -7565,7 +7570,9 @@
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:uploadProfilePic"
@@ -7699,7 +7706,9 @@
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/profileHandlers.js:getPlayerProfile"

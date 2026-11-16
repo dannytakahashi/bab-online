@@ -113,15 +113,17 @@ struct RegisterView: View {
     }
 
     private var canRegister: Bool {
-        !username.isEmpty && !password.isEmpty && password == confirmPassword
-            && PasswordRule.newPasswordProblem(password) == nil
+        // the password as it is sent: without spaces at its edges, like the web's (PasswordEntry)
+        !username.isEmpty && !PasswordEntry.sent(password).isEmpty
+            && PasswordEntry.sent(password) == PasswordEntry.sent(confirmPassword)
+            && PasswordRule.newPasswordProblem(PasswordEntry.sent(password)) == nil
             && socketService.isConnected && !isLoading
     }
 
     private func signUp() {
         isLoading = true
         authState.error = nil
-        AuthEmitter.signUp(username: username, password: password)
+        AuthEmitter.signUp(username: username, password: PasswordEntry.sent(password))
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             isLoading = false
