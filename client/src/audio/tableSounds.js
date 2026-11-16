@@ -3,6 +3,9 @@
  * gameHandlers.js calls these AFTER GameState applied the event, so the
  * state is the table with it:
  *
+ *   playerDrew    draw (a card variant at DRAW_GAIN), once per new draw
+ *                 order, mine and the bots'; draws that arrive together
+ *                 (the 30 s auto-draws) come DRAW_SPACING_MS apart
  *   gameStart     deal, when the cards go down (main.js showCards ->
  *                 dealShown: after the first hand's fade or the whisk)
  *   cardPlayed    card (a random variant), mine and bots' included; an
@@ -46,6 +49,10 @@ export const TURN_IDLE_MS = 5000;
 export const GAME_END_AFTER_HAND_S = 0.5;
 /** A spectator's hand end: made, quieter (no team to have made it). */
 export const SPECTATOR_HAND_END_GAIN = 0.6;
+/** A draw for deal's card: a card take, a little under a played card. */
+export const DRAW_GAIN = 0.8;
+/** Draws that arrive together are heard one by one, this far apart. */
+export const DRAW_SPACING_MS = 150;
 
 export class TableSounds {
   /**
@@ -66,7 +73,35 @@ export class TableSounds {
     this._now = now;
     this._timers = timers;
     this._turnTimer = null;
+    this._drawTimer = null;
+    this._drawsWaiting = 0;
     this.reset();
+  }
+
+  /** One draw's card now; the next waiting one DRAW_SPACING_MS later. */
+  _playDraw() {
+    const played = this._play('draw', { gain: DRAW_GAIN });
+    this._drawTimer = this._timers.set(() => {
+      this._drawTimer = null;
+      if (this._drawsWaiting > 0) {
+        this._drawsWaiting--;
+        this._playDraw();
+      }
+    }, DRAW_SPACING_MS);
+    return played;
+  }
+
+  _cancelDraws() {
+    if (this._drawTimer !== null) {
+      try { this._timers.clear(this._drawTimer); } catch { /* a stub clock */ }
+      this._drawTimer = null;
+    }
+    this._drawsWaiting = 0;
+  }
+
+  /** Draw sounds waiting their turn (tests). */
+  get drawsWaiting() {
+    return this._drawsWaiting;
   }
 
   /** Start (or restart) the turn reminder: it sounds if my turn is still open TURN_IDLE_MS from now. */
@@ -93,6 +128,7 @@ export class TableSounds {
 
   reset() {
     this._cancelTurnReminder?.();
+    this._cancelDraws();
     this._wasMyTurn = false;
     this._pendingDeal = null;
     // a deal whose trump is not face up yet: a bid turn waits for it
@@ -144,6 +180,21 @@ export class TableSounds {
     this._awaitTrump = false;
     this._pendingTurn = false;
     this._cancelTurnReminder();
+    this._cancelDraws();
+  }
+
+  /**
+   * playerDrew (GameState applied it): a card turned up in the draw for
+   * deal. `added` is false for a draw order already shown (a re-send).
+   * @returns {boolean} whether it sounded now or waits its turn
+   */
+  drew(added = true) {
+    if (!added || !this.live) return false;
+    if (this._drawTimer !== null) {
+      this._drawsWaiting++;
+      return true;
+    }
+    return this._playDraw();
   }
 
   /** gameStart (GameState applied the deal): the sound waits for the cards. */
