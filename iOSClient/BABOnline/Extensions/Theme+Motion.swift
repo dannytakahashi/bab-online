@@ -8,9 +8,11 @@ import UIKit
 /// - the repeating pulses (the turn ring, the speaking ring, "Tap to Draw") hold
 ///   still at their lit alpha;
 /// - slides (the log drawer, the bid panel, the status toasts) and the splash's
-///   rise and zoom become cross-fades.
+///   rise and zoom become cross-fades;
+/// - the deal's fly-in (every card of every hand crossing the table from the deck,
+///   LiveAnimator.deal) becomes a short fade in place, as the web makes it instant.
 ///
-/// The cards' own moves (deal, play to the trick, collect) stay: they are short,
+/// The cards' other moves (play to the trick, collect) stay: they are short,
 /// one-off and show where a card went, as Apple's own card games keep them.
 /// SwiftUI views read `@Environment(\.accessibilityReduceMotion)`; SpriteKit nodes
 /// read `Theme.Motion.reduceMotion` when they start an effect (a ring already

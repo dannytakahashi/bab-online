@@ -63,6 +63,8 @@ class HandNode: SKNode {
             let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
             if arriving.contains(card.id) {
                 animator.move(s, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
+            } else if let deal = s.deal {
+                deal.retarget(s, to: target)  // a card being dealt lands in its current slot
             } else if !s.hasActions() {
                 s.position = target
             }
@@ -76,7 +78,9 @@ class HandNode: SKNode {
         let slots = layout.handSlots(count: ordered.count)
         for (i, s) in ordered.enumerated() {
             let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
-            if s.action(forKey: "move") != nil {
+            if let deal = s.deal {
+                deal.retarget(s, to: target)
+            } else if s.action(forKey: "move") != nil {
                 animator.retarget(s, to: target)
             } else {
                 s.removeAction(forKey: CardAnimations.liftKey)
@@ -87,6 +91,8 @@ class HandNode: SKNode {
 
     private func handleCardTap(_ card: Card) {
         guard let sprite = sprites[card.id] else { return }
+        // a card still flying in from the deal lands now, so its lift starts from its slot
+        sprite.finishDeal()
         if liftedCardId == card.id {
             // Second tap on the lifted card: play it
             onCardTapped?(card)
@@ -106,6 +112,7 @@ class HandNode: SKNode {
     /// Hand a card's sprite over to another container (my card going to the trick).
     func detach(_ id: String) -> CardSpriteNode? {
         guard let s = sprites.removeValue(forKey: id) else { return nil }
+        s.finishDeal()  // its deal flight is in this node's units: land it before it changes parent
         if liftedCardId == id { liftedCardId = nil }
         s.isLifted = false
         return s

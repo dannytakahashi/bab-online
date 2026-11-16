@@ -354,6 +354,7 @@ extension TableReducer {
         s.pending = nil
         s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))  // 21.5: bids start empty every deal
         if let previous { fx.append(.animate(.handCleared(dealSeq: previous.dealSeq))) }
+        fx.append(.animate(.dealt(dealSeq: dealSeq)))
         fx.append(.sound(.deal))
         if let trump = p.trump {
             addLog(&s, "Hand \(size) — Trump: \(trumpString(trump))")

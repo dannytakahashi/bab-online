@@ -182,7 +182,8 @@ enum CardTextureGenerator {
     }
 
     /// Render every face the game deals on a background queue (once per process), so
-    /// the first deal finds them cached instead of drawing 13 cards on the main thread.
+    /// the first deal finds them cached instead of drawing 13 cards on the main thread
+    /// (and the table back of the deal's deck; `prewarmRenders` counts the faces only).
     /// Called when a game lobby, tournament lobby or game screen shows. Faces already
     /// rendered on demand are skipped (and kept). `completion` runs on the main queue
     /// once every face is cached (at once when an earlier call already started).
@@ -202,6 +203,8 @@ enum CardTextureGenerator {
         DispatchQueue.global(qos: .utility).async {
             // the draw for deal's deck at its expected size (NSCache is thread safe)
             if let drawCardWidth { _ = cardBackImage(width: drawCardWidth) }
+            // the table's back at the faces' size: the deck a live deal flies from (GameSKScene.dealIn)
+            if cached(backKey) == nil { _ = store(makeTexture(renderCardBack(pixelSize: pixelSize())), for: backKey) }
             for card in allCards where cached(card.id) == nil {
                 _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
                 #if DEBUG

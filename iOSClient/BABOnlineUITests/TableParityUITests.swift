@@ -275,4 +275,90 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(element(app, "dealer").label, "Dealer: ivy")
         app.terminate()
     }
+
+    // MARK: (h) the deal's fly-in (iOS 1.2.3)
+
+    /// "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1" -> ["deals": "1", "cards": "52", ...]
+    private func dealProbe(_ app: XCUIApplication) -> [String: String] {
+        var out: [String: String] = [:]
+        for part in Fixture.probe(app, "table.deal").split(separator: " ") {
+            let kv = part.split(separator: "=")
+            if kv.count == 2 { out[String(kv[0])] = String(kv[1]) }
+        }
+        return out
+    }
+
+    /// Polls "table.deal" until `done` holds (nil at the deadline); `seen` gets every reading.
+    private func waitForDeal(_ app: XCUIApplication, timeout: TimeInterval, seen: ([String: String]) -> Void = { _ in },
+                             _ done: ([String: String]) -> Bool) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let d = dealProbe(app)
+            seen(d)
+            if done(d) { return d }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return nil
+    }
+
+    private static let idle = ["flying": "0", "fading": "0", "deck": "0"]
+
+    private static func isIdle(_ d: [String: String]) -> Bool { idle.allSatisfy { d[$0.key] == $0.value } }
+
+    func testARejoinShowsTheTableWithoutADeal() {
+        let app = Fixture.launch("trick-mid-lead3")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        XCTAssertEqual(dealProbe(app), ["deals": "0", "cards": "0", "mode": "-", "flying": "0", "fading": "0", "deck": "0"])
+        app.terminate()
+    }
+
+    func testALiveDealFliesFromTheDeckAndLands() {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES"])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        let shown = fans(app)
+        // the deal 8 s after launch: every card of the new hand (and every seat's backs) flies
+        var mid: [String: String]?
+        var sawBefore = false
+        let end = waitForDeal(app, timeout: 20, seen: { d in
+            if d["deals"] == "0" { sawBefore = true }
+            if mid == nil, d["deals"] == "1", (Int(d["flying"] ?? "") ?? 0) > 0 {
+                mid = d
+                self.attach(app, "deal-mid")
+            }
+        }) { $0["deals"] == "1" && Self.isIdle($0) }
+        let cards = String(13 + (shown == nil ? 0 : 39))
+        XCTAssertEqual(end, ["deals": "1", "cards": cards, "mode": "fly", "flying": "0", "fading": "0", "deck": "0"],
+                       "landed: nothing in flight, no deck")
+        // seen in flight: the probe is read every few tenths of a second and holds the deal's
+        // start for its 1.3 s, so a test that was reading before the deal sees it (a launch slower
+        // than the fixture's 8 s cannot, and the landed reading above still checks the deal)
+        XCTAssertTrue(sawBefore || mid != nil, "the probe was never read before the deal ended")
+        if sawBefore {
+            XCTAssertEqual(mid?["flying"], cards, "mid-deal: \(String(describing: mid))")
+            XCTAssertEqual(mid?["deck"], "1")
+        }
+        XCTAssertTrue(Fixture.settledState(app).contains("hand=13 trick=0"), Fixture.probe(app, "table.state"))
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+        if shown != nil { XCTAssertEqual(fans(app), [2: 13, 3: 13, 4: 13]) }
+        attach(app, "deal-landed")
+        app.terminate()
+    }
+
+    func testUnderReduceMotionTheDealFadesInPlace() {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiReduceMotion", "YES"])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        var flew = false, deck = false
+        let end = waitForDeal(app, timeout: 15, seen: { d in
+            if (d["flying"] ?? "0") != "0" { flew = true }
+            if (d["deck"] ?? "0") != "0" { deck = true }
+        }) { $0["deals"] == "1" && Self.isIdle($0) }
+        XCTAssertEqual(end?["mode"], "fade")
+        XCTAssertNotEqual(end?["cards"] ?? "0", "0")
+        XCTAssertFalse(flew, "nothing crosses the table")
+        XCTAssertFalse(deck, "no deck")
+        XCTAssertTrue(Fixture.settledState(app).contains("hand=13 trick=0"), Fixture.probe(app, "table.state"))
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+        app.terminate()
+    }
 }

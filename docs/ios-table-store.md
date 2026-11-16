@@ -947,6 +947,67 @@ silent switch, the 48 ms AAC lead-in); with voice on the session is
 playAndRecord / voiceChat, so sounds then ignore the silent switch and go
 through voice processing.
 
+## The deal's fly-in (iOS 1.2.3, build 12)
+
+Owner 2026-11-16, "no shuffle animation on ios": the web has no shuffle
+animation as such (no code shuffles cards on screen); what it shows with the
+shuffle sound is the deal: the new hand flies from the trump card into the
+hand, staggered, and each seat's card backs fly from it into their fan
+(`CardManager.displayHand` / `_createCardSprite`, `OpponentManager._drawFan`:
+200 ms at the deck, then each card `slow * 2` = 700 ms with the emphasized
+ease, `dealStagger` 35 ms after the one before; instant under reduced motion).
+iOS rendered the new hand at once. Now:
+
+- The reducer's gameStart emits `.animate(.dealt(dealSeq:))` next to the deal
+  sound; `catchUp` strips it with the sounds, and a snapshot never emits it, so
+  a rejoin, restore, spectate, resync or buffered replay shows the hand where
+  it is.
+- `GameSKScene.apply` step 3 runs `dealIn()` for the model's current deal:
+  my hand's sprites (left to right) and every fan's backs go through
+  `Animator.deal` with the web's timing (`Deal.wait` 0.2 s, `Deal.flight`
+  `Theme.Motion.slow * 2`, `Deal.stagger` `Theme.Motion.dealStagger`). Each
+  card rests (hidden) where the render put it, then flies from
+  `TableLayout.dealOrigin` (the trick cluster's centre: the iOS trump is in
+  the score bar, off the scene) at the hand's card size, to its slot, scale
+  and turn (`LiveAnimator.deal`: a custom action that reads its target each
+  frame, so a relayout or a re-render meanwhile just moves the landing:
+  `Deal.retarget`; the start is computed when the flight starts). A small
+  deck (three table backs, z -0.5: under the hand and the seats) sits at the
+  origin until the last card has left. `InstantAnimator` (the tests) does
+  nothing: the render already placed everything.
+- Cosmetic only: nothing waits for it. The bid panel, taps and the server's
+  pacing are as before (a 13-card hand has landed 1.32 s after gameStart; a
+  tap on a card still flying lands it at once, `HandNode.handleCardTap`;
+  `detach` lands a card leaving the hand; a snapshot (`render(reset:)`)
+  lands everything and drops the deck; a new deal lands the old one).
+- Reduce Motion: no flight and no deck; the cards fade in where they are
+  (`Deal.fade`, `Theme.Motion.base`), as `Theme+Motion.swift` now lists.
+- The deck's back is the 300 x 435 table back, rendered by `prewarm()` off
+  the main thread with the faces (before, only the unused
+  `CardSpriteNode.cardBack` asked for it, on demand).
+- Fixture flags: `-uiDeal YES` (8 s after launch a live gameStart of 13 cards,
+  dealer 4) and `-uiReduceMotion YES`; probe `table.deal`
+  ("deals=1 cards=52 mode=fly flying=52 fading=0 deck=1": deals shown, the
+  latest one's cards and kind, what is in flight or fading now, the deck;
+  refreshed when the deal starts and once it has landed).
+
+Tests: `DealAnimationTests` (reducer: live gameStart yes, every fixture
+snapshot / rejoin no, catch-up after a snapshot and a lapsed resync no;
+scene: every card and back in flight from the deck at the hand card's size,
+Reduce Motion fades in place, a rejoin has no deal, a snapshot mid-deal lands
+it, a relayout re-aims, a tap lands and lifts, a redeal replaces the deck,
+InstantAnimator; in a window, the flights land on the render's slots and the
+tree equals a fresh render's; the timing and the ease are the web's),
+`TableParityUITests` (`testARejoinShowsTheTableWithoutADeal`,
+`testALiveDealFliesFromTheDeckAndLands`,
+`testUnderReduceMotionTheDealFadesInPlace`).
+
+Not done / known: the web's end-of-hand whisk (tricks flying back to the
+trump before the deal) has no iOS counterpart; the deal sound is held 0.5 s
+after a made / set at a hand end (`TableSoundCues.afterHandEnd`) while the
+cards start at 0.2 s; the fans' backs fly from their small fan texture, so
+they are soft for the first frames of their flight. Not seen on a device.
+
 ## iOS 1.2.2: table parity with the web (build 10)
 
 Seven table items the web has (parity audit 2026-11-15). No server change and
