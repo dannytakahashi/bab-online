@@ -14,8 +14,9 @@ final class ReleaseMetadataTests: XCTestCase {
     /// review; build 9 keeps a live connection after a long background and shows Records'
     /// games played per period, and 1.2.1 was released; build 10 is 1.2.2: web parity, i.e.
     /// profiles with photo upload, the admin panel, lobby, tournament and table parity with
-    /// opponent card backs, table sounds and error reports).
-    static let minimumBuild = 10
+    /// opponent card backs, table sounds and error reports; build 10 went to TestFlight, so
+    /// build 11 adds the New Game label on phones and goes to review).
+    static let minimumBuild = 11
 
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
@@ -28,12 +29,12 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (3: 1.0.0 (1) and
-    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9) and 1.2.2 (10) are current, pinned
+    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9) and 1.2.2 (10) and (11) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6) and 1.2.1 (9) were released; 1.2.2 ships as build 10 or later and builds never go back")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6) and 1.2.1 (9) were released; 1.2.2 (10) went to TestFlight; 1.2.2 ships as build 11 or later and builds never go back")
         XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.2", "1.2.1 is released (its train is closed): the next upload is 1.2.2")
     }
 
