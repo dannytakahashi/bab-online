@@ -110,15 +110,17 @@ private struct MainRoomScreen: View {
 
     private var lobbyBrowserPanel: some View {
         VStack(spacing: 0) {
-            // Header: words when the whole row fits on one line, icons only
-            // when it doesn't (the closed Duo, the open Duo's 55% panel, large
-            // Dynamic Type). Measured, not size-class based, so no label ever
-            // wraps mid-word. Icon-only labels keep their title for VoiceOver.
-            // In the vertical bar the same controls are toolbar items.
+            // Header: words when the whole row fits on one line; else New Game keeps
+            // its word and the rest are icons (phones, the open Duo's 55% panel: owner
+            // 2026-11-16, a new player needs to see "New Game"); icons only as the last
+            // resort (large Dynamic Type on a narrow screen). Measured, not size-class
+            // based, so no label ever wraps mid-word. Icon-only labels keep their title
+            // for VoiceOver. In the vertical bar the same controls are toolbar items.
             if !bar.usesVerticalBar {
                 ViewThatFits(in: .horizontal) {
-                    lobbyHeader(iconsOnly: false)
-                    lobbyHeader(iconsOnly: true)
+                    lobbyHeader(.words)
+                    lobbyHeader(.newGameWord)
+                    lobbyHeader(.icons)
                 }
                 .padding()
 
@@ -135,16 +137,20 @@ private struct MainRoomScreen: View {
         TournamentEmitter.createTournament()
     }
 
-    private func lobbyHeader(iconsOnly: Bool) -> some View {
-        HStack(spacing: iconsOnly ? 4 : 8) {
+    /// How much of the header's action row shows words.
+    enum HeaderWords { case words, newGameWord, icons }
+
+    private func lobbyHeader(_ words: HeaderWords) -> some View {
+        let othersIconsOnly = words != .words
+        return HStack(spacing: othersIconsOnly ? 4 : 8) {
             headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
-                         iconsOnly: iconsOnly) { LobbyEmitter.createLobby() }
+                         iconsOnly: words == .icons) { LobbyEmitter.createLobby() }
                 .disabled(!socketService.canSendMainRoomActions)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
-                         iconsOnly: iconsOnly) { createTournament() }
+                         iconsOnly: othersIconsOnly) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
             headerButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary,
-                         iconsOnly: iconsOnly) { showLeaderboard = true }
+                         iconsOnly: othersIconsOnly) { showLeaderboard = true }
 
             Spacer(minLength: 8)
 

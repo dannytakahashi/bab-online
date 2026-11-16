@@ -74,6 +74,26 @@ final class LobbyControlsTests: XCTestCase {
         app.terminate()
     }
 
+    /// Owner 2026-11-16: "New Game" keeps its word wherever the header is in the content (every
+    /// phone, the iPad, the open Duo's panel) at the default text size; only Tournament and Stats
+    /// drop to icons when the row is tight. The vertical bar draws symbols only (toolbar items).
+    func testNewGameKeepsItsWord() throws {
+        let app = Fixture.launch("main-room")
+        XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
+        sleep(1)
+        if verticalBarColumn(app) != nil { throw XCTSkip("the vertical bar shows symbols only") }
+        let newGame = try XCTUnwrap(buttons(app, "label == %@", "New Game").first)
+        let stats = try XCTUnwrap(buttons(app, "label == %@", "Stats").first)
+        // an icon-only button is 44 pt wide (headerButton's minWidth); with its word it is far wider
+        XCTAssertGreaterThan(newGame.frame.width, 80, "New Game shows its word: \(newGame.frame)")
+        XCTAssertGreaterThan(newGame.frame.width, stats.frame.width + 20, "New Game is wider than an icon: \(newGame.frame) vs \(stats.frame)")
+        let a = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        a.name = "main-room-header"
+        a.lifetime = .keepAlways
+        add(a)
+        app.terminate()
+    }
+
     func testGameLobbyLeave() {
         lobbyLeave("game-lobby")
     }
