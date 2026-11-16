@@ -632,6 +632,13 @@ class GameManager {
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
         this._clearLobbyGrace(socketId);
+        // Play again: a moved member still on its score screen (it has not
+        // acted in the lobby) keeps its place as a hold, PLAY_AGAIN_HOLD_MS
+        const afterGameHold = playAgain().holdOnDrop(lobby, socketId, player.username);
+        if (afterGameHold) {
+            this.lobbyGrace.set(socketId, afterGameHold);
+            return { lobby, player };
+        }
         const timer = safeTimeout(() => {
             let result;
             try {
@@ -1177,7 +1184,7 @@ class GameManager {
         // Play again: what the lobby was, for its return when the game
         // ends (never on the wire); then its own after-game state ends
         // (lingering calls, reservations, holds off the table)
-        const lobbyOrigin = playAgain().originOf(lobby, io, extras.map(e => e.username));
+        const lobbyOrigin = playAgain().originOf(lobby, io, extras.map(e => e.username), onTable);
         playAgain().onLobbyStart(lobby);
 
         // Remove lobby mappings (every member)

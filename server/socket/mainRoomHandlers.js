@@ -88,7 +88,9 @@ function joinMainRoom(socket, io) {
 }
 
 /**
- * The joinMainRoom auto-claim of an offline play-again hold: only for a
+ * The joinMainRoom auto-claim of a play-again place (playAgain.autoClaimTarget:
+ * an offline hold, or the seat of a moved member whose older socket never
+ * acted in the lobby, i.e. a restore off the score screen): only for a
  * socket with the playAgain cap, signed in, with no membership, whose user
  * is not merge-locked. @returns {boolean} the socket is in that lobby now
  */
@@ -96,7 +98,7 @@ function autoClaimHold(socket, io) {
     if (!clientInfo.hasCap(socket, playAgain.CAP)) return false;
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user || gameManager.isMergeLocked(user.username) || gameManager.activityOf(socket.id)) return false;
-    const hold = playAgain.offlineHoldFor(user.username);
+    const hold = playAgain.autoClaimTarget(user.username, socket.id);
     if (!hold) return false;
     joinLobby(socket, io, { lobbyId: hold.lobbyId });
     const claimed = gameManager.playerLobbies.get(socket.id) === hold.lobbyId;
@@ -217,6 +219,8 @@ function joinLobby(socket, io, data) {
     // This socket holds its seat here already (it took a held seat back in
     // place): it gets the lobby again; the others were told on the resume
     if (result.alreadySeated) {
+        // (play again: a re-entry means it is on the lobby screen)
+        playAgain.settle(socket.id);
         socket.leave('mainRoom');
         socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
         // Mapped members only: a held seat's socket is gone (a reload) or

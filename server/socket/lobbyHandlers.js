@@ -35,6 +35,8 @@ function sendLobbyState(io, lobby, { except = null, onlyTo = null, own = {} } = 
  * Handle player marking themselves as ready
  */
 async function playerReady(socket, io) {
+    // (play again: acting in the lobby means it is on the lobby screen)
+    playAgain.settle(socket.id);
     const result = gameManager.setPlayerReady(socket.id);
 
     if (!result.success) {
@@ -205,6 +207,7 @@ function startExtras(io, game, extras) {
  */
 function lobbyChat(socket, io, data) {
     const { message } = data;
+    playAgain.settle(socket.id);
 
     if (!message || message.trim().length === 0) {
         return;
@@ -241,6 +244,7 @@ function lobbyChat(socket, io, data) {
  * Handle player unmarking themselves as ready
  */
 function playerUnready(socket, io) {
+    playAgain.settle(socket.id);
     const result = gameManager.unsetPlayerReady(socket.id);
 
     if (!result.success) {
@@ -443,6 +447,7 @@ function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
  * full until a human unreadied and readied again).
  */
 async function addBot(socket, io) {
+    playAgain.settle(socket.id);
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
@@ -486,6 +491,7 @@ async function addBot(socket, io) {
  */
 function removeBot(socket, io, data) {
     const { botSocketId } = data;
+    playAgain.settle(socket.id);
 
     const lobby = gameManager.getPlayerLobby(socket.id);
 
@@ -526,6 +532,7 @@ function removeBot(socket, io, data) {
 function setLobbySpectatorsCanTalk(socket, io, value) {
     const lobby = gameManager.getPlayerLobby(socket.id);
     if (!lobby) return false;
+    playAgain.settle(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user || gameManager.lobbyHost(lobby) !== user.username) {
         emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');

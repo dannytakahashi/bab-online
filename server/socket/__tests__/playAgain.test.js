@@ -34,8 +34,9 @@ const safetyHandlers = require('../safetyHandlers');
 const clientInfo = require('../clientInfo');
 const voice = require('../voiceHandlers');
 const playAgain = require('../playAgain');
-const { makeIo, makeSocket } = require('../../testUtils/gameDriver');
-const { playLobbyGame, startLobbyGame, toBidding } = require('../../testUtils/playAgainDriver');
+const { makeIo, makeSocket, mulberry32 } = require('../../testUtils/gameDriver');
+const { playLobbyGame, startLobbyGame, toBidding, advanceUntil } = require('../../testUtils/playAgainDriver');
+const { Controller } = require('../../game/SeatState');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 
 const CAPS = {
@@ -85,10 +86,33 @@ afterEach(() => {
     }
 });
 
+/**
+ * A room emit records who was in the room at that moment (`members`) and
+ * its wire form (`json`, taken at emit time: payloads hold live state), so
+ * `received` can rebuild every socket's own stream, room broadcasts
+ * included.
+ */
+function trackRooms(io, log) {
+    const entry = (to, event, data, except) => ({
+        to, event, data, at: Date.now(),
+        members: io.rooms.has(to) ? [...io.rooms.get(to)] : null,
+        json: data === undefined ? 'u' : JSON.stringify(data),
+        ...(except ? { except } : {}),
+    });
+    io.to = (room) => ({ emit: (event, data) => log.push(entry(room, event, data)) });
+    io.emit = (event, data) => log.push(entry('*', event, data));
+    return (s) => {
+        s.to = (room) => ({ emit: (event, data) => log.push(entry(room, event, data, s.id)) });
+        s.emit = (event, data) => log.push(entry(`self:${s.id}`, event, data));
+        return s;
+    };
+}
+
 function world() {
     seq++;
     const log = [];
     const io = makeIo(log);
+    const tracked = trackRooms(io, log);
     let n = 0;
     const w = {
         log, io,
@@ -96,7 +120,7 @@ function world() {
         user(name, kind = 'full', { join = true } = {}) {
             n++;
             const id = `pa${seq}-${name}-${n}`;
-            const s = makeSocket(id, log, io);
+            const s = tracked(makeSocket(id, log, io));
             gameManager.registerUser(id, name);
             s.data.username = name;
             voice.rememberBlockList(s, []);
@@ -128,8 +152,42 @@ function world() {
         errors(s) {
             return w.to(s, 'serverError').map((l) => l.data.message);
         },
+        /**
+         * Everything socket `s` received from log index `from` on: its own
+         * emits and every room broadcast it was a member of at the time
+         * (minus socket.to's sender), as {event, json}.
+         */
+        received(s, from = 0) {
+            return log.slice(from).filter((l) =>
+                l.to === s.id || l.to === `self:${s.id}` || l.to === '*' ||
+                (l.except !== s.id && Array.isArray(l.members) && l.members.includes(s.id)))
+                .map((l) => ({ event: l.event, json: l.json }));
+        },
     };
     return w;
+}
+
+/**
+ * A stream with this run's identities replaced by placeholders: socket ids
+ * (S<i>) and usernames (U<i>) of `socks` in order, then every uuid (game,
+ * lobby, bot ids) by order of first appearance, so two runs compare byte
+ * for byte.
+ */
+function normalized(stream, socks) {
+    const subs = [
+        ...socks.map((s, i) => [s.id, `S${i}`]),
+        ...socks.map((s, i) => [s.data.username, `U${i}`]),
+    ].sort((a, b) => b[0].length - a[0].length);
+    const uuids = new Map();
+    return stream.map(({ event, json }) => {
+        let j = json;
+        for (const [from, to] of subs) j = j.split(from).join(to);
+        j = j.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, (u) => {
+            if (!uuids.has(u)) uuids.set(u, `ID${uuids.size}`);
+            return uuids.get(u);
+        });
+        return `${event} ${j}`;
+    });
 }
 
 /** socks[0] creates a lobby (name), the rest join; then `bots` bots. */
@@ -154,6 +212,13 @@ describe('at gameEnd: the capable players are back in the same lobby', () => {
         lobbyHandlers.setLobbySpectatorsCanTalk(socks[0], w.io, false);
         const oldId = lobby.id;
         const game = await playLobbyGame(w.io, socks);
+        // The ordinary end: one seat still played by its human (it bid and
+        // played the last hand through the real handlers), three lazy
+        const human = game.seatList().filter((s) => s.controller === Controller.HUMAN);
+        expect(human).toHaveLength(1);
+        expect(game.seatList().filter((s) => s.controller === Controller.LAZY_BOT)).toHaveLength(3);
+        expect(w.log.some((l) => l.event === 'bidReceived' && l.data.position === human[0].position)).toBe(true);
+        expect(w.log.some((l) => l.event === 'cardPlayed' && l.data.position === human[0].position)).toBe(true);
 
         const back = returnedLobby(w, socks[0]);
         expect(back).toBeTruthy();
@@ -675,5 +740,263 @@ describe('blocks', () => {
         await safetyHandlers.blockUser(socks[0], w.io, { username: socks[3].data.username });
         expect(w.to(socks[3], 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[0].id]);
         expect(w.to(socks[0], 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[3].id]);
+    });
+});
+
+// Review 2026-11-16 (finding 1): the owner keeps the score screen up until
+// the person taps Return to Lobby, so a moved member's phone can lock there.
+// A restore off the score screen sends joinMainRoom on both clients (iOS
+// RestoreRoute .game -> .mainRoom, web TABLE_LOST), not joinLobby.
+describe('a moved member who drops while still on the score screen', () => {
+    test('a drop before acting in the lobby is held for PLAY_AGAIN_HOLD_MS, not the 30 s reload grace; the next capable joinMainRoom takes the seat back in place', async () => {
+        const w = world();
+        // capacity 4 (one member without casualSpectators): a leave there resets ready flags
+        const socks = names(4).map((n, i) => w.user(n, i === 1 ? 'paonly' : 'full'));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        expect(gameManager.lobbyCapacity(back)).toBe(4);
+        await lobbyHandlers.playerReady(socks[1], w.io);
+        expect(back.players[1].ready).toBe(true);
+
+        await w.kill(socks[2]);
+        expect(gameManager.lobbyGrace.get(socks[2].id)).toMatchObject({ kind: 'afterGame', offline: true, lobbyId: back.id });
+        expect(gameManager.lobbyExtrasWire(back).members[2]).toMatchObject({ returning: true, reconnecting: true });
+        // past the 30 s reload grace: still there, the others' flags untouched
+        await jest.advanceTimersByTimeAsync(gameManager.constructor.LOBBY_SEAT_GRACE_MS + 1000);
+        expect(back.players.map((p) => p.socketId)).toEqual(socks.map((s) => s.id));
+        expect(back.players[1].ready).toBe(true);
+
+        const again = w.user(socks[2].data.username, 'full', { join: false });
+        const mark = w.log.length;
+        mainRoomHandlers.joinMainRoom(again, w.io);
+        expect(w.to(again, 'mainRoomJoined', mark)).toEqual([]);
+        expect(w.last(again, 'lobbyCreated').lobbyId).toBe(back.id);
+        expect(back.players[2].socketId).toBe(again.id);
+        expect(gameManager.lobbyGrace.has(socks[2].id)).toBe(false);
+        expect(back.players[1].ready).toBe(true);
+
+        // Nobody comes back for the next one: it goes at PLAY_AGAIN_HOLD_MS,
+        // as a leave that keeps the others' ready flags
+        await w.kill(socks[3]);
+        await jest.advanceTimersByTimeAsync(playAgain.DEFAULT_HOLD_MS + 10);
+        expect(back.players.map((p) => p.username)).toEqual(socks.slice(0, 3).map((s) => s.data.username));
+        expect(back.players[1].ready).toBe(true);
+        expect(back.readyPlayers.has(socks[1].id)).toBe(true);
+        expect(w.last(socks[0], 'lobbyPlayerLeft').leftUsername).toBe(socks[3].data.username);
+    });
+
+    test('a half-open old socket: the new socket\'s joinMainRoom takes the seat over (leftLobby to the old one, voicePeerLeft for it)', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        const again = w.user(socks[3].data.username, 'full', { join: false });
+        const mark = w.log.length;
+        mainRoomHandlers.joinMainRoom(again, w.io);
+        expect(w.to(again, 'mainRoomJoined', mark)).toEqual([]);
+        expect(back.players[3].socketId).toBe(again.id);
+        expect(w.to(socks[3], 'leftLobby', mark)).toHaveLength(1);
+        for (const s of socks.slice(0, 3)) expect(w.to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[3].id]);
+        // the old socket's eventual disconnect changes nothing
+        await w.kill(socks[3]);
+        expect(back.players[3].socketId).toBe(again.id);
+        expect(gameManager.lobbyGrace.size).toBe(0);
+    });
+
+    test('a member who acted in the lobby (chat, Ready) is on the lobby screen: an ordinary 30 s reload grace, and joinMainRoom is the main room', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        lobbyHandlers.lobbyChat(socks[1], w.io, { message: 'again?' });
+        await w.kill(socks[1]);
+        expect(gameManager.lobbyGrace.get(socks[1].id).kind).toBeUndefined();
+        const again = w.user(socks[1].data.username, 'full', { join: false });
+        const mark = w.log.length;
+        mainRoomHandlers.joinMainRoom(again, w.io);
+        expect(w.to(again, 'mainRoomJoined', mark)).toHaveLength(1);
+        expect(gameManager.playerLobbies.has(again.id)).toBe(false);
+        await jest.advanceTimersByTimeAsync(gameManager.constructor.LOBBY_SEAT_GRACE_MS + 10);
+        expect(back.players.some((p) => p.username === socks[1].data.username)).toBe(false);
+    });
+
+    test('never for a legacy socket or a merge-locked user; PLAY_AGAIN_HOLD_MS=0 keeps the ordinary grace', async () => {
+        let w = world();
+        let socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        let back = returnedLobby(w, socks[0]);
+        await w.kill(socks[2]);
+        const old = w.user(socks[2].data.username, 'legacy', { join: false });
+        let mark = w.log.length;
+        mainRoomHandlers.joinMainRoom(old, w.io);
+        expect(w.to(old, 'mainRoomJoined', mark)).toHaveLength(1);
+        expect(back.players[2].socketId).toBe(socks[2].id);
+        gameManager.mergeLocks.add(socks[2].data.username);
+        const locked = w.user(socks[2].data.username, 'full', { join: false });
+        mark = w.log.length;
+        mainRoomHandlers.joinMainRoom(locked, w.io);
+        expect(w.to(locked, 'lobbyCreated', mark)).toEqual([]);
+        expect(back.players[2].socketId).toBe(socks[2].id);
+        gameManager.mergeLocks.clear();
+
+        process.env.PLAY_AGAIN_HOLD_MS = '0';
+        w = world();
+        socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        back = returnedLobby(w, socks[0]);
+        await w.kill(socks[2]);
+        expect(gameManager.lobbyGrace.get(socks[2].id).kind).toBeUndefined();
+    });
+});
+
+// Review 2026-11-16 (finding 3): only the bots that played come back
+describe('bots that sat the game out do not come back', () => {
+    test('4 casual humans + 2 benched bots, two of the humans legacy for play again: the bots stay out, so the two moved players cannot start without the reserved ones', async () => {
+        const w = world();
+        const [a, b, c, d] = names(4).map((n, i) => w.user(n, i < 2 ? 'casual' : 'full'));
+        mainRoomHandlers.createLobby(a, w.io, { name: 'Eight' });
+        const lobby = gameManager.getPlayerLobby(a.id);
+        await lobbyHandlers.addBot(a, w.io);
+        await lobbyHandlers.addBot(a, w.io);
+        for (const s of [b, c, d]) mainRoomHandlers.joinLobby(s, w.io, { lobbyId: lobby.id });
+        expect(gameManager.lobbyCapacity(lobby)).toBe(8);
+        expect(gameManager.tableBots(lobby)).toEqual([]);
+        const game = await playLobbyGame(w.io, [a, b, c, d]);
+        expect(game.lobbyOrigin.bots.size).toBe(0);
+
+        const back = returnedLobby(w, c);
+        expect(back.players.map((p) => p.socketId)).toEqual([c.id, d.id]);
+        expect([...back.afterGame.reserved.keys()]).toEqual([a.data.username, b.data.username]);
+        await lobbyHandlers.playerReady(c, w.io);
+        await lobbyHandlers.playerReady(d, w.io);
+        await jest.advanceTimersByTimeAsync(10000);
+        expect(gameManager.getPlayerGame(c.id)).toBeFalsy();
+        expect(gameManager.playerLobbies.get(c.id)).toBe(back.id);
+        // A reserved player comes back with Join and readies: 3 of 4, still waiting
+        mainRoomHandlers.joinMainRoom(a, w.io);
+        mainRoomHandlers.joinLobby(a, w.io, { lobbyId: back.id });
+        expect(w.errors(a)).toEqual([]);
+        await lobbyHandlers.playerReady(a, w.io);
+        await jest.advanceTimersByTimeAsync(10000);
+        expect(gameManager.getPlayerGame(c.id)).toBeFalsy();
+    });
+});
+
+// Review 2026-11-16 (finding 2): the reservation and lingering exits
+describe('reservations and lingering calls end on every exit', () => {
+    async function mixed(w) {
+        const socks = [w.user(`ra${seq}`), w.user(`rb${seq}`), w.user(`rc${seq}`, 'legacy'), w.user(`rd${seq}`, 'legacy')];
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        return { socks, back: returnedLobby(w, socks[0]) };
+    }
+
+    test('signOutUser ends that user\'s reservation and lingering call (voicePeerLeft both ways; capable members get the new expected)', async () => {
+        const w = world();
+        const { socks, back } = await mixed(w);
+        const mark = w.log.length;
+        socks[2].disconnect = () => { w.io.sockets.sockets.delete(socks[2].id); };
+        expect(authHandlers.signOutUser(w.io, socks[2].data.username)).toBe(1);
+        expect(w.to(socks[2], 'forceLogout', mark)).toHaveLength(1);
+        expect(back.afterGame.reserved.has(socks[2].data.username)).toBe(false);
+        expect(back.afterGame.reserved.has(socks[3].data.username)).toBe(true);
+        expect(back.afterGame.lingering.has(socks[2].id)).toBe(false);
+        expect(w.to(socks[2], 'voicePeerLeft', mark).map((l) => l.data.socketId).sort()).toEqual([socks[0].id, socks[1].id].sort());
+        for (const s of socks.slice(0, 2)) {
+            expect(w.to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[2].id]);
+            expect(w.last(s, 'playerReadyUpdate').expected).toEqual([socks[3].data.username]);
+        }
+    });
+
+    test('creating a lobby or a tournament, or joining a tournament, ends the reservation', async () => {
+        let w = world();
+        let r = await mixed(w);
+        mainRoomHandlers.joinMainRoom(r.socks[2], w.io);
+        mainRoomHandlers.createLobby(r.socks[2], w.io, { name: 'Mine' });
+        expect(gameManager.getPlayerLobby(r.socks[2].id).name).toBe('Mine');
+        expect([...r.back.afterGame.reserved.keys()]).toEqual([r.socks[3].data.username]);
+
+        w = world();
+        r = await mixed(w);
+        mainRoomHandlers.joinMainRoom(r.socks[2], w.io);
+        tournamentHandlers.createTournament(r.socks[2], w.io);
+        const tid = gameManager.getPlayerTournament(r.socks[2].id).tournamentId;
+        expect(r.back.afterGame.reserved.has(r.socks[2].data.username)).toBe(false);
+        mainRoomHandlers.joinMainRoom(r.socks[3], w.io);
+        await tournamentHandlers.joinTournament(r.socks[3], w.io, { tournamentId: tid });
+        expect(gameManager.getPlayerTournament(r.socks[3].id).tournamentId).toBe(tid);
+        expect(r.back.afterGame.reserved.size).toBe(0);
+        // Nothing is reserved any more: strangers and bots may take the places
+        expect(playAgain.reservationBlocks(r.back)).toBe(false);
+    });
+});
+
+// Review 2026-11-16 (finding 4): spec 1.3's "second golden" for a mixed game,
+// payload by payload, room broadcasts included
+describe('a mixed game: the legacy player\'s wire', () => {
+    /** One seeded game of 2 capable + 2 legacy players; the legacy player socks[2] then taps Return and Join. */
+    async function run(off) {
+        if (off) process.env.PLAY_AGAIN = 'off'; else delete process.env.PLAY_AGAIN;
+        const random = jest.spyOn(Math, 'random').mockImplementation(mulberry32(4242));
+        jest.setSystemTime(Date.UTC(2026, 10, 16, 12));
+        const w = world();
+        const tag = off ? 'x' : 'y';
+        const socks = ['full', 'full', 'legacy', 'legacy'].map((k, i) => w.user(`mx${i}${tag}${seq}`, k));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        random.mockRestore();
+        const end = gameEndIndex(w);
+        const ret = w.log.length;
+        mainRoomHandlers.joinMainRoom(socks[2], w.io);
+        const joined = w.log.length;
+        const back = returnedLobby(w, socks[0]);
+        if (back) mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        const slice = (a, b) => w.received(socks[2], a).slice(0, w.received(socks[2], a).length - w.received(socks[2], b).length);
+        // This run's people go offline, so the next run's main room is the same
+        gameManager.currentUsers = [];
+        gameManager.mainRoomSocketIds.clear();
+        return {
+            socks, back,
+            atTable: normalized(slice(end, ret), socks),
+            onReturn: slice(ret, joined),
+            onJoin: w.received(socks[2], joined),
+        };
+    }
+
+    test('from gameEnd to its Return, byte-identical to PLAY_AGAIN=off; on Return only the private voicePeerLeft and the lobby card differ; Join is the legacy lobbyCreated', async () => {
+        const off = await run(true);
+        const on = await run(false);
+        expect(on.back).toBeTruthy();
+        expect(off.back).toBeFalsy();
+        // Room broadcasts are in the comparison (gameEnd is one)
+        expect(on.atTable[0]).toMatch(/^gameEnd /);
+        expect(on.atTable).toEqual(off.atTable);
+
+        // Return: voicePeerLeft for each moved player (private, no seq),
+        // then mainRoomJoined with the reopened lobby's card added
+        const leftOn = on.onReturn.filter((x) => x.event === 'voicePeerLeft');
+        expect(leftOn.map((x) => JSON.parse(x.json))).toEqual([{ socketId: on.socks[0].id }, { socketId: on.socks[1].id }]);
+        const rest = (r) => r.onReturn.filter((x) => x.event !== 'voicePeerLeft');
+        const withoutCard = rest(on).map((x) => {
+            if (x.event !== 'mainRoomJoined') return x;
+            const d = JSON.parse(x.json);
+            const card = d.lobbies.find((l) => l.id === on.back.id);
+            expect(Object.keys(card)).toEqual(['id', 'name', 'playerCount', 'maxPlayers', 'players', 'createdAt']);
+            expect(card).toMatchObject({ name: 'Family', playerCount: 2, maxPlayers: 4 });
+            d.lobbies = d.lobbies.filter((l) => l.id !== on.back.id);
+            return { event: x.event, json: JSON.stringify(d) };
+        });
+        expect(normalized(withoutCard, on.socks)).toEqual(normalized(rest(off), off.socks));
+
+        // Join: today's lobbyCreated keys, no play-again field anywhere
+        const created = on.onJoin.filter((x) => x.event === 'lobbyCreated').map((x) => JSON.parse(x.json));
+        expect(created).toHaveLength(1);
+        expect(Object.keys(created[0])).toEqual(['lobbyId', 'players', 'messages', 'name']);
+        for (const x of on.onJoin) expect(x.json).not.toMatch(/"(returning|expected|members|lastGame)"/);
     });
 });

@@ -23,6 +23,14 @@
  *     row, but strangers and Add Bot cannot take their place while it
  *     stands (GameManager.joinSpecificLobby / addBotToLobby); they come
  *     back with Join on the main-room card as today.
+ * A moved member's socket that drops before it has done anything in the
+ * lobby (still on its score screen, as far as the server can tell: owner
+ * 2026-11-16, the results stay up until the person taps Return to Lobby)
+ * is held the same way (GameManager.suspendLobbySeat -> holdOnDrop: an
+ * `afterGame` grace for PLAY_AGAIN_HOLD_MS instead of the 30 s reload
+ * grace), and that user's next capable joinMainRoom (a restore off the
+ * score screen lands in the main room on both clients) takes the seat back
+ * (autoClaimTarget), also while the old socket is still half-open.
  * A legacy seat owner still on the score screen keeps their calls with the
  * returners ("lingering", lobby.afterGame.lingering) until they leave it
  * (joinMainRoom and the other entry points, a disconnect) or the lobby
@@ -93,13 +101,20 @@ function guarded(label, fn) {
  * @param {Object} lobby
  * @param {Object|null} io
  * @param {string[]} extras - usernames of the lobby's extras (PR A)
+ * @param {Set<string>|null} onTable - the socket ids seated at the new
+ *   game's table. Only the bots among them come back after it (spec 1.2: a
+ *   bot whose `bot:` id held a seat). A bot that sat out (PR A tableBots)
+ *   would come back next to the reservations, which have no row and so do
+ *   not count in tableBots, and could take a returning player's place at
+ *   the table (spec 2.9)
  */
-function originOf(lobby, io, extras = []) {
+function originOf(lobby, io, extras = [], onTable = null) {
     const humans = lobby.players.filter((p) => !p.isBot);
     const caps = lobby.capable instanceof Set ? lobby.capable : new Set();
     const bots = new Map();
     for (const p of lobby.players) {
-        if (p.isBot) bots.set(p.socketId, gameManager.lobbyBotPersonality(lobby, p.socketId));
+        if (!p.isBot || (onTable && !onTable.has(p.socketId))) continue;
+        bots.set(p.socketId, gameManager.lobbyBotPersonality(lobby, p.socketId));
     }
     return {
         lobbyId: lobby.id,
@@ -108,8 +123,9 @@ function originOf(lobby, io, extras = []) {
         host: gameManager.lobbyHost(lobby),
         settings: { spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false },
         messages: (lobby.messages || []).slice(-gameManager.constructor.MAX_LOBBY_MESSAGES).map((m) => ({ ...m })),
-        // Row order: usernames for humans, the bot socket id for bots
-        order: lobby.players.map((p) => (p.isBot ? p.socketId : p.username)),
+        // Row order: usernames for humans, the bot socket id for the bots
+        // that come back
+        order: lobby.players.filter((p) => !p.isBot || bots.has(p.socketId)).map((p) => (p.isBot ? p.socketId : p.username)),
         bots,
         playAgainUsers: new Set(humans.filter((p) => hasCap(io, p.socketId)).map((p) => p.username)),
         casualUsers: new Set(humans.filter((p) => caps.has(p.socketId)).map((p) => p.username)),
@@ -311,6 +327,10 @@ function openLobby(io, p) {
             fromGameId: p.gameId,
             reserved: new Map(),
             lingering: new Map(),
+            // Moved sockets that have done nothing in the lobby yet (still
+            // on their score screen, as far as the server can tell): a drop
+            // keeps their seat as a hold, not the 30 s reload grace
+            unsettled: new Set(),
             io,
         },
     };
@@ -323,6 +343,7 @@ function openLobby(io, p) {
     for (const r of moved) {
         gameManager.playerLobbies.set(r.socketId, lobbyId);
         gameManager.leaveMainRoom(r.socketId);
+        lobby.afterGame.unsettled.add(r.socketId);
     }
     for (const h of holds) {
         const timer = safeTimeout(() => releaseHold(null, h.awayId, 'expired'), ms, 'playAgainHold');
@@ -405,12 +426,16 @@ function voiceAtReturn(io, lobby, moved, voice) {
 
 // ==================== holds ====================
 
-/** Is `sid` a play-again hold row (an `away:` id with its grace entry)? */
+/**
+ * Is `sid` a play-again hold row: an `away:` id, or the dead socket of a
+ * moved member that dropped before acting in the lobby (holdOnDrop), with
+ * its `afterGame` grace entry?
+ */
 function isHold(sid) {
-    return isAwayId(sid) && gameManager.lobbyGrace.get(sid)?.kind === HOLD_KIND;
+    return gameManager.lobbyGrace.get(sid)?.kind === HOLD_KIND;
 }
 
-/** `username`'s offline hold, {awayId, lobbyId} or null (the joinMainRoom auto-claim). */
+/** `username`'s offline hold, {awayId, lobbyId} or null. */
 function offlineHoldFor(username) {
     if (!username) return null;
     for (const [awayId, held] of gameManager.lobbyGrace) {
@@ -419,6 +444,66 @@ function offlineHoldFor(username) {
         }
     }
     return null;
+}
+
+/**
+ * The lobby that a capable joinMainRoom from `socketId` (signed in as
+ * `username`) takes back (mainRoomHandlers.autoClaimHold), or null: an
+ * offline hold of theirs, or a moved member's row of theirs whose older
+ * socket has not acted in the lobby yet and is still mapped. The second
+ * case is a restore off the score screen while the old socket is still
+ * half-open on the server (up to pingInterval + pingTimeout): both clients
+ * send joinMainRoom after a restore from there (iOS RestoreRoute .game ->
+ * .mainRoom; web TABLE_LOST), and the old socket's seat would otherwise be
+ * suspended later and expire as a leave.
+ * @returns {{lobbyId: string}|null}
+ */
+function autoClaimTarget(username, socketId) {
+    if (!username) return null;
+    const hold = offlineHoldFor(username);
+    if (hold) return { lobbyId: hold.lobbyId };
+    for (const lobby of gameManager.lobbies.values()) {
+        const ag = lobby.afterGame;
+        if (!ag || ag.unsettled.size === 0) continue;
+        const row = lobby.players.find((p) => !p.isBot && p.username === username && p.socketId !== socketId);
+        if (row && ag.unsettled.has(row.socketId) && gameManager.playerLobbies.get(row.socketId) === lobby.id) {
+            return { lobbyId: lobby.id };
+        }
+    }
+    return null;
+}
+
+/**
+ * `socketId` did something in its lobby (Ready, Unready, chat, Add / Remove
+ * Bot, the talk setting, "Don't wait"): it is on the lobby screen, so a
+ * later drop is an ordinary reload (the 30 s grace), not a hold.
+ */
+function settle(socketId) {
+    gameManager.getPlayerLobby(socketId)?.afterGame?.unsettled.delete(socketId);
+}
+
+/**
+ * GameManager.suspendLobbySeat: `socketId` (a mapped human row of `lobby`)
+ * dropped. A moved member that has not acted in the lobby yet (still on
+ * its score screen) keeps its place as a hold for PLAY_AGAIN_HOLD_MS, not
+ * the 30 s reload grace. Returns the grace entry to store, or null for the
+ * ordinary grace (any other seat, PLAY_AGAIN_HOLD_MS=0, an error). Its
+ * expiry is a hold's (a leave that keeps the others' ready flags);
+ * `offline` (no other live socket of the user) lets the user's next
+ * capable joinMainRoom take it back.
+ */
+function holdOnDrop(lobby, socketId, username) {
+    return guarded('holdOnDrop', () => {
+        const ag = lobby?.afterGame;
+        if (!ag || !ag.unsettled.has(socketId)) return null;
+        const ms = holdMs();
+        if (ms <= 0) return null;
+        const offline = liveSocketsOf(ag.io, username).every((sid) => sid === socketId);
+        const timer = safeTimeout(() => releaseHold(null, socketId, 'expired'), ms, 'playAgainHold');
+        timer.unref?.();
+        socketLogger.info('Play again: a moved member dropped before acting in the lobby; held', { lobbyId: lobby.id, offline, ms });
+        return { lobbyId: lobby.id, username, timer, kind: HOLD_KIND, offline };
+    });
 }
 
 /**
@@ -587,6 +672,7 @@ async function releaseLobbyHold(socket, io, data) {
         emitError(socket, { message: 'Not in a lobby' }, 'releaseLobbyHold');
         return;
     }
+    settle(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
     const host = gameManager.lobbyHost(lobby);
     const hostRow = lobby.players.find((p) => !p.isBot && p.username === host);
@@ -619,6 +705,9 @@ module.exports = {
     plan,
     open,
     offlineHoldFor,
+    autoClaimTarget,
+    settle,
+    holdOnDrop,
     releaseHold,
     dropReservations,
     reservedIn,
