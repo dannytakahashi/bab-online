@@ -55,6 +55,8 @@ const I = {
     safety: 'iOSClient/BABOnline/Networking/Handlers/SafetySocketHandler.swift:register',
     board: 'iOSClient/BABOnline/Networking/Handlers/LeaderboardSocketHandler.swift:register',
     records: 'iOSClient/BABOnline/Networking/Handlers/RecordsSocketHandler.swift:register',
+    // from iOS 1.2.2 (build 10): the Account sheet's own profile and the player profile sheet
+    profile: 'iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register',
     state: (fn) => `iOSClient/BABOnline/State/GameState.swift:${fn}`,
 };
 const reads = (web, ios) => ({ web: [].concat(web || []), ios: [].concat(ios || []) });
@@ -163,7 +165,7 @@ const s2c = {
         ),
         status: 'active', to: 'self',
         added: ['isAdmin', 'passwordReset'],
-        notes: 'isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS 1.1.0 reads the reply as a dictionary and ignores the key. ' + PASSWORD_RESET_NOTE,
+        notes: 'isAdmin (additive, 2026-11-11; present only when true): the web menu shows its Admin entry. Display only: the server re-checks the database on every adminRequest. iOS up to 1.2.1 reads the reply as a dictionary and ignores the key; from 1.2.2 build 10 it shows the Account sheet\'s Admin entry (AuthState.isAdmin). ' + PASSWORD_RESET_NOTE,
         clientReads: reads(W.auth, I.auth),
         emittedFrom: ['server/socket/authHandlers.js:signIn', 'server/socket/upgradeGate.js:sendUpdateMessage'],
     },
@@ -186,7 +188,7 @@ const s2c = {
         ),
         status: 'active', to: 'self',
         added: ['isAdmin', 'passwordReset', 'retryable'],
-        notes: 'isAdmin: as on signInResponse (display only, present only when true; iOS 1.1.0 ignores it). ' + PASSWORD_RESET_NOTE + ' retryable: true (additive 2026-11-15, failure only) when the failure is passing and the saved token may still be good: a database error (also the session re-check\'s failed read) or a name an admin merge / rename / delete holds for a moment ("This account is being updated..."). Web keeps the saved token, shows Reconnecting... and sends restoreSession again with backoff (1 s doubling to 30 s, within the 10 / min limit); iOS the same from the next build after 1.2.1 build 9. iOS 1.2.0 and 1.2.1 up to build 9 ignore the key and forget the token on any failure (sign-in screen), as before. Every other failure (no such user, a deleted name, a bad or revoked token) has no retryable and both clients forget the token.',
+        notes: 'isAdmin: as on signInResponse (display only, present only when true; iOS up to 1.2.1 ignores it, 1.2.2 shows its Admin entry). ' + PASSWORD_RESET_NOTE + ' retryable: true (additive 2026-11-15, failure only) when the failure is passing and the saved token may still be good: a database error (also the session re-check\'s failed read) or a name an admin merge / rename / delete holds for a moment ("This account is being updated..."). Web keeps the saved token, shows Reconnecting... and sends restoreSession again with backoff (1 s doubling to 30 s, within the 10 / min limit); iOS the same from the next build after 1.2.1 build 9. iOS 1.2.0 and 1.2.1 up to build 9 ignore the key and forget the token on any failure (sign-in screen), as before. Every other failure (no such user, a deleted name, a bad or revoked token) has no retryable and both clients forget the token.',
         clientReads: reads(W.main('restoreSessionResponse'), I.auth),
         emittedFrom: ['server/socket/authHandlers.js:restoreSession'],
     },
@@ -240,7 +242,7 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads(W.main('blockListUpdated'), I.safety),
         emittedFrom: ['server/socket/safetyHandlers.js:updateBlockList', 'server/admin/accountDelete.js:refreshBlockLists'],
-        notes: 'Also sent unasked (success, with silent: true) to a player whose saved block list an admin RENAME re-pointed (accountDelete.refreshBlockLists), so the renamed player\'s chat stays hidden; both clients replace their list. Web shows its "Block list updated" info toast only without silent. The App Store iOS build (1.1.0, f05d264) ignores silent and shows its "Block list updated." alert (SafetySocketHandler / .safetyAlerts) wherever the player is: accepted for renames, which are rare and owner-run. An admin DELETE sends nothing (the dead name stays in the client list, harmless, until the next sign-in; only the voice list is refreshed), and a player\'s own Delete account leaves other players\' lists alone.',
+        notes: 'Also sent unasked (success, with silent: true) to a player whose saved block list an admin RENAME re-pointed (accountDelete.refreshBlockLists), so the renamed player\'s chat stays hidden; both clients replace their list. Web shows its "Block list updated" info toast only without silent. The App Store iOS build (1.1.0, f05d264) ignores silent and shows its "Block list updated." alert (SafetySocketHandler / .safetyAlerts) wherever the player is: accepted for renames, which are rare and owner-run; so do 1.2.0 through 1.2.1 build 9. iOS reads silent from 1.2.2 (build 10; SafetySocketHandler.applyBlockListUpdated: list replaced, no alert). An admin DELETE sends nothing (the dead name stays in the client list, harmless, until the next sign-in; only the voice list is refreshed), and a player\'s own Delete account leaves other players\' lists alone.',
     },
 
     // ==================== Main room ====================
@@ -323,7 +325,7 @@ const s2c = {
         ),
         status: 'active', to: 'socket',
         added: ['reconnecting'],
-        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats. iOS 1.1.0 reads the reply as a dictionary and ignores it.',
+        notes: 'reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats, iOS from 1.2.2 (build 10) too (LobbyState.applyPlayers: the list replaces the kept set, absent means none; lobbyPlayerJoined.newPlayer and a name no longer in players drop out). iOS up to 1.2.1 reads the reply as a dictionary and ignores it.',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended'],
     },
@@ -498,9 +500,9 @@ const s2c = {
         }),
         status: 'active', to: 'self',
         added: ['snapshot'],
-        clientReads: reads([W.game, W.main('onActionRejected')], I.game('registerPlayingPhase')),
+        clientReads: reads([W.game, W.main('onActionRejected')], [I.game('registerPlayingPhase'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
-        notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play.',
+        notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play. reason: web toasts it in words (main.js onActionRejected); iOS 1.2.2 shows the same words (RejectReason, the server-error toast), an unknown reason as "Action not accepted"; earlier iOS builds decode it and show nothing.',
     },
     trickComplete: {
         payload: obj({
@@ -639,9 +641,9 @@ const s2c = {
         ),
         status: 'active', to: ['room', 'socket'], seq: false,
         added: ['idle'],
-        clientReads: reads(W.game, I.game('registerSpecialEvents')),
+        clientReads: reads([W.game, W.main('onResignationAvailable')], [I.game('registerSpecialEvents'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/seatLifecycle.js:offer', 'server/socket/seatLifecycle.js:replayPresenceTo', 'server/socket/seatLifecycle.js:offerIdle'],
-        notes: 'private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it, iOS 1.2.0 ignores it).',
+        notes: 'private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it; iOS 1.2.0 through 1.2.1 ignore it and show the seat as disconnected; iOS 1.2.2 reads it (WirePayload.ResignationAvailable, an optional Bool), keeps the seat connected and words its banner "<name> seems idle" / "Replace with a bot?" with Wait).',
     },
     playerResigned: {
         payload: obj({ position: ref('position'), oldUsername: str(), botUsername: str(), botPic: ref('pic') }),
@@ -702,20 +704,20 @@ const s2c = {
         status: 'active', to: 'self',
         added: ['avatarUrl', 'scope'],
         notes: SCOPE_ECHO_NOTE,
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
     profilePicUpdateResponse: {
         payload: okFail({ profilePic: int({ minimum: 1, maximum: 82 }) }),
         status: 'active', to: 'self',
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:updateProfilePic'],
     },
     profilePicUploadResponse: {
         payload: okFail({ customProfilePic: str(), avatarUrl: ref('avatarUrl') }, { optional: ['avatarUrl'] }),
         status: 'active', to: 'self',
         added: ['avatarUrl'],
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:uploadProfilePic'],
     },
     searchPlayersResponse: {
@@ -736,7 +738,7 @@ const s2c = {
         status: 'active', to: 'self',
         added: ['avatarUrl', 'scope'],
         notes: SCOPE_ECHO_NOTE,
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
     leaderboardResponse: {
@@ -782,7 +784,7 @@ const s2c = {
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:joinTournament', 'server/socket/seatLifecycle.js:reattachTournament'],
-        notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS 1.1.0 reads only players.',
+        notes: 'scoreboard (additive, 2026-11-11): the whole sorted scoreboard, the joiner\'s new row included; web redraws the lobby\'s table from it, iOS from 1.2.2 (build 10) replaces its scoreboard with it when present; iOS up to 1.2.1 reads only players.',
     },
     tournamentPlayerLeft: {
         payload: obj({ username: str(), players: arr(ref('tournamentPlayer')), newCreator: orNull(str()), reason: konst('hostIdle') }, { optional: ['username', 'reason'] }),
@@ -790,7 +792,7 @@ const s2c = {
         added: ['reason'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:leaveTournament', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/tournamentHandlers.js:releaseStaleTournamentSeat', 'server/socket/tournamentLiveness.js:handOffHost'],
-        notes: 'username is absent when the leaver had no registered user (user?.username). reason \'hostIdle\' (additive 2026-11-15): nobody left; the idle host (username, still a member) handed the role to newCreator (tournamentLiveness.handOffHost). Web and iOS 1.2.0 read only players and newCreator, which is what moves Begin / Cancel: web toasts "X is now the tournament host" and drops the old host\'s controls, iOS 1.2.0 sets creatorUsername (the old host\'s buttons go, the new host\'s appear).',
+        notes: 'username is absent when the leaver had no registered user (user?.username). reason \'hostIdle\' (additive 2026-11-15): nobody left; the idle host (username, still a member) handed the role to newCreator (tournamentLiveness.handOffHost). Web and iOS 1.2.0 read only players and newCreator, which is what moves Begin / Cancel: web toasts "X is now the tournament host" and drops the old host\'s controls, iOS 1.2.0 sets creatorUsername (the old host\'s buttons go, the new host\'s appear); iOS from 1.2.2 (build 10) also shows the web\'s toast when newCreator differs from the host it had (reason is still not read: the idle hand-off\'s tournamentMessage notice says why).',
     },
     tournamentReadyUpdate: {
         payload: obj({ players: arr(ref('tournamentPlayer')), allReady: bool(), readyDeadlinePassed: bool() }, { optional: ['readyDeadlinePassed'] }),
@@ -798,7 +800,7 @@ const s2c = {
         added: ['readyDeadlinePassed'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:tournamentReady', 'server/socket/tournamentHandlers.js:tournamentUnready', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline'],
-        notes: 'readyDeadlinePassed (additive 2026-11-15, between rounds only): the ready deadline passed, so the host\'s Begin starts the round with the host and the ready members and the rest sit out; sent at the deadline and after a rolled-back start too. allReady keeps its meaning (every connected member ready). Web enables Begin as "Start with ready players"; iOS 1.2.0 ignores it and keeps Begin disabled until all are ready (the idle host hands the role on once, and the next idle spell gets the round started by the server: tournamentLiveness).',
+        notes: 'readyDeadlinePassed (additive 2026-11-15, between rounds only): the ready deadline passed, so the host\'s Begin starts the round with the host and the ready members and the rest sit out; sent at the deadline and after a rolled-back start too. allReady keeps its meaning (every connected member ready). Web enables Begin as "Start with ready players"; iOS up to 1.2.1 ignores it and keeps Begin disabled until all are ready (the idle host hands the role on once, and the next idle spell gets the round started by the server: tournamentLiveness); iOS from 1.2.2 (build 10) reads it optionally here and on tournamentJoined (absent: unchanged / not passed), enables Begin as "Start with ready players" and marks the members who would sit out (TournamentBegin).',
     },
     tournamentMessage: {
         payload: ref('tournamentChatLine'),
@@ -855,7 +857,7 @@ const s2c = {
     },
 
 
-    // ==================== Admin panel (web only) ====================
+    // ==================== Admin panel (web; iOS from 1.2.2 build 10) ====================
     adminResponse: {
         payload: anyOf(
             variant('failure', obj({
@@ -894,9 +896,9 @@ const s2c = {
             }),
         ),
         status: 'active', to: 'self',
-        clientReads: reads('client/src/admin/adminApi.js:createAdminApi', []),
+        clientReads: reads('client/src/admin/adminApi.js:createAdminApi', 'iOSClient/BABOnline/Networking/Handlers/AdminSocketHandler.swift:register'),
         emittedFrom: ['server/socket/adminHandlers.js:adminRequest'],
-        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind \'account\' = the player\'s own deletion (server/admin/accountDelete.js; counts of what changed), \'tombstone\' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in with the old name and the account\'s password says "This account is now called X"; nobody else is told the new name); resumed = a second rename with the same names finished a partial one (also when the redirect was never written: oldNameKept then says whether it is now); a player row\'s renamed = that redirect, renameUnfinished = on a live account, the old name of its rename that stopped partway (the panel\'s Finish rename sends renameAccount {username: old, newName: the row}); an admin cannot rename their own account (refused). applyMerge / deleteAccount / renameAccount wait in one queue and are authorized again when their turn comes (forbidden if the admin lost the flag or was signed out meanwhile). The iOS app has no handler (layout: excluded from Swift).',
+        notes: 'The reply to adminRequest, to the requesting socket only (requestId and action echoed). failure: forbidden = not an admin right now (the one uniform refusal for every action and target: no account information), invalid = bad args or a wrong typed confirmation, not_found / refused / last_admin / stale_plan (the merge changed since its preview: preview again) / server; message is for the admin. createResetLink.token is the one-time link secret (/reset#<token>): shown to the admin once, never logged or audited. planMerge.plan is formatPlan\'s content as data (no picture bytes); planHash fingerprints the whole plan and applyMerge applies only when a fresh plan has the same hash. listPlayers: every account newest first, at most `limit` (500) rows; `total` is the true count (the panel says when the list is capped). deleteAccount: kind \'account\' = the player\'s own deletion (server/admin/accountDelete.js; counts of what changed), \'tombstone\' = only that merged / renamed name was removed (mergedInto names the account it pointed at, which is unchanged). renameAccount: username is the old name, newName the new; every saved session was revoked (the player signs in once with the new name); the old name became a redirect (oldNameKept; mergedInto + renamedAt, so sign-in with the old name and the account\'s password says "This account is now called X"; nobody else is told the new name); resumed = a second rename with the same names finished a partial one (also when the redirect was never written: oldNameKept then says whether it is now); a player row\'s renamed = that redirect, renameUnfinished = on a live account, the old name of its rename that stopped partway (the panel\'s Finish rename sends renameAccount {username: old, newName: the row}); an admin cannot rename their own account (refused). applyMerge / deleteAccount / renameAccount wait in one queue and are authorized again when their turn comes (forbidden if the admin lost the flag or was signed out meanwhile). iOS (from 1.2.2 build 10): AdminSocketHandler hands the reply to AdminApi by requestId (a dictionary read: unknown keys ignored, missing ones defaulted; State/Admin/AdminModels.swift); the reset token is kept in memory only while its sheet is open and never logged. iOS 1.2.0 / 1.2.1 register no handler and never get one (the reply goes only to the requesting socket).',
     },
 
     // ==================== Voice (relays) ====================

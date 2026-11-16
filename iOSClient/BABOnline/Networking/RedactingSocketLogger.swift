@@ -19,7 +19,9 @@ final class RedactingSocketLogger: SocketLogger {
 
     static let marker = "<redacted>"
     /// Lower-cased: events whose payloads carry secrets, and words that name one.
-    static let sensitive = ["voiceiceservers", "signin", "signup", "restoresession", "credential", "password", "token"]
+    static let sensitive = ["voiceiceservers", "signin", "signup", "restoresession", "credential", "password", "token",
+                            // the admin panel: a reset link's secret, and every account's row
+                            "adminrequest", "adminresponse"]
 
     /// `-socketLog YES` (Debug builds only, like `-serverURL`: release code reads no UserDefaults,
     /// README "Privacy manifest").

@@ -34,10 +34,19 @@ struct GameEndView: View {
         VStack(spacing: Theme.Space.s6) {
             if let data = gameState.gameEndData {
                 // Winner banner
-                if gameState.isSpectator {
+                if data.isTie, !gameState.isSpectator {
+                    // equal scores: nobody won (the web ScoreModal's TIE GAME; a spectator's
+                    // title is GAME OVER whatever the score, there and here)
+                    Text("TIE GAME")
+                        .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                        .foregroundColor(Theme.gold)
+                        .accessibilityLabel("Tie game")
+                        .accessibilityIdentifier("gameEnd.title")
+                } else if gameState.isSpectator {
                     Text("Game Over")
                         .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
                         .foregroundColor(Theme.textSecondary)
+                        .accessibilityIdentifier("gameEnd.title")
                 } else {
                     let myTeam = Positions.getTeamNumber(gameState.position ?? 1)
                     let didWin = data.winningTeam == myTeam
@@ -45,6 +54,7 @@ struct GameEndView: View {
                     Text(didWin ? "Victory!" : "Defeat")
                         .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
                         .foregroundColor(didWin ? Theme.success : Theme.error)
+                        .accessibilityIdentifier("gameEnd.title")
                 }
 
                 // Score summary (the teams side by side; one above the other at accessibility text sizes)

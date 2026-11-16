@@ -52,6 +52,12 @@ enum SocketEvents {
         static let getLeaderboard = "getLeaderboard"
         static let getRecords = "getRecords"
 
+        // Profile
+        static let getProfile = "getProfile"
+        static let updateProfilePic = "updateProfilePic"
+        static let uploadProfilePic = "uploadProfilePic"
+        static let getPlayerProfile = "getPlayerProfile"
+
         // Tournament
         static let createTournament = "createTournament"
         static let joinTournament = "joinTournament"
@@ -74,6 +80,9 @@ enum SocketEvents {
 
         // Snapshot v2
         static let requestSnapshot = "requestSnapshot"
+
+        // Admin panel
+        static let adminRequest = "adminRequest"
     }
 
     // MARK: - Server → Client
@@ -169,6 +178,12 @@ enum SocketEvents {
         static let leaderboardResponse = "leaderboardResponse"
         static let recordsResponse = "recordsResponse"
 
+        // Profile
+        static let profileResponse = "profileResponse"
+        static let profilePicUpdateResponse = "profilePicUpdateResponse"
+        static let profilePicUploadResponse = "profilePicUploadResponse"
+        static let playerProfileResponse = "playerProfileResponse"
+
         // Voice
         static let voiceOffer = "voiceOffer"
         static let voiceAnswer = "voiceAnswer"
@@ -186,5 +201,8 @@ enum SocketEvents {
 
         // Snapshot v2
         static let stateSnapshot = "stateSnapshot"
+
+        // Admin panel
+        static let adminResponse = "adminResponse"
     }
 }

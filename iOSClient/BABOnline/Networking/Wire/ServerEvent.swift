@@ -26,7 +26,7 @@ enum ServerEvent: Equatable {
     // presence / seats
     case playerDisconnected(WirePayload.Presence)
     case playerReconnected(WirePayload.Presence)
-    case resignationAvailable(WirePayload.Presence)
+    case resignationAvailable(WirePayload.ResignationAvailable)
     case playerResigned(WirePayload.PlayerResigned)
     case playerLazyMode(WirePayload.LazyMode)
     case playerActiveMode(WirePayload.ActiveMode)
@@ -167,7 +167,7 @@ extension ServerEvent {
             case "leftGame": event = .leftGame
             case "playerDisconnected": event = .playerDisconnected(try d(WirePayload.Presence.self))
             case "playerReconnected": event = .playerReconnected(try d(WirePayload.Presence.self))
-            case "resignationAvailable": event = .resignationAvailable(try d(WirePayload.Presence.self))
+            case "resignationAvailable": event = .resignationAvailable(try d(WirePayload.ResignationAvailable.self))
             case "playerResigned": event = .playerResigned(try d(WirePayload.PlayerResigned.self))
             case "playerLazyMode": event = .playerLazyMode(try d(WirePayload.LazyMode.self))
             case "playerActiveMode": event = .playerActiveMode(try d(WirePayload.ActiveMode.self))

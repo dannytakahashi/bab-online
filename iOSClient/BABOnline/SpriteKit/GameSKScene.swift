@@ -68,6 +68,9 @@ class GameSKScene: SKScene, TableRenderer {
     /// My own seat's trick pips (I have no avatar): in my seat's row at `layout.myPips`
     /// (`layout.myPipsCenter`), in the opponents layer.
     let myPipsNode = SeatPipsNode(style: .box)
+    /// My own dealer marker (I have no avatar): at the left end of my hand
+    /// (`layout.myDealerChip`), under the hand's cards, so a lifted card covers it.
+    let myDealerNode = DealerChipNode()
     private(set) var cardManager: SKCardManager!
     private(set) var opponentManager: SKOpponentManager!
     private(set) var trickManager: SKTrickManager!
@@ -131,6 +134,8 @@ class GameSKScene: SKScene, TableRenderer {
         opponentsLayer.zPosition = 10
         addChild(opponentsLayer)
         opponentsLayer.addChild(myPipsNode)
+        myDealerNode.zPosition = -1
+        addChild(myDealerNode)
         bidsLayer.role = "bids"
         bidsLayer.zPosition = 60
         addChild(bidsLayer)
@@ -140,6 +145,7 @@ class GameSKScene: SKScene, TableRenderer {
 
         cardManager = SKCardManager(scene: self)
         cardManager.onPlay = { [weak self] card in self?.actions?.play(card) ?? false }
+        cardManager.onBlocked = { [weak self] why in self?.gameState?.postNotice(why) }
         addChild(cardManager.handNode)
         #if DEBUG
         cardManager.handNode.onLiftChanged = { [weak self] in self?.probe() }  // "table.state" lifted= after a tap
@@ -290,7 +296,7 @@ class GameSKScene: SKScene, TableRenderer {
                 // when a late cardPlayed confirms it
                 guard changes.created.contains(name) else { break }
                 let rel = Positions.getRelative(target: played.position, from: view)
-                trickArea.animateEntry(name, from: layout.trickEntry(rel), slot: layout.trickSlot(rel), animator: animator)
+                trickArea.animateEntry(name, from: cardEntry(rel, model: model), slot: layout.trickSlot(rel), animator: animator)
             case .bidPlaced(let pos, _, _):
                 bidManager.pop(position: pos, animator: animator)
             case .bore(_, let bid, _):
@@ -345,6 +351,7 @@ class GameSKScene: SKScene, TableRenderer {
             trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing, totals: .some(nil))
             myPipsNode.update(nil, team: 1)
             placeMyPips()
+            myDealerNode.update(shown: false)
             bidManager.cleanup()
             return .init()
         }
@@ -380,6 +387,7 @@ class GameSKScene: SKScene, TableRenderer {
                                             myTeam: Positions.getTeamNumber(me))
         myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
         placeMyPips()
+        placeMyDealer(model)
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }
@@ -389,6 +397,22 @@ class GameSKScene: SKScene, TableRenderer {
     private func placeMyPips() {
         let slots = myPipsNode.pips?.slots ?? 0
         myPipsNode.position = slots > 0 ? layout.myPipsCenter(slots: slots) : CGPoint(x: layout.myPips.midX, y: layout.myPips.midY)
+    }
+
+    /// My dealer marker by my hand (a pure function of the model and the layout).
+    private func placeMyDealer(_ model: TableRenderModel) {
+        let chip = layout.myDealerChip(handCount: model.hand?.cards.count ?? 0)
+        myDealerNode.position = model.iDeal ? CGPoint(x: chip.midX, y: chip.midY) : .zero
+        myDealerNode.update(shown: model.iDeal)
+    }
+
+    /// Where a seat's played card flies in from: its fan of card backs where the table
+    /// shows them, else off-screen on the seat's side (as before 1.2.2).
+    func cardEntry(_ rel: Positions.RelativePosition, model: TableRenderModel) -> CGPoint {
+        if rel != .bottom || model.hand == nil, let box = layout.fans(spectating: model.hand == nil)?[rel] {
+            return CGPoint(x: box.midX, y: box.midY)
+        }
+        return layout.trickEntry(rel)
     }
 
     #if DEBUG

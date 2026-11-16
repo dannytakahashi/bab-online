@@ -15,15 +15,21 @@ private struct MainRoomScreen: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
     @EnvironmentObject var tournamentState: TournamentState
+    /// `isAdmin` shows the Admin button (display only: the server checks every request).
+    @EnvironmentObject var authState: AuthState
     /// New Game / Tournament wait for the session: after a reconnect, a tap before the
     /// restore's answer made a lobby that the restore's joinMainRoom then left at once.
     @ObservedObject private var socketService = SocketService.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @State private var hingeTick = 0
     @State private var showLeaderboard = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
     @State private var didEnterBackground = false
+    /// The admin panel (admins only): opened from the Account sheet once that sheet has closed.
+    @ObservedObject private var admin = AdminState.shared
+    @State private var openAdminAfterAccount = false
 
     var body: some View {
         ZStack {
@@ -32,19 +38,26 @@ private struct MainRoomScreen: View {
             // Regular width (iPad, the open Duo): side by side; compact: stacked.
             // One AnyLayout keeps the children's identity (and the chat field's
             // focus and draft) across a size-class change.
+            // In book pose the browser ends at the hinge (FoldReader.bookHinge), as the lobbies'
+            // left column: a card's Join / Rejoin never sits under it.
             GeometryReader { geo in
+                let _ = hingeTick  // re-read the fold after a hinge change
                 let wide = hSizeClass == .regular
+                let hinge = wide ? FoldReader.bookHinge(geo) : nil
                 let layout = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
                 layout {
                     lobbyBrowserPanel
-                        .frame(width: wide ? geo.size.width * 0.55 : nil)
+                        .frame(width: wide ? (hinge?.lowerBound ?? geo.size.width * 0.55) : nil)
                         .frame(maxHeight: wide ? .infinity : geo.size.height * 0.55)
                     Separator(vertical: wide)
+                        .opacity(hinge == nil ? 1 : 0)
+                        .padding(.horizontal, hinge.map { max(0, ($0.upperBound - $0.lowerBound) / 2 - 0.5) } ?? 0)
                     MainRoomChatView(showsOnlineCount: bar.usesVerticalBar)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
+        .modifier(HingeTick(tick: $hingeTick))
         .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
         .toolbar {
             if bar.usesVerticalBar { barControls }
@@ -73,9 +86,24 @@ private struct MainRoomScreen: View {
         .sheet(isPresented: $showOnlineUsers) {
             OnlineUsersSheet(users: mainRoomState.onlineUsers)
         }
-        .sheet(isPresented: $showAccountSettings) {
-            AccountSettingsView()
+        .sheet(isPresented: $showAccountSettings, onDismiss: {
+            guard openAdminAfterAccount else { return }
+            openAdminAfterAccount = false
+            openAdmin()
+        }) {
+            AccountSettingsView(openAdmin: { openAdminAfterAccount = true })
         }
+        .sheet(isPresented: $admin.isPresented, onDismiss: { admin.close() }) {
+            AdminPanelView(admin: admin)
+                .statsSheetSizing()
+        }
+    }
+
+    /// Only on the main room and only with the flag (`AdminState.open` checks it): either
+    /// can have gone while the Account sheet was closing (a forceLogout, a game starting).
+    private func openAdmin() {
+        guard appState.screen == .mainRoom else { return }
+        admin.open()
     }
 
     // MARK: - Lobby Browser
@@ -128,6 +156,19 @@ private struct MainRoomScreen: View {
                     .foregroundColor(Theme.textSecondary)
             }
 
+            if authState.isAdmin {
+                // admins only, as the web's main room header
+                Button(action: openAdmin) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.callout)
+                        .foregroundColor(Theme.textSecondary)
+                        .frame(minWidth: 32, minHeight: 32)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Admin")
+                .accessibilityIdentifier("mainRoom.admin")
+            }
+
             Button(action: { showAccountSettings = true }) {
                 Image(systemName: "gearshape.fill")
                     .font(.callout)
@@ -157,6 +198,12 @@ private struct MainRoomScreen: View {
             // the column), and a badge reads as an alert: the count is in the chat header.
             Button(action: { showOnlineUsers = true }) {
                 Label("\(mainRoomState.onlineCount) online", systemImage: "person.2.fill")
+            }
+            if authState.isAdmin {
+                Button(action: openAdmin) {
+                    Label("Admin", systemImage: "shield.lefthalf.filled")
+                }
+                .accessibilityIdentifier("mainRoom.admin")
             }
             Button(action: { showAccountSettings = true }) {
                 Label("Account settings", systemImage: "gearshape.fill")
@@ -221,8 +268,7 @@ private struct OnlineUsersSheet: View {
     var body: some View {
         NavigationView {
             List(users, id: \.self) { username in
-                Text(username)
-                    .foregroundColor(Theme.textPrimary)
+                OnlineUserRow(username: username)
             }
             .listStyle(.plain)
             .background(Theme.background)
@@ -234,6 +280,38 @@ private struct OnlineUsersSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+        // a name opens that player's profile (iOS 1.2.2; the web's search is not on iOS)
+        .playerProfileHost()
+    }
+}
+
+/// One online player: a button that opens their profile (my own name is just my name).
+private struct OnlineUserRow: View {
+    let username: String
+    @EnvironmentObject var authState: AuthState
+    @Environment(\.viewPlayerProfile) private var viewProfile
+
+    var body: some View {
+        if username == authState.username || viewProfile == nil {
+            Text(username)
+                .foregroundColor(Theme.textPrimary)
+        } else {
+            Button { viewProfile?(username) } label: {
+                HStack {
+                    Text(username)
+                        .foregroundColor(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.textDim)
+                        .accessibilityHidden(true)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows their profile")
+            .accessibilityIdentifier("online.\(username)")
         }
     }
 }

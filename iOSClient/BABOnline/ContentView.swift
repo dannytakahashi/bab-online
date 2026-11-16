@@ -90,6 +90,12 @@ struct ContentView: View {
             ChatDrafts.screenChanged(from: old, to: new, mainRoom: mainRoomState, lobby: lobbyState,
                                      tournament: tournamentState, game: gameState)
             Self.prewarmCards(for: new)
+            // the admin panel closes off the main room and when the flag drops (as the web's);
+            // not observed here: the panel's every change would redraw the whole app
+            if new != .mainRoom { AdminState.shared.close() }
+        }
+        .onChange(of: authState.isAdmin) { _, isAdmin in
+            if !isAdmin { AdminState.shared.close() }
         }
         .animation(.easeInOut(duration: 0.3), value: appState.screen)
         .onAppear {

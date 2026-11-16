@@ -41,7 +41,9 @@ struct HTTPAvatarLoader: AvatarLoading {
 }
 
 /// Displays an opponent's name label, turn glow, avatar, and bid bubble.
-/// Card-back fans are removed; opponents are lightweight anchors.
+/// The full-size card-back fans of the first build are gone (eb73520, "Simplified
+/// opponents"); since 1.2.2 a seat holds a small fan (`fanNode`) where TableLayout finds
+/// room for every seat's (TableLayout+Fans.swift), else it is the lightweight anchor.
 class OpponentHandNode: SKNode {
     let relativePosition: Positions.RelativePosition
 
@@ -105,6 +107,9 @@ class OpponentHandNode: SKNode {
 
         // Trick pips on the avatar's ring (inside the glow rect)
         addChild(pipsNode)
+        // Card backs and the dealer marker (1.2.2; SeatExtrasNode.swift, placed by SKOpponentManager)
+        addChild(fanNode)
+        addChild(dealerNode)
 
         // Load profile pic async
         if let pic = pic {
@@ -174,6 +179,10 @@ class OpponentHandNode: SKNode {
     let pipsNode = SeatPipsNode(style: .ring)
 
     func setPips(_ pips: SeatPips?, team: Int) { pipsNode.update(pips, team: team) }
+
+    /// The seat's remaining cards as card backs, and its dealer marker (SeatExtrasNode.swift).
+    let fanNode = CardFanNode()
+    let dealerNode = DealerChipNode()
 
     // MARK: - Turn Glow
 

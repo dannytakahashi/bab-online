@@ -48,7 +48,8 @@ struct GameEndData: Equatable {
         // Derive winning team from scores
         var winner = dict["winner"] as? Int ?? dict["winningTeam"] as? Int ?? 0
         if winner == 0 {
-            winner = t1Score >= t2Score ? 1 : 2
+            // equal scores: nobody won (0; GameEndView shows TIE GAME, as the web's ScoreModal)
+            winner = t1Score == t2Score ? 0 : (t1Score > t2Score ? 1 : 2)
         }
 
         // Parse team players from playerStats (positions 1,3 = team1; 2,4 = team2)
@@ -141,6 +142,9 @@ struct PlayerEndStats: Equatable, Identifiable {
 }
 
 extension GameEndData {
+    /// Equal final scores: nobody won (`winningTeam` 0).
+    var isTie: Bool { team1Score == team2Score }
+
     /// handHistory is opaque (`[String: Any]`) and display-only: equality ignores it.
     static func == (a: GameEndData, b: GameEndData) -> Bool {
         a.winningTeam == b.winningTeam && a.team1Score == b.team1Score && a.team2Score == b.team2Score

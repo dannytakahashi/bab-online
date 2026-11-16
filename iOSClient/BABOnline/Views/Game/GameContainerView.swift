@@ -208,6 +208,12 @@ private struct GameScreen: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
+        // a refused bid or play: why, in the app's toast (non-blocking, read by VoiceOver)
+        .onChange(of: gameState.notice) { _, notice in
+            guard let notice else { return }
+            SocketService.shared.serverError = ServerErrorNotice(message: notice.text)
+            AccessibilityNotification.Announcement(notice.text).post()
+        }
         .onChange(of: gameState.leaveOutcome) { _, outcome in
             runLeave(leaveFlow.changed(outcome: outcome, check: gameState.players.leaveCheck))
         }
@@ -231,6 +237,8 @@ private struct GameScreen: View {
             VoicePanelSheet()
                 .presentationDetents([.medium])
         }
+        // a tapped seat avatar opens that player's profile (GameSKScene+SeatTap; iOS 1.2.2)
+        .playerProfileHost(seatTaps: true)
     }
 
     // MARK: - Fold and dock (27-4)
@@ -331,7 +339,7 @@ private struct GameScreen: View {
     /// the scene to take the new chrome.
     @ViewBuilder
     private func disconnectBanner(_ L: TableLayout, safeTop: CGFloat) -> some View {
-        if !gameState.disconnectedPlayers.isEmpty {
+        if gameState.showsPresenceBanner {
             VStack {
                 DisconnectBannerView()
                     .frame(maxWidth: TableLayout.disconnectBannerMaxWidth)
@@ -451,7 +459,7 @@ private struct GameScreen: View {
                     fold: paneFoldRect,
                     occlusions: paneOcclusions,
                     // a zoomed table steps down while a banner taller than its reserve shows (TableLayout.zoom)
-                    banner: showsTable && !gameState.disconnectedPlayers.isEmpty ? bannerHeight : 0)
+                    banner: showsTable && gameState.showsPresenceBanner ? bannerHeight : 0)
     }
 
     // MARK: - Corner buttons
@@ -652,6 +660,35 @@ private struct GameScreen: View {
                     .accessibilityElement()
                     .accessibilityLabel("\(o.name): \(p.accessibilityLabel)")
                     .accessibilityIdentifier("pips.\(o.position)")
+                    .allowsHitTesting(false)
+                    .offset(x: rect.minX, y: rect.minY)
+            }
+        }
+        // the card backs ("kim: 5 cards") and the dealer marker, drawn by the scene
+        if let fans = layout.fans(spectating: model.hand == nil) {
+            ForEach(model.opponents, id: \.position) { o in
+                if let box = fans[o.rel], o.cards > 0 {
+                    let rect = layout.window(box)
+                    Color.clear
+                        .frame(width: rect.width, height: rect.height)
+                        .accessibilityElement()
+                        .accessibilityLabel("\(o.name): \(o.cards) \(o.cards == 1 ? "card" : "cards")")
+                        .accessibilityIdentifier("fan.\(o.position)")
+                        .allowsHitTesting(false)
+                        .offset(x: rect.minX, y: rect.minY)
+                }
+            }
+        }
+        if let dealer = model.dealer {
+            let seat = model.opponents.first { $0.position == dealer }
+            if seat != nil || model.iDeal {
+                let rect = layout.window(seat.map { layout.dealerChip($0.rel) } ?? layout.myDealerChip(handCount: model.hand?.cards.count ?? 0))
+                Color.clear
+                    .frame(width: rect.width, height: rect.height)
+                    .accessibilityElement()
+                    .accessibilityLabel(seat.map { "Dealer: \($0.name)" } ?? "You are the dealer")
+                    .accessibilityIdentifier("dealer")
+                    .accessibilityValue("\(dealer)")
                     .allowsHitTesting(false)
                     .offset(x: rect.minX, y: rect.minY)
             }

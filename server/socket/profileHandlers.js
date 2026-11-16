@@ -119,9 +119,14 @@ async function updateProfilePic(socket, io, data) {
     }
 
     try {
+        // Choosing a stock picture replaces a custom one (2026-11-15): the
+        // custom picture wins everywhere it is read (getUserProfilePic,
+        // profileReply, the leaderboard rows), so with it still stored the
+        // choice changed nothing anyone saw, while both clients show the
+        // stock picture and "Profile picture updated!"
         await usersCollection.updateOne(
             { username: user.username },
-            { $set: { profilePic: profilePic } }
+            { $set: { profilePic: profilePic }, $unset: { customProfilePic: '' } }
         );
         avatarStore.forgetUser(user.username);
         invalidateLeaderboard();

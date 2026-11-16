@@ -77,6 +77,14 @@ extension TableReducer {
         s.players.watching = WatchingList(snap.watching)
         if let offered = snap.seats.first(where: { $0.offered }) {
             s.players.resignationOffer = ResignationOffer(position: offered.position, username: offered.ownerUsername ?? offered.username ?? "")
+        } else if sameGame, let idle = prev.players.resignationOffer, idle.idle, snap.turn?.position == idle.position,
+                  let seat = s.players.seats[idle.position], seat.controller == .human,
+                  seat.presence == .connected || seat.presence == .none {
+            // a standing idle-seat offer outlives a snapshot of the same game while its seat is
+            // still a connected human on turn (the snapshot does not carry it, and the server
+            // replays it only to a re-attached socket or at its next 90 s asking; the web keeps
+            // its dialog too). A stale Replace is refused by the server (idleOfferStands).
+            s.players.resignationOffer = idle
         }
 
         // log: kept when left out of this snapshot (same game), else the snapshot's

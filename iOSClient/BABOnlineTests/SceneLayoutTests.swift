@@ -73,13 +73,17 @@ final class SceneLayoutTests: XCTestCase {
         }
     }
 
-    /// Each seat as its two real parts: avatar + glows, and the name label.
+    /// Each seat as its real parts: avatar + glows, the name label, and (1.2.2) its fan of
+    /// card backs and its dealer marker where it shows them.
     func seatParts(_ scene: GameSKScene) -> [Part] {
         scene.opponentManager.nodes.flatMap { pos, node -> [Part] in
             let label = node.children.first { $0 is SKLabelNode }!
-            let glow = node.children.filter { !($0 is SKLabelNode) }
+            let glow = node.children.filter { !($0 is SKLabelNode) && $0 !== node.fanNode && $0 !== node.dealerNode }
             let g = glow.map { sceneFrame($0, scene) }.reduce(CGRect.null) { $0.union($1) }
-            return [Part(name: "seat.\(pos).avatar", rect: g), Part(name: "seat.\(pos).name", rect: sceneFrame(label, scene))]
+            var parts = [Part(name: "seat.\(pos).avatar", rect: g), Part(name: "seat.\(pos).name", rect: sceneFrame(label, scene))]
+            if node.fanNode.count > 0 { parts.append(Part(name: "seat.\(pos).fan", rect: sceneFrame(node.fanNode, scene))) }
+            if node.dealerNode.isShown { parts.append(Part(name: "seat.\(pos).dealer", rect: sceneFrame(node.dealerNode, scene))) }
+            return parts
         }
     }
 

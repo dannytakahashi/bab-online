@@ -43,4 +43,17 @@ extension TableLayout {
         }
         return nil
     }
+
+    /// Where the banner showing now is (scene coordinates; `chrome.banner` is its height), or
+    /// nil with no banner up: its clear spot, else GameContainerView's place for it under the
+    /// corner buttons. The card backs keep off it (TableLayout+Fans).
+    func bannerRect(spectating: Bool) -> CGRect? {
+        let h = chrome.banner
+        guard h > 0 else { return nil }
+        if let r = disconnectBanner(height: h, spectating: spectating) { return r }
+        let w = min(Self.disconnectBannerMaxWidth / zoom, size.width)
+        // bannerTop: the safe area's top, the score bar, 8, the corner buttons, 8 (points)
+        let top = size.height / 2 - chrome.safeArea.top - chrome.topBar - 16 / zoom - chrome.cornerButton.height
+        return CGRect(x: safeRect.midX - w / 2, y: top - h, width: w, height: h)
+    }
 }

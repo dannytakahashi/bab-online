@@ -54,6 +54,10 @@ struct ConnectionStatusToast: View {
             }
             Spacer()
         }
+        // The screen's width, not the pill's: the server-error toast below is an overlay of
+        // this stack, and while the pill is hidden the stack held only a Spacer (no width),
+        // so the error toast got none and showed a tall, empty capsule (owner, 2026-11-16)
+        .frame(maxWidth: .infinity)
         .animation(.easeInOut(duration: 0.3), value: authState.restoreRetrying)
         .overlay(alignment: .top) {
             ServerErrorToast()
@@ -93,7 +97,10 @@ struct ConnectionStatusToast: View {
 }
 
 /// Floating pill for user-facing server errors ('error' events), auto-dismissed.
-private struct ServerErrorToast: View {
+struct ServerErrorToast: View {
+    /// How long a notice stays up; UI fixtures keep it longer so a test can measure it.
+    static var visibleSeconds: Double = 3.0
+
     @EnvironmentObject var socketService: SocketService
     @State private var notice: ServerErrorNotice?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -102,18 +109,23 @@ private struct ServerErrorToast: View {
         VStack {
             if let notice {
                 HStack(spacing: Theme.Space.s2) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .foregroundColor(Theme.warning)
+                    Image(systemName: notice.kind == .info ? "info.circle.fill" : "exclamationmark.circle.fill")
+                        .foregroundColor(notice.kind == .info ? Theme.teamA : Theme.warning)
                         .accessibilityHidden(true)
                     Text(notice.message)
                         .font(.callout.bold())
                         .foregroundColor(Theme.textPrimary)
                         .multilineTextAlignment(.leading)
+                        // a long message wraps at the screen's width, never per glyph
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(notice.kind == .info ? "infoToast" : "serverErrorToast")
                 .padding(.horizontal, Theme.Space.s4)
                 .padding(.vertical, 10)
                 .background(Theme.surface)
-                .clipShape(Capsule())
+                // a capsule on one line; two lines keep rounded corners, not half-circles
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                 .elevation(Theme.Elevation.e2)
                 .transition(.motion(.move(edge: .top).combined(with: .opacity), reduceMotion: reduceMotion))
                 .padding(.top, Theme.Space.s2)
@@ -124,12 +136,13 @@ private struct ServerErrorToast: View {
             }
             Spacer()
         }
+        .frame(maxWidth: .infinity)
         .onChange(of: socketService.serverError) { _, newNotice in
             guard let newNotice else { return }
             withAnimation(.easeInOut(duration: 0.3)) {
                 notice = newNotice
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.visibleSeconds) {
                 // Only hide if a newer error hasn't replaced this one
                 guard notice?.id == newNotice.id else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {

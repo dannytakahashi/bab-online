@@ -8,6 +8,15 @@ class CardSpriteNode: SKSpriteNode {
     }
     var isLifted: Bool = false
     var onTap: ((Card) -> Void)?
+    /// Why this card cannot be played now (dimmed; TableRenderModel.Hand.blocked): VoiceOver's
+    /// hint, and what a tap on it says (`onBlockedTap`).
+    var blockedReason: String?
+    var onBlockedTap: ((Card, String) -> Void)?
+
+    override var accessibilityHint: String? {
+        get { isUserInteractionEnabled && !isLegal ? blockedReason : nil }
+        set { _ = newValue }
+    }
 
     private static let cardSize = CGSize(
         width: LayoutConstants.cardWidth,
@@ -81,6 +90,7 @@ class CardSpriteNode: SKSpriteNode {
     private func handleTap() {
         guard isLegal else {
             HapticManager.warning()
+            if let why = blockedReason { onBlockedTap?(card, why) }
             return
         }
         onTap?(card)

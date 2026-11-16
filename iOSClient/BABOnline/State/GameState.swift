@@ -7,6 +7,12 @@ protocol TableRenderer: AnyObject {
     func apply(model: TableRenderModel, animations: [TableAnimation])
 }
 
+/// A short, non-blocking line over the table.
+struct TableNotice: Equatable, Identifiable {
+    let id: Int
+    let text: String
+}
+
 /// The table store: four published slices over the pure TableReducer.
 /// Every change goes through `apply`; views read the slices or the read-only
 /// accessors below, the scene gets `TableRenderModel` + animations.
@@ -23,6 +29,24 @@ final class GameState: ObservableObject {
     var chatDraft = ""
     /// +1 per applied snapshot or reset (the coordinator's resync debounce).
     private(set) var sceneResets = 0
+    /// The latest table notice (why a bid or play was refused, or why a dimmed card cannot be
+    /// played); GameContainerView shows it in the server-error toast for a few seconds.
+    /// `id` tells two equal lines apart.
+    @Published private(set) var notice: TableNotice?
+    private var noticeCount = 0
+
+    /// A notice from the table itself (a tap on a dimmed card: TableRenderModel.Hand.blocked).
+    func postNotice(_ text: String) {
+        noticeCount += 1
+        notice = TableNotice(id: noticeCount, text: text)
+    }
+
+    /// The idle-seat offer I answered with Wait: hidden until the server asks again (a new
+    /// offer has the next `round`) or the offer moves.
+    @Published private(set) var waitedOffer: ResignationOffer?
+    func waitOnOffer() { waitedOffer = players.resignationOffer }
+    /// The presence banner has something to show: an absent player, or an offer.
+    var showsPresenceBanner: Bool { !players.disconnected.isEmpty || resignationOffer != nil }
 
     weak var renderer: TableRenderer?
     /// Non-animation effects (requestSnapshot / cancelAck / haptic / sound) for ActionCoordinator.
@@ -49,6 +73,8 @@ final class GameState: ObservableObject {
         if scores != s.scores { scores = s.scores }
         if players != s.players { players = s.players }
         if log != s.log { log = s.log }
+        // the offer I waited on is gone (withdrawn, resigned, a snapshot, a reset): forget it
+        if waitedOffer != nil, s.players.resignationOffer == nil { waitedOffer = nil }
 
         effectObserver?(effects)
         let animations = effects.animations
@@ -59,6 +85,8 @@ final class GameState: ObservableObject {
             if case .gap(let expected, let got) = fx { ErrorReporter.shared.report(kind: "seqGap", message: "expected \(expected), got \(got)") }
             switch fx {
             case .animate: break
+            case .notice(let text):
+                postNotice(text)
             #if DEBUG
             case .dropped(let event, let seq): print("[Table] dropped \(event) seq \(seq)")
             case .gap(let expected, let got): print("[Table] seq gap: expected \(expected), got \(got)")
@@ -95,6 +123,7 @@ final class GameState: ObservableObject {
 
     func reset() {
         chatDraft = ""
+        notice = nil
         apply(.local(.reset))
     }
 
@@ -193,8 +222,19 @@ final class GameState: ObservableObject {
     /// clears it on playerReconnected / playerActiveMode / playerResigned / a moved offer /
     /// every snapshot; this guard keeps a stale one off screen whatever the order).
     var resignationAvailable: (position: Int, username: String)? {
-        guard let offer = players.resignationOffer, players.seats[offer.position]?.presence == .resignable else { return nil }
+        guard let offer = resignationOffer else { return nil }
         return (position: offer.position, username: offer.username)
+    }
+    /// The same offer with its wording (`idle`: the tournament table's idle-seat offer, whose
+    /// seat stays connected; any other offer shows only while its seat is resignable).
+    var resignationOffer: ResignationOffer? {
+        guard let offer = players.resignationOffer else { return nil }
+        let seat = players.seats[offer.position]
+        let presence = seat?.presence
+        if offer.idle, waitedOffer == offer { return nil }
+        // (.none: a presence value this build does not know; the seat is still a human's)
+        if offer.idle { return (presence == .connected || presence == SeatPresence.none) && seat?.controller == .human && offer.position != position ? offer : nil }
+        return presence == .resignable ? offer : nil
     }
     /// Who is watching (the spectator badge).
     var watching: WatchingList { players.watching }

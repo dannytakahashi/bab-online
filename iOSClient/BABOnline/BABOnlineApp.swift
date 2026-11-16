@@ -13,7 +13,8 @@ struct BABOnlineApp: App {
     @StateObject private var tournamentState: TournamentState
     @StateObject private var leaderboardState: LeaderboardState
     @StateObject private var recordsState: RecordsState
-    @StateObject private var safetyState = SafetyState()
+    @StateObject private var safetyState: SafetyState
+    @StateObject private var profileState: ProfileState
     @Environment(\.scenePhase) private var scenePhase
     /// True once the scene has actually reached `.background`. Control Center, the
     /// notification shade and system alerts (e.g. the mic permission prompt) only
@@ -25,13 +26,17 @@ struct BABOnlineApp: App {
     init() {
         let store = GameState()
         let app = AppState(), auth = AuthState(), mainRoom = MainRoomState(), lobby = LobbyState(), tournament = TournamentState()
-        let leaderboard = LeaderboardState(), records = RecordsState()
+        let leaderboard = LeaderboardState(), records = RecordsState(), profile = ProfileState(), safety = SafetyState()
         #if DEBUG
         UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
         UIFixture.seedStats(leaderboard: leaderboard, records: records)
+        UIFixture.seedProfile(profile, safety: safety)
+        UIFixture.seedAdmin(AdminState.shared, auth: auth)
         #endif
         _leaderboardState = StateObject(wrappedValue: leaderboard)
         _recordsState = StateObject(wrappedValue: records)
+        _profileState = StateObject(wrappedValue: profile)
+        _safetyState = StateObject(wrappedValue: safety)
         _appState = StateObject(wrappedValue: app)
         _authState = StateObject(wrappedValue: auth)
         _mainRoomState = StateObject(wrappedValue: mainRoom)
@@ -54,6 +59,7 @@ struct BABOnlineApp: App {
                 .environmentObject(leaderboardState)
                 .environmentObject(recordsState)
                 .environmentObject(safetyState)
+                .environmentObject(profileState)
                 .environmentObject(socketService)
                 .onAppear {
                     setupSocket()
@@ -61,6 +67,8 @@ struct BABOnlineApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhase(newPhase)
                 }
+                // a profile sheet of the screen that went away no longer holds the Safety alerts back
+                .onChange(of: appState.screen) { _, _ in ProfileSheets.shared.screenChanged() }
         }
     }
 
@@ -85,6 +93,8 @@ struct BABOnlineApp: App {
                                 inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil,
                                 tournamentComplete: tournament.phase == "complete")
         }
+        // the admin panel's requests (only an admin's Account sheet shows its entry)
+        AdminState.shared.attach(socket: socketService, auth: authState)
         socketService.connect()
 
         // Register event router — stored on socketService so handlers stay alive
@@ -98,7 +108,9 @@ struct BABOnlineApp: App {
             tournamentState: tournamentState,
             leaderboardState: leaderboardState,
             recordsState: recordsState,
-            safetyState: safetyState
+            safetyState: safetyState,
+            profileState: profileState,
+            adminApi: AdminState.shared.api
         )
         router.registerAll()
         socketService.eventRouter = router

@@ -6,8 +6,13 @@ import Combine
 /// A user-facing failure the server sent as an 'error' event ({ type?, message }).
 /// Each one gets its own id so repeating the same message re-shows the toast.
 struct ServerErrorNotice: Equatable {
+    /// `.info`: a neutral notice through the same toast (a new tournament host, a cancelled
+    /// tournament: the web's showInfo), not a failure.
+    enum Kind: Equatable { case error, info }
+
     let id = UUID()
     let message: String
+    var kind: Kind = .error
 }
 
 /// The server sends one failure twice while V1_REMOVALS #1 is in phase A: the
@@ -66,6 +71,8 @@ final class SocketService: ObservableObject {
     /// The table store (set by BABOnlineApp) for transport errors of game actions.
     weak var gameState: GameState?
     @Published var connectionError: String?
+    /// The one toast slot (ServerErrorToast): a server refusal, or a neutral `.info` notice
+    /// (a new tournament host, a cancelled tournament). The latest one replaces the one showing.
     @Published var serverError: ServerErrorNotice?
 
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
@@ -237,7 +244,9 @@ final class SocketService: ObservableObject {
         let msg = dict["message"] as? String ?? "Something went wrong"
         guard errorDeduper.accept(channel, message: msg, handler: dict["handler"] as? String, at: now) else { return }
         // a refusal its screen answers itself, with its own words (the lobby re-entry)
-        if claimServerError?(dict) == true || claimTournamentServerError?(dict) == true { return }
+        if claimServerError?(dict) == true || claimTournamentServerError?(dict) == true || claimProfileServerError?(dict) == true { return }
+        // the admin request limit: the open panel says it (AdminApi fails what waits)
+        if claimAdminServerError?(dict) == true { return }
         serverError = ServerErrorNotice(message: msg)
         print("[Socket] Server error: \(msg)")
         if let store = gameState { Self.routeTableError(dict, to: store) }
@@ -248,6 +257,12 @@ final class SocketService: ObservableObject {
     var claimServerError: (@MainActor ([String: Any]) -> Bool)?
     /// The same for TournamentSocketHandler (the refused tournament re-entry, `handleRejoinRefused`).
     var claimTournamentServerError: (@MainActor ([String: Any]) -> Bool)?
+    /// The same for ProfileSocketHandler (a rate-limited getProfile / getPlayerProfile: its sheet says so).
+    var claimProfileServerError: (@MainActor ([String: Any]) -> Bool)?
+
+    /// Set by AdminState: true when the failure is the adminRequest rate limit and a request
+    /// is waiting for its answer (`AdminApi.handleServerError`).
+    var claimAdminServerError: (@MainActor ([String: Any]) -> Bool)?
 
     /// What a restart would cost the player now (set by BABOnlineApp: screen, table role, tournament).
     var restartPlace: (@MainActor () -> RestartNotice.Place?)?

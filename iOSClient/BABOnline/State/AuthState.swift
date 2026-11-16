@@ -15,6 +15,11 @@ final class AuthState: ObservableObject {
     @Published var accountNotice: String?
     /// The last changePasswordResponse (Account sheet).
     @Published var changePasswordResult: ChangePasswordResult?
+    /// signInResponse / restoreSessionResponse `isAdmin: true`: the Account sheet shows its
+    /// Admin entry. Display only, never authority (the server checks every adminRequest
+    /// against the database); cleared by a sign-out, forceLogout, a failed restore, a
+    /// `forbidden` answer and removing one's own admin.
+    @Published var isAdmin = false
 
     private let keychainService = "com.bab-online.auth"
     private let usernameKey = "username"
@@ -55,6 +60,7 @@ final class AuthState: ObservableObject {
         restoreRetrying = false
         accountNotice = nil
         changePasswordResult = nil
+        isAdmin = false
     }
 
     // MARK: - Keychain Helpers

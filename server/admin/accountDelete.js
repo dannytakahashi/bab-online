@@ -58,8 +58,9 @@
  * store, `gameManager.deletedUsernames` (an in-flight game cannot write
  * the name back into a new game record), and the voice block lists of the
  * players whose lists changed (refreshBlockLists, without telling their
- * clients: a dead name in a client's list is harmless, and the App Store
- * iOS build shows every blockListUpdated as a "Block list updated." alert).
+ * clients: a dead name in a client's list is harmless, and iOS builds up
+ * to 1.2.1 build 9 show every blockListUpdated as a "Block list updated."
+ * alert).
  *
  * Deleting a TOMBSTONE (deleteTombstone) is different: it removes only
  * that document, which frees the name. The account it points at keeps its
@@ -253,8 +254,9 @@ function forgetAccount(io, db, username, erased = {}) {
  * get it too, since they hide blocked players' chat by name and the
  * renamed player's chat would otherwise show: blockListUpdated, the reply
  * both clients already handle, with `silent: true` when asked (web then
- * updates without its "Block list updated" toast; the App Store iOS build
- * ignores the field and shows its "Block list updated." alert). Read from
+ * updates without its "Block list updated" toast, as does iOS from 1.2.2;
+ * iOS builds up to 1.2.1 build 9 ignore the field and show their
+ * "Block list updated." alert). Read from
  * the database, so it is the list as saved. Best effort: a failure only
  * means the list refreshes at the player's next sign-in.
  * @returns {Promise<number>} sockets updated
