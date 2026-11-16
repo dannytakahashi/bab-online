@@ -38,6 +38,8 @@ struct GameLogPanel: View {
     var onClose: (() -> Void)?
     @State private var chatMessage = ""
     @State private var showAutocomplete = false
+    /// "Unknown command: /x" over the command list, until the field changes (ChatCommand).
+    @State private var commandHint: String?
     @State private var reportTarget: String?
 
     private var availableCommands: [SlashCommand] {
@@ -115,10 +117,27 @@ struct GameLogPanel: View {
 
                     Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: [])  // not into the vertical bar
 
-                    // Slash command autocomplete
-                    if showAutocomplete && !filteredCommands.isEmpty {
+                    // Slash command autocomplete; after an unknown command, why nothing was sent
+                    // and every command (the web gets the server's "Unknown command: /x")
+                    if showAutocomplete && (!filteredCommands.isEmpty || commandHint != nil) {
                         VStack(spacing: 0) {
-                            ForEach(filteredCommands, id: \.command) { cmd in
+                            if let hint = commandHint {
+                                HStack(spacing: Theme.Space.s2) {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .foregroundColor(Theme.warning)
+                                        .accessibilityHidden(true)
+                                    Text(hint)
+                                        .font(.caption.bold())
+                                        .foregroundColor(Theme.textPrimary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, Theme.Space.s3)
+                                .padding(.vertical, Theme.Space.s2)
+                                .accessibilityElement(children: .combine)
+                                .accessibilityIdentifier("chat.commandHint")
+                            }
+                            ForEach(commandHint != nil ? availableCommands : filteredCommands, id: \.command) { cmd in
                                 Button(action: { submitCommand(cmd.command) }) {
                                     HStack(spacing: Theme.Space.s2) {
                                         Text(cmd.command)
@@ -142,6 +161,7 @@ struct GameLogPanel: View {
                         TextField("Chat...", text: $chatMessage)
                             .textFieldStyle(BABTextFieldStyle())
                             .onChange(of: chatMessage) {
+                                commandHint = nil
                                 showAutocomplete = chatMessage.hasPrefix("/")
                                 gameState.chatDraft = chatMessage
                             }
@@ -168,11 +188,15 @@ struct GameLogPanel: View {
         let text = chatMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
-        // Slash command: auto-submit if single match
+        // Slash command: a unique prefix is sent as its command (the web's rule); anything
+        // else starting with "/" is not sent and says so, with the commands, in place
         if text.hasPrefix("/") {
-            let matches = filteredCommands
-            if matches.count == 1 {
-                submitCommand(matches[0].command)
+            switch ChatCommand.resolve(text, commands: availableCommands.map(\.command)) {
+            case .send(let command): submitCommand(command)
+            case .unknown(let word):
+                commandHint = "Unknown command: \(word)"
+                showAutocomplete = true  // a draft with a leading space has no list up yet
+                AccessibilityNotification.Announcement("Unknown command \(word). Commands: \(availableCommands.map(\.command).joined(separator: ", "))").post()
             }
             return
         }
@@ -185,6 +209,7 @@ struct GameLogPanel: View {
 
     private func submitCommand(_ command: String) {
         ChatEmitter.sendMessage(command)
+        commandHint = nil
         chatMessage = ""
         gameState.chatDraft = ""
         showAutocomplete = false
@@ -222,5 +247,34 @@ struct GameLogEntryView: View {
         }
         // Fall back to username-based color
         return UsernameColor.color(for: entry.username)
+    }
+}
+
+/// What a chat line starting with "/" does (the web GameLog.submitChat rule, with the
+/// server's "Unknown command: /x" answered in place: a spectator's or a watching owner's
+/// unknown command gets no answer from the server at all). A deliberate difference from the
+/// web, which sends every line and shows the server's reply.
+enum ChatCommand {
+    enum Resolution: Equatable {
+        /// Send this command (the line was it, or its unique prefix).
+        case send(String)
+        /// Not a command: its first word, for "Unknown command: /x".
+        case unknown(String)
+    }
+
+    /// Commands the server answers from anyone (server/socket/chatHandlers.js spectatorCommand):
+    /// typed in full they are sent whatever the list shows. A spectator recorded as a seat's
+    /// owner takes it back with `/active`, though a spectator's list shows only `/leave`.
+    static let server = ["/active", "/leave"]
+
+    static func resolve(_ text: String, commands: [String]) -> Resolution {
+        let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = line.lowercased()
+        if server.contains(query) { return .send(query) }
+        if query != "/" {
+            let matches = commands.filter { $0.hasPrefix(query) }
+            if matches.count == 1 { return .send(matches[0]) }
+        }
+        return .unknown(String(line.split(separator: " ").first ?? "/"))
     }
 }

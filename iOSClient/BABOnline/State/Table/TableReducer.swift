@@ -38,6 +38,8 @@ enum TableEffect: Equatable {
     /// requestSnapshot after SnapshotRetryPolicy.delay(attempt), if the table still waits for it.
     case retrySnapshot(requestId: String, attempt: Int)
     case haptic(HapticKind)
+    /// A short line over the table (GameState.notice, shown in the server-error toast): why a bid or play was refused.
+    case notice(String)
     case sound(SoundKind)
     case dropped(event: String, seq: Int)
     case gap(expected: Int, got: Int)

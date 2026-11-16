@@ -153,15 +153,55 @@ enum UIFixture {
                 if UserDefaults.standard.bool(forKey: "uiNoEndStats") {
                     stats = stats.mapValues { ["username": ($0 as? [String: Any])?["username"] ?? ""] }
                 }
+                // `-uiTie YES`: equal final scores (TIE GAME)
+                let tie = UserDefaults.standard.bool(forKey: "uiTie")
                 store.apply(serverEvent: "gameEnd", payload: [[
-                    "score": ["team1": 312, "team2": 287], "playerStats": stats,
+                    "score": ["team1": 312, "team2": tie ? 312 : 287], "playerStats": stats,
                     "tournamentId": snap.tournament?.tournamentId ?? NSNull(), "seq": snap.seq + 1,
                 ] as [String: Any]])
             }
+            seedTableExtras(store, snap, auth: auth)
             appState.screen = .game
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - 1.2.2 table states (TableParityUITests)
+
+    /// `-uiIdleOffer <position>`: the tournament table's idle-seat offer for that seat, as the
+    /// server sends it (private resignationAvailable with `idle: true`).
+    /// `-uiReject <reason>`: 1 s after the table is up, the server refuses my action
+    /// (actionRejected `{action: play, reason}`): the toast with the reason, held 60 s.
+    /// `-uiDealer <position>`: that seat dealt this hand (the snapshot's dealer otherwise).
+    /// `-uiToasts YES`: the toast layer is up and holds a toast 60 s (a tap on a dimmed card).
+    @MainActor
+    private static func seedTableExtras(_ store: GameState, _ snap: TableSnapshot, auth: AuthState) {
+        let defaults = UserDefaults.standard
+        if let pos = Int(defaults.string(forKey: "uiDealer") ?? ""), (1...4).contains(pos), var dict = seededSnapshot,
+           var deal = dict["deal"] as? [String: Any] {
+            deal["dealer"] = pos
+            dict["deal"] = deal
+            if let edited = try? TableSnapshot.decode(dict, strict: true) {
+                seededSnapshot = dict
+                store.apply(.snapshot(edited, .rejoin, hints: nil))
+            }
+        }
+        if let pos = Int(defaults.string(forKey: "uiIdleOffer") ?? ""), (1...4).contains(pos) {
+            let name = snap.seats.first { $0.position == pos }?.username ?? "P\(pos)"
+            _ = store.apply(serverEvent: "resignationAvailable", payload: [["position": pos, "username": name, "idle": true] as [String: Any]])
+        }
+        if defaults.bool(forKey: "uiToasts") {
+            auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
+            ServerErrorToast.visibleSeconds = 60
+        }
+        if let reason = defaults.string(forKey: "uiReject") {
+            auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
+            ServerErrorToast.visibleSeconds = 60
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                _ = store.apply(serverEvent: "actionRejected", payload: [["action": "play", "reason": reason] as [String: Any]])
+            }
         }
     }
 
@@ -489,7 +529,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state", "table.zoom".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
@@ -499,6 +539,9 @@ final class TableDebugProbe: ObservableObject {
     @Published var chrome = TableChrome()
     @Published var layoutCheck = "-"
     @Published var tableState = "-"
+    /// 1.2.2: "fans=2:5,3:5,4:4 dealer=3" (card backs per seat, "-" where the table shows
+    /// no fans; the dealer's seat, "me", or "-"). Its own probe: a rotation may gain or lose the fans.
+    @Published var tableExtras = "-"
     /// The table's zoom (TableLayout.zoom, "1.00" ... "1.40"): the UI tests scale their point limits by it.
     @Published var tableZoom = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
@@ -539,7 +582,14 @@ final class TableDebugProbe: ObservableObject {
         }
         let check = bad.isEmpty ? "ok" : bad.joined(separator: "; ")
         let lifted = scene.handNode.liftedCardId ?? "-"
+        // fans: the card backs each seat shows, by position ("-": the table shows no fans)
+        let seats = scene.opponentManager.nodes.sorted { $0.key < $1.key }
+        let showsFans = scene.lastModel.map { scene.layout.fans(spectating: $0.hand == nil) != nil } ?? false
+        let fans = showsFans ? seats.map { "\($0.key):\($0.value.fanNode.count)" }.joined(separator: ",") : "-"
+        let dealer = seats.first { $0.value.dealerNode.isShown }.map { "\($0.key)" } ?? (scene.myDealerNode.isShown ? "me" : "-")
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
+        let extras = "fans=\(fans) dealer=\(dealer)"
+        if extras != tableExtras { tableExtras = extras }
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
         let zoom = String(format: "%.2f", L.zoom)
@@ -556,6 +606,7 @@ struct FixtureProbes: View {
             dot("ui.pose", probe.pose)
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
+            dot("table.extras", probe.tableExtras)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)
             Spacer()

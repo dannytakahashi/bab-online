@@ -452,7 +452,8 @@ card survives fold and unfold, the trick collects across a fold.
   largest zoom (`CardTextureGenerator.textureZoom` 1.4: 280 x 406 px on a 2x iPad,
   54 faces = 24.55 MB); a phone's stay 1:1 at zoom 1 (300 x 435 on 3x, unchanged).
   Avatar circles render at the same factor.
-  No table sprite uses the card back (the draw for deal is SwiftUI): since 1.2.1 it
+  Until 1.2.2 no table sprite used the card back (the draw for deal is SwiftUI; 1.2.2's
+  opponent fans draw it at their own size, `CardFanNode.backTexture`): since 1.2.1 it
   is the web's red lattice, rendered at the draw card's own size
   (`cardBackImage(width:)`, 1:1, hinted for that density), which `prewarm()` renders
   for the key window's draw size; `cardBackTexture()` (unused) draws the same lattice.
@@ -569,15 +570,16 @@ failures arrive as `error` and/or `serverError`.
 - **Resign offer**: the reducer clears it on the offered seat's
   `playerReconnected` and `playerActiveMode`, on any `playerResigned`, when a
   new `resignationAvailable` moves it, and on every snapshot (rebuilt from
-  `seats[].offered`); `GameState.resignationAvailable` also hides an offer
+  `seats[].offered`; a standing idle offer is carried, see below);
+  `GameState.resignationAvailable` also hides an offer
   whose seat is no longer resignable. The server's idle-seat offer at a
   tournament table (2026-11-15) is the same private `resignationAvailable`
-  (plus `idle: true`, ignored) for a seat that never disconnected: the
-  reducer marks it resignable, so 1.2.0 shows "<name> disconnected —
-  waiting for reconnection..." over "<name> timed out" + Replace with Bot;
-  the server withdraws it with `playerReconnected` for that seat. A
-  snapshot rebuilds the seat as connected and drops it; the server asks
-  again every 90 s while the seat stays idle.
+  (plus `idle: true`) for a seat that never disconnected. 1.2.0 through 1.2.1
+  ignore `idle` and mark the seat resignable, so they show "<name>
+  disconnected — waiting for reconnection..." over "<name> timed out" +
+  Replace with Bot; 1.2.2 reads it ("iOS 1.2.2: table parity with the web"
+  below). The server withdraws it with `playerReconnected` for that seat and
+  asks again every 90 s while the seat stays idle.
 - **Live checks**: Debug builds take `-serverURL http://localhost:<port>`
   (`ServerConfig`, localhost / 127.0.0.1 origins only) for the socket and the
   avatar URLs, so the simulator can talk to a local server that is not on 3000.
@@ -944,6 +946,165 @@ Not verified: nobody has listened on a device (volume against voice chat, the
 silent switch, the 48 ms AAC lead-in); with voice on the session is
 playAndRecord / voiceChat, so sounds then ignore the silent switch and go
 through voice processing.
+
+## iOS 1.2.2: table parity with the web (build 10)
+
+Seven table items the web has (parity audit 2026-11-15). No server change and
+no new event: iOS starts reading `resignationAvailable.idle` and showing
+`actionRejected.reason` (contract notes updated; both keys were already on the
+wire). 1.2.0 through 1.2.1 are unaffected.
+
+- **Idle-seat offer** (web `ResignationDialog`, `idle`): `WirePayload.
+  ResignationAvailable {position, username, idle?}`. An idle offer for a seat
+  that is not away keeps the seat's presence (so `PlayersSlice.disconnected`
+  has no row for it) and sets `ResignationOffer(idle: true, round:)`; a seat
+  already in grace / resignable / away gets the usual offer. `round` counts
+  the server's repeated askings, so Wait (`GameState.waitOnOffer`, the web
+  dialog's Wait) hides the offer until the next one. Cleared by the seat's
+  `playerReconnected` (the server's withdrawal), its `playerDisconnected`
+  (the real drop: grace and its own offer follow), `playerActiveMode` and any
+  `playerResigned`. A snapshot does not carry an idle offer, and the server
+  replays it only to a re-attached socket or at its next asking, so
+  `applySnapshot` keeps a standing one over a snapshot of the same game while
+  its seat is still a connected human on turn (the foreground probe, a seq-gap
+  resync, my own actionRejected; the web keeps its dialog too), with its
+  `round`, so an answered Wait stays answered; any other snapshot drops it. A
+  stale Replace is refused by the server (`idleOfferStands`).
+  `GameState.resignationOffer` also hides an idle offer whose seat is no
+  longer a human's connected seat (a presence value this build does not know
+  counts as connected), or is mine. The
+  banner (`DisconnectBannerView`) shows while `GameState.showsPresenceBanner`
+  (an absent player or an offer) and reads "<name> seems idle" / "Replace with
+  a bot?" with an hourglass, Wait and Replace with Bot (stacked at
+  accessibility text sizes; the whole banner's text stops growing at
+  accessibility2, since it stays over the table until answered); the
+  timed-out wording is unchanged.
+- **Dealer marker** (web: the frog on the dealer's seat): a gold "D" button,
+  `DealerChipNode`. `TableRenderModel.dealer` is the deal's dealer while the
+  table shows (gameStart, the snapshot's deal). On a seat with an avatar it is
+  a child of `OpponentHandNode` at `TableLayout.dealerChip(rel)`: 39 pt beside
+  the avatar, inside the seat's footprint (which everything else already keeps
+  clear of), outside the pips' ring and bore outline, on the first side clear
+  of the corner buttons, trick cards and bid bubbles (left first; the outer
+  side for the right seat). My own seat has no avatar: `GameSKScene.
+  myDealerNode` at `TableLayout.myDealerChip(handCount:)`, the left end of my
+  hand in the band a lifted card rises into (nothing else is placed there; it
+  sits under the hand, so a lifted first card covers it). The web's frog art is
+  not in the app bundle and would be mush at 18 pt.
+- **Tie** (web `ScoreModal` TIE GAME): `GameEndData.from` derives
+  `winningTeam` 0 for equal scores (it was team 1); `GameEndView` shows TIE
+  GAME (gold, VoiceOver "Tie game") to a seated player, with neither score
+  in the winner's colour; a spectator's title stays "Game Over" whatever the
+  score, as the web's overlay.
+- **Refused bid or play** (web `onActionRejected`): the reducer adds
+  `TableEffect.notice(RejectReason.message(reason))` to every
+  `actionRejected` (the web's six sentences; anything else "Action not
+  accepted"); `GameState.notice` publishes it and `GameContainerView` hands it
+  to the app's server-error toast (non-blocking, 3 s) and announces it.
+- **A dimmed card says why** (web `GameScene.illegalReason`):
+  `TableRenderModel.Hand.blocked` maps every card outside `legalIds` to the
+  web's sentence: "Bid first.", "Not your turn.", "Your card is on its way.",
+  the rule on my turn ("Must follow suit.", "Cannot lead trump until trump is
+  broken.", "Must play highest trump when HI joker leads."), else "Wait for
+  the trick to clear." (also while a trick is being collected:
+  `SKCardManager`). It is the card's VoiceOver hint
+  (`CardSpriteNode.blockedReason`), and a tap on a dimmed card posts it
+  through `GameState.postNotice` to the same toast (it used to only buzz).
+- **Bid chips** (web `BidManager.updateTrickIndicator`): `BidChips` (BidTotals:
+  a bore is the whole hand, each team capped at it) gives one chip per trick,
+  my team's bids first in its colour, then the other team's, empty to the hand
+  size, outlined chips past it for an overbid, 16 at most. `BidChipRow` is the
+  first row of `BidOverlayView`, 5 pt tall, each chip at most 16 pt wide and
+  the row centred (times the table's zoom; a 1-card hand is one chip, not a
+  bar); the
+  panel's vertical padding went from 4 + 4 to 2 + 1 so a 13-card panel is
+  still 140 pt (the bid band). VoiceOver: "Bids: your team 3, opponents 2, of
+  7 tricks. Over by 1".
+- **Unknown chat command** (web: the server's "Unknown command: /x"):
+  `ChatCommand.resolve` sends a command or its unique prefix as the command;
+  any other line starting with "/" (ambiguous "/l", "/shrug", "/lazy now",
+  "/") is not sent: the field keeps it and "Unknown command: /x" shows over
+  the full command list until the field changes (a draft with a leading
+  space too). It is answered in place because the server says nothing to a
+  spectator or a watching owner: a deliberate difference from the web, which
+  sends every line. `/active` and `/leave` typed in full are always sent,
+  whatever the list shows (`ChatCommand.server`): the server takes `/active`
+  from a spectator recorded as a seat's owner, whose list shows only
+  `/leave`.
+- **Opponent card backs** (owner request; web `displayOpponentCardsBySeat`):
+  each seat with an avatar holds a fan of the red lattice back
+  (`CardFanNode`, `CardTextureGenerator.cardBackImage(width:)` at the largest
+  fan card's size and the device's largest zoom, one texture per process), one
+  sprite per card in `TableRenderModel.Opponent.cards` (`SeatState.
+  cardsInHand`: the deal's size, minus one per cardPlayed, zero on
+  destroyHands, the snapshot's value after a rejoin; a spectator sees four).
+  Geometry is `TableLayout+Fans.swift`, derived from the solved layout without
+  changing it: a fixed box per seat (96 x 46 at scale 1, sized for 13 backs
+  of 26 x 37.7, 5 pt apart, turned 0.04 rad each, so nothing moves as the fan
+  shrinks) times the table's fan scale. Three scales, `fanScales` = 1.3
+  (roomy), 1 (regular), 0.62 (compact: a 16 x 23 back in a 60 x 29 box); the
+  table takes the largest at which every seat has a clear spot (`fanPlan`):
+  above the avatar, or for the top seat beside it on the left (past the
+  dealer marker, or past the name band) or, compact only, under its name. The
+  node carries the scale (`fanNode.setScale`, from the box's width). A box
+  keeps 4 pt from the trick cards, every seat's glow, name, dealer marker and
+  bid bubble, the other fans, the corner buttons, the trick piles, my seat's
+  row, my lifted hand and bid band, the fold, the spectator badge and the
+  safe edges. All or nothing: if some seat has no clear box at any scale, or
+  the layout is degraded, no fan is drawn. Result (`SeatExtrasTests.devices`):
+  roomy on the 13-inch iPad and the open Duo seated (regular when
+  spectating, on the 11-inch iPad in portrait and in the 546 x 669 pane
+  beside the docked log); compact on every phone size (SE to Pro Max: side
+  seats above the avatar, the partner's above, beside or under its name) and
+  the closed Duo. Phones were decided from screenshots at standard and
+  accessibility text sizes: the compact fans sit clear of the trick cards,
+  names, bid bubbles and the hand. eb73520 removed the first build's fans
+  ("Simplified opponents: removed card-back fans"; no further reason
+  recorded): those were full-size backs, 100 x 145 at 12-18 pt steps.
+  The disconnect / idle banner is not transient, so a fan keeps off it
+  (`TableLayout.bannerRect`: `chrome.banner` at the banner's clear spot, else
+  its place under the corner buttons): while a banner shows, `fans` moves a
+  covered fan to its seat's next clear spot or leaves it out until the banner
+  goes; the other fans stay put. On a phone the banner's row is the fans'
+  row, so the fans it reaches are hidden while it shows. An opponent's played
+  card flies from its fan's centre where its fan shows
+  (`GameSKScene.cardEntry`), else from off-screen as before. Transient things
+  may cover a fan for a few seconds: the seat's chat bubble (it opens above
+  the seat), a rainbow. VoiceOver: "<name>: 5 cards" elements over the fans,
+  "Dealer: <name>" / "You are the dealer" over the marker
+  (`GameContainerView.pipsAccessibility`). The fan and the marker take no
+  touches and lie outside the avatar's glow; a tap hook on the avatar must
+  hit-test the avatar, not the seat node's accumulated frame.
+
+Rendering stays idempotent: the fan and the marker are pure functions of the
+model and the layout (`SKOpponentManager.applyExtras`, run by every render,
+so a relayout that gains or loses the room adds or drops the fans).
+
+Fixture mode: `-uiIdleOffer <pos>`, `-uiReject <reason>` (the toast held
+60 s), `-uiToasts YES` (the toast layer up, for a tap on a dimmed card),
+`-uiTie YES` (with `game-end`), `-uiDealer <pos>`; the probe
+`table.extras` reads "fans=2:12,3:11,4:11 dealer=3" ("fans=-" where the table
+shows none; "dealer=me").
+
+Tests: `TableParityTests.swift` (IdleOfferTests, incl. the offer over a
+snapshot; RejectedActionTests, BlockedCardTests, TieGameTests, BidChipsTests,
+ChatCommandTests), `SeatExtrasTests` (fan slots inside the box at every
+count; where fans show and at which scale; no fan under a banner; fans empty
+on destroyHands; fans clear of everything at
+the listed sizes and over a size / fold fuzz; the dealer marker inside its
+seat and at my hand's end; the model; the scene after a snapshot, for a
+spectator, as cards are played and dealt, across a relayout; the fly-in
+origin; opt-in `TEST_RUNNER_BAB_SCENE_SHOTS=<dir>` writes the scene at the
+open Duo's sizes as PNGs), `SceneLayoutTests.seatParts` now lists each seat's
+fan and dealer marker as parts of every real-node layout check, and
+`TableParityUITests` (UI plan: each state on screen, a tap on a dimmed
+card, fans on the iPad and the phone, none under the idle banner).
+
+Not verified: the open Duo on a simulator (its posture cannot be scripted;
+the layout and scene tests cover its sizes, and the scene PNGs show them);
+VoiceOver itself was not run (labels are asserted through the accessibility
+tree); the idle offer and a refused action against a live server (fixture
+events in the server's shapes only).
 
 ## Visible changes to review on the next build (remove a bot)
 

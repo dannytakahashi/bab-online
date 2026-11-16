@@ -498,9 +498,9 @@ const s2c = {
         }),
         status: 'active', to: 'self',
         added: ['snapshot'],
-        clientReads: reads([W.game, W.main('onActionRejected')], I.game('registerPlayingPhase')),
+        clientReads: reads([W.game, W.main('onActionRejected')], [I.game('registerPlayingPhase'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
-        notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play.',
+        notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play. reason: web toasts it in words (main.js onActionRejected); iOS 1.2.2 shows the same words (RejectReason, the server-error toast), an unknown reason as "Action not accepted"; earlier iOS builds decode it and show nothing.',
     },
     trickComplete: {
         payload: obj({
@@ -639,9 +639,9 @@ const s2c = {
         ),
         status: 'active', to: ['room', 'socket'], seq: false,
         added: ['idle'],
-        clientReads: reads(W.game, I.game('registerSpecialEvents')),
+        clientReads: reads([W.game, W.main('onResignationAvailable')], [I.game('registerSpecialEvents'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/seatLifecycle.js:offer', 'server/socket/seatLifecycle.js:replayPresenceTo', 'server/socket/seatLifecycle.js:offerIdle'],
-        notes: 'private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it, iOS 1.2.0 ignores it).',
+        notes: 'private: the replay to a returning socket, and the idle-seat offer at a tournament table (owner 2026-11-15; to the other present owners only, with idle: true, additive: web words its dialog by it; iOS 1.2.0 through 1.2.1 ignore it and show the seat as disconnected; iOS 1.2.2 reads it (WirePayload.ResignationAvailable, an optional Bool), keeps the seat connected and words its banner "<name> seems idle" / "Replace with a bot?" with Wait).',
     },
     playerResigned: {
         payload: obj({ position: ref('position'), oldUsername: str(), botUsername: str(), botPic: ref('pic') }),
