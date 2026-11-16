@@ -557,12 +557,19 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
  * nothing and leaves the caches alone. Retry- and replay-safe (see
  * STATS_GAMES_KEPT above); never rejects.
  * @param {Object} game - The completed game object
+ * @param {Object} [opts]
+ * @param {Object|null} [opts.record] - the gameRecords document already
+ *   built for this end (buildGameEndRecord(game)), inserted as is; null:
+ *   nothing to record. Omitted: built here. Deploy survival builds it once
+ *   and hands the same object to the ENDED tombstone
+ *   (gameCodec.serializeEnded), so the two can never differ (completedAt,
+ *   a deleted owner's name or pending entry).
  * @returns {Promise<void>}
  */
-function recordGameStats(game) {
+function recordGameStats(game, { record } = {}) {
     const key = game?.gameId;
     if (key && statsWrites.has(key)) return statsWrites.get(key);
-    const run = writeGameStats(game)
+    const run = writeGameStats(game, record)
         .catch(error => { authLogger.error('End-of-game writes failed', { gameId: key, error: error.message }); })
         .finally(() => { if (key) statsWrites.delete(key); });
     if (key) statsWrites.set(key, run);
@@ -608,11 +615,11 @@ function buildGameEndRecord(game) {
     return doc;
 }
 
-async function writeGameStats(game) {
+async function writeGameStats(game, prebuilt) {
     const usersCollection = getUsersCollection();
     const gameRecordsCollection = getGameRecordsCollection();
 
-    const doc = buildGameEndRecord(game);
+    const doc = prebuilt === undefined ? buildGameEndRecord(game) : prebuilt;
     if (!doc) {
         authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
         return;

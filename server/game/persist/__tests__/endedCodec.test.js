@@ -7,7 +7,10 @@
  * 13th hand's HAND_RESOLVING (a synthetic codec doc, adopted and kicked),
  * played out to the real gameEnd: a human game, a bot game, a game with a
  * resigned seat, a lazy seat (still a human game), a tournament table and
- * an owner who deleted their account mid-game.
+ * an owner who deleted their account mid-game. An aborted game's tombstone
+ * holds no record by default; a record built once and handed to both
+ * serializeEnded and recordGameStats(game, {record}) is the very object
+ * inserted.
  */
 
 const { createMemoryDb } = require('../../../testUtils/memoryDb');
@@ -209,5 +212,57 @@ describe('serializeEnded holds the record writeGameStats inserts', () => {
         const { game, ended } = await endAndCompare(lastHandDoc('g-ended-own', ['human', 'bot', 'human', 'human']));
         const own = codec.serializeEnded(game);
         expect({ ...own.record, completedAt: null }).toEqual({ ...ended.record, completedAt: null });
+    });
+});
+
+describe('an aborted game', () => {
+    test('its tombstone holds no record unless one is passed (abortGame never records stats)', () => {
+        const doc = lastHandDoc('g-aborted', ['human', 'human', 'bot', 'human']);
+        const game = adoptForTest(doc, { io: makeIo([]), now: NOW });
+        // A human game: the builder alone would make a stats record for it
+        expect(profileHandlers.buildGameEndRecord(game)).not.toBeNull();
+        gameManager.abortGame(game.gameId);
+        expect(game.stage).toBe(Phase.ABORTED);
+        const tomb = codec.serializeEnded(game, undefined, { tournamentId: 't-9' });
+        expect(tomb.record).toBeNull();
+        expect(tomb.aborted).toBe(true);
+        expect(tomb.tournamentId).toBe('t-9');
+        expect(tomb.score).toEqual({ team1: 310, team2: 280 });
+    });
+});
+
+describe('one record object for the tombstone and the insert', () => {
+    test('recordGameStats(game, {record}) inserts the record it is handed, completedAt and pending list included', async () => {
+        const doc = lastHandDoc('g-one-record', ['human', 'human', 'human', 'bot']);
+        for (const u of ['p1', 'p2', 'p3']) mockDb.current.users._insert({ username: u, profilePic: 1 });
+        const game = adoptForTest(doc, { io: makeIo([]), now: NOW });
+        const record = profileHandlers.buildGameEndRecord(game);
+        const tomb = codec.serializeEnded(game, record, { tournamentId: null });
+        expect(tomb.record).toBe(record);
+        const built = asStored(record);
+        // Between the two: the clock moves and an owner deletes their
+        // account. A second build would differ in both.
+        jest.setSystemTime(NOW + 5000);
+        gameManager.deletedUsernames.add('p2');
+        expect({ ...asStored(profileHandlers.buildGameEndRecord(game)), completedAt: null }).not.toEqual({ ...built, completedAt: null });
+        const handed = [];
+        const insertOne = mockDb.current.gameRecords.insertOne.bind(mockDb.current.gameRecords);
+        jest.spyOn(mockDb.current.gameRecords, 'insertOne').mockImplementation((d, ...rest) => {
+            handed.push(d);
+            return insertOne(d, ...rest);
+        });
+        await profileHandlers.recordGameStats(game, { record });
+        expect(handed).toHaveLength(1);
+        expect(handed[0]).toBe(record);
+        expect(asStored(handed[0])).toEqual(asStored(tomb.record));
+        expect(handed[0].completedAt).toEqual(new Date(NOW));
+        expect(handed[0].statsPending.map((p) => p.username)).toContain('p2');
+    });
+
+    test('recordGameStats(game, {record: null}) records nothing', async () => {
+        const game = adoptForTest(lastHandDoc('g-no-record', ['human', 'bot', 'human', 'bot']), { io: makeIo([]), now: NOW });
+        const insert = jest.spyOn(mockDb.current.gameRecords, 'insertOne');
+        await profileHandlers.recordGameStats(game, { record: null });
+        expect(insert).not.toHaveBeenCalled();
     });
 });

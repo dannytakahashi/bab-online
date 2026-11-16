@@ -42,8 +42,9 @@
  * changing what is saved bumps CODEC_V.
  *
  * serializeEnded(game, record) is the ENDED tombstone's payload: the
- * gameRecords document the live end inserts (profileHandlers
- * .buildGameEndRecord, the same builder), the final score, each seat's
+ * gameRecords document the live end inserts (built once by profileHandlers
+ * .buildGameEndRecord and passed both here and to recordGameStats(game,
+ * {record}); never for an aborted game), the final score, each seat's
  * {username, position, gone} (tournament scoring) and the tournamentId.
  */
 
@@ -287,14 +288,20 @@ function hydrate(doc, { now = Date.now(), onGraceExpire = null } = {}) {
 /**
  * The ENDED tombstone's payload for a finished (or aborted) game.
  * @param {GameState} game
- * @param {Object|null} [record] - the gameRecords document
- *   (profileHandlers.buildGameEndRecord(game); built here when omitted;
- *   null: nothing to record, e.g. an aborted table)
+ * @param {Object|null} [record] - the gameRecords document. Omitted: built
+ *   here (profileHandlers.buildGameEndRecord) for a game that ENDED, and
+ *   null for any other stage (an aborted game records no stats: only
+ *   gameEnd calls recordGameStats, abortGame never does). The live end
+ *   path passes the record it built once, the same object it then hands
+ *   recordGameStats(game, {record}), so tombstone and insert are one doc.
  * @param {{tournamentId?: (string|null)}} [opts]
  * @returns {{record: (Object|null), score: Object, seats: Object[], tournamentId: (string|null), aborted: boolean}}
  */
 function serializeEnded(game, record, { tournamentId } = {}) {
-    const rec = record === undefined ? require('../../socket/profileHandlers').buildGameEndRecord(game) : record;
+    let rec = record;
+    if (rec === undefined) {
+        rec = game.stage === Phase.ENDED ? require('../../socket/profileHandlers').buildGameEndRecord(game) : null;
+    }
     return {
         record: rec,
         score: { team1: game.score?.team1 ?? 0, team2: game.score?.team2 ?? 0 },

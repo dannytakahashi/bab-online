@@ -22,8 +22,15 @@
  *
  * hydrate(doc) -> {tournament, tableScores}: a TournamentState with the
  * saved fields; every member disconnected, not ready, keyed by a synthetic
- * restored:<tournamentId>:<i> socket id (reattachPlayerByUsername re-keys
- * it, the creator role with it); no spectators, timers or epoch history.
+ * restored:<tournamentId>:<username> socket id (restoredMemberId; the plan's
+ * PR 6 shape; reattachPlayerByUsername re-keys it, the creator role with
+ * it); no spectators, timers or epoch history. A doc naming a member twice
+ * (or a member without a name) is malformed.
+ * Until a member reattaches, its synthetic id is on the wire:
+ * getClientState() emits every player's `socketId` and `creatorSocketId`
+ * (tournamentJoined, tournamentPlayerJoined / Left and friends carry it).
+ * Nothing calls hydrate in production yet; the tournament adoption (PR 6)
+ * must mask restored:* ids there (or reattach first) before any emit.
  *
  * Field guard: every key of a TournamentState, member entry, round and
  * round game entry is in SAVED or DERIVED (gameCodec.fieldGuard.test.js).
@@ -171,8 +178,8 @@ function serialize(t, { getGame = defaultGetGame } = {}) {
     return { v: TOURNAMENT_CODEC_V, tournamentId: t.tournamentId, phase, state };
 }
 
-/** The synthetic socket id of a restored member (the i-th in Map order). */
-const restoredMemberId = (tournamentId, i) => `restored:${tournamentId}:${i}`;
+/** The synthetic socket id of a restored member, until it reattaches by username. */
+const restoredMemberId = (tournamentId, username) => `restored:${tournamentId}:${username}`;
 
 /**
  * @param {Object} doc
@@ -185,13 +192,23 @@ function hydrate(doc) {
     if (typeof doc.tournamentId !== 'string' || !s || !PHASES.has(s.phase) || s.phase === 'starting') {
         throw new TournamentCodecError('malformed', { tournamentId: doc.tournamentId });
     }
+    const members = s.players ?? [];
+    if (!Array.isArray(members)) throw new TournamentCodecError('malformed', { tournamentId: doc.tournamentId });
+    const names = new Set();
+    for (const p of members) {
+        // Ids are per username: a nameless or repeated member cannot be keyed
+        if (!p || typeof p.username !== 'string' || !p.username || names.has(p.username)) {
+            throw new TournamentCodecError('malformed', { tournamentId: doc.tournamentId, member: p?.username ?? null });
+        }
+        names.add(p.username);
+    }
     const t = new TournamentState(doc.tournamentId, s.name, null, s.creatorUsername);
     t.createdAt = s.createdAt;
     t.phase = s.phase;
     t.currentRound = s.currentRound;
     t.totalRounds = s.totalRounds;
-    (s.players || []).forEach((p, i) => {
-        const id = restoredMemberId(doc.tournamentId, i);
+    members.forEach((p) => {
+        const id = restoredMemberId(doc.tournamentId, p.username);
         t.players.set(id, { username: p.username, pic: p.pic ?? null, ready: false, connected: false });
         if (p.username === s.creatorUsername) t.createdBy = id;
     });

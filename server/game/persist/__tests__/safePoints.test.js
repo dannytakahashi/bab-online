@@ -10,8 +10,9 @@
  *     HAND_RESOLVING it is never null (a chaos run never throws, so no
  *     game is tainted);
  *   - all four restore stages and DEALING / REDEAL are reached.
- * Plus the refusals: the demo game, a tainted game, a frozen game, a game
- * failing validateGameState.
+ * Plus the refusals: the demo game, a tainted game (a game timer, a bot
+ * action or a bot-path turn continuation that threw; a clean run clears
+ * it), a frozen game, a game failing validateGameState.
  */
 
 const { createMemoryDb } = require('../../../testUtils/memoryDb');
@@ -146,15 +147,81 @@ describe('refusals', () => {
         errorLogs.length = 0;
     });
 
-    test('a bot action that throws taints the game', async () => {
+    test('a bot action that throws taints the game, and a clean one clears it', async () => {
         const { botController } = require('../../bot');
         const game = await playingGame();
+        game.isDemo = false;
         const seat = game.seat(game.currentTurn);
         expect(seat.controller).toBe('bot');
+        expect(codec.refusal(game)).toBeNull();
         botController.scheduleBotAction(makeIo([]), game, 'play', () => { throw new Error('bot boom'); });
         await jest.advanceTimersByTimeAsync(60000);
         expect(game._tainted).toBe(true);
+        expect(codec.refusal(game)).toBe('tainted');
         expect(codec.serialize(game, { tournamentId: null })).toBeNull();
+        // A later bot action that completes clears it (no game timer runs
+        // in between: only BotController's own success path can)
+        game._cancelAllTimers();
+        botController.scheduleBotAction(makeIo([]), game, 'play', () => {});
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(game._tainted).toBe(false);
+        expect(codec.refusal(game)).toBeNull();
+        errorLogs.length = 0;
+    });
+
+    /** An io whose room emits throw on `event` (a continuation that throws midway). */
+    function throwingIo(event) {
+        const base = makeIo([]);
+        return {
+            ...base,
+            to: (room) => ({
+                emit: (ev, data) => {
+                    if (ev === event) throw new Error(`${ev} boom`);
+                    base.to(room).emit(ev, data);
+                },
+            }),
+        };
+    }
+
+    /**
+     * The ambient bot game in `stage` with a bot's turn scheduled and no
+     * hold open (in BIDDING: after the first bid, so the first hand's
+     * firstTurn hold cannot re-schedule the turn), its flag cleared.
+     */
+    async function gameAt(stage) {
+        const ambient = require('../../../demo/ambientBots');
+        Math.random = mulberry32(5);
+        const game = ambient.startBotGame(makeIo([]));
+        const ready = () => game.stage === stage && !game.resume && (stage !== Phase.BIDDING || game.getBidCount() >= 1);
+        for (let t = 0; t < 2000 && !ready(); t++) await jest.advanceTimersByTimeAsync(10);
+        ambient.stopAmbientActivity();
+        expect(game.stage).toBe(stage);
+        game.isDemo = false;
+        return game;
+    }
+
+    test.each([
+        ['handlePostBid', Phase.BIDDING, 'bid'],
+        ['handlePostPlay', Phase.PLAYING, 'play'],
+    ])('a bot-path %s continuation that rejects taints the game', async (_what, stage, actionType) => {
+        const { triggerBotIfNeeded } = require('../../../socket/gameHandlers');
+        const game = await gameAt(stage);
+        expect(game.seat(game.currentTurn).controller).toBe('bot');
+        // Not the trick's 4th card / the last bid: the continuation broadcasts updateTurn
+        if (stage === Phase.BIDDING) expect(game.getBidCount()).toBeLessThan(3);
+        else expect(game.playedCardsIndex).toBeLessThan(3);
+        expect(codec.refusal(game)).toBeNull();
+        const turn = game.currentTurn;
+        // The bot's own action completes (BotController clears the taint);
+        // its continuation then rejects asynchronously and taints the game
+        triggerBotIfNeeded(throwingIo('updateTurn'), game, actionType);
+        for (let t = 0; t < 100 && game.currentTurn === turn; t++) await jest.advanceTimersByTimeAsync(100);
+        expect(game.currentTurn).not.toBe(turn);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(game._tainted).toBe(true);
+        expect(codec.refusal(game)).toBe('tainted');
+        expect(codec.serialize(game, { tournamentId: null })).toBeNull();
+        expect(errorLogs.some((e) => e.msg === `${_what} failed`)).toBe(true);
         errorLogs.length = 0;
     });
 

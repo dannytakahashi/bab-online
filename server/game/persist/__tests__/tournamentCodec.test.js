@@ -134,8 +134,11 @@ describe('round trips', () => {
         expectSame(t, restored);
         expect(restored.createdAt).toBe(t.createdAt);
         expect(restored.name).toBe('Friday Cup');
+        // Each member is keyed restored:<tid>:<username> until it reattaches
+        expect(Array.from(restored.players.keys())).toEqual(['restored:t-1:alice', 'restored:t-1:bob', 'restored:t-1:cy']);
+        expect(restored.createdBy).toBe('restored:t-1:alice');
         // Members reattach by username; the creator role follows alice
-        expect(restored.reattachPlayerByUsername('alice', 'sock-alice-2')).toEqual({ oldSocketId: codec.restoredMemberId('t-1', 0) });
+        expect(restored.reattachPlayerByUsername('alice', 'sock-alice-2')).toEqual({ oldSocketId: codec.restoredMemberId('t-1', 'alice') });
         expect(restored.createdBy).toBe('sock-alice-2');
         expect(restored.getClientState().players.find((p) => p.username === 'alice')).toMatchObject({ connected: true, isCreator: true });
     });
@@ -291,6 +294,17 @@ describe('refusals', () => {
         expect(() => codec.hydrate({ ...doc, state: null })).toThrow(expect.objectContaining({ reason: 'malformed' }));
         expect(() => codec.hydrate({ ...doc, state: { ...doc.state, phase: 'starting' } })).toThrow(expect.objectContaining({ reason: 'malformed' }));
         expect(() => codec.hydrate({ ...doc, state: { ...doc.state, currentRound: 2 } })).toThrow(expect.objectContaining({ reason: 'invalid' }));
+    });
+
+    test('hydrate refuses a member named twice or without a name (ids are per username)', () => {
+        const doc = json(codec.serialize(lobby()));
+        const players = doc.state.players;
+        expect(() => codec.hydrate({ ...doc, state: { ...doc.state, players: [...players, { username: 'bob', pic: null }] } }))
+            .toThrow(expect.objectContaining({ reason: 'malformed' }));
+        expect(() => codec.hydrate({ ...doc, state: { ...doc.state, players: [...players, { username: '', pic: null }] } }))
+            .toThrow(expect.objectContaining({ reason: 'malformed' }));
+        expect(() => codec.hydrate({ ...doc, state: { ...doc.state, players: { alice: {} } } }))
+            .toThrow(expect.objectContaining({ reason: 'malformed' }));
     });
 
     test('chat is capped at maxMessages', () => {

@@ -445,6 +445,18 @@ class GameState {
      * emitted (broadcast, sendToPlayer, ...) and no timer, pause or hold can
      * start. Not terminal: the stage and the table stay as they are, for the
      * codec. Idempotent.
+     *
+     * ONE-WAY, for the handoff only (the doc was flushed and this process
+     * gives the table up): there is no thaw, the codec refuses a frozen
+     * game for good, and the epoch bump has already ended every in-flight
+     * continuation (draw / seating / firstTurn holds resolve false) and the
+     * resume, afk, grace and stall timers, so a frozen game cannot simply
+     * run on. Never use it for the holder self-fence (plan 2.1: freeze while
+     * heartbeats fail, thaw once ownership re-reads as ours): that needs a
+     * separate reversible fence (PR 5) which keeps the epoch, suspends
+     * emits and side effects, remembers each timer's remaining time and on
+     * thaw re-arms them (or runs the restore kick), and leaves the game
+     * saveable.
      * @returns {boolean} false if already frozen or terminal
      */
     freeze() {
