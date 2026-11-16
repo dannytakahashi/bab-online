@@ -71,6 +71,8 @@ class RateLimiter {
             beginTournament: { max: 5, windowMs: 60000 },
             beginNextRound: { max: 5, windowMs: 60000 },
             returnToTournament: { max: 10, windowMs: 30000 },
+            // "Don't wait for <name>" in a play-again lobby (host): one per tap
+            releaseLobbyHold: { max: 10, windowMs: 30000 },
             spectateTournament: { max: 10, windowMs: 60000 },
             spectateTournamentGame: { max: 10, windowMs: 60000 },
             cancelTournament: { max: 10, windowMs: 60000 },

@@ -498,7 +498,11 @@ function gateSignal(io, fromSid, targetSid, sdp) {
 function endBlockedCall(io, aSid, bSid) {
     if (!io || !aSid || !bSid || aSid === bSid) return false;
     const room = voiceRoomOf(aSid);
-    if (room === null || room !== voiceRoomOf(bSid)) return false;
+    // A legacy client still on the score screen shares no room with the
+    // players back in the lobby, but its call with them lingers (play again)
+    const shared = (room !== null && room === voiceRoomOf(bSid)) ||
+        require('../socket/playAgain').isLingeringPair(aSid, bSid);
+    if (!shared) return false;
     io.to(aSid).emit('voicePeerLeft', { socketId: bSid });
     io.to(bSid).emit('voicePeerLeft', { socketId: aSid });
     return true;

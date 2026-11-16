@@ -9,6 +9,7 @@ const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
 const { lobbySeatSuspended, lobbySeatExpired, tableBotsReadied } = require('./lobbyHandlers');
 const sessionIdentity = require('./sessionIdentity');
+const playAgain = require('./playAgain');
 
 /**
  * A socket disconnected: drop it from the main room / lobby / tournament /
@@ -30,6 +31,9 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     // The user's live socket closed: a parked tab of theirs is told (after
     // a short delay, if nothing took the session back: sessionIdentity)
     if (closed && user) sessionIdentity.liveSocketClosed(io, socket, user.username);
+    // An older app still on a score screen: its lingering calls with the
+    // players back in the lobby end (play again)
+    playAgain.endLingering(io, socket.id, 'disconnect');
     const onlineBefore = gameManager.getOnlineUsernames().length;
     const result = gameManager.handleDisconnect(socket.id, {
         lobbyGrace,
