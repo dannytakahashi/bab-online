@@ -621,10 +621,11 @@ private struct GameScreen: View {
     private func seatRow(_ layout: TableLayout) -> some View {
         let row = layout.seatRow
         let hsi = gameState.myHSI
+        // a pure spectator's row is the watched seat's: its voice button is the pill's (1.2.3)
         #if DEBUG
-        let voice = voiceManager.isActive || UIFixture.showsVoiceButton
+        let voice = (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
         #else
-        let voice = voiceManager.isActive
+        let voice = voiceManager.isActive && !isPureSpectator
         #endif
         if row.voiceFollowsHSI {
             if hsi != nil || voice {
@@ -761,7 +762,7 @@ private struct GameScreen: View {
                     // a casual game's spectator voice (1.2.3): the mic button beside the pill
                     // (listen-only: headphones, "Tap to talk"; a long press opens the panel)
                     if showsSpectatorVoice {
-                        VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: 36,
+                        VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,
                                         forceListenOnly: fixtureSpectatorVoice == "listen")
                     }
                     // the web's spectating indicator: team.a on the panel surface

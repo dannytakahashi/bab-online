@@ -137,6 +137,20 @@ final class FamilyLobbyUITests: XCTestCase {
         app.terminate()
     }
 
+    /// A pure spectator in voice has one mic button, the pill's: the seat row is the watched
+    /// seat's (`-uiVoice` would draw the seat-row button were the spectator check missing).
+    /// The pill's button keeps the 44 pt target.
+    func testASpectatorHasOnlyThePillsMicButton() {
+        let app = launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen", "-uiVoice", "YES"])
+        let mic = app.buttons["Tap to talk"]
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Mute microphone"].exists, "no seat-row button in the watched seat's row")
+        XCTAssertFalse(app.buttons["Unmute microphone"].exists)
+        XCTAssertGreaterThanOrEqual(mic.frame.width, 44 - 0.5, "\(mic.frame)")
+        XCTAssertGreaterThanOrEqual(mic.frame.height, 44 - 0.5, "\(mic.frame)")
+        app.terminate()
+    }
+
     func testVoiceFullSaysSo() {
         let app = launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "full"])
         XCTAssertTrue(app.staticTexts["Spectating \u{2022} Voice is full (8 people)"].waitForExistence(timeout: 5))

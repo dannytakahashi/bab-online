@@ -235,6 +235,17 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         XCTAssertEqual(m.tapToTalk(), VoiceCopy.talkOff, "Tap to talk explains why not")
     }
 
+    /// The switch is ON but this game lets spectators only listen (a stranger at a table of
+    /// legacy players: server mayTalk has no capable controller): the toast does not blame the host.
+    func testTapToTalkBlamesTheHostOnlyWhenTheSwitchIsOff() {
+        let m = manager(), store = GameState()
+        VoiceSocketHandler.applyVoiceSettings(settings("spectator", canTalk: false, on: true), manager: m, gameState: store,
+                                              start: { _ in }, notify: { _ in XCTFail("nothing was turned off") })
+        XCTAssertFalse(m.talkAllowed)
+        XCTAssertEqual(m.tapToTalk(), VoiceCopy.listenOnlyHere)
+        XCTAssertNotEqual(VoiceCopy.listenOnlyHere, VoiceCopy.talkOff)
+    }
+
     func testAPlayerMutesTheSpectatorsWhileTalkIsOff() {
         let m = manager(), store = GameState()
         store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
@@ -370,6 +381,63 @@ final class SpectatorVoiceManagerTests: XCTestCase {
         try await waitUntil("A's talking re-offer after the answer") { wa.offers.count == 3 }
         XCTAssertEqual(audioDirection(wa.offers[2].sdp), "sendrecv")
         XCTAssertFalse(a.isReofferPending("B"))
+    }
+
+    /// The host turns spectator talk OFF then ON: a spectator who had muted themselves stays
+    /// muted (the new track is made disabled); only "Tap to talk" or their own unmute turns it on.
+    func testASelfMuteSurvivesTalkOffAndOn() async throws {
+        let w = Wire()
+        let a = make(w)
+        try await a.initialize()
+        a.connectToPeer("P", username: "pat")
+        try await waitUntil("the offer") { w.offers.count == 1 }
+        a.toggleSelfMute()
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false)
+
+        a.setDesiredMode(canTalk: false, wantsMic: true)
+        XCTAssertTrue(a.isListenOnly)
+        XCTAssertNil(a.localTrackEnabled, "listen-only: no track")
+        XCTAssertTrue(a.isSelfMuted, "the mute is kept while listening")
+
+        a.setDesiredMode(canTalk: true, wantsMic: true)
+        try await waitUntil("the mic back") { !a.isListenOnly }
+        XCTAssertEqual(a.localTrackEnabled, false, "the new track respects the self-mute")
+        XCTAssertTrue(a.isSelfMuted)
+        a.toggleSelfMute()
+        XCTAssertEqual(a.localTrackEnabled, true, "their own unmute turns it on")
+    }
+
+    /// A voiceSettings ON during the background keep-alive makes the track disabled; the
+    /// foreground turns it on (unless self-muted).
+    func testATrackMadeInTheBackgroundStaysOffUntilTheForeground() async throws {
+        let w = Wire()
+        let a = make(w)
+        a.setDesiredMode(canTalk: false, wantsMic: true)
+        try await a.initialize()
+        XCTAssertTrue(a.isListenOnly)
+        a.handleBackground()
+        defer { a.handleForeground() }
+        a.setDesiredMode(canTalk: true, wantsMic: true)
+        try await waitUntil("the mic back") { !a.isListenOnly }
+        XCTAssertEqual(a.localTrackEnabled, false, "no live mic while the app is in the background")
+        XCTAssertFalse(a.isSelfMuted)
+        a.handleForeground()
+        XCTAssertEqual(a.localTrackEnabled, true)
+    }
+
+    /// "Tap to talk" is the person asking to talk: it starts unmuted even after a mute.
+    func testTapToTalkStartsUnmuted() async throws {
+        let w = Wire()
+        let a = make(w)
+        try await a.initialize()
+        a.toggleSelfMute()
+        a.setDesiredMode(canTalk: true, wantsMic: false)  // e.g. back to listening by choice
+        XCTAssertTrue(a.isListenOnly)
+        XCTAssertNil(a.tapToTalk())
+        try await waitUntil("the mic") { !a.isListenOnly }
+        XCTAssertFalse(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, true)
     }
 
     func testAModeChangeDuringThePermissionPromptIsApplied() async throws {

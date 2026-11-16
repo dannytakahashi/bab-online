@@ -35,6 +35,9 @@ struct VoiceSettings: Equatable {
 /// The words of spectator voice (the spec's copy; the web says the same).
 enum VoiceCopy {
     static let talkOff = "The host turned off spectator talk \u{2014} you can still listen"
+    /// "Tap to talk" while the switch is on but this game lets spectators only listen (no
+    /// capable player at the table could turn their talk off: server mayTalk).
+    static let listenOnlyHere = "Spectators can only listen in this game"
     static let voiceFull = "Voice is full (8 people)"
     static let listeningOnly = "Listening only"
     static let noMic = "Listening only (no mic access)"

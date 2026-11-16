@@ -147,8 +147,10 @@ final class VoiceChatManager: ObservableObject {
     private var pendingPeers: [(socketId: String, username: String)] = []
     private var pendingOffers: [(fromSocketId: String, offer: RTCSessionDescription, username: String)] = []
 
-    // Background handling
-    private var wasMutedBeforeBackground = false
+    // Background handling: the app is in the background (the mic stays off, also for a
+    // track made then: a voiceSettings during the ~30 s keep-alive). App state, not the
+    // session's, so shutdown() leaves it.
+    private(set) var isBackgrounded = false
 
     private struct PeerState {
         let connection: RTCPeerConnection
@@ -214,7 +216,8 @@ final class VoiceChatManager: ObservableObject {
         try hooks.configureAudioSession()
 
         // Create local audio track, unless a voiceSettings during the prompt asked for listen-only
-        if granted, wantsToTalk { createLocalTrack() }
+        // (a fresh session starts unmuted; off while the app is in the background)
+        if granted, wantsToTalk { createLocalTrack(enabled: !isBackgrounded) }
 
         localUsername = SocketService.shared.authState?.username
 
@@ -241,12 +244,14 @@ final class VoiceChatManager: ObservableObject {
         reconcileMode()
     }
 
-    private func createLocalTrack() {
+    /// `enabled`: whether the mic sends at once. The self-mute is the caller's: only a fresh
+    /// session (initialize) and an explicit "Tap to talk" start unmuted; a mode change back to
+    /// talking keeps the person's own mute (and the background's privacy mute).
+    private func createLocalTrack(enabled: Bool) {
         let audioSource = factory.audioSource(with: mediaConstraints)
         let audioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-        audioTrack.isEnabled = true
+        audioTrack.isEnabled = enabled
         localAudioTrack = audioTrack
-        isSelfMuted = false
     }
 
     // MARK: - Talk mode
@@ -265,9 +270,14 @@ final class VoiceChatManager: ObservableObject {
     /// possible now (the toast), nil when the mic is on its way.
     @discardableResult
     func tapToTalk() -> String? {
-        guard talkAllowed else { return VoiceCopy.talkOff }
+        guard talkAllowed else {
+            // the host's switch only when it is off: a stranger at an all-legacy table may not
+            // talk with the switch on (server mayTalk: no capable controller)
+            return settings?.spectatorsCanTalk == false ? VoiceCopy.talkOff : VoiceCopy.listenOnlyHere
+        }
         if micPermissionDenied { micPermissionDenied = false }
         if !wantsMic { wantsMic = true }
+        if isSelfMuted { isSelfMuted = false }  // the person asked to talk
         reconcileMode()
         return nil
     }
@@ -302,7 +312,7 @@ final class VoiceChatManager: ObservableObject {
                 return
             }
             if self.wantsToTalk, self.localAudioTrack == nil {
-                self.createLocalTrack()
+                self.createLocalTrack(enabled: !self.isSelfMuted && !self.isBackgrounded)
                 self.isListenOnly = false
                 print("[Voice] Talking: re-offering every call with the mic")
                 self.reofferAll()
@@ -424,7 +434,6 @@ final class VoiceChatManager: ObservableObject {
         pendingPeers.removeAll()
         pendingOffers.removeAll()
         localUsername = nil
-        wasMutedBeforeBackground = false
 
         isSelfMuted = false
         isSelfSpeaking = false
@@ -617,6 +626,8 @@ final class VoiceChatManager: ObservableObject {
     func signalingState(of socketId: String) -> RTCSignalingState? { peers[socketId]?.connection.signalingState }
     /// For tests: a re-offer to this peer waits for an answer.
     func isReofferPending(_ socketId: String) -> Bool { reofferPending.contains(socketId) }
+    /// For tests: the local mic track: nil (listen-only), or whether it sends.
+    var localTrackEnabled: Bool? { localAudioTrack?.isEnabled }
 
     /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
     /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
@@ -643,19 +654,17 @@ final class VoiceChatManager: ObservableObject {
 
     /// Call when app enters background — mute mic for privacy.
     func handleBackground() {
+        isBackgrounded = true
         guard isActive else { return }
-        wasMutedBeforeBackground = isSelfMuted
-        if !isSelfMuted {
-            localAudioTrack?.isEnabled = false
-        }
+        localAudioTrack?.isEnabled = false
     }
 
-    /// Call when app returns to foreground — restore mic state.
+    /// Call when app returns to foreground — restore mic state (the self-mute, which cannot
+    /// change in the background, also covers a track made there).
     func handleForeground() {
+        isBackgrounded = false
         guard isActive else { return }
-        if !wasMutedBeforeBackground {
-            localAudioTrack?.isEnabled = true
-        }
+        localAudioTrack?.isEnabled = !isSelfMuted
     }
 
     // MARK: - Private Helpers
