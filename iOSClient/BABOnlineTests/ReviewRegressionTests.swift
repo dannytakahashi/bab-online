@@ -64,13 +64,13 @@ final class ReviewRegressionTests: XCTestCase {
         h.handler.handle(event: "cardPlayed", payload: [["card": T.card("clubs", "10"), "position": 1, "trump": false, "seq": h.store.state.sync.lastSeq! + 1]])
         XCTAssertEqual(rec.moves.dropFirst(before).filter { $0.name == name }.map { "\($0.from)" }, [], "the confirmed card flew again")
         XCTAssertTrue(scene.trickArea.sprite(named: name) === sprite)
-        // An opponent's card still flies in from its seat
+        // An opponent's card still flies in from its seat (its fan of card backs where the table shows them)
         let next = h.store.state.sync.lastSeq! + 1
         h.handler.handle(event: "cardPlayed", payload: [["card": T.card("clubs", "J"), "position": 2, "trump": false, "seq": next]])
         let opp = TrickAreaNode.spriteName(2, Card(suit: .clubs, rank: .jack))
         let g = scene.layout
         let rel = Positions.getRelative(target: 2, from: 1)
-        XCTAssertEqual(rec.moves.filter { $0.name == opp }.map { "\(r($0.from))->\(r($0.to))" }, ["\(r(g.trickEntry(rel)))->\(r(g.trickSlot(rel)))"])
+        XCTAssertEqual(rec.moves.filter { $0.name == opp }.map { "\(r($0.from))->\(r($0.to))" }, ["\(r(scene.cardEntry(rel, model: try XCTUnwrap(scene.lastModel))))->\(r(g.trickSlot(rel)))"])
     }
 
     /// A card lifted outside my play window (here: on my bid turn) is lowered when the window opens.

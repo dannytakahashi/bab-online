@@ -17,6 +17,8 @@ struct TableRenderModel: Equatable {
         var avatarUrl: String? = nil
         /// The seat's human owner (a lazy / resigned seat shows its bot's name): voice peers are matched by it.
         var ownerName: String? = nil
+        /// Cards left in the seat's hand (its card backs: TableLayout+Fans).
+        var cards: Int = 0
 
         /// What the seat's avatar loads first: the URL, else the stock number or inline picture.
         var pictureKey: String? { avatarUrl ?? pic.string }
@@ -58,6 +60,10 @@ struct TableRenderModel: Equatable {
     var bidBubbles: [Int: String]
     /// Who is watching (the badge itself is SwiftUI; the scene places the spectator chat bubble by it).
     var watching: WatchingList
+    /// The seat that dealt this hand (gameStart `dealer`, the snapshot's deal): its dealer marker.
+    var dealer: Int?
+    /// I dealt, from a seat of my own (no avatar: the marker sits by my hand).
+    var iDeal: Bool { hand != nil && dealer == viewPosition }
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
@@ -79,8 +85,10 @@ struct TableRenderModel: Equatable {
                             name: seat?.username ?? "P\(pos)", pic: seat?.pic ?? .none, isBot: seat?.isBot ?? false,
                             lazy: seat?.lazy ?? false, presence: seat?.presence ?? .none, isTurn: s.table.phase.turn == pos,
                             socketId: s.players.socketBySeat[pos], avatarUrl: seat?.avatarUrl,
-                            ownerName: seat?.ownerUsername ?? seat?.username)
+                            ownerName: seat?.ownerUsername ?? seat?.username,
+                            cards: s.table.phase.showsTable ? max(0, seat?.cardsInHand ?? 0) : 0)
         }
+        dealer = s.table.phase.showsTable ? s.table.deal?.dealer : nil
         watching = s.players.watching
 
         // my submitted card leaves the hand and sits in my trick slot until confirmed

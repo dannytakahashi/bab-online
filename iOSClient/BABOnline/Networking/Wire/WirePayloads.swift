@@ -92,6 +92,10 @@ enum WirePayload {
 
     struct Presence: Decodable, Equatable { var position: Int?; var username: String?; var seq: Int? }
 
+    /// resignationAvailable: `idle: true` (additive, 2026-11-15; absent otherwise) marks the
+    /// tournament table's idle-seat offer: the player is connected, just slow on their turn.
+    struct ResignationAvailable: Decodable, Equatable { var position: Int?; var username: String?; var idle: Bool?; var seq: Int? }
+
     struct PlayerResigned: Decodable, Equatable {
         var position: Int?; var oldUsername: String?; var botUsername: String?; var botPic: PicWire?; var seq: Int?
     }

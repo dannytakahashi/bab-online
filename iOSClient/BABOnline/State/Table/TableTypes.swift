@@ -234,6 +234,34 @@ struct WatchingList: Equatable {
 struct ResignationOffer: Equatable {
     var position: Int
     var username: String
+    /// The tournament table's idle-seat offer (resignationAvailable `idle: true`): the player
+    /// is connected and slow on their turn, so the seat's presence stays as it is and the
+    /// banner says "seems idle", never "disconnected" / "timed out" (the web's dialog).
+    var idle = false
+    /// Which asking this is (the server repeats an idle offer while the seat stays idle):
+    /// an offer I answered with Wait comes back with the next one. Always 0 for other offers.
+    var round = 0
+
+    /// The banner's words (the web ResignationDialog's): who, and the question.
+    var title: String { idle ? "\(username) seems idle" : "\(username) timed out" }
+    var question: String { "Replace with a bot?" }
+    /// One sentence for VoiceOver.
+    var spoken: String { idle ? "\(username) seems idle. Replace with a bot?" : "\(username) did not reconnect. Replace with a bot?" }
+}
+
+/// Why the server refused my bid or play (actionRejected `reason`), in the web's words
+/// (client/src/main.js onActionRejected).
+enum RejectReason {
+    static let fallback = "Action not accepted"
+    static let messages: [String: String] = [
+        "not_your_turn": "Not your turn",
+        "illegal_card": "That card can't be played now",
+        "invalid_play": "That card can't be played",
+        "already_played": "You already played this trick",
+        "already_bid": "You already bid",
+        "invalid_bid": "That bid isn't allowed",
+    ]
+    static func message(_ reason: String?) -> String { reason.flatMap { messages[$0] } ?? fallback }
 }
 
 struct Identity: Equatable {

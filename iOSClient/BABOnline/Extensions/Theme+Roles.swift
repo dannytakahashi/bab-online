@@ -167,6 +167,10 @@ extension Theme {
         static let pipEmpty = Palette.Text.primary.opacity(0.55).uiColor
         static let pipOver = Palette.gold.uiColor
         static let pipBore = Palette.Danger.solid.uiColor
+        /// The dealer button: gold (the web's dealer ring token) with dark ink.
+        static let dealerFill = Palette.gold.uiColor
+        static let dealerEdge = Palette.Surface.s0.opacity(0.85).uiColor
+        static let dealerInk = Palette.Surface.s0.uiColor
         /// The trick history's bid border (the web's TrickManager piles): danger.text until the
         /// team has its bid total, then success; an unwon bid slot is surface.s3.
         static let pileSafe = Palette.success.uiColor
