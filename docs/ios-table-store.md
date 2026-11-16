@@ -1089,8 +1089,13 @@ mid-game) and stops for good if the player leaves during that prompt.
 A tap on an opponent seat's avatar or name opens that player's profile sheet (the web's avatar
 plate click). The whole hook is `SpriteKit/GameSKScene+SeatTap.swift`: an extension with
 `seatName(at:)` (the seat whose 80 x 70 target, in the seat's own coordinates, holds the point;
-nil with no table shown) and a `touchesEnded` override that sends that seat's current name, a
-bot's included, to `SeatTaps.subject`. The seats still take no touches (only the hand's cards
-do), no node was added, and the reducer and render model are untouched; `GameContainerView`
-presents the sheet (`playerProfileHost(seatTaps: true)`). Tests: `ProfileTests`
-`testSeatTapFindsTheSeatUnderThePoint`, `ProfileUITests` `testSeatAvatarOpensProfile`.
+nil with no table shown), `seatTapName(began:ended:)` and overrides of `touchesBegan`,
+`touchesEnded` and `touchesCancelled` that send that seat's current name, a bot's included, to
+`SeatTaps.subject`. A tap is a touch that went down on the scene itself and lifted on the same
+seat, with no touchable card under the end point: a hand card takes its own `touchesBegan`
+and UIKit forwards only the touch's end to the scene, so a card tap is never a seat tap. The
+seats still take no touches (only the hand's cards do), no node was added, and the reducer and
+render model are untouched; `GameContainerView` presents the sheet
+(`playerProfileHost(seatTaps: true)`). Tests: `ProfileTests`
+`testSeatTapFindsTheSeatUnderThePoint`, `testSeatTapNeedsTheTouchToBeginOnTheSeatAndNoCardUnderIt`,
+`ProfileUITests` `testSeatAvatarOpensProfile`.
