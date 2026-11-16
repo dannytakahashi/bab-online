@@ -638,3 +638,99 @@ describe('family lobbies (up to 8; owner 2026-11-16)', () => {
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'M' }]);
   });
 });
+
+describe('play again: a lobby reopened after its game (owner 2026-11-16)', () => {
+  /** A reopened lobby's payload: held rows (returning + reconnecting) and expected names. */
+  function reopened(names, { host = 'me', returning = [], expected = null, bots = [], ready = [], capacity = 8 } = {}) {
+    const members = names.map((username) => {
+      const m = { socketId: bots.includes(username) ? `bot:${username}` : returning.includes(username) ? `away:${username}` : `s-${username}`, username, ready: ready.includes(username), playing: true };
+      if (bots.includes(username)) m.isBot = true;
+      if (returning.includes(username)) {
+        m.reconnecting = true;
+        m.returning = true;
+      }
+      return m;
+    });
+    const out = {
+      lobbyId: 'R1',
+      players: members.slice(0, 4).map(({ socketId, username, ready: r }) => ({ socketId, username, ready: r })),
+      members, host, settings: { spectatorsCanTalk: true }, capacity, messages: [],
+    };
+    if (returning.length) out.reconnecting = returning;
+    if (expected) out.expected = expected;
+    return out;
+  }
+  const rows = () => [...document.querySelectorAll('#lobbyPlayersList .seat-row')];
+  const rowOf = (name) => rows().find((r) => r.querySelector('.seat-row__name')?.title === name);
+  const update = (data, me = 'me') => updateLobbyPlayersList(null, data.players, me, { lobby: data });
+  const releaseButtons = () => [...document.querySelectorAll('#lobbyPlayersList [data-release-hold]')];
+
+  it('a held row says "Not back yet" (not Reconnecting…); the host gets "Don\'t wait", which sends releaseLobbyHold once', () => {
+    showGameLobby(reopened(['me', 'ann', 'bob', 'cat'], { returning: ['cat'] }), socket, 'me');
+    const status = rowOf('cat').querySelector('.seat-row__status');
+    expect(status.textContent).toBe('Not back yet');
+    expect(status.classList.contains('is-returning')).toBe(true);
+    expect(rowOf('cat').dataset.returning).toBe('true');
+    expect(rowOf('ann').querySelector('.seat-row__status').textContent).toBe('Waiting...');
+    const btn = rowOf('cat').querySelector('[data-release-hold]');
+    expect(btn.textContent).toBe('Don\'t wait');
+    expect(btn.getAttribute('aria-label')).toBe('Don\'t wait for cat');
+    expect(releaseButtons()).toHaveLength(1);
+    btn.click();
+    btn.click();
+    expect(socket.emitted('releaseLobbyHold')).toEqual([{ username: 'cat' }]);
+    // the server's update: the hold went, the row with it
+    update(reopened(['me', 'ann', 'bob']));
+    expect(rowOf('cat')).toBeUndefined();
+    expect(releaseButtons()).toHaveLength(0);
+  });
+
+  it('a member who is not the host sees "Not back yet" but no "Don\'t wait"; while the host is the one away, anyone may', () => {
+    showGameLobby(reopened(['ann', 'me', 'bob', 'cat'], { host: 'ann', returning: ['cat'] }), socket, 'me');
+    expect(rowOf('cat').querySelector('.seat-row__status').textContent).toBe('Not back yet');
+    expect(releaseButtons()).toHaveLength(0);
+    update(reopened(['ann', 'me', 'bob', 'cat'], { host: 'ann', returning: ['ann', 'cat'] }));
+    expect(releaseButtons().map((b) => b.dataset.releaseHold)).toEqual(['ann', 'cat']);
+  });
+
+  it('older-app players with a saved place are listed under "Expected" (no empty slot for them); Add Bot stays hidden while members + expected fill the table', () => {
+    showGameLobby(reopened(['me', 'ann'], { expected: ['grandma', 'grandpa'] }), socket, 'me');
+    const label = [...document.querySelectorAll('#lobbyPlayersList .section-label')].map((l) => l.textContent);
+    expect(label).toContain('Expected');
+    const expectedRows = [...document.querySelectorAll('#lobbyPlayersList .seat-row--expected')];
+    expect(expectedRows.map((r) => r.querySelector('.seat-row__name').textContent)).toEqual(['grandma', 'grandpa']);
+    expect(expectedRows.map((r) => r.querySelector('.seat-row__status').textContent)).toEqual(['Not back yet', 'Not back yet']);
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(0);
+    expect(document.getElementById('lobbyAddBotBtn').hidden).toBe(true);
+    expect(document.getElementById('lobbyReadyBtn').textContent).toBe('Waiting for 2 more...');
+    // the host may stop waiting for one
+    expectedRows[1].querySelector('[data-release-hold]').click();
+    expect(socket.emitted('releaseLobbyHold')).toEqual([{ username: 'grandpa' }]);
+    // the reservation ended (no `expected` key: none stands): an empty slot, Add Bot back
+    update(reopened(['me', 'ann'], { expected: ['grandma'] }));
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--expected')).toHaveLength(1);
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(1);
+    expect(document.getElementById('lobbyAddBotBtn').hidden).toBe(false);
+    update(reopened(['me', 'ann']));
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--expected')).toHaveLength(0);
+    expect(document.querySelectorAll('#lobbyPlayersList .section-label')).toHaveLength(1);
+  });
+
+  it('a non-host sees the expected names without a button; an expected player who joined shows once, as a member', () => {
+    showGameLobby(reopened(['ann', 'me'], { host: 'ann', expected: ['grandma'] }), socket, 'me');
+    expect(document.querySelector('.seat-row--expected [data-release-hold]')).toBeNull();
+    update(reopened(['ann', 'me', 'grandma'], { host: 'ann', expected: ['grandma'] }));
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--expected')).toHaveLength(0);
+    expect(rows().filter((r) => r.querySelector('.seat-row__name')?.title === 'grandma')).toHaveLength(1);
+  });
+
+  it('a lobby without the play-again keys renders as before (no Expected, Reconnecting… for a reload-held seat)', () => {
+    showGameLobby(reopened(['me', 'ann', 'bob']), socket, 'me');
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--expected')).toHaveLength(0);
+    const held = reopened(['me', 'ann', 'bob']);
+    held.members[2].reconnecting = true;
+    update(held);
+    expect(rowOf('bob').querySelector('.seat-row__status').textContent).toBe('Reconnecting…');
+    expect(releaseButtons()).toHaveLength(0);
+  });
+});

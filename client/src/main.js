@@ -442,8 +442,9 @@ function restartLossKind() {
       if (session.role === ROLE.SPECTATOR) return session.watchedTournamentId ? LOSS.TOURNAMENT_SPECTATOR : LOSS.SPECTATOR;
       return session.tournamentId && !watchingTournament ? LOSS.TOURNAMENT : LOSS.SEAT;
     case SCREEN.GAME_END:
-      // The game ended (and counted); a tournament between rounds is lost
-      if (!session.tournamentId) return null;
+      // The game ended (and counted); a tournament between rounds is lost,
+      // and so is the lobby a casual game reopened (play again)
+      if (!session.tournamentId) return session.lobbyReturn ? LOSS.LOBBY : null;
       return watchingTournament ? LOSS.TOURNAMENT_SPECTATOR : LOSS.TOURNAMENT;
     case SCREEN.LOBBY:
       return LOSS.LOBBY;
@@ -486,15 +487,19 @@ function handleSocketError(error, socket) {
     return true;
   }
 
-  // Re-entering a lobby after a reconnect: it closed (or filled) meanwhile
+  // Re-entering a lobby after a reconnect: it closed (or filled) meanwhile.
+  // Or the score modal's Return to Lobby after a game whose lobby reopened
+  // (play again): the lobby closed, or its next game ended, meanwhile
+  const afterGame = session.lobbyRejoinAfterGame;
   if (session.takePendingLobbyRejoin()) {
     console.log('Lobby re-entry failed:', error.message);
     // 'Lobby is full' too: the seat may still be held by this player's
     // previous socket until the server notices it dropped
     if (!explainRestartLoss()) {
-      showErrorToast(error.message === 'Lobby not found'
-        ? 'The lobby closed while you were offline'
-        : "Couldn't get back into the lobby");
+      const gone = error.message === 'Lobby not found';
+      showErrorToast(afterGame
+        ? (gone ? 'That lobby has closed' : "Couldn't get back into the lobby")
+        : (gone ? 'The lobby closed while you were offline' : "Couldn't get back into the lobby"));
     }
     session.transition(SCREEN.MAIN_ROOM);
     session.requestMainRoom();
@@ -796,6 +801,9 @@ function initializeApp() {
   function onVoiceSettings(data) {
     // a late one for a table this tab left
     if (data.gameId && gameState.gameId && data.gameId !== gameState.gameId) return;
+    // the score modal: that game is over (a reopened lobby's next game
+    // admitting this socket as a watcher: onSpectatorJoined stops that)
+    if (session.screen === SCREEN.GAME_END) return;
     let prev = voiceSettings;
     if (data.role === 'none' && session.isSpectator && (voiceManager.active || voiceLifecycle.starting)) {
       // a watcher with no voice place: no voice session (it would hear
@@ -886,8 +894,10 @@ function initializeApp() {
    * scene draws the snapshot over whatever was there. It never touches the
    * game state or the gameId copies (exitTable resets those after it).
    */
-  function teardownTableUI() {
-    stopVoice();
+  function teardownTableUI(reason = null) {
+    // Play again: the lobby's calls are the game's (the server kept them),
+    // so a Return to Lobby keeps voice running (carryVoiceIntoLobby)
+    if (reason !== EXIT.LOBBY_RETURN) stopVoice();
     removeTransitionOverlay();
     // Nothing queued, owned or pending of this table may run later
     director.clearQueue();
@@ -953,7 +963,7 @@ function initializeApp() {
 
   // Screen enter/exit hooks (the session runs exit(from) then enter(to))
   session.setHooks({
-    teardownTable: () => teardownTableUI(),
+    teardownTable: (reason) => teardownTableUI(reason),
     screens: {
       [SCREEN.SIGN_IN]: {
         enter: () => renderSignIn(),
@@ -1004,6 +1014,89 @@ function initializeApp() {
 
   function stopVoice() {
     voiceLifecycle.stop();
+  }
+
+  /**
+   * Play again: Return to Lobby kept voice running (teardownTableUI skips
+   * the stop for EXIT.LOBBY_RETURN). In the lobby everyone may talk: the
+   * table's voice settings go (no forced mute, no switch), a spectator who
+   * came with its microphone (a lobby extra) gets it back, and the controls
+   * are drawn again in the lobby's slot (voiceLifecycle.start returns at
+   * once while the manager is active and would draw nothing).
+   * @returns {boolean} voice is running or starting (else the caller starts it)
+   */
+  function carryVoiceIntoLobby() {
+    const s = voiceSettings;
+    const wantsMic = !s || s.role !== 'spectator' || voiceWantsMic || voiceFromLobby;
+    voiceSettings = null;
+    voiceWantsMic = false;
+    voiceFromLobby = false;
+    voiceFull = false;
+    clearVoiceSwitchPending();
+    voiceManager.setForcedMute?.(null);
+    if (!voiceManager.active) return voiceLifecycle.starting;
+    createMuteButton();
+    if (wantsMic && voiceManager.isListenOnly?.() && !voiceManager.micDenied) {
+      Promise.resolve(voiceManager.setTalk(true)).then(() => refreshTalkView());
+    }
+    refreshTalkView();
+    return true;
+  }
+
+  /** The LOBBY screen's data from a lobby payload (lobbyCreated / lobbyReturn). */
+  function lobbyScreenData(data) {
+    return {
+      lobbyId: data.lobbyId,
+      players: data.players,
+      reconnecting: data.reconnecting,
+      // a family lobby (up to 8): everyone, the host, its settings, its size
+      members: data.members,
+      host: data.host,
+      settings: data.settings,
+      capacity: data.capacity,
+      // play again: the last game's older-app players whose place is saved
+      expected: data.expected,
+      messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
+    };
+  }
+
+  /**
+   * The score modal's Return to Lobby after a casual game whose lobby
+   * reopened (play again, owner 2026-11-16): into that lobby, voice kept.
+   * @returns {boolean} false: no lobby return (the main room, as before)
+   */
+  function returnToReopenedLobby() {
+    const r = session.lobbyReturn;
+    if (!r) return false;
+    const name = r.data.name;
+    const landed = session.returnToReopenedLobby(lobbyScreenData(r.data));
+    if (landed === SCREEN.LOBBY) {
+      if (!carryVoiceIntoLobby()) startVoice();
+      showInfo(name ? `Back in “${name}”. Tap Ready to play again.` : 'Back in your lobby. Tap Ready to play again.');
+      return true;
+    }
+    // The lobby started its next game meanwhile: the answer is that game
+    return landed !== null;
+  }
+
+  /**
+   * A lobby event while the score modal is up and its lobby reopened: the
+   * remembered lobby follows it, so Return shows the lobby as it is.
+   */
+  function followReturnedLobby(data, { message = null } = {}) {
+    const r = session.screen === SCREEN.GAME_END ? session.lobbyReturn : null;
+    if (!r) return;
+    if (message) {
+      if (isUserBlocked(message.username)) return;
+      r.data.messages = [...(r.data.messages || []), { username: message.username, message: message.message, timestamp: message.timestamp }];
+      return;
+    }
+    if (!data || (data.lobbyId && data.lobbyId !== r.data.lobbyId)) return;
+    for (const key of ['players', 'reconnecting', 'members', 'host', 'settings', 'capacity', 'expected']) {
+      if (key in data) r.data[key] = data[key];
+      // present only while one stands: absent means none
+      else if (key === 'reconnecting' || key === 'expected') delete r.data[key];
+    }
   }
 
   function teardownVoice() {
@@ -1335,38 +1428,52 @@ function initializeApp() {
         return;
       }
       console.log('Lobby created, showing lobby UI');
-      session.transition(SCREEN.LOBBY, {
-        lobbyId: data.lobbyId,
-        players: data.players,
-        reconnecting: data.reconnecting,
-        // a family lobby (up to 8): everyone, the host, its settings, its size
-        members: data.members,
-        host: data.host,
-        settings: data.settings,
-        capacity: data.capacity,
-        messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
-      });
+      session.transition(SCREEN.LOBBY, lobbyScreenData(data));
       session.noteLobby(data.lobbyId);
       restartNotice.clear();
       // Start voice chat when entering a lobby
       startVoice();
     },
+    onLobbyReturn: (data) => {
+      // Play again (owner 2026-11-16): the server moved this socket back
+      // into the lobby the game came from. The score modal stays exactly as
+      // it is for as long as the player likes; its Return to Lobby lands
+      // there (returnToReopenedLobby). The lobby is only remembered here
+      if (session.noteLobbyReturn(data)) return;
+      if (session.screen === SCREEN.MAIN_ROOM) {
+        // Left the table just before it ended: the joinMainRoom in flight
+        // takes the server out of that lobby (else one goes now)
+        if (session.routeInFlight !== 'mainRoom') session.requestMainRoom();
+        return;
+      }
+      // Anywhere else (no compliant server sends it there): the server's
+      // membership goes, so it matches what this tab shows
+      console.warn('lobbyReturn with no table of that game on screen; leaving that lobby');
+      socket.emit('leaveLobby');
+    },
     onPlayerReadyUpdate: (data) => {
+      followReturnedLobby(data);
       // Every playerReadyUpdate names the held seats while there are any
       updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [], lobby: data });
     },
     onLobbyMessage: (data) => {
+      followReturnedLobby(null, { message: data });
       if (isUserBlocked(data.username)) return;
       addLobbyChatMessage(data.username, data.message);
     },
     onLobbyPlayerLeft: (data) => {
+      followReturnedLobby(data);
       updateLobbyPlayersList(null, data.players, gameState.username, { lobby: data });
     },
     onLobbyPlayerJoined: (data) => {
+      followReturnedLobby(data);
       updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username, lobby: data });
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
+      // The score modal's lobby is not this socket's any more (another tab
+      // took the seat): its Return goes to the main room, as before
+      session.forgetLobbyReturn();
       // The lobby's exit hook stops voice and removes it (a late reply at a
       // table changes nothing)
       if (session.hasTable) return;
@@ -1389,6 +1496,20 @@ function initializeApp() {
       // extras watch from the game's first tick, before its startDraw
       const drawing = ['CREATED', 'DRAWING', 'DRAW_RESOLVING'].includes(data.snapshot?.stage) && !!data.snapshot?.draw;
       const full = drawing || (!!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats));
+      const startedGameId = data.gameId || data.snapshot?.gameId || null;
+      if (full && session.screen === SCREEN.GAME_END && session.lobbyReturn && startedGameId && startedGameId !== session.endedGameId) {
+        // Play again: the reopened lobby started its next game while this
+        // player was still on the score modal (not ready, so an extra: the
+        // server made it a watcher). The modal stays (owner 2026-11-16);
+        // this socket stops watching (joinMainRoom: no table events reach
+        // the modal) and Return asks for the lobby, which the server
+        // answers with that game to watch while it lasts
+        console.log('The lobby started its next game; the score modal stays');
+        session.noteLobbyStarted(startedGameId);
+        stopVoice();
+        session.requestMainRoom();
+        return;
+      }
       if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
@@ -1535,6 +1656,13 @@ function initializeApp() {
     // Draw phase - handled by DrawManager
     onStartDraw: (data) => {
       console.log('🎴 onStartDraw callback');
+      // The score modal of a casual game whose lobby reopened (play again)
+      // stays: a startDraw there is the reopened lobby's next game, sent
+      // before this socket stopped watching it (onSpectatorJoined)
+      if (session.screen === SCREEN.GAME_END && session.lobbyReturn) {
+        console.log('startDraw ignored: the score modal of a game whose lobby reopened');
+        return;
+      }
       // A new table while the previous one's score modal is still up (the
       // next tournament round): that table goes first
       if (session.screen === SCREEN.GAME_END) {
@@ -1717,7 +1845,10 @@ function initializeApp() {
         oppName: oppName,
         // exitTable routes by the tournament at click time (a cancel
         // meanwhile already sent this player to the main room)
+        // Play again: a casual game whose lobby reopened goes back there
+        // (the button keeps its label: owner 2026-11-16)
         onReturnToLobby: () => {
+          if (returnToReopenedLobby()) return;
           session.exitTable(EXIT.GAME_END_RETURN);
         }
       });

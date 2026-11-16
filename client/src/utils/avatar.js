@@ -203,14 +203,17 @@ export function foldAvatarPayload(event, data) {
  * ingress fold possible): no avatarUrl, so the server keeps the legacy
  * avatar shape. casualSpectators (family lobbies of up to 8, the host's
  * "Spectators can talk" switch, spectator voice; contract/README.md
- * "Client capabilities") has nothing to do with the fold: always sent.
+ * "Client capabilities") and playAgain (2026-11-16: at the end of a casual
+ * game a lobby started, the server moves this socket back into that lobby
+ * and sends lobbyReturn; main.js keeps the score modal up until its Return
+ * to Lobby) have nothing to do with the fold: always sent.
  */
 export function clientHello(version, build, capable = true) {
   return {
     client: 'web',
     version: String(version || '0.0.0').slice(0, 32),
     build: String(build || '').slice(0, 64),
-    caps: capable ? ['avatarUrl', 'casualSpectators'] : ['casualSpectators'],
+    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain'] : ['casualSpectators', 'playAgain'],
   };
 }
 

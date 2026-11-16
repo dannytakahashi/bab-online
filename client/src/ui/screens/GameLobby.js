@@ -13,6 +13,14 @@
  * `players`; a payload without `members` (an older server) renders as
  * before. The host's "Spectators can talk" switch (setSpectatorsCanTalk)
  * shows its value once the server echoes it; the others see it read-only.
+ *
+ * Play again (owner 2026-11-16): a lobby reopened after its game keeps a
+ * place for the last game's players who are not back yet. A held row
+ * (`members[].returning`) shows "Not back yet"; the older-app players whose
+ * place is saved without a row (`expected`) are listed under the rows the
+ * same way; the host (anyone present while the host is away) may give
+ * either up with "Don't wait" (releaseLobbyHold). Add Bot stays hidden
+ * while members + expected fill the table (the server refuses it then).
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
@@ -38,6 +46,11 @@ let isPlayerReady = false;
 // lobbyCreated carry the list while one is held (absent: none);
 // lobbyPlayerJoined / lobbyPlayerLeft drop the player who came back or left
 let reconnecting = new Set();
+// Play again: held rows of the last game's players not back yet
+// (members[].returning), and its older-app players with a saved place
+// (expected, no row)
+let returning = new Set();
+let expected = [];
 // The family-lobby view of the last payload with `members` (null: a payload
 // without them, drawn as before): capacity, host, settings, and the counts
 // the Ready button reads
@@ -104,10 +117,28 @@ function membersOf(players, lobby) {
       host: typeof lobby.host === 'string' ? lobby.host : null,
       settings: lobby.settings && typeof lobby.settings === 'object' ? { spectatorsCanTalk: lobby.settings.spectatorsCanTalk !== false } : null,
     };
+    // present only while one stands: absent means none
+    expected = Array.isArray(lobby.expected) ? lobby.expected.filter((n) => typeof n === 'string' && n) : [];
     return lobby.members;
   }
   lobbyView = null;
+  expected = [];
   return Array.isArray(players) ? players : [];
+}
+
+/**
+ * "Don't wait for <name>" (play again: a held row or an expected player):
+ * the host's, or anyone's present while the host is away. The visible
+ * label is short (the row names the player); the accessible name is whole.
+ */
+function releaseButton(username) {
+  return createButton({
+    label: 'Don\'t wait',
+    variant: 'ghost',
+    size: 'sm',
+    className: 'seat-release',
+    attrs: { 'aria-label': `Don't wait for ${username}`, title: `Don't wait for ${username}`, 'data-release-hold': username },
+  });
 }
 
 /** "Playing" / "Will watch" / "Sitting out" for a family lobby of more than 4; null otherwise. */
@@ -135,7 +166,9 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   if (lobbyView) {
     // every member carries its own held mark
     reconnecting = new Set(members.filter((m) => m.reconnecting).map((m) => m.username));
+    returning = new Set(members.filter((m) => m.returning && !m.isBot).map((m) => m.username));
   } else {
+    returning = new Set();
     if (Array.isArray(list)) reconnecting = new Set(list);
     if (returned) reconnecting.delete(returned);
   }
@@ -156,6 +189,9 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   const seated = members.filter((m) => m.playing);
   const tableFull = wide && seated.length >= TABLE;
   const host = lobbyView?.host ?? null;
+  // "Don't wait": the host, or anyone present while the host is away
+  const hostAway = !host || reconnecting.has(host) || returning.has(host) || !present.has(host);
+  const mayRelease = !!currentUsername && (host === currentUsername || hostAway);
 
   // Header with player count
   if (lobbyView) {
@@ -183,16 +219,21 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
       side.appendChild(el('span', { className: `seat-row__role${role === 'Playing' ? ' is-playing' : ''}`, text: role }));
     }
     const away = !player.ready && !player.isBot && reconnecting.has(player.username);
+    // play again: a place held for someone not back from the last game
+    const notBack = !player.ready && !player.isBot && returning.has(player.username);
+    if (notBack) row.dataset.returning = 'true';
     if (role !== 'Sitting out') {
       side.appendChild(el('span', {
-        className: `seat-row__status${player.ready ? ' is-ready' : ''}${away ? ' is-reconnecting' : ''}`,
-        text: player.ready ? '✓ Ready' : away ? 'Reconnecting…' : 'Waiting...',
+        className: `seat-row__status${player.ready ? ' is-ready' : ''}${away || notBack ? ' is-reconnecting' : ''}${notBack ? ' is-returning' : ''}`,
+        text: player.ready ? '✓ Ready' : notBack ? 'Not back yet' : away ? 'Reconnecting…' : 'Waiting...',
       }));
     }
 
     // Add remove button for bot players, or invisible spacer for alignment
     if (!player.ready) {
-      if (player.isBot) {
+      if (notBack && mayRelease && player.username !== currentUsername) {
+        side.appendChild(releaseButton(player.username));
+      } else if (player.isBot) {
         const removeBtn = createIconButton({ icon: REMOVE_ICON, label: `Remove ${player.username}`, className: 'seat-remove' });
         removeBtn.title = 'Remove bot';
         removeBtn.dataset.botSocketId = player.socketId;
@@ -206,8 +247,25 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
     container.appendChild(row);
   });
 
-  // Show empty slots (a table's 4; a family lobby's further places need no row)
-  for (let i = members.length; i < TABLE; i++) {
+  // Play again: the last game's older-app players whose place is saved
+  // (no row of their own; they come back with Join on the main room's card)
+  const saved = expected.filter((name) => !present.has(name));
+  if (saved.length > 0) {
+    container.appendChild(el('div', { className: 'section-label seat-list__expected', text: 'Expected' }));
+    for (const name of saved) {
+      const row = el('div', { className: 'seat-row seat-row--expected', attrs: { 'data-expected': 'true' } });
+      row.appendChild(el('span', { className: 'seat-row__name', text: name, attrs: { title: name } }));
+      const side = el('span', { className: 'seat-row__side' });
+      side.appendChild(el('span', { className: 'seat-row__status is-reconnecting is-returning', text: 'Not back yet' }));
+      side.appendChild(mayRelease ? releaseButton(name) : el('span', { className: 'seat-remove-spacer', attrs: { 'aria-hidden': 'true' } }));
+      row.appendChild(side);
+      container.appendChild(row);
+    }
+  }
+
+  // Show empty slots (a table's 4, less the saved places; a family
+  // lobby's further places need no row)
+  for (let i = members.length + saved.length; i < TABLE; i++) {
     container.appendChild(el('div', {
       className: 'seat-row seat-row--empty',
       children: [el('span', { className: 'seat-row__name', text: '— Empty Slot —' })],
@@ -225,9 +283,10 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   // Update Ready button state
   renderReadyButton(document.getElementById('lobbyReadyBtn'), members.length, { watching: tableFullForMe });
 
-  // Update Add Bot button visibility (a bot only fills a table seat)
+  // Update Add Bot button visibility (a bot only fills a table seat; while
+  // places are saved for the last game's players, members + saved count)
   const addBotBtn = document.getElementById('lobbyAddBotBtn');
-  if (addBotBtn) addBotBtn.hidden = members.length >= TABLE;
+  if (addBotBtn) addBotBtn.hidden = members.length + saved.length >= TABLE;
 
   renderVoiceSettings(currentUsername);
 }
@@ -342,11 +401,18 @@ export function showGameLobby(lobbyData, socket, username) {
   // The family lobby's voice setting, under the seats (hidden without one)
   const voiceSettings = el('div', { className: 'screen-section lobby-voice-settings', attrs: { id: 'lobbyVoiceSettings', role: 'group', 'aria-label': 'Voice settings' } });
   voiceSettings.hidden = true;
-  // Delegated click handler for bot remove buttons
+  // Delegated click handler for bot remove buttons and "Don't wait"
   playersDiv.addEventListener('click', (e) => {
     const removeBtn = e.target.closest('[data-bot-socket-id]');
     if (removeBtn) {
       socket.emit('removeBot', { botSocketId: removeBtn.dataset.botSocketId });
+      return;
+    }
+    const releaseBtn = e.target.closest('[data-release-hold]');
+    if (releaseBtn && !releaseBtn.disabled) {
+      // once: the server's update removes the row (or puts it back on a refusal)
+      releaseBtn.disabled = true;
+      socket.emit('releaseLobbyHold', { username: releaseBtn.dataset.releaseHold });
     }
   });
   mainColumn.appendChild(playersDiv);
@@ -450,6 +516,8 @@ export function removeGameLobby() {
   isPlayerReady = false;
   lobbyUserColors = {};
   reconnecting = new Set();
+  returning = new Set();
+  expected = [];
   lobbyView = null;
   lastMemberCount = 0;
   tableFullForMe = false;

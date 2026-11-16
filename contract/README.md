@@ -292,7 +292,10 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `releaseLobbyHold` ("Don't wait"). Nothing changes for a socket without
   the cap: it gets today's `gameEnd` and Return to Lobby flow. Send this cap
   ONLY with `casualSpectators` and from a client that handles `lobbyReturn`
-  (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off).
+  (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off). The web
+  bundle sends it since the play-again web PR (2026-11-16; both clientHello
+  variants): its score screen stays as it was and Return to Lobby lands in
+  that lobby (docs/claude/web-client.md, Play again).
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

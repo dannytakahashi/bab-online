@@ -562,6 +562,21 @@
     font-style: italic;
 }
 
+/* play again: the last game's players whose place is kept ("Not back
+   yet": a held row, or an older-app player's saved place), and the host's
+   "Don't wait" */
+.seat-list__expected {
+    margin-top: var(--space-2);
+}
+
+.seat-row--expected .seat-row__name {
+    color: var(--text-secondary);
+}
+
+.seat-release {
+    flex-shrink: 0;
+}
+
 /* a family lobby of more than 4: Playing / Will watch / Sitting out */
 .seat-row__role {
     color: var(--text-dim);

@@ -10,7 +10,9 @@
  * the record and shows ONE plain message for it. A restore that finds the
  * place still there (rejoinSuccess, the lobby, the tournament, the watched
  * table) forgets it, and nothing is recorded for the main room, the
- * game-end screen or a paused (parked) tab, where nothing is lost.
+ * game-end screen or a paused (parked) tab, where nothing is lost (a
+ * casual game's score screen whose lobby reopened, play again, records the
+ * lobby: main.js restartLossKind).
  *
  * The record lives in sessionStorage with a timestamp, so a reload while
  * the server restarts still knows, and is forgotten after

@@ -2,7 +2,7 @@
  * Lobby and main room socket event handlers.
  *
  * Handles: mainRoomJoined, mainRoomMessage, lobbiesUpdated, mainRoomPlayerJoined,
- *          lobbyCreated, playerReadyUpdate, lobbyMessage,
+ *          lobbyCreated, lobbyReturn, playerReadyUpdate, lobbyMessage,
  *          lobbyPlayerLeft, lobbyPlayerJoined, leftLobby, allPlayersReady
  *
  * No lobbyJoined listener: the server never sends it (joining a lobby is
@@ -27,6 +27,7 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     onMainRoomPlayerJoined,
     // Lobby callbacks
     onLobbyCreated,
+    onLobbyReturn,
     onPlayerReadyUpdate,
     onLobbyMessage,
     onLobbyPlayerLeft,
@@ -69,6 +70,17 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     state.setPhase(PHASE.LOBBY);
     state.lobbyId = data.lobbyId;
     onLobbyCreated?.(data);
+  });
+
+  // Play again (owner 2026-11-16; private, unsequenced): at the end of a
+  // casual game a lobby started, the server moved this socket back into a
+  // copy of that lobby. The page only remembers it: the score modal stays
+  // until its Return to Lobby, which lands there (main.js onLobbyReturn).
+  // No phase or lobbyId change here: the table is still on screen
+  socketManager.on(SERVER_EVENTS.LOBBY_RETURN, (data) => {
+    console.log('🔁 Lobby return:', data);
+    if (!data || typeof data !== 'object' || !data.lobbyId) return;
+    onLobbyReturn?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.PLAYER_READY_UPDATE, (data) => {

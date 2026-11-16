@@ -127,6 +127,17 @@ describe('server event -> handler map', () => {
     expect(schema.c2s.setSpectatorsCanTalk.sentBy.web).toBe(true);
   });
 
+  it('lobbyReturn (play again, 2026-11-16) has one handler, in the lobby module (private, unsequenced); releaseLobbyHold is sent by web', () => {
+    expect(managed.get('lobbyReturn')).toBe(1);
+    expect((listeners.get('lobbyReturn') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.lobbyReturn.seq).toBeFalsy();
+    expect(schema.s2c.lobbyReturn.clientReads.web).toEqual(['client/src/handlers/lobbyHandlers.js:registerLobbyHandlers']);
+    expect(schema.c2s.releaseLobbyHold.status).toBe('active');
+    expect(schema.c2s.releaseLobbyHold.sentBy.web).toBe(true);
+  });
+
   it('no playerAssigned listener: my seat comes from positionUpdate / gameStart / the snapshot (V1_REMOVALS #7)', () => {
     expect(managed.has('playerAssigned')).toBe(false);
     expect((listeners.get('playerAssigned') || []).length).toBe(0);
