@@ -48,4 +48,20 @@ final class SafetyBlockListTests: XCTestCase {
         SafetySocketHandler.applyBlockListUpdated(["success": false, "silent": true], to: state)
         XCTAssertEqual(state.feedbackMessage, "Failed to update block list. Try again.")
     }
+
+    /// The payload as it arrives: Socket.IO hands the handler JSON decoded by
+    /// JSONSerialization, where `true` is an NSNumber, cast to [String: Any].
+    func testSilentIsReadFromADecodedWirePayload() throws {
+        func decoded(_ json: String) throws -> [String: Any] {
+            let items: [Any] = [try JSONSerialization.jsonObject(with: Data(json.utf8))]
+            return try XCTUnwrap(items.first as? [String: Any])
+        }
+        let state = SafetyState()
+        SafetySocketHandler.applyBlockListUpdated(try decoded(#"{"success":true,"blockedUsers":["Cyrus"],"silent":true}"#), to: state)
+        XCTAssertEqual(state.blockedUsers, ["Cyrus"])
+        XCTAssertNil(state.feedbackMessage)
+        SafetySocketHandler.applyBlockListUpdated(try decoded(#"{"success":true,"blockedUsers":["Cyrus","Zed"]}"#), to: state)
+        XCTAssertEqual(state.blockedUsers, ["Cyrus", "Zed"])
+        XCTAssertEqual(state.feedbackMessage, "Block list updated.")
+    }
 }
