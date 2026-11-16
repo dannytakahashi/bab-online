@@ -380,6 +380,15 @@
         ]
       },
       {
+        "section": "Profile",
+        "events": [
+          "getProfile",
+          "updateProfilePic",
+          "uploadProfilePic",
+          "getPlayerProfile"
+        ]
+      },
+      {
         "section": "Tournament",
         "events": [
           "createTournament",
@@ -537,6 +546,15 @@
         ]
       },
       {
+        "section": "Profile",
+        "events": [
+          "profileResponse",
+          "profilePicUpdateResponse",
+          "profilePicUploadResponse",
+          "playerProfileResponse"
+        ]
+      },
+      {
         "section": "Voice",
         "events": [
           "voiceOffer",
@@ -568,16 +586,8 @@
   "exclude": {
     "web": {},
     "swift": {
-      "getProfile": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "updateProfilePic": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "uploadProfilePic": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "searchPlayers": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "getPlayerProfile": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "profileResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "profilePicUpdateResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "profilePicUploadResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "searchPlayersResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
-      "playerProfileResponse": "iOS has no profile / search / upload screens yet (item 22; Records is a Stats tab from the next iOS build)",
+      "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
+      "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "adminRequest": "the admin panel is web only; the iOS app never sends or reads it",
       "adminResponse": "the admin panel is web only; the iOS app never sends or reads it",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"

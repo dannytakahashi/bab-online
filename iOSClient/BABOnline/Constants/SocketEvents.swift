@@ -52,6 +52,12 @@ enum SocketEvents {
         static let getLeaderboard = "getLeaderboard"
         static let getRecords = "getRecords"
 
+        // Profile
+        static let getProfile = "getProfile"
+        static let updateProfilePic = "updateProfilePic"
+        static let uploadProfilePic = "uploadProfilePic"
+        static let getPlayerProfile = "getPlayerProfile"
+
         // Tournament
         static let createTournament = "createTournament"
         static let joinTournament = "joinTournament"
@@ -168,6 +174,12 @@ enum SocketEvents {
         // Leaderboard and records
         static let leaderboardResponse = "leaderboardResponse"
         static let recordsResponse = "recordsResponse"
+
+        // Profile
+        static let profileResponse = "profileResponse"
+        static let profilePicUpdateResponse = "profilePicUpdateResponse"
+        static let profilePicUploadResponse = "profilePicUploadResponse"
+        static let playerProfileResponse = "playerProfileResponse"
 
         // Voice
         static let voiceOffer = "voiceOffer"
