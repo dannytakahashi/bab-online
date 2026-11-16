@@ -75,6 +75,10 @@ struct TableRenderModel: Equatable {
     var dealer: Int?
     /// I dealt, from a seat of my own (no avatar: the marker sits by my hand).
     var iDeal: Bool { hand != nil && dealer == viewPosition }
+    /// The colour of every card back the table shows (the opponents' fans): the hand's, as the
+    /// web's tableBackFrame (backFrameForHand of the hand number); off the table (the draw,
+    /// before hand 1) the draw's red.
+    var back: CardBackColour
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
@@ -100,6 +104,7 @@ struct TableRenderModel: Equatable {
                             cards: s.table.phase.showsTable ? max(0, seat?.cardsInHand ?? 0) : 0)
         }
         dealer = s.table.phase.showsTable ? s.table.deal?.dealer : nil
+        back = s.table.phase.showsTable ? CardBackColour.forHand(s.table.deal?.handNo) : .draw
         watching = s.players.watching
 
         // my submitted card leaves the hand and sits in my trick slot until confirmed

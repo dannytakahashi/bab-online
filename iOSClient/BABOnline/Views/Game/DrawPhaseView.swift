@@ -130,9 +130,10 @@ struct DrawPhaseView: View {
         VStack(spacing: Theme.Space.s5) {
             Button(action: handleTap) {
                 ZStack {
-                    // three backs, each a little up and to the right: a deck
+                    // three backs, each a little up and to the right: a deck (the draw's red:
+                    // before hand 1, as the web's backFrameForHand(0))
                     ForEach(0..<3, id: \.self) { i in
-                        CardArtImage(image: CardTextureGenerator.cardBackImage(width: m.card.width), size: m.card)
+                        CardArtImage(image: CardTextureGenerator.cardBackImage(width: m.card.width, colour: .draw), size: m.card)
                             .offset(x: CGFloat(i) * 2, y: CGFloat(-i) * 2)
                     }
                 }
@@ -211,7 +212,7 @@ struct DrawPhaseView: View {
             Group {
                 if result != nil {
                     FlipCard(angle: faceUp ? 180 : 0, face: card.map(CardTextureGenerator.image(for:)),
-                             back: CardTextureGenerator.cardBackImage(width: m.card.width), size: m.card, flat: reduceMotion)
+                             back: CardTextureGenerator.cardBackImage(width: m.card.width, colour: .draw), size: m.card, flat: reduceMotion)
                 } else {
                     RoundedRectangle(cornerRadius: m.cornerRadius)
                         .strokeBorder(Theme.inputBorder, style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))

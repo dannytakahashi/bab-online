@@ -98,12 +98,17 @@ extension Theme {
         static let joker = Palette.Card.joker
     }
 
-    /// The card back (CardTextureGenerator.renderCardBack): the web's lattice in its red ink
-    /// (cardFaces.js drawBack with card.backRed; the draw for deal, the only place iOS shows a
-    /// back, is always before hand 1, where the web's backFrameForHand(0) is red too).
+    /// The card back (CardTextureGenerator.renderCardBack): the web's lattice (cardFaces.js
+    /// drawBack) in one ink, card.backRed or card.backBlue, by hand as the web's
+    /// backFrameForHand (CardBackColour): the draw for deal and hand 1 red, hand 2 blue, ...
     enum CardBack {
-        /// The panel, the trellis' ink line and the medallion's moat.
+        /// The red ink (the draw for deal and odd hands): the panel, the trellis' ink line and
+        /// the medallion's moat.
         static let ink = Palette.Card.backRed
+        /// The blue ink (even hands), in the same places.
+        static let blueInk = Palette.Card.backBlue
+        /// The ink of a back of `colour`.
+        static func ink(_ colour: CardBackColour) -> ThemeColor { colour == .blue ? blueInk : ink }
         /// The cream card, the margin, the rules, beads, trellis lines, dots and lozenges.
         static let paper = Palette.Card.backPaper
         /// The card's grey edge, as the faces'.
