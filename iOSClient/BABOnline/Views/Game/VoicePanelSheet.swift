@@ -33,6 +33,7 @@ struct VoicePanelSheet: View {
                 // Peer rows
                 ForEach(Array(voiceManager.peerInfos.keys.sorted()), id: \.self) { socketId in
                     if let info = voiceManager.peerInfos[socketId] {
+                        VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: Theme.Space.s3) {
                             speakingDot(isSpeaking: voiceManager.speakingPeers.contains(socketId))
 
@@ -58,6 +59,8 @@ struct VoicePanelSheet: View {
                             }
                             .accessibilityLabel(info.isMuted ? "Unmute \(info.username)" : "Mute \(info.username)")
                         }
+                        volumeRow(socketId, info)
+                        }
                         .listRowBackground(Theme.surface)
                     }
                 }
@@ -73,6 +76,31 @@ struct VoicePanelSheet: View {
                 }
             }
         }
+    }
+
+    /// This player's volume for me only, 0 to 200% (the web's per-peer slider): the remote
+    /// track's source gain (`VoiceChatManager.setPeerVolume`), kept while the app runs.
+    private func volumeRow(_ socketId: String, _ info: VoiceChatManager.PeerInfo) -> some View {
+        HStack(spacing: Theme.Space.s2) {
+            Image(systemName: "speaker.fill")
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Slider(value: Binding(get: { voiceManager.peerInfos[socketId]?.volume ?? VoiceVolume.normal },
+                                  set: { voiceManager.setPeerVolume(socketId, $0) }),
+                   in: VoiceVolume.range, step: VoiceVolume.step)
+                .tint(Theme.teamA)
+                .accessibilityLabel("\(info.username) volume")
+                .accessibilityValue(VoiceVolume.percentText(info.volume))
+                .accessibilityIdentifier("voice.volume.\(info.username)")
+            Text(VoiceVolume.percentText(info.volume))
+                .font(.caption.monospacedDigit())
+                .foregroundColor(Theme.textSecondary)
+                .frame(minWidth: 44, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+        .padding(.leading, 10 + Theme.Space.s3)  // under the name, past the speaking dot
+        .padding(.bottom, Theme.Space.s1)
     }
 
     private func speakingDot(isSpeaking: Bool) -> some View {
