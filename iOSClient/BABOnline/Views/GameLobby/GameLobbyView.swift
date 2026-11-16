@@ -42,6 +42,67 @@ private struct GameLobbyScreen: View {
         socketService.canSendMainRoomActions && lobbyState.rejoiningLobbyId == nil
     }
 
+    /// "Spectators can talk" sent by the host, until the server's playerReadyUpdate echoes it.
+    @State private var talkPending: Bool?
+
+    /// The header's count: "6/8 · Ready 2/4" from a server that sends the family keys
+    /// (1.2.3), else "3/4" as before.
+    private var countText: String {
+        guard lobbyState.hasSettings else { return "\(lobbyState.playerCount)/4" }
+        return "\(lobbyState.playerCount)/\(lobbyState.capacity) \u{00B7} Ready \(lobbyState.readyAtTable)/4"
+    }
+
+    /// The table filled without me: Ready would be refused, I will watch the game.
+    private var watchesOnly: Bool { !isReady && lobbyState.tableFullWithout(authState.username) }
+
+    /// Family lobbies (1.2.3): the host's "Spectators can talk" switch, a read-only line for
+    /// everyone else, and what it means for those who do not get a seat.
+    private var voiceSection: some View {
+        let isHost = lobbyState.isHost(authState.username)
+        let on = talkPending ?? lobbyState.spectatorsCanTalk
+        return VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            Text("Voice")
+                .font(.caption.bold())
+                .foregroundColor(Theme.textSecondary)
+                .accessibilityAddTraits(.isHeader)
+            if isHost {
+                Toggle(isOn: Binding(get: { on }, set: setSpectatorsCanTalk)) {
+                    Text(VoiceCopy.switchLabel)
+                        .foregroundColor(Theme.textPrimary)
+                }
+                .tint(Theme.success)
+                .disabled(talkPending != nil || !canSendLobbyActions)
+                .accessibilityIdentifier("lobby.spectatorsCanTalk")
+            } else {
+                Text("\(VoiceCopy.switchLabel): \(on ? "On" : "Off")")
+                    .foregroundColor(Theme.textPrimary)
+                    .accessibilityIdentifier("lobby.spectatorsCanTalk.readOnly")
+            }
+            Text(on ? VoiceCopy.lobbyHintOn : VoiceCopy.lobbyHintOff)
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("lobby.voiceHint")
+        }
+        .padding(.horizontal, Theme.Space.s4)
+        .padding(.vertical, Theme.Space.s3)
+        .background(Theme.surface)
+        .cornerRadius(Theme.Radius.md)
+        .padding(.horizontal)
+        .padding(.bottom, Theme.Space.s2)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("lobby.voice")
+    }
+
+    private func setSpectatorsCanTalk(_ value: Bool) {
+        guard value != lobbyState.spectatorsCanTalk || talkPending != nil else { return }
+        talkPending = value
+        LobbyEmitter.setSpectatorsCanTalk(value)
+        HapticManager.lightImpact()
+        // a refusal changes nothing: let the switch work again
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { if talkPending == value { talkPending = nil } }
+    }
+
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
@@ -99,8 +160,9 @@ private struct GameLobbyScreen: View {
                             .scaleEffect(0.8)
                         }
 
-                        Text("\(lobbyState.playerCount)/4")
+                        Text(countText)
                             .foregroundColor(Theme.textSecondary)
+                            .accessibilityIdentifier("lobby.count")
                     }
                 }
                 .padding()
@@ -108,24 +170,27 @@ private struct GameLobbyScreen: View {
 
                 Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
-                // Player slots
+                // Player slots: every member (up to 8 in a family lobby), then the table's
+                // empty seats while fewer than 4 are in
                 VStack(spacing: Theme.Space.s3) {
-                    ForEach(0..<4, id: \.self) { index in
-                        if index < lobbyState.players.count {
-                            let player = lobbyState.players[index]
-                            LobbyPlayerRow(player: player,
-                                           isCurrentUser: player.username == authState.username,
-                                           onRemove: { removeBot(player) },
-                                           isRemoving: removing.contains(player.id) || !canSendLobbyActions,
-                                           isReconnecting: lobbyState.isReconnecting(player))
-                        } else {
-                            emptySlot(index: index)
-                        }
+                    ForEach(lobbyState.players) { player in
+                        LobbyPlayerRow(player: player,
+                                       isCurrentUser: player.username == authState.username,
+                                       onRemove: { removeBot(player) },
+                                       isRemoving: removing.contains(player.id) || !canSendLobbyActions,
+                                       isReconnecting: lobbyState.isReconnecting(player),
+                                       isHost: !player.isBot && lobbyState.isHost(player.username),
+                                       status: LobbySeatStatus.of(player, in: lobbyState.players))
+                    }
+                    ForEach(lobbyState.players.count..<max(4, lobbyState.players.count), id: \.self) { index in
+                        emptySlot(index: index)
                     }
                 }
                 .padding()
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("lobby.players")
+
+                if lobbyState.hasSettings { voiceSection }
 
                 // Bot button
                 if lobbyState.playerCount < 4 {
@@ -154,17 +219,17 @@ private struct GameLobbyScreen: View {
                         if wide && hinge == nil { Separator(vertical: true) }  // the hinge divides a book fold
                     }
 
-                // Ready button
+                // Ready button ("Table full — you'll watch" once 4 others hold the table)
                 Button(action: toggleReady) {
-                    Text(isReady ? "Unready" : "Ready")
-                        .font(.title3.bold())
+                    Text(watchesOnly ? VoiceCopy.tableFull : isReady ? "Unready" : "Ready")
+                        .font(watchesOnly ? .headline : .title3.bold())
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, Theme.Space.s4)
-                        .background(isReady ? Theme.danger : Theme.buttonBackground)
-                        .foregroundColor(isReady ? Theme.dangerForeground : Theme.buttonForeground)
+                        .background(watchesOnly ? Theme.buttonDisabled : isReady ? Theme.danger : Theme.buttonBackground)
+                        .foregroundColor(watchesOnly ? Theme.buttonDisabledForeground : isReady ? Theme.dangerForeground : Theme.buttonForeground)
                         .cornerRadius(Theme.Radius.md)
                 }
-                .disabled(!canSendLobbyActions)
+                .disabled(!canSendLobbyActions || watchesOnly)
                 .opacity(canSendLobbyActions ? 1 : 0.5)
                 .padding(.horizontal, Theme.Space.s3)
                 .padding(.bottom, Theme.Space.s1)
@@ -203,6 +268,7 @@ private struct GameLobbyScreen: View {
             if UIFixture.showsVoicePanel { showVoicePanel = true }
             #endif
         }
+        .onChange(of: lobbyState.spectatorsCanTalk) { _, _ in talkPending = nil }  // the echo
         .onChange(of: lobbyState.players) { _, _ in
             // every list the server sends answers the removals sent before it
             removing = []

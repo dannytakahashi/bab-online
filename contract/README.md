@@ -268,7 +268,8 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   a casual game's voice room as a spectator; send it `voiceSettings`.
   Without the cap anywhere the wire is byte-identical (wireGolden). Every
   shipped iOS build (1.2.0 build 6 to 1.2.2 build 11) sends only
-  `avatarUrl`. Send this cap ONLY from a client that does all of the above
+  `avatarUrl`; iOS 1.2.3 (build 12) sends `avatarUrl` and
+  `casualSpectators`. Send this cap ONLY from a client that does all of the above
   (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):

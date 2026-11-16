@@ -35,6 +35,7 @@
           "lobbyChat",
           "playerReady",
           "playerUnready",
+          "setSpectatorsCanTalk",
           "addBot",
           "removeBot"
         ]
@@ -338,7 +339,8 @@
           "leaveLobby",
           "lobbyChat",
           "playerReady",
-          "playerUnready"
+          "playerUnready",
+          "setSpectatorsCanTalk"
         ]
       },
       {

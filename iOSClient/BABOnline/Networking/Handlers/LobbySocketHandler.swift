@@ -32,6 +32,17 @@ final class LobbySocketHandler {
     /// Internal for LobbyRejoinTests.
     @MainActor
     func handleRejoinRefused(_ dict: [String: Any]) -> Bool {
+        // a restore's re-spectate refused (1.2.3; the game ended while away): off the table
+        if dict["handler"] as? String == SocketEvents.Client.joinAsSpectator, let gameId = SpectateRejoin.pendingGameId {
+            print("[Lobby] Re-spectate refused (\(gameId)): \(dict["message"] as? String ?? "?")")
+            SpectateRejoin.pendingGameId = nil
+            guard appState.screen == .game, gameState.gameId == gameId else { return true }
+            GameSocketHandler.leaveTable(gameState: gameState, appState: appState, tournamentId: nil)
+            if !RestartNotices.shared.lost() {
+                socket.serverError = ServerErrorNotice(message: SpectateRejoin.refusedMessage)
+            }
+            return true
+        }
         guard dict["handler"] as? String == SocketEvents.Client.joinLobby else { return false }
         let message = dict["message"] as? String
         if let abandoned = lobbyState.abandonedRejoinLobbyId {
@@ -168,6 +179,11 @@ final class LobbySocketHandler {
             guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let lobbyState = self?.lobbyState else { return }
+                // a family lobby's event lists everyone (`members`, 1.2.3) and may name a new host
+                if dict["members"] != nil {
+                    lobbyState.applyPlayers(from: dict, namesHeldSeats: false)
+                    return
+                }
                 if let username = dict["username"] as? String {
                     lobbyState.setPlayers(lobbyState.players.filter { $0.username != username })
                 }

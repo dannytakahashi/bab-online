@@ -12,6 +12,10 @@ struct LobbyPlayerRow: View {
     /// The server holds this seat while its player reconnects (`LobbyState.isReconnecting`):
     /// the row says so instead of looking like an idle player who has not readied.
     var isReconnecting = false
+    /// Sets "Spectators can talk" (family lobbies, 1.2.3): "(host)" after the name.
+    var isHost = false
+    /// A family lobby's Playing / Will watch / Sitting out (nil in a lobby of 4 or fewer).
+    var status: LobbySeatStatus? = nil
 
     var body: some View {
         HStack(spacing: Theme.Space.s3) {
@@ -45,6 +49,13 @@ struct LobbyPlayerRow: View {
                             .foregroundColor(Theme.textDim)
                     }
 
+                    if isHost {
+                        Text("(host)")
+                            .font(.caption)
+                            .foregroundColor(Theme.textDim)
+                            .accessibilityIdentifier("lobby.host")
+                    }
+
                     if player.isBot {
                         Text("BOT")
                             .font(.caption2.bold())
@@ -62,6 +73,11 @@ struct LobbyPlayerRow: View {
                         .foregroundColor(Theme.textSecondary)
                         .italic()
                         .accessibilityIdentifier("lobby.reconnecting")
+                } else if let status {
+                    Text(status.rawValue)
+                        .font(.caption2)
+                        .foregroundColor(status == .playing ? Theme.success : Theme.textSecondary)
+                        .accessibilityIdentifier("lobby.status.\(player.username)")
                 }
             }
 

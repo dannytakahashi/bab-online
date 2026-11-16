@@ -45,6 +45,13 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.removeBot, ["botSocketId": botSocketId])
     }
 
+    /// "Spectators can talk" (1.2.3): the lobby's host (echoed to every member by
+    /// playerReadyUpdate with `settings`), or in a casual game whoever `voiceSettings.canChange`
+    /// names (echoed by voiceSettings). Anyone else is refused (serverError 'rejected').
+    static func setSpectatorsCanTalk(_ value: Bool) {
+        socket.emit(SocketEvents.Client.setSpectatorsCanTalk, ["spectatorsCanTalk": value])
+    }
+
     static func joinAsSpectator(gameId: String) {
         socket.emit(SocketEvents.Client.joinAsSpectator, ["gameId": gameId])
     }

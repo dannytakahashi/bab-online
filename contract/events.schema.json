@@ -2743,12 +2743,12 @@
         ],
         "additionalProperties": true
       },
-      "status": "unsent",
+      "status": "active",
       "joi": "setSpectatorsCanTalk",
       "rateLimit": "setSpectatorsCanTalk",
       "sentBy": {
         "web": false,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -2767,7 +2767,7 @@
           "spectatorsCanTalk": 1
         }
       ],
-      "notes": "New (2026-11-16, family lobbies; server only, dark: no client sends it yet, so it is unsent until the web and iOS PRs flip it to active and add it to layout.json). \"Spectators can talk\", default on. In a lobby: its host only (GameManager.lobbyHost); every member gets playerReadyUpdate (the plain variant) with settings. In a casual game (one started from a lobby): the host while seated, connected and capable (casualSpectators), else any connected capable seat owner / entrant (owner Q3 default); coalesced per game (applied at once when nothing changed in the last 3 s, else once at the end of that window, the last value wins) and announced with voiceSettings. Anyone else, a tournament table, the main room: serverError {code: 'rejected'}. Wrapper limit 4 / 30 s per socket."
+      "notes": "New (2026-11-16, family lobbies). Sent by iOS from 1.2.3 (build 12): the lobby host's Toggle (GameLobbyView) and the in-game switch in the voice panel while voiceSettings.canChange (VoicePanelSheet; LobbyEmitter.setSpectatorsCanTalk). The web sends it from its family-lobby PR (web: false until then). \"Spectators can talk\", default on. In a lobby: its host only (GameManager.lobbyHost); every member gets playerReadyUpdate (the plain variant) with settings. In a casual game (one started from a lobby): the host while seated, connected and capable (casualSpectators), else any connected capable seat owner / entrant (owner Q3 default); coalesced per game (applied at once when nothing changed in the last 3 s, else once at the end of that window, the last value wins) and announced with voiceSettings. Anyone else, a tournament table, the main room: serverError {code: 'rejected'}. Wrapper limit 4 / 30 s per socket."
     },
     "removeBot": {
       "payload": {
@@ -10334,12 +10334,14 @@
       "to": "socket",
       "clientReads": {
         "web": [],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/VoiceSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/voice/gameVoice.js:sendVoiceSettings"
       ],
-      "notes": "New (2026-11-16, family lobbies; private, unsequenced, read by no shipped client yet). Only to a socket that sent the casualSpectators cap, in a casual game (one started from a lobby; never a tournament table or the ambient demo): at the start (the table's players and the extras), on spectating or admission, on an applied spectatorsCanTalk change, when an owner drops, returns or reclaims a seat, and when an entrant leaves. role: player (a seat owner / entrant in voice), spectator (admitted to the voice room), none (a capable spectator refused: voice is full, 8 people). canTalk: a player always; a spectator while spectatorsCanTalk and (it came from the lobby, or a capable player could switch it off); a spectator that cannot talk sends listen-only SDP (the server drops anything else) and re-offers its calls when it changes. canChange: may send setSpectatorsCanTalk (the host while seated, connected and capable, else any connected capable player). host: the lobby host's username."
+      "notes": "New (2026-11-16, family lobbies; private, unsequenced, read by iOS from 1.2.3 (build 12): VoiceSocketHandler.applyVoiceSettings; the web from its family-lobby PR). Only to a socket that sent the casualSpectators cap, in a casual game (one started from a lobby; never a tournament table or the ambient demo): at the start (the table's players and the extras), on spectating or admission, on an applied spectatorsCanTalk change, when an owner drops, returns or reclaims a seat, and when an entrant leaves. role: player (a seat owner / entrant in voice), spectator (admitted to the voice room), none (a capable spectator refused: voice is full, 8 people). canTalk: a player always; a spectator while spectatorsCanTalk and (it came from the lobby, or a capable player could switch it off); a spectator that cannot talk sends listen-only SDP (the server drops anything else) and re-offers its calls when it changes. canChange: may send setSpectatorsCanTalk (the host while seated, connected and capable, else any connected capable player). host: the lobby host's username."
     },
     "voiceIceServers": {
       "payload": {

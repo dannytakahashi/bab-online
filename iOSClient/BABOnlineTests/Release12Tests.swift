@@ -275,7 +275,8 @@ final class ClientHelloTests: XCTestCase {
         XCTAssertEqual(p["client"] as? String, "ios")
         XCTAssertEqual(p["version"] as? String, "1.2.0")
         XCTAssertEqual(p["build"] as? String, "3")
-        XCTAssertEqual(p["caps"] as? [String], ["avatarUrl"])
+        // 1.2.3 (12): family lobbies of up to 8 and spectator voice (contract/README.md "Client capabilities")
+        XCTAssertEqual(p["caps"] as? [String], ["avatarUrl", "casualSpectators"])
         // contract/src/c2s.js clientHello: client ^[a-z0-9-]+$ (1-16), version 1-32, build <= 64, caps <= 16
         XCTAssertNotNil((p["client"] as? String)?.range(of: #"^[a-z0-9-]{1,16}$"#, options: .regularExpression))
         XCTAssertLessThanOrEqual((ClientHello.payload(version: String(repeating: "9", count: 50), build: "1")["version"] as? String)?.count ?? 99, 32)

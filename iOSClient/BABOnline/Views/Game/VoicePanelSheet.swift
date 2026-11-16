@@ -4,34 +4,122 @@ import SwiftUI
 struct VoicePanelSheet: View {
     @ObservedObject var voiceManager = VoiceChatManager.shared
     @Environment(\.dismiss) private var dismiss
+    /// The table's spectators (the spectator badge's names): their rows go under "Watching"
+    /// with "(watching)" (1.2.3, spectator voice). Empty in a lobby.
+    var watching: Set<String> = []
+    /// UI fixtures: show the listen-only self row without a voice session.
+    var forceListenOnly = false
+
+    private var listenOnly: Bool { forceListenOnly || voiceManager.isListenOnly }
+
+    private var peerIds: [String] { voiceManager.peerInfos.keys.sorted() }
+    private func isWatcher(_ id: String) -> Bool { voiceManager.peerInfos[id].map { watching.contains($0.username) } ?? false }
 
     var body: some View {
         NavigationView {
             List {
                 // Self row
                 HStack(spacing: Theme.Space.s3) {
-                    speakingDot(isSpeaking: voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted)
+                    speakingDot(isSpeaking: !listenOnly && voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted)
 
                     Text("You")
                         .foregroundColor(Theme.textPrimary)
                         .fontWeight(.medium)
 
+                    if listenOnly {
+                        Text(VoiceCopy.listenOnlyLabel(talkAllowed: voiceManager.talkAllowed, micDenied: voiceManager.micPermissionDenied)
+                                .lowercased())
+                            .font(.caption)
+                            .foregroundColor(Theme.textSecondary)
+                            .accessibilityIdentifier("voice.panel.listenOnly")
+                    }
+
                     Spacer()
 
-                    Button(action: {
-                        voiceManager.toggleSelfMute()
-                        HapticManager.lightImpact()
-                    }) {
-                        Image(systemName: voiceManager.isSelfMuted ? "mic.slash.fill" : "mic.fill")
-                            .foregroundColor(voiceManager.isSelfMuted ? Theme.error : Theme.textSecondary)
-                            .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                    if listenOnly {
+                        Button(action: {
+                            HapticManager.lightImpact()
+                            guard !forceListenOnly else { return }
+                            if let why = voiceManager.tapToTalk() {
+                                SocketService.shared.serverError = ServerErrorNotice(message: why, kind: .info)
+                            }
+                        }) {
+                            Image(systemName: "headphones")
+                                .foregroundColor(Theme.textSecondary)
+                                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                        }
+                        .accessibilityLabel(VoiceCopy.listenOnlyLabel(talkAllowed: voiceManager.talkAllowed,
+                                                                      micDenied: voiceManager.micPermissionDenied))
+                    } else {
+                        Button(action: {
+                            voiceManager.toggleSelfMute()
+                            HapticManager.lightImpact()
+                        }) {
+                            Image(systemName: voiceManager.isSelfMuted ? "mic.slash.fill" : "mic.fill")
+                                .foregroundColor(voiceManager.isSelfMuted ? Theme.error : Theme.textSecondary)
+                                .frame(width: Theme.hitTarget, height: Theme.hitTarget)
+                        }
+                        .accessibilityLabel(voiceManager.isSelfMuted ? "Unmute microphone" : "Mute microphone")
                     }
-                    .accessibilityLabel(voiceManager.isSelfMuted ? "Unmute microphone" : "Mute microphone")
                 }
                 .listRowBackground(Theme.surface)
 
-                // Peer rows
-                ForEach(Array(voiceManager.peerInfos.keys.sorted()), id: \.self) { socketId in
+                if listenOnly {
+                    Text(VoiceCopy.micDotNote)
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+                        .listRowBackground(Theme.surface)
+                }
+
+                // The in-game "Spectators can talk" (voiceSettings.canChange: the host while
+                // seated, else a capable player); the toggle waits for the server's answer
+                if let settings = voiceManager.settings, settings.canChange {
+                    Toggle(isOn: Binding(get: { voiceManager.switchPending ?? settings.spectatorsCanTalk },
+                                         set: { value in
+                                             voiceManager.switchPending = value
+                                             LobbyEmitter.setSpectatorsCanTalk(value)
+                                             let asked = value
+                                             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                                                 if voiceManager.switchPending == asked { voiceManager.switchPending = nil }
+                                             }
+                                         })) {
+                        Text(VoiceCopy.switchLabel)
+                            .foregroundColor(Theme.textPrimary)
+                    }
+                    .tint(Theme.success)
+                    .disabled(voiceManager.switchPending != nil)
+                    .accessibilityIdentifier("voice.spectatorsCanTalk")
+                    .listRowBackground(Theme.surface)
+                }
+
+                // Peer rows: the players, then "Watching"
+                ForEach(peerIds.filter { !isWatcher($0) }, id: \.self) { socketId in
+                    peerRow(socketId)
+                }
+                let watchers = peerIds.filter { isWatcher($0) }
+                if !watchers.isEmpty {
+                    Section(header: Text("Watching").foregroundColor(Theme.textSecondary)) {
+                        ForEach(watchers, id: \.self) { socketId in
+                            peerRow(socketId, watcher: true)
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Theme.background)
+            .navigationTitle("Voice Chat")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func peerRow(_ socketId: String, watcher: Bool = false) -> some View {
                     if let info = voiceManager.peerInfos[socketId] {
                         VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: Theme.Space.s3) {
@@ -39,6 +127,12 @@ struct VoicePanelSheet: View {
 
                             Text(info.username)
                                 .foregroundColor(Theme.textPrimary)
+
+                            if watcher {
+                                Text("(watching)")
+                                    .font(.caption)
+                                    .foregroundColor(Theme.textSecondary)
+                            }
 
                             if info.isUnavailable {
                                 // the connection failed after its one restart (VoiceRecovery)
@@ -63,19 +157,6 @@ struct VoicePanelSheet: View {
                         }
                         .listRowBackground(Theme.surface)
                     }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
-            .navigationTitle("Voice Chat")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
-                }
-            }
-        }
     }
 
     /// This player's volume for me only, 0 to 200% (the web's per-peer slider): the remote

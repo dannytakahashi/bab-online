@@ -27,6 +27,7 @@ enum SocketEvents {
         static let lobbyChat = "lobbyChat"
         static let playerReady = "playerReady"
         static let playerUnready = "playerUnready"
+        static let setSpectatorsCanTalk = "setSpectatorsCanTalk"
 
         // Session
         static let restoreSession = "restoreSession"
