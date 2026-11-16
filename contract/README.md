@@ -271,6 +271,26 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `avatarUrl`; iOS 1.2.3 (build 12) sends `avatarUrl` and
   `casualSpectators`. Send this cap ONLY from a client that does all of the above
   (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
+- `playAgain` (`$defs.clientCapPlayAgain`, its own const for the same
+  reason; 2026-11-16, play again, an automatic return): at the end of a
+  casual game a lobby started, the server moves such a socket, if it is
+  still at the table (a seat owner, a lazy watcher, a lobby extra still
+  watching), into a recreated copy of that lobby (new lobbyId; same name,
+  host, settings, chat, lobby bots; nobody ready) and sends it the private
+  `lobbyReturn` right after its `gameEnd`. A user whose socket had the cap
+  at the start but who is not at the table at the end keeps a place for
+  `PLAY_AGAIN_HOLD_MS` (default 2 minutes): a row marked
+  `members[].returning`, claimed by joinLobby from any client, and by the
+  user's next `joinMainRoom` from a socket with the cap when they had no
+  live socket at the end (answered with the ordinary `lobbyCreated`, no
+  `mainRoomJoined`). An older-app seat owner gets no row but a reservation
+  (`expected`; strangers and Add Bot refused while members + expected would
+  pass 4) and keeps its score-screen calls with the returners until it
+  leaves that screen (private `voicePeerLeft` both ways). c2s
+  `releaseLobbyHold` ("Don't wait"). Nothing changes for a socket without
+  the cap: it gets today's `gameEnd` and Return to Lobby flow. Send this cap
+  ONLY with `casualSpectators` and from a client that handles `lobbyReturn`
+  (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off).
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

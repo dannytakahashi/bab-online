@@ -13,6 +13,7 @@ const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
 const gameVoice = require('../voice/gameVoice');
 const clientInfo = require('./clientInfo');
+const playAgain = require('./playAgain');
 
 /**
  * playerReadyUpdate (the plain 'neither' variant) to every human member of
@@ -23,6 +24,8 @@ const clientInfo = require('./clientInfo');
 function sendLobbyState(io, lobby, { except = null, onlyTo = null, own = {} } = {}) {
     for (const player of lobby.players) {
         if (gameManager.isBot(player.socketId) || player.socketId === except) continue;
+        // A play-again hold has no socket
+        if (playAgain.isAwayId(player.socketId)) continue;
         if (onlyTo && player.socketId !== onlyTo) continue;
         io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, own, { to: player.socketId }));
     }
@@ -32,6 +35,8 @@ function sendLobbyState(io, lobby, { except = null, onlyTo = null, own = {} } = 
  * Handle player marking themselves as ready
  */
 async function playerReady(socket, io) {
+    // (play again: acting in the lobby means it is on the lobby screen)
+    playAgain.settle(socket.id);
     const result = gameManager.setPlayerReady(socket.id);
 
     if (!result.success) {
@@ -202,6 +207,7 @@ function startExtras(io, game, extras) {
  */
 function lobbyChat(socket, io, data) {
     const { message } = data;
+    playAgain.settle(socket.id);
 
     if (!message || message.trim().length === 0) {
         return;
@@ -238,6 +244,7 @@ function lobbyChat(socket, io, data) {
  * Handle player unmarking themselves as ready
  */
 function playerUnready(socket, io) {
+    playAgain.settle(socket.id);
     const result = gameManager.unsetPlayerReady(socket.id);
 
     if (!result.success) {
@@ -348,22 +355,25 @@ function releaseStaleLobbySeat(io, change) {
     if (!change || !change.oldSocketId) return;
     const { oldSocketId, newSocketId } = change;
 
-    // tellOld false: the old socket is someone else now (it switched accounts)
-    if (change.tellOld !== false) io.to(oldSocketId).emit('leftLobby', {});
+    // tellOld false: the old socket is someone else now (it switched
+    // accounts). A play-again hold (`away:` id) never had a socket: nobody
+    // to tell, and no voice peer to drop
+    const away = playAgain.isAwayId(oldSocketId);
+    if (change.tellOld !== false && !away) io.to(oldSocketId).emit('leftLobby', {});
 
     const leave = change.leaveResult;
     const lobby = leave ? (leave.lobbyDeleted ? null : leave.lobby) : change.lobby;
     if (!lobby) return;
 
     lobby.players.forEach(player => {
-        if (player.socketId === newSocketId) return;
+        if (player.socketId === newSocketId || playAgain.isAwayId(player.socketId)) return;
         if (leave) {
             io.to(player.socketId).emit('lobbyPlayerLeft', gameManager.lobbyWire(lobby, {
                 leftUsername: change.username || 'Unknown',
                 needsMorePlayers: leave.needsMorePlayers
             }, { withReconnecting: false, to: player.socketId }));
         }
-        if (!gameManager.isBot(player.socketId)) {
+        if (!gameManager.isBot(player.socketId) && !away) {
             io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
         }
     });
@@ -437,6 +447,7 @@ function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
  * full until a human unreadied and readied again).
  */
 async function addBot(socket, io) {
+    playAgain.settle(socket.id);
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
@@ -444,7 +455,8 @@ async function addBot(socket, io) {
         return;
     }
 
-    if (lobby.players.length >= 4) {
+    // (a place saved for the last game's player counts: play again)
+    if (lobby.players.length >= 4 || playAgain.reservationBlocks(lobby)) {
         emitError(socket, { message: 'Lobby is full' }, 'addBot');
         return;
     }
@@ -479,6 +491,7 @@ async function addBot(socket, io) {
  */
 function removeBot(socket, io, data) {
     const { botSocketId } = data;
+    playAgain.settle(socket.id);
 
     const lobby = gameManager.getPlayerLobby(socket.id);
 
@@ -519,6 +532,7 @@ function removeBot(socket, io, data) {
 function setLobbySpectatorsCanTalk(socket, io, value) {
     const lobby = gameManager.getPlayerLobby(socket.id);
     if (!lobby) return false;
+    playAgain.settle(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user || gameManager.lobbyHost(lobby) !== user.username) {
         emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');

@@ -32,8 +32,12 @@ const { socketLogger } = require('../utils/logger');
  *                     every human in it says so), the "Spectators can talk"
  *                     switch, voiceSettings, listen-only spectator voice
  *                     (GameManager.lobbyCapacity, server/voice/gameVoice.js)
+ *   playAgain         at the end of a lobby-born casual game the socket is
+ *                     moved back into that lobby (lobbyReturn), a place is
+ *                     held if it is away, its offline hold is claimed on
+ *                     joinMainRoom (server/socket/playAgain.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

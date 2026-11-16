@@ -238,6 +238,10 @@ function setupSocketHandlers(io) {
         socket.on('setSpectatorsCanTalk', (data) =>
             syncHandler('setSpectatorsCanTalk', voiceHandlers.setSpectatorsCanTalk)(socket, io, data)
         );
+        // "Don't wait for <name>": a play-again lobby's host releases a held place
+        socket.on('releaseLobbyHold', (data) =>
+            asyncHandler('releaseLobbyHold', require('./playAgain').releaseLobbyHold)(socket, io, data)
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

@@ -158,6 +158,7 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
+          "lobbyReturn",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",
@@ -464,6 +465,7 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
+          "lobbyReturn",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",

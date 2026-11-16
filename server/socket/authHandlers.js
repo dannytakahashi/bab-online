@@ -14,6 +14,7 @@ const { randomStockPic } = require('../avatar/stockAvatars');
 const { issueSession, verifySession, revokeOtherSessions } = require('../utils/sessionTokens');
 const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAGES } = require('../utils/usernameRules');
 const { rememberBlockList } = require('./voiceHandlers');
+const playAgain = require('./playAgain');
 const { eraseAccount, forgetAccount, isNameHold } = require('../admin/accountDelete');
 const { checkPasswordRule, revokeOpenResetLinks, PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const {
@@ -138,6 +139,9 @@ function releaseClaim(socket, username, previous) {
  * socketId can still name it) is never touched (sessionIdentity.belongsTo).
  */
 function signOutUser(io, username, { socketId = null, except = null } = {}) {
+    // Play again: places held or reserved for this user after a game have
+    // no socket, so handleDisconnect below never reaches them
+    playAgain.releaseUser(io, username);
     const ids = new Set((gameManager.currentUsers || []).filter(u => u.username === username).map(u => u.socketId));
     if (socketId && belongsTo(socketId, io?.sockets?.sockets?.get(socketId), username)) ids.add(socketId);
     for (const [id, sock] of io?.sockets?.sockets || []) {

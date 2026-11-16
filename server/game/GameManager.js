@@ -25,6 +25,8 @@ const WIDE_LOBBY = 8;
 
 /** The voice room module, loaded lazily (it requires this one). */
 const gameVoice = () => require('../voice/gameVoice');
+/** Play again (after a lobby-born casual game), loaded lazily (it requires this one). */
+const playAgain = () => require('../socket/playAgain');
 
 class GameManager {
     constructor() {
@@ -445,6 +447,8 @@ class GameManager {
 
         this.lobbies.set(lobbyId, lobby);
         this.playerLobbies.set(socketId, lobbyId);
+        // A place reserved for them after a game elsewhere is given up
+        playAgain().dropReservations(user.username);
 
         return { success: true, lobby, evicted, evictedTournament: staleTournament.evicted };
     }
@@ -500,6 +504,12 @@ class GameManager {
             const legacyLimited = capable && capacity === TABLE_SIZE && lobby.players.length < WIDE_LOBBY;
             return { success: false, error: legacyLimited ? LEGACY_LIMIT : 'Lobby is full' };
         }
+        // Places saved for the last game's players who are not back yet
+        // (play again: a legacy seat owner's reservation): while one stands
+        // members + reservations may not pass 4 for anyone else
+        if (playAgain().reservationBlocks(lobby, user.username)) {
+            return { success: false, error: capable ? playAgain().RESERVED_MESSAGE : 'Lobby is full' };
+        }
         // Nor a tournament an older socket still holds (createNamedLobby)
         const staleTournament = this.giveUpStaleTournament(user.username, socketId);
         if (staleTournament.refused) return { success: false, error: 'Already in a tournament' };
@@ -523,6 +533,8 @@ class GameManager {
         lobby.players.push(newPlayer);
         this.playerLobbies.set(socketId, lobbyId);
         if (capable) this._capableSet(lobby).add(socketId);
+        // Their reservation here is used; one elsewhere is given up
+        playAgain().dropReservations(user.username, { joinedLobbyId: lobbyId });
 
         return { success: true, lobby, newPlayer, evicted, evictedTournament: staleTournament.evicted };
     }
@@ -620,6 +632,13 @@ class GameManager {
         lobby.readyPlayers.delete(socketId);
         this.playerLobbies.delete(socketId);
         this._clearLobbyGrace(socketId);
+        // Play again: a moved member still on its score screen (it has not
+        // acted in the lobby) keeps its place as a hold, PLAY_AGAIN_HOLD_MS
+        const afterGameHold = playAgain().holdOnDrop(lobby, socketId, player.username);
+        if (afterGameHold) {
+            this.lobbyGrace.set(socketId, afterGameHold);
+            return { lobby, player };
+        }
         const timer = safeTimeout(() => {
             let result;
             try {
@@ -939,6 +958,8 @@ class GameManager {
         const members = lobby.players.map(p => {
             const m = { ...this._memberWire(p), playing: wide ? seated.has(p.socketId) : true };
             if (this.isHeldLobbySeat(lobby, p)) m.reconnecting = true;
+            // Play again: a place held for someone not back from the last game
+            if (this.lobbyGrace.get(p.socketId)?.kind === 'afterGame') m.returning = true;
             return m;
         });
         const out = { members };
@@ -946,6 +967,10 @@ class GameManager {
         if (host != null) out.host = host;
         out.settings = { spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false };
         out.capacity = this.lobbyCapacity(lobby);
+        // Play again: older-app players of the last game whose place is
+        // saved (a reservation, no row)
+        const expected = [...(lobby.afterGame?.reserved?.keys() || [])];
+        if (expected.length > 0) out.expected = expected.slice(0, TABLE_SIZE);
         return out;
     }
 
@@ -1060,7 +1085,7 @@ class GameManager {
      * Handle player leaving lobby
      * Returns remaining players or null if lobby should be dissolved
      */
-    leaveLobby(socketId) {
+    leaveLobby(socketId, { keepReady = false } = {}) {
         const lobbyId = this.playerLobbies.get(socketId);
         if (!lobbyId) return { success: false, error: 'Not in a lobby' };
 
@@ -1070,6 +1095,10 @@ class GameManager {
         // A lobby open to 8 never resets the others' ready flags on a leave
         // (the first 4 to tap Ready keep their seats); a lobby of 4 does
         const wide = this.lobbyCapacity(lobby) > TABLE_SIZE;
+        // Nor does a play-again hold going (expiry, "Don't wait", sign-out,
+        // eviction): that person was never ready, and a reset would put
+        // iOS's local isReady out of step (removeBotFromLobby, 2026-11-13)
+        const keep = keepReady || this.lobbyGrace.get(socketId)?.kind === 'afterGame';
 
         // Remove player from lobby
         lobby.players = lobby.players.filter(p => p.socketId !== socketId);
@@ -1089,6 +1118,8 @@ class GameManager {
                     this.playerLobbies.delete(bot.socketId);
                 }
             }
+            // Play again: reservations, holds and lingering calls go with it
+            playAgain().onLobbyGone(lobby);
             this.lobbies.delete(lobbyId);
             return {
                 success: true,
@@ -1099,7 +1130,7 @@ class GameManager {
         }
 
         // Reset all ready states when someone leaves
-        if (!wide) {
+        if (!wide && !keep) {
             lobby.readyPlayers.clear();
             lobby.players.forEach(p => p.ready = false);
         }
@@ -1150,6 +1181,12 @@ class GameManager {
                 (!io || io.sockets?.sockets?.has(p.socketId)))
             .map(p => ({ socketId: p.socketId, username: p.username }));
 
+        // Play again: what the lobby was, for its return when the game
+        // ends (never on the wire); then its own after-game state ends
+        // (lingering calls, reservations, holds off the table)
+        const lobbyOrigin = playAgain().originOf(lobby, io, extras.map(e => e.username), onTable);
+        playAgain().onLobbyStart(lobby);
+
         // Remove lobby mappings (every member)
         for (const p of lobby.players) {
             if (this.playerLobbies.get(p.socketId) === lobbyId) this.playerLobbies.delete(p.socketId);
@@ -1158,6 +1195,7 @@ class GameManager {
 
         // Create the actual game
         const game = this.createGame(playerSocketIds);
+        game.lobbyOrigin = lobbyOrigin;
 
         // A casual game's voice room (players + spectators; never a
         // tournament table or the ambient demo: they never come through here)
@@ -1197,7 +1235,8 @@ class GameManager {
             return { success: false, error: 'Lobby not found' };
         }
 
-        if (lobby.players.length >= 4) {
+        // (a place saved for the last game's player counts: play again)
+        if (lobby.players.length >= 4 || playAgain().reservationBlocks(lobby)) {
             return { success: false, error: 'Lobby is full' };
         }
 
@@ -1783,6 +1822,8 @@ class GameManager {
 
         // Leave main room
         this.leaveMainRoom(socketId);
+        // A place reserved for them after a game is given up (play again)
+        playAgain().dropReservations(user.username);
 
         return { success: true, tournament, evicted: stale.evicted, evictedLobby };
     }
@@ -1843,6 +1884,8 @@ class GameManager {
 
         // Leave main room
         this.leaveMainRoom(socketId);
+        // A place reserved for them after a game is given up (play again)
+        playAgain().dropReservations(user.username);
 
         return { success: true, tournament, evicted: stale.evicted, evictedLobby };
     }

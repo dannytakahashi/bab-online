@@ -110,6 +110,7 @@ export const SERVER_EVENTS = {
 
   // Lobby
   LOBBY_CREATED: 'lobbyCreated',
+  LOBBY_RETURN: 'lobbyReturn',
   LOBBY_MESSAGE: 'lobbyMessage',
   LOBBY_PLAYER_JOINED: 'lobbyPlayerJoined',
   LOBBY_PLAYER_LEFT: 'lobbyPlayerLeft',
