@@ -165,9 +165,13 @@ class BotController {
             if (game.positions[currentPosition] !== bot.socketId || !this.getBot(game.gameId, bot.socketId)) return;
             // Contain failures: an uncaughtException here would exit the
             // whole server (see utils/shutdown.js), dropping every game
+            // A throw may leave the game half-written: tainted (the persist
+            // codec keeps its last good doc) until a run completes cleanly
             try {
                 actionHandler(io, game, bot);
+                game.markTainted?.(false);
             } catch (err) {
+                game.markTainted?.(true);
                 gameLogger.error('Bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
             }
         }, delay);

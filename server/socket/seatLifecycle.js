@@ -784,6 +784,7 @@ module.exports = {
     withdrawIdleOffer,
     pickBotPersonality,
     createSeatBot,
+    openTrick,
     reattachTournament,
     disconnectOwner,
     onGraceExpired,

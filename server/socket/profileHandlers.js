@@ -569,20 +569,25 @@ function recordGameStats(game) {
     return trackInFlight(run);
 }
 
-async function writeGameStats(game) {
-    const usersCollection = getUsersCollection();
-    const gameRecordsCollection = getGameRecordsCollection();
-
+/**
+ * The gameRecords document the end of `game` inserts (writeGameStats, step
+ * 1): buildGameRecord plus `statsDeltas` {bucket, byPosition} (each human
+ * owner's counters, seatStatsDelta) and `statsPending` (who still gets
+ * them; left out when nobody does). One builder, so the live end of a game
+ * and a persisted ENDED tombstone (deploy survival) insert the same
+ * record. No I/O: it reads the game, gameManager.deletedUsernames and the
+ * clock (completedAt).
+ * @param {Object} game - a finished game
+ * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
+ */
+function buildGameEndRecord(game) {
     // Every seat with a human owner, as the original human player (resigned
     // and lazy positions included)
     const players = [1, 2, 3, 4]
         .map(position => ({ position, player: game.getOriginalPlayer(position) }))
         .filter(({ position, player }) => player && player.username && game.seat(position)?.ownerUsername);
 
-    if (players.length === 0) {
-        authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
-        return;
-    }
+    if (players.length === 0) return null;
 
     // A bot played a seat for good (native bot or resign bot): the bot-game
     // bucket. Lazy seats still count as human games for their owner.
@@ -596,15 +601,29 @@ async function writeGameStats(game) {
     const statsPending = players
         .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
         .map(({ position, player }) => ({ position, username: player.username }));
-    let record = { gameId: game.gameId, statsDeltas: { bucket, byPosition }, statsPending };
+
+    const doc = buildGameRecord(game, { withBots });
+    doc.statsDeltas = { bucket, byPosition };
+    if (statsPending.length > 0) doc.statsPending = statsPending;
+    return doc;
+}
+
+async function writeGameStats(game) {
+    const usersCollection = getUsersCollection();
+    const gameRecordsCollection = getGameRecordsCollection();
+
+    const doc = buildGameEndRecord(game);
+    if (!doc) {
+        authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
+        return;
+    }
+    const withBots = doc.withBots === true;
+    let record = { gameId: game.gameId, statsDeltas: doc.statsDeltas, statsPending: doc.statsPending || [] };
     // Not a record read back: never applied before
     let fresh = true;
 
     try {
         if (gameRecordsCollection) {
-            const doc = buildGameRecord(game, { withBots });
-            doc.statsDeltas = record.statsDeltas;
-            if (statsPending.length > 0) doc.statsPending = statsPending;
             try {
                 record = await insertGameRecord(gameRecordsCollection, doc);
                 fresh = record === doc;
@@ -1273,6 +1292,8 @@ module.exports = {
     updateProfilePic,
     uploadProfilePic,
     recordGameStats,
+    buildGameRecord,
+    buildGameEndRecord,
     resumePendingGameStats,
     _setStatsRetryDelaysForTests,
     _resetStatsWritesForTests,

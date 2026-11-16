@@ -17,6 +17,7 @@ const {
     shouldCheckInvariants
 } = require('./GamePhase');
 const { gameLogger } = require('../utils/logger');
+const SeatState = require('./SeatState');
 const {
     Controller,
     Presence,
@@ -26,13 +27,26 @@ const {
     checkEdge,
     seatDisplay,
     validateSeats
-} = require('./SeatState');
+} = SeatState;
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
 const { isValidBid, isLegalPlay, firstLegalCard } = require('./rules');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
+
+// Games inside restoreFrom (restoreSeats is legal only there) and games
+// already restored (restoreFrom runs once, on a fresh GameState). Module
+// state, not fields: a restore adds no keys to the game.
+const RESTORING = new WeakSet();
+const RESTORED = new WeakSet();
+
+// The stages a game is saved and restored in (persist/gameCodec.js): a
+// dealt hand with a turn, a trick or a hand result on the table
+const RESTORE_STAGES = new Set([Phase.BIDDING, Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING]);
+
+/** The seat socket a restored human seat is keyed by until its owner returns. */
+const restoredSeatSocketId = (gameId, pos) => `restored:${gameId}:${pos}`;
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v) &&
     Object.getPrototypeOf(v) === Object.prototype;
@@ -305,7 +319,7 @@ class GameState {
      * @returns {Promise<boolean>}
      */
     pause(ms) {
-        if (this.isTerminal()) return Promise.resolve(false);
+        if (this.isTerminal() || this.frozen) return Promise.resolve(false);
         const e = this.epoch;
         return new Promise((resolve) => {
             const entry = { timer: null, resolve };
@@ -327,7 +341,7 @@ class GameState {
      * @returns {Promise<boolean>}
      */
     hold(kind, ms, traceKind = kind) {
-        if (this.isTerminal()) return Promise.resolve(false);
+        if (this.isTerminal() || this.frozen) return Promise.resolve(false);
         pacing.trace(traceKind, ms, this);
         this.resume = { kind, at: Date.now() + ms };
         return this.pause(ms).then((ok) => {
@@ -345,7 +359,7 @@ class GameState {
      * @returns {boolean} false if the game is terminal
      */
     scheduleResume(kind, ms, fn, traceKind = kind) {
-        if (this.isTerminal()) return false;
+        if (this.isTerminal() || this.frozen) return false;
         pacing.trace(traceKind, ms, this);
         this.resume = { kind, at: Date.now() + ms };
         return this.setTimer('resume', ms, () => {
@@ -376,19 +390,22 @@ class GameState {
 
     /**
      * Named one-shot timer owned by this game (replaces any timer under the
-     * same key). The callback is skipped if the game ended/aborted meanwhile;
-     * sync throws and async rejections are logged, never uncaught.
+     * same key). The callback is skipped if the game ended/aborted (or was
+     * frozen) meanwhile; sync throws and async rejections are logged, never
+     * uncaught. A run that throws marks the game tainted (markTainted: the
+     * persist codec will not save it) and a clean run clears it.
      */
     setTimer(key, ms, fn) {
         this.clearTimer(key);
-        if (this.isTerminal()) return false;
+        if (this.isTerminal() || this.frozen) return false;
         const e = this.epoch;
         const timer = setTimeout(() => {
             this._timers.delete(key);
             if (this.epoch !== e || this.isTerminal()) return;
-            Promise.resolve().then(fn).catch(err =>
-                gameLogger.error('Game timer failed', { gameId: this.gameId, key, error: err.message, stack: err.stack })
-            );
+            Promise.resolve().then(fn).then(() => this.markTainted(false), (err) => {
+                this.markTainted(true);
+                gameLogger.error('Game timer failed', { gameId: this.gameId, key, error: err.message, stack: err.stack });
+            });
         }, ms);
         this._timers.set(key, timer);
         return true;
@@ -418,6 +435,38 @@ class GameState {
             entry.resolve(false);
         }
         this._pauses.clear();
+    }
+
+    /**
+     * Stop the game in place for a deploy handoff (deploy survival; nothing
+     * calls it before the persist store lands): the epoch bumps (every
+     * captured aliveCheck, pause and bot timer goes stale), every game timer
+     * and pause is cancelled, resume is cleared, and from now on nothing is
+     * emitted (broadcast, sendToPlayer, ...) and no timer, pause or hold can
+     * start. Not terminal: the stage and the table stay as they are, for the
+     * codec. Idempotent.
+     * @returns {boolean} false if already frozen or terminal
+     */
+    freeze() {
+        if (this.frozen || this.isTerminal()) return false;
+        this.frozen = true;
+        this.epoch++;
+        this._cancelAllTimers();
+        this.resume = null;
+        gameLogger.info('Game frozen', { gameId: this.gameId, stage: this._stage });
+        return true;
+    }
+
+    /**
+     * A run of this game's code threw (true: a game timer, a bot action or a
+     * turn continuation; its state may be half-written) or one completed
+     * cleanly (false). The persist codec refuses a tainted game, keeping
+     * its last good doc. Set only on a change, so a game that never threw
+     * never has the field.
+     */
+    markTainted(tainted) {
+        if (tainted) this._tainted = true;
+        else if (this._tainted) this._tainted = false;
     }
 
     /** Test-only fixture helper: jump straight to a non-terminal stage. */
@@ -919,6 +968,185 @@ class GameState {
     }
 
     // ========================================
+    // Restore (deploy survival: server/game/persist/gameCodec.js hydrate)
+    // ========================================
+
+    /**
+     * The one writer of a restored game: fills this FRESH game (just
+     * constructed: CREATED, no seats, nothing broadcast) from a saved
+     * state, the codec's `state` (gameCodec.js; already version-checked
+     * and JSON-shaped), and enters `stage` directly (one of the four
+     * restore stages). Next to forcePhase / forceSeat the only other
+     * stage writer outside transition / terminate. The seats go through
+     * restoreSeats (humans in a fresh reconnect grace, keyed by
+     * restored:<gameId>:<pos>), then each seat's hand is keyed by its seat
+     * socket. Nothing is emitted and no timer but the grace timers starts.
+     * Called anywhere else (a game that already ran, a second restore)
+     * it is a reported violation and changes nothing.
+     * @param {string} stage
+     * @param {Object} state - gameCodec state
+     * @param {Object} [opts]
+     * @param {Array} [opts.log] - game log entries (the last maxLogEntries are kept)
+     * @param {number} [opts.logTotal]
+     * @param {number} [opts.eventSeq] - the broadcast sequence to continue from
+     * @param {number} [opts.now]
+     * @param {Function} [opts.onGraceExpire] - (pos) => void, a human seat's grace ran out
+     * @returns {boolean} false when refused
+     */
+    restoreFrom(stage, state, { log = [], logTotal = null, eventSeq = 0, now = Date.now(), onGraceExpire = null } = {}) {
+        const fresh = this._stage === Phase.CREATED && this.eventSeq === 0 && this.seatList().length === 0 &&
+            !this.frozen && !RESTORED.has(this) && !RESTORING.has(this);
+        if (!fresh) {
+            reportViolation('restore-outside', { gameId: this.gameId, what: 'restoreFrom', stage: this._stage });
+            return false;
+        }
+        if (!RESTORE_STAGES.has(stage) || !state || typeof state !== 'object') {
+            reportViolation('restore-stage', { gameId: this.gameId, stage });
+            return false;
+        }
+        RESTORING.add(this);
+        try {
+            const card = (c) => (c ? { suit: c.suit, rank: c.rank } : null);
+            const cards = (list) => (Array.isArray(list) ? list.map(card) : []);
+            // Arrays that live play fills by index (recordBid, applyPlay):
+            // rebuilt with the same holes, so `length` and iteration match
+            const sparse = (list, map = (v) => v) => {
+                const out = [];
+                (Array.isArray(list) ? list : []).forEach((v, i) => { if (v != null) out[i] = map(v); });
+                return out;
+            };
+            const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
+
+            this.createdAt = state.createdAt;
+            this.dealSeq = state.dealSeq;
+            this.currentHand = state.currentHand;
+            this.dealer = state.dealer;
+            this.bidder = state.bidder;
+            this.bids = clone(state.bids);
+            this.playerBids = sparse(state.playerBids);
+            this.team1Mult = state.team1Mult;
+            this.team2Mult = state.team2Mult;
+            this.currentTurn = state.currentTurn;
+            this.leadPosition = state.leadPosition;
+            this.leadCard = card(state.leadCard);
+            this.playedCards = sparse(state.playedCards, card);
+            this.playedCardsIndex = state.playedCardsIndex;
+            this.trump = card(state.trump);
+            this.isTrumpBroken = !!state.isTrumpBroken;
+            this.cardIndex = state.cardIndex;
+            this.tricks = clone(state.tricks);
+            this.trickHistory = (state.trickHistory || []).map(t => ({ winner: t.winner, lead: t.lead, cards: cards(t.cards) }));
+            this.score = clone(state.score);
+            this.rainbows = clone(state.rainbows);
+            this.handStats = clone(state.handStats);
+            this.playerStats = clone(state.playerStats);
+            this.handTricks = clone(state.handTricks);
+            this.hsiValues = clone(state.hsiValues) || {};
+            this.gameLog = (Array.isArray(log) ? log : []).slice(-this.maxLogEntries).map(e => ({ ...e }));
+            if (logTotal != null) this.logTotal = logTotal;
+            this.eventSeq = eventSeq;
+
+            if (!this.restoreSeats(state.seats, { now, onGraceExpire, order: state.seatOrder })) return false;
+            this.hands = {};
+            for (let pos = 1; pos <= 4; pos++) {
+                const hand = state.hands?.[pos];
+                if (Array.isArray(hand)) this.hands[this.positions[pos]] = cards(hand);
+            }
+
+            const from = this._stage;
+            this._stage = stage;
+            if (this._history) this._history.push(stage);
+            RESTORED.add(this);
+            gameLogger.debug('phase', { gameId: this.gameId, from, to: stage, restored: true });
+            if (shouldCheckInvariants()) {
+                const { errors } = this.validateGameState();
+                if (errors.length > 0) reportViolation('invariant', { gameId: this.gameId, stage, errors, restored: true });
+            }
+            return true;
+        } finally {
+            RESTORING.delete(this);
+        }
+    }
+
+    /**
+     * Create all four seats of a game being restored (only from
+     * restoreFrom; anywhere else it is a reported violation). Each record
+     * is the codec's {controller, presence, ownerUsername, ownerPic, bot,
+     * lastPersonality, resignedAt, leftAt, gone}; nobody is connected
+     * after a restore:
+     *   human (any presence)   -> human/grace: a fresh graceDeadline and
+     *                             its grace:<pos> timer, keyed by
+     *                             restored:<gameId>:<pos> (seatReconnect
+     *                             re-keys the hand to the real socket)
+     *   lazyBot / resignBot    -> away, or gone when the owner had left
+     *   bot                    -> bot/none
+     * The players index is built in `order` (positions, as the live
+     * game's index was: the deal hands out cards in that order), else 1-4.
+     * Runs validateSeats; any error is a reported violation (false).
+     * @param {Object} records - {1..4: record}
+     * @param {{now?: number, onGraceExpire?: Function, order?: number[]}} [opts]
+     * @returns {boolean}
+     */
+    restoreSeats(records, { now = Date.now(), onGraceExpire = null, order = null } = {}) {
+        if (!RESTORING.has(this) || this.seatList().length !== 0) {
+            reportViolation('restore-outside', { gameId: this.gameId, what: 'restoreSeats', stage: this._stage });
+            return false;
+        }
+        for (let pos = 1; pos <= 4; pos++) {
+            const r = records?.[pos];
+            const botOk = r && (r.controller === Controller.HUMAN || (r.bot && isBotSocket(r.bot.socketId)));
+            if (!r || !SeatState.LEGAL[r.controller] || !botOk) {
+                reportViolation('restore-seat', { gameId: this.gameId, pos, controller: r?.controller ?? null });
+                return false;
+            }
+        }
+        const isOrder = Array.isArray(order) && order.length === 4 && [1, 2, 3, 4].every(p => order.includes(p));
+        for (const pos of isOrder ? order : [1, 2, 3, 4]) {
+            const r = records[pos];
+            const controller = r.controller;
+            const human = controller === Controller.HUMAN;
+            const native = controller === Controller.BOT;
+            const gone = !human && !native && (r.gone === true || r.presence === Presence.GONE);
+            let presence = Presence.NONE;
+            if (human) presence = Presence.GRACE;
+            else if (!native) presence = gone ? Presence.GONE : Presence.AWAY;
+            const bot = human ? null : this._botRecord(r.bot);
+            const seat = {
+                position: pos,
+                controller,
+                presence,
+                ownerUsername: native ? null : (r.ownerUsername ?? null),
+                ownerPic: native ? null : (r.ownerPic ?? null),
+                ownerSocketId: null,
+                ownerView: null,
+                seatSocketId: human ? restoredSeatSocketId(this.gameId, pos) : bot.socketId,
+                bot,
+                lastPersonality: r.lastPersonality ?? null,
+                absentSince: native ? null : now,
+                graceDeadline: human ? now + RECONNECT_GRACE_MS : null,
+                resignableAt: null,
+                resignedAt: r.resignedAt ?? null,
+                leftAt: gone ? (r.leftAt ?? now) : (r.leftAt ?? null)
+            };
+            this.seats[pos] = seat;
+            if (human) {
+                const expire = typeof onGraceExpire === 'function' ? () => onGraceExpire(pos) : () => {};
+                this.setTimer('grace:' + pos, RECONNECT_GRACE_MS, expire);
+            }
+            this._indexSeat(pos);
+            if (this._seatHistory) this._seatHistory.push(`${pos}:restore:${seat.controller}/${seat.presence}`);
+        }
+        this.entrants = null;
+        this.logAction('seat', { event: 'restore' });
+        const errors = validateSeats(this);
+        if (errors.length > 0) {
+            reportViolation('seat-invariant', { gameId: this.gameId, event: 'restore', errors });
+            return false;
+        }
+        return true;
+    }
+
+    // ========================================
     // Entrants (before seats exist)
     // ========================================
 
@@ -1295,17 +1523,30 @@ class GameState {
     }
 
     /**
+     * True (and logged at debug) when nothing may be emitted from this game:
+     * it is terminal, or frozen for a handoff (freeze()).
+     */
+    _emitsDropped(event) {
+        if (this.isTerminal()) {
+            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
+            return true;
+        }
+        if (this.frozen) {
+            gameLogger.debug('emit dropped: frozen', { gameId: this.gameId, event });
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Broadcast an event to all players in this game. Dropped once the game
-     * is terminal (nothing is emitted from a dead game).
+     * is terminal (nothing is emitted from a dead game) or frozen.
      * @param {Server} io - Socket.IO server instance
      * @param {string} event - Event name
      * @param {Object} data - Event data
      */
     broadcast(io, event, data) {
-        if (this.isTerminal()) {
-            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
-            return;
-        }
+        if (this._emitsDropped(event)) return;
         // Every room broadcast carries the game's next sequence number
         // (additive top-level `seq`; contract/README.md R1-R5). A shallow
         // copy: nested values are the same references as before.
@@ -1321,10 +1562,7 @@ class GameState {
      * notice (V1_REMOVALS #8): the joiner gets its own full state instead.
      */
     broadcastExcept(socket, event, data) {
-        if (this.isTerminal()) {
-            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
-            return;
-        }
+        if (this._emitsDropped(event)) return;
         const seq = this.nextSeq();
         socket.to(this.roomName).emit(event, isPlainObject(data) ? { ...data, seq } : data);
     }
@@ -1338,10 +1576,7 @@ class GameState {
      * broadcast.
      */
     emitUnsequenced(io, event, data) {
-        if (this.isTerminal()) {
-            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
-            return;
-        }
+        if (this._emitsDropped(event)) return;
         io.to(this.roomName).emit(event, data);
     }
 
@@ -1363,10 +1598,7 @@ class GameState {
      * @param {Object} data - Event data
      */
     sendToPlayer(io, socketId, event, data) {
-        if (this.isTerminal()) {
-            gameLogger.debug('emit dropped: terminal', { gameId: this.gameId, event });
-            return;
-        }
+        if (this._emitsDropped(event)) return;
         // Skip bots - they don't have real socket connections
         if (this.isBot(socketId)) return;
         io.to(socketId).emit(event, data);
@@ -1734,3 +1966,5 @@ class GameState {
 
 module.exports = GameState;
 module.exports.RESUME_KINDS = RESUME_KINDS;
+module.exports.RESTORE_STAGES = RESTORE_STAGES;
+module.exports.restoredSeatSocketId = restoredSeatSocketId;

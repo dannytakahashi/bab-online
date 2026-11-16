@@ -34,6 +34,12 @@ const { randomStockPic } = require('../avatar/stockAvatars');
 
 const logContinuationError = (what, game) => (err) =>
     gameLogger.error(`${what} failed`, { gameId: game.gameId, error: err.message, stack: err.stack });
+// A turn continuation (after a bot's bid or card) that threw may have left
+// the table half-written: the game is tainted (GameState.markTainted)
+const turnContinuationError = (what, game) => (err) => {
+    game.markTainted?.(true);
+    logContinuationError(what, game)(err);
+};
 
 /**
  * Tell the sender its action was refused (instead of failing silently) so a
@@ -78,13 +84,13 @@ function triggerBotIfNeeded(io, game, actionType) {
             // after a stale-state bail wedges the game on a phantom turn
             if (!botController.processBotBid(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostBid(io, game).catch(logContinuationError('handlePostBid', game));
+            handlePostBid(io, game).catch(turnContinuationError('handlePostBid', game));
         });
     } else if (actionType === 'play') {
         botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
             if (!botController.processBotPlay(io, game, bot)) return;
             game.currentTurn = rotatePosition(game.currentTurn);
-            handlePostPlay(io, game).catch(logContinuationError('handlePostPlay', game));
+            handlePostPlay(io, game).catch(turnContinuationError('handlePostPlay', game));
         });
     }
 }
@@ -1059,5 +1065,9 @@ module.exports = {
     playCard,
     handleDrawComplete,
     forceResign,
-    triggerBotIfNeeded
+    triggerBotIfNeeded,
+    // The restore kick (deploy survival): a restored TRICK_RESOLVING /
+    // HAND_RESOLVING table re-schedules its hold with these
+    resumeTrick,
+    handleHandComplete
 };
