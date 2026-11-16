@@ -93,6 +93,7 @@ struct AdminReportsView: View {
                 Spacer(minLength: 0)
             }
             .tint(Theme.primary)
+            .disabled(admin.closingReports.contains(r.id))
         } else {
             Text(AdminCopy.reportResolution(r))
                 .font(.footnote)
@@ -103,7 +104,8 @@ struct AdminReportsView: View {
     }
 
     private func note(_ id: String) -> Binding<String> {
-        Binding(get: { notes[id] ?? "" }, set: { notes[id] = String($0.prefix(AdminCopy.reportNoteLimit)) })
+        // the cap as the server counts it (UTF-16 units); the trim is at send
+        Binding(get: { notes[id] ?? "" }, set: { notes[id] = $0.utf16.count > AdminCopy.reportNoteLimit ? AdminCopy.reportNote($0) : $0 })
     }
 
     private func close(_ r: AdminReport, _ status: String) {
@@ -162,6 +164,7 @@ struct AdminAdminsView: View {
         }
         .buttonStyle(.borderless)
         .frame(minHeight: 36)
+        .disabled(admin.makingLink)
         .accessibilityLabel("Remove admin: \(a.username)")
         .accessibilityIdentifier("admin.admins.remove.\(a.username)")
     }

@@ -414,9 +414,11 @@ final class AdminPanelTests: XCTestCase {
         await admin.loadPlayers()
         XCTAssertEqual(admin.status, .init(text: "No answer from the server. Check the connection and try again.", kind: .error))
         script.answers = { _, _ in .failure(.rateLimited) }
+        admin.tab = .admins  // a load's failure is said in its own section
         await admin.loadAdmins()
         XCTAssertEqual(admin.status, .init(text: "Too many admin requests in a minute. Wait a moment and try again.", kind: .error))
         script.answers = { _, _ in .failure(.offline) }
+        admin.tab = .audit
         await admin.loadAudit()
         XCTAssertEqual(admin.status?.text, AdminCopy.noAnswer)
         XCTAssertTrue(admin.isPresented)
@@ -440,6 +442,7 @@ final class AdminPanelTests: XCTestCase {
         await load.value
         XCTAssertNil(admin.roster, "the closed panel takes no answer")
         XCTAssertNil(admin.status)
+        XCTAssertEqual(admin.inFlight, 0)
     }
 
     func testResetLinkIsShownOnceAndNeverInAMessage() async {
@@ -544,6 +547,8 @@ final class AdminPanelTests: XCTestCase {
         XCTAssertEqual(admin.deletePrompt(p("ghost"))?.confirmLabel, "Free name")
         _ = await admin.submitDelete(p("ghost"), typed: "ghost")
         XCTAssertEqual(admin.status?.text, "The name ghost is free again.")
+        // behind the closing sheet: the sheet has its answer before the list reloads
+        await settle { script.count(.listPlayers) == 3 }
         XCTAssertEqual(script.count(.listPlayers), 3, "one load, then one reload per success")
     }
 
@@ -748,6 +753,11 @@ final class AdminPanelTests: XCTestCase {
         admin.tab = .audit
         admin.mergeKeep = "Alan"
         admin.close()
+        // closing forgets, not only the next opening: nothing stays behind a closed panel
+        XCTAssertNil(admin.roster)
+        XCTAssertEqual(admin.playerFilter, "")
+        XCTAssertEqual(admin.mergeKeep, "")
+        XCTAssertNil(admin.status)
         admin.open()
         XCTAssertNil(admin.roster)
         XCTAssertEqual(admin.playerFilter, "")

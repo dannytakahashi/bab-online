@@ -9,7 +9,6 @@ import SwiftUI
 struct AdminMergeView: View {
     @ObservedObject var admin: AdminState
     @State private var confirmText = ""
-    @State private var applying = false
 
     var body: some View {
         List {
@@ -25,6 +24,8 @@ struct AdminMergeView: View {
             }
             .listRowBackground(Theme.surface)
             .tint(Theme.primary)
+            // a merge on its way keeps the names it was previewed with
+            .disabled(admin.applyingMerge)
 
             if let groups = admin.duplicates { duplicates(groups) }
 
@@ -69,6 +70,7 @@ struct AdminMergeView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Button("Use") { admin.use(group) }
+                        .disabled(admin.applyingMerge)
                         .buttonStyle(.borderless)
                         .tint(Theme.primary)
                         .frame(minWidth: 44, minHeight: 36)
@@ -166,19 +168,17 @@ struct AdminMergeView: View {
                         .foregroundStyle(Theme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                     AdminField(label: "Type \(plan.target) to confirm", text: $confirmText, identifier: "admin.merge.confirm")
+                        .disabled(admin.applyingMerge)
                     Button(role: .destructive) {
-                        applying = true
-                        Task {
-                            await admin.applyMerge(typed: confirmText)
-                            applying = false
-                        }
+                        let typed = confirmText
+                        Task { await admin.applyMerge(typed: typed) }
                     } label: {
                         HStack {
-                            if applying { ProgressView().tint(Theme.error) }
+                            if admin.applyingMerge { ProgressView().tint(Theme.error) }
                             Text("Merge accounts").bold()
                         }
                     }
-                    .disabled(confirmText != plan.target || applying || !admin.hasPreview)
+                    .disabled(confirmText != plan.target || admin.applyingMerge || !admin.hasPreview)
                     .accessibilityIdentifier("admin.merge.apply")
                 }
             }

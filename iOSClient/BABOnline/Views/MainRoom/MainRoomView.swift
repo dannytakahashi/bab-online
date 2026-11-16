@@ -15,6 +15,8 @@ private struct MainRoomScreen: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var mainRoomState: MainRoomState
     @EnvironmentObject var tournamentState: TournamentState
+    /// `isAdmin` shows the Admin button (display only: the server checks every request).
+    @EnvironmentObject var authState: AuthState
     /// New Game / Tournament wait for the session: after a reconnect, a tap before the
     /// restore's answer made a lobby that the restore's joinMainRoom then left at once.
     @ObservedObject private var socketService = SocketService.shared
@@ -79,7 +81,7 @@ private struct MainRoomScreen: View {
         .sheet(isPresented: $showAccountSettings, onDismiss: {
             guard openAdminAfterAccount else { return }
             openAdminAfterAccount = false
-            admin.open()
+            openAdmin()
         }) {
             AccountSettingsView(openAdmin: { openAdminAfterAccount = true })
         }
@@ -87,6 +89,13 @@ private struct MainRoomScreen: View {
             AdminPanelView(admin: admin)
                 .statsSheetSizing()
         }
+    }
+
+    /// Only on the main room and only with the flag (`AdminState.open` checks it): either
+    /// can have gone while the Account sheet was closing (a forceLogout, a game starting).
+    private func openAdmin() {
+        guard appState.screen == .mainRoom else { return }
+        admin.open()
     }
 
     // MARK: - Lobby Browser
@@ -139,6 +148,19 @@ private struct MainRoomScreen: View {
                     .foregroundColor(Theme.textSecondary)
             }
 
+            if authState.isAdmin {
+                // admins only, as the web's main room header
+                Button(action: openAdmin) {
+                    Image(systemName: "shield.lefthalf.filled")
+                        .font(.callout)
+                        .foregroundColor(Theme.textSecondary)
+                        .frame(minWidth: 32, minHeight: 32)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Admin")
+                .accessibilityIdentifier("mainRoom.admin")
+            }
+
             Button(action: { showAccountSettings = true }) {
                 Image(systemName: "gearshape.fill")
                     .font(.callout)
@@ -168,6 +190,12 @@ private struct MainRoomScreen: View {
             // the column), and a badge reads as an alert: the count is in the chat header.
             Button(action: { showOnlineUsers = true }) {
                 Label("\(mainRoomState.onlineCount) online", systemImage: "person.2.fill")
+            }
+            if authState.isAdmin {
+                Button(action: openAdmin) {
+                    Label("Admin", systemImage: "shield.lefthalf.filled")
+                }
+                .accessibilityIdentifier("mainRoom.admin")
             }
             Button(action: { showAccountSettings = true }) {
                 Label("Account settings", systemImage: "gearshape.fill")

@@ -125,6 +125,10 @@ enum AdminCopy {
     static let noAnswer = "No answer from the server. Check the connection and try again."
 
     static func noAnswer(_ why: AdminApi.NoAnswer) -> String { why == .rateLimited ? rateLimited : noAnswer }
+    /// After an action's own message, when the list's reload got no answer.
+    static let listNotRefreshed = "The list could not be refreshed: pull down to reload it."
+    static let resetLinkSpoken = "On screen. Use Copy or Share to pass it on."
+    static let resetLinkCovered = "Hidden while the app is not in front."
 
     private static func accounts(_ n: Int) -> String { "\(n) account\(n == 1 ? "" : "s")" }
 
@@ -254,6 +258,19 @@ enum AdminCopy {
         "\(r.status == "resolved" ? "Resolved" : "Dismissed") by \(r.resolvedBy ?? "?") \(AdminDates.dateTime(r.resolvedAt))\(r.note.map { ": \($0)" } ?? "")"
     }
     static let reportNoteLimit = 500
+
+    /// The note as sent: trimmed, at most 500 UTF-16 units (the server's Joi counts a
+    /// string's length that way, so 500 emoji would be refused), never half a character.
+    static func reportNote(_ raw: String) -> String {
+        var out = ""
+        var units = 0
+        for ch in raw.trimmingCharacters(in: .whitespacesAndNewlines) {
+            units += ch.utf16.count
+            if units > reportNoteLimit { break }
+            out.append(ch)
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     // MARK: Admins
 

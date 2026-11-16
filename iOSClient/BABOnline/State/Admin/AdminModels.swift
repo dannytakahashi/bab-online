@@ -9,6 +9,14 @@ import Foundation
 enum AdminAction: String, CaseIterable {
     case listPlayers, createResetLink, signOutEverywhere, findDuplicates, planMerge, applyMerge
     case listReports, resolveReport, listAdmins, setAdmin, listAudit, deleteAccount, renameAccount
+
+    /// Changes the server's data (a reset link too: making one cancels the player's last).
+    var changesSomething: Bool {
+        switch self {
+        case .createResetLink, .signOutEverywhere, .applyMerge, .resolveReport, .setAdmin, .deleteAccount, .renameAccount: return true
+        case .listPlayers, .findDuplicates, .planMerge, .listReports, .listAdmins, .listAudit: return false
+        }
+    }
 }
 
 /// One `adminResponse`: {requestId, action, ok: true, ...fields} or

@@ -4,7 +4,9 @@ import SwiftUI
 /// Admins, Audit) as one sheet from the Account sheet's Admin entry, shown only to admins
 /// (`AuthState.isAdmin`, display only: the server checks every request). A section loads
 /// from the server each time it is opened, as the web's tabs do; one status line under the
-/// section control says the last result or error and is announced to VoiceOver.
+/// section control says the last result or error and is announced to VoiceOver. While a
+/// request that changes something waits, the panel cannot be closed by hand. The one-time
+/// reset link's sheet hangs here, so it comes up over whichever section is showing.
 struct AdminPanelView: View {
     @ObservedObject var admin: AdminState
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -38,6 +40,7 @@ struct AdminPanelView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { admin.close() }
+                        .disabled(admin.changing > 0)
                         .accessibilityLabel("Close admin panel")
                         .accessibilityIdentifier("admin.close")
                 }
@@ -52,6 +55,10 @@ struct AdminPanelView: View {
         }
         // opening a section loads it (also the first one, when the panel opens)
         .task(id: admin.tab) { await admin.tabOpened(admin.tab) }
+        // over any section: the link's answer can land after the section changed
+        .sheet(item: $admin.resetLink) { AdminResetLinkSheet(link: $0, admin: admin) }
+        // a change on its way is not closed away unseen (the typed sheets do the same)
+        .interactiveDismissDisabled(admin.changing > 0)
         .sensoryFeedback(.selection, trigger: admin.tab)
     }
 

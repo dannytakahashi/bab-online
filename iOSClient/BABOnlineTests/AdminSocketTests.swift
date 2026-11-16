@@ -88,8 +88,9 @@ final class AdminSocketTests: XCTestCase {
 
     @MainActor
     func testRequestsWaitForTheSessionAndAreAnsweredByRequestId() {
-        // before any connection: refused at once, nothing sent
+        // before any connection: no flag, no panel; a request is refused at once, nothing sent
         admin.open()
+        XCTAssertFalse(admin.isPresented)
         var early: AdminApi.Outcome?
         Task { early = await self.admin.api.request(.listAdmins) }
         wait("refused offline") { early != nil }
@@ -101,6 +102,9 @@ final class AdminSocketTests: XCTestCase {
         XCTAssertTrue(auth.isAdmin, "restoreSessionResponse isAdmin: true shows the Admin entry")
         XCTAssertEqual(sent("adminRequest").count, 0, "nothing went out before the session")
 
+        admin.open()
+        XCTAssertTrue(admin.isPresented)
+        admin.tab = .admins
         Task { await self.admin.loadAdmins() }
         wait("the admins list") { self.admin.admins != nil }
         XCTAssertEqual(admin.admins?.map(\.username), ["ivy", "jon"])

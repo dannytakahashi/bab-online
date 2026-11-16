@@ -63,7 +63,6 @@ struct AdminPlayersView: View {
                 await admin.submitRename(player, newName: newName, confirm: again)
             }
         }
-        .sheet(item: $admin.resetLink) { AdminResetLinkSheet(link: $0) }
     }
 
     // MARK: Filter and sort
@@ -190,6 +189,8 @@ struct AdminPlayersView: View {
                     .contentShape(Rectangle())
             }
             .menuOrder(.fixed)
+            // a reset link is on its way: nothing else may take the place of its sheet
+            .disabled(admin.makingLink)
             .accessibilityLabel("More actions: \(p.username)")
             .accessibilityIdentifier("admin.player.menu.\(p.username)")
         }

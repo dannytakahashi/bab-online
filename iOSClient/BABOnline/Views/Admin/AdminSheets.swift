@@ -200,31 +200,35 @@ struct AdminRenameSheet: View {
 
 /// A one-time reset link, shown once: Copy (this device only, gone from the clipboard when
 /// the link expires) or the system share sheet (Messages). The link is a bearer secret: it
-/// lives only in this sheet's state, is never logged, and is covered while the app is not
-/// in front (the app switcher's snapshot).
+/// lives only in `AdminState.resetLink` while this sheet is up, is never logged or spoken
+/// (VoiceOver names the row, not the link), and is covered while the app is not in front
+/// (`AdminState.linkCovered`, from UIKit's resign / become active: the app switcher's
+/// snapshot never holds it).
 struct AdminResetLinkSheet: View {
     let link: AdminResetLink
+    @ObservedObject var admin: AdminState
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.scenePhase) private var scenePhase
     @State private var copied = false
 
     var body: some View {
         NavigationStack {
             List {
                 Section {
-                    if scenePhase == .active {
+                    if admin.linkCovered {
+                        Text(AdminCopy.resetLinkCovered)
+                            .font(.footnote)
+                            .foregroundStyle(Theme.textDim)
+                            .accessibilityIdentifier("admin.resetLink.covered")
+                    } else {
                         Text(link.url)
                             .font(.footnote.monospaced())
                             .foregroundStyle(Theme.textPrimary)
                             .textSelection(.enabled)
                             .accessibilityLabel("Reset link")
-                            .accessibilityValue(link.url)
+                            // not the link itself: VoiceOver would read the secret aloud
+                            .accessibilityValue(AdminCopy.resetLinkSpoken)
                             .accessibilityIdentifier("admin.resetLink.url")
-                    } else {
-                        Text("Hidden while the app is not in front.")
-                            .font(.footnote)
-                            .foregroundStyle(Theme.textDim)
                     }
                 } header: {
                     Text("Reset link for \(link.username)").textCase(nil)

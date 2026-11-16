@@ -5,7 +5,8 @@ import XCTest
 /// the server does). Covers the entry (admins only), every section, the confirmations
 /// (yes / no alerts, a name typed exactly, the rename's two fields), a refusal staying in
 /// its sheet, the one-time reset link, forbidden and self-removal closing the panel, and no
-/// answer. Each state is also saved as a kept screenshot attachment `admin-<name>`
+/// answer, the main room header's Admin button, and a reset link whose answer lands on
+/// another section. Each state is also saved as a kept screenshot attachment `admin-<name>`
 /// (export with iOSClient/scripts/ios-screenshots.sh). Runs on any device.
 final class AdminPanelUITests: XCTestCase {
     override func setUp() {
@@ -120,6 +121,7 @@ final class AdminPanelUITests: XCTestCase {
         openAccount(app)
         XCTAssertTrue(app.buttons["account.changePassword"].waitForExistence(timeout: 3))
         XCTAssertFalse(element(app, "account.admin").exists, "no Admin entry without the flag")
+        XCTAssertFalse(app.buttons["mainRoom.admin"].exists, "nor the header's button")
     }
 
     // MARK: - Players
@@ -158,7 +160,9 @@ final class AdminPanelUITests: XCTestCase {
         openMenu(app, "kim", item: "Reset link")
         let url = element(app, "admin.resetLink.url")
         XCTAssertTrue(url.waitForExistence(timeout: 5), "the link's sheet")
-        XCTAssertTrue((url.value as? String ?? "").contains("/reset#"), "\(url.value ?? "")")
+        // VoiceOver names the row and never reads the link (a bearer secret) aloud
+        XCTAssertEqual(url.label, "Reset link")
+        XCTAssertEqual(url.value as? String, "On screen. Use Copy or Share to pass it on.")
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Shown once: copy it now. It works once, until ")).firstMatch.exists)
         XCTAssertTrue(app.buttons["admin.resetLink.share"].exists)
         shot(app, "reset-link")
@@ -358,6 +362,46 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertFalse(element(app, "account.admin").exists, "the entry is gone")
     }
 
+    // MARK: - The header's entry, and a slow reset link
+
+    func testTheMainRoomHeaderOpensThePanelForAdmins() {
+        let app = launch("ok")
+        let entry = app.buttons["mainRoom.admin"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "an admin's main room has the Admin button (the web's header)")
+        XCTAssertEqual(entry.label, "Admin")
+        shot(app, "header-entry")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars["Admin"].waitForExistence(timeout: 8))
+        XCTAssertTrue(element(app, "admin.players.count").waitForExistence(timeout: 8))
+        app.buttons["admin.close"].tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+    }
+
+    /// The link's answer lands after the section changed: its sheet still comes up (the
+    /// server has cancelled the player's earlier link by then), the panel cannot be closed
+    /// while it is on its way, and the link is back after the app left the front.
+    func testAResetLinkThatArrivesOnAnotherSectionIsStillShown() {
+        let app = openAdmin(extra: ["-uiAdminDelay", "2.5"])
+        filterPlayers(app, "kim")
+        openMenu(app, "kim", item: "Reset link")
+        XCTAssertFalse(app.buttons["admin.close"].isEnabled, "a change on its way: Close waits")
+        XCTAssertFalse(app.buttons["admin.player.menu.kim"].firstMatch.isEnabled, "no second link, no other dialog meanwhile")
+        selectTab(app, "Audit")
+        let url = element(app, "admin.resetLink.url")
+        XCTAssertTrue(url.waitForExistence(timeout: 10), "the link's sheet over the Audit section")
+        shot(app, "reset-link-other-section")
+
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(url.waitForExistence(timeout: 10), "in front again: the link is shown again")
+        XCTAssertFalse(element(app, "admin.resetLink.covered").exists)
+        app.buttons["admin.resetLink.done"].tap()
+        XCTAssertTrue(app.buttons["admin.close"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["admin.close"].isEnabled)
+        let sent = Fixture.probe(app, "fixture.sent")
+        XCTAssertEqual(sent.components(separatedBy: "admin:createResetLink").count - 1, 1, sent)
+    }
+
     // MARK: - Audit
 
     func testAuditPagesBack() {
@@ -370,7 +414,7 @@ final class AdminPanelUITests: XCTestCase {
         let more = app.buttons["admin.audit.more"]
         for _ in 0..<40 where !more.exists { app.swipeUp(velocity: .fast) }
         XCTAssertTrue(more.exists, "50 rows, then Load more")
-        more.tap()
+        more.doubleTap()  // the second tap asks nothing: one page, no row twice
         let oldest = element(app, "admin.audit.row.\(String(format: "%024x", 941))")
         for _ in 0..<20 where !oldest.exists { app.swipeUp(velocity: .fast) }
         XCTAssertTrue(oldest.exists, "the second page's last row")
