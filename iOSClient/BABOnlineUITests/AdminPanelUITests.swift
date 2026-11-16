@@ -46,12 +46,20 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
     }
 
+    /// The Admin entry sits under the profile and its statistics (iOS 1.2.2), so it starts off
+    /// screen on a phone: scroll the Account sheet until it (or, for a check that it is absent,
+    /// the Password section right under it) is on screen.
+    private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
+        for _ in 0..<8 where !(target.exists && target.isHittable) { app.swipeUp(velocity: .slow) }
+    }
+
     /// Main room -> Account -> Admin.
     @discardableResult
     private func openAdmin(_ mode: String = "ok", extra: [String] = []) -> XCUIApplication {
         let app = launch(mode, extra: extra)
         openAccount(app)
         let entry = element(app, "account.admin")
+        reveal(app, entry)
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "an admin's Account sheet has the Admin entry")
         entry.tap()
         XCTAssertTrue(app.navigationBars["Admin"].waitForExistence(timeout: 8), "the Admin entry opens the panel")
@@ -119,6 +127,7 @@ final class AdminPanelUITests: XCTestCase {
     func testNonAdminsHaveNoAdminEntry() {
         let app = launch(nil)
         openAccount(app)
+        reveal(app, app.buttons["account.changePassword"])
         XCTAssertTrue(app.buttons["account.changePassword"].waitForExistence(timeout: 3))
         XCTAssertFalse(element(app, "account.admin").exists, "no Admin entry without the flag")
         XCTAssertFalse(app.buttons["mainRoom.admin"].exists, "nor the header's button")
@@ -359,6 +368,7 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Admin"].waitForNonExistence(timeout: 5), "the panel closed")
         dismissToast(app)
         openAccount(app)
+        reveal(app, app.buttons["account.changePassword"])
         XCTAssertFalse(element(app, "account.admin").exists, "the entry is gone")
     }
 
@@ -515,6 +525,7 @@ final class AdminPanelUITests: XCTestCase {
     func testForbiddenClosesThePanelAndHidesTheEntry() {
         let app = launch("forbidden")
         openAccount(app)
+        reveal(app, element(app, "account.admin"))
         element(app, "account.admin").tap()
         let toast = element(app, "serverErrorToast")
         XCTAssertTrue(toast.waitForExistence(timeout: 10))
@@ -523,6 +534,7 @@ final class AdminPanelUITests: XCTestCase {
         shot(app, "forbidden")
         dismissToast(app)
         openAccount(app)
+        reveal(app, app.buttons["account.changePassword"])
         XCTAssertFalse(element(app, "account.admin").exists, "the entry is hidden")
     }
 
