@@ -698,6 +698,20 @@ body > .voice-btn {
 .voice-row.is-muted .voice-row__slider,
 .voice-row.is-muted .voice-row__pct { opacity: 0.4; }
 .voice-row .kit-btn { min-height: var(--hit-target); min-width: 64px; }
+/* spectator voice: "(watching)" / "listening only" after a name */
+.voice-row__tags { margin-left: var(--space-2); color: var(--text-dim); font-size: var(--type-xs); }
+.voice-row__tags:empty { display: none; }
+/* the "Spectators can talk" switch (a player who may change it) */
+.voice-overlay__settings { margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line-subtle); }
+.voice-overlay__settings[hidden] { display: none; }
+
+/* listen-only: the headphones (aria-disabled, still clickable); green rim when a tap would talk */
+.voice-btn.kit-icon-btn.is-listen-only { color: var(--text-secondary); }
+.voice-btn.kit-icon-btn.is-listen-only.can-talk { border-color: var(--success); color: var(--text-primary); }
+
+/* a watcher speaking: the spectator badge glows (no seat to light), its row too */
+.spectator-badge.kit-icon-btn.voice-speaking { box-shadow: 0 0 0 3px rgb(var(--success-rgb) / 0.9), var(--elev-1); }
+.spectator-popover__row.is-speaking .spectator-popover__avatar { box-shadow: 0 0 0 2px var(--success); }
 
 /* ---------- The game log (#gameFeed) ---------- */
 

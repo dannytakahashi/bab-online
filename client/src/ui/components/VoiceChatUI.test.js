@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-vi.mock('../../voice/VoiceChatManager.js', () => ({ getVoiceChatManager: () => ({ toggleSelfMute: () => false }) }));
+const fakeVoice = { toggleSelfMute: vi.fn(() => false), selfMuted: false };
+vi.mock('../../voice/VoiceChatManager.js', () => ({ getVoiceChatManager: () => fakeVoice }));
 
-const { createMuteButton, removeMuteButton, reattachMuteButton } = await import('./VoiceChatUI.js');
+const { createMuteButton, removeMuteButton, reattachMuteButton, setVoiceTalkView, resetVoiceTalkView, listenOnlyLabel } = await import('./VoiceChatUI.js');
 const { applyHudLayout, clearHud } = await import('../tableHud.js');
 const { computeTableLayout, contains } = await import('../../phaser/layout/computeTableLayout.js');
 const { getClientSession, resetClientSession, SCREEN, ROLE } = await import('../../state/ClientSession.js');
@@ -181,5 +182,48 @@ describe('voice buttons in the full-window game lobby (its header, clear of Send
     const slotRule = css.match(/\.lobby-voice > \.voice-btn\s*\{([^}]*)\}/)?.[1] || '';
     expect(slotRule).toMatch(/position:\s*relative/);
     expect(css).toMatch(/\.lobby-voice\s*\{[^}]*display:\s*flex/);
+  });
+});
+
+describe('the mic button while listen-only (spectator voice, 2026-11-16)', () => {
+  afterEach(() => {
+    removeMuteButton();
+    resetVoiceTalkView();
+    fakeVoice.toggleSelfMute.mockClear();
+  });
+
+  it('headphones, aria-disabled (never disabled: it stays clickable and focusable); a click goes to the listen-only action, not mute', () => {
+    const onListenOnly = vi.fn();
+    createMuteButton();
+    setVoiceTalkView({ listenOnly: true, mayTalk: true, onListenOnly });
+    const mute = document.getElementById('voice-mute-btn');
+    expect(mute.getAttribute('aria-disabled')).toBe('true');
+    expect(mute.disabled).toBe(false);
+    expect(mute.hasAttribute('aria-pressed')).toBe(false);
+    expect(mute.getAttribute('aria-label')).toBe('Tap to talk (M)');
+    expect(mute.querySelector('svg path').getAttribute('d')).toMatch(/^M3 18v-6a9 9 0 0 1 18 0v6/); // the headphones
+    mute.click();
+    expect(onListenOnly).toHaveBeenCalledWith({ source: 'button' });
+    expect(fakeVoice.toggleSelfMute).not.toHaveBeenCalled();
+
+    setVoiceTalkView({ mayTalk: false });
+    expect(mute.getAttribute('aria-label')).toBe('Listening only (M)');
+    setVoiceTalkView({ micDenied: true });
+    expect(mute.getAttribute('aria-label')).toBe('Listening only (no mic access) (M)');
+    expect(listenOnlyLabel({ mayTalk: true, micDenied: true })).toBe('Tap to talk (no mic access yet)');
+
+    // talking again: the mute button, as before
+    setVoiceTalkView({ listenOnly: false });
+    expect(mute.hasAttribute('aria-disabled')).toBe(false);
+    expect(mute.getAttribute('aria-pressed')).toBe('false');
+    expect(mute.getAttribute('aria-label')).toBe('Mute microphone (M)');
+    mute.click();
+    expect(fakeVoice.toggleSelfMute).toHaveBeenCalledTimes(1);
+  });
+
+  it('a button made while listen-only is drawn listen-only from the start', () => {
+    setVoiceTalkView({ listenOnly: true, mayTalk: false });
+    createMuteButton();
+    expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Listening only (M)');
   });
 });

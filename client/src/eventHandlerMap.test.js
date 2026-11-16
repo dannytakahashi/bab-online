@@ -117,6 +117,16 @@ describe('server event -> handler map', () => {
     expect(heard('activeGameFound')).toBe(true);
   });
 
+  it('voiceSettings (spectator voice, 2026-11-16) has one handler, in the voice module, outside the seq gate (private, unsequenced)', () => {
+    expect(managed.get('voiceSettings')).toBe(1);
+    expect((listeners.get('voiceSettings') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.voiceSettings.seq).toBeFalsy();
+    expect(schema.s2c.voiceSettings.clientReads.web).toEqual(['client/src/handlers/voiceHandlers.js:registerVoiceHandlers']);
+    expect(schema.c2s.setSpectatorsCanTalk.sentBy.web).toBe(true);
+  });
+
   it('no playerAssigned listener: my seat comes from positionUpdate / gameStart / the snapshot (V1_REMOVALS #7)', () => {
     expect(managed.has('playerAssigned')).toBe(false);
     expect((listeners.get('playerAssigned') || []).length).toBe(0);

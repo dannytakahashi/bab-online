@@ -268,7 +268,10 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   a casual game's voice room as a spectator; send it `voiceSettings`.
   Without the cap anywhere the wire is byte-identical (wireGolden). Every
   shipped iOS build (1.2.0 build 6 to 1.2.2 build 11) sends only
-  `avatarUrl`. Send this cap ONLY from a client that does all of the above
+  `avatarUrl`; the web bundle sends both since the family-lobbies web PR
+  (2026-11-16; `client/src/utils/avatar.js` clientHello, also from a socket
+  that cannot fold avatar URLs, which then sends `casualSpectators` alone).
+  Send this cap ONLY from a client that does all of the above
   (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):

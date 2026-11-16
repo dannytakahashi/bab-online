@@ -562,6 +562,42 @@
     font-style: italic;
 }
 
+/* a family lobby of more than 4: Playing / Will watch / Sitting out */
+.seat-row__role {
+    color: var(--text-dim);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.seat-row__role.is-playing {
+    color: var(--success);
+}
+
+/* the family lobby's "Voice" section: the host's switch, or its value */
+.lobby-voice-settings {
+    flex-shrink: 0;
+    margin-bottom: var(--space-5);
+    text-align: left;
+}
+
+.lobby-voice-settings[hidden] { display: none; }
+
+.lobby-voice-settings .section-title { margin-bottom: var(--space-2); }
+
+.lobby-voice-setting {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+}
+
+.lobby-voice-hint {
+    margin: var(--space-2) 0 0;
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+}
+
 .seat-row--compact {
     min-height: 32px;
     font-size: var(--type-sm);

@@ -153,6 +153,68 @@
     pointer-events: none;
 }
 
+/* ---------- Switch: <button role="switch" aria-checked>, 44 px tall ---------- */
+
+.kit-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-height: var(--hit-target);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-medium);
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.kit-switch:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+}
+
+.kit-switch:disabled {
+    cursor: progress;
+    opacity: 0.6;
+}
+
+.kit-switch__track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 40px;
+    height: 24px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.kit-switch__thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--text-primary);
+    box-shadow: var(--elev-1);
+    transition: transform var(--dur-fast) var(--ease-emphasized);
+}
+
+.kit-switch[aria-checked="true"] .kit-switch__track {
+    background: var(--success);
+    border-color: var(--success);
+}
+
+.kit-switch[aria-checked="true"] .kit-switch__thumb {
+    transform: translateX(16px);
+}
+
 /* ---------- Input ---------- */
 
 .kit-input {

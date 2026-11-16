@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom } from './MainRoom.js';
-import { showGameLobby, addLobbyChatMessage, removeGameLobby } from './GameLobby.js';
+import { showGameLobby, addLobbyChatMessage, removeGameLobby, updateLobbyPlayersList, SWITCH_ECHO_TIMEOUT_MS } from './GameLobby.js';
 import { showTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentActiveGames, removeTournamentLobby } from './TournamentLobby.js';
 import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage } from './PlayerSearchPage.js';
 import { showProfilePage, showPlayerProfilePage, removeProfilePage, removePlayerProfilePage, handleFileUpload } from './ProfilePage.js';
@@ -446,6 +446,17 @@ describe('lobby controls keep their behaviour on the kit', () => {
     for (const b of document.querySelectorAll('#gameLobbyContainer button')) expect(b.getAttribute('style'), b.textContent).toBeNull();
   });
 
+  it('a legacy payload (players only, no members) renders as before: Players (n/4), empty slots, no voice section', () => {
+    showGameLobby({ lobbyId: 'L1', players: [{ socketId: 's1', username: 'me', ready: false }, { socketId: 's2', username: 'ann', ready: true }], messages: [] }, socket, 'me');
+    const list = document.getElementById('lobbyPlayersList');
+    expect(list.querySelector('.section-label').textContent).toBe('Players (2/4):');
+    expect(list.querySelectorAll('.seat-row--empty')).toHaveLength(2);
+    expect(list.querySelector('.seat-row__role')).toBeNull();
+    expect(list.textContent).not.toContain('(host)');
+    expect(document.getElementById('lobbyVoiceSettings').hidden).toBe(true);
+    expect(document.getElementById('lobbyReadyBtn').textContent).toBe('Waiting for 2 more...');
+  });
+
   it('chat sends on Enter and on Send, trimmed, and clears the field', () => {
     showMainRoom({ onlineCount: 1, messages: [], lobbies: [] }, socket, 'me');
     const input = document.getElementById('mainRoomChatInput');
@@ -487,5 +498,143 @@ describe('lobby controls keep their behaviour on the kit', () => {
     expect(begin.textContent).toBe('Begin Next Round');
     document.getElementById('tournamentCancelBtn').click();
     expect(socket.emitted('cancelTournament')).toHaveLength(1);
+  });
+});
+
+describe('family lobbies (up to 8; owner 2026-11-16)', () => {
+  /** A capable socket's lobby payload: players (first 4) + members / host / settings / capacity. */
+  function family(names, { ready = [], playing = null, bots = [], host = 'me', on = true, capacity = 8, held = [] } = {}) {
+    const members = names.map((username) => {
+      const m = { socketId: bots.includes(username) ? `bot:${username}` : `s-${username}`, username, ready: ready.includes(username), playing: playing ? playing.includes(username) : true };
+      if (bots.includes(username)) m.isBot = true;
+      if (held.includes(username)) m.reconnecting = true;
+      return m;
+    });
+    return {
+      lobbyId: 'L1',
+      players: members.slice(0, 4).map(({ socketId, username, ready: r, isBot }) => (isBot ? { socketId, username, ready: r, isBot } : { socketId, username, ready: r })),
+      members, host, settings: { spectatorsCanTalk: on }, capacity, messages: [],
+    };
+  }
+  const rows = () => [...document.querySelectorAll('#lobbyPlayersList .seat-row:not(.seat-row--empty)')];
+  const rowOf = (name) => rows().find((r) => r.querySelector('.seat-row__name').title === name);
+  const roleOf = (name) => rowOf(name).querySelector('.seat-row__role')?.textContent ?? null;
+  const update = (data) => updateLobbyPlayersList(null, data.players, 'me', { lobby: data });
+
+  it('6 members: a row each, no empty slot, the header "Players 6/8 · Ready r/4", the host marked', () => {
+    showGameLobby(family(['me', 'ann', 'bob', 'cat', 'dan', 'eve'], { playing: [] }), socket, 'me');
+    expect(rows()).toHaveLength(6);
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(0);
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 0/4');
+    expect(rowOf('me').querySelector('.seat-row__name').textContent).toBe('me (host)');
+    expect(rowOf('me').querySelector('.seat-row__name').classList.contains('is-host')).toBe(true);
+    expect(document.getElementById('lobbyAddBotBtn').hidden).toBe(true);
+    const ready = document.getElementById('lobbyReadyBtn');
+    expect(ready.disabled).toBe(false);
+    expect(ready.textContent).toBe('Ready');
+  });
+
+  it('the table fills: Playing / Will watch; my Ready is disabled "Table full — you\'ll watch" unless I play', () => {
+    showGameLobby(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', playing: [] }), socket, 'me');
+    update(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', ready: ['ann', 'bob', 'cat', 'dan'], playing: ['ann', 'bob', 'cat', 'dan'] }));
+    expect(['ann', 'bob', 'cat', 'dan', 'eve', 'me'].map(roleOf)).toEqual(['Playing', 'Playing', 'Playing', 'Playing', 'Will watch', 'Will watch']);
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 4/4');
+    const ready = document.getElementById('lobbyReadyBtn');
+    expect(ready.disabled).toBe(true);
+    expect(ready.textContent).toBe('Table full — you\'ll watch');
+    ready.click();
+    expect(socket.emitted('playerReady')).toEqual([]);
+    // before the table is full nobody is marked
+    update(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', ready: ['ann'], playing: ['ann'] }));
+    expect(roleOf('ann')).toBeNull();
+    expect(roleOf('me')).toBeNull();
+    expect(ready.disabled).toBe(false);
+    // I am one of the four: I can still unready
+    update(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', ready: ['ann', 'bob', 'cat', 'me'], playing: ['ann', 'bob', 'cat', 'me'] }));
+    expect(ready.disabled).toBe(false);
+    expect(ready.textContent).toBe('Ready!');
+    ready.click();
+    expect(socket.emitted('playerUnready')).toHaveLength(1);
+  });
+
+  it('bots that cannot play show "Sitting out" (four humans fill the table); a held seat says Reconnecting…', () => {
+    showGameLobby(family(['me', 'b1', 'b2', 'b3', 'ann', 'bob', 'cat'], { bots: ['b1', 'b2', 'b3'], playing: [], held: ['cat'] }), socket, 'me');
+    expect(roleOf('b1')).toBe('Sitting out');
+    expect(rowOf('b1').querySelector('.seat-row__status')).toBeNull();
+    expect(rowOf('b1').querySelector('[data-bot-socket-id]')).not.toBeNull(); // still removable
+    expect(rowOf('cat').querySelector('.seat-row__status').textContent).toBe('Reconnecting…');
+  });
+
+  it('the host\'s switch: a kit switch that waits for the echo; the others see the value read-only', () => {
+    vi.useFakeTimers();
+    try {
+      showGameLobby(family(['me', 'ann', 'bob', 'cat', 'dan']), socket, 'me');
+      const sw = document.getElementById('lobbySpectatorsCanTalk');
+      expect(sw.getAttribute('role')).toBe('switch');
+      expect(sw.getAttribute('aria-checked')).toBe('true');
+      expect(sw.textContent).toBe('Spectators can talk');
+      expect(document.getElementById('lobbyVoiceHint').textContent).toBe('The first 4 to tap Ready play; everyone else watches and can talk.');
+      sw.click();
+      expect(socket.emitted('setSpectatorsCanTalk')).toEqual([{ spectatorsCanTalk: false }]);
+      expect(sw.disabled).toBe(true);
+      expect(sw.getAttribute('aria-checked')).toBe('true'); // not flipped until the server says so
+      sw.click();
+      expect(socket.emitted('setSpectatorsCanTalk')).toHaveLength(1);
+      // another member's ready update (still on) keeps it waiting
+      update(family(['me', 'ann', 'bob', 'cat', 'dan'], { ready: ['ann'] }));
+      expect(document.getElementById('lobbySpectatorsCanTalk')).toBe(sw); // the same node (focus stays)
+      expect(sw.disabled).toBe(true);
+      // the echo
+      update(family(['me', 'ann', 'bob', 'cat', 'dan'], { on: false }));
+      expect(sw.disabled).toBe(false);
+      expect(sw.getAttribute('aria-checked')).toBe('false');
+      expect(document.getElementById('lobbyVoiceHint').textContent).toBe('The first 4 to tap Ready play; everyone else watches and can only listen.');
+      // no echo (refused): the server's value again after the timeout
+      sw.click();
+      expect(sw.disabled).toBe(true);
+      vi.advanceTimersByTime(SWITCH_ECHO_TIMEOUT_MS);
+      expect(sw.disabled).toBe(false);
+      expect(sw.getAttribute('aria-checked')).toBe('false');
+      // the host leaves: the role passes, my switch becomes a read-only line
+      update(family(['me', 'ann', 'bob', 'cat'], { host: 'ann', on: false }));
+      expect(document.getElementById('lobbySpectatorsCanTalk')).toBeNull();
+      expect(document.getElementById('lobbySpectatorsCanTalkValue').textContent).toBe('Spectators can talk: Off (the host decides)');
+      expect(rowOf('ann').querySelector('.seat-row__name').textContent).toBe('ann (host)');
+      // and back
+      update(family(['me', 'ann', 'bob', 'cat'], { host: 'me' }));
+      expect(document.getElementById('lobbySpectatorsCanTalk').getAttribute('aria-checked')).toBe('true');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a lobby of 4 with a member on an older app (capacity 4): the header says /4', () => {
+    showGameLobby(family(['me', 'ann', 'bob'], { capacity: 4 }), socket, 'me');
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 3/4 · Ready 0/4');
+    expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(1);
+  });
+
+  it('main room: n/8 from memberCount / capacity; n/4 without them; Rejoin for member 6 by memberUsernames', () => {
+    showMainRoom({ onlineCount: 1, messages: [], lobbies: [] }, socket, 'me');
+    const players4 = ['ann', 'bob', 'cat', 'dan'].map((username) => ({ username, ready: false }));
+    updateLobbyList([
+      { id: 'W', name: 'Wide', playerCount: 4, maxPlayers: 4, players: players4, createdAt: 1, memberCount: 6, capacity: 8, memberUsernames: ['ann', 'bob', 'cat', 'dan', 'eve', 'me'] },
+      { id: 'O', name: 'Open', playerCount: 2, maxPlayers: 4, players: players4.slice(0, 2), createdAt: 2, memberCount: 2, capacity: 8, memberUsernames: ['ann', 'bob'] },
+      { id: 'F', name: 'Full8', playerCount: 4, maxPlayers: 4, players: players4, createdAt: 3, memberCount: 8, capacity: 8, memberUsernames: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] },
+      { id: 'M', name: 'Mine8', playerCount: 4, maxPlayers: 4, players: players4, createdAt: 6, memberCount: 8, capacity: 8, memberUsernames: ['a', 'b', 'c', 'd', 'e', 'me', 'g', 'h'] },
+      { id: 'L', name: 'Legacy', playerCount: 4, maxPlayers: 4, players: players4, createdAt: 4, memberCount: 4, capacity: 4, memberUsernames: ['ann', 'bob', 'cat', 'dan'] },
+      { id: 'X', name: 'Old', playerCount: 3, maxPlayers: 4, players: players4.slice(0, 3), createdAt: 5 },
+    ], socket, [], []);
+    const card = (id) => document.querySelector(`.room-card[data-lobby-id="${id}"]`);
+    const countOf = (id) => card(id).querySelector('.room-card__count').textContent;
+    const button = (id) => card(id).querySelector('button');
+    expect(['W', 'O', 'F', 'L', 'X'].map(countOf)).toEqual(['6/8', '2/8', '8/8', '4/4', '3/4']);
+    // a full family lobby where I am member 6 (past the frozen 4 players): Rejoin
+    expect(['W', 'O', 'F', 'M', 'L', 'X'].map((id) => button(id).textContent)).toEqual(['Join', 'Join', 'Full', 'Rejoin', 'Full', 'Join']);
+    expect(button('F').disabled).toBe(true);
+    expect(button('M').dataset.rejoin).toBe('true');
+    expect(card('W').querySelector('.room-card__meta').textContent).toBe('ann, bob, cat, dan, eve, me');
+    button('M').click();
+    expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'M' }]);
   });
 });

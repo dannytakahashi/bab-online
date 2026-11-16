@@ -27,6 +27,7 @@ export const CLIENT_EVENTS = {
   PLAYER_UNREADY: 'playerUnready',
   ADD_BOT: 'addBot',
   REMOVE_BOT: 'removeBot',
+  SET_SPECTATORS_CAN_TALK: 'setSpectatorsCanTalk',
 
   // Game
   DRAW: 'draw',

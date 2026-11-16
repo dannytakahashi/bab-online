@@ -34,6 +34,19 @@ describe('speakingSlotFor', () => {
   });
 });
 
+describe('speakingSlotFor for a spectator (the view from seat 1)', () => {
+  it('seat 1\'s player lights the bottom seat, not nothing (a spectator is never seat 1)', () => {
+    const owners = { 1: 'ann', 2: 'bob', 3: 'cat', 4: 'dan' };
+    expect(speakingSlotFor({ username: 'ann', socketId: 'x', playerData, myPosition: 1, owners, spectator: true })).toBe('bottom');
+    expect(speakingSlotFor({ username: 'cat', socketId: 'x', playerData, myPosition: 1, owners, spectator: true })).toBe('partner');
+    expect(speakingSlotFor({ username: 'bob', socketId: 'x', playerData, myPosition: 1, owners, spectator: true })).toBe('opp1');
+    // a seat owner's own view is unchanged
+    expect(speakingSlotFor({ username: 'ann', socketId: 'x', playerData, myPosition: 1, owners })).toBeNull();
+    // a watcher (no seat) lights no seat
+    expect(speakingSlotFor({ username: 'zed', socketId: 'x', playerData, myPosition: 1, owners, spectator: true })).toBeNull();
+  });
+});
+
 describe('speakingSlotFor without socket ids on the wire (V1_REMOVALS #6 / #14)', () => {
   // what GameState holds once gameStart.players and positionUpdate.sockets are gone
   const noSockets = { position: [1, 2, 3, 4], socket: [null, null, null, null], username: playerData.username };

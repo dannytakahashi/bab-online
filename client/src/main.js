@@ -75,9 +75,9 @@ import { registerAllHandlers } from './handlers/index.js';
 
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
-import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState } from './ui/components/VoiceChatUI.js';
+import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState, setVoiceTalkView, resetVoiceTalkView } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
-import { renderSpectatorBadge, removeSpectatorBadge } from './ui/components/SpectatorBadge.js';
+import { renderSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSpeaking } from './ui/components/SpectatorBadge.js';
 
 // Sound effects
 import { getSoundManager } from './audio/SoundManager.js';
@@ -662,35 +662,211 @@ function initializeApp() {
   // start, so a late answer draws no dead mute button (voiceLifecycle.js)
   const voiceLifecycle = createVoiceLifecycle({
     manager: voiceManager,
-    connect: () => voiceManager.initialize(socketMgr),
+    // opts.talk false: listen-only, no microphone prompt (a spectator)
+    connect: (opts) => voiceManager.initialize(socketMgr, opts),
     onStarted: () => showVoiceControls(),
     onUnavailable: (err) => {
+      // A refused microphone is listen-only now (the session still hears):
+      // this is the rest (no WebRTC at all)
       console.warn('Voice chat unavailable:', err?.message);
-      showWarning('Microphone access denied. Voice chat unavailable.');
+      showWarning('Voice chat is unavailable in this browser.');
     },
     teardown: () => teardownVoice(),
+    // a voiceSettings during the microphone prompt: the start reads it
+    setMode: (talk) => voiceManager.setTalk(talk),
   });
 
-  function startVoice() {
-    return voiceLifecycle.start();
+  function startVoice(opts) {
+    return voiceLifecycle.start(opts);
+  }
+
+  // ---------- Spectator voice (voiceSettings; docs/claude/voice.md) ----------
+  // The last voiceSettings of this table (a casual game started from a
+  // lobby; null elsewhere), whether this spectator wants its microphone (a
+  // lobby extra came with it; a main-room spectator once it taps to talk),
+  // whether it came from the lobby (keeps wanting it across an off / on),
+  // "voice is full", and the in-game switch change waiting for its echo
+  let voiceSettings = null;
+  let voiceWantsMic = false;
+  let voiceFromLobby = false;
+  let voiceFull = false;
+  let voiceSwitchPending = null;
+
+  /** A watcher (a pure spectator of this table), not a seat's owner: "(watching)", the badge's speaking ring, the forced mute. */
+  function isWatcher(username) {
+    if (!username) return false;
+    const owners = Object.values(gameState.seatOwners || {});
+    if (owners.includes(username)) return false;
+    return (gameState.watching?.spectators || []).some((s) => s.username === username);
+  }
+
+  /** A player's backstop while spectators may not talk: watchers' audio plays at 0. */
+  function applyForcedMute() {
+    const s = voiceSettings;
+    const force = !!s && s.role === 'player' && !s.spectatorsCanTalk;
+    voiceManager.setForcedMute?.(force ? (_sid, username) => isWatcher(username) : null);
+  }
+
+  /** The voice controls' view of the talk mode (VoiceChatUI). */
+  function refreshTalkView() {
+    const s = voiceSettings;
+    const switchView = s && s.role === 'player' && s.canChange
+      ? {
+        checked: voiceSwitchPending ? voiceSwitchPending.value : !!s.spectatorsCanTalk,
+        pending: !!voiceSwitchPending,
+        onChange: (next) => requestGameSpectatorsCanTalk(next),
+      }
+      : null;
+    setVoiceTalkView({
+      listenOnly: !!voiceManager.isListenOnly?.(),
+      mayTalk: !s || s.role !== 'spectator' || !!s.canTalk,
+      micDenied: !!voiceManager.micDenied,
+      onListenOnly: (o) => onListenOnlyAction(o),
+      isWatcher,
+      spectatorsCanTalk: s ? !!s.spectatorsCanTalk : true,
+      switchView,
+    });
+  }
+
+  /** The in-game "Spectators can talk" switch (a player voiceSettings.canChange allows). */
+  function requestGameSpectatorsCanTalk(next) {
+    if (voiceSwitchPending) return;
+    voiceSwitchPending = {
+      value: !!next,
+      timer: setTimeout(() => {
+        // no echo (refused, coalesced away): show what the server last said
+        voiceSwitchPending = null;
+        refreshTalkView();
+      }, 5000),
+    };
+    socket.emit('setSpectatorsCanTalk', { spectatorsCanTalk: !!next });
+    refreshTalkView();
+  }
+
+  function clearVoiceSwitchPending() {
+    if (voiceSwitchPending?.timer) clearTimeout(voiceSwitchPending.timer);
+    voiceSwitchPending = null;
+  }
+
+  /**
+   * The mic button (and M) while listen-only: "Tap to talk" asks for the
+   * microphone when talking is allowed (a player whose microphone was
+   * refused too); otherwise it says why (and the button opens the overlay,
+   * where per-person volume and mute are).
+   */
+  function onListenOnlyAction({ source = 'button' } = {}) {
+    const s = voiceSettings;
+    const mayTalk = !s || s.role !== 'spectator' || !!s.canTalk;
+    if (mayTalk) {
+      voiceWantsMic = true;
+      Promise.resolve(voiceManager.setTalk(true)).then((talking) => {
+        if (!talking && voiceManager.active) showWarning('Microphone access denied. You can still listen.');
+        refreshTalkView();
+        refreshSpectatingIndicator();
+      });
+      return;
+    }
+    showInfo(s.spectatorsCanTalk
+      ? 'Listening only: nobody at this table can let spectators talk.'
+      : 'The host turned off spectator talk — you can still listen.');
+    if (source === 'button') showVoiceOverlay({ byClick: true });
+  }
+
+  /** Apply the stored voiceSettings: the forced mute, the spectator's mode (starting voice), the controls. */
+  function applyVoiceSettings() {
+    const s = voiceSettings;
+    applyForcedMute();
+    if (s && s.role === 'spectator') {
+      const talk = !!s.canTalk && voiceWantsMic;
+      // running: change the mode (re-offers); starting: the start reads it
+      if (voiceManager.active) voiceManager.setTalk(talk);
+      else startVoice({ talk });
+    }
+    refreshTalkView();
+    refreshSpectatingIndicator();
+  }
+
+  /**
+   * voiceSettings (a casual game's voice; private, to this capable tab only):
+   * role player (forced mute while spectators may not talk; the switch
+   * when canChange), spectator (voice listen-only unless allowed and
+   * wanted: a lobby extra keeps its microphone, a main-room spectator taps
+   * to talk) or none (voice is full: watch and chat only).
+   */
+  function onVoiceSettings(data) {
+    // a late one for a table this tab left
+    if (data.gameId && gameState.gameId && data.gameId !== gameState.gameId) return;
+    let prev = voiceSettings;
+    if (data.role === 'none' && session.isSpectator && (voiceManager.active || voiceLifecycle.starting)) {
+      // a watcher with no voice place: no voice session (it would hear
+      // nobody). First: the stop resets this table's voice state
+      stopVoice();
+    }
+    if (prev && prev.gameId !== data.gameId) {
+      prev = null;
+      voiceWantsMic = false;
+      voiceFromLobby = false;
+    }
+    voiceSettings = { ...data };
+    if (voiceSwitchPending && voiceSwitchPending.value === !!data.spectatorsCanTalk) clearVoiceSwitchPending();
+    voiceFull = data.role === 'none';
+    if (data.role === 'spectator' && prev?.role !== 'spectator') {
+      // A lobby extra arrives with its microphone (or its prompt) live
+      voiceFromLobby = !!voiceManager.isTalking?.() || (voiceLifecycle.starting && voiceManager.wantsTalk !== false);
+      voiceWantsMic = voiceFromLobby;
+    }
+    if (data.role === 'spectator' && prev?.role === 'spectator' && prev.spectatorsCanTalk !== data.spectatorsCanTalk) {
+      if (!data.spectatorsCanTalk) {
+        // main-room spectators tap again once it is back on
+        if (!voiceFromLobby) voiceWantsMic = false;
+        showInfo('The host turned off spectator talk — you can still listen.');
+      } else {
+        showInfo(voiceWantsMic && data.canTalk ? 'Spectators can talk again.' : 'Spectators can talk again — tap the mic to talk.');
+      }
+    }
+    if (data.role === 'none' && prev?.role !== 'none') showInfo('Voice is full (8 people). You can still watch and chat.');
+    applyVoiceSettings();
   }
 
   function showVoiceControls() {
     createMuteButton();
+    // The talk mode (listen-only, a refused microphone) on the controls
+    voiceManager.onModeChange?.(() => {
+      refreshTalkView();
+      refreshSpectatingIndicator();
+    });
+    // A browser that blocks audio without a gesture: the next click plays it
+    voiceManager.onAutoplayBlocked?.(() => showInfo('Click anywhere to hear voice chat.'));
+    if (voiceManager.micDenied) showWarning('Microphone access denied. You can still listen to voice chat.');
+    applyForcedMute();
+    refreshTalkView();
+    refreshSpectatingIndicator();
     // Register speaking indicator callback
     voiceManager.onSpeakingChange((id, isSpeaking) => {
       if (id === 'self') {
+        // a watcher's ring is the spectator badge's (no seat of its own)
+        if (session.isSpectator) {
+          setWatcherSpeaking(gameState.username, isSpeaking);
+          return;
+        }
         const el = document.getElementById('player-avatar-container');
         if (el) el.classList.toggle('voice-speaking', isSpeaking);
       } else {
+        const username = voiceManager.peers.get(id)?.username || null;
+        if (session.hasTable && isWatcher(username)) {
+          setWatcherSpeaking(username, isSpeaking);
+          return;
+        }
         // Peer → seat by username: the seat's owner, then the name it
-        // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14)
+        // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14).
+        // A spectator views from seat 1, whose player sits at the bottom
         const slotId = speakingSlotFor({
-          username: voiceManager.peers.get(id)?.username || null,
+          username,
           socketId: id,
           playerData: gameState.playerData,
           myPosition: gameState.position,
           owners: gameState.seatOwners,
+          spectator: session.isSpectator,
         });
         if (slotId) {
           const el = document.getElementById(`opponent-avatar-${slotId}`);
@@ -831,6 +1007,13 @@ function initializeApp() {
     voiceManager.shutdown();
     removeMuteButton();
     removeVoiceOverlay();
+    // This table's voice settings go with it (a new table sends its own)
+    voiceSettings = null;
+    voiceWantsMic = false;
+    voiceFromLobby = false;
+    voiceFull = false;
+    clearVoiceSwitchPending();
+    resetVoiceTalkView();
     // Clean up speaking indicator classes
     document.querySelectorAll('.voice-speaking').forEach(el => {
       el.classList.remove('voice-speaking');
@@ -842,8 +1025,12 @@ function initializeApp() {
     isActive: () => voiceManager.active,
     show: showVoiceOverlay,
     hide: removeVoiceOverlay,
-    // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is CSS)
-    toggleMute: () => setMuteButtonState(voiceManager.toggleSelfMute()),
+    // the button shows it (VoiceChatUI: icon, aria-pressed; the red look is
+    // CSS). Listen-only: what the mic button does (tap to talk, or why not)
+    toggleMute: () => {
+      if (voiceManager.isListenOnly?.()) onListenOnlyAction({ source: 'key' });
+      else setMuteButtonState(voiceManager.toggleSelfMute());
+    },
   });
 
   // App-level server errors: `serverError {code, message, handler}`, one per
@@ -883,7 +1070,7 @@ function initializeApp() {
       indicator?.remove();
       return;
     }
-    const text = kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit';
+    const text = (kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit') + spectatorVoiceNote(kind);
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
     const root = hudRoot();
@@ -898,6 +1085,20 @@ function initializeApp() {
     indicator.setAttribute('role', 'status');
     indicator.dataset.kind = kind;
     indicator.textContent = text;
+  }
+
+  /** A watcher's voice state on the pill: "(listening only)" or "Voice is full (8 people)". */
+  function spectatorVoiceNote(kind) {
+    if (kind !== 'spectator') return '';
+    if (voiceFull) return ' · Voice is full (8 people)';
+    if (voiceSettings?.role === 'spectator' && voiceManager.isListenOnly?.()) return ' (listening only)';
+    return '';
+  }
+
+  /** Redraw the pill's text (the voice state changed). */
+  function refreshSpectatingIndicator() {
+    const kind = document.getElementById('spectating-indicator')?.dataset.kind;
+    if (kind) setSpectatingIndicator(kind);
   }
 
   /** The game log, created if missing (no local 'Game started!': a replay brings the server's). */
@@ -1135,6 +1336,11 @@ function initializeApp() {
         lobbyId: data.lobbyId,
         players: data.players,
         reconnecting: data.reconnecting,
+        // a family lobby (up to 8): everyone, the host, its settings, its size
+        members: data.members,
+        host: data.host,
+        settings: data.settings,
+        capacity: data.capacity,
         messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
       });
       session.noteLobby(data.lobbyId);
@@ -1144,17 +1350,17 @@ function initializeApp() {
     },
     onPlayerReadyUpdate: (data) => {
       // Every playerReadyUpdate names the held seats while there are any
-      updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [] });
+      updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [], lobby: data });
     },
     onLobbyMessage: (data) => {
       if (isUserBlocked(data.username)) return;
       addLobbyChatMessage(data.username, data.message);
     },
     onLobbyPlayerLeft: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username);
+      updateLobbyPlayersList(null, data.players, gameState.username, { lobby: data });
     },
     onLobbyPlayerJoined: (data) => {
-      updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username });
+      updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username, lobby: data });
     },
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
@@ -1176,12 +1382,16 @@ function initializeApp() {
       // the v1 keys or the snapshot (V1_REMOVALS #8 / #9: a snapshot-only
       // carrier), both only once the trump is dealt, as before; or a v2
       // snapshot of the draw for deal (the draw so far: render draws it, as
-      // iOS shows a spectator the draws)
-      const drawing = ['DRAWING', 'DRAW_RESOLVING'].includes(data.snapshot?.stage) && !!data.snapshot?.draw;
+      // iOS shows a spectator the draws). CREATED too: a family lobby's
+      // extras watch from the game's first tick, before its startDraw
+      const drawing = ['CREATED', 'DRAWING', 'DRAW_RESOLVING'].includes(data.snapshot?.stage) && !!data.snapshot?.draw;
       const full = drawing || (!!(data.trump || data.snapshot?.trump) && !!(data.players || data.snapshot?.seats));
       if (full) {
         const spectatedGameId = data.gameId || data.snapshot?.gameId || session.takePendingSpectate();
         session.routeArrived();
+        // A joinLobby re-sent for a lobby that started meanwhile (a reload
+        // during its start) is answered by this: nothing is pending any more
+        session.takePendingLobbyRejoin();
         restartNotice.clear();
         // Spectators persist spectatingGameId only (a reconnect re-spectates)
         session.enterTable(ROLE.SPECTATOR, spectatedGameId);
@@ -1330,7 +1540,9 @@ function initializeApp() {
         gameState.stage = 'DRAWING';
         gameState.beginDraw();
       }
-      if (!session.isAtTable) session.enterTable(ROLE.PLAYER, null);
+      // A watcher (a family lobby's extra, at the table since CREATED) or a
+      // spectate on its way never becomes a player from the room's startDraw
+      if (!session.isAtTable && !session.pendingSpectate) session.enterTable(ROLE.PLAYER, null);
       // Remove waiting screen and tournament lobby
       uiManager.removeWaitingScreen();
       removeTournamentLobby();
@@ -1669,7 +1881,11 @@ function initializeApp() {
     onSpectatorsUpdated: (watching) => {
       if (!session.isAtTable) return;
       renderSpectatorBadge(watching, { me: gameState.username });
+      // who counts as a watcher changed: the forced mute follows
+      applyForcedMute();
     },
+    // A casual game's voice settings (spectator voice)
+    onVoiceSettings: (data) => onVoiceSettings(data),
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
     // ping. Any snapshot of this table is applied (R3); not_in_game applies
     // what the gap buffer holds (no snapshot is coming)

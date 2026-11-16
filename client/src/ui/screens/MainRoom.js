@@ -54,13 +54,26 @@ function cardHead(name, side) {
 }
 
 /**
- * The lobby card's button: Join (open seat), Rejoin (a full lobby that
- * already seats me: the server moves my seat to this socket, PR 205), else
- * a disabled Full.
+ * A lobby card's numbers: members and capacity. A family lobby (the wide
+ * list a casualSpectators client gets, 2026-11-16) says memberCount /
+ * capacity / memberUsernames (up to 8); without them, the frozen
+ * playerCount / players of a lobby of 4.
+ */
+export function lobbyCounts(lobby) {
+  const count = Number.isInteger(lobby.memberCount) ? lobby.memberCount : (lobby.playerCount || 0);
+  const capacity = Number.isInteger(lobby.capacity) ? lobby.capacity : 4;
+  const names = Array.isArray(lobby.memberUsernames) ? lobby.memberUsernames : (lobby.players || []).map((p) => p.username);
+  return { count, capacity, names, full: count >= capacity };
+}
+
+/**
+ * The lobby card's button: Join (open place), Rejoin (a full lobby that
+ * already has me, members 5-8 of a family lobby too: the server moves my
+ * seat to this socket, PR 205), else a disabled Full.
  */
 export function lobbyActionButton(lobby, socket, username = currentUsername) {
-  const full = lobby.playerCount >= 4;
-  const seated = !!username && (lobby.players || []).some((p) => p.username === username);
+  const { full, names } = lobbyCounts(lobby);
+  const seated = !!username && names.includes(username);
   if (full && !seated) {
     const btn = createButton({ label: 'Full', variant: 'secondary', size: 'sm', className: 'is-block', attrs: { disabled: true } });
     return btn;
@@ -99,10 +112,10 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
     lobbies.forEach((lobby) => {
       const card = roomCard();
       card.dataset.lobbyId = lobby.id;
-      const full = lobby.playerCount >= 4;
-      const count = el('span', { className: `room-card__count ${full ? 'is-full' : 'is-open'}`, text: `${lobby.playerCount}/4` });
+      const { count: n, capacity, names, full } = lobbyCounts(lobby);
+      const count = el('span', { className: `room-card__count ${full ? 'is-full' : 'is-open'}`, text: `${n}/${capacity}` });
       card.appendChild(cardHead(lobby.name || `Lobby ${lobby.id.slice(0, 6)}`, count));
-      card.appendChild(el('div', { className: 'room-card__meta', text: (lobby.players || []).map((p) => p.username).join(', ') }));
+      card.appendChild(el('div', { className: 'room-card__meta', text: names.join(', ') }));
       card.appendChild(lobbyActionButton(lobby, socket));
       container.appendChild(card);
     });

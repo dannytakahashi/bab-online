@@ -214,7 +214,7 @@ describe('clientHello wiring', () => {
     s.emit('rejoinGame', {});
     s.fire('connect');
     expect(s.sent.map(([ev]) => ev)).toEqual(['clientHello', 'restoreSession', 'rejoinGame', 'clientHello']);
-    expect(s.sent[0][1]).toEqual({ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] });
+    expect(s.sent[0][1]).toEqual({ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl', 'casualSpectators'] });
   });
 
   test('installed while connected: hello now, and on every reconnect', () => {
@@ -234,12 +234,12 @@ describe('clientHello wiring', () => {
     expect(seen).toBe(URL1);
   });
 
-  test('a socket without onAny (very old client lib) cannot fold URLs: it says hello with no caps (legacy shape)', () => {
+  test('a socket without onAny (very old client lib) cannot fold URLs: it says hello without avatarUrl (legacy avatar shape), casualSpectators only', () => {
     const s = mockSocket();
     delete s.onAny;
     expect(() => installAvatarSupport(s, {})).not.toThrow();
-    expect(s.sent[0]).toEqual(['clientHello', { client: 'web', version: '0.0.0', build: '', caps: [] }]);
-    expect(clientHello(undefined, undefined)).toEqual({ client: 'web', version: '0.0.0', build: '', caps: ['avatarUrl'] });
+    expect(s.sent[0]).toEqual(['clientHello', { client: 'web', version: '0.0.0', build: '', caps: ['casualSpectators'] }]);
+    expect(clientHello(undefined, undefined)).toEqual({ client: 'web', version: '0.0.0', build: '', caps: ['avatarUrl', 'casualSpectators'] });
   });
 });
 

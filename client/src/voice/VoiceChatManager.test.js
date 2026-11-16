@@ -24,13 +24,21 @@ class FakePC {
     this.signalingState = 'stable';
     this.localDescription = null;
     this.tracks = [];
+    this.transceivers = [];
     FakePC.all.push(this);
   }
   addTrack(t) { this.tracks.push(t); }
+  addTransceiver(kind, init = {}) { this.transceivers.push({ kind, ...init }); }
   async createOffer() { return { type: 'offer', sdp: 'v=0 offer' }; }
   async createAnswer() { return { type: 'answer', sdp: 'v=0 answer' }; }
-  async setLocalDescription(d) { this.localDescription = d; }
-  async setRemoteDescription(d) { this.remoteDescription = d; }
+  async setLocalDescription(d) {
+    this.localDescription = d;
+    if (this.signalingState !== 'closed') this.signalingState = d?.type === 'offer' ? 'have-local-offer' : 'stable';
+  }
+  async setRemoteDescription(d) {
+    this.remoteDescription = d;
+    if (this.signalingState !== 'closed') this.signalingState = d?.type === 'offer' ? 'have-remote-offer' : 'stable';
+  }
   async addIceCandidate() {}
   getSenders() { return []; }
   getConfiguration() { return { ...this.config }; }

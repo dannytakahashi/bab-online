@@ -1,16 +1,31 @@
 /**
  * Game Lobby Screen
  *
- * Pre-game lobby where 4 players gather, chat, and ready up before starting.
+ * Pre-game lobby where players gather, chat, and ready up before starting.
  * Kit classes and tokens only (styles/screens.css, item 18b).
+ *
+ * Family lobbies (owner 2026-11-16; docs/claude/web-client.md, Game lobby):
+ * a lobby holds up to 8 people while every member's app can (`capacity` 8;
+ * else 4). The first 4 to tap Ready play and everyone else watches the
+ * game, in its chat and voice. Every lobby payload this bundle gets carries
+ * `members` (everyone, with `playing` and `reconnecting`), `host`,
+ * `settings` {spectatorsCanTalk} and `capacity` next to the frozen 4-entry
+ * `players`; a payload without `members` (an older server) renders as
+ * before. The host's "Spectators can talk" switch (setSpectatorsCanTalk)
+ * shows its value once the server echoes it; the others see it read-only.
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
-import { el, createButton, createIconButton, createPanel } from '../kit/index.js';
+import { el, createButton, createIconButton, createPanel, createSwitch, setSwitch } from '../kit/index.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 
 /** The lobby header's voice slot (VoiceChatUI.js places the voice buttons in it). */
 export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
+
+/** The table's size: the first 4 to tap Ready play. */
+const TABLE = 4;
+/** A switch change shows again after this long without its echo (a refusal, a drop). */
+export const SWITCH_ECHO_TIMEOUT_MS = 5000;
 
 /**
  * Module state.
@@ -23,6 +38,16 @@ let isPlayerReady = false;
 // lobbyCreated carry the list while one is held (absent: none);
 // lobbyPlayerJoined / lobbyPlayerLeft drop the player who came back or left
 let reconnecting = new Set();
+// The family-lobby view of the last payload with `members` (null: a payload
+// without them, drawn as before): capacity, host, settings, and the counts
+// the Ready button reads
+let lobbyView = null;
+let lastMemberCount = 0;
+let tableFullForMe = false;
+// The lobby's socket (the host switch emits on it)
+let lobbySocket = null;
+// The host switch's change in flight: {value, timer} until its echo
+let switchPending = null;
 
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>';
 
@@ -33,15 +58,26 @@ function colorFor(username) {
   return lobbyUserColors[username];
 }
 
-/** The Ready button's look for its state (waiting / ready / not ready). */
-function renderReadyButton(readyBtn, playerCount) {
+/**
+ * The Ready button's look for its state (waiting / table full / ready /
+ * not ready). `watching`: the table filled with others first (a family
+ * lobby): this member will watch the game.
+ */
+function renderReadyButton(readyBtn, playerCount, { watching = false } = {}) {
   if (!readyBtn) return;
-  if (playerCount < 4) {
+  readyBtn.removeAttribute('title');
+  if (playerCount < TABLE) {
     // Not enough players - disable button
     readyBtn.disabled = true;
     setButtonVariant(readyBtn, 'secondary');
     readyBtn.classList.remove('is-on');
-    readyBtn.textContent = `Waiting for ${4 - playerCount} more...`;
+    readyBtn.textContent = `Waiting for ${TABLE - playerCount} more...`;
+  } else if (watching && !isPlayerReady) {
+    readyBtn.disabled = true;
+    setButtonVariant(readyBtn, 'secondary');
+    readyBtn.classList.remove('is-on');
+    readyBtn.textContent = 'Table full — you\'ll watch';
+    readyBtn.title = 'The first 4 to tap Ready play; you will watch this game and can join its voice chat';
   } else if (isPlayerReady) {
     readyBtn.disabled = false;
     setButtonVariant(readyBtn, 'secondary');
@@ -53,23 +89,57 @@ function renderReadyButton(readyBtn, playerCount) {
     readyBtn.classList.remove('is-on');
     readyBtn.textContent = 'Ready';
   }
-  readyBtn.setAttribute('aria-pressed', String(playerCount >= 4 && isPlayerReady));
+  readyBtn.setAttribute('aria-pressed', String(playerCount >= TABLE && isPlayerReady));
+}
+
+/**
+ * The members a payload lists: `members` (a family lobby: everyone, up to
+ * 8), else the frozen `players` (at most 4). Also records the lobby's
+ * capacity / host / settings for the header, the rows and the switch.
+ */
+function membersOf(players, lobby) {
+  if (lobby && Array.isArray(lobby.members)) {
+    lobbyView = {
+      capacity: Number.isInteger(lobby.capacity) ? lobby.capacity : TABLE,
+      host: typeof lobby.host === 'string' ? lobby.host : null,
+      settings: lobby.settings && typeof lobby.settings === 'object' ? { spectatorsCanTalk: lobby.settings.spectatorsCanTalk !== false } : null,
+    };
+    return lobby.members;
+  }
+  lobbyView = null;
+  return Array.isArray(players) ? players : [];
+}
+
+/** "Playing" / "Will watch" / "Sitting out" for a family lobby of more than 4; null otherwise. */
+function roleOf(member, { wide, tableFull }) {
+  if (!wide) return null;
+  if (member.isBot && !member.playing) return 'Sitting out';
+  if (member.playing && tableFull) return 'Playing';
+  if (!member.playing && tableFull) return 'Will watch';
+  return null;
 }
 
 /**
  * Update the players list in the lobby.
  *
  * @param {HTMLElement|null} container - Container element (or null to find by ID)
- * @param {Array} players - Array of player objects with username and ready status
+ * @param {Array} players - The payload's `players` (the first 4)
  * @param {string} currentUsername - The current player's username
- * @param {Object} [held] - the seats held for a reconnect
+ * @param {Object} [held] - the seats held for a reconnect, and the payload
  * @param {string[]} [held.reconnecting] - the event's list (replaces the one kept)
  * @param {string} [held.returned] - a player back in their held seat
+ * @param {Object} [held.lobby] - the whole payload: its members / host / settings / capacity
  */
-export function updateLobbyPlayersList(container, players, currentUsername, { reconnecting: list, returned } = {}) {
-  if (Array.isArray(list)) reconnecting = new Set(list);
-  if (returned) reconnecting.delete(returned);
-  const present = new Set(players.map((p) => p.username));
+export function updateLobbyPlayersList(container, players, currentUsername, { reconnecting: list, returned, lobby = null } = {}) {
+  const members = membersOf(players, lobby);
+  if (lobbyView) {
+    // every member carries its own held mark
+    reconnecting = new Set(members.filter((m) => m.reconnecting).map((m) => m.username));
+  } else {
+    if (Array.isArray(list)) reconnecting = new Set(list);
+    if (returned) reconnecting.delete(returned);
+  }
+  const present = new Set(members.map((p) => p.username));
   for (const name of [...reconnecting]) if (!present.has(name)) reconnecting.delete(name);
 
   if (!container) {
@@ -80,22 +150,45 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   container.replaceChildren();
 
   // Assign colors to new players - existing players keep their color for the session
-  players.forEach((player) => colorFor(player.username));
+  members.forEach((player) => colorFor(player.username));
+
+  const wide = !!lobbyView && members.length > TABLE;
+  const seated = members.filter((m) => m.playing);
+  const tableFull = wide && seated.length >= TABLE;
+  const host = lobbyView?.host ?? null;
 
   // Header with player count
-  container.appendChild(el('div', { className: 'section-label', text: `Players (${players.length}/4):` }));
+  if (lobbyView) {
+    const ready = Math.min(TABLE, members.filter((m) => m.ready).length);
+    container.appendChild(el('div', { className: 'section-label', text: `Players ${members.length}/${lobbyView.capacity} · Ready ${ready}/${TABLE}` }));
+  } else {
+    container.appendChild(el('div', { className: 'section-label', text: `Players (${members.length}/4):` }));
+  }
 
   // Show existing players
-  players.forEach((player) => {
+  members.forEach((player) => {
     const row = el('div', { className: 'seat-row' });
-    row.appendChild(el('span', { className: `seat-row__name${player.isBot ? ' is-bot' : ''}`, text: player.username, attrs: { title: player.username } }));
+    const isHost = !!host && !player.isBot && player.username === host;
+    const shown = isHost ? `${player.username} (host)` : player.username;
+    row.appendChild(el('span', {
+      className: `seat-row__name${player.isBot ? ' is-bot' : ''}${isHost ? ' is-host' : ''}`,
+      text: shown,
+      attrs: { title: player.username },
+    }));
 
     const side = el('span', { className: 'seat-row__side' });
+    const role = roleOf(player, { wide, tableFull });
+    if (role) {
+      row.dataset.role = role === 'Playing' ? 'playing' : role === 'Will watch' ? 'watching' : 'sittingOut';
+      side.appendChild(el('span', { className: `seat-row__role${role === 'Playing' ? ' is-playing' : ''}`, text: role }));
+    }
     const away = !player.ready && !player.isBot && reconnecting.has(player.username);
-    side.appendChild(el('span', {
-      className: `seat-row__status${player.ready ? ' is-ready' : ''}${away ? ' is-reconnecting' : ''}`,
-      text: player.ready ? '✓ Ready' : away ? 'Reconnecting…' : 'Waiting...',
-    }));
+    if (role !== 'Sitting out') {
+      side.appendChild(el('span', {
+        className: `seat-row__status${player.ready ? ' is-ready' : ''}${away ? ' is-reconnecting' : ''}`,
+        text: player.ready ? '✓ Ready' : away ? 'Reconnecting…' : 'Waiting...',
+      }));
+    }
 
     // Add remove button for bot players, or invisible spacer for alignment
     if (!player.ready) {
@@ -113,8 +206,8 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
     container.appendChild(row);
   });
 
-  // Show empty slots
-  for (let i = players.length; i < 4; i++) {
+  // Show empty slots (a table's 4; a family lobby's further places need no row)
+  for (let i = members.length; i < TABLE; i++) {
     container.appendChild(el('div', {
       className: 'seat-row seat-row--empty',
       children: [el('span', { className: 'seat-row__name', text: '— Empty Slot —' })],
@@ -122,23 +215,93 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   }
 
   // Sync local ready state with server data
-  const myPlayer = players.find((p) => p.username === currentUsername);
+  const myPlayer = members.find((p) => p.username === currentUsername);
   if (myPlayer) {
     isPlayerReady = myPlayer.ready;
   }
+  lastMemberCount = members.length;
+  tableFullForMe = tableFull && !!myPlayer && !myPlayer.playing;
 
   // Update Ready button state
-  renderReadyButton(document.getElementById('lobbyReadyBtn'), players.length);
+  renderReadyButton(document.getElementById('lobbyReadyBtn'), members.length, { watching: tableFullForMe });
 
-  // Update Add Bot button visibility
+  // Update Add Bot button visibility (a bot only fills a table seat)
   const addBotBtn = document.getElementById('lobbyAddBotBtn');
-  if (addBotBtn) addBotBtn.hidden = players.length >= 4;
+  if (addBotBtn) addBotBtn.hidden = members.length >= TABLE;
+
+  renderVoiceSettings(currentUsername);
+}
+
+/**
+ * The lobby's "Voice" section (a family-lobby payload only): the host's
+ * "Spectators can talk" switch, or the same value read-only, and the hint.
+ * The switch is kept across updates (focus stays on it) and replaced only
+ * when the host changes.
+ */
+function renderVoiceSettings(currentUsername) {
+  const section = document.getElementById('lobbyVoiceSettings');
+  if (!section) return;
+  if (!lobbyView || !lobbyView.settings) {
+    section.hidden = true;
+    section.replaceChildren();
+    return;
+  }
+  section.hidden = false;
+  const on = lobbyView.settings.spectatorsCanTalk;
+  if (switchPending && switchPending.value === on) clearSwitchPending();
+  const amHost = !!currentUsername && lobbyView.host === currentUsername;
+  const mode = amHost ? 'host' : 'member';
+  if (section.dataset.mode !== mode) {
+    section.dataset.mode = mode;
+    section.replaceChildren(el('h2', { className: 'section-title section-title--sm', text: 'Voice' }));
+    if (amHost) {
+      const sw = createSwitch({
+        label: 'Spectators can talk',
+        checked: on,
+        id: 'lobbySpectatorsCanTalk',
+        onChange: (next) => requestSpectatorsCanTalk(next),
+      });
+      section.appendChild(sw);
+    } else {
+      section.appendChild(el('p', { className: 'lobby-voice-setting', attrs: { id: 'lobbySpectatorsCanTalkValue' } }));
+    }
+    section.appendChild(el('p', { className: 'lobby-voice-hint', attrs: { id: 'lobbyVoiceHint' } }));
+  }
+  const sw = section.querySelector('#lobbySpectatorsCanTalk');
+  if (sw) setSwitch(sw, { checked: switchPending ? sw.getAttribute('aria-checked') === 'true' : on, disabled: !!switchPending });
+  const value = section.querySelector('#lobbySpectatorsCanTalkValue');
+  if (value) value.textContent = `Spectators can talk: ${on ? 'On' : 'Off'} (the host decides)`;
+  section.querySelector('#lobbyVoiceHint').textContent = on
+    ? 'The first 4 to tap Ready play; everyone else watches and can talk.'
+    : 'The first 4 to tap Ready play; everyone else watches and can only listen.';
+}
+
+function clearSwitchPending() {
+  if (switchPending?.timer) clearTimeout(switchPending.timer);
+  switchPending = null;
+}
+
+/** The host flipped the switch: ask the server; the switch waits for the echo. */
+function requestSpectatorsCanTalk(next) {
+  if (!lobbySocket || switchPending) return;
+  const sw = document.getElementById('lobbySpectatorsCanTalk');
+  setSwitch(sw, { disabled: true });
+  switchPending = {
+    value: next,
+    timer: setTimeout(() => {
+      // no echo (refused, dropped): show what the server last said
+      switchPending = null;
+      const cur = document.getElementById('lobbySpectatorsCanTalk');
+      setSwitch(cur, { checked: lobbyView?.settings?.spectatorsCanTalk !== false, disabled: false });
+    }, SWITCH_ECHO_TIMEOUT_MS),
+  };
+  lobbySocket.emit('setSpectatorsCanTalk', { spectatorsCanTalk: next });
 }
 
 /**
  * Show the game lobby screen.
  *
- * @param {Object} lobbyData - Lobby data (lobbyId, players, messages)
+ * @param {Object} lobbyData - Lobby data (lobbyId, players, messages; members, host, settings, capacity)
  * @param {Object} socket - Socket instance
  * @param {string} username - Current player's username
  */
@@ -146,6 +309,8 @@ export function showGameLobby(lobbyData, socket, username) {
   console.log('Showing game lobby...', lobbyData);
   currentLobbyId = lobbyData.lobbyId;
   isPlayerReady = false;
+  lobbySocket = socket;
+  clearSwitchPending();
 
   // Remove any existing game lobby (a re-render: a reconnect's lobbyJoined
   // keeps the voice running, so its buttons move to the new header)
@@ -174,7 +339,9 @@ export function showGameLobby(lobbyData, socket, username) {
 
   // Players list
   const playersDiv = el('div', { className: 'screen-section seat-list', attrs: { id: 'lobbyPlayersList' } });
-  updateLobbyPlayersList(playersDiv, lobbyData.players, username, { reconnecting: lobbyData.reconnecting || [] });
+  // The family lobby's voice setting, under the seats (hidden without one)
+  const voiceSettings = el('div', { className: 'screen-section lobby-voice-settings', attrs: { id: 'lobbyVoiceSettings', role: 'group', 'aria-label': 'Voice settings' } });
+  voiceSettings.hidden = true;
   // Delegated click handler for bot remove buttons
   playersDiv.addEventListener('click', (e) => {
     const removeBtn = e.target.closest('[data-bot-socket-id]');
@@ -183,6 +350,7 @@ export function showGameLobby(lobbyData, socket, username) {
     }
   });
   mainColumn.appendChild(playersDiv);
+  mainColumn.appendChild(voiceSettings);
 
   // Right column - the lobby chat
   const chatPanel = el('section', { className: 'screen-chat screen-section', attrs: { 'aria-label': 'Lobby chat' } });
@@ -212,10 +380,6 @@ export function showGameLobby(lobbyData, socket, username) {
   const readyBtn = createButton({ label: 'Ready', variant: 'primary', size: 'lg' });
   readyBtn.id = 'lobbyReadyBtn';
 
-  // Set initial state based on player count
-  const playerCount = lobbyData.players ? lobbyData.players.length : 0;
-  renderReadyButton(readyBtn, playerCount);
-
   readyBtn.addEventListener('click', () => {
     if (readyBtn.disabled) return;
 
@@ -226,14 +390,13 @@ export function showGameLobby(lobbyData, socket, username) {
       socket.emit('playerUnready');
       isPlayerReady = false;
     }
-    renderReadyButton(readyBtn, 4);
+    renderReadyButton(readyBtn, lastMemberCount, { watching: tableFullForMe });
   });
   buttonRow.appendChild(readyBtn);
 
-  // Add Bot button (hidden once the lobby is full)
+  // Add Bot button (hidden once the table's 4 places are taken)
   const addBotBtn = createButton({ label: '+ Add Bot', variant: 'secondary', size: 'lg', onClick: () => socket.emit('addBot') });
   addBotBtn.id = 'lobbyAddBotBtn';
-  addBotBtn.hidden = playerCount >= 4;
   buttonRow.appendChild(addBotBtn);
 
   buttonRow.appendChild(createButton({ label: 'Leave', variant: 'secondary', size: 'lg', onClick: () => socket.emit('leaveLobby') }));
@@ -241,6 +404,8 @@ export function showGameLobby(lobbyData, socket, username) {
   container.appendChild(chatPanel);
 
   document.body.appendChild(container);
+  // The seats, the Ready / Add Bot state and the voice section, from the payload
+  updateLobbyPlayersList(playersDiv, lobbyData.players, username, { reconnecting: lobbyData.reconnecting || [], lobby: lobbyData });
   // Open on the newest message and stay there through resizes
   scrollChatToEnd(chatArea);
   followChatOnResize(chatArea);
@@ -284,6 +449,12 @@ export function removeGameLobby() {
   currentLobbyId = null;
   isPlayerReady = false;
   lobbyUserColors = {};
+  reconnecting = new Set();
+  lobbyView = null;
+  lastMemberCount = 0;
+  tableFullForMe = false;
+  lobbySocket = null;
+  clearSwitchPending();
 }
 
 /**

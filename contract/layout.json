@@ -36,7 +36,8 @@
           "playerReady",
           "playerUnready",
           "addBot",
-          "removeBot"
+          "removeBot",
+          "setSpectatorsCanTalk"
         ]
       },
       {
@@ -600,6 +601,7 @@
   "exclude": {
     "web": {},
     "swift": {
+      "setSpectatorsCanTalk": "web sends it from the family-lobbies web PR (2026-11-16); iOS gets its constant with the build that sends it (1.2.3 build 12)",
       "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
