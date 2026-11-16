@@ -100,6 +100,21 @@ test('no DB: /health still 200 with db "disconnected"; /ready is 503', async () 
     expect(ready.body.checks.database).toBe('failed');
 });
 
+test("/ready: 200 once the DB answers a ping; the first 200 is logged once, with its time (deploy measurement)", async () => {
+    const { logger } = require('../utils/logger');
+    const info = jest.spyOn(logger, 'info').mockImplementation(() => {});
+    mockDbState.db = { admin: () => ({ ping: async () => ({ ok: 1 }) }) };
+    const first = await get('/ready');
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual({ status: 'ready', checks: { database: 'ok' } });
+    await get('/ready');
+    mockDbState.db = null;
+    expect((await get('/ready')).status).toBe(503);
+    const lines = info.mock.calls.filter(([msg]) => msg === 'Ready: first 200');
+    expect(lines).toHaveLength(1);
+    expect(lines[0][1].at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+});
+
 test('a count that throws never fails /health: that count is null', async () => {
     setHealthIo({ of: () => { throw new Error('io gone'); } });
     jest.spyOn(gameManager, 'getHealthCounts').mockImplementation(() => { throw new Error('broken'); });

@@ -10,6 +10,16 @@
 
 const { logger } = require('./logger');
 const { safeTimeout } = require('./safeTimer');
+const { connectionStats } = require('./connectionStats');
+
+/** Connected sockets on `io` (as /health counts them), null if unreadable. */
+function socketCount(io) {
+    try {
+        return io ? io.of('/').sockets.size : 0;
+    } catch {
+        return null;
+    }
+}
 
 // Clients get the restart notice this long before their sockets close
 const NOTICE_MS = 1000;
@@ -183,7 +193,15 @@ function setupGracefulShutdown(server, io, opts = {}) {
         pendingExitCode = exitCode;
         // Also the code if the event loop drains before process.exit runs
         process.exitCode = exitCode;
-        logger.info(`Received ${signal}, starting graceful shutdown`, { exitCode });
+        // With the deploy measurements (docs/claude/server-infra.md, Deploys):
+        // `at` (the console timestamp has whole seconds only), and whether
+        // clients were still arriving here when the signal came
+        logger.info(`Received ${signal}, starting graceful shutdown`, {
+            exitCode,
+            at: new Date().toISOString(),
+            ...connectionStats(),
+            sockets: socketCount(io)
+        });
         // Pending stats retries run now instead of after their backoff,
         // then every SHUTDOWN_RETRY_MS until the drain ends
         beginShutdown(Date.now() + (io ? noticeMs : 0) + drainMs);

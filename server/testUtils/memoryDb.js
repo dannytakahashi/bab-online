@@ -110,12 +110,19 @@ function parentFor(doc, path, create) {
     return [obj, parts[parts.length - 1]];
 }
 
-function applyUpdate(doc, update) {
+/**
+ * Apply an update document. `$setOnInsert` writes only when the update
+ * inserts (an upsert that matched nothing), as Mongo does; otherwise it is
+ * a no-op.
+ */
+function applyUpdate(doc, update, { inserting = false } = {}) {
     for (const [op, fields] of Object.entries(update)) {
+        if (op === '$setOnInsert' && !inserting) continue;
         for (const [path, arg] of Object.entries(fields)) {
             const [parent, key] = parentFor(doc, path, op !== '$unset' && op !== '$pull');
             switch (op) {
-                case '$set': parent[key] = clone(arg); break;
+                case '$set':
+                case '$setOnInsert': parent[key] = clone(arg); break;
                 case '$unset': if (parent) delete parent[key]; break;
                 case '$inc': parent[key] = (parent[key] || 0) + arg; break;
                 case '$push': {
@@ -283,15 +290,66 @@ function compareBy(spec) {
 
 let sortEnabled = false;
 
+/** Same _id the way the unique _id index compares: an ObjectId never equals a string. */
+function sameId(a, b) {
+    if ((a instanceof ObjectId) !== (b instanceof ObjectId)) return false;
+    return equals(a, b);
+}
+
+/**
+ * The error the driver throws for a duplicate key (a MongoServerError with
+ * code 11000), so code that checks `err.code === 11000` sees the same thing
+ * under Jest.
+ */
+function duplicateKeyError(id) {
+    const err = new Error(`E11000 duplicate key error collection: memoryDb index: _id_ dup key: { _id: ${JSON.stringify(String(id))} }`);
+    err.name = 'MongoServerError';
+    err.code = 11000;
+    err.keyPattern = { _id: 1 };
+    err.keyValue = { _id: id };
+    return err;
+}
+
+/**
+ * The document an upsert inserts before its update applies: the filter's
+ * equality conditions (top level and inside $and; `{$eq: v}` too), as Mongo
+ * seeds it. Other operator conditions contribute nothing.
+ */
+function upsertSeed(filter = {}) {
+    const doc = {};
+    const take = (f) => {
+        for (const [key, cond] of Object.entries(f)) {
+            if (key === '$and') { cond.forEach(take); continue; }
+            if (key.startsWith('$')) continue;
+            let value = cond;
+            if (isPlainObject(cond) && Object.keys(cond).some(k => k.startsWith('$'))) {
+                if (!('$eq' in cond)) continue;
+                value = cond.$eq;
+            }
+            const [parent, last] = parentFor(doc, key, true);
+            parent[last] = clone(value);
+        }
+    };
+    take(filter);
+    return doc;
+}
+
 class MemoryCollection {
     constructor(docs = []) {
         this.docs = [];
         docs.forEach(d => this._insert(d));
     }
 
+    /**
+     * Insert a copy, with a new ObjectId when it has no _id. A duplicate _id
+     * throws the driver's E11000 (code 11000), as the unique _id index does:
+     * seeds and test helpers that call this directly get the same check as
+     * insertOne.
+     */
     _insert(doc) {
         const copy = clone(doc);
         if (!copy._id) copy._id = new ObjectId();
+        if (this.docs.some(d => sameId(d._id, copy._id))) throw duplicateKeyError(copy._id);
         this.docs.push(copy);
         return copy._id;
     }
@@ -326,8 +384,21 @@ class MemoryCollection {
         return this.docs.filter(d => matches(d, filter)).length;
     }
 
+    /**
+     * updateOne. With `upsert: true` and no match it inserts the filter's
+     * equality fields plus the update ($setOnInsert included) and answers as
+     * the driver does (upsertedCount 1, upsertedId); a duplicate _id then
+     * throws E11000. arrayFilters together with upsert throws (unsupported).
+     */
     async updateOne(filter, update, options = {}) {
         const doc = this.docs.find(d => matches(d, filter));
+        if (!doc && options.upsert) {
+            if (options.arrayFilters) throw new Error('memoryDb: upsert with arrayFilters is unsupported');
+            const seed = upsertSeed(filter);
+            applyUpdate(seed, update, { inserting: true });
+            const upsertedId = this._insert(seed);
+            return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1, upsertedId };
+        }
         if (!doc) return { matchedCount: 0, modifiedCount: 0 };
         const before = JSON.stringify(doc);
         if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
@@ -341,6 +412,7 @@ class MemoryCollection {
      * Atomic here by construction (no await between match and write).
      */
     async findOneAndUpdate(filter, update, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in findOneAndUpdate');
         const doc = this.docs.find(d => matches(d, filter));
         if (!doc) return null;
         const before = clone(doc);
@@ -350,6 +422,7 @@ class MemoryCollection {
     }
 
     async updateMany(filter, update, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in updateMany');
         let modified = 0;
         const targets = this.docs.filter(d => matches(d, filter));
         for (const doc of targets) {
@@ -362,7 +435,8 @@ class MemoryCollection {
     }
 
     /** replaceOne as the driver does it: the whole document but its _id. */
-    async replaceOne(filter, replacement) {
+    async replaceOne(filter, replacement, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in replaceOne');
         const i = this.docs.findIndex(d => matches(d, filter));
         if (i === -1) return { matchedCount: 0, modifiedCount: 0 };
         const next = clone(replacement);

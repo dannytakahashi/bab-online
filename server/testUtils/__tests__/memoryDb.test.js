@@ -122,3 +122,63 @@ describe('memoryDb arrayFilters', () => {
             .rejects.toThrow(/only with \$set/);
     });
 });
+
+describe('memoryDb _id uniqueness and upserts (as the unique _id index and the driver)', () => {
+    const { ObjectId } = require('mongodb');
+
+    test('insertOne of a duplicate _id rejects with code 11000 and stores nothing', async () => {
+        const c = new MemoryCollection();
+        await c.insertOne({ _id: 'g1', rev: 1 });
+        const err = await c.insertOne({ _id: 'g1', rev: 2 }).catch((e) => e);
+        expect(err).toBeInstanceOf(Error);
+        expect(err.code).toBe(11000);
+        expect(err.name).toBe('MongoServerError');
+        expect(err.message).toMatch(/E11000 duplicate key/);
+        expect(err.keyValue).toEqual({ _id: 'g1' });
+        expect(c.all()).toEqual([{ _id: 'g1', rev: 1 }]);
+    });
+
+    test('ObjectIds compare by value; a string and an ObjectId with the same hex are different ids', async () => {
+        const id = new ObjectId();
+        const c = new MemoryCollection([{ _id: id }]);
+        await expect(c.insertOne({ _id: new ObjectId(id.toHexString()) })).rejects.toMatchObject({ code: 11000 });
+        await expect(c.insertOne({ _id: id.toHexString() })).resolves.toMatchObject({ insertedId: id.toHexString() });
+    });
+
+    test('documents without _id still get distinct ObjectIds; seeding duplicate _ids throws', () => {
+        const c = new MemoryCollection([{ a: 1 }, { a: 1 }]);
+        expect(String(c.all()[0]._id)).not.toBe(String(c.all()[1]._id));
+        expect(() => new MemoryCollection([{ _id: 'x' }, { _id: 'x' }])).toThrow(/E11000/);
+    });
+
+    test('updateOne upsert inserts the filter equality fields plus the update, $setOnInsert included', async () => {
+        const c = new MemoryCollection();
+        const r = await c.updateOne({ _id: 'b1', owner: { $eq: 'A' }, beatSeq: { $gt: 3 } },
+            { $set: { beatAt: 5 }, $inc: { beatSeq: 1 }, $setOnInsert: { startedAt: 1 } }, { upsert: true });
+        expect(r).toEqual({ acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1, upsertedId: 'b1' });
+        expect(c.all()).toEqual([{ _id: 'b1', owner: 'A', beatAt: 5, beatSeq: 1, startedAt: 1 }]);
+
+        // A match updates in place; $setOnInsert is then a no-op
+        const r2 = await c.updateOne({ _id: 'b1' }, { $set: { beatAt: 9 }, $setOnInsert: { startedAt: 99 } }, { upsert: true });
+        expect(r2).toEqual({ matchedCount: 1, modifiedCount: 1 });
+        expect(c.all()).toEqual([{ _id: 'b1', owner: 'A', beatAt: 9, beatSeq: 1, startedAt: 1 }]);
+    });
+
+    test('an upsert whose filter misses an existing _id rejects with 11000 (as Mongo does)', async () => {
+        const c = new MemoryCollection([{ _id: 'g1', owner: 'A' }]);
+        await expect(c.updateOne({ _id: 'g1', owner: 'B' }, { $set: { owner: 'B' } }, { upsert: true }))
+            .rejects.toMatchObject({ code: 11000 });
+        expect(c.all()).toEqual([{ _id: 'g1', owner: 'A' }]);
+    });
+
+    test('without upsert a miss changes nothing; upsert where it is not implemented throws', async () => {
+        const c = new MemoryCollection();
+        expect(await c.updateOne({ _id: 'x' }, { $set: { a: 1 } })).toEqual({ matchedCount: 0, modifiedCount: 0 });
+        expect(c.all()).toEqual([]);
+        await expect(c.updateMany({}, { $set: { a: 1 } }, { upsert: true })).rejects.toThrow(/unsupported/);
+        await expect(c.replaceOne({}, { a: 1 }, { upsert: true })).rejects.toThrow(/unsupported/);
+        await expect(c.findOneAndUpdate({}, { $set: { a: 1 } }, { upsert: true })).rejects.toThrow(/unsupported/);
+        await expect(c.updateOne({}, { $set: { 'tags.$[t]': 1 } }, { upsert: true, arrayFilters: [{ t: 1 }] }))
+            .rejects.toThrow(/unsupported/);
+    });
+});

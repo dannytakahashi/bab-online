@@ -1813,6 +1813,25 @@ class GameManager {
         }
         await Promise.all(usernames.map(u => this.clearActiveTournament(u, tournamentId)));
     }
+
+    /**
+     * Tests only: forget everything, as a process that was killed and
+     * started again would (testUtils/persistHarness.js restart). Cancels
+     * every game, tournament and lobby-grace timer first, with no emit, no
+     * terminate and no DB write, so nothing of the old state runs later;
+     * then every field is what the constructor makes (main-room listeners
+     * included). Bots live in BotController: reset it too
+     * (BotController._resetForTests). Jest only (JEST_WORKER_ID, not
+     * NODE_ENV: the contract suites also run with NODE_ENV=production).
+     */
+    _resetForTests() {
+        if (process.env.JEST_WORKER_ID === undefined) throw new Error('_resetForTests is for Jest only');
+        for (const game of this.games.values()) game._cancelAllTimers();
+        for (const tournament of this.tournaments.values()) tournament.clearTimers();
+        for (const held of this.lobbyGrace.values()) clearTimeout(held.timer);
+        for (const key of Object.keys(this)) delete this[key];
+        Object.assign(this, new GameManager());
+    }
 }
 
 // Singleton instance

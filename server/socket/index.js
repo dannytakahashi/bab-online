@@ -23,10 +23,15 @@ const upgradeGate = require('./upgradeGate');
 const { asyncHandler, syncHandler, safeHandler, rateLimiter } = require('./errorHandler');
 const { socketLogger } = require('../utils/logger');
 const { getClientIp } = require('../utils/clientIp');
+const { noteConnection } = require('../utils/connectionStats');
 
 function setupSocketHandlers(io) {
     io.on('connection', (socket) => {
         socketLogger.debug('Player connected', { socketId: socket.id });
+        // Deploy measurement (docs/claude/server-infra.md, Deploys): when
+        // this instance first got a client, and the arrivals the SIGTERM
+        // line reports
+        if (noteConnection()) socketLogger.info('First socket connection', { at: new Date().toISOString() });
 
         // Client IP for the failed-sign-in throttle, from the handshake
         // (Railway edge: X-Real-IP behind a proxy peer; see utils/clientIp)

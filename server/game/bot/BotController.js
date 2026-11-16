@@ -663,6 +663,19 @@ class BotController {
         }
         this.pendingActions.clear();
     }
+
+    /**
+     * Tests only: back to a fresh process's state (testUtils/persistHarness.js
+     * restart): every pending bid/play/draw/chat timer cancelled, no bot
+     * registered, the fallback counts and the chat sequence at zero. Jest
+     * only (JEST_WORKER_ID), as GameManager._resetForTests.
+     */
+    _resetForTests() {
+        if (process.env.JEST_WORKER_ID === undefined) throw new Error('_resetForTests is for Jest only');
+        this.clearAll();
+        this.fallbacks = { bid: 0, play: 0 };
+        delete this.chatSeq;
+    }
 }
 
 // Singleton instance
