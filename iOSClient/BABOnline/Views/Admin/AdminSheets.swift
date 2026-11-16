@@ -58,17 +58,24 @@ struct AdminTypedConfirmSheet: View {
                     }
                     .disabled(!spec.isReady(typed) || busy)
                     .accessibilityIdentifier("admin.confirm.submit")
+                    // also here: with the keyboard up a short window (the closed Duo) hides the bar's Cancel
+                    Button("Cancel") { dismiss() }
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(Theme.textSecondary)
+                        .disabled(busy)
+                        .accessibilityIdentifier("admin.confirm.cancel")
                 }
                 .listRowBackground(Theme.surface)
             }
             .adminListStyle()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Confirm")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(busy)
-                        .accessibilityIdentifier("admin.confirm.cancel")
+                        .accessibilityIdentifier("admin.confirm.close")
                 }
             }
         }
@@ -151,17 +158,23 @@ struct AdminRenameSheet: View {
                     }
                     .disabled(!ready || busy)
                     .accessibilityIdentifier("admin.rename.submit")
+                    Button("Cancel") { dismiss() }
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(Theme.textSecondary)
+                        .disabled(busy)
+                        .accessibilityIdentifier("admin.rename.cancel")
                 }
                 .listRowBackground(Theme.surface)
             }
             .adminListStyle()
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Rename \(oldName)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .disabled(busy)
-                        .accessibilityIdentifier("admin.rename.cancel")
+                        .accessibilityIdentifier("admin.rename.close")
                 }
             }
         }

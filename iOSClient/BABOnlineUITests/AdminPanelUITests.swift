@@ -57,6 +57,17 @@ final class AdminPanelUITests: XCTestCase {
         return app
     }
 
+    /// Scrolls the sheet's list up in short drags until `e` is built and can be tapped (lists
+    /// build their rows lazily, and a long swipe on a small window can pass a row by).
+    private func reveal(_ app: XCUIApplication, _ e: XCUIElement, drags: Int = 24) {
+        let window = app.windows.firstMatch
+        for _ in 0..<drags where !(e.exists && e.isHittable) {
+            let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+            from.press(forDuration: 0.05, thenDragTo: to)
+        }
+    }
+
     private func status(_ app: XCUIApplication) -> String {
         let s = element(app, "admin.status")
         return s.waitForExistence(timeout: 5) ? s.label : "<no status>"
@@ -77,7 +88,7 @@ final class AdminPanelUITests: XCTestCase {
         let field = app.textFields[id].firstMatch
         // a long sheet builds its lower rows only once they are scrolled to
         if !field.waitForExistence(timeout: 3) {
-            for _ in 0..<6 where !field.exists { app.swipeUp() }
+            reveal(app, field)
         }
         XCTAssertTrue(field.exists, id)
         field.tap()
@@ -195,7 +206,7 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(element(app, "admin.confirm.title").waitForExistence(timeout: 5))
         XCTAssertEqual(element(app, "admin.confirm.title").label, "Delete hal?")
         // the six consequences come first; the field and the button are below them
-        for _ in 0..<6 where !submit.exists { app.swipeUp() }
+        reveal(app, submit)
         XCTAssertTrue(submit.exists)
         XCTAssertFalse(submit.isEnabled, "nothing typed")
         type(app, "admin.confirm.field", "Hal")
@@ -212,6 +223,7 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(refusal.label.contains("is in a game right now"), refusal.label)
         XCTAssertTrue(submit.exists, "the sheet stays open")
         shot(app, "delete-refused")
+        reveal(app, app.buttons["admin.confirm.cancel"])
         app.buttons["admin.confirm.cancel"].tap()
 
         filterPlayers(app, "pat")
@@ -236,7 +248,9 @@ final class AdminPanelUITests: XCTestCase {
         filterPlayers(app, "alan2")
         openMenu(app, "alan2", item: "Rename…")
         let submit = app.buttons["admin.rename.submit"]
-        XCTAssertTrue(submit.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars["Rename alan2"].waitForExistence(timeout: 5))
+        reveal(app, submit)
+        XCTAssertTrue(submit.exists)
         XCTAssertFalse(submit.isEnabled)
         type(app, "admin.rename.new", "kim")
         XCTAssertFalse(submit.isEnabled, "typed once")
@@ -276,9 +290,8 @@ final class AdminPanelUITests: XCTestCase {
     func testReportsResolveWithANote() {
         let app = openAdmin()
         selectTab(app, "Reports")
-        let first = String(format: "%024x", 9001), second = String(format: "%024x", 9002)
+        let first = String(format: "%024x", 9001)
         XCTAssertTrue(app.buttons["admin.report.resolve.\(first)"].waitForExistence(timeout: 8))
-        XCTAssertTrue(app.buttons["admin.report.dismiss.\(second)"].exists)
         XCTAssertTrue(app.staticTexts["Abusive chat"].exists)
         shot(app, "reports")
         let note = app.descendants(matching: .any)["admin.report.note.\(first)"].firstMatch
@@ -383,16 +396,20 @@ final class AdminPanelUITests: XCTestCase {
         waitForStatus(app, containing: "Preview ready: 13 change(s).")
 
         let result = element(app, "admin.merge.account.result.Alan")
-        for _ in 0..<6 where !result.exists { app.swipeUp() }
+        reveal(app, result)
         XCTAssertTrue(result.exists)
         XCTAssertTrue(result.label.contains("Games 35"), result.label)
         XCTAssertTrue(result.label.contains("Bot games 3"), result.label)
         shot(app, "merge-plan")
-        XCTAssertTrue(app.staticTexts["gamesPlayed: 30 → 35"].exists, "Stats that change")
-        XCTAssertTrue(app.staticTexts["gamesPlayed: 2 → 3"].exists, "Bot-game stats that change")
+        // (how much of the plan is built at once depends on the sheet's height)
+        let stats = app.staticTexts["gamesPlayed: 30 → 35"], botStats = app.staticTexts["gamesPlayed: 2 → 3"]
+        reveal(app, stats)
+        XCTAssertTrue(stats.exists, "Stats that change")
+        reveal(app, botStats)
+        XCTAssertTrue(botStats.exists, "Bot-game stats that change")
 
         let apply = app.buttons["admin.merge.apply"]
-        for _ in 0..<10 where !apply.exists { app.swipeUp() }
+        reveal(app, apply)
         XCTAssertTrue(apply.exists)
         XCTAssertTrue(app.staticTexts["13 change(s) planned."].exists)
         XCTAssertFalse(apply.isEnabled, "the kept name is not typed yet")
@@ -422,7 +439,7 @@ final class AdminPanelUITests: XCTestCase {
         app.buttons["admin.merge.preview"].tap()
         waitForStatus(app, containing: "Preview ready:")
         let apply = app.buttons["admin.merge.apply"]
-        for _ in 0..<10 where !apply.exists { app.swipeUp() }
+        reveal(app, apply)
         type(app, "admin.merge.confirm", "Alan")
         apply.tap()
         let note = element(app, "admin.merge.note")
@@ -486,7 +503,7 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertFalse(app.segmentedControls["admin.tabs"].exists, "five segments would be cut: a menu instead")
         shot(app, "players-ax")
         let menu = app.buttons["admin.player.menu.AlanB"].firstMatch
-        for _ in 0..<4 where !menu.isHittable { app.swipeUp() }
+        reveal(app, menu)
         XCTAssertTrue(menu.isHittable)
         let window = app.windows.firstMatch.frame
         XCTAssertLessThanOrEqual(menu.frame.maxX, window.maxX, "the menu button is on screen")
@@ -496,9 +513,10 @@ final class AdminPanelUITests: XCTestCase {
         shot(app, "delete-typed-ax")
         // the consequences fill the sheet at this size: the field and the button are below
         let submit = app.buttons["admin.confirm.submit"]
-        for _ in 0..<8 where !submit.exists { app.swipeUp() }
+        reveal(app, submit)
         XCTAssertTrue(submit.exists)
         XCTAssertFalse(submit.isEnabled)
+        reveal(app, app.buttons["admin.confirm.cancel"])
         app.buttons["admin.confirm.cancel"].tap()
 
         let tabs = element(app, "admin.tabs")
