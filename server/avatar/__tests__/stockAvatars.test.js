@@ -39,6 +39,9 @@ describe('stock avatars', () => {
     test('the web constant, the Joi schema and the contract bounds agree', () => {
         const web = fs.readFileSync(path.join(ROOT, 'client/src/constants/avatars.js'), 'utf8');
         expect(Number(/export const STOCK_MAX = (\d+);/.exec(web)[1])).toBe(STOCK_AVATAR_COUNT);
+        // iOS 1.2.2's avatar picker (ProfilePicture.swift)
+        const ios = fs.readFileSync(path.join(ROOT, 'iOSClient/BABOnline/Utils/ProfilePicture.swift'), 'utf8');
+        expect(Number(/static let stockCount = (\d+)/.exec(ios)[1])).toBe(STOCK_AVATAR_COUNT);
 
         expect(schemas.updateProfilePic.validate({ profilePic: STOCK_AVATAR_COUNT }).error).toBeUndefined();
         expect(schemas.updateProfilePic.validate({ profilePic: STOCK_AVATAR_COUNT + 1 }).error).toBeDefined();
