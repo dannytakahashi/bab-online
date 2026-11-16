@@ -36,8 +36,11 @@ final class ServerErrorToastTests: XCTestCase {
         XCTAssertTrue(t.waitForExistence(timeout: 5))
         XCTAssertTrue(t.label.contains("The lobby closed while you were offline"), t.label)
         let screen = app.windows.firstMatch.frame
-        XCTAssertGreaterThan(t.frame.width, screen.width * 0.6, "wraps at the screen's width: \(t.frame)")
-        XCTAssertGreaterThan(t.frame.height, 30, "two lines: \(t.frame)")
+        // a phone wraps it at the screen's width; a 13-inch iPad fits it on one line (~585 pt)
+        XCTAssertGreaterThan(t.frame.width, min(screen.width * 0.6, 500), "the message has its width: \(t.frame)")
+        if t.frame.height > 30 {
+            XCTAssertGreaterThan(t.frame.width, screen.width * 0.6, "wraps at the screen's width: \(t.frame)")
+        }
         XCTAssertLessThan(t.frame.height, 80, "a few lines at most: \(t.frame)")
         XCTAssertLessThanOrEqual(t.frame.maxX, screen.maxX)
     }
