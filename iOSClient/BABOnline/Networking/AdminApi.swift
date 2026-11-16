@@ -25,8 +25,10 @@ final class AdminApi {
     }
     typealias Outcome = Result<AdminResponse, NoAnswer>
 
-    static let requestTimeout: TimeInterval = 15
-    static let rateLimitGrace: TimeInterval = 3
+    // nonisolated: plain constants, read by the init's default arguments, which are evaluated
+    // in the caller's (nonisolated) context (a Swift 6 error, a warning in Swift 5 mode)
+    nonisolated static let requestTimeout: TimeInterval = 15
+    nonisolated static let rateLimitGrace: TimeInterval = 3
 
     /// Sends the payload; false when it cannot go out now (not connected, session not ready).
     var send: ([String: Any]) -> Bool = { _ in false }
