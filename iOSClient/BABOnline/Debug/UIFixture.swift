@@ -128,6 +128,23 @@ enum UIFixture {
             store.apply(.local(.identity(username: me ?? "viewer", playerId: "ui-fixture")))
             auth.username = me ?? "viewer"
             store.apply(.snapshot(snap, .rejoin, hints: nil))
+            if name == "draw-deal" {
+                let gameId = snapDict["gameId"], seq = snap.seq
+                // the deal ends the draw 6 s after launch (a UI test needs the draw on screen
+                // first): the bidding-mid table (this game's id, so the screen is the same game
+                // moving on), as a rejoin snapshot
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                    guard let url = Bundle.main.url(forResource: "bidding-mid", withExtension: "json", subdirectory: "v2"),
+                          let data = try? Data(contentsOf: url),
+                          let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          var dealt = raw["snapshot"] as? [String: Any] else { print("[UIFixture] missing v2/bidding-mid.json"); return }
+                    dealt["gameId"] = gameId
+                    dealt["seq"] = seq + 1
+                    guard let table = try? TableSnapshot.decode(dealt, strict: true) else { print("[UIFixture] bidding-mid did not decode"); return }
+                    seededSnapshot = dealt
+                    store.apply(.snapshot(table, .rejoin, hints: nil))
+                }
+            }
             if name == "draw-teams" {
                 // live, as the server sends it: DrawPhaseView shows the teams 0.8 s after the event
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -304,14 +321,16 @@ enum UIFixture {
     /// teamsAnnounced 3 s after launch (the overlay shows it 0.8 s after that and, in
     /// this fixture only, keeps it up: `holdsTeams`), `draw-long` all four with two
     /// names long enough to shrink (the cards must stay on one line), `draw-spectator`
-    /// 2 of 4 drawn seen by a spectator (no deck: they never draw).
+    /// 2 of 4 drawn seen by a spectator (no deck: they never draw), `draw-deal` all four and
+    /// then, 6 s after launch, the deal: the table in BIDDING (bidding-mid), as the phase change
+    /// the corner buttons must not animate through (TableChromeAnimationTests).
     /// Game-end states (GameEndView: final score + each player's stats) and the snapshot each
     /// ends: `game-end` a seat's casual game, `game-end-spectator` a spectator's,
     /// `game-end-tournament` a tournament game (Return to Tournament).
     static let gameEndStates = ["game-end": "hand-resolving", "game-end-spectator": "spectator-mid-hand",
                                 "game-end-tournament": "tournament-game"]
 
-    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator"]
+    static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator", "draw-deal"]
     static var holdsTeams: Bool { name == "draw-teams" }
 
     private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
