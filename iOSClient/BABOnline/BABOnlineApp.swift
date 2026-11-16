@@ -66,6 +66,8 @@ struct BABOnlineApp: App {
                 .onChange(of: scenePhase) { _, newPhase in
                     handleScenePhase(newPhase)
                 }
+                // a profile sheet of the screen that went away no longer holds the Safety alerts back
+                .onChange(of: appState.screen) { _, _ in ProfileSheets.shared.screenChanged() }
         }
     }
 

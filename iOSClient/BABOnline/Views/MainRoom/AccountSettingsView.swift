@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// Account management sheet: my profile (picture and statistics, iOS 1.2.2: OwnProfileSections),
 /// sign out, change password, legal links, blocked users, and permanent account deletion
@@ -26,13 +27,18 @@ struct AccountSettingsView: View {
     @State private var newPasswordAgain = ""
     @State private var isChangingPassword = false
     @State private var passwordChangeAttempt = 0
-    /// The current password exactly as typed, to send once if the trimmed one is refused (PasswordEntry).
-    @State private var currentAsTypedFallback: String?
+    /// The change with the current password exactly as typed, sent once if the trimmed one is
+    /// refused as the wrong current password (PasswordEntry, AsTypedRetry).
+    @State private var asTypedRetry = AsTypedRetry<PasswordChangeRequest>()
+
+    // My picture (OwnProfileSections' rows set these; OwnProfileHost on the List acts on them)
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var showsAvatarPicker = false
 
     var body: some View {
         NavigationView {
             List {
-                OwnProfileSections(signOut: signOut)
+                OwnProfileSections(pickedPhoto: $pickedPhoto, showsAvatarPicker: $showsAvatarPicker, signOut: signOut)
                 soundSection
                 passwordSection
                 blockedUsersSection
@@ -40,6 +46,7 @@ struct AccountSettingsView: View {
                 deleteSection
             }
             .listStyle(.insetGrouped)
+            .modifier(OwnProfileHost(pickedPhoto: $pickedPhoto, showsAvatarPicker: $showsAvatarPicker))
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("Account")
@@ -56,15 +63,15 @@ struct AccountSettingsView: View {
             }
             .onChange(of: authState.changePasswordResult) { _, result in
                 guard let result else { return }
-                if !result.success, let typed = currentAsTypedFallback {
-                    // refused with the trimmed current password, and the typed one had a space
-                    // at an edge (an account made before 1.2.2 may have it): that one goes once
-                    currentAsTypedFallback = nil
+                if !result.success, let again = asTypedRetry.resend(afterRefusal: result.message, wrongPassword: PasswordEntry.wrongCurrentPassword) {
+                    // the trimmed current password was the wrong one, and the typed one had a
+                    // space at an edge (an account made before 1.2.2 may have it): that one
+                    // goes once, with the new password that was sent the first time
                     authState.changePasswordResult = nil
-                    AuthEmitter.changePassword(current: typed, new: PasswordEntry.sent(newPassword))
+                    AuthEmitter.changePassword(current: again.current, new: again.new)
                     return
                 }
-                currentAsTypedFallback = nil
+                asTypedRetry.clear()
                 isChangingPassword = false
                 if result.success {
                     currentPassword = ""
@@ -94,6 +101,7 @@ struct AccountSettingsView: View {
             authState.deleteAccountError = nil
             authState.changePasswordResult = nil
             safetyState.feedbackMessage = nil
+            asTypedRetry.clear()
         }
     }
 
@@ -150,8 +158,7 @@ struct AccountSettingsView: View {
                     .foregroundColor(Theme.textPrimary)
                     .accessibilityIdentifier("account.newPasswordAgain")
 
-                if let problem = PasswordRule.changeProblem(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword),
-                                                            again: PasswordEntry.sent(newPasswordAgain)) {
+                if let problem = PasswordEntry.changeProblem(current: currentPassword, new: newPassword, again: newPasswordAgain) {
                     Text(problem)
                         .font(.caption)
                         .foregroundColor(Theme.error)
@@ -173,8 +180,7 @@ struct AccountSettingsView: View {
                     }
                 }
                 .disabled(isChangingPassword || !socketService.isConnected
-                          || !PasswordRule.canChange(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword),
-                                                     again: PasswordEntry.sent(newPasswordAgain)))
+                          || !PasswordEntry.canChange(current: currentPassword, new: newPassword, again: newPasswordAgain))
                 .accessibilityIdentifier("account.changePasswordSubmit")
 
                 Button("Cancel") {
@@ -298,13 +304,15 @@ struct AccountSettingsView: View {
         passwordChangeAttempt += 1
         let attempt = passwordChangeAttempt
         // trimmed like the web's form, so the new password is the one both sign-ins send
-        currentAsTypedFallback = PasswordEntry.asTypedFallback(currentPassword)
-        AuthEmitter.changePassword(current: PasswordEntry.sent(currentPassword), new: PasswordEntry.sent(newPassword))
+        let plan = PasswordChangePlan.make(current: currentPassword, new: newPassword)
+        asTypedRetry.arm(plan.fallback)
+        AuthEmitter.changePassword(current: plan.first.current, new: plan.first.new)
 
         // the button must not spin forever if no response arrives
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             guard isChangingPassword, attempt == passwordChangeAttempt else { return }
             isChangingPassword = false
+            asTypedRetry.clear()
             authState.changePasswordResult = ChangePasswordResult(success: false, message: "No answer from the server. Try again.")
         }
     }

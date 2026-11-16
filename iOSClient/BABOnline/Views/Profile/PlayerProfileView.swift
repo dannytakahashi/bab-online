@@ -18,6 +18,7 @@ struct PlayerProfileView: View {
 
     @State private var reportTarget: String?
     @State private var confirmsBlock = false
+    @State private var sheetId = UUID()
 
     /// The open profile, once this sheet asked for it.
     private var viewed: ProfileState.Viewed? {
@@ -39,7 +40,7 @@ struct PlayerProfileView: View {
 
     /// The server knows no such account (a bot seat's name, a deleted or renamed account).
     private var notFound: Bool {
-        viewed?.username == nil && load.failure?.message == "Player not found"
+        viewed?.username == nil && load.failure?.message == ProfileState.playerNotFound
     }
 
     var body: some View {
@@ -72,11 +73,11 @@ struct PlayerProfileView: View {
         }
         .accessibilityIdentifier("playerProfile")
         .onAppear {
-            ProfileSheets.shared.open += 1
+            ProfileSheets.shared.opened(sheetId)
             profileState.view(username, scope: leaderboardState.scope)
         }
         .onDisappear {
-            ProfileSheets.shared.open = max(0, ProfileSheets.shared.open - 1)
+            ProfileSheets.shared.closed(sheetId)
             profileState.closeViewed(username)
         }
         // the report prompt and the report / block feedback, presented from this sheet (the
@@ -168,10 +169,18 @@ extension EnvironmentValues {
 }
 
 /// Whether a player profile sheet is up, for the alert hosts under it (SafetyAlertsModifier).
+/// Each sheet is counted by its own id, and a change of screen (the game ends, a sign-out, a
+/// forced logout: the sheet's presenter goes away, perhaps without its onDisappear) forgets
+/// them all, so a sheet that never said it closed cannot hold the alerts back for good.
 final class ProfileSheets: ObservableObject {
     static let shared = ProfileSheets()
-    @Published var open = 0
-    var isUp: Bool { open > 0 }
+    @Published private(set) var open: Set<UUID> = []
+    var isUp: Bool { !open.isEmpty }
+
+    func opened(_ id: UUID) { open.insert(id) }
+    func closed(_ id: UUID) { open.remove(id) }
+    /// The screen changed: no sheet of the old screen is up any more.
+    func screenChanged() { if !open.isEmpty { open = [] } }
 }
 
 /// A tap on a seat's avatar at the table (GameSKScene+SeatTap), for the table's profile host.

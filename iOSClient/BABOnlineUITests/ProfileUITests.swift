@@ -145,6 +145,69 @@ final class ProfileUITests: XCTestCase {
         app.terminate()
     }
 
+    /// The picture rows work with the hero row scrolled out of the list (the picker sheet and
+    /// the upload hang on the List, not on a row that is torn down off screen): at the largest
+    /// text size the hero leaves the screen while Choose Avatar is still on it.
+    func testChooseAvatarWithTheHeroScrolledAway() {
+        let app = openAccount(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        XCTAssertTrue(waitForStat(app, "gamesPlayed", "51"))
+        let hero = element(app, "profile.hero"), choose = element(app, "profile.chooseAvatar")
+        let bar = app.navigationBars["Account"]
+        let window = app.windows.firstMatch
+        func heroGone() -> Bool { !hero.exists || hero.frame.maxY <= bar.frame.maxY + 1 }
+        // short drags that end at rest, so the list stops where the hero has just left
+        for _ in 0..<30 where !heroGone() {
+            window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+                .press(forDuration: 0.05, thenDragTo: window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.56)),
+                       withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(heroGone(), "the hero row is off screen")
+        XCTAssertTrue(choose.exists && choose.isHittable, "Choose Avatar is still on screen")
+        XCTAssertGreaterThan(choose.frame.midY, bar.frame.maxY, "and below the bar")
+        shot("account-hero-scrolled-away")
+        choose.tap()
+        XCTAssertTrue(app.navigationBars["Select Profile Picture"].waitForExistence(timeout: 5), "the picker opens without the hero row")
+        let pick = element(app, "avatarPicker.33")
+        XCTAssertTrue(pick.waitForExistence(timeout: 5))
+        pick.tap()
+        XCTAssertTrue(waitForSent(app, containing: "updateProfilePic:33").contains("updateProfilePic:33"))
+        let notice = element(app, "profile.pictureNotice")
+        XCTAssertTrue(notice.waitForExistence(timeout: 5))
+        XCTAssertEqual(notice.label, "Profile picture updated!")
+        app.terminate()
+    }
+
+    /// Upload Photo through the real system picker (the simulator's stock photo library): the
+    /// first photo goes through the load, the crop and the send. Skipped where the picker's
+    /// grid cannot be reached by the test.
+    func testUploadPhotoWithTheSystemPicker() throws {
+        let app = openAccount()
+        XCTAssertTrue(waitForStat(app, "gamesPlayed", "51"))
+        element(app, "profile.uploadPhoto").tap()
+        // a grid cell (the banner's app icon is an image too, and small)
+        var cell: XCUIElement?
+        let deadline = Date().addingTimeInterval(15)
+        while cell == nil && Date() < deadline {
+            cell = app.images.allElementsBoundByIndex.first { $0.frame.width > 100 && $0.isHittable }
+            if cell == nil { Thread.sleep(forTimeInterval: 0.5) }
+        }
+        guard let photo = cell else {
+            throw XCTSkip("the system photo picker's grid is not reachable here")
+        }
+        shot("system-picker")
+        photo.tap()
+        let notice = element(app, "profile.pictureNotice")
+        if !notice.waitForExistence(timeout: 15) { shot("system-picker-after-tap") }
+        XCTAssertTrue(notice.exists, "the picked photo was loaded, cropped and sent")
+        XCTAssertEqual(notice.label, "Profile picture uploaded!")
+        let sent = waitForSent(app, containing: "uploadProfilePic:png:")
+        let length = sent.components(separatedBy: "uploadProfilePic:png:").last.flatMap { Int($0.split(separator: "|").first ?? "") } ?? -1
+        XCTAssertGreaterThan(length, 1000, sent)
+        XCTAssertLessThanOrEqual(length, 682_666)
+        shot("photo-uploaded-system-picker")
+        app.terminate()
+    }
+
     /// Upload Photo: the picked photo goes out as a PNG data URL within the server's limit and
     /// the confirmation shows (the fixture's sample replaces the system picker).
     func testUploadPhoto() {
@@ -277,6 +340,33 @@ final class ProfileUITests: XCTestCase {
 
         element(app, "profile.close").tap()
         XCTAssertFalse(element(app, "profile.name").waitForExistence(timeout: 2))
+        app.terminate()
+    }
+
+    /// Another player's sheet at the largest text size: the name, Report and Block (stacked
+    /// where they do not fit side by side) and every stat, all reachable by scrolling.
+    func testPlayerProfileAtTheLargestTextSize() {
+        let app = Fixture.launch("main-room", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"], env: env)
+        XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 20))
+        openProfileFromChat(app, line: "rematch?")
+        XCTAssertEqual(element(app, "profile.name").label, "kim")
+        let report = element(app, "profile.report"), block = element(app, "profile.block")
+        XCTAssertTrue(report.waitForExistence(timeout: 6))
+        let width = app.windows.firstMatch.frame.width
+        for b in [report, block] {
+            XCTAssertGreaterThanOrEqual(b.frame.minX, 0)
+            XCTAssertLessThanOrEqual(b.frame.maxX, width + 1, "inside the sheet")
+            XCTAssertGreaterThanOrEqual(b.frame.height, 44)
+        }
+        shot("player-profile-ax5")
+        XCTAssertTrue(element(app, "profile.stat.gamesPlayed").waitForExistence(timeout: 6))
+        let games = element(app, "profile.stat.gamesPlayed"), wins = element(app, "profile.stat.wins")
+        reveal(app, wins)
+        XCTAssertEqual(games.frame.midY, wins.frame.midY, accuracy: 2, "two cells side by side")
+        shot("player-profile-ax5-stats")
+        reveal(app, element(app, "profile.stat.hsi"))
+        XCTAssertTrue(element(app, "profile.stat.hsi").isHittable)
+        reveal(app, block)
         app.terminate()
     }
 

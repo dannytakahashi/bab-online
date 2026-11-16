@@ -364,6 +364,176 @@ final class ProfileTests: XCTestCase {
         XCTAssertNil(PasswordRule.newPasswordProblem(PasswordEntry.sent(" 12345678 ")))
     }
 
+    /// JS `String.prototype.trim()`'s set exactly (WhiteSpace + LineTerminator), so both
+    /// clients send the same text for the same typing.
+    func testTheTrimmedSetIsJavaScripts() {
+        let stripped: [UInt32] = [0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20, 0xA0, 0x1680] + Array(0x2000...0x200A)
+            + [0x2028, 0x2029, 0x202F, 0x205F, 0x3000, 0xFEFF]
+        for v in stripped {
+            let c = String(Unicode.Scalar(v)!)
+            XCTAssertEqual(PasswordEntry.sent(c + "pass word" + c), "pass word", "U+\(String(v, radix: 16)) is trimmed")
+        }
+        // not in JS's set (U+0085 is in Foundation's .whitespacesAndNewlines), so they stay
+        for v: UInt32 in [0x85, 0x200B, 0x180E, 0x1F, 0x2060] {
+            let c = String(Unicode.Scalar(v)!)
+            XCTAssertEqual(PasswordEntry.sent(c + "password" + c), c + "password" + c, "U+\(String(v, radix: 16)) stays")
+        }
+        XCTAssertEqual(PasswordEntry.sent("\u{FEFF} \u{3000}"), "")
+        XCTAssertEqual(PasswordEntry.sent(" e\u{301}x "), "e\u{301}x", "a combining mark stays with its letter")
+        XCTAssertNil(PasswordEntry.asTypedFallback("\u{85}password"), "nothing JS would trim: no second form")
+        XCTAssertEqual(PasswordEntry.asTypedFallback("password\u{FEFF}"), "password\u{FEFF}")
+    }
+
+    /// The as-typed resend: only for the wrong-password reply, once, with what was captured
+    /// when the first request went out; any other reply, a timeout or the form closing drops it.
+    func testAsTypedResendIsForTheWrongPasswordReplyOnly() {
+        var retry = AsTypedRetry<SignInRequest>()
+        let typed = SignInRequest(username: "ivy", password: "hunter22 ")
+
+        retry.arm(typed)
+        XCTAssertEqual(retry.resend(afterRefusal: PasswordEntry.signInRefused, wrongPassword: PasswordEntry.signInRefused), typed)
+        XCTAssertNil(retry.resend(afterRefusal: PasswordEntry.signInRefused, wrongPassword: PasswordEntry.signInRefused), "once")
+
+        for other in ["Too many failed sign-in attempts. Please wait a few minutes and try again.", "Username already taken", "Database error", ""] {
+            retry.arm(typed)
+            XCTAssertNil(retry.resend(afterRefusal: other, wrongPassword: PasswordEntry.signInRefused), other)
+            XCTAssertNil(retry.pending, "another refusal drops it: a later wrong-password reply sends nothing")
+        }
+        retry.arm(typed)
+        XCTAssertNil(retry.resend(afterRefusal: nil, wrongPassword: PasswordEntry.signInRefused))
+
+        retry.arm(typed)
+        retry.clear()  // the timeout, a success, the form went away
+        XCTAssertNil(retry.resend(afterRefusal: PasswordEntry.signInRefused, wrongPassword: PasswordEntry.signInRefused))
+
+        retry.arm(nil)  // nothing typed at an edge
+        XCTAssertNil(retry.resend(afterRefusal: PasswordEntry.signInRefused, wrongPassword: PasswordEntry.signInRefused))
+    }
+
+    func testChangePasswordPlan() {
+        // no edge space: one request
+        var plan = PasswordChangePlan.make(current: "old-password", new: " new-password ")
+        XCTAssertEqual(plan.first, PasswordChangeRequest(current: "old-password", new: "new-password"))
+        XCTAssertNil(plan.fallback)
+
+        // an edge space on the current one: trimmed first, as typed if that is the wrong one,
+        // both with the new password as it was when sent
+        plan = PasswordChangePlan.make(current: "old-password ", new: "new-password")
+        XCTAssertEqual(plan.first, PasswordChangeRequest(current: "old-password", new: "new-password"))
+        XCTAssertEqual(plan.fallback, PasswordChangeRequest(current: "old-password ", new: "new-password"))
+        var retry = AsTypedRetry<PasswordChangeRequest>()
+        for other in ["Use at least 8 characters.", "Choose a new password that is different from the current one.",
+                      "Too many incorrect passwords. Please wait a few minutes and try again.", "Database error"] {
+            retry.arm(plan.fallback)
+            XCTAssertNil(retry.resend(afterRefusal: other, wrongPassword: PasswordEntry.wrongCurrentPassword), other)
+        }
+        retry.arm(plan.fallback)
+        XCTAssertEqual(retry.resend(afterRefusal: PasswordEntry.wrongCurrentPassword, wrongPassword: PasswordEntry.wrongCurrentPassword), plan.fallback)
+
+        // dropping the edge space of an older iOS password: the server refuses new == current
+        // before it checks, so the as-typed current password goes alone
+        plan = PasswordChangePlan.make(current: "same-password ", new: "same-password")
+        XCTAssertEqual(plan.first, PasswordChangeRequest(current: "same-password ", new: "same-password"))
+        XCTAssertNil(plan.fallback)
+    }
+
+    func testChangeFormRulesFromTheFieldsAsTyped() {
+        XCTAssertNil(PasswordEntry.changeProblem(current: "", new: "", again: ""))
+        XCTAssertNil(PasswordEntry.changeProblem(current: "   ", new: "new-password", again: ""), "an empty current password only disables")
+        XCTAssertFalse(PasswordEntry.canChange(current: "   ", new: "new-password", again: "new-password"))
+        XCTAssertEqual(PasswordEntry.changeProblem(current: "pw", new: " short ", again: ""), PasswordRule.tooShort)
+        XCTAssertEqual(PasswordEntry.changeProblem(current: "pw", new: "brand-new-pw", again: "brand-new-px"), PasswordRule.mismatch)
+        XCTAssertEqual(PasswordEntry.changeProblem(current: "same-password", new: " same-password ", again: "same-password"), PasswordRule.unchanged)
+        // the migration: the stored password has the space, the new one is the same text without it
+        XCTAssertNil(PasswordEntry.changeProblem(current: "same-password ", new: "same-password", again: "same-password"))
+        XCTAssertTrue(PasswordEntry.canChange(current: "same-password ", new: "same-password", again: " same-password"))
+        XCTAssertFalse(PasswordEntry.canChange(current: "old-password", new: "new-password", again: ""))
+    }
+
+    // MARK: - Late and rate-limited replies
+
+    func testASuccessForTheOpenSheetShowsEvenWithNoRequestWaiting() {
+        let (s, _) = state()
+        s.timeout = 0.05
+        s.view("🤖 Mary", scope: .human)
+        let done = expectation(description: "the bot's request times out")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { done.fulfill() }
+        wait(for: [done], timeout: 2)
+        s.closeViewed("🤖 Mary")
+        s.timeout = 10
+        s.view("jon", scope: .human)
+        // the bot's late "Player not found" names nobody: it takes jon's place in the queue
+        s.applyPlayer(response: ["success": false, "message": "Player not found"])
+        XCTAssertEqual(s.viewed?.loads[.human]?.failure?.message, "Player not found")
+        // jon's own answer still lands (it names him and the sheet is his)
+        s.applyPlayer(response: reply("jon", games: 25))
+        XCTAssertEqual(s.viewed?.username, "jon")
+        XCTAssertEqual(s.viewed?.loads[.human]?.stats?.gamesPlayed, 25)
+        XCTAssertNil(s.viewed?.loads[.human]?.failure)
+        // somebody else's answer with nothing waiting is still dropped
+        s.applyPlayer(response: reply("kim", games: 42))
+        XCTAssertEqual(s.viewed?.username, "jon")
+        XCTAssertEqual(s.viewed?.loads[.human]?.stats?.gamesPlayed, 25)
+    }
+
+    func testARateLimitedProfileRequestFailsAtOnceWithTheServersWords() {
+        let (s, _) = state()
+        let limited: [String: Any] = ["code": "rateLimit", "message": "Too many requests, please slow down", "handler": "getProfile"]
+        XCTAssertFalse(s.applyServerError(limited), "nothing waiting: the toast shows it")
+        s.requestOwn(username: "ivy", scope: .human)
+        XCTAssertFalse(s.applyServerError(["code": "rateLimit", "message": "x", "handler": "joinLobby"]), "another handler's")
+        XCTAssertFalse(s.applyServerError(["code": "internal", "message": "x", "handler": "getProfile"]), "another failure")
+        XCTAssertTrue(s.applyServerError(limited))
+        XCTAssertEqual(s.ownLoads[.human]?.isLoading, false)
+        XCTAssertEqual(s.ownLoads[.human]?.failure?.isRateLimited, true)
+        // its place in the queue is gone: the next failure is the next request's
+        s.requestOwn(username: "ivy", scope: .all)
+        s.applyOwn(response: ["success": false, "message": "Database error"])
+        XCTAssertEqual(s.ownLoads[.all]?.failure?.message, "Database error")
+
+        s.view("kim", scope: .bots)
+        // the `error` channel says `type`
+        XCTAssertTrue(s.applyServerError(["type": "rateLimit", "message": "Too many requests, please slow down", "handler": "getPlayerProfile"]))
+        XCTAssertEqual(s.viewed?.loads[.bots]?.failure?.isRateLimited, true)
+        XCTAssertEqual(s.viewed?.loads[.bots]?.isLoading, false)
+    }
+
+    /// Choosing a stock picture over a custom one asks the server which picture shows now:
+    /// one that keeps the custom picture answers with its avatarUrl, and the hero follows.
+    func testAStockPictureOverACustomOneAsksTheServerWhatShows() {
+        let (s, sent) = state()
+        s.requestOwn(username: "ivy", scope: .all)
+        s.applyOwn(response: reply("ivy", games: 1, scope: "all", avatar: "/avatar/ivy?v=1"))
+        s.chooseStockPic(12)
+        s.applyStockPic(response: ["success": true, "profilePic": 12])
+        XCTAssertEqual(s.ownPictureKey, "12")
+        XCTAssertEqual(sent().filter { $0.hasPrefix("own") }, ["own:all", "own:all"], "asked again, same scope")
+        s.applyOwn(response: reply("ivy", games: 1, scope: "all", avatar: "/avatar/ivy?v=1", pic: 12))
+        XCTAssertEqual(s.ownPictureKey, "/avatar/ivy?v=1", "the custom picture is still what others see")
+
+        // with no custom picture there is nothing to ask
+        let (t, sentT) = state()
+        t.requestOwn(username: "ivy", scope: .human)
+        t.applyOwn(response: reply("ivy", games: 1))
+        t.chooseStockPic(12)
+        t.applyStockPic(response: ["success": true, "profilePic": 12])
+        XCTAssertEqual(sentT().filter { $0.hasPrefix("own") }, ["own:human"])
+    }
+
+    func testProfileSheetsForgetASheetThatNeverClosed() {
+        let sheets = ProfileSheets()
+        let a = UUID(), b = UUID()
+        sheets.opened(a)
+        XCTAssertTrue(sheets.isUp)
+        sheets.screenChanged()  // its presenter went away with the screen
+        XCTAssertFalse(sheets.isUp, "the Safety alerts are not held back")
+        sheets.opened(b)
+        sheets.closed(a)  // the old sheet's late onDisappear
+        XCTAssertTrue(sheets.isUp, "does not close the new one")
+        sheets.closed(b)
+        XCTAssertFalse(sheets.isUp)
+    }
+
     // MARK: - The seat avatar's tap target
 
     func testSeatTapFindsTheSeatUnderThePoint() throws {
@@ -390,6 +560,41 @@ final class ProfileTests: XCTestCase {
         XCTAssertNil(scene.seatName(at: CGPoint(x: size.width / 2, y: size.height / 2)), "the trick area is not a seat")
         // no node became interactive: only the hand's cards take touches
         XCTAssertTrue(nodes.values.allSatisfy { !$0.isUserInteractionEnabled })
+    }
+
+    /// A tap is a touch that went down on the scene and lifted on the same seat, with no
+    /// touchable card under it (a card takes its own touch-down; UIKit forwards only its end).
+    func testSeatTapNeedsTheTouchToBeginOnTheSeatAndNoCardUnderIt() throws {
+        OpponentHandNode.avatarLoader = StubAvatarLoader()
+        let size = CGSize(width: 466, height: 678)
+        let h = ReplayHarness()
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        h.store.apply(.snapshot(try T.snapshot("trick-mid-lead3"), .rejoin, hints: nil))
+
+        let node = try XCTUnwrap(scene.opponentManager.nodes.values.first)
+        let center = node.convert(CGPoint.zero, to: scene)
+        let table = CGPoint(x: size.width / 2, y: size.height / 2)
+        XCTAssertEqual(scene.seatTapName(began: center, ended: center), node.fullName)
+        XCTAssertEqual(scene.seatTapName(began: node.convert(CGPoint(x: 10, y: -30), to: scene), ended: center), node.fullName, "within the seat")
+        XCTAssertNil(scene.seatTapName(began: nil, ended: center), "a card took the touch's beginning")
+        XCTAssertNil(scene.seatTapName(began: table, ended: center), "a drag onto the seat")
+        XCTAssertNil(scene.seatTapName(began: center, ended: table), "a drag off the seat")
+        if let other = scene.opponentManager.nodes.values.first(where: { $0 !== node }) {
+            XCTAssertNil(scene.seatTapName(began: other.convert(CGPoint.zero, to: scene), ended: center), "from another seat")
+        }
+
+        // a touchable hand card over the seat: the card's tap, not a profile
+        let card = try XCTUnwrap(scene.handNode.sprites.values.first)
+        card.removeAllActions()
+        card.move(toParent: scene)
+        card.position = center
+        XCTAssertTrue(card.isUserInteractionEnabled)
+        XCTAssertNil(scene.seatTapName(began: center, ended: center))
+        card.isUserInteractionEnabled = false  // a played card takes no touches
+        XCTAssertEqual(scene.seatTapName(began: center, ended: center), node.fullName)
     }
 
     func testSeatTapsReachTheTablesHostOnly() {

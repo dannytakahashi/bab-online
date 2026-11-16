@@ -67,6 +67,9 @@ final class ProfileState: ObservableObject {
     var timeout: TimeInterval = 10
 
     static let noAnswer = "No answer from the server. Try again."
+    /// playerProfileResponse's failure for a name with no account (server profileHandlers.js;
+    /// server/socket/__tests__/iosCopies.test.js holds this copy to the server's).
+    static let playerNotFound = "Player not found"
 
     private var serial = 0
     private func nextId() -> Int { serial += 1; return serial }
@@ -78,6 +81,7 @@ final class ProfileState: ObservableObject {
     /// to an earlier sheet is not shown under the open one.
     private var playerWaiting: [PlayerRequest] = []
     private var pictureRequest = 0
+    private var lastOwnScope: StatsScope = .human
     private var pendingUpload: UIImage?
 
     // MARK: - Mine
@@ -86,6 +90,7 @@ final class ProfileState: ObservableObject {
     /// than the last one (a sign-out, a deletion) starts from nothing.
     func requestOwn(username: String, scope: StatsScope) {
         if username != ownUsername { resetOwn(username: username) }
+        lastOwnScope = scope
         var load = ownLoads[scope] ?? ProfileStatsLoad()
         if load.isLoading { return }
         load.isLoading = true
@@ -151,7 +156,13 @@ final class ProfileState: ObservableObject {
     /// Upload Photo: a picked file, cropped and encoded as the web does it (ProfilePicture).
     func upload(imageData data: Data) {
         guard !pictureBusy else { return }
-        switch ProfilePicture.upload(from: data) {
+        upload(prepared: ProfilePicture.upload(from: data))
+    }
+
+    /// The same with the image already made (the Account sheet makes it off the main thread).
+    func upload(prepared: Result<(url: String, image: UIImage), ProfilePicture.Failure>) {
+        guard !pictureBusy else { return }
+        switch prepared {
         case .failure(let failure):
             pictureNotice = PictureNotice(success: false, message: failure.message)
         case .success(let made):
@@ -185,10 +196,14 @@ final class ProfileState: ObservableObject {
     func applyStockPic(response dict: [String: Any]) {
         pictureBusy = false
         if dict["success"] as? Bool == true, let n = StatsWire.int(dict["profilePic"]), (1...ProfilePicture.stockCount).contains(n) {
+            let hadCustom = ownAvatarPath != nil || ownUploaded != nil
             ownStockPic = n
             ownAvatarPath = nil
             ownUploaded = nil
             pictureNotice = PictureNotice(success: true, message: "Profile picture updated!")
+            // with a custom picture before, the server says which one others see now (a server
+            // that keeps the custom picture answers with its avatarUrl again): the hero follows it
+            if hadCustom, !ownUsername.isEmpty { requestOwn(username: ownUsername, scope: lastOwnScope) }
         } else {
             pictureNotice = PictureNotice(success: false, message: Self.message(dict, "Failed to update profile picture"))
         }
@@ -247,18 +262,49 @@ final class ProfileState: ObservableObject {
     func applyPlayer(response dict: [String: Any]) {
         if let profile = PlayerProfile.from(response: dict) {
             guard let scope = StatsScope.echo(of: dict) ?? .some(.human) else { return }
-            guard let i = playerWaiting.firstIndex(where: { $0.scope == scope && $0.username == profile.username })
-                    ?? playerWaiting.firstIndex(where: { $0.scope == scope }) else { return }
-            let request = playerWaiting.remove(at: i)
-            guard var v = viewed, v.token == request.token else { return }
+            let token: Int
+            if let i = playerWaiting.firstIndex(where: { $0.scope == scope && $0.username == profile.username })
+                ?? playerWaiting.firstIndex(where: { $0.scope == scope }) {
+                token = playerWaiting.remove(at: i).token
+            } else if let v = viewed, v.requested == profile.username || v.username == profile.username {
+                // no request waits (it timed out, or an earlier request's late failure took its
+                // place in the queue), but the answer names the open sheet's player: shown
+                token = v.token
+            } else {
+                return
+            }
+            guard var v = viewed, v.token == token else { return }
             v.username = profile.username
             v.pictureKey = profile.pictureKey
             v.loads[scope, default: ProfileStatsLoad()].stats = profile.stats
             viewed = v
-            finishViewed(request.token, scope, failure: nil)
+            finishViewed(token, scope, failure: nil)
         } else if !playerWaiting.isEmpty {
             let request = playerWaiting.removeFirst()
             finishViewed(request.token, request.scope, failure: StatsFailure(message: Self.message(dict, "Failed to load profile")))
+        }
+    }
+
+    /// `serverError {code: "rateLimit", handler}` (the `error` event's `type` likewise) for one
+    /// of the two profile requests: the server's per-socket limits answer on that channel, not
+    /// with a failed reply. The oldest waiting request of that kind fails now with the server's
+    /// words instead of waiting out its timeout. True when a request took it (no toast then).
+    @discardableResult
+    func applyServerError(_ dict: [String: Any]) -> Bool {
+        guard (dict["code"] as? String ?? dict["type"] as? String) == "rateLimit" else { return false }
+        let failure = StatsFailure(message: Self.message(dict, "Too many requests, please slow down"))
+        switch dict["handler"] as? String {
+        case SocketEvents.Client.getProfile:
+            guard !ownWaiting.isEmpty else { return false }
+            finishOwn(ownWaiting.removeFirst().scope, failure: failure)
+            return true
+        case SocketEvents.Client.getPlayerProfile:
+            guard !playerWaiting.isEmpty else { return false }
+            let request = playerWaiting.removeFirst()
+            finishViewed(request.token, request.scope, failure: failure)
+            return true
+        default:
+            return false
         }
     }
 

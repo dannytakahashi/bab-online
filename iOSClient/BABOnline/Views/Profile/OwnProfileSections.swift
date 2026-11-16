@@ -3,8 +3,12 @@ import PhotosUI
 
 /// My own profile at the top of the Account sheet (the web's showProfilePage): the picture
 /// other players see, with Upload Photo and Choose Avatar, then my statistics for the games
-/// the Stats sheet counts. Two List sections.
+/// the Stats sheet counts. Two List sections. The rows only set `pickedPhoto` and
+/// `showsAvatarPicker` (the Account sheet's state); what acts on them is OwnProfileHost on the
+/// List, because a List row that scrolls off screen is torn down with its modifiers.
 struct OwnProfileSections: View {
+    @Binding var pickedPhoto: PhotosPickerItem?
+    @Binding var showsAvatarPicker: Bool
     let signOut: () -> Void
 
     @EnvironmentObject var authState: AuthState
@@ -12,9 +16,6 @@ struct OwnProfileSections: View {
     @EnvironmentObject var leaderboardState: LeaderboardState
     @EnvironmentObject var recordsState: RecordsState
     @EnvironmentObject var socketService: SocketService
-
-    @State private var pickedPhoto: PhotosPickerItem?
-    @State private var showsAvatarPicker = false
 
     /// One choice for the Stats sheet and both profiles, saved on disk (StatsScope).
     private var scope: Binding<StatsScope> {
@@ -97,25 +98,6 @@ struct OwnProfileSections: View {
         .accessibilityElement(children: .combine)
         .accessibilityHint("Your profile picture is what other players see")
         .accessibilityIdentifier("profile.hero")
-        // the sheet and the observers hang on this one row (a modifier on a Section applies to each row)
-        .onAppear { request(leaderboardState.scope) }
-        .onChange(of: profileState.pictureNotice) { _, notice in
-            if let notice { UIAccessibility.post(notification: .announcement, argument: notice.message) }
-        }
-        .onChange(of: pickedPhoto) { _, item in
-            guard let item else { return }
-            pickedPhoto = nil
-            Task { @MainActor in
-                if let data = try? await item.loadTransferable(type: Data.self) {
-                    profileState.upload(imageData: data)
-                } else {
-                    profileState.uploadFailed()
-                }
-            }
-        }
-        .sheet(isPresented: $showsAvatarPicker) {
-            AvatarPickerView(current: isMine && profileState.ownAvatarPath == nil && profileState.ownUploaded == nil ? profileState.ownStockPic : nil)
-        }
     }
 
     /// A picture change needs the connection (fixture mode has none and answers by itself).
@@ -149,6 +131,47 @@ struct OwnProfileSections: View {
             .disabled(disabled)
             .accessibilityIdentifier("profile.uploadPhoto")
         #endif
+    }
+}
+
+/// What the own-profile rows start, attached to the Account sheet's List (alive whichever rows
+/// are on screen): the first `getProfile`, the picked photo's upload, the avatar picker sheet
+/// and the VoiceOver announcement of a picture change's outcome.
+struct OwnProfileHost: ViewModifier {
+    @Binding var pickedPhoto: PhotosPickerItem?
+    @Binding var showsAvatarPicker: Bool
+
+    @EnvironmentObject var authState: AuthState
+    @EnvironmentObject var profileState: ProfileState
+    @EnvironmentObject var leaderboardState: LeaderboardState
+
+    private var isMine: Bool { profileState.ownUsername == authState.username }
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                guard !authState.username.isEmpty else { return }
+                profileState.requestOwn(username: authState.username, scope: leaderboardState.scope)
+            }
+            .onChange(of: profileState.pictureNotice) { _, notice in
+                if let notice { UIAccessibility.post(notification: .announcement, argument: notice.message) }
+            }
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item else { return }
+                pickedPhoto = nil
+                Task { @MainActor in
+                    guard let data = try? await item.loadTransferable(type: Data.self) else {
+                        profileState.uploadFailed()
+                        return
+                    }
+                    // decode, crop and encode off the main thread (a large photo takes a moment)
+                    let made = await Task.detached(priority: .userInitiated) { ProfilePicture.upload(from: data) }.value
+                    profileState.upload(prepared: made)
+                }
+            }
+            .sheet(isPresented: $showsAvatarPicker) {
+                AvatarPickerView(current: isMine && profileState.ownAvatarPath == nil && profileState.ownUploaded == nil ? profileState.ownStockPic : nil)
+            }
     }
 }
 
