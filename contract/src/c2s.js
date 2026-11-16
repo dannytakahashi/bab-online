@@ -169,14 +169,14 @@ const c2s = {
         notes: 'Answered by voiceIceServers to this socket only (requestId echoed). Web asks before its first peer connection of a voice session and again before the credentials expire. TURN credentials (Cloudflare Realtime, minted server-side, cached per user) only for a signed-in socket that is a voice peer now (in a lobby, or an entrant / seat owner of a game); everyone else, and every failure (env unset, Cloudflare timeout or error), gets the public STUN servers. iOS 1.1.0 does not send it (it hard-codes STUN); iOS 1.2.0 asks on every voice start and before its restart (Voice/IceServerStore.swift; V1_REMOVALS "iOS TURN").',
     },
 
-    // Admin panel (web only; the iOS app never sends it)
+    // Admin panel (web; iOS from 1.2.2 build 10)
     adminRequest: {
         payload: open({
             requestId: str({ minLength: 1, maxLength: 64 }),
             action: enm(...ADMIN_ACTIONS),
             args: open({}),
         }, { optional: ['args'] }),
-        status: 'active', joi: 'adminRequest', rateLimit: 'adminRequest', sentBy: webOnly,
+        status: 'active', joi: 'adminRequest', rateLimit: 'adminRequest', sentBy: both,
         examples: [
             { requestId: 'adm-1', action: 'searchPlayers', args: { query: 'alan' } },
             { requestId: 'adm-2', action: 'listAdmins' },
@@ -186,7 +186,7 @@ const c2s = {
             { requestId: 'adm-3', action: 'applyMerge', args: { target: 'Alan', sources: ['alan2'], planHash: 'a'.repeat(64), confirm: 'Alan' } },
         ],
         invalid: [{ requestId: '', action: 'listAdmins' }, { requestId: 'a', action: 'dropDatabase' }, { action: 'listAdmins' }, { requestId: 'a', action: 'listAdmins', args: 'x' }, { requestId: 'x'.repeat(65), action: 'listAdmins' }],
-        notes: 'The admin panel (server/socket/adminHandlers.js). Answered by adminResponse to this socket only (requestId and action echoed). Authorized on EVERY request against the database (signed in, the account\'s current socket, its session still live, not a merged tombstone, isAdmin true); anyone else gets {ok:false, error:\'forbidden\'} for every action and target, before args are read, so a non-admin learns nothing. args are validated per action after that (adminHandlers ACTION_SCHEMAS; invalid -> {ok:false, error:\'invalid\'}). Each request writes one adminAudit entry (listAudit excepted). Wrapper limit 60/min (error {type:\'rateLimit\'}).',
+        notes: 'The admin panel (server/socket/adminHandlers.js). Answered by adminResponse to this socket only (requestId and action echoed). Authorized on EVERY request against the database (signed in, the account\'s current socket, its session still live, not a merged tombstone, isAdmin true); anyone else gets {ok:false, error:\'forbidden\'} for every action and target, before args are read, so a non-admin learns nothing. args are validated per action after that (adminHandlers ACTION_SCHEMAS; invalid -> {ok:false, error:\'invalid\'}). Each request writes one adminAudit entry (listAudit excepted). Wrapper limit 60/min (serverError {code:\'rateLimit\', handler:\'adminRequest\'}, never an adminResponse). Sent by the web panel and, from iOS 1.2.2 build 10, by the iOS admin panel (Networking/AdminApi.swift: the same requestId matching, 15 s timeout and 3 s rate-limit fail-fast; only on a connected socket whose sign-in or restore was answered, so a forbidden answer always means the access is gone). iOS 1.2.0 / 1.2.1 never send it. No platform check on the server: every socket is authorized the same way.',
     },
 };
 

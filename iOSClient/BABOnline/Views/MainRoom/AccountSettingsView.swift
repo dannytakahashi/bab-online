@@ -16,6 +16,10 @@ struct AccountSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject private var sounds = SoundPlayer.shared
 
+    /// Opens the admin panel once this sheet has closed (MainRoomView); the Admin entry shows
+    /// only while `authState.isAdmin` and this is set.
+    var openAdmin: (() -> Void)?
+
     @State private var showDeleteConfirm = false
     @State private var deletePassword = ""
     @State private var isDeleting = false
@@ -39,6 +43,7 @@ struct AccountSettingsView: View {
         NavigationView {
             List {
                 OwnProfileSections(pickedPhoto: $pickedPhoto, showsAvatarPicker: $showsAvatarPicker, signOut: signOut)
+                if authState.isAdmin, openAdmin != nil { adminSection }
                 soundSection
                 passwordSection
                 blockedUsersSection
@@ -106,6 +111,31 @@ struct AccountSettingsView: View {
     }
 
     // MARK: - Sections
+
+    /// Admins only (the flag is display only: the server checks every admin request).
+    private var adminSection: some View {
+        Section {
+            Button {
+                openAdmin?()
+                dismiss()
+            } label: {
+                HStack {
+                    Label("Admin", systemImage: "shield.lefthalf.filled")
+                        .foregroundColor(Theme.primary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.textDim)
+                        .accessibilityHidden(true)
+                }
+            }
+            .accessibilityIdentifier("account.admin")
+        } footer: {
+            Text("Players, reports, merges, admins and the audit log.")
+                .foregroundColor(Theme.textDim)
+        }
+        .listRowBackground(Theme.surface)
+    }
 
     /// The same switch as the table's speaker (SoundToggleButton), plus the volume.
     private var soundSection: some View {

@@ -116,6 +116,7 @@ final class AuthSocketHandler {
                 self.authState.saveCredentials()
                 self.stopRestoreRetry()
                 if let notice = PasswordResetNotice.text(data["passwordReset"]) { self.authState.accountNotice = notice }
+                self.authState.isAdmin = AdminFlag.read(data)
 
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
@@ -157,6 +158,7 @@ final class AuthSocketHandler {
                 self.authState.isAuthenticated = true
                 self.authState.error = nil
                 self.authState.saveCredentials()
+                self.authState.isAdmin = false  // a new account
                 // a pending retry would restore again, now with the new account's token
                 self.stopRestoreRetry()
 
@@ -197,6 +199,7 @@ final class AuthSocketHandler {
                 self.authState.error = nil
                 self.stopRestoreRetry()
                 if let notice = PasswordResetNotice.text(data["passwordReset"]) { self.authState.accountNotice = notice }
+                self.authState.isAdmin = AdminFlag.read(data)
 
                 self.gameState.apply(.local(.identity(username: username, playerId: self.socket.socketId)))
 
@@ -258,6 +261,7 @@ final class AuthSocketHandler {
                 self.lobbyState.rejoiningLobbyId = nil
                 self.tournamentState.rejoiningTournamentId = nil
                 RestartNotices.shared.lost()
+                self.authState.isAdmin = false
                 // Clear stale credentials and show sign-in
                 self.authState.sessionToken = ""
                 self.authState.saveCredentials()

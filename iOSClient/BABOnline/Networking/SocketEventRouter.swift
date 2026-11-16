@@ -14,6 +14,8 @@ final class SocketEventRouter {
     private let voiceHandler: VoiceSocketHandler
     private let safetyHandler: SafetySocketHandler
     private let profileHandler: ProfileSocketHandler
+    /// The admin panel's reply (nil where no panel is wired: tests of other areas).
+    private let adminHandler: AdminSocketHandler?
 
     init(
         socket: SocketService,
@@ -26,7 +28,8 @@ final class SocketEventRouter {
         leaderboardState: LeaderboardState,
         recordsState: RecordsState,
         safetyState: SafetyState,
-        profileState: ProfileState = ProfileState()
+        profileState: ProfileState = ProfileState(),
+        adminApi: AdminApi? = nil
     ) {
         self.socket = socket
         self.authHandler = AuthSocketHandler(socket: socket, authState: authState, appState: appState, gameState: gameState, safetyState: safetyState,
@@ -40,6 +43,7 @@ final class SocketEventRouter {
         self.voiceHandler = VoiceSocketHandler(socket: socket, gameState: gameState)
         self.safetyHandler = SafetySocketHandler(socket: socket, safetyState: safetyState)
         self.profileHandler = ProfileSocketHandler(socket: socket, profileState: profileState)
+        self.adminHandler = adminApi.map { AdminSocketHandler(socket: socket, api: $0) }
     }
 
     func registerAll() {
@@ -53,5 +57,6 @@ final class SocketEventRouter {
         voiceHandler.register()
         safetyHandler.register()
         profileHandler.register()
+        adminHandler?.register()
     }
 }

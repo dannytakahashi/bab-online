@@ -173,6 +173,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Snapshot v2, `seq` | `contract/CLAUDE.md` | `getSnapshotV2`, `trickHistory`, `watching`; seq stamping, consumer rules R1-R5 |
 | Upgrade gate | `contract/CLAUDE.md`, Upgrade gate | iOS 1.0.0 / 1.1.0 detection by User-Agent (`MIN_IOS_BUILD` 3), update-only replies, `UPGRADE_GATE=off` |
 | iOS reconnect, table store | `iOSClient/CLAUDE.md` | `forceReconnect` builds a new manager, a foreground keeps a live one (`resumeAfterKeepAlive` probe), session gate, lobby and tournament-lobby re-entry after a restore (`RestoreRoute`); TableReducer store, iOS fixtures; its intro lists iOS topics kept in other files (Leave alert, voice, spectators) |
+| iOS admin panel (1.2.2) | `iOSClient/CLAUDE.md`, iOS admin panel | `AuthState.isAdmin` entry in the Account sheet, `AdminApi` (adminRequest / adminResponse), `AdminState`, typed confirmations, reset link, `-uiAdmin` fixtures |
 | iOS project, builds, releases | `iOSClient/CLAUDE.md`, iOS project | hand-kept xcodeproj, synchronized folders, versions 1.1.0 / 1.2.0 (6, live) / 1.2.1 (9) and what each build adds (1.2.0 bot seats: `positionUpdate.isBot`, `bot:` socket-id fallback), dSYM warning |
 | Web client architecture | `docs/claude/web-client.md`, Architecture | ClientSession screen FSM, SocketManager ping, reconnect order |
 | Web stay signed in, delivery, screens, phone gate | `docs/claude/web-client.md` | session storage, `staticAssets.js` + CSP + restart notice, `.screen--full`, phone gate |
