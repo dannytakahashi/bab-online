@@ -11,6 +11,22 @@ const { delay } = require('../utils/timing');
 const pacing = require('../game/pacing');
 const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
+const gameVoice = require('../voice/gameVoice');
+const clientInfo = require('./clientInfo');
+
+/**
+ * playerReadyUpdate (the plain 'neither' variant) to every human member of
+ * `lobby`, or only to `onlyTo`: the player list plus the additive members /
+ * host / settings / capacity. Used by the ready paths, bots, held seats and
+ * the host's "Spectators can talk" switch.
+ */
+function sendLobbyState(io, lobby, { except = null, onlyTo = null, own = {} } = {}) {
+    for (const player of lobby.players) {
+        if (gameManager.isBot(player.socketId) || player.socketId === except) continue;
+        if (onlyTo && player.socketId !== onlyTo) continue;
+        io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, own, { to: player.socketId }));
+    }
+}
 
 /**
  * Handle player marking themselves as ready
@@ -20,25 +36,22 @@ async function playerReady(socket, io) {
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'playerReady');
+        // The table filled first (a lobby of more than 4): this member
+        // watches; its list is sent again so a client showing it ready resyncs
+        if (result.tableFull && result.lobby) sendLobbyState(io, result.lobby, { onlyTo: socket.id });
         return;
     }
 
     const lobby = result.lobby;
 
-    // Auto-ready all bots when we have 4 players and a human readies
-    if (lobby.players.length === 4) {
-        gameManager.setBotsReady(lobby.id);
-    }
+    // Auto-ready the bots that play: all of them in a lobby of 4 (as
+    // before), the table bots once the table is full in a bigger one
+    gameManager.readyBotsAfterHumanReady(lobby.id);
 
     // Broadcast ready status update to all lobby members (skip bots)
     lobby.players.forEach(player => {
         if (!gameManager.isBot(player.socketId)) {
-            io.to(player.socketId).emit('playerReadyUpdate', {
-                lobbyId: lobby.id,
-                players: lobby.players,
-                readySocketId: socket.id,
-                ...gameManager.reconnectingField(lobby.id)
-            });
+            io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, { readySocketId: socket.id }, { to: player.socketId }));
         }
     });
 
@@ -62,7 +75,7 @@ async function playerReady(socket, io) {
  * unless every seat is ready now.
  */
 async function startLobbyIfAllReady(io, lobby) {
-    if (lobby.readyPlayers.size !== 4) return;
+    if (!gameManager.lobbyTableReady(lobby)) return;
 
     socketLogger.info('All players ready, starting game', { lobbyId: lobby.id });
 
@@ -72,14 +85,16 @@ async function startLobbyIfAllReady(io, lobby) {
     pacing.trace('lobby', lobbyMs);
     await delay(lobbyMs);
 
-    const startResult = gameManager.startGameFromLobby(lobby.id);
+    const startResult = gameManager.startGameFromLobby(lobby.id, io);
     if (!startResult.success) return;
 
     const game = startResult.game;
+    const onTable = new Set(startResult.players);
 
-    // Register bots with bot controller (reveal real personality names)
+    // Register the table's bots with bot controller (reveal real
+    // personality names); a bot sitting out was never registered
     for (const player of lobby.players) {
-        if (player.isBot) {
+        if (player.isBot && onTable.has(player.socketId)) {
             const personality = gameManager.lobbyBotPersonality(lobby, player.socketId);
             const realName = `🤖 ${getDisplayName(personality)}`;
             const bot = botController.createBot(realName, personality);
@@ -98,7 +113,8 @@ async function startLobbyIfAllReady(io, lobby) {
         }
     });
 
-    // Emit allPlayersReady to human players
+    // Emit allPlayersReady to the table's humans only (every client opens
+    // the draw as an entrant on it)
     startResult.players.forEach(socketId => {
         if (!gameManager.isBot(socketId)) {
             io.to(socketId).emit('allPlayersReady', {
@@ -107,6 +123,17 @@ async function startLobbyIfAllReady(io, lobby) {
         }
     });
 
+    startExtras(io, game, startResult.extras || []);
+    // Every capable socket of the voice room learns its role, who may talk
+    // and who controls the switch (nothing for a legacy client)
+    gameVoice.refreshVoice(io, game);
+
+    // The started lobby leaves the main room's list now (it used to stay
+    // listed until the first deal). Only for a lobby with a capable member
+    // (the family-lobby feature), so a lobby of legacy clients keeps the
+    // wire byte-identical (wireGolden)
+    if (startResult.lobby?.capable?.size > 0) emitLobbiesUpdated(io);
+
     // After another delay, start the draw phase (false: the game
     // was aborted meanwhile)
     if (!(await game.hold('countdown', pacing(game).PREDRAW_COUNTDOWN_MS))) return;
@@ -114,6 +141,43 @@ async function startLobbyIfAllReady(io, lobby) {
     // Deck, startDraw, bot draws, and auto-draws for anyone who
     // left or disconnected during the countdown
     beginDraw(io, game);
+}
+
+/**
+ * The extras of a family lobby (members who did not get a seat; always
+ * capable clients, since a lobby holds more than 4 only then) watch the new
+ * game, in the same tick as the table's allPlayersReady: pure spectators
+ * (spectatorJoined full state at CREATED, no room notice per extra: the
+ * badge lists them), then voice spectators. Their lobby calls to the table
+ * and to each other carry on (no new announcement at start); with
+ * "Spectators can talk" off each client switches itself to listen-only
+ * (voiceSettings canTalk false) and re-offers, extras drop each other, and
+ * the backstop covers a client that does not.
+ */
+function startExtras(io, game, extras) {
+    if (extras.length === 0) return;
+    const { sendSpectatorJoin } = require('./snapshotHandlers');
+    const admitted = [];
+    for (const { socketId, username } of extras) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (!socket) continue;
+        if (!gameManager.addSpectator(io, game, socketId, username, null)) continue;
+        socket.leave('mainRoom');
+        gameManager.leaveMainRoom(socketId);
+        sendSpectatorJoin(game, socket, username, { notice: false });
+        if (gameVoice.admitVoiceSpectator(io, game, socketId, { fromLobby: true, announce: false, priorTalk: true })) {
+            admitted.push(socketId);
+        }
+    }
+    if (!game.casualVoice.spectatorsCanTalk) {
+        for (let i = 0; i < admitted.length; i++) {
+            for (let j = i + 1; j < admitted.length; j++) {
+                io.to(admitted[i]).emit('voicePeerLeft', { socketId: admitted[j] });
+                io.to(admitted[j]).emit('voicePeerLeft', { socketId: admitted[i] });
+            }
+        }
+    }
+    socketLogger.info('Lobby extras now watch the game', { gameId: game.gameId, extras: extras.length, voice: admitted.length });
 }
 
 /**
@@ -168,12 +232,7 @@ function playerUnready(socket, io) {
 
     // Broadcast ready status update to all lobby members
     lobby.players.forEach(player => {
-        io.to(player.socketId).emit('playerReadyUpdate', {
-            lobbyId: lobby.id,
-            players: lobby.players,
-            unreadySocketId: socket.id,
-            ...gameManager.reconnectingField(lobby.id)
-        });
+        io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, { unreadySocketId: socket.id }, { to: player.socketId }));
     });
 
     socketLogger.info('Player marked unready', {
@@ -197,7 +256,7 @@ function leaveLobby(socket, io) {
     const user = gameManager.getUserBySocketId(socket.id);
 
     // Auto-rejoin main room
-    const mainRoomResult = gameManager.joinMainRoom(socket.id);
+    const mainRoomResult = gameManager.joinMainRoom(socket.id, { wide: clientInfo.hasCap(socket, gameVoice.CAP) });
     socket.join('mainRoom');
 
     // Compute online users once so count and list always agree
@@ -237,12 +296,10 @@ function leaveLobby(socket, io) {
 
     // Notify remaining players
     lobby.players.forEach(player => {
-        io.to(player.socketId).emit('lobbyPlayerLeft', {
-            lobbyId: lobby.id,
-            players: lobby.players,
+        io.to(player.socketId).emit('lobbyPlayerLeft', gameManager.lobbyWire(lobby, {
             leftUsername: user?.username || 'Unknown',
             needsMorePlayers: result.needsMorePlayers
-        });
+        }, { withReconnecting: false, to: player.socketId }));
 
         // Notify remaining human players that this peer left voice
         if (!gameManager.isBot(player.socketId)) {
@@ -281,12 +338,10 @@ function releaseStaleLobbySeat(io, change) {
     lobby.players.forEach(player => {
         if (player.socketId === newSocketId) return;
         if (leave) {
-            io.to(player.socketId).emit('lobbyPlayerLeft', {
-                lobbyId: lobby.id,
-                players: lobby.players,
+            io.to(player.socketId).emit('lobbyPlayerLeft', gameManager.lobbyWire(lobby, {
                 leftUsername: change.username || 'Unknown',
                 needsMorePlayers: leave.needsMorePlayers
-            });
+            }, { withReconnecting: false, to: player.socketId }));
         }
         if (!gameManager.isBot(player.socketId)) {
             io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
@@ -312,7 +367,7 @@ function releaseStaleLobbySeat(io, change) {
 function lobbySeatSuspended(io, lobby, oldSocketId) {
     lobby.players.forEach(player => {
         if (player.socketId === oldSocketId || gameManager.isBot(player.socketId)) return;
-        io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
+        io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, {}, { to: player.socketId }));
         io.to(player.socketId).emit('voicePeerLeft', { socketId: oldSocketId });
     });
     socketLogger.info('Lobby seat held for reconnection', {
@@ -329,7 +384,7 @@ function lobbySeatSuspended(io, lobby, oldSocketId) {
 function lobbySeatResumed(io, lobby, socketId, username) {
     lobby.players.forEach(player => {
         if (player.socketId === socketId || gameManager.isBot(player.socketId)) return;
-        io.to(player.socketId).emit('playerReadyUpdate', { lobbyId: lobby.id, players: lobby.players, ...gameManager.reconnectingField(lobby.id) });
+        io.to(player.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, {}, { to: player.socketId }));
         io.to(player.socketId).emit('voicePeerJoined', { socketId, username });
     });
     emitLobbiesUpdated(io);
@@ -388,15 +443,7 @@ async function addBot(socket, io) {
     const allReady = gameManager.readyBotsIfHumansReady(lobby.id);
 
     // Broadcast updated player list to all human lobby members
-    lobby.players.forEach(player => {
-        if (!gameManager.isBot(player.socketId)) {
-            io.to(player.socketId).emit('playerReadyUpdate', {
-                lobbyId: lobby.id,
-                players: lobby.players,
-                ...gameManager.reconnectingField(lobby.id)
-            });
-        }
-    });
+    sendLobbyState(io, lobby);
 
     // Also update main room lobby list
     emitLobbiesUpdated(io);
@@ -431,21 +478,35 @@ function removeBot(socket, io, data) {
     });
 
     // Broadcast updated player list to all human lobby members
-    lobby.players.forEach(player => {
-        if (!gameManager.isBot(player.socketId)) {
-            io.to(player.socketId).emit('playerReadyUpdate', {
-                lobbyId: lobby.id,
-                players: lobby.players,
-                ...gameManager.reconnectingField(lobby.id)
-            });
-        }
-    });
+    sendLobbyState(io, lobby);
 
     // Also update main room lobby list
     emitLobbiesUpdated(io);
 }
 
+/**
+ * setSpectatorsCanTalk in a lobby: the host's switch (default on). Every
+ * member gets the list with the new settings (playerReadyUpdate, the plain
+ * variant); the game takes the value at start. Anyone else: rejected.
+ * @returns {boolean} handled (the socket is in a lobby)
+ */
+function setLobbySpectatorsCanTalk(socket, io, value) {
+    const lobby = gameManager.getPlayerLobby(socket.id);
+    if (!lobby) return false;
+    const user = gameManager.getUserBySocketId(socket.id);
+    if (!user || gameManager.lobbyHost(lobby) !== user.username) {
+        emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');
+        return true;
+    }
+    if (!lobby.settings) lobby.settings = {};
+    lobby.settings.spectatorsCanTalk = value;
+    sendLobbyState(io, lobby);
+    socketLogger.info('Lobby spectator talk set', { lobbyId: lobby.id, spectatorsCanTalk: value });
+    return true;
+}
+
 module.exports = {
+    setLobbySpectatorsCanTalk,
     playerReady,
     playerUnready,
     lobbyChat,

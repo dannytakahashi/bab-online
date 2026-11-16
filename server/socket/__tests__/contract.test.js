@@ -352,6 +352,51 @@ describe('(f) requestSnapshot -> stateSnapshot', () => {
     });
 });
 
+// ==================== (f2) family lobby: extras and spectator voice ====================
+
+describe('(f2) family lobby of 6 capable clients', () => {
+    test('extras watch from CREATED, voiceSettings, the switch in the lobby and in the game, a main-room spectator', async () => {
+        Math.random = mulberry32(5);
+        const w = world('f2');
+        const clientInfo = require('../clientInfo');
+        const capable = (s) => clientInfo.handle(s, w.io, { client: 'web', version: '1', caps: ['avatarUrl', 'casualSpectators'] });
+        const socks = ['f2_a', 'f2_b', 'f2_c', 'f2_d', 'f2_e', 'f2_f'].map((n, i) => {
+            const s = w.user(`f2-h${i}`, n);
+            capable(s);
+            return s;
+        });
+        mainRoomHandlers.createLobby(socks[0], w.io, {});
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        expect(gameManager.getLobbyById(lobbyId).players).toHaveLength(6);
+        // The host's switch in the lobby
+        voiceHandlers.setSpectatorsCanTalk(socks[0], w.io, { spectatorsCanTalk: false });
+        voiceHandlers.setSpectatorsCanTalk(socks[0], w.io, { spectatorsCanTalk: true });
+        const starting = socks.slice(0, 4).map((s) => lobbyHandlers.playerReady(s, w.io));
+        // A fifth Ready while the table is full: refused, list re-sent
+        await lobbyHandlers.playerReady(socks[4], w.io);
+        await jest.advanceTimersByTimeAsync(1600);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        expect(game.voiceSpectators.size).toBe(2);
+        expect(events(w.log, 'voiceSettings').length).toBeGreaterThan(0);
+        // A main-room spectator (capable) joins voice listen-only
+        const m = w.user('f2-m', 'f2_m');
+        capable(m);
+        mainRoomHandlers.joinMainRoom(m, w.io);
+        mainRoomHandlers.joinAsSpectator(m, w.io, { gameId: game.gameId });
+        expect(game.voiceSpectators.has(m.id)).toBe(true);
+        // The host turns spectator talk off in the game
+        voiceHandlers.setSpectatorsCanTalk(socks[0], w.io, { spectatorsCanTalk: false });
+        expect(game.casualVoice.spectatorsCanTalk).toBe(false);
+        await jest.advanceTimersByTimeAsync(3500);
+        const draws = socks.slice(0, 4).map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING, 100);
+        await jest.advanceTimersByTimeAsync(2000);
+        await Promise.all([...starting, ...draws]);
+        expect(errorLogs).toEqual([]);
+    });
+});
+
 // ==================== (c) F2: ambient bot games ====================
 
 describe('(c) F2 ambient bot games', () => {

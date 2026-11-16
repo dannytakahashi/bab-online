@@ -37,7 +37,7 @@ describe('/privacy', () => {
     beforeAll(async () => { html = await page('/privacy'); });
 
     test('shows the effective date', () => {
-        expect(html).toContain('<strong>Last updated:</strong> November 15, 2026');
+        expect(html).toContain('<strong>Last updated:</strong> November 16, 2026');
     });
 
     test('names every processor that sees player data', () => {
@@ -68,6 +68,13 @@ describe('/privacy', () => {
         expect(html).toContain('It is never saved to our database or written to our logs');
         // client error reports (server/socket/clientErrorHandlers.js)
         expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), logged with your username if you are signed in. Reports are meant for code only: before a report is logged we remove email addresses, IP addresses, long numbers, the query part of links, and quoted text other than code names.');
+    });
+
+    test('says who is in a voice chat: players and, in casual games, spectators (server/voice/gameVoice.js)', () => {
+        expect(html).toContain('between the devices of the people in a game\'s voice chat (players and, in casual games, spectators)');
+        expect(html).toContain('the people in that voice chat can see your IP address');
+        expect(html).toContain('In casual games, people watching can listen and, if allowed, talk.');
+        expect(html).not.toContain('the players you talk with can see your IP address');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {

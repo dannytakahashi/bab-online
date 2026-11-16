@@ -15,6 +15,16 @@ const { seesAmbientChat, seesAmbientGame } = require('../utils/ambientChatUsers'
 const { safeTimeout } = require('../utils/safeTimer');
 
 const MERGE_LOCKED = 'This account is being updated. Please try again in a minute.';
+// Family lobbies (owner 2026-11-16): up to 8 people while every human in the
+// lobby is capable (clientHello cap casualSpectators); the first 4 to tap
+// Ready play and the rest watch the game (server/voice/gameVoice.js)
+const LEGACY_LIMIT = 'This lobby is limited to 4 players because someone in it is on an older app version';
+const TABLE_FULL = "The table is full — you'll watch this game";
+const TABLE_SIZE = 4;
+const WIDE_LOBBY = 8;
+
+/** The voice room module, loaded lazily (it requires this one). */
+const gameVoice = () => require('../voice/gameVoice');
 
 class GameManager {
     constructor() {
@@ -37,6 +47,12 @@ class GameManager {
         // Lobby seats whose socket dropped, held for LOBBY_SEAT_GRACE_MS
         // (suspendLobbySeat): old socketId → { lobbyId, username, timer }
         this.lobbyGrace = new Map();
+        // Lobbies that just became a game with extras (members who did not
+        // get a seat and now watch it): lobbyId -> { gameId, extras:
+        // Set<username> }. An extra re-sending joinLobby for that lobby (a
+        // reload during the start) is sent to the game as a spectator
+        // instead of 'Lobby not found'. Cleared when the game retires
+        this.startedLobbies = new Map();
 
         // Active games
         this.games = new Map();        // gameId → GameState
@@ -71,6 +87,8 @@ class GameManager {
     // A lobby seat outlives its socket by this long (a reload, a short
     // network drop): the player's next socket re-entering takes it back
     static LOBBY_SEAT_GRACE_MS = 30000;
+    static LEGACY_LIMIT = LEGACY_LIMIT;
+    static TABLE_FULL = TABLE_FULL;
 
     /**
      * Register a logged-in user. One entry per username AND one per socket:
@@ -210,7 +228,7 @@ class GameManager {
     /**
      * Add player to main room
      */
-    joinMainRoom(socketId) {
+    joinMainRoom(socketId, { wide = false } = {}) {
         // Validate user is registered
         const user = this.getUserBySocketId(socketId);
         if (!user) {
@@ -232,7 +250,7 @@ class GameManager {
         return {
             success: true,
             messages: this.mainRoomMessagesFor(user.username),
-            lobbies: this.getAllLobbies(),
+            lobbies: this.getAllLobbies({ wide }),
             onlineCount: this.mainRoomSocketIds.size,
             username: user.username
         };
@@ -341,20 +359,32 @@ class GameManager {
     /**
      * Get all lobbies for display
      */
-    getAllLobbies() {
+    getAllLobbies({ wide = false } = {}) {
         const lobbies = [];
         for (const [lobbyId, lobby] of this.lobbies) {
-            lobbies.push({
+            // A shipped client reads playerCount / maxPlayers / players and
+            // shows a lobby of 4 or more as Full: they stay at most 4 (the
+            // frozen $defs.lobby). memberCount / capacity / memberUsernames
+            // are additive, only in the list a capable client gets (`wide`:
+            // n/8, Rejoin for member 6), so the wire without the cap is
+            // byte-identical (wireGolden)
+            const entry = {
                 id: lobbyId,
                 name: lobby.name || `${lobby.players[0]?.username || 'Unknown'}'s Game`,
-                playerCount: lobby.players.length,
+                playerCount: Math.min(lobby.players.length, TABLE_SIZE),
                 maxPlayers: 4,
-                players: lobby.players.map(p => ({
+                players: lobby.players.slice(0, TABLE_SIZE).map(p => ({
                     username: p.username,
                     ready: p.ready
                 })),
                 createdAt: lobby.createdAt
-            });
+            };
+            if (wide) {
+                entry.memberCount = lobby.players.length;
+                entry.capacity = this.lobbyCapacity(lobby);
+                entry.memberUsernames = lobby.players.map(p => p.username);
+            }
+            lobbies.push(entry);
         }
         return lobbies;
     }
@@ -362,7 +392,7 @@ class GameManager {
     /**
      * Create a named lobby from main room
      */
-    createNamedLobby(socketId, name = null) {
+    createNamedLobby(socketId, name = null, { capable = false, io = null } = {}) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // One membership per socket (a finished tournament's results window
         // does not count)
@@ -385,6 +415,10 @@ class GameManager {
         // socket (half-open reconnect) is given up
         const evicted = this.evictStaleLobbySeat(user.username, socketId);
 
+        // Spectating is not a membership, but a lobby member watches nothing
+        // (and leaves the game's voice room)
+        this.leaveSpectating(io, socketId);
+
         // Leave main room
         this.leaveMainRoom(socketId);
 
@@ -400,7 +434,13 @@ class GameManager {
             readyPlayers: new Set(),
             messages: [],
             createdAt: Date.now(),
-            createdBy: user.username
+            createdBy: user.username,
+            // The host (owner 2026-11-16): sets "Spectators can talk"; the
+            // role moves on when they leave (_reassignHost)
+            host: user.username,
+            settings: { spectatorsCanTalk: true },
+            // Sockets that announced casualSpectators (lobbyCapacity)
+            capable: new Set(capable ? [socketId] : [])
         };
 
         this.lobbies.set(lobbyId, lobby);
@@ -412,7 +452,7 @@ class GameManager {
     /**
      * Join a specific lobby by ID
      */
-    joinSpecificLobby(socketId, lobbyId) {
+    joinSpecificLobby(socketId, lobbyId, { capable = false, io = null } = {}) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // Already seated in THIS lobby (a socket that took its held seat
         // back in place, sessionIdentity.clearSuperseded, then re-sends the
@@ -444,10 +484,21 @@ class GameManager {
         // own player back in.
         const stale = this.findStaleLobbySeat(user.username, socketId);
         if (stale && stale.lobby.id === lobbyId) {
-            return this.takeOverLobbySeat(socketId, lobbyId);
+            // An older app taking back a seat in a lobby of more than 4
+            // would get a list it cannot show: refused, and the held seat
+            // expires as usual
+            if (!capable && lobby.players.length > TABLE_SIZE) {
+                return { success: false, error: 'Lobby is full' };
+            }
+            this.leaveSpectating(io, socketId);
+            return this.takeOverLobbySeat(socketId, lobbyId, { capable });
         }
-        if (lobby.players.length >= 4) {
-            return { success: false, error: 'Lobby is full' };
+        // 8 while every human (the joiner too) is capable, else 4: an older
+        // app never sees more than 4, and a lobby with one in stays at 4
+        const capacity = this.lobbyCapacity(lobby, capable);
+        if (lobby.players.length >= capacity) {
+            const legacyLimited = capable && capacity === TABLE_SIZE && lobby.players.length < WIDE_LOBBY;
+            return { success: false, error: legacyLimited ? LEGACY_LIMIT : 'Lobby is full' };
         }
         // Nor a tournament an older socket still holds (createNamedLobby)
         const staleTournament = this.giveUpStaleTournament(user.username, socketId);
@@ -456,6 +507,9 @@ class GameManager {
         // One seat per user: a seat this user still holds in another lobby
         // from an older socket is given up
         const evicted = this.evictStaleLobbySeat(user.username, socketId);
+
+        // A lobby member watches nothing (createNamedLobby)
+        this.leaveSpectating(io, socketId);
 
         // Leave main room
         this.leaveMainRoom(socketId);
@@ -468,6 +522,7 @@ class GameManager {
 
         lobby.players.push(newPlayer);
         this.playerLobbies.set(socketId, lobbyId);
+        if (capable) this._capableSet(lobby).add(socketId);
 
         return { success: true, lobby, newPlayer, evicted, evictedTournament: staleTournament.evicted };
     }
@@ -499,7 +554,7 @@ class GameManager {
      * (handleDisconnect -> leaveLobby) finds no lobby and changes nothing.
      * @returns {{success, lobby, newPlayer, replacedSocketId}|{success:false,error}}
      */
-    takeOverLobbySeat(socketId, lobbyId) {
+    takeOverLobbySeat(socketId, lobbyId, { capable = false } = {}) {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) return { success: false, error: 'Lobby not found' };
         const user = this.getUserBySocketId(socketId);
@@ -519,6 +574,11 @@ class GameManager {
         seat.ready = false;
         this.playerLobbies.set(socketId, lobbyId);
         this.leaveMainRoom(socketId);
+        const caps = this._capableSet(lobby);
+        caps.delete(replacedSocketId);
+        if (capable) caps.add(socketId);
+        // A host chosen only because nobody was connected is chosen again
+        this._reassignHost(lobby);
 
         return { success: true, lobby, newPlayer: seat, replacedSocketId };
     }
@@ -607,6 +667,7 @@ class GameManager {
         this._clearLobbyGrace(socketId);
         this.playerLobbies.set(socketId, held.lobbyId);
         this.leaveMainRoom(socketId);
+        this._reassignHost(lobby);
         return { lobby, player };
     }
 
@@ -635,7 +696,9 @@ class GameManager {
 
     /** `{reconnecting: [...]}` for a lobby event while a seat is held, else {} (the wire as before). */
     reconnectingField(lobbyId) {
-        const names = this.reconnectingIn(lobbyId);
+        // At most 4 names (the frozen schema; a lobby of more than 4 has
+        // only capable members, who read members[].reconnecting)
+        const names = this.reconnectingIn(lobbyId).slice(0, TABLE_SIZE);
         return names.length ? { reconnecting: names } : {};
     }
 
@@ -665,12 +728,15 @@ class GameManager {
             };
         });
 
+        // No createdBy and no host: lobbyHost falls back to the first human
         const lobby = {
             id: lobbyId,
             players,
             readyPlayers: new Set(),
             messages: [],
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            settings: { spectatorsCanTalk: true },
+            capable: new Set()
         };
 
         this.lobbies.set(lobbyId, lobby);
@@ -698,6 +764,199 @@ class GameManager {
         return this.lobbies.get(lobbyId);
     }
 
+    // ---------- family lobbies (owner 2026-11-16: up to 8 people) ----------
+
+    _capableSet(lobby) {
+        if (!(lobby.capable instanceof Set)) lobby.capable = new Set();
+        return lobby.capable;
+    }
+
+    /**
+     * How many people the lobby may hold: 8 while every human member is in
+     * `lobby.capable` (announced casualSpectators when they entered), else
+     * 4, so an older app never sees a lobby of more than 4. Bots count
+     * toward either. `joinerCapable` (true / false) also counts a joiner.
+     */
+    lobbyCapacity(lobby, joinerCapable = null) {
+        if (!lobby) return TABLE_SIZE;
+        if (joinerCapable === false) return TABLE_SIZE;
+        const caps = lobby.capable instanceof Set ? lobby.capable : new Set();
+        const allCapable = lobby.players.every(p => p.isBot || caps.has(p.socketId));
+        return allCapable ? WIDE_LOBBY : TABLE_SIZE;
+    }
+
+    /** Is lobby member `p` a seat held for its reconnect grace? */
+    isHeldLobbySeat(lobby, p) {
+        return !p.isBot && this.lobbyGrace.get(p.socketId)?.lobbyId === lobby.id;
+    }
+
+    /**
+     * The lobby's host (a username): who created it, then whoever the role
+     * passed to. A lobby built by createLobby (tests, harnesses) has none
+     * and falls back to its first human member.
+     */
+    lobbyHost(lobby) {
+        if (!lobby) return null;
+        const humans = lobby.players.filter(p => !p.isBot);
+        if (lobby.host != null && humans.some(p => p.username === lobby.host)) return lobby.host;
+        return humans[0]?.username ?? null;
+    }
+
+    /**
+     * Pass the host role on when its holder is no longer a member: to the
+     * first connected human by join order (held seats skipped). A held host
+     * stays host while held. With only held humans left, the first of them
+     * holds it provisionally and the choice is made again on every
+     * reconnect (takeOverLobbySeat / resumeHeldLobbySeat). The pattern of
+     * TournamentState's creator hand-off.
+     */
+    _reassignHost(lobby) {
+        if (!lobby) return;
+        const humans = lobby.players.filter(p => !p.isBot);
+        const stays = lobby.host != null && humans.some(p => p.username === lobby.host);
+        if (stays && !lobby.hostProvisional) return;
+        const connected = humans.filter(p => !this.isHeldLobbySeat(lobby, p));
+        if (connected.length > 0) {
+            lobby.host = connected[0].username;
+            lobby.hostProvisional = false;
+        } else if (humans.length > 0) {
+            lobby.host = stays ? lobby.host : humans[0].username;
+            lobby.hostProvisional = true;
+        } else {
+            lobby.host = null;
+            lobby.hostProvisional = false;
+        }
+    }
+
+    /**
+     * The bots that play: a bot only fills a seat no human member can,
+     * so the first min(bots, max(0, 4 - humans)) bots in join order. The
+     * others sit out (never readied, released at the start). In a lobby of
+     * 4 or fewer that is every bot.
+     */
+    tableBots(lobby) {
+        const bots = lobby.players.filter(p => p.isBot);
+        const humans = lobby.players.length - bots.length;
+        return bots.slice(0, Math.max(0, TABLE_SIZE - humans));
+    }
+
+    /**
+     * Who would sit at the table now: the table bots, then the humans in
+     * the order they tapped Ready (readyPlayers is a Set: first-ready order)
+     * who are still seated here and ready, at most 4 in all. In a lobby of
+     * 4 or fewer, 4 entries means every member and every human ready.
+     */
+    lobbyTable(lobby) {
+        const table = this.tableBots(lobby);
+        for (const sid of lobby.readyPlayers) {
+            if (table.length >= TABLE_SIZE) break;
+            const p = lobby.players.find(x => x.socketId === sid && !x.isBot);
+            if (p && p.ready && this.playerLobbies.get(sid) === lobby.id) table.push(p);
+        }
+        return table;
+    }
+
+    /**
+     * The table is full and every seat on it is ready (its bots readied):
+     * the lobby starts. For a lobby of 4 this is exactly the old
+     * readyPlayers.size === 4.
+     */
+    lobbyTableReady(lobby) {
+        const table = this.lobbyTable(lobby);
+        return table.length === TABLE_SIZE && table.every(p => lobby.readyPlayers.has(p.socketId));
+    }
+
+    /**
+     * A human readied: ready the bots that play. A lobby of exactly 4
+     * readies all its bots (unchanged); a lobby of more readies its table
+     * bots only once the table is full.
+     */
+    readyBotsAfterHumanReady(lobbyId) {
+        const lobby = this.lobbies.get(lobbyId);
+        if (!lobby) return;
+        if (lobby.players.length === TABLE_SIZE) {
+            this.setBotsReady(lobbyId);
+            return;
+        }
+        if (lobby.players.length > TABLE_SIZE && this.lobbyTable(lobby).length === TABLE_SIZE) {
+            for (const bot of this.tableBots(lobby)) {
+                bot.ready = true;
+                lobby.readyPlayers.add(bot.socketId);
+            }
+        }
+    }
+
+    /** One member as the frozen $defs.lobbyMember (the keys a lobby seat has always carried). */
+    _memberWire(p) {
+        const m = { socketId: p.socketId, username: p.username, ready: p.ready };
+        if (p.isBot) m.isBot = true;
+        return m;
+    }
+
+    /**
+     * `players` for every lobby event: the first 4 members, as the shipped
+     * clients read them (schema maxItems 4). A lobby of more than 4 has only
+     * capable members, who read `members`.
+     */
+    lobbyPlayersWire(lobby) {
+        return lobby.players.slice(0, TABLE_SIZE).map(p => this._memberWire(p));
+    }
+
+    /**
+     * The additive keys of every lobby event (2026-11-16): `members` (all,
+     * at most 8, with `playing` and `reconnecting`), `host`, `settings`,
+     * `capacity`. `playing`: every member of a lobby of 4 or fewer; in a
+     * bigger one, the members lobbyTable seats now (Playing / Will watch /
+     * Sitting out).
+     */
+    lobbyExtrasWire(lobby) {
+        const wide = lobby.players.length > TABLE_SIZE;
+        const seated = new Set(this.lobbyTable(lobby).map(p => p.socketId));
+        const members = lobby.players.map(p => {
+            const m = { ...this._memberWire(p), playing: wide ? seated.has(p.socketId) : true };
+            if (this.isHeldLobbySeat(lobby, p)) m.reconnecting = true;
+            return m;
+        });
+        const out = { members };
+        const host = this.lobbyHost(lobby);
+        if (host != null) out.host = host;
+        out.settings = { spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false };
+        out.capacity = this.lobbyCapacity(lobby);
+        return out;
+    }
+
+    /**
+     * A lobby event's payload for member socket `to`: lobbyId, players
+     * (first 4), the event's own keys, reconnecting (first 4 held) when
+     * `withReconnecting`, then the additive keys, only when `to` entered
+     * with the casualSpectators cap (lobby.capable): a legacy member gets
+     * exactly the old payload. Key order as before, new keys last.
+     */
+    lobbyWire(lobby, own = {}, { withReconnecting = true, to = null } = {}) {
+        const wire = {
+            lobbyId: lobby.id,
+            players: this.lobbyPlayersWire(lobby),
+            ...own,
+            ...(withReconnecting ? this.reconnectingField(lobby.id) : {})
+        };
+        return to != null && lobby.capable instanceof Set && lobby.capable.has(to)
+            ? { ...wire, ...this.lobbyExtrasWire(lobby) }
+            : wire;
+    }
+
+    /**
+     * The game a started lobby became, for one of its extras re-sending
+     * joinLobby (a reload during the start): its gameId while the game is
+     * live and `username` was an extra, else null. A table member (an
+     * entrant) is never redirected: it gets 'Lobby not found' as before.
+     */
+    startedLobbyRedirect(lobbyId, username) {
+        const rec = this.startedLobbies.get(lobbyId);
+        if (!rec || !rec.extras.has(username)) return null;
+        const game = this.games.get(rec.gameId);
+        return game && !game.isTerminal() ? rec.gameId : null;
+    }
+
     /**
      * Mark player as ready in lobby
      * Returns { allReady, lobby } if successful
@@ -709,13 +968,23 @@ class GameManager {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) return { success: false, error: 'Lobby not found' };
 
+        // A lobby of more than 4 whose table is already full: this member
+        // watches the game (never in a lobby of 4 or fewer: the table can
+        // only be full with every member in it)
+        if (!lobby.readyPlayers.has(socketId)) {
+            const table = this.lobbyTable(lobby);
+            if (table.length >= TABLE_SIZE && !table.some(p => p.socketId === socketId)) {
+                return { success: false, error: TABLE_FULL, tableFull: true, lobby };
+            }
+        }
+
         // Mark player as ready
         lobby.readyPlayers.add(socketId);
         const player = lobby.players.find(p => p.socketId === socketId);
         if (player) player.ready = true;
 
-        // Check if all players are ready
-        const allReady = lobby.readyPlayers.size === 4;
+        // Check if the table is ready (a lobby of 4: all 4 ready)
+        const allReady = this.lobbyTableReady(lobby);
 
         return { success: true, allReady, lobby };
     }
@@ -774,9 +1043,14 @@ class GameManager {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) return { success: false, error: 'Lobby not found' };
 
+        // A lobby open to 8 never resets the others' ready flags on a leave
+        // (the first 4 to tap Ready keep their seats); a lobby of 4 does
+        const wide = this.lobbyCapacity(lobby) > TABLE_SIZE;
+
         // Remove player from lobby
         lobby.players = lobby.players.filter(p => p.socketId !== socketId);
         lobby.readyPlayers.delete(socketId);
+        lobby.capable?.delete(socketId);
         this.playerLobbies.delete(socketId);
         this._clearLobbyGrace(socketId);
 
@@ -801,8 +1075,11 @@ class GameManager {
         }
 
         // Reset all ready states when someone leaves
-        lobby.readyPlayers.clear();
-        lobby.players.forEach(p => p.ready = false);
+        if (!wide) {
+            lobby.readyPlayers.clear();
+            lobby.players.forEach(p => p.ready = false);
+        }
+        this._reassignHost(lobby);
 
         return {
             success: true,
@@ -815,32 +1092,58 @@ class GameManager {
     /**
      * Convert lobby to game when all players are ready
      */
-    startGameFromLobby(lobbyId) {
+    startGameFromLobby(lobbyId, io = null) {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) return { success: false, error: 'Lobby not found' };
 
-        if (lobby.readyPlayers.size !== 4) {
+        // Re-validate the table (a seat that unreadied, left or dropped
+        // during LOBBY_START_MS stops the start; the next Ready takes it)
+        if (!this.lobbyTableReady(lobby)) {
             return { success: false, error: 'Not all players ready' };
         }
+        const table = this.lobbyTable(lobby);
         // A seat whose account a merge is retiring right now never starts
         // (the merge signs it out, which empties the seat)
-        if (lobby.players.some(p => !p.isBot && this.isMergeLocked(p.username))) {
+        if (table.some(p => !p.isBot && this.isMergeLocked(p.username))) {
             return { success: false, error: MERGE_LOCKED };
         }
 
-        // Get player socket IDs
-        const playerSocketIds = lobby.players.map(p => p.socketId);
+        // The table's sockets (only they become entrants), and the extras:
+        // human members who did not get a seat and have a live socket. A
+        // held seat off the table becomes nothing (its grace timer no-ops
+        // once the lobby is gone); the bots sitting out were never
+        // registered with the bot controller (lobby bots are only at start)
+        // In lobby (join) order, as before: a lobby of 4 starts exactly as
+        // it always did (entrant order, draw, golden wire)
+        const onTable = new Set(table.map(p => p.socketId));
+        const playerSocketIds = lobby.players.filter(p => onTable.has(p.socketId)).map(p => p.socketId);
+        const extras = lobby.players
+            .filter(p => !p.isBot && !onTable.has(p.socketId) && this.playerLobbies.get(p.socketId) === lobbyId &&
+                (!io || io.sockets?.sockets?.has(p.socketId)))
+            .map(p => ({ socketId: p.socketId, username: p.username }));
 
-        // Remove lobby mappings
-        playerSocketIds.forEach(socketId => {
-            this.playerLobbies.delete(socketId);
-        });
+        // Remove lobby mappings (every member)
+        for (const p of lobby.players) {
+            if (this.playerLobbies.get(p.socketId) === lobbyId) this.playerLobbies.delete(p.socketId);
+        }
         this.lobbies.delete(lobbyId);
 
         // Create the actual game
         const game = this.createGame(playerSocketIds);
 
-        return { success: true, game, players: playerSocketIds };
+        // A casual game's voice room (players + spectators; never a
+        // tournament table or the ambient demo: they never come through here)
+        gameVoice().initCasualVoice(game, {
+            host: this.lobbyHost(lobby),
+            spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false,
+            io,
+            lobbyExtras: extras.map(e => e.username)
+        });
+        if (extras.length > 0) {
+            this.startedLobbies.set(lobbyId, { gameId: game.gameId, extras: new Set(extras.map(e => e.username)) });
+        }
+
+        return { success: true, game, players: playerSocketIds, extras, lobby };
     }
 
     // ==================== BOT METHODS ====================
@@ -1083,6 +1386,9 @@ class GameManager {
         this.spectatorGames.delete(socketId);
         const game = this.games.get(gameId) || null;
         if (game) {
+            // Out of the game's voice room too: its voice peers get a private
+            // voicePeerLeft (without io: the io the voice room last saw)
+            gameVoice().removeVoiceSpectator(io, game, socketId);
             game.removeSpectator(socketId);
             if (io) game.leaveRoom(io, socketId);
             // (without io: the io the game's list was last scheduled with)
@@ -1215,6 +1521,12 @@ class GameManager {
             if (gid === id) this.spectatorGames.delete(sid);
         }
         game.spectators.clear();
+        // Socket-keyed voice state and the started-lobby redirect (both end
+        // and abort come through here)
+        gameVoice().retire(game);
+        for (const [lobbyId, rec] of this.startedLobbies) {
+            if (rec.gameId === id) this.startedLobbies.delete(lobbyId);
+        }
         this.games.delete(id);
     }
 

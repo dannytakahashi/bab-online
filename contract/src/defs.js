@@ -143,6 +143,10 @@ const defs = {
     // fallback)
     playerInfoV1: obj({ position: ref('position'), username: str(), pic: ref('pic') }),
     playerInfoGameStart: obj({ position: ref('position'), username: str(), pic: ref('pic') }),
+    // playerCount / maxPlayers / players stay the frozen <= 4 a shipped
+    // client shows (a lobby of 4 or more is Full there); memberCount /
+    // capacity / memberUsernames (additive 2026-11-16, family lobbies of up
+    // to 8) are for clients that sent casualSpectators
     lobby: obj({
         id: str(),
         name: str(),
@@ -150,9 +154,25 @@ const defs = {
         maxPlayers: konst(4),
         players: arr(ref('lobbyPlayer'), { maxItems: 4 }),
         createdAt: int(),
-    }),
+        memberCount: int({ minimum: 0, maximum: 8 }),
+        capacity: int({ minimum: 4, maximum: 8 }),
+        memberUsernames: arr(str(), { maxItems: 8 }),
+    }, { optional: ['memberCount', 'capacity', 'memberUsernames'] }),
     lobbyPlayer: obj({ username: str(), ready: bool() }),
     lobbyMember,
+    // Every member of a lobby of up to 8 (additive `members`, 2026-11-16):
+    // lobbyMember (closed, frozen) plus playing (seated now: Playing / Will
+    // watch / Sitting out) and reconnecting (a seat held for its grace)
+    lobbyMemberV2: obj({
+        socketId: str(),
+        username: str(),
+        ready: bool(),
+        isBot: konst(true),
+        playing: bool(),
+        reconnecting: konst(true),
+    }, { optional: ['isBot', 'reconnecting'] }),
+    // The host's lobby settings (2026-11-16): "Spectators can talk", default on
+    lobbySettings: obj({ spectatorsCanTalk: bool() }),
     // serverError.code (V1_REMOVALS #1 phase A): one list with the server
     serverErrorCode: enm(...require('../../server/socket/serverError').CODES),
     lobbyChatLine: chatLine,
@@ -240,6 +260,11 @@ const defs = {
     // clientHello caps the server acts on (contract/README.md "Client
     // capabilities"); unknown caps are ignored, so the list only grows
     clientCap: enm('avatarUrl'),
+    // A second cap as its own const ($defs.clientCap's enum is frozen
+    // byte for byte by the baselines): family lobbies of up to 8, the
+    // "Spectators can talk" switch, voiceSettings, spectator voice
+    // (contract/README.md "Client capabilities")
+    clientCapCasualSpectators: konst('casualSpectators'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

@@ -205,6 +205,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_JOINED: 'voicePeerJoined',
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_ICE_SERVERS: 'voiceIceServers',
+  VOICE_SETTINGS: 'voiceSettings',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',

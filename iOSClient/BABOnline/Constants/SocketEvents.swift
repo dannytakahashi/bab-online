@@ -192,6 +192,7 @@ enum SocketEvents {
         static let voicePeerJoined = "voicePeerJoined"
         static let voicePeerLeft = "voicePeerLeft"
         static let voiceIceServers = "voiceIceServers"
+        static let voiceSettings = "voiceSettings"
 
         // Connection
         static let connect = "connect"

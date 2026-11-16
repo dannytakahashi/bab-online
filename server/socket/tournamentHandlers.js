@@ -166,7 +166,7 @@ async function joinTournament(socket, io, data) {
  * when a tournament they reference no longer exists).
  */
 function sendToMainRoom(socket) {
-    const mainRoomResult = gameManager.joinMainRoom(socket.id);
+    const mainRoomResult = gameManager.joinMainRoom(socket.id, { wide: require('./clientInfo').hasCap(socket, 'casualSpectators') });
     socket.join('mainRoom');
     const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {

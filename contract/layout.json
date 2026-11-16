@@ -288,7 +288,8 @@
           "voicePeerList",
           "voicePeerJoined",
           "voicePeerLeft",
-          "voiceIceServers"
+          "voiceIceServers",
+          "voiceSettings"
         ]
       },
       {
@@ -569,7 +570,8 @@
           "voicePeerList",
           "voicePeerJoined",
           "voicePeerLeft",
-          "voiceIceServers"
+          "voiceIceServers",
+          "voiceSettings"
         ]
       },
       {

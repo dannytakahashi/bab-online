@@ -234,6 +234,10 @@ function setupSocketHandlers(io) {
         socket.on('getVoiceIceServers', (data) =>
             asyncHandler('getVoiceIceServers', voiceHandlers.getVoiceIceServers)(socket, io, data)
         );
+        // "Spectators can talk": the lobby host, or a casual game's controller
+        socket.on('setSpectatorsCanTalk', (data) =>
+            syncHandler('setSpectatorsCanTalk', voiceHandlers.setSpectatorsCanTalk)(socket, io, data)
+        );
 
         // Disconnect - cleanup rate limiter and handle game state
         socket.on('disconnect', () => {

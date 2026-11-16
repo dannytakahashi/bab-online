@@ -67,7 +67,12 @@ async function reportUser(socket, io, data) {
  * The block list persists on the user document and is sent at sign-in.
  */
 async function blockUser(socket, io, data) {
-    await updateBlockList(socket, data.username, '$addToSet');
+    if (!(await updateBlockList(socket, data.username, '$addToSet'))) return;
+    // A live call between the two (same lobby or game voice room) ends now:
+    // voice signaling refuses new signals between them, but an established
+    // P2P call used to survive the block (gameVoice.endBlockedCall)
+    const target = gameManager.currentUsers.find(u => u.username === data.username);
+    if (target) require('../voice/gameVoice').endBlockedCall(io, socket.id, target.socketId);
 }
 
 async function unblockUser(socket, io, data) {
@@ -123,10 +128,12 @@ async function updateBlockList(socket, targetUsername, op) {
         socketLogger.info('Block list updated', {
             username: user.username, target: targetUsername, op
         });
+        return true;
     } catch (error) {
         socketLogger.error('Failed to update block list', { error: error.message });
         socket.emit('blockListUpdated', { success: false, message: 'Failed to update block list. Try again.' });
     }
+    return false;
 }
 
 /**

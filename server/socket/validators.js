@@ -160,6 +160,11 @@ const schemas = {
     getVoiceIceServers: Joi.object({
         requestId: Joi.string().min(1).max(64).optional()
     }).allow(null),
+    // "Spectators can talk" (voiceHandlers.setSpectatorsCanTalk); mirrors
+    // contract c2s.setSpectatorsCanTalk
+    setSpectatorsCanTalk: Joi.object({
+        spectatorsCanTalk: Joi.boolean().strict().required()
+    }).required(),
 
     // Resignation
     forceResign: Joi.object({

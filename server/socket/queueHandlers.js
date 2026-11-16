@@ -104,6 +104,9 @@ function routeGameDisconnect(socket, io, result) {
         game.markEntrantDisconnected(socket.id);
         if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
         const username = entrant.username || 'Player';
+        // Its voice peers drop the call now (private voicePeerLeft; before,
+        // nothing told them and each call hung until ICE gave up)
+        require('../voice/gameVoice').playerLeftVoice(io, game, socket.id);
 
         // Auto-draw for the disconnected player (random card); a no-op
         // if they already drew or the draw is no longer open

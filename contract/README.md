@@ -253,6 +253,23 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   (profile replies). Send this cap ONLY from a client whose every avatar
   render site resolves URLs (web: `avatarSrc` / `applyAvatarImg`; iOS:
   AvatarStore); otherwise its custom pictures go blank.
+- `casualSpectators` (`$defs.clientCapCasualSpectators`, its own const:
+  `$defs.clientCap`'s enum is frozen byte for byte by the baselines;
+  2026-11-16, family lobbies): the client can show a lobby of up to 8
+  (`members`, `capacity`), its host switch "Spectators can talk"
+  (`settings`, c2s `setSpectatorsCanTalk`), being an extra who watches the
+  game from its start (spectatorJoined at CREATED, never allPlayersReady),
+  and spectator voice (`voiceSettings`, listen-only offers). Only for such a
+  socket does the server: count it toward a lobby of more than 4 (a lobby
+  holds more than 4 only while EVERY human in it sent the cap; a legacy
+  joiner is refused at 4, a legacy takeover above 4); add `members` /
+  `host` / `settings` / `capacity` to its lobby events and `memberCount` /
+  `capacity` / `memberUsernames` to its main-room list entries; admit it to
+  a casual game's voice room as a spectator; send it `voiceSettings`.
+  Without the cap anywhere the wire is byte-identical (wireGolden). Every
+  shipped iOS build (1.2.0 build 6 to 1.2.2 build 11) sends only
+  `avatarUrl`. Send this cap ONLY from a client that does all of the above
+  (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

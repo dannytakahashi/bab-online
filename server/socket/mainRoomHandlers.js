@@ -12,6 +12,11 @@ const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { releaseStaleLobbySeat, leaveLobby } = require('./lobbyHandlers');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { deletedSince } = require('../admin/accountDelete');
+const clientInfo = require('./clientInfo');
+const gameVoice = require('../voice/gameVoice');
+
+/** Did `socket` announce casualSpectators (a lobby of up to 8, spectator voice)? */
+const isCapable = (socket) => clientInfo.hasCap(socket, gameVoice.CAP);
 
 /**
  * Handle player joining the main room
@@ -31,7 +36,7 @@ function joinMainRoom(socket, io) {
         return;
     }
 
-    const result = gameManager.joinMainRoom(socket.id);
+    const result = gameManager.joinMainRoom(socket.id, { wide: isCapable(socket) });
 
     if (!result.success) {
         emitError(socket, { message: result.error || 'Failed to join main room' }, 'joinMainRoom');
@@ -113,7 +118,7 @@ function createLobby(socket, io, data) {
     const { name } = data || {};
 
     const { filterProfanity } = require('../utils/profanityFilter');
-    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name);
+    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name, { capable: isCapable(socket), io });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'createLobby');
@@ -131,12 +136,10 @@ function createLobby(socket, io, data) {
     socket.leave('mainRoom');
 
     // Notify the player
-    socket.emit('lobbyCreated', {
-        lobbyId: result.lobby.id,
-        players: result.lobby.players,
+    socket.emit('lobbyCreated', gameManager.lobbyWire(result.lobby, {
         messages: result.lobby.messages,
         name: result.lobby.name
-    });
+    }, { withReconnecting: false, to: socket.id }));
 
     // Notify main room of new lobby
     emitLobbiesUpdated(io);
@@ -159,7 +162,20 @@ function joinLobby(socket, io, data) {
         return;
     }
 
-    const result = gameManager.joinSpecificLobby(socket.id, lobbyId);
+    // A lobby that just became a game: one of its extras (a reload during
+    // the start) watches that game instead; anyone else, a table member
+    // included, gets 'Lobby not found' as before
+    if (!gameManager.getLobbyById(lobbyId) && isCapable(socket)) {
+        const user = gameManager.getUserBySocketId(socket.id);
+        const gameId = user ? gameManager.startedLobbyRedirect(lobbyId, user.username) : null;
+        if (gameId && !gameManager.activityOf(socket.id)) {
+            socketLogger.info('joinLobby for a started lobby: spectating its game', { socketId: socket.id, lobbyId, gameId });
+            joinAsSpectator(socket, io, { gameId }, { fromLobby: true });
+            return;
+        }
+    }
+
+    const result = gameManager.joinSpecificLobby(socket.id, lobbyId, { capable: isCapable(socket), io });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'joinLobby');
@@ -172,10 +188,7 @@ function joinLobby(socket, io, data) {
     // place): it gets the lobby again; the others were told on the resume
     if (result.alreadySeated) {
         socket.leave('mainRoom');
-        socket.emit('lobbyCreated', {
-            lobbyId: lobby.id, players: lobby.players, messages: lobby.messages, name: lobby.name,
-            ...gameManager.reconnectingField(lobby.id)
-        });
+        socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
         const peers = lobby.players
             .filter(p => p.socketId !== socket.id && !gameManager.isBot(p.socketId))
             .map(p => ({ socketId: p.socketId, username: p.username }));
@@ -198,23 +211,15 @@ function joinLobby(socket, io, data) {
     socket.leave('mainRoom');
 
     // Notify the joining player (with the seats held for a reconnect)
-    socket.emit('lobbyCreated', {
-        lobbyId: lobby.id,
-        players: lobby.players,
-        messages: lobby.messages,
-        name: lobby.name,
-        ...gameManager.reconnectingField(lobby.id)
-    });
+    socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
 
     // Notify existing players in the lobby
     const existingHumans = [];
     lobby.players.forEach(player => {
         if (player.socketId !== socket.id) {
-            io.to(player.socketId).emit('lobbyPlayerJoined', {
-                lobbyId: lobby.id,
-                players: lobby.players,
+            io.to(player.socketId).emit('lobbyPlayerJoined', gameManager.lobbyWire(lobby, {
                 newPlayer: result.newPlayer
-            });
+            }, { withReconnecting: false, to: player.socketId }));
 
             // Send voicePeerJoined to existing human players
             if (!gameManager.isBot(player.socketId)) {
@@ -245,7 +250,7 @@ function joinLobby(socket, io, data) {
 /**
  * Handle player joining a game as a spectator
  */
-function joinAsSpectator(socket, io, data) {
+function joinAsSpectator(socket, io, data, { fromLobby = false } = {}) {
     const { gameId } = data;
 
     // The ambient demo game is "not found" outside its audience (owner,
@@ -303,6 +308,12 @@ function joinAsSpectator(socket, io, data) {
     gameManager.leaveMainRoom(socket.id);
 
     sendSpectatorJoin(game, socket, user.username);
+
+    // A casual game's voice room, for a capable client: listen-only at
+    // first for a main-room spectator (voiceSettings; it asks for the mic
+    // only when its player taps to talk). Nothing for a legacy client, a
+    // tournament table or the ambient demo
+    gameVoice.admitVoiceSpectator(io, game, socket.id, { fromLobby, announce: true });
 
     socketLogger.info('Player joined as spectator', {
         socketId: socket.id,
