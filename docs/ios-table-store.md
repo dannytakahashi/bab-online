@@ -1083,3 +1083,14 @@ hand: the log shows it); a card lifted outside my play window is lowered
 when the window opens (two taps always play); the final table stays behind
 GameEndView; voice starts after a rejoin (a first-time mic prompt can appear
 mid-game) and stops for good if the player leaves during that prompt.
+
+## Seat taps (iOS 1.2.2)
+
+A tap on an opponent seat's avatar or name opens that player's profile sheet (the web's avatar
+plate click). The whole hook is `SpriteKit/GameSKScene+SeatTap.swift`: an extension with
+`seatName(at:)` (the seat whose 80 x 70 target, in the seat's own coordinates, holds the point;
+nil with no table shown) and a `touchesEnded` override that sends that seat's current name, a
+bot's included, to `SeatTaps.subject`. The seats still take no touches (only the hand's cards
+do), no node was added, and the reducer and render model are untouched; `GameContainerView`
+presents the sheet (`playerProfileHost(seatTaps: true)`). Tests: `ProfileTests`
+`testSeatTapFindsTheSeatUnderThePoint`, `ProfileUITests` `testSeatAvatarOpensProfile`.

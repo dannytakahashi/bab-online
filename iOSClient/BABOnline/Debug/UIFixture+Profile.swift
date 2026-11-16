@@ -15,7 +15,7 @@ import UIKit
 /// stock avatars load from that folder (screenshots; otherwise every avatar is its initial).
 extension UIFixture {
     static let profileMode: String = UserDefaults.standard.string(forKey: "uiProfile") ?? "ok"
-    static let picksSamplePhoto: Bool = isActive && UserDefaults.standard.bool(forKey: "uiPickPhoto")
+    static let picksSamplePhoto: Bool = UserDefaults.standard.bool(forKey: "uiPickPhoto")
     static let avatarFolder: String? = ProcessInfo.processInfo.environment["UI_FIXTURE_AVATARS"]
 
     private static weak var fixtureSafety: SafetyState?
