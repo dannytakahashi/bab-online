@@ -102,15 +102,24 @@ extension TableLayout {
     func fanPlan(spectating: Bool) -> [Positions.RelativePosition: CGRect]? {
         guard !isDegraded, size.width > 0, size.height > 0 else { return nil }
         let keeps = fanKeeps(spectating: spectating)
-        scales: for scale in Self.fanScales {
-            var out: [Positions.RelativePosition: CGRect] = [:]
-            for r in Self.fanSeats(spectating) {
-                guard let box = fanCandidates(r, scale: scale).first(where: { c in
-                    fanIsClear(c, keeps: keeps) && !out.values.contains { Self.overlaps($0.insetBy(dx: -Self.fanGap, dy: -Self.fanGap), c) }
-                }) else { continue scales }
-                out[r] = box
+        let seats = Self.fanSeats(spectating)
+        for scale in Self.fanScales {
+            let clear = seats.map { r in fanCandidates(r, scale: scale).filter { fanIsClear($0, keeps: keeps) } }
+            if let boxes = Self.firstFit(clear, placed: []) {
+                return Dictionary(uniqueKeysWithValues: zip(seats, boxes))
             }
-            return out
+        }
+        return nil
+    }
+
+    /// One clear spot per seat, none touching another (`fanGap`), each seat's best spot first:
+    /// a depth-first search, so a seat whose best spot takes the only spot a later seat has
+    /// moves to its next one (the closed Duo with its vertical bar: the top seat's fan beside
+    /// its avatar touched the left seat's, the only one it had, and the table showed none).
+    private static func firstFit(_ spots: [[CGRect]], placed: [CGRect]) -> [CGRect]? {
+        guard let mine = spots.first else { return placed }
+        for c in mine where !placed.contains(where: { overlaps($0.insetBy(dx: -fanGap, dy: -fanGap), c) }) {
+            if let all = firstFit(Array(spots.dropFirst()), placed: placed + [c]) { return all }
         }
         return nil
     }

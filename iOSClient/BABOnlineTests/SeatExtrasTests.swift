@@ -27,6 +27,14 @@ final class SeatExtrasTests: XCTestCase {
             ("iPad Air 11 portrait (measured)", SceneLayoutTests.measured[1].0, SceneLayoutTests.measured[1].1, 1, 1),
             ("iPad Air 11 landscape (measured)", SceneLayoutTests.measured[2].0, SceneLayoutTests.measured[2].1, 1.3, 1),
             ("Duo closed (measured)", SceneLayoutTests.measured[0].0, SceneLayoutTests.measured[0].1, 0.62, 0.62),
+            // the closed Duo as the app runs today (iOS 27.1+, live probe 2026-11-16): Leave and the
+            // log in the vertical bar, so no corner buttons and a 70 pt score bar; the seats sit
+            // higher and the top seat's beside-the-avatar spot touches the left seat's only one
+            ("Duo closed, vertical bar (probed)", CGSize(width: 466, height: 678), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 70), 0.62, 0.62),
+            ("Duo open, corner buttons", CGSize(width: 669, height: 951),
+             TableChrome(safeArea: i(82, 0, 34, 0), topBar: 75.5, cornerButton: CGSize(width: 80, height: 50.5)), 1.3, 1),
+            ("Duo open landscape, vertical bar", CGSize(width: 951, height: 669), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 70), 1.3, 1),
+            ("Duo open landscape, log docked, vertical bar", CGSize(width: 546, height: 669), TableChrome(safeArea: i(0, 0, 34, 0), topBar: 70), 1, 1),
             ("Duo open", CGSize(width: 669, height: 951), TableChrome(safeArea: i(82, 0, 34, 0), topBar: 75.5), 1.3, 1),
             ("Duo open landscape", CGSize(width: 951, height: 669), TableChrome(safeArea: i(0, 0, 34, 84), topBar: 75.5), 1.3, 1),
             ("Duo open landscape, log docked", CGSize(width: 546, height: 669), TableChrome(safeArea: i(0, 0, 34, 0), topBar: 75.5), 1, 1),

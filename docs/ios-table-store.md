@@ -1050,7 +1050,12 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   keeps 4 pt from the trick cards, every seat's glow, name, dealer marker and
   bid bubble, the other fans, the corner buttons, the trick piles, my seat's
   row, my lifted hand and bid band, the fold, the spectator badge and the
-  safe edges. All or nothing: if some seat has no clear box at any scale, or
+  safe edges. The seats are placed together (`firstFit`, depth first): a
+  seat whose best spot takes the only spot a later seat has moves to its next
+  one (the closed Duo with Leave and Log in the vertical bar, probed live
+  2026-11-16: the top seat's beside-the-avatar fan touched the left seat's
+  only spot, and placing one seat at a time drew no fans). All or nothing:
+  if some seat has no clear box at any scale, or
   the layout is degraded, no fan is drawn. Result (`SeatExtrasTests.devices`):
   roomy on the 13-inch iPad and the open Duo seated (regular when
   spectating, on the 11-inch iPad in portrait and in the 546 x 669 pane
