@@ -53,7 +53,8 @@ the test and the release step alike:
 | iOS 1.2.0 (6) | `ios-1.2.0-b6.*` | 83a3f8f (PR #244, merged as 775a2e0; `contract/` and `iOSClient/BABOnline` are 92d0c75's, build 5's source, but for the icon assets) | App Store, live 2026-11-13 |
 | iOS 1.2.1 (7) | `ios-1.2.1-b7.*` | 6f11cb1 (PR #260 "version 1.2.1 (build 7)", dac6fdc; after #255, before #261's icon, which is build 8's) | TestFlight |
 | iOS 1.2.1 (8) | `ios-1.2.1-b8.*` | d3ebe76 (PR #262 merged; its iOS source is 7e73df1's, the build 8 commit, and its contract adds #263's stats `scope` echo, which build 8's Humans / Bots / All control reads) | submitted for review 2026-11-14 |
-| iOS 1.2.1 (9) | `ios-1.2.1-b9.*` | ae9a95c (PR #279 "ios/build-9" merged; every main commit through 8bf93ad has the same `iOSClient/BABOnline` and `contract/src`, so the baseline is the same whichever of them was archived; frozen 2026-11-16) | uploaded; 1.2.1 released |
+| iOS 1.2.1 (9) | `ios-1.2.1-b9.*` | ae9a95c (PR #279 "ios/build-9" merged; every main commit through 8bf93ad has the same `iOSClient/BABOnline` and `contract/src`, so the baseline is the same whichever of them was archived; frozen 2026-11-16) | 1.2.1 released |
+| iOS 1.2.2 (10) | `ios-1.2.2-b10.*` | a805147 (branch ios/1.2.2, frozen 2026-11-16 before its PR merged; the PR's merge commit on main has the same `iOSClient/BABOnline` and `contract/src`, so the baseline is the same whichever is archived; iOS sends string requestIds, so the `stateSnapshot.requestId` waiver holds) | to be uploaded (web parity) |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
