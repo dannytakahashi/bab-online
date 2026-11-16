@@ -12,7 +12,9 @@
  *     listed; snapshotHandlers.carrierFor and requestSnapshot pass the
  *     receiving socket's socket.data.blockedUsers;
  *   - system lines are kept, and a log entry on the wire is still exactly
- *     {message, type, position, at} (`from` never leaves the server).
+ *     {message, type, position, at} (`from` never leaves the server);
+ *   - an admin rename or merge re-points `from` (renameChatSender), as it
+ *     re-points the blockers' lists (adminPanel.test.js drives the panel).
  * Real handlers, stub io (contract-checked).
  */
 
@@ -325,5 +327,42 @@ describe('every snapshot sent to a socket that blocked the sender leaves the cha
         delete t.sockets[1].data.blockedUsers;
         snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
         expect(messages(mine(t, t.sockets[1], 'stateSnapshot')[0].snapshot)).toEqual(expect.arrayContaining([lines.two, lines.three, lines.system]));
+    });
+});
+
+describe('an admin rename or merge re-points `from` (renameChatSender)', () => {
+    test('GameState: only chat lines sent under the old name move; the visible text, other lines and legacy entries stay', () => {
+        const t = table();
+        const lines = chatter(t);
+        t.game.addLogEntry(`${t.names[2]} bid 3`, 2, 'bid');
+        t.game.gameLog.push({ message: 'legacy: hi', playerPosition: 2, type: 'chat', timestamp: 1 });
+        const before = t.game.gameLog.map((e) => ({ ...e }));
+
+        expect(t.game.renameChatSender(t.names[2], 'Renamed2')).toBe(1);
+        expect(t.game.gameLog.map((e) => e.message)).toEqual(before.map((e) => e.message));
+        expect(t.game.gameLog.map((e) => e.from)).toEqual(before.map((e) => (e.from === t.names[2] ? 'Renamed2' : e.from)));
+        expect(t.game.gameLog.find((e) => e.message === lines.two).from).toBe('Renamed2');
+        // Again: nothing left under the old name
+        expect(t.game.renameChatSender(t.names[2], 'Renamed2')).toBe(0);
+
+        // A blocker whose list now names the new name still misses the line
+        rememberBlockList(t.sockets[1], ['Renamed2']);
+        snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
+        const snap = mine(t, t.sockets[1], 'stateSnapshot')[0].snapshot;
+        expectHidesTwo(snap, lines);
+        expectWireEntries(snap);
+        // ...and the old name no longer matches it
+        rememberBlockList(t.sockets[1], [t.names[2]]);
+        snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
+        expect(messages(mine(t, t.sockets[1], 'stateSnapshot')[1].snapshot)).toContain(lines.two);
+    });
+
+    test('GameManager: every live game', () => {
+        const a = table();
+        const b = table();
+        const fan = 'bcFanAcrossGames';
+        for (const t of [a, b]) t.game.addLogEntry(`${fan}: hi`, null, 'chat', { from: fan });
+        expect(gameManager.renameChatSender(fan, 'bcFanNew')).toBe(2);
+        for (const t of [a, b]) expect(t.game.gameLog.filter((e) => e.from === 'bcFanNew')).toHaveLength(1);
     });
 });

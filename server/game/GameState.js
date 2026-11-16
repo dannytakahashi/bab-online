@@ -1252,6 +1252,25 @@ class GameState {
         this.gameLog = [];
     }
 
+    /**
+     * An admin rename or merge moved the account `oldName` to `newName`:
+     * the chat lines it sent here carry `newName` as their internal `from`
+     * from now on, as its blockers' lists do, so their snapshots keep
+     * leaving those lines out (snapshotV2 hideChatFrom). The visible text
+     * keeps the name the line was sent under.
+     * @returns {number} lines re-pointed
+     */
+    renameChatSender(oldName, newName) {
+        let n = 0;
+        for (const e of this.gameLog) {
+            if (e.type === 'chat' && e.from === oldName) {
+                e.from = newName;
+                n++;
+            }
+        }
+        return n;
+    }
+
     // ========================================
     // Room Management Methods
     // ========================================
