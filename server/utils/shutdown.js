@@ -82,6 +82,11 @@ function retryDelay(ms) {
         };
         const timer = safeTimeout(wake, ms, 'retryDelay');
         timer.unref?.();
+        // Tests only (_resetShutdownStateForTests abandonRetries): the wait never ends
+        wake.abandon = () => {
+            clearTimeout(timer);
+            wakers.delete(wake);
+        };
         wakers.add(wake);
     });
 }
@@ -127,11 +132,19 @@ async function drainInFlight(ms) {
     return done;
 }
 
-/** Tests only: forget the shutdown state between cases. */
-function _resetShutdownStateForTests() {
+/**
+ * Tests only: forget the shutdown state between cases. Pending retry waits
+ * end now (their writes retry at once), or, with `abandonRetries` (a
+ * killed process: testUtils/persistHarness.js killInstance), never end, so
+ * the dead process's retries never run.
+ */
+function _resetShutdownStateForTests({ abandonRetries = false } = {}) {
     shuttingDown = false;
     inFlight.clear();
-    for (const wake of [...wakers]) wake();
+    for (const wake of [...wakers]) {
+        if (abandonRetries) wake.abandon();
+        else wake();
+    }
     shuttingDown = false;
     drainDeadline = 0;
 }

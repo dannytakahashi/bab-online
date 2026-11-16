@@ -1246,6 +1246,15 @@ function _setLeaderboardMinGamesForTests(n = LEADERBOARD_MIN_GAMES) {
     invalidateLeaderboard();
 }
 
+/**
+ * Tests only: forget this process's end-of-game chains (a killed process:
+ * testUtils/persistHarness.js), so a later recordGameStats for the same
+ * game starts its own chain instead of joining a dead one.
+ */
+function _resetStatsWritesForTests() {
+    statsWrites.clear();
+}
+
 function _resetCachesForTests() {
     invalidateLeaderboard();
     invalidateRecords();
@@ -1266,6 +1275,7 @@ module.exports = {
     recordGameStats,
     resumePendingGameStats,
     _setStatsRetryDelaysForTests,
+    _resetStatsWritesForTests,
     STATS_GAMES_KEPT,
     STATS_GUARD_SKEW_MS,
     getUserProfilePic,

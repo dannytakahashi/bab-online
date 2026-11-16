@@ -62,7 +62,7 @@ bab-online/
 │   ├── admin/                 # Account admin logic: scripts/ CLIs + the web admin panel (role, reset links, audit, merge view)
 │   ├── avatar/                # Custom-picture renditions (sharp), wire mapping (docs/avatars.md)
 │   ├── voice/turnCredentials.js # Cloudflare TURN credentials for voice (STUN fallback)
-│   ├── testUtils/memoryDb.js  # In-memory Mongo collection fake for Jest (no mongod needed; a duplicate _id rejects with E11000, updateOne upserts)
+│   ├── testUtils/memoryDb.js  # In-memory Mongo collection fake for Jest (no mongod needed; a duplicate _id or unique key rejects with E11000: createMemoryDb has the server's unique users.username and gameRecords.gameId; updateOne upserts)
 │   ├── utils/
 │   │   ├── profanityFilter.js # UGC filter (chat, usernames, lobby names)
 │   │   ├── sessionTokens.js   # Per-device "stay signed in" tokens

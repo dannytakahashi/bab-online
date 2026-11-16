@@ -10,28 +10,38 @@
  *   silenceBotChat()       BotController.sendBotChat does nothing (no RNG,
  *                          no timer)
  *   decisionLog()          every bot draw / bid / card decision, in order
- *   liveDb(seed)           a memoryDb with liveGames, liveTournaments and
- *                          serverInstances, plus fault injection (stall,
- *                          fail, lost reply) on every collection
+ *   liveDb(seed)           a memoryDb (with the server's unique indexes)
+ *                          plus liveGames, liveTournaments and
+ *                          serverInstances, fault injection (stall, fail,
+ *                          lost reply, abandon; all or per instance) on
+ *                          every collection, and per-instance connections
+ *                          (db.connect(inst)) that go dead with the instance
  *   databaseMock(holder)   getters for jest.mock('../database') over
- *                          holder.current (a liveDb)
+ *                          holder.current (a liveDb or a connection)
  *   flushStore(store)      pump immediates and microtasks until a store has
  *                          nothing pending (store.pending())
  *   authoritative(game)    the game's authoritative state keyed by position
- *                          (no socket ids), for equality across a restart
+ *                          (no human socket ids), for equality across a restart
  *   createMonoClock()      a per-instance monotonic clock (jump, freeze)
+ *   killInstance(inst)     the process dies: its io, db connection, timers,
+ *                          retries and every process-scoped module reset
  *   createPersistHarness() one "process" at a time: restart({kind})
- *                          (handoff | kill | throw | mongo-stall) resets the
- *                          server singletons and starts a new instance
+ *                          (handoff | kill | throw | mongo-stall); a deploy's
+ *                          successor is announced before the old one hands off
  *   twoInstances()         two live "processes" at once (the deploy
- *                          overlap) over one db: own ids and clocks; B's
- *                          server modules isolated, with a Jest limit on
- *                          lazy requires (see twoInstances)
+ *                          overlap) over one db: own ids, clocks and
+ *                          connections; B's server modules isolated, with a
+ *                          Jest limit on lazy requires (see twoInstances)
  *
  * Every server module is required lazily (inside the functions), so a test
  * can call databaseMock from its jest.mock factory and twoInstances can
  * load a second set of singletons. The persist store, handoff and adoption
  * do not exist yet: restart and twoInstances take them as hooks.
+ *
+ * ONE Jest process plays every "process" here, so a kill is not a SIGKILL:
+ * killInstance cuts what it can reach (see there), and what it cannot
+ * (an awaited continuation already scheduled that checks no epoch and
+ * fetches a collection afresh) is listed in its doc.
  *
  * Fake timers: flushStore and restart work with Jest's modern fake timers
  * or real ones; 'mongo-stall' needs fake timers (it advances the clock).
@@ -92,7 +102,11 @@ function loadServerModules() {
         mainRoomHandlers: require('../socket/mainRoomHandlers'),
         lobbyHandlers: require('../socket/lobbyHandlers'),
         tournamentHandlers: require('../socket/tournamentHandlers'),
+        profileHandlers: require('../socket/profileHandlers'),
+        sessionIdentity: require('../socket/sessionIdentity'),
         shutdown: require('../utils/shutdown'),
+        connectionStats: require('../utils/connectionStats'),
+        livePersistSwitch: require('../utils/livePersistSwitch'),
         logger: require('../utils/logger'),
     };
 }
@@ -167,17 +181,25 @@ function networkError(name, op) {
     return err;
 }
 
+/** A promise that never settles: the reply of a process that is gone. */
+const never = () => new Promise(() => {});
+
 /**
  * Fault injection over a set of MemoryCollections. Rules match by
- * collection name and operation (null = all) and are checked newest first:
- *   stall({collections, ops})   the op waits until release() (then runs:
- *                               a stalled write still applies, late)
- *   fail({collections, ops, times, lostReply})
+ * collection name, operation and instance (the connection's owner name;
+ * null = all, and an op on the shared db, outside any connection, has no
+ * instance) and are checked newest first:
+ *   stall({collections, ops, instances})
+ *                               the op waits until release() (then runs:
+ *                               a stalled write still applies, late) or
+ *                               abandon() (it never runs, never settles)
+ *   fail({collections, ops, instances, times, lostReply})
  *                               the op rejects with a MongoNetworkError;
  *                               lostReply: it applies first, then rejects
  *                               (the ambiguous outcome). `times` (default
  *                               every call) counts matching calls.
- * Every call is recorded in `calls` ({collection, op, outcome}).
+ * Every call is recorded in `calls` ({collection, op, outcome}, plus
+ * `instance` for an op through a connection).
  */
 function createFaults() {
     const rules = [];
@@ -186,19 +208,25 @@ function createFaults() {
     let openGate = null;
     const stalled = new Set();
 
-    const matching = (name, op) => rules.find((r) => (r.collections === null || r.collections.has(name))
-        && (r.ops === null || r.ops.has(op)) && r.remaining > 0);
+    const matching = (name, op, who) => rules.find((r) => (r.collections === null || r.collections.has(name))
+        && (r.ops === null || r.ops.has(op))
+        && (r.instances === null || (who != null && r.instances.has(who)))
+        && r.remaining > 0);
     const asSet = (list) => (list ? new Set([].concat(list)) : null);
+    const record = (name, op, who, outcome) => calls.push({ collection: name, op, ...(who != null && { instance: who }), outcome });
 
     const faults = {
         calls,
-        stall({ collections = null, ops = null } = {}) {
+        stall({ collections = null, ops = null, instances = null } = {}) {
             if (!gate) gate = new Promise((resolve) => { openGate = resolve; });
-            rules.unshift({ mode: 'stall', collections: asSet(collections), ops: asSet(ops), remaining: Infinity });
+            rules.unshift({ mode: 'stall', collections: asSet(collections), ops: asSet(ops), instances: asSet(instances), remaining: Infinity });
             return () => faults.release();
         },
-        fail({ collections = null, ops = null, times = Infinity, lostReply = false } = {}) {
-            rules.unshift({ mode: lostReply ? 'lostReply' : 'fail', collections: asSet(collections), ops: asSet(ops), remaining: times });
+        fail({ collections = null, ops = null, instances = null, times = Infinity, lostReply = false } = {}) {
+            rules.unshift({
+                mode: lostReply ? 'lostReply' : 'fail',
+                collections: asSet(collections), ops: asSet(ops), instances: asSet(instances), remaining: times,
+            });
         },
         /** Lift every stall; stalled ops go on (in the order they arrived). */
         release() {
@@ -207,6 +235,25 @@ function createFaults() {
             gate = null;
             openGate = null;
         },
+        /**
+         * The ops stalled right now (all, or those of `instances`) are
+         * dropped: they never apply and their promises never settle, as an
+         * op a SIGKILLed process never sent. Their continuations never run.
+         * The stall rules stay (release() lifts them for later ops).
+         * @returns {number} ops abandoned
+         */
+        abandon({ instances = null } = {}) {
+            const only = asSet(instances);
+            let n = 0;
+            for (const token of [...stalled]) {
+                if (only && !(token.who != null && only.has(token.who))) continue;
+                token.abandoned = true;
+                stalled.delete(token);
+                record(token.name, token.op, token.who, 'abandoned');
+                n++;
+            }
+            return n;
+        },
         /** Drop every rule (stalls released). */
         clear() {
             faults.release();
@@ -214,70 +261,126 @@ function createFaults() {
         },
         /** Ops waiting on a stall right now. */
         stalledCount: () => stalled.size,
-        async _run(name, op, fn) {
-            const rule = matching(name, op);
+        async _run(name, op, fn, who = null) {
+            const rule = matching(name, op, who);
             if (!rule) {
-                calls.push({ collection: name, op, outcome: 'ok' });
+                record(name, op, who, 'ok');
                 return fn();
             }
             if (rule.mode === 'stall') {
-                const token = {};
+                const token = { name, op, who, abandoned: false };
                 stalled.add(token);
-                calls.push({ collection: name, op, outcome: 'stalled' });
-                try {
-                    await gate;
-                } finally {
-                    stalled.delete(token);
-                }
-                return faults._run(name, op, fn);
+                record(name, op, who, 'stalled');
+                await gate;
+                stalled.delete(token);
+                if (token.abandoned) return never();
+                return faults._run(name, op, fn, who);
             }
             rule.remaining--;
             if (rule.mode === 'fail') {
-                calls.push({ collection: name, op, outcome: 'failed' });
+                record(name, op, who, 'failed');
                 throw networkError(name, op);
             }
             await fn();
-            calls.push({ collection: name, op, outcome: 'lostReply' });
+            record(name, op, who, 'lostReply');
             throw networkError(name, op);
         },
     };
     return faults;
 }
 
-/** Route a collection's async operations (and find().toArray) through `faults`. */
+/**
+ * Route a collection's async operations (and find().toArray) through
+ * `faults`. Returns the unwrapped operations (for connections).
+ */
 function withFaults(name, coll, faults) {
+    const raw = {};
     for (const method of FAULT_METHODS) {
         const original = coll[method].bind(coll);
+        raw[method] = original;
         coll[method] = (...args) => faults._run(name, method, () => original(...args));
     }
     const find = coll.find.bind(coll);
+    raw.find = find;
     coll.find = (...args) => {
         const cursor = find(...args);
         const toArray = cursor.toArray.bind(cursor);
         cursor.toArray = () => faults._run(name, 'find', toArray);
         return cursor;
     };
-    return coll;
+    return raw;
 }
 
 /**
- * A memoryDb (users, gameRecords, reports, passwordResets, adminAudit) plus
- * the three deploy-survival collections, each seeded from `seed[name]`, and
- * `faults` (createFaults) over all of them.
+ * One collection as `owner` (an instance) sees it: the same documents,
+ * every async op through `faults` tagged with owner.name. Once owner.dead,
+ * an op is not run: it is recorded in owner.deadDbOps and never settles
+ * (the process is gone; nothing it sends arrives).
+ */
+function connectionView(name, coll, raw, faults, owner) {
+    const view = Object.create(coll);
+    const run = (op, fn) => {
+        if (owner.dead) {
+            if (Array.isArray(owner.deadDbOps)) owner.deadDbOps.push({ collection: name, op });
+            return never();
+        }
+        return faults._run(name, op, fn, owner.name);
+    };
+    for (const method of FAULT_METHODS) view[method] = (...args) => run(method, () => raw[method](...args));
+    view.find = (...args) => {
+        const cursor = raw.find(...args);
+        const toArray = cursor.toArray.bind(cursor);
+        cursor.toArray = () => run('find', toArray);
+        return cursor;
+    };
+    // Index state lives on the shared collection (never shadowed on the view)
+    view.createIndex = (...args) => coll.createIndex(...args);
+    return view;
+}
+
+/**
+ * A memoryDb (users, gameRecords, reports, passwordResets, adminAudit; the
+ * unique users.username and gameRecords.gameId indexes included) plus the
+ * three deploy-survival collections, each seeded from `seed[name]`, with
+ * (non-enumerable):
+ *   faults         createFaults over all of them
+ *   connect(owner) a connection: every collection as `owner` ({name, dead,
+ *                  deadDbOps}: an instance) sees it (connectionView), with
+ *                  the same faults, connect and `base` (this db). Hand it
+ *                  to databaseMock's holder (createPersistHarness does, with
+ *                  `holder`) and to a DI'd store, so a dead instance's
+ *                  writes stop while its successor's go on.
  */
 function liveDb(seed = {}) {
     const db = createMemoryDb(seed);
     for (const name of LIVE_COLLECTIONS) db[name] = new MemoryCollection(seed[name] || []);
     const faults = createFaults();
-    for (const [name, coll] of Object.entries(db)) withFaults(name, coll, faults);
-    Object.defineProperty(db, 'faults', { value: faults, enumerable: false });
+    const raw = new Map();
+    for (const [name, coll] of Object.entries(db)) raw.set(name, withFaults(name, coll, faults));
+    const connect = (owner) => {
+        if (!owner || typeof owner.name !== 'string') throw new Error('connect(owner): an instance ({name, dead})');
+        const conn = {};
+        for (const [name, coll] of Object.entries(db)) conn[name] = connectionView(name, coll, raw.get(name), faults, owner);
+        Object.defineProperties(conn, {
+            faults: { value: faults, enumerable: false },
+            connect: { value: connect, enumerable: false },
+            base: { value: db, enumerable: false },
+            owner: { value: owner, enumerable: false },
+        });
+        return conn;
+    };
+    Object.defineProperties(db, {
+        faults: { value: faults, enumerable: false },
+        connect: { value: connect, enumerable: false },
+    });
     return db;
 }
 
 /**
  * The database getters over `holder.current` (set it to a liveDb in
- * beforeEach). For a jest.mock factory, which may only reach variables
- * named mock*:
+ * beforeEach; createPersistHarness({holder}) then points it at the current
+ * instance's connection). For a jest.mock factory, which may only reach
+ * variables named mock*:
  *   const mockDb = { current: null };
  *   jest.mock('../../database', () => require('../../testUtils/persistHarness').databaseMock(mockDb));
  * The live-state getters use the names server/database.js will export
@@ -376,33 +479,60 @@ function createMonoClock({ source = () => Date.now(), offset = 0 } = {}) {
 const json = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
 
 /**
- * What must survive a restart, keyed by position (no socket id, timer,
- * epoch, seq or presence): stage, deal and bidding state, the table, the
- * score and stats, every hand, and per seat who controls it and who owns
- * it. Two games are the same game iff these are deep-equal.
+ * What must survive a restart, keyed by position: every field the plan's
+ * game codec saves that changes behaviour (2.2 "Saved"): stage, dealSeq
+ * (stale-deal guard, the snapshot's `deal`), deal and bidding state, the
+ * table, the score and stats, every hand; per seat its controller, owner
+ * (username, ownerPic as stored), gone, lastPersonality (the bot a /lazy
+ * seat gets), resignedAt and leftAt, and its bot (socketId: persisted and
+ * restored as is; username, pic, personality, and the registered
+ * BotPlayer's partnerHistory, which feeds the adaptive bid style).
+ *
+ * Not compared (derived, reset or re-made by design): human socket ids
+ * (a restored seat's are synthetic), timers, epoch, eventSeq / seq, resume,
+ * presence (opt in), grace deadlines and absentSince, the draw, entrants,
+ * deck, offers, AFK clock, spectators, avatar versions, a bot's card
+ * memory (rebuilt from trickHistory: compare it with the bots' own
+ * getMemorySnapshot if a test needs it) and the log (opt in). Two games
+ * are the same game for the restore oracles iff these are deep-equal.
  * @param {GameState} game
- * @param {{presence?: boolean, log?: boolean, gameManager?: Object}} [opts]
+ * @param {{presence?: boolean, log?: boolean, gameManager?: Object, botController?: Object}} [opts]
  *   presence: add each seat's presence; log: add the game log's texts;
- *   gameManager: add the game's tournamentId from its tournamentGames
+ *   gameManager: add the game's tournamentId from its tournamentGames;
+ *   botController: where the seat bots are registered (default: this
+ *   test's; a bot not registered there has partnerHistory null)
  */
-function authoritative(game, { presence = false, log = false, gameManager = null } = {}) {
+function authoritative(game, { presence = false, log = false, gameManager = null, botController = null } = {}) {
+    const bots = botController || require('../game/bot').botController;
     const hands = {};
     const seats = {};
     for (const pos of [1, 2, 3, 4]) {
         const sid = game.positions?.[pos];
         hands[pos] = sid && game.hands[sid] ? json(game.hands[sid]) : null;
         const s = game.seats?.[pos];
+        const botPlayer = s?.bot ? bots.getBot(game.gameId, s.bot.socketId) : null;
         seats[pos] = s ? {
             controller: s.controller,
             ownerUsername: s.ownerUsername ?? null,
+            ownerPic: json(s.ownerPic ?? null),
             gone: s.presence === 'gone',
-            bot: s.bot ? { username: s.bot.username ?? null, personality: s.bot.personality ?? null } : null,
+            lastPersonality: s.lastPersonality ?? null,
+            resignedAt: s.resignedAt ?? null,
+            leftAt: s.leftAt ?? null,
+            bot: s.bot ? {
+                socketId: s.bot.socketId ?? null,
+                username: s.bot.username ?? null,
+                pic: json(s.bot.pic ?? null),
+                personality: s.bot.personality ?? null,
+                partnerHistory: botPlayer ? json(botPlayer.partnerHistory) : null,
+            } : null,
             ...(presence && { presence: s.presence }),
         } : null;
     }
     const out = {
         gameId: game.gameId,
         stage: game.stage,
+        dealSeq: game.dealSeq ?? null,
         currentHand: game.currentHand,
         dealer: game.dealer,
         bidder: game.bidder,
@@ -439,24 +569,30 @@ function authoritative(game, { presence = false, log = false, gameManager = null
 const RESTART_KINDS = ['handoff', 'kill', 'throw', 'mongo-stall'];
 
 /**
- * One server "process": its own ids, monotonic clock, recording io and the
- * server modules it runs on. Once `dead`, anything its io or sockets emit
- * goes to `afterDeath` instead of `log` (the "no emit from a dead io"
- * oracle: it must stay empty).
+ * One server "process": its own ids, monotonic clock, recording io, the
+ * server modules it runs on and, with `db` (a liveDb), its own connection
+ * `inst.db` (db.connect(inst)). Once `dead`, anything its io or sockets
+ * emit goes to `afterDeath` instead of `log` (the "no emit from a dead io"
+ * oracle: it must stay empty), and any op through its connection is
+ * dropped into `deadDbOps` (never applied, never settled). `mode` is the
+ * LIVE_PERSIST mode it boots with (null: whatever the environment says).
  */
-function createInstance({ name = 'instance', mods, bootId = randomUUID(), deploymentId = randomUUID(),
-    startedAt = Date.now(), clock = createMonoClock() } = {}) {
+function createInstance({ name = 'instance', mods, db = null, mode = null, bootId = randomUUID(),
+    deploymentId = randomUUID(), startedAt = Date.now(), clock = createMonoClock() } = {}) {
     const { makeIo, makeSocket } = require('./gameDriver');
     const log = [];
     const io = makeIo(log);
     const inst = {
-        name, mods, bootId, deploymentId, startedAt, clock, log, io,
+        name, mods, mode, bootId, deploymentId, startedAt, clock, log, io,
         dead: false,
         afterDeath: [],
+        deadDbOps: [],
+        db: null,
         store: null,
         /** A stub socket on this instance (registered in its io). */
         socket: (id) => makeSocket(id, log, io),
     };
+    if (db) inst.db = db.connect(inst);
     // After makeIo's contract instrumentation, so live emits are still checked
     const push = log.push;
     Object.defineProperty(log, 'push', {
@@ -472,44 +608,124 @@ function createInstance({ name = 'instance', mods, bootId = randomUUID(), deploy
 }
 
 /**
- * The process dies: its io goes dead, then every server singleton it ran
- * on is reset (GameManager / BotController _resetForTests: timers
- * cancelled, nothing emitted or written).
+ * Everything a process keeps in module memory, reset as a fresh process
+ * would have it. Each entry runs on the dead instance's mods; a module a
+ * test mocked without the reset function is skipped.
  */
-function killInstance(inst) {
+const PROCESS_RESETS = [
+    // Games and tournaments go stale (epoch bump: aliveCheck / isLive fail),
+    // their timers and pauses cancelled, every map emptied
+    ['gameManager', (m) => m._resetForTests()],
+    // Every bot timer (bid / play / draw / chat), registrations, counters
+    ['botController', (m) => m._resetForTests()],
+    // shuttingDown, the drain deadline and in-flight set; pending retry
+    // waits (profileHandlers' end-of-game backoff) never end, so a dead
+    // process's write is never retried
+    ['shutdown', (m) => m._resetShutdownStateForTests({ abandonRetries: true })],
+    // The per-game end-of-game chains (a successor's recordGameStats must
+    // not join a dead one) and the leaderboard / records caches
+    ['profileHandlers', (m) => { m._resetStatsWritesForTests(); m._resetCachesForTests(); }],
+    // The completed-tournament cleanup timers (they delete by id on the
+    // shared GameManager)
+    ['tournamentHandlers', (m) => m._resetCleanupTimersForTests()],
+    // The "other device closed" notices
+    ['sessionIdentity', (m) => m._resetOtherClosedTimers()],
+    // The deploy timing counters and the cached LIVE_PERSIST reading
+    ['connectionStats', (m) => m._resetForTests()],
+    ['livePersistSwitch', (m) => m._resetForTests()],
+];
+
+/**
+ * The process dies (SIGKILL, OOM, or the end of a handoff / crash exit):
+ *   - `dead`: its io and sockets emit into afterDeath; its db connection
+ *     drops every later op (deadDbOps), including those of a continuation
+ *     that captured a collection before the death;
+ *   - with `abandonStalled`, its ops stalled right now never apply
+ *     (faults.abandon); otherwise they apply if the test releases them, as
+ *     a write already on the wire may;
+ *   - every process-scoped module is reset (PROCESS_RESETS): game and
+ *     tournament epochs bumped, every game / tournament / lobby-grace /
+ *     bot / retry / cleanup / notice timer cancelled, end-of-game chains
+ *     and caches forgotten, shuttingDown false, LIVE_PERSIST unread.
+ *
+ * Not reachable in one Jest process (a real SIGKILL would stop them): a
+ * continuation already queued (a released stalled op's caller, a
+ * microtask) still runs; if it checks no epoch and fetches a collection
+ * afresh through the database getters, it reaches the CURRENT instance's
+ * connection. Keep a dead instance's in-flight work stalled and abandon
+ * it, or assert on deadDbOps, when that matters.
+ */
+function killInstance(inst, { abandonStalled = false } = {}) {
     inst.dead = true;
-    inst.mods.gameManager._resetForTests();
-    inst.mods.botController._resetForTests();
+    if (abandonStalled && inst.db) inst.db.faults.abandon({ instances: inst.name });
+    for (const [key, reset] of PROCESS_RESETS) {
+        const mod = inst.mods?.[key];
+        if (mod) reset(mod);
+    }
+}
+
+/** Point the process-scoped modules at `inst`: its connection, its LIVE_PERSIST mode. */
+function becomeCurrent(inst, holder) {
+    if (holder && inst.db) holder.current = inst.db;
+    const lps = inst.mods?.livePersistSwitch;
+    if (lps) {
+        lps._resetForTests();
+        if (inst.mode != null) lps.bootLivePersistMode({ LIVE_PERSIST: inst.mode }, { warn: () => {} });
+    }
 }
 
 /**
  * One server process at a time over `db` (the live state's only path
- * between processes). `hooks` plug in what does not exist yet, each
- * async(instance, ctx):
- *   start(inst)        a new process is up (liveStore.start, adoption sweep)
- *   handoff(inst)      the SIGTERM path before the process exits
- *   crash(inst)        the uncaughtException path
- *   stop(inst, kind)   last thing before the singletons are reset (close
- *                      the store, stop the heartbeat)
+ * between processes). Every instance gets its own connection (inst.db);
+ * with `holder` (the object handed to databaseMock), holder.current is the
+ * current instance's connection, so the server singletons write through
+ * it and stop writing when it dies. `mode` is every instance's
+ * LIVE_PERSIST mode (restart({mode}) overrides it for the next one).
+ *
+ * `hooks` plug in what does not exist yet; each is async(instance, ctx)
+ * with ctx = {kind, old, successor, harness} (what applies):
+ *   announce(inst)     the new process is up before it owns anything: its
+ *                      serverInstances doc, heartbeat, a DI'd store over
+ *                      inst.db (the server singletons are still the old
+ *                      process's: nothing that touches them)
+ *   handoff(old)       the SIGTERM path; ctx.successor is announced
+ *   crash(old)         the uncaughtException path (no successor yet)
+ *   stop(old)          the graceful close before the old process exits
+ *                      (handoff, throw, mongo-stall; never for kill)
+ *   reap(old)          after the death, for every kind: cancel the dead
+ *                      process's own timers (store, heartbeat). No I/O:
+ *                      its connection is dead (deadDbOps)
+ *   start(inst)        the new process owns the singletons now (adoption,
+ *                      liveStore.start's sweep)
  * restart({kind}):
- *   handoff      hooks.handoff, then the process dies
- *   kill         it dies at once (SIGKILL, OOM): no hook runs
- *   throw        hooks.crash, then it dies
- *   mongo-stall  every collection stalls; hooks.handoff starts; `stallMs`
- *                (default 13000, past the 12 s observed-death window) of
- *                fake time pass; the stall lifts; the handoff settles; it dies
- * Then a new instance (new bootId; the same deploymentId with
- * sameDeployment, as an ON_FAILURE restart) starts and hooks.start runs.
+ *   handoff      a deploy: successor spawned + announce, handoff(old),
+ *                stop, death, reap, start(successor)
+ *   mongo-stall  a deploy whose old process's Mongo stalls: successor
+ *                spawned + announce; the OLD connection stalls; handoff
+ *                starts; `stallMs` (default 13000, past the 12 s
+ *                observed-death window) of fake time pass with both
+ *                processes up (the successor's announced heartbeat and
+ *                store run on their own connection); the stall lifts; the
+ *                handoff settles; stop, death, reap, start(successor)
+ *   throw        crash(old), stop, death, reap; then the successor (ON_FAILURE
+ *                restart): spawned, announce, start
+ *   kill         death at once (no crash, no stop), reap; then the
+ *                successor: spawned, announce, start
+ * Options: sameDeployment (the successor keeps the deploymentId),
+ * abandonStalled (killInstance's), mode (the successor's LIVE_PERSIST).
  * `mods` default to this test's own server modules.
  */
-function createPersistHarness({ db, hooks = {}, mods = null } = {}) {
-    if (!db) throw new Error('createPersistHarness needs a db (liveDb())');
+function createPersistHarness({ db, hooks = {}, mods = null, holder = null, mode = null } = {}) {
+    if (!db || typeof db.connect !== 'function') throw new Error('createPersistHarness needs a db (liveDb())');
     const serverMods = mods || loadServerModules();
     const instances = [];
     let n = 0;
-    const spawn = (deploymentId) => {
+    const spawn = ({ deploymentId = null, instMode = mode } = {}) => {
         n++;
-        const inst = createInstance({ name: `i${n}`, mods: serverMods, ...(deploymentId && { deploymentId }) });
+        const inst = createInstance({
+            name: `i${n}`, mods: serverMods, db, mode: instMode,
+            ...(deploymentId && { deploymentId }),
+        });
         instances.push(inst);
         return inst;
     };
@@ -517,38 +733,66 @@ function createPersistHarness({ db, hooks = {}, mods = null } = {}) {
         db,
         instances,
         current: null,
-        /** Start the first instance (hooks.start). */
+        /** Start the first instance (announce, then start). */
         async boot() {
             if (harness.current) throw new Error('already booted');
-            harness.current = spawn();
-            await hooks.start?.(harness.current);
-            return harness.current;
+            const inst = spawn();
+            const ctx = { kind: 'boot', old: null, successor: inst, harness };
+            await hooks.announce?.(inst, ctx);
+            harness.current = inst;
+            becomeCurrent(inst, holder);
+            await hooks.start?.(inst, ctx);
+            return inst;
         },
-        async restart({ kind = 'handoff', sameDeployment = false, stallMs = 13000 } = {}) {
+        async restart({ kind = 'handoff', sameDeployment = false, stallMs = 13000, abandonStalled = false,
+            mode: nextMode = mode } = {}) {
             if (!RESTART_KINDS.includes(kind)) throw new Error(`restart kind must be one of ${RESTART_KINDS.join(', ')}`);
             const old = harness.current;
             if (!old) throw new Error('boot() first');
-            if (kind === 'handoff') await hooks.handoff?.(old);
-            if (kind === 'throw') await hooks.crash?.(old);
-            if (kind === 'mongo-stall') {
-                if (!fakeTimersOn()) throw new Error("restart({kind: 'mongo-stall'}) needs Jest's fake timers");
-                db.faults.stall();
-                const handoff = Promise.resolve(hooks.handoff?.(old));
-                try {
-                    await jest.advanceTimersByTimeAsync(stallMs);
-                } finally {
-                    db.faults.release();
+            if (kind === 'mongo-stall' && !fakeTimersOn()) throw new Error("restart({kind: 'mongo-stall'}) needs Jest's fake timers");
+            const ctx = { kind, old, successor: null, harness };
+            const makeSuccessor = async () => {
+                ctx.successor = spawn({ deploymentId: sameDeployment ? old.deploymentId : null, instMode: nextMode });
+                await hooks.announce?.(ctx.successor, ctx);
+            };
+            const die = async () => {
+                killInstance(old, { abandonStalled });
+                await hooks.reap?.(old, ctx);
+            };
+
+            if (kind === 'handoff' || kind === 'mongo-stall') {
+                await makeSuccessor();
+                if (kind === 'handoff') {
+                    await hooks.handoff?.(old, ctx);
+                } else {
+                    db.faults.stall({ instances: old.name });
+                    const handoff = Promise.resolve(hooks.handoff?.(old, ctx));
+                    try {
+                        await jest.advanceTimersByTimeAsync(stallMs);
+                    } finally {
+                        db.faults.release();
+                    }
+                    await handoff;
                 }
-                await handoff;
+                await hooks.stop?.(old, ctx);
+                await die();
+            } else {
+                if (kind === 'throw') {
+                    await hooks.crash?.(old, ctx);
+                    await hooks.stop?.(old, ctx);
+                }
+                await die();
+                await makeSuccessor();
             }
-            await hooks.stop?.(old, kind);
-            killInstance(old);
-            harness.current = spawn(sameDeployment ? old.deploymentId : null);
-            await hooks.start?.(harness.current);
-            return harness.current;
+            harness.current = ctx.successor;
+            becomeCurrent(ctx.successor, holder);
+            await hooks.start?.(ctx.successor, ctx);
+            return ctx.successor;
         },
         /** Emits any dead instance made after it died (must be empty). */
         deadEmits: () => instances.filter((i) => i.dead).flatMap((i) => i.afterDeath.map((e) => ({ instance: i.name, ...e }))),
+        /** DB ops any dead instance tried after it died (dropped). */
+        deadDbOps: () => instances.filter((i) => i.dead).flatMap((i) => i.deadDbOps.map((e) => ({ instance: i.name, ...e }))),
     };
     return harness;
 }
@@ -556,11 +800,12 @@ function createPersistHarness({ db, hooks = {}, mods = null } = {}) {
 /**
  * The deploy overlap: two live processes at once over one db. Each has its
  * own bootId, deploymentId (unless sameDeployment), startedAt (B `gapMs`
- * later), monotonic clock and recording io. A runs on this test's server
- * modules; B.mods is a second copy of every server module loaded under
- * jest.isolateModules (its own GameManager, BotController, handlers,
- * logger); jest.mock factories apply to both, so both see the same db.
- * kill(inst) is killInstance.
+ * later), monotonic clock, recording io and, with `db` (a liveDb), its own
+ * connection (A.db, B.db). A runs on this test's server modules; B.mods is
+ * a second copy of every server module loaded under jest.isolateModules
+ * (its own GameManager, BotController, handlers, logger); jest.mock
+ * factories apply to both, so both see the same db. kill(inst) is
+ * killInstance.
  *
  * LIMIT (Jest, not this file): a require() that runs after
  * jest.isolateModules returns resolves in the MAIN registry. The server has
@@ -570,19 +815,22 @@ function createPersistHarness({ db, hooks = {}, mods = null } = {}) {
  * singletons as soon as it takes one of those paths (a dealt B table finds
  * no bot: "Bot not found for scheduled action"). B.mods is therefore only
  * sound for code with no lazy require: the dependency-injected persist
- * pieces (createLiveStore({getCollections, bootId, now, ...}), heartbeat,
- * adoption sweep) built twice with A's and B's ids and clocks. Tables that
- * must run on B need another model (child processes, or instance-scoped
- * singletons); persistHarness.test.js pins this limit so it is not
- * forgotten.
+ * pieces (createLiveStore({getCollections: () => B.db, bootId, now, ...}),
+ * heartbeat, adoption claim) built twice with A's and B's ids, clocks and
+ * connections. A game PLAYED on B (seating a client, bots acting, B's
+ * gameEnd) needs another model, which deploy-survival PR 5 must build
+ * before its overlapHandoff tests that need one (child-process instances
+ * over a shared mongod, or instance-scoped singletons); see the plan's
+ * PR 5 note. persistHarness.test.js pins this limit so it is not forgotten.
  */
-function twoInstances({ gapMs = 1000, sameDeployment = false } = {}) {
-    const A = createInstance({ name: 'A', mods: loadServerModules() });
+function twoInstances({ gapMs = 1000, sameDeployment = false, db = null } = {}) {
+    const A = createInstance({ name: 'A', mods: loadServerModules(), db });
     let bMods;
     jest.isolateModules(() => { bMods = loadServerModules(); });
     const B = createInstance({
         name: 'B',
         mods: bMods,
+        db,
         startedAt: A.startedAt + gapMs,
         ...(sameDeployment && { deploymentId: A.deploymentId }),
     });
@@ -605,6 +853,7 @@ module.exports = {
     authoritative,
     RESTART_KINDS,
     createInstance,
+    PROCESS_RESETS,
     killInstance,
     createPersistHarness,
     twoInstances,

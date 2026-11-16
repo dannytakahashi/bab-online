@@ -16,10 +16,18 @@
  * extraActions(ctx) returns more [weight, fn] pairs, appended after the
  * built-in ones. Any weight it adds changes which action each random draw
  * picks; with none (or no hook) every pick is the original one. ctx
- * exposes the run's state: seed, io,
- * log, rand, pick, randInt, track, newSocket, kill, rejoinAs, promote,
- * humans, sockets, spectators, dummy, gameId, setNote(text), and `game`
- * (get and set: a restart may swap in the restored GameState).
+ * exposes the run's state: seed, rand, pick, randInt, track, newSocket,
+ * kill, rejoinAs, promote, humans, sockets, spectators, gameId,
+ * setNote(text); `io` and `log` (getters: the current ones), swapIo({io,
+ * log}) (a restart moves the run to the new instance's io: runSeedInner's
+ * doc), and `game` and `dummy` (get and set: a restart may swap in the
+ * restored GameState, or a new dummy table). opts.instance runs the whole
+ * seed on a given {io, log} (a persistHarness instance).
+ *
+ * The three changes to the moved body: opts (errorLogs, extraActions,
+ * instance), the users insert through getUsersCollection(), and io / log /
+ * dummy made swappable (recordRoomMembers, swapIo); chaos.test.js runs with
+ * none of them in use and its per-seed output is unchanged.
  */
 
 'use strict';
@@ -63,14 +71,37 @@ function botPending(gameId) {
 const seatSnapshot = (game) => JSON.stringify(game.seatList().map((s) => [s.position, s.controller, s.presence, s.ownerSocketId]));
 
 /**
+ * Record who was in a room at each room emit (for the resign-offer
+ * oracle). Bound to this io and log, so an io swapped out later keeps
+ * writing to its own log (a dead instance's: its afterDeath).
+ */
+function recordRoomMembers(io, log) {
+    io.to = (room) => ({
+        emit: (event, data) => log.push({ to: room, members: [...(io.rooms.get(room) || [])], event, data, at: Date.now() }),
+    });
+}
+
+/**
  * One chaos run. `onIo(io)` is called with the run's io before anything
  * happens (chaos.test.js's runSeed starts its seq and pacing watches there).
  * Returns a failure description, or {ok, hands, steps}.
+ *
+ * opts.instance ({io, log}, e.g. a persistHarness instance): run on its io
+ * and log instead of a fresh makeIo. ctx.swapIo(next) (from extraActions)
+ * moves the run to another {io, log} at a restart: every later action,
+ * newSocket, kill and the end-of-run oracles use it, while the sockets and
+ * room emitters made before stay bound to the old io (a dead instance's
+ * emits land in its afterDeath, the "no emit from a dead io" oracle). The
+ * hook then rebuilds what a new process lacks: sockets that reconnect
+ * (newSocket(id)), the humans' registrations (gameManager.registerUser),
+ * the restored game (ctx.game = ...) and, if it wants spectators to move
+ * between tables again, a dummy table (ctx.dummy = ...); seq / pacing
+ * watches on the new io are its own (onIo ran for the first io only).
  * @param {number} seed
  * @param {Function} onIo
- * @param {{errorLogs: Array, extraActions?: Function}} opts
+ * @param {{errorLogs: Array, extraActions?: Function, instance?: {io: Object, log: Array}}} opts
  */
-async function runSeedInner(seed, onIo, { errorLogs, extraActions = null } = {}) {
+async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instance = null } = {}) {
     errorLogs.length = 0;
     GamePhase.resetViolations();
     const rand = mulberry32(seed);
@@ -78,12 +109,15 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null } = {})
     const pick = (arr) => (arr.length ? arr[Math.floor(rand() * arr.length)] : undefined);
     const randInt = (lo, hi) => lo + Math.floor(rand() * (hi - lo + 1));
 
-    const log = [];
-    const io = makeIo(log);
-    // Record who was in a room at each room emit (for the resign-offer oracle)
-    io.to = (room) => ({
-        emit: (event, data) => log.push({ to: room, members: [...(io.rooms.get(room) || [])], event, data, at: Date.now() }),
-    });
+    let log = instance ? instance.log : [];
+    let io = instance ? instance.io : makeIo(log);
+    recordRoomMembers(io, log);
+    const swapIo = (next) => {
+        if (!next || !next.io || !Array.isArray(next.log)) throw new Error('swapIo({io, log})');
+        io = next.io;
+        log = next.log;
+        recordRoomMembers(io, log);
+    };
     onIo(io);
     const asyncErrors = [];
     const track = (p) => {
@@ -122,7 +156,7 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null } = {})
 
     // A second (frozen) table so spectators can move between games
     const dummyBots = [0, 1, 2, 3].map((i) => botController.createBot(`🤖 D${i}`, 'mary'));
-    const dummy = gameManager.createGame(dummyBots.map((b) => b.socketId));
+    let dummy = gameManager.createGame(dummyBots.map((b) => b.socketId));
     dummyBots.forEach((b, i) => dummy.addPlayer(b.socketId, b.username, i + 1, 1, true)); // stays in CREATED
 
     // Even seeds start through the real lobby countdown (chaos runs during
@@ -396,11 +430,15 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null } = {})
     // the built-in ones. None means the run is exactly the original one
     if (extraActions) {
         actions.push(...extraActions({
-            seed, io, log, rand, pick, randInt, track, newSocket, kill, rejoinAs, promote,
-            humans, sockets, spectators, dummy, gameId,
+            seed, rand, pick, randInt, track, newSocket, kill, rejoinAs, promote,
+            humans, sockets, spectators, gameId, swapIo,
             setNote: (text) => { note = text; },
+            get io() { return io; },
+            get log() { return log; },
             get game() { return game; },
             set game(g) { game = g; },
+            get dummy() { return dummy; },
+            set dummy(d) { dummy = d; },
         }));
     }
     const totalWeight = actions.reduce((n, [w]) => n + w, 0);

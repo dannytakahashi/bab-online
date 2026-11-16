@@ -182,3 +182,49 @@ describe('memoryDb _id uniqueness and upserts (as the unique _id index and the d
             .rejects.toThrow(/unsupported/);
     });
 });
+
+describe('memoryDb unique secondary indexes (database.js ensureUsernameIndex / ensureGameIdIndex)', () => {
+    const { createMemoryDb, SERVER_UNIQUE_INDEXES } = require('../memoryDb');
+
+    test('createMemoryDb declares users.username and the partial gameRecords.gameId unique, as database.js builds them', async () => {
+        expect(SERVER_UNIQUE_INDEXES.users).toEqual([{ keys: { username: 1 } }]);
+        expect(SERVER_UNIQUE_INDEXES.gameRecords).toEqual([{ keys: { gameId: 1 }, partialFilterExpression: { gameId: { $exists: true } } }]);
+        const db = createMemoryDb({ users: [{ username: 'Ann' }] });
+        const err = await db.users.insertOne({ username: 'Ann' }).catch((e) => e);
+        expect(err).toMatchObject({ name: 'MongoServerError', code: 11000, keyPattern: { username: 1 }, keyValue: { username: 'Ann' } });
+        expect(err.message).toMatch(/index: username_1 dup key: \{ username: "Ann" \}/);
+        await db.gameRecords.insertOne({ gameId: 'g1' });
+        await expect(db.gameRecords.insertOne({ gameId: 'g1', other: 1 })).rejects.toMatchObject({ code: 11000, keyPattern: { gameId: 1 } });
+        // Partial: records without a gameId never collide
+        await db.gameRecords.insertOne({ legacy: 1 });
+        await db.gameRecords.insertOne({ legacy: 2 });
+        expect(db.gameRecords.all()).toHaveLength(3);
+        expect(() => createMemoryDb({ gameRecords: [{ gameId: 'x' }, { gameId: 'x' }] })).toThrow(/E11000/);
+    });
+
+    test('updates, upserts and replaces that would collide throw and change nothing', async () => {
+        const db = createMemoryDb({ users: [{ _id: 'a', username: 'Ann' }, { _id: 'b', username: 'Ben' }] });
+        await expect(db.users.updateOne({ _id: 'b' }, { $set: { username: 'Ann' } })).rejects.toMatchObject({ code: 11000 });
+        await expect(db.users.updateMany({ _id: 'b' }, { $set: { username: 'Ann' } })).rejects.toMatchObject({ code: 11000 });
+        await expect(db.users.findOneAndUpdate({ _id: 'b' }, { $set: { username: 'Ann' } })).rejects.toMatchObject({ code: 11000 });
+        await expect(db.users.replaceOne({ _id: 'b' }, { username: 'Ann' })).rejects.toMatchObject({ code: 11000 });
+        await expect(db.users.updateOne({ username: 'Cat' }, { $set: { username: 'Ann' } }, { upsert: true })).rejects.toMatchObject({ code: 11000 });
+        expect(db.users.all()).toEqual([{ _id: 'a', username: 'Ann' }, { _id: 'b', username: 'Ben' }]);
+        // A change that keeps the key (or moves it to a free one) is fine
+        await db.users.updateOne({ _id: 'b' }, { $set: { username: 'Ben', pic: 2 } });
+        await db.users.replaceOne({ _id: 'b' }, { username: 'Bea' });
+        expect(db.users.all()).toEqual([{ _id: 'a', username: 'Ann' }, { _id: 'b', username: 'Bea' }]);
+    });
+
+    test('createIndex: unique indexes are enforced from then on, and a build over duplicates fails', async () => {
+        const c = new MemoryCollection([{ k: 1 }, { k: 2 }]);
+        expect(await c.createIndex({ k: 1 }, { unique: true })).toBe('k_1');
+        await expect(c.insertOne({ k: 1 })).rejects.toMatchObject({ code: 11000, keyPattern: { k: 1 } });
+        expect(await c.createIndex({ at: -1 })).toBe('at_-1');
+        const dup = new MemoryCollection([{ k: 1 }, { k: 1 }]);
+        await expect(dup.createIndex({ k: 1 }, { unique: true })).rejects.toMatchObject({ code: 11000 });
+        // Missing counts as null (a non-partial unique index has one null)
+        const nulls = new MemoryCollection([{ a: 1 }], { unique: [{ keys: { k: 1 } }] });
+        expect(() => nulls._insert({ a: 2 })).toThrow(/E11000/);
+    });
+});
