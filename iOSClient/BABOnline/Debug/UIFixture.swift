@@ -64,6 +64,15 @@ enum UIFixture {
         // `-uiForegroundProbe YES`: signed in, a foreground probe in flight (main-room actions
         // wait for its answer, with no Reconnecting toast)
         if UserDefaults.standard.bool(forKey: "uiForegroundProbe") { SocketService.shared.holdForegroundProbeForFixture() }
+        // `-uiServerError "<message>"`: the server-error toast, shown once the screen is up
+        if let message = UserDefaults.standard.string(forKey: "uiServerError") {
+            // the toast layer is mounted for a signed-in user only (ContentView)
+            auth.isAuthenticated = true
+            ServerErrorToast.visibleSeconds = 60
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                SocketService.shared.serverError = ServerErrorNotice(message: message)
+            }
+        }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             print("[UIFixture] seeded screen \(name)")

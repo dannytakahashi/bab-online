@@ -53,8 +53,9 @@ the test and the release step alike:
 | iOS 1.2.0 (6) | `ios-1.2.0-b6.*` | 83a3f8f (PR #244, merged as 775a2e0; `contract/` and `iOSClient/BABOnline` are 92d0c75's, build 5's source, but for the icon assets) | App Store, live 2026-11-13 |
 | iOS 1.2.1 (7) | `ios-1.2.1-b7.*` | 6f11cb1 (PR #260 "version 1.2.1 (build 7)", dac6fdc; after #255, before #261's icon, which is build 8's) | TestFlight |
 | iOS 1.2.1 (8) | `ios-1.2.1-b8.*` | d3ebe76 (PR #262 merged; its iOS source is 7e73df1's, the build 8 commit, and its contract adds #263's stats `scope` echo, which build 8's Humans / Bots / All control reads) | submitted for review 2026-11-14 |
+| iOS 1.2.1 (9) | `ios-1.2.1-b9.*` | ae9a95c (PR #279 "ios/build-9" merged; every main commit through 8bf93ad has the same `iOSClient/BABOnline` and `contract/src`, so the baseline is the same whichever of them was archived; frozen 2026-11-16) | uploaded; 1.2.1 released |
 
-Not here: builds 3 to 5 and 1.2.1 (9). Build 5 was replaced by 6 with the
+Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
 (0acc10a, pulled from review) are not gated (MIN_IOS_BUILD 3) and may still
 be installed by testers, but the guard does NOT protect them: the removals
@@ -64,8 +65,7 @@ beyond build 5 is held in prose only (V1_REMOVALS #14: they tell a bot only
 by the `bot:` prefix of `positionUpdate.sockets`, so it stays until the
 owner accepts that for TestFlight or MIN_IOS_BUILD is 5). For the record,
 their decode floors, read from 29f3536 and 0acc10a on 2026-11-15, pass
-today's schema except the waived `stateSnapshot.requestId`. 1.2.1 (9) (7177d6a, not submitted yet: freeze it when it
-is, below). The three floors are identical; today's Swift differs only by
+today's schema except the waived `stateSnapshot.requestId`. (1.2.1 (9) is now frozen, above.) The three floors are identical; today's Swift differs only by
 no longer declaring the optional `gameStart.players` (dropped by #6).
 
 ## Release step: freeze a build when it is uploaded
