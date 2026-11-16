@@ -83,9 +83,16 @@ const LOBBY_EXTRA_PROPS = {
     host: str(),
     settings: ref('lobbySettings'),
     capacity: int({ minimum: 4, maximum: 8 }),
+    // Play again (2026-11-16): the last game's older-app players whose
+    // place is saved (a reservation; they have no row)
+    expected: arr(str(), { minItems: 1, maxItems: 4 }),
 };
 const LOBBY_EXTRA_KEYS = Object.keys(LOBBY_EXTRA_PROPS);
-const LOBBY_EXTRA_NOTE = 'members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets "Spectators can talk" (passes to the first connected member when it leaves); settings {spectatorsCanTalk}; capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries).';
+const LOBBY_EXTRA_NOTE = 'members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets "Spectators can talk" (passes to the first connected member when it leaves); settings {spectatorsCanTalk}; capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game\'s older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4).';
+// One gameEnd.playerStats entry (also lobbyReturn.lastGame.playerStats)
+const GAME_END_STATS = obj({
+    username: str(), totalBids: int(), totalTricks: int(), setsCaused: int(), totalHSI: num(), avgHSI: num(),
+});
 const lobbyLists = {
     lobbies: arr(ref('lobby')),
     inProgressGames: arr(ref('inProgressGame')),
@@ -307,6 +314,26 @@ const s2c = {
         emittedFrom: ['server/socket/mainRoomHandlers.js:createLobby', 'server/socket/mainRoomHandlers.js:joinLobby'],
         notes: 'The withoutName variant went with the matchmaking queue (V1_REMOVALS #2, 2026-11-11): every lobby a player can open or join is named. ' + LOBBY_EXTRA_NOTE,
     },
+    lobbyReturn: {
+        payload: obj({
+            lobbyId: str(),
+            players: arr(ref('lobbyMember'), { maxItems: 4 }),
+            messages: arr(ref('lobbyChatLine')),
+            name: str(),
+            reconnecting: arr(str(), { minItems: 1, maxItems: 4 }),
+            ...LOBBY_EXTRA_PROPS,
+            lastGame: obj({
+                gameId: str(),
+                score: ref('teamPair'),
+                playerStats: byPosition(GAME_END_STATS),
+                position: orNull(ref('position')),
+            }),
+        }, { optional: ['reconnecting', 'expected'] }),
+        status: 'active', to: 'socket',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/playAgain.js:openLobby'],
+        notes: 'New (2026-11-16, play again; private, unsequenced, read by no shipped client yet). Only to a socket that sent the clientHello cap playAgain, at the end of a casual game a lobby started (never a tournament table, the ambient demo or an aborted game), in the same tick as its gameEnd and after it on that socket: the server moved it into a recreated copy of that lobby (a new lobbyId; the same name, host, settings, chat and lobby bots; nobody ready) and it is a mapped lobby member now. The lobby part is lobbyCreated\'s (withName) plus members / host / settings / capacity / expected, which it always carries. lastGame: the game that just ended (gameId, score and playerStats as in its gameEnd; position: this player\'s seat, null for a lobby extra who watched it). gameEnd is sequenced and can be held in a client\'s seq gate while this is not: a client applies it once it has applied gameEnd for lastGame.gameId (or after its gap timeout). Voice: the moved members\' calls are kept; r_i gets voicePeerList of the moved members before it in row order (a client skips a peer it is connected to). ' + LOBBY_EXTRA_NOTE,
+    },
     lobbyPlayerJoined: {
         payload: obj({
             lobbyId: str(),
@@ -344,7 +371,7 @@ const s2c = {
         added: ['reconnecting', ...LOBBY_EXTRA_KEYS],
         notes: LOBBY_EXTRA_NOTE + ' The neither variant also carries a host\'s settings change (setSpectatorsCanTalk) and goes back to a member whose Ready was refused because the table filled first ("The table is full — you\'ll watch this game"). reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows "Reconnecting…" on those seats, iOS from 1.2.2 (build 10) too (LobbyState.applyPlayers: the list replaces the kept set, absent means none; lobbyPlayerJoined.newPlayer and a name no longer in players drop out). iOS up to 1.2.1 reads the reply as a dictionary and ignores it.',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:sendLobbyState', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:lobbySeatResumed', 'server/socket/lobbyHandlers.js:setLobbySpectatorsCanTalk'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:sendLobbyState', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:lobbySeatResumed', 'server/socket/lobbyHandlers.js:setLobbySpectatorsCanTalk', 'server/socket/playAgain.js:sendExpected'],
     },
     allPlayersReady: {
         payload: obj({ gameId: str() }),
@@ -542,9 +569,7 @@ const s2c = {
     gameEnd: {
         payload: obj({
             score: ref('teamPair'),
-            playerStats: byPosition(obj({
-                username: str(), totalBids: int(), totalTricks: int(), setsCaused: int(), totalHSI: num(), avgHSI: num(),
-            })),
+            playerStats: byPosition(GAME_END_STATS),
             tournamentId: orNull(str()),
         }),
         status: 'active', to: 'room', seq: false,
@@ -943,21 +968,21 @@ const s2c = {
         payload: obj({ peers: arr(ref('voicePeer')) }),
         status: 'active', to: 'self',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:announceOwnerVoice', 'server/voice/gameVoice.js:announceSpectator', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop'],
-        notes: 'The receiver offers to every listed peer. A casual game\'s voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out.',
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:announceOwnerVoice', 'server/voice/gameVoice.js:announceSpectator', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/socket/playAgain.js:voiceAtReturn'],
+        notes: 'Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game\'s voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out.',
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),
         status: 'active', to: 'socket',
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/lobbyHandlers.js:lobbySeatResumed', 'server/socket/seatLifecycle.js:announceOwnerVoice', 'server/voice/gameVoice.js:announceSpectator', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop'],
+        emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/lobbyHandlers.js:lobbySeatResumed', 'server/socket/seatLifecycle.js:announceOwnerVoice', 'server/voice/gameVoice.js:announceSpectator', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/socket/playAgain.js:voiceAtReturn'],
     },
     voicePeerLeft: {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
         status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:startExtras', 'server/voice/gameVoice.js:removeVoiceSpectator', 'server/voice/gameVoice.js:playerLeftVoice', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/voice/gameVoice.js:endBlockedCall'],
-        notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)) and, since 2026-11-16, a game\'s voice peers: a voice spectator leaving (to the members, never the room), an entrant dropping or leaving during the draw, a demoted owner socket (watchSeat, both ways), a blocked pair (both ways), the spectator talk switch and its backstop (server/voice/gameVoice.js).',
+        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:startExtras', 'server/voice/gameVoice.js:removeVoiceSpectator', 'server/voice/gameVoice.js:playerLeftVoice', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/voice/gameVoice.js:endBlockedCall', 'server/socket/playAgain.js:voiceAtReturn', 'server/socket/playAgain.js:endLingeringEntry'],
+        notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)) and, since 2026-11-16, a game\'s voice peers: a voice spectator leaving (to the members, never the room), an entrant dropping or leaving during the draw, a demoted owner socket (watchSeat, both ways), a blocked pair (both ways), the spectator talk switch and its backstop (server/voice/gameVoice.js). Play again (2026-11-16, server/socket/playAgain.js), private, both ways: at a lobby-born game\'s end between the members moved back to the lobby and every other socket of the game\'s voice room (main-room spectators, owners not moved) except an older-app owner still on the score screen, whose calls with them linger until it leaves that screen (joinMainRoom, another entry point, a disconnect) or the lobby starts or goes. Every shipped iOS build only drops the peer on a private one.',
     },
     voiceSettings: {
         payload: obj({

@@ -170,7 +170,10 @@ const defs = {
         isBot: konst(true),
         playing: bool(),
         reconnecting: konst(true),
-    }, { optional: ['isBot', 'reconnecting'] }),
+        // Play again (additive 2026-11-16): a place held for someone not
+        // back from the last game yet (a row with no socket: `away:` id)
+        returning: konst(true),
+    }, { optional: ['isBot', 'reconnecting', 'returning'] }),
     // The host's lobby settings (2026-11-16): "Spectators can talk", default on
     lobbySettings: obj({ spectatorsCanTalk: bool() }),
     // serverError.code (V1_REMOVALS #1 phase A): one list with the server
@@ -265,6 +268,10 @@ const defs = {
     // "Spectators can talk" switch, voiceSettings, spectator voice
     // (contract/README.md "Client capabilities")
     clientCapCasualSpectators: konst('casualSpectators'),
+    // A third, its own const for the same reason (2026-11-16, play again):
+    // at the end of a lobby-born casual game the client is moved back into
+    // that lobby (s2c lobbyReturn) (contract/README.md "Client capabilities")
+    clientCapPlayAgain: konst('playAgain'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

@@ -26,6 +26,7 @@ const { recordTableScores } = require('../game/tournamentScoring');
 const seatLifecycle = require('./seatLifecycle');
 const progressWatchdog = require('./progressWatchdog');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
+const playAgain = require('./playAgain');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
 const avatarStore = require('../avatar/avatarStore');
@@ -935,9 +936,17 @@ async function handleHandComplete(game, io) {
             tournamentId
         })) return;
 
+        // Play again (a lobby-born casual game): who is where, read before
+        // _retire clears the spectators and the voice room
+        const playAgainPlan = playAgain.plan(game, io, { score: game.score, playerStats: playerStatsWithNames });
+
         // Retire: bots, room, every playerGames entry (players can create
         // new lobbies / return to the tournament right away)
         gameManager.endGame(game.gameId, io);
+
+        // ...then, before the first await, the lobby reopens with everyone
+        // capable still at the table (lobbyReturn after their gameEnd)
+        playAgain.open(io, playAgainPlan);
 
         // Persist stats in the background: a slow DB must not hold up the
         // end of the game for the players. Retried, replay-safe and waited

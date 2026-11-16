@@ -110,6 +110,7 @@ enum SocketEvents {
 
         // Lobby
         static let lobbyCreated = "lobbyCreated"
+        static let lobbyReturn = "lobbyReturn"
         static let lobbyMessage = "lobbyMessage"
         static let lobbyPlayerJoined = "lobbyPlayerJoined"
         static let lobbyPlayerLeft = "lobbyPlayerLeft"

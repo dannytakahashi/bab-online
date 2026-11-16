@@ -117,6 +117,12 @@ const c2s = {
         invalid: [{}, { spectatorsCanTalk: 'no' }, { spectatorsCanTalk: 1 }],
         notes: 'New (2026-11-16, family lobbies; server only, dark: no client sends it yet, so it is unsent until the web and iOS PRs flip it to active and add it to layout.json). "Spectators can talk", default on. In a lobby: its host only (GameManager.lobbyHost); every member gets playerReadyUpdate (the plain variant) with settings. In a casual game (one started from a lobby): the host while seated, connected and capable (casualSpectators), else any connected capable seat owner / entrant (owner Q3 default); coalesced per game (applied at once when nothing changed in the last 3 s, else once at the end of that window, the last value wins) and announced with voiceSettings. Anyone else, a tournament table, the main room: serverError {code: \'rejected\'}. Wrapper limit 4 / 30 s per socket.',
     },
+    releaseLobbyHold: {
+        payload: open({ username: str({ minLength: 1, maxLength: 32 }) }), status: 'unsent', joi: 'releaseLobbyHold', rateLimit: 'releaseLobbyHold', sentBy: nobody,
+        examples: [{ username: 'grandma' }],
+        invalid: [{}, { username: '' }, { username: 'x'.repeat(33) }, { username: 7 }],
+        notes: 'New (2026-11-16, play again; server only, dark: no client sends it yet, so it is unsent until the web and iOS PRs flip it to active and add it to layout.json). "Don\'t wait for <name>" in a lobby reopened after a game (server/socket/playAgain.js): releases that user\'s hold (a row marked members[].returning) or reservation (expected) at once, as its expiry would: a leave that keeps everyone\'s ready flags. The lobby host only; while the host is away (held), any present member. Anyone else, a socket in no lobby, or a name with nothing held: serverError {code: \'rejected\'}. Wrapper limit 10 / 30 s per socket.',
+    },
     removeBot: { payload: open({ botSocketId: str({ minLength: 5, maxLength: 200, pattern: '^bot:' }) }), status: 'active', joi: 'removeBot', rateLimit: null, sentBy: both, examples: [{ botSocketId: 'bot:Bot:1' }, { botSocketId: 'bot:🤖 bot 2:00000000-0000-4000-8000-000000000003' }], invalid: [{}, { botSocketId: 'AbCdEfGhIjKlMnOpQrSt' }, { botSocketId: 'bot:' + 'x'.repeat(200) }], notes: 'Joi since V1_REMOVALS #18 (2026-11-11): a payload is required and only a bot id (bot:...) passes; GameManager.removeBotFromLobby also refuses a human member. Web (GameLobby) and iOS 1.1.0 (LobbyEmitter.removeBot) send {botSocketId}; only the gated 1.0.0 sent no payload.' },
 
     // Game

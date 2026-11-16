@@ -165,6 +165,11 @@ const schemas = {
     setSpectatorsCanTalk: Joi.object({
         spectatorsCanTalk: Joi.boolean().strict().required()
     }).required(),
+    // "Don't wait for <name>" (playAgain.releaseLobbyHold); mirrors
+    // contract c2s.releaseLobbyHold
+    releaseLobbyHold: Joi.object({
+        username: Joi.string().min(1).max(32).required()
+    }).required(),
 
     // Resignation
     forceResign: Joi.object({
