@@ -56,10 +56,11 @@ enum CardTextureGenerator {
         return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
     }
 
-    /// Every face the game deals: 52 + HI / LO jokers. (No table sprite uses the card
-    /// back's texture: the draw for deal and the opponents' fans (CardFanNode) show the back
-    /// through `cardBackImage(width:colour:)`, which `prewarm()` renders at the draw's
-    /// expected size, in the draw's red.)
+    /// Every face the game deals: 52 + HI / LO jokers. (The only table sprites with the card
+    /// back's texture, `cardBackTexture(colour:)`, are the live deal's deck (GameSKScene.dealIn,
+    /// the hand's colour; `prewarm()` renders both colours): the draw for deal and the
+    /// opponents' fans (CardFanNode) show the back through `cardBackImage(width:colour:)`,
+    /// which `prewarm()` renders at the draw's expected size, in the draw's red.)
     static let allCards: [Card] = {
         let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
         let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]

@@ -309,7 +309,7 @@ class GameSKScene: SKScene, TableRenderer {
             case .dealt(let seq):
                 // this render's deal only (a later deal in the same commit owns the table)
                 guard seq == model.dealSeq, model.showsTable, !model.keepsLastTable else { break }
-                dealIn()
+                dealIn(back: model.back)
             case .chatBubble(let pos, let message):
                 // Not over my own hand (the bottom seat's spot): the log shows my line
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
@@ -417,8 +417,8 @@ class GameSKScene: SKScene, TableRenderer {
 
     // MARK: - The deal
 
-    /// The deck a live deal flies from (a few backs at the hand's card size at
-    /// `layout.dealOrigin`), up while the cards leave it; nil otherwise.
+    /// The deck a live deal flies from (a few backs of the hand's colour at the hand's card
+    /// size at `layout.dealOrigin`), up while the cards leave it; nil otherwise.
     private(set) var dealDeck: SKNode?
     #if DEBUG
     /// Live deals shown, and the latest one's cards and kind (fixture probe "table.deal").
@@ -432,8 +432,9 @@ class GameSKScene: SKScene, TableRenderer {
     /// motion tokens). Cosmetic: nothing waits for it (taps, the bid panel and the server's
     /// pacing go on as before; a tap lands its card at once). Under Reduce Motion the cards
     /// fade in where they are and no deck shows. A snapshot, a later deal or a relayout
-    /// never replays it: a relayout re-aims the flights, a snapshot lands them.
-    func dealIn() {
+    /// never replays it: a relayout re-aims the flights, a snapshot lands them. The deck's
+    /// backs are `back`, the hand's colour (`model.back`), as the fans' backs it deals.
+    func dealIn(back colour: CardBackColour) {
         removeDealDeck()
         let reduce = Theme.Motion.reduceMotion
         let mine = handNode.sprites.values.sorted { $0.zPosition < $1.zPosition }
@@ -464,7 +465,7 @@ class GameSKScene: SKScene, TableRenderer {
         deck.zPosition = -0.5  // over the felt, under the hand and the seats: the cards leave from its top
         deck.hideFromAccessibility()
         for i in 0..<3 {
-            let back = SKSpriteNode(texture: CardTextureGenerator.cardBackTexture(), size: TableLayout.cardSize)
+            let back = SKSpriteNode(texture: CardTextureGenerator.cardBackTexture(colour: colour), size: TableLayout.cardSize)
             back.position = CGPoint(x: CGFloat(i) * 1.5, y: CGFloat(i) * 1.5)
             back.zPosition = CGFloat(i)
             back.hideFromAccessibility()

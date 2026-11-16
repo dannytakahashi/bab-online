@@ -979,7 +979,7 @@ iOS rendered the new hand at once. Now:
   sound; `catchUp` strips it with the sounds, and a snapshot never emits it, so
   a rejoin, restore, spectate, resync or buffered replay shows the hand where
   it is.
-- `GameSKScene.apply` step 3 runs `dealIn()` for the model's current deal:
+- `GameSKScene.apply` step 3 runs `dealIn(back: model.back)` for the model's current deal:
   my hand's sprites (left to right) and every fan's backs go through
   `Animator.deal` with the web's timing (`Deal.wait` 0.2 s, `Deal.flight`
   `Theme.Motion.slow * 2`, `Deal.stagger` `Theme.Motion.dealStagger`). Each
@@ -999,24 +999,37 @@ iOS rendered the new hand at once. Now:
   lands everything and drops the deck; a new deal lands the old one).
 - Reduce Motion: no flight and no deck; the cards fade in where they are
   (`Deal.fade`, `Theme.Motion.base`), as `Theme+Motion.swift` now lists.
-- The deck's back is the 300 x 435 table back, rendered by `prewarm()` off
-  the main thread with the faces (before, only the unused
-  `CardSpriteNode.cardBack` asked for it, on demand).
+- The deck's back is the 300 x 435 table back in the hand's colour
+  (`cardBackTexture(colour: model.back)`, `CardBackColour`, "Card textures": red on odd
+  hands, blue on even ones, as the fans' backs it deals), both colours rendered
+  by `prewarm()` off the main thread with the faces (before, only the unused
+  `CardSpriteNode.cardBack` asked for the red one, on demand).
+- The Duo: the origin is the cluster's centre, so it follows TableLayout's
+  fold handling (an undocked book fold puts the cluster on one page, a
+  tabletop fold above the hinge); the deck keeps off the hinge at every
+  reachable fold (`TableLayoutTests.reachableFolds`). Cards bound for the hand
+  below a tabletop hinge cross it in flight, as played cards do.
 - Fixture flags: `-uiDeal YES` (8 s after launch a live gameStart of 13 cards,
-  dealer 4) and `-uiReduceMotion YES`; probe `table.deal`
-  ("deals=1 cards=52 mode=fly flying=52 fading=0 deck=1": deals shown, the
-  latest one's cards and kind, what is in flight or fading now, the deck;
-  refreshed when the deal starts and once it has landed).
+  dealer 4; `-uiDealSize <n>` deals n cards: 10 is hand 2, blue) and
+  `-uiReduceMotion YES`; probe `table.deal`
+  ("deals=1 cards=52 mode=fly flying=52 fading=0 deck=1 deckBack=red hinge=ok":
+  deals shown, the latest one's cards and kind, what is in flight or fading
+  now, the deck, its backs' colour and whether it is clear of a fold the
+  layout keeps to ("-": no deck, or no such fold); refreshed when the deal
+  starts and once it has landed).
 
 Tests: `DealAnimationTests` (reducer: live gameStart yes, every fixture
 snapshot / rejoin no, catch-up after a snapshot and a lapsed resync no;
 scene: every card and back in flight from the deck at the hand card's size,
-Reduce Motion fades in place, a rejoin has no deal, a snapshot mid-deal lands
+the deck the hand's colour as the fans (hand 2 blue, hands 1 and 13 red, with
+fans and on a phone's pane without), the deck off the hinge at every reachable
+Duo fold, Reduce Motion fades in place, a rejoin has no deal, a snapshot mid-deal lands
 it, a relayout re-aims, a tap lands and lifts, a redeal replaces the deck,
 InstantAnimator; in a window, the flights land on the render's slots and the
 tree equals a fresh render's; the timing and the ease are the web's),
 `TableParityUITests` (`testARejoinShowsTheTableWithoutADeal`,
-`testALiveDealFliesFromTheDeckAndLands`,
+`testALiveDealFliesFromTheDeckAndLands`, `testABlueHandsDealComesFromABlueDeck`,
+`testOnAFoldTheDealKeepsOffTheHinge` (`-uiFold book` and `tabletop`),
 `testUnderReduceMotionTheDealFadesInPlace`).
 
 Not done / known: the web's end-of-hand whisk (tricks flying back to the

@@ -44,9 +44,9 @@ final class DealAnimationTests: XCTestCase {
                                               "pics": [1, 2, 3, 4], "seq": 1]))
     }
 
-    private func deal(_ h: ReplayHarness, seq: Int = 2) {
-        h.store.apply(T.ev("gameStart", ["gameId": "g1", "hand": Self.thirteen, "trump": T.card("clubs", "5"), "score1": 0, "score2": 0,
-                                         "dealer": 4, "position": 1, "currentHand": 13, "seq": seq]))
+    private func deal(_ h: ReplayHarness, seq: Int = 2, size: Int = 13) {
+        h.store.apply(T.ev("gameStart", ["gameId": "g1", "hand": Array(Self.thirteen.prefix(size)), "trump": T.card("clubs", "5"),
+                                         "score1": 0, "score2": 0, "dealer": 4, "position": 1, "currentHand": size, "seq": seq]))
     }
 
     private func backs(_ scene: GameSKScene) -> [SKNode] {
@@ -138,6 +138,80 @@ final class DealAnimationTests: XCTestCase {
         }
         XCTAssertNotNil(scene.dealDeck, "the deck is up")
         XCTAssertEqual(scene.dealDeck?.position, scene.layout.dealOrigin)
+    }
+
+    /// The deck is the hand's colour, the fans' backs it deals (CardBackColour.forHand): hand 2
+    /// (10 cards) blue, hand 1 (12) and hand 13 red, on the iPad's pane (with fans) and on a
+    /// table with no room for fans (SeatExtrasTests.small: the deck alone shows a back).
+    func testTheDeckIsTheHandsColourAsTheFansItDeals() {
+        for (size, want) in [(10, CardBackColour.blue), (12, .red), (13, .red)] {
+            for (pane, chrome) in [(Self.size, TableChrome()), SeatExtrasTests.small] {
+                let h = ReplayHarness()
+                let scene = GameSKScene(size: pane)
+                scene.animator = LiveAnimator()
+                scene.configure(gameState: h.store, actions: h.actions)
+                scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: pane)))
+                scene.chrome = chrome
+                seat(h)
+                deal(h, size: size)
+                let tag = "hand of \(size), \(Int(pane.width)) pt"
+                XCTAssertEqual(scene.lastModel?.back, want, tag)
+                let deck = try? XCTUnwrap(scene.dealDeck, tag)
+                let textures = (deck?.children ?? []).compactMap { ($0 as? SKSpriteNode)?.texture }
+                XCTAssertEqual(textures.count, 3, tag)
+                XCTAssertTrue(textures.allSatisfy { $0 === CardTextureGenerator.cardBackTexture(colour: want) }, tag)
+                XCTAssertFalse(textures.contains { $0 === CardTextureGenerator.cardBackTexture(colour: want == .red ? .blue : .red) }, tag)
+                // the fans it deals (where the pane shows them) are the same colour
+                let fanBacks = backs(scene).compactMap { ($0 as? SKSpriteNode)?.texture }
+                if pane == Self.size {
+                    XCTAssertEqual(fanBacks.count, 3 * size, tag)
+                } else {
+                    XCTAssertNil(scene.layout.fans(spectating: false), "\(tag): no room for fans")
+                }
+                XCTAssertTrue(fanBacks.allSatisfy { $0 === CardFanNode.backTexture(want) }, tag)
+            }
+        }
+    }
+
+    /// On the Duo's folds (TableLayoutTests.reachableFolds: tabletop and undocked book, the
+    /// layout's own fold handling) the deck sits on the cluster's page, off the hinge; a scene
+    /// with that chrome puts it there and the deal lands where the render put every card.
+    func testOnTheDuosFoldsTheDeckStaysOffTheHinge() {
+        var checked = 0
+        for (fold, size, ins, topBar) in TableLayoutTests.reachableFolds {
+            let chrome = TableLayoutTests.chrome(ins, topBar: topBar, fold: fold)
+            let L = TableLayout(size: size, chrome: chrome)
+            let tag = "\(size) fold \(fold) topBar \(topBar)"
+            XCTAssertFalse(L.foldIgnored, tag)
+            // the deck: three backs at the hand's card size, each 1.5 pt up and right of the last
+            let w = TableLayout.cardSize.width * L.handScale, hgt = TableLayout.cardSize.height * L.handScale
+            let deck = CGRect(x: L.dealOrigin.x - w / 2, y: L.dealOrigin.y - hgt / 2,
+                              width: w + 3 * L.handScale, height: hgt + 3 * L.handScale)
+            XCTAssertFalse(deck.intersects(fold), "\(tag): deck \(deck) on the hinge")
+            XCTAssertTrue(L.safeRect.contains(deck), "\(tag): deck \(deck) off the safe area")
+            if fold.width > fold.height {
+                XCTAssertGreaterThan(deck.minY, fold.maxY, "\(tag): tabletop, above the hinge with the cluster")
+            }
+
+            let h = ReplayHarness()
+            let scene = GameSKScene(size: size)
+            scene.animator = LiveAnimator()
+            scene.configure(gameState: h.store, actions: h.actions)
+            scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+            scene.chrome = chrome
+            seat(h)
+            deal(h)
+            XCTAssertEqual(scene.layout, L, tag)
+            XCTAssertEqual(scene.dealDeck?.position.x ?? .nan, L.dealOrigin.x, accuracy: 0.01, tag)
+            XCTAssertEqual(scene.dealDeck?.position.y ?? .nan, L.dealOrigin.y, accuracy: 0.01, tag)
+            let slots = L.handSlots(count: 13)
+            for (i, s) in scene.handNode.sprites.values.sorted(by: { $0.zPosition < $1.zPosition }).enumerated() {
+                XCTAssertEqual(s.deal?.target.x ?? .nan, slots[i].x, accuracy: 0.01, tag)
+                XCTAssertEqual(s.deal?.target.y ?? .nan, slots[i].y, accuracy: 0.01, tag)
+            }
+            checked += 1
+        }
+        XCTAssertGreaterThanOrEqual(checked, 10)
     }
 
     func testReduceMotionFadesTheHandInPlace() {
