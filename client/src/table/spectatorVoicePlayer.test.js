@@ -97,6 +97,61 @@ describe('a player in a casual game with spectator voice', () => {
     document.dispatchEvent(new KeyboardEvent('keyup', { code: 'Backquote', key: '`', bubbles: true }));
   });
 
+  it('a watcher who stops speaking as it leaves (no longer listed) clears the ring', () => {
+    page.voice.peers.set('s-fan', { username: 'ios_fan' });
+    const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    cb('s-fan', true);
+    expect(badge().classList.contains('voice-speaking')).toBe(true);
+    const watching = page.gameState.watching;
+    page.gameState.watching = { spectators: [], count: 0 };
+    try {
+      // its call closes after the list dropped it (VoiceChatManager._closePeer)
+      cb('s-fan', false);
+      expect(badge().classList.contains('voice-speaking')).toBe(false);
+    } finally {
+      page.gameState.watching = watching;
+    }
+  });
+
+  it('without a keyboard: the gear menu holds the switch and opens the voice panel by click (a Close button)', async () => {
+    page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: true }));
+    replay.advance(150);
+    const gear = document.getElementById('voice-device-btn');
+    expect(gear).not.toBeNull();
+    expect(gear.getAttribute('aria-label')).toBe('Voice settings');
+    gear.click();
+    await vi.waitFor(() => expect(document.getElementById('voice-device-popover')).not.toBeNull());
+    const msw = () => document.getElementById('voice-popover-spectators-can-talk');
+    expect(msw()).not.toBeNull();
+    expect(msw().getAttribute('aria-checked')).toBe('true');
+    page.socket.clearEmits();
+    msw().click();
+    expect(page.socket.emitted('setSpectatorsCanTalk')).toEqual([{ spectatorsCanTalk: false }]);
+    expect(msw().disabled).toBe(true);
+    page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: false }));
+    expect(msw().disabled).toBe(false);
+    expect(msw().getAttribute('aria-checked')).toBe('false');
+    // "Voice chat panel": the overlay, opened by click, stays until closed
+    document.getElementById('voice-panel-item').click();
+    expect(document.getElementById('voice-device-popover')).toBeNull();
+    expect(document.getElementById('voice-overlay')).not.toBeNull();
+    expect(sw().getAttribute('aria-checked')).toBe('false');
+    replay.advance(500);
+    expect(document.getElementById('voice-overlay')).not.toBeNull();
+    const close = document.querySelector('#voice-overlay .kit-modal__close');
+    expect(close).not.toBeNull();
+    close.click();
+    expect(document.getElementById('voice-overlay')).toBeNull();
+    // a player who may not change it: the menu has no switch
+    page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: false, canChange: false, host: 'someone' }));
+    gear.click();
+    await vi.waitFor(() => expect(document.getElementById('voice-device-popover')).not.toBeNull());
+    expect(msw()).toBeNull();
+    expect(document.getElementById('voice-panel-item')).not.toBeNull();
+    gear.click();
+    await vi.waitFor(() => expect(document.getElementById('voice-device-popover')).toBeNull());
+  });
+
   it('a switch change with no echo shows the server\'s value again after 5 s', () => {
     page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: false }));
     document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Backquote', key: '`', bubbles: true }));

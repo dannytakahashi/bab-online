@@ -364,6 +364,36 @@ describe('the switch in a game', () => {
         expect(to(x, 'voicePeerList', mark).map((l) => l.data.peers[0].socketId)).toEqual([socks[1].id, socks[2].id, socks[3].id]);
     });
 
+    test('a spectator that only ever listened (never tapped to talk) keeps its calls after OFF: nothing to re-offer, no backstop', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true });
+        // its calls (listen-only from the start) are up before the switch moves
+        for (const s of socks) voice.voiceOffer(x, io, { targetSocketId: s.id, offer: OFFER('recvonly') });
+        await jest.advanceTimersByTimeAsync(1000);
+        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
+        expect(last(x, 'voiceSettings')).toMatchObject({ canTalk: false });
+        const mark = log.length;
+        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
+        expect(relayed('voicePeerLeft', mark)).toEqual([]);
+        expect(relayed('voicePeerList', mark)).toEqual([]);
+    });
+
+    test('a spectator whose last signal to a player was sendrecv is still torn down at the backstop (an old listen-only call does not excuse a later talking one)', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        for (const s of socks) voice.voiceOffer(x, io, { targetSocketId: s.id, offer: OFFER('recvonly') });
+        // it tapped to talk: re-offered seat 2 with its microphone
+        voice.voiceOffer(x, io, { targetSocketId: socks[1].id, offer: OFFER('sendrecv') });
+        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
+        const mark = log.length;
+        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
+        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[1].id]);
+        expect(to(socks[1], 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
+    });
+
     test('spectator pairs: OFF drops them both ways; ON announces the later one the earlier ones', async () => {
         const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
         const x = user('x');

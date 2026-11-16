@@ -704,6 +704,9 @@ body > .voice-btn {
 /* the "Spectators can talk" switch (a player who may change it) */
 .voice-overlay__settings { margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line-subtle); }
 .voice-overlay__settings[hidden] { display: none; }
+/* the gear menu's copy of the switch (a host without a keyboard) */
+.voice-popover__settings { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line-subtle); margin-bottom: var(--space-1); }
+.voice-popover__settings[hidden] { display: none; }
 
 /* listen-only: the headphones (aria-disabled, still clickable); green rim when a tap would talk */
 .voice-btn.kit-icon-btn.is-listen-only { color: var(--text-secondary); }

@@ -230,16 +230,22 @@ function armBackstop(game, ms) {
     game.setTimer(BACKSTOP_TIMER, Math.max(0, ms), () => runBackstop(game));
 }
 
-/** Is a recorded signal from s to p since `since` a listen-only one? */
-function settledListenOnly(game, s, p, since) {
+/**
+ * Is the call s keeps with p listen-only on s's side? The last SDP s relayed
+ * to p (its offer or answer: every local description of s passes the gate
+ * and is recorded, a newer one replacing the older) said so. Its age does
+ * not matter: a spectator that never tapped to talk built its calls
+ * listen-only long before the switch went off and has nothing to re-offer.
+ */
+function settledListenOnly(game, s, p) {
     const rec = game.voiceOfferDir.get(`${s}>${p}`);
-    return !!(rec && rec.at >= since && rec.dir === 'listen');
+    return !!(rec && rec.dir === 'listen');
 }
 
 /**
  * The server's only lever on a P2P call it cannot see: BACKSTOP_MS after a
- * spectator lost the right to talk, every pair (spectator s, player p) for
- * which s has not sent a listen-only offer or answer since is torn down
+ * spectator lost the right to talk, every pair (spectator s, player p) whose
+ * last offer or answer from s was not listen-only is torn down
  * (private voicePeerLeft both ways) and s is announced to p again, so s
  * offers anew (gated). An honest client re-offers within a few seconds and
  * never triggers it.
@@ -261,10 +267,9 @@ function runBackstop(game) {
             next = next == null ? due : Math.min(next, due);
             continue;
         }
-        const since = e.gateSince;
         e.gateSince = null;
         for (const p of gameVoiceMembers(game)) {
-            if (p.socketId === s || settledListenOnly(game, s, p.socketId, since)) continue;
+            if (p.socketId === s || settledListenOnly(game, s, p.socketId)) continue;
             socketLogger.info('Voice: spectator kept sending after losing talk, call torn down', { gameId: game.gameId, spectator: s, peer: p.socketId });
             io.to(s).emit('voicePeerLeft', { socketId: p.socketId });
             io.to(p.socketId).emit('voicePeerLeft', { socketId: s });

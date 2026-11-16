@@ -853,6 +853,9 @@ function initializeApp() {
         if (el) el.classList.toggle('voice-speaking', isSpeaking);
       } else {
         const username = voiceManager.peers.get(id)?.username || null;
+        // A stop always clears the badge's ring for that name: the watcher
+        // may be gone from the list already (it left; its call ends after)
+        if (!isSpeaking) setWatcherSpeaking(username, false);
         if (session.hasTable && isWatcher(username)) {
           setWatcherSpeaking(username, isSpeaking);
           return;

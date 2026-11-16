@@ -50,6 +50,17 @@ describe('a watcher speaking (spectator voice, 2026-11-16)', () => {
     expect(isWatcherSpeaking('ann')).toBe(false);
   });
 
+  it('a complete list without a speaking name drops its ring (it left); a partial list keeps it', () => {
+    renderSpectatorBadge(W(['ann', 'bob']));
+    setSpeaking('bob', true);
+    // a list cut short (count above the names sent) may just not show bob
+    renderSpectatorBadge({ spectators: [{ username: 'ann', pic: 1 }], count: 2 });
+    expect(isWatcherSpeaking('bob')).toBe(true);
+    renderSpectatorBadge(W(['ann']));
+    expect(isWatcherSpeaking('bob')).toBe(false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+  });
+
   it('before the badge exists: remembered, shown when it is drawn', () => {
     setSpeaking('ann', true);
     expect(slot()).toBeNull();

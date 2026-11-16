@@ -384,3 +384,180 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
     expect(vm.autoplayBlocked).toBe(false);
   });
 });
+
+/**
+ * Two managers wired through a fake server relay (one sender's signals
+ * arrive in order, `latency` ms later), as two spectators in one game.
+ */
+function pair({ latency = 40 } = {}) {
+  const ends = {};
+  const mk = (id, other) => {
+    const sm = fakeSocketManager(id);
+    sm.emit = vi.fn((event, data) => {
+      sm.sent.push({ event, data });
+      const to = ends[other];
+      if (!to || data?.targetSocketId !== other) return;
+      setTimeout(() => {
+        if (event === CLIENT_EVENTS.VOICE_OFFER) to.vm.handleOffer(id, data.offer, id);
+        else if (event === CLIENT_EVENTS.VOICE_ANSWER) to.vm.handleAnswer(id, data.answer);
+      }, latency);
+    });
+    return { vm: new VoiceChatManager(), sm };
+  };
+  ends['sock-a'] = mk('sock-a', 'sock-b');
+  ends['sock-b'] = mk('sock-b', 'sock-a');
+  return { a: ends['sock-a'], b: ends['sock-b'] };
+}
+
+/** The two ends hold one matched call: each side's remote description is the other's local one. */
+function expectOneCall(a, b) {
+  const pa = a.vm.peers.get('sock-b').connection;
+  const pb = b.vm.peers.get('sock-a').connection;
+  expect(pa.signalingState).toBe('stable');
+  expect(pb.signalingState).toBe('stable');
+  expect(pa.remoteDescription).toBe(pb.localDescription);
+  expect(pb.remoteDescription).toBe(pa.localDescription);
+  return { pa, pb };
+}
+
+describe('crossing offers (review 2026-11-16: two spectators change mode on one voiceSettings)', () => {
+  it('both re-offer at once: the lower socket id keeps its offer, the higher answers it; one call, both talking', async () => {
+    const { a, b } = pair();
+    await a.vm.setTalk(false);
+    await b.vm.setTalk(false);
+    await start(a.vm, a.sm);
+    await start(b.vm, b.sm);
+    // the later extra offers the earlier one listen-only (voicePeerList)
+    await b.vm.connectToPeer('sock-a', 'a');
+    await vi.advanceTimersByTimeAsync(200);
+    expectOneCall(a, b);
+    a.sm.sent.length = 0;
+    b.sm.sent.length = 0;
+
+    // the switch comes back on: both take the mic on the same voiceSettings
+    await Promise.all([a.vm.setTalk(true), b.vm.setTalk(true)]);
+    await vi.advanceTimersByTimeAsync(REOFFER_DELAY_MS + 500);
+    // both offered (they crossed), only a's offer was answered
+    expect(a.sm.offers()).toHaveLength(1);
+    expect(b.sm.offers()).toHaveLength(1);
+    expect(a.sm.answers()).toHaveLength(0);
+    expect(b.sm.answers()).toHaveLength(1);
+    const { pa, pb } = expectOneCall(a, b);
+    expect(pa.localDescription.type).toBe('offer');
+    expect(pa.tracks).toHaveLength(1);
+    expect(pb.tracks).toHaveLength(1);
+    // nothing more happens: no further re-offer, and no failure at the connect timer
+    pa.connectionState = 'connected';
+    pa.onconnectionstatechange();
+    pb.connectionState = 'connected';
+    pb.onconnectionstatechange();
+    await vi.advanceTimersByTimeAsync(25000);
+    expect(a.sm.offers()).toHaveLength(1);
+    expect(b.sm.offers()).toHaveLength(1);
+    expect(a.vm.isUnavailable('sock-b')).toBe(false);
+    a.vm.shutdown();
+    b.vm.shutdown();
+  });
+
+  it('and both losing talk at once (no microphone step): the same, one listen-only call', async () => {
+    const { a, b } = pair();
+    await start(a.vm, a.sm);
+    await start(b.vm, b.sm);
+    await a.vm.connectToPeer('sock-b', 'b');
+    await vi.advanceTimersByTimeAsync(200);
+    expectOneCall(a, b);
+    await Promise.all([a.vm.setTalk(false), b.vm.setTalk(false)]);
+    await vi.advanceTimersByTimeAsync(REOFFER_DELAY_MS + 500);
+    const { pa, pb } = expectOneCall(a, b);
+    expect(pa.transceivers).toEqual([{ kind: 'audio', direction: 'recvonly' }]);
+    expect(pb.tracks).toHaveLength(0);
+    a.vm.shutdown();
+    b.vm.shutdown();
+  });
+
+  it('the lower end ignores an offer only while its own is unanswered; one that follows the answer is taken', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-a');
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    const mine = vm.peers.get('sock-b').connection;
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    expect(vm.peers.get('sock-b').connection).toBe(mine);
+    expect(sm.answers()).toHaveLength(0);
+    // the answer to mine lands, then an offer: a new negotiation, answered,
+    // even while the browser is still applying that answer (signalingState
+    // still have-local-offer: a real setRemoteDescription is not instant)
+    const apply = mine.setRemoteDescription.bind(mine);
+    mine.setRemoteDescription = (d) => new Promise((resolve) => setTimeout(() => resolve(apply(d)), 5));
+    const answering = vm.handleAnswer('sock-b', ANSWER);
+    expect(mine.signalingState).toBe('have-local-offer');
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    expect(vm.peers.get('sock-b').connection).not.toBe(mine);
+    expect(sm.answers()).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(10);
+    await answering;
+    vm.shutdown();
+  });
+
+  it('the higher end answers a crossing offer and drops its own (its answer is in its current mode)', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-z');
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    const mine = vm.peers.get('sock-b').connection;
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    expect(mine.signalingState).toBe('closed');
+    expect(sm.answers()).toHaveLength(1);
+    expect(vm.peers.get('sock-b').connection.tracks).toHaveLength(1);
+    vm.shutdown();
+  });
+
+  it('a call built in the new mode after the change is not re-offered', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    await vm.handleAnswer('sock-b', ANSWER);
+    await vm.setTalk(false);
+    // inside the re-offer delay: a new peer offered listen-only, another one's offer answered
+    await vm.connectToPeer('sock-c', 'cat');
+    await vm.handleAnswer('sock-c', ANSWER);
+    await vm.handleOffer('sock-d', OFFER, 'dan');
+    sm.sent.length = 0;
+    await vi.advanceTimersByTimeAsync(REOFFER_DELAY_MS);
+    expect(sm.offers().map((o) => o.data.targetSocketId)).toEqual(['sock-b']);
+    vm.shutdown();
+  });
+});
+
+describe('a call that ends while its peer speaks (review 2026-11-16)', () => {
+  it('reports the peer as stopped: on leaving and on a replacement call', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await start(vm, sm);
+    const seen = [];
+    vm.onSpeakingChange((id, on) => seen.push([id, on, vm.peers.get(id)?.username ?? null]));
+    const speak = async (id) => {
+      track(vm, id);
+      vm._analysers.get(id).analyser.getFloatTimeDomainData = (arr) => arr.fill(0.5);
+      await vi.advanceTimersByTimeAsync(150);
+    };
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    await speak('sock-b');
+    expect(vm.isSpeaking('sock-b')).toBe(true);
+    // its listen-only replacement offer (no track: no poll would ever say so)
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    // the stop names the peer while it is still known (main.js maps it to a username)
+    expect(seen.at(-1)).toEqual(['sock-b', false, 'bob']);
+    expect(vm.isSpeaking('sock-b')).toBe(false);
+    await speak('sock-b');
+    vm.removePeer('sock-b');
+    expect(seen.at(-1)).toEqual(['sock-b', false, 'bob']);
+    // a silent peer leaving says nothing
+    await vm.handleOffer('sock-c', OFFER, 'cat');
+    const n = seen.length;
+    vm.removePeer('sock-c');
+    expect(seen).toHaveLength(n);
+    vm.shutdown();
+  });
+});

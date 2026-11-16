@@ -231,6 +231,11 @@ export function renderSpectatorBadge(watching, { me = null } = {}) {
   more.textContent = count > spectators.length ? `and ${count - spectators.length} more` : '';
   more.hidden = count <= spectators.length;
   slot.dataset.count = String(count);
+  // A complete list: a speaking ring of someone no longer watching goes
+  if (count <= spectators.length) {
+    const names = new Set(spectators.map((s) => s?.username));
+    for (const name of [...speaking]) if (!names.has(name)) speaking.delete(name);
+  }
   applySpeaking(slot);
   if (count === 0) {
     if (isSpectatorListOpen()) closeSpectatorList();

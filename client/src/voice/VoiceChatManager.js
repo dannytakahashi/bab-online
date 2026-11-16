@@ -23,9 +23,16 @@
  * transceiver, an answer adds no track (the server's SDP gate relays only
  * that for a spectator who may not talk). A refused microphone falls back
  * to listen-only (the session still hears everyone). setTalk() changes the
- * mode of a running session and re-offers every call in the new mode (a
- * replacement offer: each side keeps its per-peer mute and volume); a call
- * still waiting for its answer is re-offered after it.
+ * mode of a running session and re-offers every call not already built in
+ * the new mode (a replacement offer: each side keeps its per-peer mute and
+ * volume); a call still waiting for its answer is re-offered after it.
+ *
+ * Crossing offers (both ends re-offer the same call at once: two spectators
+ * changing mode on one voiceSettings): the end with the lower socket id
+ * keeps its own offer and ignores the other's (the same end that restarts
+ * a failed call); the higher end replaces its offer with an answer. An
+ * offer that arrives after the answer to ours is a new negotiation, never
+ * a collision (the server relays one sender's signals in order).
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
@@ -338,11 +345,19 @@ export class VoiceChatManager {
 
   _reofferAll() {
     if (!this.active) return;
+    const talking = !!this.localStream;
     for (const [socketId, peer] of [...this.peers]) {
       // An "unavailable" call (failed for good) is offered again too: a
       // retry, and the server's backstop must see this mode's offer from
       // every call (live check 2026-11-16: skipping them let it tear down
-      // and re-announce each failed pair 8 s after the switch went off)
+      // and re-announce each failed pair 8 s after the switch went off).
+      // A live call built in this mode already (offered or answered after
+      // the change) needs nothing: re-offering it would only cross the
+      // other end's offer
+      if (peer.builtTalk === talking && !this._unavailable.has(socketId)) {
+        this._reofferPending.delete(socketId);
+        continue;
+      }
       if (peer.connection.signalingState === 'have-local-offer') {
         this._reofferPending.add(socketId);
         continue;
@@ -378,6 +393,11 @@ export class VoiceChatManager {
     console.log('[Voice] connectToPeer', socketId, username);
 
     const pc = this._createPeerConnection(socketId, username);
+    const peer = this.peers.get(socketId);
+    // The mode this call is built in (setTalk re-offers only the others),
+    // and "our offer is being made" (crossing offers: handleOffer)
+    peer.builtTalk = !!this.localStream;
+    peer.makingOffer = true;
 
     if (this.localStream) {
       // Add local audio tracks
@@ -394,6 +414,9 @@ export class VoiceChatManager {
       // Create and send offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      // replaced meanwhile (the other end's offer won, a re-offer, a leave):
+      // this offer would meet a connection that is gone
+      if (this.peers.get(socketId) !== peer || pc.signalingState === 'closed') return;
 
       this.socketManager.emit(CLIENT_EVENTS.VOICE_OFFER, {
         targetSocketId: socketId,
@@ -403,7 +426,29 @@ export class VoiceChatManager {
     } catch (err) {
       // PC may have been closed by a concurrent handleOffer — safe to ignore
       console.log('connectToPeer aborted for', socketId, err.message);
+    } finally {
+      peer.makingOffer = false;
     }
+  }
+
+  /**
+   * Does an offer from `socketId` cross one of ours? Our call to it is an
+   * offer still being made or sent and not answered yet (an answer already
+   * received means the other end took our offer, so its new offer is a new
+   * negotiation).
+   */
+  _offerCollides(socketId) {
+    const peer = this.peers.get(socketId);
+    if (!peer || peer.answered) return false;
+    const state = peer.connection.signalingState;
+    if (state === 'closed') return false;
+    return !!peer.makingOffer || state === 'have-local-offer';
+  }
+
+  /** The end that keeps its own offer when two cross: the lower socket id (as for a restart). */
+  _keepsOwnOffer(socketId) {
+    const myId = this.socketManager?.id || '';
+    return !!myId && myId < socketId;
   }
 
   /**
@@ -417,6 +462,13 @@ export class VoiceChatManager {
     }
     console.log('[Voice] handleOffer from', fromSocketId, username);
 
+    // Crossing offers: the lower socket id keeps its own (the other end
+    // answers it), the higher one answers this one instead of its own
+    if (this._offerCollides(fromSocketId) && this._keepsOwnOffer(fromSocketId)) {
+      console.log('[Voice] crossing offer from', fromSocketId, 'ignored: ours stands');
+      return;
+    }
+
     // If we already have a connection, close it and recreate (a restart
     // after a failure keeps its count; the peer is trying again, so it is
     // no longer "unavailable")
@@ -428,6 +480,7 @@ export class VoiceChatManager {
     this._reofferPending.delete(fromSocketId);
 
     const pc = this._createPeerConnection(fromSocketId, username || 'Unknown');
+    this.peers.get(fromSocketId).builtTalk = !!this.localStream;
 
     // Add local audio tracks (listen-only: none, so the answer sends nothing)
     if (this.localStream) {
@@ -462,6 +515,9 @@ export class VoiceChatManager {
     // An unavailable peer's connection is closed: nothing to answer
     if (peer.connection.signalingState === 'closed') return;
     console.log('[Voice] handleAnswer from', fromSocketId);
+    // Set before the await: an offer that follows this answer is a new
+    // negotiation, not a crossing one
+    peer.answered = true;
     try {
       await peer.connection.setRemoteDescription(new RTCSessionDescription(answer));
     } catch (err) {
@@ -1131,8 +1187,17 @@ export class VoiceChatManager {
 
     this._gainNodes.delete(socketId);
     this._cleanupAnalyser(socketId);
+    // A peer speaking as its call ends (it left, or its call is replaced:
+    // the new one starts silent) stops speaking now: nothing else would
+    // say so (a listen-only replacement has no track, so no poll)
+    const wasSpeaking = !!this._speakingStates.get(socketId);
     this._speakingStates.delete(socketId);
     this._speakingLastActive.delete(socketId);
+    if (wasSpeaking) {
+      this._speakingCallbacks.forEach(cb => {
+        try { cb(socketId, false); } catch (e) { /* ignore */ }
+      });
+    }
 
     this.peers.delete(socketId);
   }

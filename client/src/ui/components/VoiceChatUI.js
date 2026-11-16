@@ -19,6 +19,10 @@
  * "listening only" while spectators may not talk), keeps per-person volume
  * and mute for everyone, and shows the "Spectators can talk" switch to a
  * player who may change it (voiceSettings.canChange).
+ *
+ * Without a keyboard (a tablet) the gear button is the way in: its menu
+ * holds that switch too, and "Voice chat panel" opens the overlay by
+ * click (a Close button; it stays until closed).
  */
 
 import { getVoiceChatManager } from '../../voice/VoiceChatManager.js';
@@ -57,6 +61,9 @@ const DEFAULT_TALK_VIEW = Object.freeze({
 });
 let talkView = { ...DEFAULT_TALK_VIEW };
 
+/** The gear menu's "Spectators can talk" box. */
+const POPOVER_SWITCH_BOX_ID = 'voice-popover-settings';
+
 /**
  * Update the talk mode the voice controls show (merged into the current
  * one); the mute button and an open overlay follow at once.
@@ -66,6 +73,7 @@ export function setVoiceTalkView(partial = {}) {
   const btn = document.getElementById('voice-mute-btn');
   if (btn) showMuted(btn, !!getVoiceChatManager().selfMuted);
   if (document.getElementById('voice-overlay-players')) updateOverlayPlayers();
+  updateSwitchBox(document.getElementById(POPOVER_SWITCH_BOX_ID));
 }
 
 /** Back to a player's defaults (voice stopped, a new table). */
@@ -226,8 +234,9 @@ export function removeMuteButton() {
 export function createDeviceButton() {
   removeDeviceButton();
 
-  const btn = createIconButton({ icon: getGearIcon(), label: 'Select microphone', className: 'voice-btn' });
+  const btn = createIconButton({ icon: getGearIcon(), label: 'Voice settings', className: 'voice-btn' });
   btn.id = 'voice-device-btn';
+  btn.title = 'Voice settings';
   btn.setAttribute('aria-haspopup', 'menu');
 
   btn.addEventListener('click', (e) => {
@@ -263,12 +272,19 @@ async function toggleDevicePopover() {
   }
 
   const voiceManager = getVoiceChatManager();
-  const devices = await voiceManager.getAudioDevices();
-  if (devices.length === 0) return;
+  const devices = await voiceManager.getAudioDevices?.() ?? [];
+  // a second click while the devices were being listed opened one already
+  if (document.getElementById('voice-device-popover')) return;
 
-  const activeId = voiceManager.getActiveDeviceId();
+  const activeId = voiceManager.getActiveDeviceId?.() ?? null;
 
   const popover = el('div', { className: 'voice-popover', attrs: { id: 'voice-device-popover', role: 'menu' } });
+
+  // The "Spectators can talk" switch (a player who may change it): here
+  // too, so a host without a keyboard reaches it
+  const switchBox = el('div', { className: 'voice-popover__settings', attrs: { id: POPOVER_SWITCH_BOX_ID } });
+  popover.appendChild(switchBox);
+  updateSwitchBox(switchBox);
 
   for (const device of devices) {
     const isActive = device.deviceId === activeId;
@@ -309,6 +325,26 @@ async function toggleDevicePopover() {
     voiceManager.playTestTone();
   });
   popover.appendChild(testBtn);
+
+  // The voice overlay (everyone in voice, per-person volume and mute, the
+  // switch): the hold-` key's panel, by click
+  const panelBtn = el('div', { className: 'voice-popover__item', attrs: { role: 'menuitem', tabindex: '0', id: 'voice-panel-item' } });
+  const people = el('span', { className: 'voice-popover__mark' });
+  people.innerHTML = getPeopleIcon();
+  panelBtn.append(people, el('span', { text: 'Voice chat panel' }));
+  const openPanel = (e) => {
+    e.stopPropagation();
+    removeDevicePopover();
+    showVoiceOverlay({ byClick: true });
+  };
+  panelBtn.addEventListener('click', openPanel);
+  panelBtn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openPanel(e);
+    }
+  });
+  popover.appendChild(panelBtn);
 
   // Position above the device button, right-aligned so it doesn't overflow left
   const btn = document.getElementById('voice-device-btn');
@@ -353,6 +389,14 @@ function getSpeakerIcon() {
   return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
     <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+  </svg>`;
+}
+
+function getPeopleIcon() {
+  return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+    <circle cx="9" cy="7" r="4"></circle>
+    <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path>
   </svg>`;
 }
 
@@ -404,12 +448,14 @@ export function showVoiceOverlay({ byClick = false } = {}) {
   const settings = el('div', { className: 'voice-overlay__settings', attrs: { id: 'voice-overlay-settings' } });
   settings.hidden = true;
   const playerList = el('div', { attrs: { id: 'voice-overlay-players' } });
-  const hint = el('p', { className: 'voice-overlay__hint', text: byClick ? 'Press Escape to close' : 'Release ` to close' });
+  const hint = el('p', { className: 'voice-overlay__hint', text: byClick ? 'Press Escape or Close to close' : 'Release ` to close' });
   voiceModal = openModal({
     id: 'voice-overlay',
     title: 'Voice Chat',
     body: [settings, playerList, hint],
     dismissible: true,
+    // opened by click (a tablet has no Escape): a Close button
+    closable: !!byClick,
     className: 'voice-overlay-panel',
     onClose: () => {
       voiceModal = null;
@@ -428,9 +474,11 @@ const SPEAKING_POLL_UI = 100;
 // Track overlay rows so we update in-place instead of recreating
 let _overlayRows = new Map(); // id → { row, muteBtn, slider, unavailableBadge }
 
-/** The overlay's switch row: shown while I may change it, its value and pending state kept current. */
-function updateOverlaySettings() {
-  const box = document.getElementById('voice-overlay-settings');
+/**
+ * A "Spectators can talk" switch box (the overlay's, the gear menu's):
+ * shown while I may change it, its value and pending state kept current.
+ */
+function updateSwitchBox(box) {
   if (!box) return;
   const view = talkView.switchView;
   if (!view) {
@@ -439,17 +487,23 @@ function updateOverlaySettings() {
     return;
   }
   box.hidden = false;
-  let sw = box.querySelector('#voice-spectators-can-talk');
+  const id = box.id === POPOVER_SWITCH_BOX_ID ? 'voice-popover-spectators-can-talk' : 'voice-spectators-can-talk';
+  let sw = box.querySelector(`#${id}`);
   if (!sw) {
     sw = createSwitch({
       label: 'Spectators can talk',
       checked: !!view.checked,
-      id: 'voice-spectators-can-talk',
+      id,
       onChange: (next) => talkView.switchView?.onChange?.(next),
     });
     box.appendChild(sw);
   }
   setSwitch(sw, { checked: !!view.checked, disabled: !!view.pending });
+}
+
+/** The overlay's switch row. */
+function updateOverlaySettings() {
+  updateSwitchBox(document.getElementById('voice-overlay-settings'));
 }
 
 function updateOverlayPlayers() {
