@@ -7,9 +7,9 @@ struct TournamentResultsView: View {
     @EnvironmentObject var tournamentState: TournamentState
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
-    @Environment(\.dynamicTypeSize) private var typeSize
     /// The standings' natural height: they scroll only when the card would not fit.
     @State private var standingsHeight: CGFloat = 0
+    @State private var hingeTick = 0
 
     /// The server's winners (co-winners on a tie); without them (an older server's rejoin
     /// after the end) everyone on the top score, as the web works it out.
@@ -35,64 +35,73 @@ struct TournamentResultsView: View {
         ZStack {
             Theme.scrim.ignoresSafeArea()
 
-            VStack(spacing: Theme.Space.s4) {
-                // Trophy icon
-                Image(systemName: "trophy.fill")
-                    .themeFont(Theme.TypeScale.display, relativeTo: .largeTitle)
-                    .foregroundColor(Theme.warning)
-                    .accessibilityHidden(true)
-
-                Text("Tournament Complete!")
-                    .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
-                    .foregroundColor(Theme.warning)
-                    .multilineTextAlignment(.center)
-
-                if let winnerText = winnerText {
-                    Text(winnerText)
-                        .font(.title2.bold())
-                        .foregroundColor(Theme.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .accessibilityIdentifier("results.winner")
-                }
-
-                // Final standings, round by round
-                ScrollView {
-                    VStack(spacing: Theme.Space.s2) {
-                        TournamentResultsTable(scoreboard: tournamentState.scoreboard,
-                                               totalRounds: tournamentState.totalRounds,
-                                               me: authState.username,
-                                               stacked: typeSize.isAccessibilitySize)
-                        TournamentFlagLegend(scoreboard: tournamentState.scoreboard)
-                    }
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { standingsHeight = $0 }
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: standingsHeight)
-
-                Button(action: returnToMainRoom) {
-                    Text("Return to Main Room")
-                        .font(.body.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Theme.buttonBackground)
-                        .foregroundColor(Theme.buttonForeground)
-                        .cornerRadius(Theme.Radius.md)
-                }
-                .padding(.horizontal, Theme.Space.s6)
-                .accessibilityIdentifier("results.return")
+            // In book pose the card sits on the left page: it never spans the hinge.
+            GeometryReader { geo in
+                let _ = hingeTick  // re-read the fold after a hinge change
+                card
+                    .frame(width: FoldReader.bookHinge(geo)?.lowerBound ?? geo.size.width, height: geo.size.height)
             }
-            .padding(.vertical, Theme.Space.s6)
-            .padding(.horizontal, Theme.Space.s3)
-            .frame(maxWidth: 560)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.lg)
-                    .fill(Theme.surface)
-            )
-            .padding(.horizontal, Theme.Space.s4)
-            .padding(.vertical, Theme.Space.s4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("tournament.results")
+            .modifier(HingeTick(tick: $hingeTick))
         }
+    }
+
+    private var card: some View {
+        VStack(spacing: Theme.Space.s4) {
+            // Trophy icon
+            Image(systemName: "trophy.fill")
+                .themeFont(Theme.TypeScale.display, relativeTo: .largeTitle)
+                .foregroundColor(Theme.warning)
+                .accessibilityHidden(true)
+
+            Text("Tournament Complete!")
+                .themeFont(Theme.TypeScale.xl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
+                .foregroundColor(Theme.warning)
+                .multilineTextAlignment(.center)
+
+            if let winnerText = winnerText {
+                Text(winnerText)
+                    .font(.title2.bold())
+                    .foregroundColor(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("results.winner")
+            }
+
+            // Final standings, round by round
+            ScrollView {
+                VStack(spacing: Theme.Space.s2) {
+                    TournamentResultsTable(scoreboard: tournamentState.scoreboard,
+                                           totalRounds: tournamentState.totalRounds,
+                                           me: authState.username)
+                    TournamentFlagLegend(scoreboard: tournamentState.scoreboard)
+                }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { standingsHeight = $0 }
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: standingsHeight)
+
+            Button(action: returnToMainRoom) {
+                Text("Return to Main Room")
+                    .font(.body.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.buttonBackground)
+                    .foregroundColor(Theme.buttonForeground)
+                    .cornerRadius(Theme.Radius.md)
+            }
+            .padding(.horizontal, Theme.Space.s6)
+            .accessibilityIdentifier("results.return")
+        }
+        .padding(.vertical, Theme.Space.s6)
+        .padding(.horizontal, Theme.Space.s3)
+        .frame(maxWidth: 560)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.lg)
+                .fill(Theme.surface)
+        )
+        .padding(.horizontal, Theme.Space.s4)
+        .padding(.vertical, Theme.Space.s4)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tournament.results")
     }
 
     private func returnToMainRoom() {
@@ -102,21 +111,38 @@ struct TournamentResultsView: View {
     }
 }
 
-/// The results' scoreboard: rank, player, R1...Rn, total. At accessibility text sizes the
-/// round columns no longer fit beside the name, so each player's rounds go on a second line.
+/// The results' scoreboard: rank, player, R1...Rn, total. When the fixed columns leave the
+/// name less than `nameWidth` (larger text, a narrow window, many rounds), each player's
+/// rounds go on a second line instead. Chosen by fit, not by text size category.
 struct TournamentResultsTable: View {
     let scoreboard: [TournamentScoreEntry]
     let totalRounds: Int
     let me: String
-    let stacked: Bool
 
     @ScaledMetric(relativeTo: .footnote) private var rankWidth: CGFloat = 22
     @ScaledMetric(relativeTo: .footnote) private var roundWidth: CGFloat = 42
     @ScaledMetric(relativeTo: .footnote) private var totalWidth: CGFloat = 46
+    /// The least room the name column needs beside the round columns.
+    @ScaledMetric(relativeTo: .footnote) private var nameWidth: CGFloat = 72
 
     private var rounds: Range<Int> { 0..<max(0, totalRounds) }
 
+    /// The side-by-side table's least width (its rows' horizontal padding included).
+    static func wideWidth(rank: CGFloat, round: CGFloat, total: CGFloat, name: CGFloat, rounds: Int) -> CGFloat {
+        rank + name + CGFloat(max(0, rounds)) * round + total + 2 * Theme.Space.s2
+    }
+
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            table(stacked: false)
+                .frame(idealWidth: Self.wideWidth(rank: rankWidth, round: roundWidth, total: totalWidth,
+                                                  name: nameWidth, rounds: totalRounds),
+                       maxWidth: .infinity)
+            table(stacked: true)
+        }
+    }
+
+    private func table(stacked: Bool) -> some View {
         VStack(spacing: 0) {
             if !stacked { header }
             ForEach(Array(scoreboard.enumerated()), id: \.element.id) { index, entry in
@@ -132,6 +158,8 @@ struct TournamentResultsTable: View {
                 .accessibilityIdentifier("results.row.\(entry.username)")
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(stacked ? "results.table.stacked" : "results.table.wide")
     }
 
     private var header: some View {
@@ -189,6 +217,7 @@ struct TournamentResultsTable: View {
                     .bold()
                     .foregroundColor(rankColor(index))
             }
+            .frame(maxWidth: .infinity)
             Text(rounds.map { "R\($0 + 1) \(entry.cellText(round: $0))" }.joined(separator: " \u{00B7} "))
                 .foregroundColor(Theme.textSecondary)
         }

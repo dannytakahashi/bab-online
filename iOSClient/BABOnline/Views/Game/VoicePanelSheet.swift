@@ -90,6 +90,7 @@ struct VoicePanelSheet: View {
                                   set: { voiceManager.setPeerVolume(socketId, $0) }),
                    in: VoiceVolume.range, step: VoiceVolume.step)
                 .tint(Theme.teamA)
+                .disabled(info.isUnavailable)  // no audio to adjust until the peer's next offer
                 .accessibilityLabel("\(info.username) volume")
                 .accessibilityValue(VoiceVolume.percentText(info.volume))
                 .accessibilityIdentifier("voice.volume.\(info.username)")

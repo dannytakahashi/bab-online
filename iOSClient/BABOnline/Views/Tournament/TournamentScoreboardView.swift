@@ -51,7 +51,10 @@ struct TournamentScoreboardView: View {
 
                         ForEach(0..<tournamentState.totalRounds, id: \.self) { round in
                             if round < entry.roundScores.count {
+                                // a marked score ("-120†") stays on one line in its cell
                                 Text(entry.cellText(round: round))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
                                     .frame(width: 40)
                             } else {
                                 Text("-")
@@ -61,6 +64,8 @@ struct TournamentScoreboardView: View {
                         }
 
                         Text("\(entry.totalScore)")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                             .frame(width: 50)
                             .bold()
                     }
@@ -69,6 +74,11 @@ struct TournamentScoreboardView: View {
                     .padding(.horizontal)
                     .padding(.vertical, 6)
                     .background(isCurrentUser ? Theme.primary.opacity(0.1) : Color.clear)
+                    // one spoken row ("left the table", not the marker glyph), as the results
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(entry.spokenSummary(rank: tournamentState.phase == "complete" ? index + 1 : nil,
+                                                            totalRounds: tournamentState.totalRounds))
+                    .accessibilityIdentifier("scoreboard.row.\(entry.username)")
                 }
 
                 // what the round markers mean (only when a round has one)

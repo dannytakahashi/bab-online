@@ -93,6 +93,9 @@ final class TournamentSocketHandler {
     /// reason 'hostIdle', where nobody left) with the web's toast.
     @MainActor
     func handlePlayerLeft(_ dict: [String: Any]) {
+        // only for a tournament this app is in: a late copy after I left (or after a cancel)
+        // must not announce a host in the main room or write into the reset state
+        guard !tournamentState.tournamentId.isEmpty else { return }
         if let playersArr = dict["players"] as? [[String: Any]] {
             tournamentState.players = playersArr.compactMap { TournamentPlayer.from($0) }
         }

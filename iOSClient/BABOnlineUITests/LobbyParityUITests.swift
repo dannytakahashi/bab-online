@@ -54,9 +54,8 @@ final class LobbyParityUITests: XCTestCase {
             tries += 1
         }
         XCTAssertTrue(detailed.waitForExistence(timeout: 5))
-        for part in ["uma & wes vs vic & xan", "Hand 5", "2 watching", "uma/wes: 120", "vic/xan: -85"] {
-            XCTAssertTrue(detailed.label.contains(part), "\(part) missing in: \(detailed.label)")
-        }
+        // VoiceOver hears words, not "uma/wes: 120 | vic/xan: -85"
+        XCTAssertEqual(detailed.label, "uma & wes vs vic & xan. Hand 5. uma and wes 120, vic and xan -85. 2 watching")
         // a game listed without the details (an older server) keeps the old line
         let bare = any(app, "lobbyCard.g2")
         XCTAssertTrue(bare.waitForExistence(timeout: 5))
@@ -130,7 +129,11 @@ final class LobbyParityUITests: XCTestCase {
         let ned = any(app, "results.row.ned")
         XCTAssertTrue(ned.label.contains("Round 3: -30, sat out. Round 4: 31, sat out"), ned.label)
         XCTAssertTrue(any(app, "results.row.jon").label.contains("Round 3: 45, table ended early"))
-        // (the lobby's scoreboard behind the overlay carries the same legend)
+        XCTAssertTrue(any(app, "results.table.wide").exists, "at the default text size the rounds sit beside the name")
+        // the lobby's scoreboard behind the overlay speaks its rows the same way (no glyphs)
+        XCTAssertEqual(any(app, "scoreboard.row.max").label,
+                       "7. max, 82 points. Round 1: 55. Round 2: -20. Round 3: -30, left the table. Round 4: 77")
+        // (and carries the same legend)
         let legend = any(app, "tournament.results").descendants(matching: .any)["tournament.flagLegend"]
         XCTAssertTrue(legend.exists)
         for part in ["table ended early", "left the table", "sat out"] {
@@ -169,6 +172,88 @@ final class LobbyParityUITests: XCTestCase {
         keep("tournament-results-accessibility-xl")
     }
 
+    /// Between the default and the accessibility sizes the fixed round columns grow with the
+    /// text: the table stacks as soon as the name would be squeezed, and stays in the card.
+    func testResultsStackWhenTheRoundsLeaveNoRoomForTheName() throws {
+        let app = launch("tournament-results", extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"])
+        let card = any(app, "tournament.results")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        let pose = Fixture.probe(app, "ui.pose")
+        let stacked = any(app, "results.table.stacked").exists
+        if let size = Fixture.windowSize(pose), size.width < 500 {
+            XCTAssertTrue(stacked, "a phone at xxxLarge has no room for four rounds beside the name (\(pose))")
+            XCTAssertFalse(any(app, "results.table.wide").exists)
+        }
+        for name in ["kim", "max", "ned"] {
+            let row = any(app, "results.row.\(name)")
+            XCTAssertTrue(row.exists)
+            XCTAssertGreaterThanOrEqual(row.frame.minX, card.frame.minX, "\(name) leaves the card")
+            XCTAssertLessThanOrEqual(row.frame.maxX, card.frame.maxX, "\(name) leaves the card")
+        }
+        XCTAssertTrue(app.buttons["results.return"].isHittable)
+        keep("tournament-results-xxxl-\(stacked ? "stacked" : "wide")")
+    }
+
+    // MARK: - Book pose (`-uiFold book`: a 20 pt hinge at the window center)
+
+    /// The hinge's x span when the window is wide enough for two pages (FoldReader.bookHinge).
+    private func bookHinge(_ app: XCUIApplication) -> ClosedRange<CGFloat>? {
+        let pose = Fixture.probe(app, "ui.pose")
+        guard pose.contains(" sc regular/"), let size = Fixture.windowSize(pose), size.width >= 500 else { return nil }
+        return (size.width / 2 - 10)...(size.width / 2 + 10)
+    }
+
+    private func assertClear(_ element: XCUIElement, of hinge: ClosedRange<CGFloat>, _ what: String) {
+        let f = element.frame
+        XCTAssertTrue(f.maxX <= hinge.lowerBound + 1 || f.minX >= hinge.upperBound - 1, "\(what) \(f) spans the hinge \(hinge)")
+    }
+
+    func testInBookPoseTheResultsCardStaysOnOnePage() throws {
+        let app = launch("tournament-results", extra: ["-uiFold", "book"])
+        let card = any(app, "tournament.results")
+        XCTAssertTrue(card.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["results.return"].isHittable)
+        keep("tournament-results-book")
+        guard let hinge = bookHinge(app) else { throw XCTSkip("no book hinge on a window this narrow") }
+        XCTAssertLessThanOrEqual(card.frame.maxX, hinge.lowerBound + 1, "the results card \(card.frame) spans the hinge \(hinge)")
+        assertClear(app.buttons["results.return"], of: hinge, "Return")
+        assertClear(any(app, "results.row.kim"), of: hinge, "kim's row")
+    }
+
+    func testInBookPoseTheDeadlineControlsStayOnOnePage() throws {
+        let app = launch("tournament-deadline", extra: ["-uiFold", "book"])
+        let begin = app.buttons["tournament.begin"]
+        XCTAssertTrue(begin.waitForExistence(timeout: 5))
+        XCTAssertEqual(begin.label, "Start with ready players")
+        let sitting = app.staticTexts.matching(identifier: "tournament.sittingOut").firstMatch
+        XCTAssertTrue(sitting.exists)
+        keep("tournament-deadline-book")
+        guard let hinge = bookHinge(app) else { throw XCTSkip("no book hinge on a window this narrow") }
+        assertClear(begin, of: hinge, "Begin")
+        assertClear(sitting, of: hinge, "Sitting out")
+    }
+
+    func testInBookPoseTheCardsAndTheirButtonsStayOnOnePage() throws {
+        let app = launch("main-room-cards", extra: ["-uiFold", "book"])
+        let rejoin = app.buttons["lobby.rejoin"]
+        XCTAssertTrue(rejoin.waitForExistence(timeout: 5))
+        keep("main-room-cards-book")
+        guard let hinge = bookHinge(app) else { throw XCTSkip("no book hinge on a window this narrow") }
+        assertClear(rejoin, of: hinge, "Rejoin")
+        assertClear(app.buttons["lobby.join"], of: hinge, "Join")
+        assertClear(any(app, "lobbyCard.l2"), of: hinge, "the full lobby's card")
+        XCTAssertLessThanOrEqual(rejoin.frame.maxX, hinge.lowerBound + 1, "the browser is the left page")
+    }
+
+    func testInBookPoseAHeldSeatStaysOnOnePage() throws {
+        let app = launch("game-lobby-reconnecting", extra: ["-uiFold", "book"])
+        let mark = app.staticTexts.matching(identifier: "lobby.reconnecting").firstMatch
+        XCTAssertTrue(mark.waitForExistence(timeout: 5))
+        keep("game-lobby-reconnecting-book")
+        guard let hinge = bookHinge(app) else { throw XCTSkip("no book hinge on a window this narrow") }
+        assertClear(mark, of: hinge, "Reconnecting")
+    }
+
     // MARK: - The neutral toast
 
     func testAHostChangeShowsTheInfoToast() {
@@ -196,10 +281,13 @@ final class LobbyParityUITests: XCTestCase {
         XCTAssertEqual(app.sliders.count, 2, "none for my own row")
         keep("voice-panel-volume")
         // all the way down, then all the way up: 0% to 200%, in the web's range
+        // (XCUITest's drag can land one 5% step short of the end on the iPad's long slider;
+        // the exact ends of the range are LobbyParityTests')
+        func percent() -> Int { Int((kim.value as? String ?? "").dropLast()) ?? -1 }
         kim.adjust(toNormalizedSliderPosition: 0)
-        XCTAssertEqual(kim.value as? String, "0%")
+        XCTAssertTrue((0...5).contains(percent()), "\(percent())%")
         kim.adjust(toNormalizedSliderPosition: 1)
-        XCTAssertEqual(kim.value as? String, "200%")
+        XCTAssertTrue((195...200).contains(percent()), "\(percent())%")
         XCTAssertEqual(hal.value as? String, "150%", "one player's slider leaves the other's alone")
         // mute is separate and still there
         XCTAssertTrue(app.buttons["Mute kim"].exists)

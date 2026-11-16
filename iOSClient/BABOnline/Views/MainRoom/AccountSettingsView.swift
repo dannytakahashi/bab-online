@@ -290,6 +290,7 @@ struct AccountSettingsView: View {
         lobbyState.reset()
         tournamentState.reset()
         safetyState.reset()
+        VoiceChatManager.shared.forgetVolumes()  // per-player volumes are this account's
         appState.screen = .signIn
         // Cycle the connection so the server-side session ends; the auto
         // session restore won't run because credentials are cleared.

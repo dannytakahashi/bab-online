@@ -402,6 +402,14 @@ final class VoiceChatManager: ObservableObject {
         peers[socketId]?.remoteTrack?.isEnabled = true
     }
 
+    /// Sign-out: the next account on this device starts every player at 100%.
+    func forgetVolumes() {
+        savedVolumes.removeAll()
+    }
+
+    /// For tests: the volume a new track for this player would take.
+    func savedVolume(for username: String) -> Double? { savedVolumes[username] }
+
     /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
     /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
     /// player; mute stays the track's `isEnabled`, so unmuting returns to this level.

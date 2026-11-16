@@ -100,6 +100,7 @@ struct LobbyRowView: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            .modifier(SpokenLabel(text: spokenProgress))
             .accessibilityIdentifier("lobbyCard.\(lobby.id)")
 
             Spacer()
@@ -146,6 +147,13 @@ struct LobbyRowView: View {
         .padding(.horizontal)
         .padding(.vertical, Theme.Space.s3)
         .background(Theme.surface, ignoresSafeAreaEdges: .vertical)
+    }
+
+    /// VoiceOver for an in-progress card: the names, then the hand, scores and watchers in
+    /// words ("a and c 120", not "a/c: 120 | ..."); nil keeps the combined visible texts.
+    private var spokenProgress: String? {
+        guard isInProgress, let spoken = lobby.progress?.spokenSummary, !spoken.isEmpty else { return nil }
+        return "\(lobby.name). \(spoken)"
     }
 
     /// "Hand 5 • 2 watching", then "a/c: 120 | b/d: 85" in the team colors.
@@ -239,5 +247,14 @@ struct TournamentRowView: View {
         .padding(.horizontal)
         .padding(.vertical, Theme.Space.s3)
         .background(Theme.surface, ignoresSafeAreaEdges: .vertical)
+    }
+}
+
+/// Replaces an element's VoiceOver label when there is one to say; nil leaves it alone.
+private struct SpokenLabel: ViewModifier {
+    let text: String?
+
+    func body(content: Content) -> some View {
+        if let text { content.accessibilityLabel(text) } else { content }
     }
 }

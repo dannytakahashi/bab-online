@@ -20,6 +20,7 @@ private struct MainRoomScreen: View {
     @ObservedObject private var socketService = SocketService.shared
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @State private var hingeTick = 0
     @State private var showLeaderboard = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
@@ -32,19 +33,26 @@ private struct MainRoomScreen: View {
             // Regular width (iPad, the open Duo): side by side; compact: stacked.
             // One AnyLayout keeps the children's identity (and the chat field's
             // focus and draft) across a size-class change.
+            // In book pose the browser ends at the hinge (FoldReader.bookHinge), as the lobbies'
+            // left column: a card's Join / Rejoin never sits under it.
             GeometryReader { geo in
+                let _ = hingeTick  // re-read the fold after a hinge change
                 let wide = hSizeClass == .regular
+                let hinge = wide ? FoldReader.bookHinge(geo) : nil
                 let layout = wide ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
                 layout {
                     lobbyBrowserPanel
-                        .frame(width: wide ? geo.size.width * 0.55 : nil)
+                        .frame(width: wide ? (hinge?.lowerBound ?? geo.size.width * 0.55) : nil)
                         .frame(maxHeight: wide ? .infinity : geo.size.height * 0.55)
                     Separator(vertical: wide)
+                        .opacity(hinge == nil ? 1 : 0)
+                        .padding(.horizontal, hinge.map { max(0, ($0.upperBound - $0.lowerBound) / 2 - 0.5) } ?? 0)
                     MainRoomChatView(showsOnlineCount: bar.usesVerticalBar)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
+        .modifier(HingeTick(tick: $hingeTick))
         .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
         .toolbar {
             if bar.usesVerticalBar { barControls }

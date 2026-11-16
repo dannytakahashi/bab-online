@@ -71,6 +71,8 @@ final class SocketService: ObservableObject {
     /// The table store (set by BABOnlineApp) for transport errors of game actions.
     weak var gameState: GameState?
     @Published var connectionError: String?
+    /// The one toast slot (ServerErrorToast): a server refusal, or a neutral `.info` notice
+    /// (a new tournament host, a cancelled tournament). The latest one replaces the one showing.
     @Published var serverError: ServerErrorNotice?
 
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid

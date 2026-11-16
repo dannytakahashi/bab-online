@@ -174,6 +174,22 @@ final class LobbyParityTests: XCTestCase {
         h.handlePlayerLeft(["players": [wireMember("jon", host: true), wireMember("ivy")], "newCreator": "jon"])
         XCTAssertEqual(service.serverError?.message, "jon is now the tournament host")
         XCTAssertEqual(state.creatorUsername, "jon")
+
+        // a late copy after I left (the state is reset): no toast in the main room, nothing written
+        service.serverError = nil
+        state.reset()
+        h.handlePlayerLeft(["players": [wireMember("pat", host: true)], "newCreator": "pat"])
+        XCTAssertNil(service.serverError)
+        XCTAssertEqual(state.creatorUsername, "")
+        XCTAssertTrue(state.players.isEmpty)
+    }
+
+    /// The results table goes side by side only when the name keeps its least width.
+    func testTheResultsTableNeedsRoomForTheName() {
+        // Large text, 4 rounds: 22 + 72 + 4 x 42 + 46 + 16 = 324
+        XCTAssertEqual(TournamentResultsTable.wideWidth(rank: 22, round: 42, total: 46, name: 72, rounds: 4), 324)
+        XCTAssertEqual(TournamentResultsTable.wideWidth(rank: 22, round: 42, total: 46, name: 72, rounds: 0), 156)
+        XCTAssertEqual(TournamentResultsTable.wideWidth(rank: 22, round: 42, total: 46, name: 72, rounds: -1), 156)
     }
 
     @MainActor
@@ -355,5 +371,11 @@ final class LobbyParityTests: XCTestCase {
         XCTAssertNil(voice.peerInfos["nobody"])
         voice.setPeerVolume("s1", 0)
         XCTAssertEqual(voice.peerInfos["s1"]?.volume, 0)
+        // kept by name for a later track, until sign-out
+        XCTAssertEqual(voice.savedVolume(for: "kim"), 0)
+        XCTAssertEqual(voice.savedVolume(for: "hal"), 2)
+        voice.forgetVolumes()
+        XCTAssertNil(voice.savedVolume(for: "kim"))
+        XCTAssertNil(voice.savedVolume(for: "hal"))
     }
 }
