@@ -2,7 +2,8 @@ import XCTest
 
 /// iOS 1.2.2 table parity with the web, in fixture mode: the idle-seat offer's
 /// wording, a tied game, a refused action's reason, the bid-total chips, an
-/// unknown chat command's hint, the dealer marker and the opponent card backs.
+/// unknown chat command's hint, the dealer marker and the opponent card backs
+/// (iOS 1.2.3: red on odd hands, blue on even ones, as the web's).
 final class TableParityUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -257,6 +258,34 @@ final class TableParityUITests: XCTestCase {
         let frames = [2, 3, 4].map { element(app, "fan.\($0)").frame }
         for i in frames.indices { for j in frames.indices where j > i { XCTAssertFalse(frames[i].intersects(frames[j])) } }
         app.terminate()
+    }
+
+    /// "fans=... back=blue dealer=me" -> "blue" (the colour the fans' sprites are drawn in).
+    private func backColour(_ app: XCUIApplication) -> String? {
+        let extras = Fixture.probe(app, "table.extras")
+        return extras.split(separator: " ").first(where: { $0.hasPrefix("back=") }).map { String($0.dropFirst(5)) }
+    }
+
+    /// iOS 1.2.3: the card backs alternate red / blue by hand as the web's (hand 1 red, hand 2
+    /// blue, ...): the fixture's hand 1, then the same table as hand 2 and hand 3 (`-uiHandNo`),
+    /// seated and spectating.
+    func testTheCardBacksAreTheHandsColour() throws {
+        for (fixture, handNo, want) in [("trick-mid-lead3", nil, "red"), ("trick-mid-lead3", 2, "blue"), ("trick-mid-lead3", 3, "red"),
+                                         ("spectator-mid-hand", 4, "blue")] as [(String, Int?, String)] {
+            let app = Fixture.launch(fixture, extra: handNo.map { ["-uiHandNo", String($0)] } ?? [])
+            XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+            _ = Fixture.settledState(app)
+            guard fans(app) != nil else {
+                XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
+                XCTAssertEqual(backColour(app), "-")
+                app.terminate()
+                return
+            }
+            XCTAssertEqual(backColour(app), want, "\(fixture) hand \(handNo ?? 1): \(Fixture.probe(app, "table.extras"))")
+            XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+            attach(app, "card-backs-hand-\(handNo ?? 1)-\(fixture)")
+            app.terminate()
+        }
     }
 
     func testASpectatorSeesEverySeatsCardBacks() throws {
