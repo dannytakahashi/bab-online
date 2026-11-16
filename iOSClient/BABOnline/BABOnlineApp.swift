@@ -29,6 +29,7 @@ struct BABOnlineApp: App {
         #if DEBUG
         UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
         UIFixture.seedStats(leaderboard: leaderboard, records: records)
+        UIFixture.seedAdmin(AdminState.shared, auth: auth)
         #endif
         _leaderboardState = StateObject(wrappedValue: leaderboard)
         _recordsState = StateObject(wrappedValue: records)
@@ -85,6 +86,8 @@ struct BABOnlineApp: App {
                                 inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil,
                                 tournamentComplete: tournament.phase == "complete")
         }
+        // the admin panel's requests (only an admin's Account sheet shows its entry)
+        AdminState.shared.attach(socket: socketService, auth: authState)
         socketService.connect()
 
         // Register event router — stored on socketService so handlers stay alive
@@ -98,7 +101,8 @@ struct BABOnlineApp: App {
             tournamentState: tournamentState,
             leaderboardState: leaderboardState,
             recordsState: recordsState,
-            safetyState: safetyState
+            safetyState: safetyState,
+            adminApi: AdminState.shared.api
         )
         router.registerAll()
         socketService.eventRouter = router

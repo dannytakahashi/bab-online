@@ -16,7 +16,8 @@
  * no cookie anywhere, so there is no CSRF surface to defend. The one HTTP
  * route of this feature is the player-facing reset page
  * (routes/passwordReset.js), which has no signed-in socket by design.
- * The iOS app never registers these (contract layout: excluded from Swift).
+ * The iOS app sends the same events from 1.2.2 build 10 (iOSClient/CLAUDE.md,
+ * iOS admin panel); there is no platform check, every socket is authorized alike.
  *
  * AUTHORIZATION is checked on EVERY request, against the DATABASE at
  * request time (authorizeAdmin): the socket is signed in, its session is

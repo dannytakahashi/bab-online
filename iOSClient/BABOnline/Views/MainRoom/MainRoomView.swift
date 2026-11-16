@@ -24,6 +24,9 @@ private struct MainRoomScreen: View {
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
     @State private var didEnterBackground = false
+    /// The admin panel (admins only): opened from the Account sheet once that sheet has closed.
+    @ObservedObject private var admin = AdminState.shared
+    @State private var openAdminAfterAccount = false
 
     var body: some View {
         ZStack {
@@ -73,8 +76,16 @@ private struct MainRoomScreen: View {
         .sheet(isPresented: $showOnlineUsers) {
             OnlineUsersSheet(users: mainRoomState.onlineUsers)
         }
-        .sheet(isPresented: $showAccountSettings) {
-            AccountSettingsView()
+        .sheet(isPresented: $showAccountSettings, onDismiss: {
+            guard openAdminAfterAccount else { return }
+            openAdminAfterAccount = false
+            admin.open()
+        }) {
+            AccountSettingsView(openAdmin: { openAdminAfterAccount = true })
+        }
+        .sheet(isPresented: $admin.isPresented, onDismiss: { admin.close() }) {
+            AdminPanelView(admin: admin)
+                .statsSheetSizing()
         }
     }
 
