@@ -26,7 +26,7 @@
  * the redeal HSI fix (an all-zero redeal no longer adds an HSI sample):
  * only oneHuman's hash moved (its gameEnd playerStats totalHSI/avgHSI; it
  * has a redeal), hands, trumps, pictures and emit counts unchanged.
- * Re-recorded 2026-11-16 for the bots' "they sent a boy" line
+ * Re-recorded 2026-11-16 for the bots' "he sends a boy" line
  * (BotController.handleCardPlayedChat): 3 more chatMessage emits per game,
  * hands, trumps and pictures unchanged (its roll never draws Math.random).
  * Re-recorded 2026-11-16 for the bots' "alls we gotta do is not be stupid"

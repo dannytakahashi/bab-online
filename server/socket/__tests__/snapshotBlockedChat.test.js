@@ -15,7 +15,7 @@
  *     {message, type, position, at} (`from` never leaves the server);
  *   - an admin rename or merge re-points `from` (renameChatSender), as it
  *     re-points the blockers' lists (adminPanel.test.js drives the panel).
- * Main's later chat paths ride the same two writers: the "they sent a boy"
+ * Main's later chat paths ride the same two writers: the "he sends a boy"
  * quip goes through sendBotChat, and a family game's lobby extras and
  * voice spectators chat as spectators and get their full state through
  * carrierFor (also on a startedLobbyRedirect). Lobby chat is never in a
@@ -314,7 +314,7 @@ describe('every snapshot sent to a socket that blocked the sender leaves the cha
         expect(got.some((m) => m.includes(bot.username) && m.includes('lazy mode'))).toBe(true);
     });
 
-    test('the "they sent a boy" quip: `from` is the bot persona, hidden from its blocker', () => {
+    test('the "he sends a boy" quip: `from` is the bot persona, hidden from its blocker', () => {
         const t = table();
         say(t, t.sockets[4], '/lazy');
         const bot = botController.getGameBots(t.game.gameId).find((b) => b.position === 4);
@@ -331,7 +331,7 @@ describe('every snapshot sent to a socket that blocked the sender leaves the cha
             botController.chatRoll = realRoll;
         }
         jest.advanceTimersByTime(10000);
-        const line = `${bot.username}: they sent a boy`;
+        const line = `${bot.username}: he sends a boy`;
         expect(t.game.gameLog.find((e) => e.message === line)).toMatchObject({ type: 'chat', from: bot.username });
         rememberBlockList(t.sockets[1], [bot.username]);
         snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
