@@ -76,6 +76,19 @@ final class LiveLobbyRejoinTests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
+    /// The header count ("lobby.count") reads `players` seated, whatever the server: its
+    /// VoiceOver label is "1 of 8 players, 0 of 4 ready" (family keys) or "1 of 4 players"
+    /// (a 1.2.2 and older server); the text on screen is "Players 1/8 · Ready 0/4".
+    private func seated(_ app: XCUIApplication, _ players: Int) -> Bool {
+        let count = screen(app, "lobby.count")
+        return count.exists && count.label.hasPrefix("\(players) of ") && count.label.contains(" players")
+    }
+
+    private func countLabel(_ app: XCUIApplication) -> String {
+        let count = screen(app, "lobby.count")
+        return count.exists ? count.label : "no lobby.count"
+    }
+
     /// Into the main room: the saved session restores, or sign in, or (first use) register.
     private func launchSignedIn(_ app: XCUIApplication) {
         app.launch()
@@ -115,7 +128,7 @@ final class LiveLobbyRejoinTests: XCTestCase {
     private func openLobby(_ app: XCUIApplication) {
         app.buttons["New Game"].tap()
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 10), "no game lobby")
-        XCTAssertTrue(app.staticTexts["1/4"].waitForExistence(timeout: 5), "not alone in the lobby")
+        XCTAssertTrue(wait(5) { seated(app, 1) }, "not alone in the lobby: \(countLabel(app))")
         note("lobby open")
     }
 
@@ -146,13 +159,13 @@ final class LiveLobbyRejoinTests: XCTestCase {
         XCTAssertTrue(screen(app, "screen.gameLobby").exists, "not on the lobby screen")
         let addBot = app.buttons["Add Bot"]
         XCTAssertTrue(wait(15) { addBot.exists && addBot.isEnabled }, "the lobby's actions never came back")
-        XCTAssertTrue(app.staticTexts["1/4"].exists, "my seat is not in the lobby")
+        XCTAssertTrue(seated(app, 1), "my seat is not in the lobby: \(countLabel(app))")
 
         // past the seat's 30 s grace: only a seat the new socket took back is still there
         note("waiting out the grace")
         Thread.sleep(forTimeInterval: 35)
         addBot.tap()
-        XCTAssertTrue(app.staticTexts["2/4"].waitForExistence(timeout: 10), "Add Bot did not go through: no seat")
+        XCTAssertTrue(wait(10) { seated(app, 2) }, "Add Bot did not go through: no seat: \(countLabel(app))")
         XCTAssertFalse(screen(app, "screen.mainRoom").exists)
         note("bot added after the grace")
         shot("1-bot-added")
