@@ -365,6 +365,7 @@ async function beginTournament(socket, io) {
     } catch (error) {
         if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'lobby';
+            tournament._changed?.();
             liveness.refreshHostIdle(io, tournament);
         }
         throw error;
@@ -428,6 +429,7 @@ async function startNextRound(io, tournament, { play = null } = {}) {
     } catch (error) {
         if (tournament.phase === 'starting' && tournament.isLive(epoch)) {
             tournament.phase = 'between_rounds';
+            tournament._changed?.();
             liveness.armReadyDeadline(io, tournament, { restart: false });
             liveness.refreshHostIdle(io, tournament);
         }
@@ -660,6 +662,7 @@ function rollbackRound(io, tournament, roundNumber) {
     tournament.rounds.pop();
     tournament.currentRound = roundNumber - 1;
     tournament.phase = roundNumber === 1 ? 'lobby' : 'between_rounds';
+    tournament._changed?.();
     tournament.broadcast(io, 'tournamentMessage', {
         ...systemLine('Round could not start — no connected players.')
     });

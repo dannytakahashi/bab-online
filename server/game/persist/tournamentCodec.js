@@ -2,7 +2,8 @@
  * Tournament codec (deploy survival; the plan's 2.2): a TournamentState to
  * a JSON document and back. Pure apart from one lookup it can be handed
  * instead (its live tables, for tableScores): no I/O, no emits, no timers.
- * Nothing in production calls it yet.
+ * The persist store (liveStore.js, PR 4) writes what serialize returns;
+ * nothing in production calls hydrate yet.
  *
  * serialize(t) -> {v, tournamentId, phase, state} with state:
  *   name, creatorUsername, createdAt, phase ('starting', a round start in

@@ -103,9 +103,18 @@ function emitLobbiesUpdatedWide(io, { capable, demoSplit, lobbies, tournaments, 
 async function abortGame(io, game, reason) {
     if (!game || game.isTerminal()) return false;
     const gameId = game.gameId;
+    // The tournament the table still counts for (a cancel unmaps its tables
+    // before aborting them: those end like a casual game)
+    const tournamentId = gameManager.tournamentGames.get(gameId) ?? null;
     game.terminate(io, Phase.ABORTED, 'abortGame', { reason });
     gameManager.abortGame(gameId, io);   // synchronous retire
     emitLobbiesUpdated(io);
+    // Deploy survival (LIVE_PERSIST write; persist/liveStore.js): the saved
+    // doc ends here, a casual game's deleted, a tournament table's turned
+    // into an `aborted` tombstone until its tournament's doc lists it
+    // complete. Awaited only when there is a doc; never fences in write
+    const store = require('../game/persist/liveStore').getLiveStore();
+    if (store.claimable(game) && (await store.claimEnded(game, { tournamentId })) === 'fenced') return true;
     try {
         await gameManager.clearActiveGameForAll(gameId, game);
         // Tournament games must still count toward round completion

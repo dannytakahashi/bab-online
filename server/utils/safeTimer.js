@@ -43,4 +43,12 @@ function safeInterval(fn, ms, label) {
     return setInterval(guard(fn, label), ms);
 }
 
-module.exports = { safeTimeout, safeInterval, guard };
+/**
+ * setImmediate that logs instead of crashing (the persist store's
+ * coalesced writes). @returns the handle (clearImmediate)
+ */
+function safeImmediate(fn, label) {
+    return setImmediate(guard(fn, label));
+}
+
+module.exports = { safeTimeout, safeInterval, safeImmediate, guard };

@@ -171,3 +171,61 @@ test("getDbState follows the driver's topology events, no round trip", async () 
     expect(database.getDbState()).toBe('connected');
     expect(dbLogger.info).toHaveBeenCalledWith('MongoDB reachable again');
 });
+
+describe('deploy survival collections (liveGames, liveTournaments, serverInstances)', () => {
+    const optionsOf = (coll) => coll.createIndex.mock.calls.map(([keys, options]) => [keys, options]);
+
+    test('connectDB assigns them and ensureIndexes builds their indexes and TTLs', async () => {
+        const { client, collections } = fakeClient();
+        mockConnect.mockResolvedValueOnce(client);
+        await database.connectDB();
+        expect(database.getLiveGamesCollection()).toBe(collections.liveGames);
+        expect(database.getLiveTournamentsCollection()).toBe(collections.liveTournaments);
+        expect(database.getServerInstancesCollection()).toBe(collections.serverInstances);
+        const docIndexes = [
+            [{ released: 1 }, {}],
+            [{ owner: 1 }, {}],
+            // A doc lives at most a day: expireAt is its game's createdAt + 24 h
+            [{ expireAt: 1 }, { expireAfterSeconds: 0 }],
+        ];
+        expect(optionsOf(collections.liveGames)).toEqual(docIndexes);
+        expect(optionsOf(collections.liveTournaments)).toEqual([...docIndexes, [{ 'state.players.username': 1 }, {}]]);
+        expect(optionsOf(collections.serverInstances)).toEqual([[{ beatAt: 1 }, { expireAfterSeconds: 86400 }]]);
+        expect(dbLogger.warn).not.toHaveBeenCalled();
+    });
+
+    test('a caller that passes no live collection (restore-db.js) builds none of them, with no warning', async () => {
+        const { client, collections } = fakeClient();
+        const c = client.db().collection;
+        const results = await database.ensureIndexes({
+            users: c('users'), gameRecords: c('gameRecords'), reports: c('reports'), passwordResets: c('passwordResets'), adminAudit: c('adminAudit'),
+        });
+        expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+        expect(collections.liveGames).toBeUndefined();
+        expect(collections.liveTournaments).toBeUndefined();
+        expect(collections.serverInstances).toBeUndefined();
+        expect(dbLogger.warn).not.toHaveBeenCalled();
+    });
+
+    test.each([
+        ['the unique index', true, [{ key: { _id: 1 }, name: '_id_' }, { key: { gameId: 1 }, name: 'gameId_1', unique: true }]],
+        ['the non-unique fallback', false, [{ key: { _id: 1 }, name: '_id_' }, { key: { gameId: 1 }, name: 'gameId_nonunique' }]],
+        ['a compound unique index is not it', false, [{ key: { gameId: 1, x: 1 }, name: 'gameId_1_x_1', unique: true }]],
+    ])('getGameIdIndexUnique: %s -> %s (the /health precondition for LIVE_PERSIST=on)', async (_label, expected, indexes) => {
+        const { client, collections } = fakeClient();
+        client.db().collection('gameRecords').indexes = jest.fn(async () => indexes);
+        collections.gameRecords.dropIndex = jest.fn(async () => {});
+        expect(database.getGameIdIndexUnique()).toBeNull();
+        mockConnect.mockResolvedValueOnce(client);
+        await database.connectDB();
+        expect(database.getGameIdIndexUnique()).toBe(expected);
+    });
+
+    test('gameRecords that cannot list its indexes: unknown (null), no warning', async () => {
+        const { client } = fakeClient();
+        mockConnect.mockResolvedValueOnce(client);
+        await database.connectDB();
+        expect(database.getGameIdIndexUnique()).toBeNull();
+        expect(dbLogger.warn).not.toHaveBeenCalled();
+    });
+});

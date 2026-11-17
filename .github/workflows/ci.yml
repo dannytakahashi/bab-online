@@ -69,6 +69,17 @@ jobs:
           NODE_ENV: test
           REQUIRE_REAL_MONGO: '1'
 
+      # Deploy survival: the whole suite again with the live persist store
+      # on (LIVE_PERSIST=write, server/game/persist/liveStore.js), so its
+      # hooks in game code are proven to change nothing anywhere (no coverage)
+      - name: Server tests with LIVE_PERSIST=write (Jest)
+        run: npm test
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          NODE_ENV: test
+          REQUIRE_REAL_MONGO: '1'
+          LIVE_PERSIST: write
+
       - name: Race check (every pacing delay 0)
         run: npm run test:race
         env:

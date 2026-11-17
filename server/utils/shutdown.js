@@ -180,15 +180,29 @@ function noticeGames(io, games, message = GAME_NOTICE) {
  * Setup graceful shutdown handlers
  * @param {http.Server} server - HTTP server instance
  * @param {SocketIO.Server} io - Socket.IO server instance
- * @param {{games?: Function, noticeMs?: number, settleMs?: number, hardExitMs?: number, drainMs?: number}} [opts] -
+ * @param {{games?: Function, persist?: Object, noticeMs?: number, settleMs?: number, hardExitMs?: number, drainMs?: number}} [opts] -
  *   games: () => iterable of the live GameStates (server/index.js: the GameManager's), told
- *   of the update before serverShutdown; the waits are for tests only
+ *   of the update before serverShutdown; persist: the live persist store in
+ *   LIVE_PERSIST write mode (server/game/persist/liveStore.js; server/index.js
+ *   passes it only then): right after the notice and serverShutdown, its
+ *   shutdown() stops every live write and deletes this process's saved games
+ *   and tournaments (bounded at 2 s, waited for like an in-flight write);
+ *   the waits are for tests only
  * @returns {{shutdown: Function, onUncaughtException: Function, onUnhandledRejection: Function}}
  *   the handlers (registered on `process` here; returned for tests, since
  *   Jest owns process-level uncaughtException while a test runs)
  */
 function setupGracefulShutdown(server, io, opts = {}) {
-    const { games = () => [], noticeMs = NOTICE_MS, settleMs = SETTLE_MS, hardExitMs = HARD_EXIT_MS } = opts;
+    const { games = () => [], persist = null, noticeMs = NOTICE_MS, settleMs = SETTLE_MS, hardExitMs = HARD_EXIT_MS } = opts;
+    // Write mode's self-delete, after today's notice (never a release: a
+    // 'write' process hands nothing off). Its docs are never adopted
+    // (ownerMode 'write'); any it fails to delete expire by TTL
+    const deleteLiveDocs = () => {
+        if (!persist || typeof persist.shutdown !== 'function') return;
+        trackInFlight(Promise.resolve().then(() => persist.shutdown()).catch((error) => {
+            logger.error('Live doc delete at shutdown failed', { error: error.message });
+        }));
+    };
     // What is left of the hard deadline after the fixed waits
     const drainMs = opts.drainMs ?? Math.max(0, hardExitMs - noticeMs - settleMs - DRAIN_MARGIN_MS);
     // The first reason decides the code: a crash during a deploy's SIGTERM
@@ -243,6 +257,7 @@ function setupGracefulShutdown(server, io, opts = {}) {
                 io.emit('serverShutdown', {
                     message: 'Server is restarting, please reconnect shortly'
                 });
+                deleteLiveDocs();
 
                 // Give clients time to receive the message
                 await new Promise(resolve => setTimeout(resolve, noticeMs));
@@ -251,6 +266,8 @@ function setupGracefulShutdown(server, io, opts = {}) {
                 io.close(() => {
                     logger.info('Socket.IO server closed');
                 });
+            } else {
+                deleteLiveDocs();
             }
 
             // End-of-game writes still running (a game that ended just

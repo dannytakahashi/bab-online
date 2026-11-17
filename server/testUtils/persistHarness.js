@@ -35,8 +35,11 @@
  *
  * Every server module is required lazily (inside the functions), so a test
  * can call databaseMock from its jest.mock factory and twoInstances can
- * load a second set of singletons. The persist store, handoff and adoption
- * do not exist yet: restart and twoInstances take them as hooks.
+ * load a second set of singletons. The persist store
+ * (game/persist/liveStore.js) is the process's own: becomeCurrent gives
+ * each instance a fresh one with its bootId, and a kill closes it. Handoff
+ * and adoption do not exist yet: restart and twoInstances take them as
+ * hooks.
  *
  * ONE Jest process plays every "process" here, so a kill is not a SIGKILL:
  * killInstance cuts what it can reach (see there), and what it cannot
@@ -107,6 +110,7 @@ function loadServerModules() {
         shutdown: require('../utils/shutdown'),
         connectionStats: require('../utils/connectionStats'),
         livePersistSwitch: require('../utils/livePersistSwitch'),
+        liveStore: require('../game/persist/liveStore'),
         gameVoice: require('../voice/gameVoice'),
         logger: require('../utils/logger'),
     };
@@ -422,6 +426,13 @@ async function pump() {
  * turns in a row: a write that lands may mark the next one), at most
  * `rounds` turns. A store without pending() gets three turns. Throws if it
  * is still busy (a stalled db: release it first).
+ *
+ * Fake timers: a zero-delay timer (a setImmediate) made while the fake
+ * clock is ticking is due 1 ms later (@sinonjs/fake-timers adds 1 ms
+ * "duringTick"), so a store whose write was marked from a timer callback
+ * or a write's continuation is not reached by advancing 0. While the
+ * store reports a pending immediate (store.pendingImmediates()), a turn
+ * advances the clock 1 ms instead.
  * @returns {Promise<number>} turns used
  */
 async function flushStore(store, { rounds = 50 } = {}) {
@@ -429,9 +440,11 @@ async function flushStore(store, { rounds = 50 } = {}) {
         for (let i = 0; i < 3; i++) await pump();
         return 3;
     }
+    const immediates = () => (typeof store.pendingImmediates === 'function' ? store.pendingImmediates() : 0);
     let idle = 0;
     for (let i = 1; i <= rounds; i++) {
-        await pump();
+        if (fakeTimersOn() && immediates() > 0) await jest.advanceTimersByTimeAsync(1);
+        else await pump();
         idle = store.pending() === 0 ? idle + 1 : 0;
         if (idle >= 2) return i;
     }
@@ -639,6 +652,9 @@ const PROCESS_RESETS = [
     // The deploy timing counters and the cached LIVE_PERSIST reading
     ['connectionStats', (m) => m._resetForTests()],
     ['livePersistSwitch', (m) => m._resetForTests()],
+    // The live persist store (closed: no write, heartbeat or hook of the
+    // dead process runs again); the next one is made on first use
+    ['liveStore', (m) => m._resetForTests()],
 ];
 
 /**
@@ -672,7 +688,11 @@ function killInstance(inst, { abandonStalled = false } = {}) {
     }
 }
 
-/** Point the process-scoped modules at `inst`: its connection, its LIVE_PERSIST mode. */
+/**
+ * Point the process-scoped modules at `inst`: its connection, its
+ * LIVE_PERSIST mode, and a fresh live persist store with its bootId (made
+ * from that mode on first use).
+ */
 function becomeCurrent(inst, holder) {
     if (holder && inst.db) holder.current = inst.db;
     const lps = inst.mods?.livePersistSwitch;
@@ -680,6 +700,7 @@ function becomeCurrent(inst, holder) {
         lps._resetForTests();
         if (inst.mode != null) lps.bootLivePersistMode({ LIVE_PERSIST: inst.mode }, { warn: () => {} });
     }
+    inst.mods?.liveStore?._resetForTests({ bootId: inst.bootId });
 }
 
 /**
