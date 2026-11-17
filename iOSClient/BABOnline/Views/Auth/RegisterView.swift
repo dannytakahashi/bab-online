@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// The register screen in the web's look (Register.js; AuthChrome.swift): the sign-in's room
+/// and logo (no phrase), and a card titled "Create Account" with the three fields, Register,
+/// the terms and "Back to Sign In".
 struct RegisterView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
@@ -9,102 +12,93 @@ struct RegisterView: View {
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var isLoading = false
+    @FocusState private var focus: Field?
+
+    private enum Field { case username, password, confirm }
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
-
-            // Scrolls on short heights (keyboard, landscape), capped at a readable width
-            GeometryReader { g in
-            ScrollView {
-            VStack(spacing: Theme.Space.s8) {
-                Spacer(minLength: 24)
-
+        AuthScreen {
+            AuthCard {
                 Text("Create Account")
-                    .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+                    .themeFont(Theme.TypeScale.lg, weight: Theme.Weight.bold, relativeTo: .title3)
                     .foregroundColor(Theme.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, Theme.Space.s1)
+                    .accessibilityAddTraits(.isHeader)
 
-                VStack(spacing: Theme.Space.s4) {
-                    TextField("Username", text: $username)
-                        .textFieldStyle(BABTextFieldStyle())
-                        .textContentType(.username)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
-
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(BABTextFieldStyle())
-                        .textContentType(.newPassword)
-
-                    SecureField("Confirm Password", text: $confirmPassword)
-                        .textFieldStyle(BABTextFieldStyle())
-                        .textContentType(.newPassword)
-
-                    if let error = authState.error {
-                        Text(error)
+                // Connection status (the same as the sign-in's)
+                if !socketService.isConnected {
+                    HStack(spacing: Theme.Space.s2) {
+                        ProgressView()
+                            .tint(Theme.warning)
+                            .scaleEffect(0.8)
+                        Text("Connecting to server...")
                             .font(.caption)
-                            .foregroundColor(Theme.error)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .foregroundColor(Theme.warning)
                     }
+                    .accessibilityElement(children: .combine)
+                }
 
-                    // the server's rule for new passwords (8-100); hidden until something is typed
-                    if !password.isEmpty, let problem = PasswordRule.newPasswordProblem(password) {
-                        Text(problem)
-                            .font(.caption)
-                            .foregroundColor(Theme.error)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("register.passwordRule")
-                    }
+                AuthField(label: "Username", text: $username, contentType: .username, focus: $focus, field: .username)
+                    .submitLabel(.next)
+                    .onSubmit { focus = .password }
 
-                    if !confirmPassword.isEmpty && password != confirmPassword {
-                        Text("Passwords do not match")
-                            .font(.caption)
-                            .foregroundColor(Theme.error)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                AuthField(label: "Password", text: $password, secure: true, contentType: .newPassword, focus: $focus, field: .password)
+                    .submitLabel(.next)
+                    .onSubmit { focus = .confirm }
 
-                    Button(action: signUp) {
-                        HStack {
-                            if isLoading {
-                                ProgressView()
-                                    .tint(Theme.buttonForeground)
-                                    .scaleEffect(0.8)
-                            }
-                            Text("Register")
-                                .fontWeight(.semibold)
+                AuthField(label: "Confirm Password", text: $confirmPassword, secure: true, contentType: .newPassword,
+                          focus: $focus, field: .confirm)
+                    .submitLabel(.go)
+                    .onSubmit { if canRegister { signUp() } }
+
+                if let error = authState.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(Theme.error)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                // the server's rule for new passwords (8-100); hidden until something is typed
+                if !password.isEmpty, let problem = PasswordRule.newPasswordProblem(password) {
+                    Text(problem)
+                        .font(.caption)
+                        .foregroundColor(Theme.error)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("register.passwordRule")
+                }
+
+                if !confirmPassword.isEmpty && password != confirmPassword {
+                    Text("Passwords do not match")
+                        .font(.caption)
+                        .foregroundColor(Theme.error)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Button(action: signUp) {
+                    HStack(spacing: Theme.Space.s2) {
+                        if isLoading {
+                            ProgressView()
+                                .tint(Theme.buttonForeground)
+                                .scaleEffect(0.8)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(canRegister ? Theme.buttonBackground : Theme.buttonDisabled)
-                        .foregroundColor(canRegister ? Theme.buttonForeground : Theme.buttonDisabledForeground)
-                        .cornerRadius(Theme.Radius.md)
+                        Text("Register")
                     }
-                    .disabled(!canRegister)
-
-                    Text(.init("By creating an account you agree to the [Terms of Use](https://babonline.io/terms) — zero tolerance for abusive content."))
-                        .font(.caption2)
-                        .foregroundColor(Theme.textDim)
-                        .tint(Theme.primary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
                 }
-                .padding(.horizontal, Theme.Space.s8)
+                .buttonStyle(AuthButtonStyle(kind: .primary))
+                .disabled(!canRegister)
 
-                Button(action: { appState.screen = .signIn }) {
-                    Text("Already have an account? ")
-                        .foregroundColor(Theme.textSecondary) +
-                    Text("Sign In")
-                        .foregroundColor(Theme.primary)
-                        .bold()
-                }
-                .font(.callout)
+                Text(.init("By creating an account you agree to the [Terms of Use](https://babonline.io/terms) — zero tolerance for abusive content."))
+                    .themeFont(Theme.TypeScale.xs, relativeTo: .caption)
+                    .foregroundColor(Theme.Auth.dividerText)
+                    .tint(Theme.Auth.link)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity)
 
-                Spacer(minLength: 24)
-            }
-            .frame(maxWidth: 440)
-            .frame(maxWidth: .infinity, minHeight: g.size.height)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
+                Button("Back to Sign In") { appState.screen = .signIn }
+                    .buttonStyle(AuthButtonStyle(kind: .ghost))
             }
         }
         .onAppear {

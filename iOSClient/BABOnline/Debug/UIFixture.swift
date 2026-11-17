@@ -10,7 +10,9 @@ import SpriteKit
 /// socket, no voice, avatars show initials). Screen fixtures (`main-room`,
 /// `game-lobby`, `tournament-lobby`, `tournament-round` (round 3 in play: the
 /// scoreboard and two active tables), `tournament-between` (round 2 complete),
-/// `sign-in`) seed static rows instead. 1.2.2 parity screens: `main-room-cards` (the lobby
+/// `sign-in`, `register`; `-uiOffline YES` shows them connecting) seed static rows instead.
+/// `-uiSplash YES` / `-uiSplashFrame <seconds>` show the boot splash, `-uiPhrase <n>` picks
+/// the sign-in's phrase. 1.2.2 parity screens: `main-room-cards` (the lobby
 /// cards: member names, Rejoin on a full lobby that seats me, Full, in-progress games with
 /// hand / score / watchers), `game-lobby-reconnecting` (a held seat's "Reconnecting…"),
 /// `tournament-deadline` (between rounds past the ready deadline, me the host: "Start with
@@ -67,10 +69,23 @@ enum UIFixture {
     /// can talk" switch (voiceSettings canChange, as a seated host gets it).
     static let showsVoiceSwitch: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceSwitch")
 
+    /// `-uiSplash YES`: a fixture launch shows the boot splash first, as a real launch does
+    /// (fixture mode skips it otherwise). `-uiSplashFrame <seconds>` holds the splash at that
+    /// moment of its animation (it never hands off: screenshots of the frames).
+    static let showsSplash: Bool = isActive && (UserDefaults.standard.bool(forKey: "uiSplash") || splashFrame != nil)
+    static let splashFrame: TimeInterval? = isActive ? UserDefaults.standard.string(forKey: "uiSplashFrame").flatMap(Double.init) : nil
+    /// `-uiReduceMotion YES` also gives the splash its Reduce Motion form (the system setting
+    /// cannot be set from a launch argument).
+    static let splashReduceMotion: Bool = isActive && UserDefaults.standard.bool(forKey: "uiReduceMotion")
+
+    /// `-uiPhrase <index>`: the sign-in's phrase by the logo is SplashPhrases.all[index]
+    /// (screenshots of the longest one) instead of a random one.
+    static let phraseIndex: Int? = isActive ? UserDefaults.standard.string(forKey: "uiPhrase").flatMap(Int.init) : nil
+
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "tournament-deadline", "tournament-results", "sign-in"]
+                                              "tournament-between", "tournament-deadline", "tournament-results", "sign-in", "register"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
@@ -710,9 +725,13 @@ enum UIFixture {
             tournament.winners = ["kim", "ivy"]
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "register":
+            SocketService.shared.isConnected = !UserDefaults.standard.bool(forKey: "uiOffline")
+            appState.screen = .register
         default:
-            // no socket in fixture mode: show the connected form (emits go nowhere), not the spinner
-            SocketService.shared.isConnected = true
+            // no socket in fixture mode: show the connected form (emits go nowhere), not the
+            // spinner (`-uiOffline YES`: the "Connecting to server..." form)
+            SocketService.shared.isConnected = !UserDefaults.standard.bool(forKey: "uiOffline")
             appState.screen = .signIn
         }
     }
@@ -846,6 +865,26 @@ struct FixtureProbes: View {
             .accessibilityLabel(id)
             .accessibilityIdentifier(id)
             .accessibilityValue(value)
+    }
+}
+
+/// "splash.logo": where the boot splash draws its logo, in global points ("x y w h", one
+/// decimal), so a UI test can hold it to the sign-in logo's frame (the splash itself is one
+/// full-screen VoiceOver element). A 1x1 dot like FixtureProbes', shown in fixture mode only.
+struct SplashLogoProbe: View {
+    let frame: CGRect
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.black)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .accessibilityElement()
+            .accessibilityLabel("splash.logo")
+            .accessibilityIdentifier("splash.logo")
+            .accessibilityValue(String(format: "%.1f %.1f %.1f %.1f", frame.minX, frame.minY, frame.width, frame.height))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
     }
 }
 

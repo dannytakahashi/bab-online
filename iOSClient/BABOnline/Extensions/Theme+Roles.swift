@@ -63,6 +63,44 @@ extension Theme {
     /// The text on a warning fill.
     static let warningForeground = Palette.Text.onLight.color
 
+    // MARK: Sign-in, register and the boot splash (the web's auth screens, screens.css)
+
+    /// The auth screens and the splash: the web's `.auth-vignette` (the table's lit felt under
+    /// the lamp, falling off to the room's dark), `.auth-card` (an elevated kit panel at
+    /// surface.s1@0.92), `.field__label`, the focused input's edge and the splash phrase.
+    enum Auth {
+        /// The vignette's stops, centre out: felt.light@0.95 at 0, felt.base at 0.38,
+        /// felt.deep at 0.66, surface.s0 at 1 (radial-gradient(ellipse 62% 58% at 50% 36%)).
+        static let vignetteStops: [Gradient.Stop] = [
+            .init(color: Palette.Felt.light.opacity(0.95).color, location: 0),
+            .init(color: Palette.Felt.base.color, location: 0.38),
+            .init(color: Palette.Felt.deep.color, location: 0.66),
+            .init(color: Palette.Surface.s0.color, location: 1),
+        ]
+        /// The room behind the vignette and the launch screen's colour (LaunchBackground).
+        static let room = Palette.Surface.s0.color
+        static let cardFill = Palette.Surface.s1.opacity(0.92).color
+        static let cardEdge = Palette.Line.subtle.color
+        static let fieldLabel = Palette.Text.secondary.color
+        static let fieldFill = Palette.Surface.s0.color
+        static let fieldEdge = Palette.Line.strong.color
+        /// A focused input's edge (the web's `.kit-input:focus`: team.a).
+        static let fieldFocus = Palette.Team.a.color
+        static let dividerLine = Palette.Line.strong.color
+        static let dividerText = Palette.Text.dim.color
+        /// The terms link (the web's `.auth-terms a`: team.a).
+        static let link = Palette.Team.a.color
+        /// The Minecraft-style phrase by the logo (`.auth-splash`): text.primary with a dark shadow.
+        static let phrase = Palette.Text.primary.color
+        static let phraseShadow = ThemeColor(0x000000, alpha: 0.6).color
+        /// The logo's black lettering keeps an edge on the dark room (drop-shadow text.primary@0.4).
+        static let logoGlow = Palette.Text.primary.opacity(0.4).color
+        /// The splash's cards: the game's faces (CardTextureGenerator.renderStandardCard).
+        static let cardFace = Palette.Card.face.color
+        static let cardBorder = Palette.Card.border.color
+        static let cardShadow = Palette.Card.shadow.color
+    }
+
     // MARK: Medals (tournament standings, leaderboard)
 
     static let medalGold = Palette.gold.color
