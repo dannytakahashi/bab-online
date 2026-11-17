@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The boot splash (build 13): the lamp comes up over the night card room, a hand of four
 /// aces fans out from under it, the logo settles in exactly where the sign-in's logo
-/// stands, the hand is gathered up and put away, and the app hands off by fading the
-/// splash away over the next screen. It starts on the launch screen's colour
+/// stands, the hand is gathered up and put away, and the app hands off (ContentView): over
+/// the sign-in / register the splash goes in one frame and only the card fades in; any
+/// other screen appears under the fading splash. It starts on the launch screen's colour
 /// (LaunchBackground = surface.s0, the room), so the first frame is the launch screen, and
 /// ends on the sign-in without its card and phrase: the same AuthVignette, and the logo on
 /// the sign-in logo's own frame (`logoTarget`, measured from the sign-in that ContentView
