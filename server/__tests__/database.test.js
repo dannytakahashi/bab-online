@@ -194,6 +194,20 @@ describe('deploy survival collections (liveGames, liveTournaments, serverInstanc
         expect(dbLogger.warn).not.toHaveBeenCalled();
     });
 
+    test('the backup/restore excludes (dbBackup.LIVE_COLLECTIONS) name exactly the live collections connectDB opens', async () => {
+        const { client, collections } = fakeClient();
+        mockConnect.mockResolvedValueOnce(client);
+        await database.connectDB();
+        const live = [database.getLiveGamesCollection(), database.getLiveTournamentsCollection(), database.getServerInstancesCollection()]
+            .map((c) => c.name);
+        const { LIVE_COLLECTIONS } = require('../admin/dbBackup');
+        expect([...LIVE_COLLECTIONS].sort()).toEqual([...live].sort());
+        // Every other collection connectDB opens is backed up: a new live-state
+        // collection must be added to LIVE_COLLECTIONS (and the privacy policy)
+        expect(Object.keys(collections).filter((n) => !LIVE_COLLECTIONS.includes(n)).sort())
+            .toEqual(['adminAudit', 'gameRecords', 'passwordResets', 'reports', 'users']);
+    });
+
     test('a caller that passes no live collection (restore-db.js) builds none of them, with no warning', async () => {
         const { client, collections } = fakeClient();
         const c = client.db().collection;

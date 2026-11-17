@@ -12,6 +12,9 @@
  * The target is --uri (no credentials: they would land in shell history)
  * or RESTORE_URI. MONGO_URI is never used, so an export left over from a
  * backup cannot aim a restore at production. Prints counts, never a document.
+ * Never restores the live-game collections (dbBackup.LIVE_COLLECTIONS), in
+ * either mode, even from an archive that has them; the target's own are left
+ * as they are (--drop included).
  */
 
 const fs = require('fs');
@@ -25,7 +28,9 @@ const USAGE = `Usage:
   --into-db <name>      restore under another name (mongorestore --nsFrom '<db>.*' --nsTo '<name>.*')
   --nsFrom '<db>.*' --nsTo '<name>.*'   the same, spelled as mongorestore spells it
   --drop                drop each archived collection in the target before restoring it
-  --i-mean-production   allow a target that is not localhost / 127.0.0.1 / ::1 (asks you to type the database name)`;
+  --i-mean-production   allow a target that is not localhost / 127.0.0.1 / ::1 (asks you to type the database name)
+
+  Never restored: ${B.LIVE_COLLECTIONS.join(', ')} (games in progress), even from an archive that has them`;
 
 function nsDb(pattern, flag) {
     const m = /^([A-Za-z0-9_-]{1,63})\.\*$/.exec(String(pattern || ''));
@@ -167,6 +172,7 @@ async function main() {
         console.log(`From:    database ${args.db} in the archive (${args.dbFrom})`);
         console.log(`Target:  ${target}${local ? '' : '   <-- NOT LOCAL'}`);
         console.log(`Mode:    ${args.drop ? '--drop (each archived collection is dropped, then restored)' : 'insert into an empty database'}`);
+        console.log(`Skipped: ${B.LIVE_COLLECTIONS.join(', ')} (games in progress; never restored)`);
         console.log(`Tool:    ${version}`);
         if (existing.length) {
             console.log(`Target already holds: ${existing.map((c) => `${c.name} ${c.count}`).join(', ')}`);
@@ -181,9 +187,7 @@ async function main() {
             if (typed !== args.targetDb) { console.error('Not confirmed; nothing written.'); process.exitCode = 1; return; }
         }
 
-        const toolArgs = ['--gzip', `--archive=${args.archive}`, `--nsInclude=${args.db}.*`];
-        if (args.targetDb !== args.db) toolArgs.push(`--nsFrom=${args.db}.*`, `--nsTo=${args.targetDb}.*`);
-        if (args.drop) toolArgs.push('--drop');
+        const toolArgs = B.restoreArgs(args);
         console.log('\nRestoring ...');
         const started = Date.now();
         const tool = B.runTool('mongorestore', toolArgs, B.uriWithoutDbPath(uri));

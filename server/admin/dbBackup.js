@@ -240,6 +240,34 @@ function archivesToPrune(fileNames, db, keep) {
     return fileNames.filter((f) => re.test(f)).sort().reverse().slice(Math.max(0, keep));
 }
 
+/**
+ * Deploy survival's live documents (docs/claude/server-infra.md, Live game
+ * persistence): the hands, game logs and chat of the games and tournaments in
+ * progress, and the server instances holding them. The privacy policy keeps
+ * them at most a day ("Games in progress"), so a logical backup never holds
+ * them and a restore never writes them, even from an archive that has them
+ * (one made by an older checkout). A volume backup cannot exclude them.
+ */
+const LIVE_COLLECTIONS = Object.freeze(['liveGames', 'liveTournaments', 'serverInstances']);
+
+/** mongodump's arguments (the URI goes through runTool's config, never here). */
+function dumpArgs(db, archive) {
+    return [`--db=${db}`, ...LIVE_COLLECTIONS.map((c) => `--excludeCollection=${c}`), '--gzip', `--archive=${archive}`];
+}
+
+/**
+ * mongorestore's arguments. --nsExclude names the namespace IN THE ARCHIVE
+ * (`<db>.<coll>`), also when --nsFrom / --nsTo rename it (mongorestore
+ * 100.16 matches include / exclude before renaming). --drop drops only the
+ * collections it restores, so a target's own live documents are untouched.
+ */
+function restoreArgs({ archive, db, targetDb, drop }) {
+    const a = ['--gzip', `--archive=${archive}`, `--nsInclude=${db}.*`, ...LIVE_COLLECTIONS.map((c) => `--nsExclude=${db}.${c}`)];
+    if (targetDb !== db) a.push(`--nsFrom=${db}.*`, `--nsTo=${targetDb}.*`);
+    if (drop) a.push('--drop');
+    return a;
+}
+
 /** mongodump's "done dumping `db.coll` (N documents)" lines. */
 function parseDumpSummary(stderr) {
     const out = [];
@@ -307,6 +335,9 @@ function formatBytes(n) {
 }
 
 module.exports = {
+    LIVE_COLLECTIONS,
+    dumpArgs,
+    restoreArgs,
     defaultDb,
     REPO_ROOT,
     TOOLS_HINT,
