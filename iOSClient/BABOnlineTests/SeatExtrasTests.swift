@@ -20,6 +20,25 @@ final class SeatExtrasTests: XCTestCase {
         return [
             ("iPhone SE size", CGSize(width: 375, height: 667), ch(i(20, 0, 0, 0), 0, 75.5), 0.62, 0.62),
             ("iPhone 17e", CGSize(width: 390, height: 844), ch(i(47, 0, 34, 0), 0, 75.5), 0.62, 0.62),
+            // measured in fixture mode (the [Layout] line, Xcode 27.2 simulators, 2026-11-16): the
+            // score bar 70.7 mid-trick / 80.3 bidding, Exit and the log 67.7 x 50.3, a spectator's
+            // pill 42.3. With the pill the side seats rise to the corner buttons' level, so their
+            // fans sit beside the avatar on the table's side (before: no fans on a 390 pt phone)
+            ("iPhone 17e / 16e / 14 (measured)", CGSize(width: 390, height: 844),
+             TableChrome(safeArea: i(47, 0, 34, 0), topBar: 70.667, cornerButton: CGSize(width: 67.667, height: 50.333)), 0.62, 0.62),
+            ("iPhone 17e bidding (measured)", CGSize(width: 390, height: 844),
+             TableChrome(safeArea: i(47, 0, 34, 0), topBar: 80.333, cornerButton: CGSize(width: 67.667, height: 50.333)), 0.62, 0.62),
+            ("iPhone 17e with the spectator's pill (measured)", CGSize(width: 390, height: 844),
+             TableChrome(safeArea: i(47, 0, 34, 0), topBar: 70.667, cornerButton: CGSize(width: 67.667, height: 50.333), bottomBar: 42.333), 0.62, 0.62),
+            ("iPhone 17e bidding with the pill (measured)", CGSize(width: 390, height: 844),
+             TableChrome(safeArea: i(47, 0, 34, 0), topBar: 80.333, cornerButton: CGSize(width: 67.667, height: 50.333), bottomBar: 42.333), 0.62, 0.62),
+            // the SE (2x): the side seats always sit level with the corner buttons (before: no fans)
+            ("iPhone SE (measured)", CGSize(width: 375, height: 667),
+             TableChrome(safeArea: i(20, 0, 0, 0), topBar: 71, cornerButton: CGSize(width: 68, height: 50.5)), 0.62, 0.62),
+            ("iPhone SE bidding (measured)", CGSize(width: 375, height: 667),
+             TableChrome(safeArea: i(20, 0, 0, 0), topBar: 81, cornerButton: CGSize(width: 68, height: 50.5)), 0.62, 0.62),
+            ("iPhone SE with the spectator's pill (measured)", CGSize(width: 375, height: 667),
+             TableChrome(safeArea: i(20, 0, 0, 0), topBar: 71, cornerButton: CGSize(width: 68, height: 50.5), bottomBar: 42.5), 0.62, 0.62),
             ("iPhone 17 Pro", CGSize(width: 402, height: 874), ch(i(62, 0, 34, 0), 0, 75.5), 0.62, 0.62),
             ("iPhone Pro Max", CGSize(width: 440, height: 956), ch(i(62, 0, 34, 0), 0, 75.5), 0.62, 0.62),
             ("iPad 13 portrait", CGSize(width: 1032, height: 1376), ch(i(24, 0, 20, 0), 0, 75.5), 1.3, 1),
@@ -77,6 +96,41 @@ final class SeatExtrasTests: XCTestCase {
             let L = TableLayout(size: size, chrome: chrome)
             XCTAssertEqual(Self.scale(L.fans(spectating: false)), seated, "\(name) seated: \(L.zoom) \(L.mode)")
             XCTAssertEqual(Self.scale(L.fans(spectating: true)), spectating, "\(name) spectating")
+        }
+    }
+
+    /// A side seat's fan goes above its avatar wherever it fits there, and beside the avatar on
+    /// the table's side, level with it, only where the corner buttons leave no room above (a 390 pt
+    /// phone's spectator: the pill raises the side seats; the SE). Before, those tables showed no fans.
+    func testSideSeatFansGoBesideTheAvatarOnlyWhereAboveIsBlocked() {
+        let i = TableLayoutTests.insets
+        let corner = CGSize(width: 67.667, height: 50.333)
+        let seated = TableLayout(size: CGSize(width: 390, height: 844), chrome: TableChrome(safeArea: i(47, 0, 34, 0), topBar: 70.667, cornerButton: corner))
+        let pill = TableLayout(size: CGSize(width: 390, height: 844),
+                               chrome: TableChrome(safeArea: i(47, 0, 34, 0), topBar: 70.667, cornerButton: corner, bottomBar: 42.333))
+        let se = TableLayout(size: CGSize(width: 375, height: 667), chrome: TableChrome(safeArea: i(20, 0, 0, 0), topBar: 71, cornerButton: CGSize(width: 68, height: 50.5)))
+        for (name, L, spectating, besides) in [("390 seated", seated, false, false), ("390 spectating", seated, true, false),
+                                               ("390 spectating, pill", pill, true, true), ("SE seated", se, false, true),
+                                               ("SE spectating", se, true, true)] {
+            guard let fans = L.fans(spectating: spectating) else { XCTFail("\(name): no fans"); continue }
+            for r in [Rel.left, .right] {
+                let a = L.seatAnchor(r), box = fans[r]!
+                if besides {
+                    XCTAssertEqual(box.midY, a.y, accuracy: 0.01, "\(name) \(r): level with the avatar")
+                    let inward = r == .left ? box.minX - (a.x + TableLayout.glowRadius) : (a.x - TableLayout.glowRadius) - box.maxX
+                    XCTAssertGreaterThanOrEqual(inward, TableLayout.fanGap, "\(name) \(r): on the table's side of the glow")
+                } else {
+                    XCTAssertEqual(box.midX, a.x, accuracy: 0.01, "\(name) \(r): above the avatar")
+                    XCTAssertGreaterThan(box.minY, a.y + TableLayout.glowRadius, "\(name) \(r)")
+                }
+            }
+        }
+        // the roomier fans never take the side spot: a scale-1 table's side fans stay above
+        for (name, size, chrome, seatedScale, _) in Self.devices where (seatedScale ?? 0) >= 1 {
+            let L = TableLayout(size: size, chrome: chrome)
+            for (r, box) in L.fans(spectating: false) ?? [:] where r == .left || r == .right {
+                XCTAssertEqual(box.midX, L.seatAnchor(r).x, accuracy: 0.01, "\(name) \(r)")
+            }
         }
     }
 

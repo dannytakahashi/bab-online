@@ -1138,7 +1138,21 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   (roomy), 1 (regular), 0.62 (compact: a 16 x 23 back in a 60 x 29 box); the
   table takes the largest at which every seat has a clear spot (`fanPlan`):
   above the avatar, or for the top seat beside it on the left (past the
-  dealer marker, or past the name band) or, compact only, under its name. The
+  dealer marker, or past the name band) or, compact only, under its name;
+  compact only, a side seat's fan may also sit beside its avatar on the
+  table's side, level with it (past the glow, else past the dealer marker
+  when the marker is on that side). A seat's spots are tried in that order,
+  so a table that had room before keeps exactly the same boxes. Why the side
+  spot (2026-11-16, after build 12): on a 390 pt phone (iPhone 17e / 16e /
+  12-14; measured chrome: score bar 70.7 mid-trick, 80.3 bidding, Exit and
+  the log 67.7 x 50.3) a spectator's pill (42.3) raises the cluster and the
+  side seats, and their fan above the avatar reached 4 pt into the corner
+  buttons' keep-out, so the table showed no fans at all (all or nothing;
+  seated, without the pill, they fit); on the SE (375 x 667, buttons 68 x
+  50.5, bar 71) the side seats always sit level with the buttons (29 pt
+  in), so it never had fans. A smaller scale (0.5) cleared the 390 pt
+  spectator by 2 pt at 70.7 and not at 80.3, and not the SE at all; the
+  side spot fits every measured chrome. The
   node carries the scale (`fanNode.setScale`, from the box's width). A box
   keeps 4 pt from the trick cards, every seat's glow, name, dealer marker and
   bid bubble, the other fans, the corner buttons, the trick piles, my seat's
@@ -1152,9 +1166,13 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   the layout is degraded, no fan is drawn. Result (`SeatExtrasTests.devices`):
   roomy on the 13-inch iPad and the open Duo seated (regular when
   spectating, on the 11-inch iPad in portrait and in the 546 x 669 pane
-  beside the docked log); compact on every phone size (SE to Pro Max: side
-  seats above the avatar, the partner's above, beside or under its name) and
-  the closed Duo. Phones were decided from screenshots at standard and
+  beside the docked log); compact on every phone size (SE to Pro Max, seated
+  and spectating, mid-trick and bidding: side seats above the avatar, or
+  beside it on the SE and a 390 pt phone's spectator view; the partner's
+  above, beside or under its name) and the closed Duo; the rows with the
+  measured 390 x 844 and 375 x 667 chrome (with and without the pill) are in
+  `SeatExtrasTests.devices`, and `TableParityUITests` requires the fans on
+  every screen at least 375 pt wide. Phones were decided from screenshots at standard and
   accessibility text sizes: the compact fans sit clear of the trick cards,
   names, bid bubbles and the hand. eb73520 removed the first build's fans
   ("Simplified opponents: removed card-back fans"; no further reason
