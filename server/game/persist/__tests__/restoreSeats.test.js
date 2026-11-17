@@ -2,8 +2,9 @@
  * GameState.restoreFrom / restoreSeats, the restore writers (deploy
  * survival, PR 3): the seat matrix (every legal controller/presence a seat
  * is saved in, and what it comes back as), the refusals (anywhere outside
- * a restore is a reported violation; a bad doc is a CodecError), and a
- * rejoin on a restored game re-keying the hand to the owner's socket.
+ * a restore is a reported violation; a bad doc is a CodecError), a
+ * rejoin on a restored game re-keying the hand to the owner's socket, and
+ * a lobby-born game's voice settings and play-again origin.
  */
 
 const { createMemoryDb } = require('../../../testUtils/memoryDb');
@@ -135,6 +136,8 @@ function bidDoc(seats) {
             hands: JSON.parse(JSON.stringify(HANDS)),
             seats,
             seatOrder: [1, 2, 3, 4],
+            casualVoice: null,
+            lobbyOrigin: null,
         },
         log: [{ message: 'Game started!', playerPosition: null, type: 'system', timestamp: NOW - 600000 }],
         logTotal: 1,
@@ -377,5 +380,64 @@ describe('a rejoin on a restored game', () => {
         gameManager.registerUser(socket.id, 'owner2');
         await reconnectHandlers.rejoinGame(socket, io, { gameId: GAME_ID, username: 'owner2' });
         expect(log.find((l) => l.to === 'self:sock-owner2' && l.event === 'rejoinFailed')).toBeDefined();
+    });
+});
+
+describe('a lobby-born casual game (family lobby voice, play again)', () => {
+    function lobbyDoc() {
+        const seats = allNative();
+        seats[1] = savedSeat(1, 'human', 'connected');
+        seats[3] = savedSeat(3, 'human', 'connected');
+        const doc = bidDoc(seats);
+        doc.state.casualVoice = { host: 'owner1', spectatorsCanTalk: false, lobbyExtras: ['watcher5'] };
+        doc.state.lobbyOrigin = {
+            lobbyId: 'lobby-1', name: "owner1's Game", createdBy: 'owner1', host: 'owner1',
+            settings: { spectatorsCanTalk: false },
+            order: ['owner1', BOTS[2].socketId, 'owner3', BOTS[4].socketId, 'watcher5'],
+            bots: [[BOTS[2].socketId, 'sharon'], [BOTS[4].socketId, 'mike']],
+            playAgainUsers: ['owner1', 'watcher5'], casualUsers: ['owner1', 'owner3', 'watcher5'], extras: ['watcher5'],
+        };
+        return doc;
+    }
+
+    test('hydrate rebuilds the voice settings with an empty voice room and the origin without chat; it saves back the same', () => {
+        const doc = lobbyDoc();
+        const { game } = codec.hydrate(JSON.parse(JSON.stringify(doc)), { now: NOW });
+        try {
+            expect(game.casualVoice).toMatchObject({ host: 'owner1', spectatorsCanTalk: false, lastIo: null, requested: null });
+            expect(Array.from(game.casualVoice.lobbyExtras)).toEqual(['watcher5']);
+            expect(game.voiceSpectators).toEqual(new Map());
+            expect(game.voiceOfferDir).toEqual(new Map());
+            const o = game.lobbyOrigin;
+            expect(o).toMatchObject({ lobbyId: 'lobby-1', name: "owner1's Game", createdBy: 'owner1', host: 'owner1', messages: [] });
+            expect(o.bots).toEqual(new Map([[BOTS[2].socketId, 'sharon'], [BOTS[4].socketId, 'mike']]));
+            expect(o.playAgainUsers).toEqual(new Set(['owner1', 'watcher5']));
+            expect(o.casualUsers).toEqual(new Set(['owner1', 'owner3', 'watcher5']));
+            expect(o.extras).toEqual(new Set(['watcher5']));
+            const again = codec.serialize(game, { tournamentId: null, getBot: () => null });
+            expect(again).toEqual(codec.expectedAfterRestore(doc));
+        } finally {
+            game._cancelAllTimers();
+        }
+    });
+
+    test('the lobby chat is never saved', () => {
+        const { game } = codec.hydrate(lobbyDoc(), { now: NOW });
+        try {
+            game.lobbyOrigin.messages = [{ username: 'owner1', message: 'see you at the table', timestamp: NOW }];
+            const doc = codec.serialize(game, { tournamentId: null, getBot: () => null });
+            expect(JSON.stringify(doc)).not.toContain('see you at the table');
+        } finally {
+            game._cancelAllTimers();
+        }
+    });
+
+    test('play again reads a restored game as it reads a live one', () => {
+        const io = makeIo([]);
+        const game = adoptForTest(lobbyDoc(), { io, now: NOW });
+        const plan = require('../../../socket/playAgain').plan(game, io);
+        expect(plan).toMatchObject({ gameId: GAME_ID, spectatorsCanTalk: false });
+        expect(plan.origin).toBe(game.lobbyOrigin);
+        expect(plan.owners.map((o) => o.username)).toEqual(['owner1', 'owner3']);
     });
 });

@@ -24,11 +24,23 @@
  * `bots` is one record per bot-played seat ({socketId, username,
  * personality, position, pic, partnerHistory}: the registered BotPlayer's
  * partnerHistory feeds Zach's bids).
+ * A game a lobby started (GameManager.startGameFromLobby) also saves, in
+ * `state`, its voice settings (casualVoice: host, spectatorsCanTalk, the
+ * lobby extras) and what play again reopens at its end (lobbyOrigin,
+ * without the lobby chat), both by username; null for any other game. Not
+ * saved: the voice spectators and their relayed SDP directions (socket
+ * keyed: spectators re-spectate and are admitted again), and process state
+ * outside the game: BotController's "they sent a boy" cooldown (a restored
+ * table may quip one cooldown sooner), GameManager.startedLobbies (the
+ * extras' reload redirect into a just-started game) and every lobby,
+ * play-again holds and reservations included (they live on lobbies).
  *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
  * fresh reconnect grace keyed by restored:<gameId>:<pos>, lazy / resign
- * seats away (gone stays gone), native bots bot/none) + validateGameState.
+ * seats away (gone stays gone), native bots bot/none) + validateGameState,
+ * then a lobby-born game's casualVoice (gameVoice.initCasualVoice, no io:
+ * the adopter's next voice call with one sets it) and lobbyOrigin.
  * eventSeq continues 1000 past the saved one (defensive: both clients take
  * a snapshot's seq as the baseline). It registers nothing (GameManager,
  * BotController, rooms) and arms no timer but the grace timers: the
@@ -83,12 +95,22 @@ const SAVED = deepFreeze({
         'tricks', 'trickHistory', 'score', 'rainbows',
         'handStats', 'playerStats', 'handTricks', 'hsiValues',
         'hands', 'seats', 'gameLog', 'logTotal',
-        'players'                                     // only its key order, as state.seatOrder (the deal order)
+        'players',                                    // only its key order, as state.seatOrder (the deal order)
+        'casualVoice', 'lobbyOrigin'                  // a lobby-born casual game (null otherwise): below
     ],
     seat: ['controller', 'presence', 'ownerUsername', 'ownerPic', 'bot', 'lastPersonality', 'resignedAt', 'leftAt'],
     seatBot: ['socketId', 'username', 'pic', 'personality'],
     botPlayer: ['socketId', 'username', 'personality', 'position', 'pic', 'partnerHistory'],
-    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from']
+    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from'],
+    // gameVoice.initCasualVoice's settings, by username: a restored family
+    // game keeps its host, "Spectators can talk" and which watchers came
+    // from the lobby (hydrate re-runs initCasualVoice with them)
+    casualVoice: ['host', 'spectatorsCanTalk', 'lobbyExtras'],
+    // playAgain.originOf, by username and bot id (no human socket id):
+    // a restored game still returns its players to their lobby at its end.
+    // Maps and Sets as arrays (bots as [botId, personality] entries)
+    lobbyOrigin: ['lobbyId', 'name', 'createdBy', 'host', 'settings', 'order', 'bots',
+        'playAgainUsers', 'casualUsers', 'extras']
 });
 
 /** Not saved: rebuilt, reset or set fresh on restore (or never restored). */
@@ -102,12 +124,21 @@ const DERIVED = deepFreeze({
         'spectators',                                 // people re-spectate
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
-        'frozen', '_tainted'                          // a frozen or tainted game is never saved
+        'frozen', '_tainted',                         // a frozen or tainted game is never saved
+        'voiceSpectators', 'voiceOfferDir'            // socket-keyed: voice spectators re-spectate and re-join
     ],
     seat: ['position', 'ownerSocketId', 'ownerView', 'seatSocketId', 'absentSince', 'graceDeadline', 'resignableAt'],
     seatBot: [],
     botPlayer: ['gameId', 'cardMemory'],              // card memory: replayCardMemory from trickHistory
-    logEntry: []
+    logEntry: [],
+    // lastIo: the adopter's io (gameVoice.ioFor sets it on the next call
+    // with one); a pending coalesced talk change and its timer are dropped
+    // (the applied spectatorsCanTalk is saved); the admission counter
+    // restarts with the re-admitted spectators
+    casualVoice: ['lastIo', 'requested', 'lastAppliedAt', 'order'],
+    // Lobby chat is not saved (lobbies are not persisted, plan 2.8): the
+    // lobby a restored game reopens starts with no chat
+    lobbyOrigin: ['messages']
 });
 
 class CodecError extends Error {
@@ -130,6 +161,56 @@ function lookupTournamentId(gameId) {
 function defaultGetBot(game) {
     const { botController } = require('../bot');
     return (socketId) => botController.getBot(game.gameId, socketId);
+}
+
+const list = (v) => (v == null ? [] : Array.from(v));
+const strings = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+
+/** game.casualVoice's SAVED settings, or null (not a lobby-born game). */
+function encodeCasualVoice(cv) {
+    if (!cv) return null;
+    return {
+        host: cv.host ?? null,
+        spectatorsCanTalk: cv.spectatorsCanTalk !== false,
+        lobbyExtras: list(cv.lobbyExtras)
+    };
+}
+
+/** game.lobbyOrigin without its chat, Maps and Sets as arrays, or null. */
+function encodeLobbyOrigin(o) {
+    if (!o) return null;
+    return {
+        lobbyId: o.lobbyId ?? null,
+        name: o.name ?? null,
+        createdBy: o.createdBy ?? null,
+        host: o.host ?? null,
+        settings: { spectatorsCanTalk: o.settings?.spectatorsCanTalk !== false },
+        order: list(o.order),
+        bots: Array.from(o.bots || [], ([id, personality]) => [id, personality ?? null]),
+        playAgainUsers: list(o.playAgainUsers),
+        casualUsers: list(o.casualUsers),
+        extras: list(o.extras)
+    };
+}
+
+/** playAgain.originOf's shape back from a doc (messages: none). */
+function decodeLobbyOrigin(d) {
+    if (!d || typeof d !== 'object') return null;
+    return {
+        lobbyId: d.lobbyId ?? null,
+        name: d.name ?? null,
+        createdBy: d.createdBy ?? null,
+        host: d.host ?? null,
+        settings: { spectatorsCanTalk: d.settings?.spectatorsCanTalk !== false },
+        messages: [],
+        order: strings(d.order),
+        bots: new Map((Array.isArray(d.bots) ? d.bots : [])
+            .filter((e) => Array.isArray(e) && typeof e[0] === 'string')
+            .map(([id, personality]) => [id, personality ?? null])),
+        playAgainUsers: new Set(strings(d.playAgainUsers)),
+        casualUsers: new Set(strings(d.casualUsers)),
+        extras: new Set(strings(d.extras))
+    };
 }
 
 /**
@@ -225,7 +306,9 @@ function serialize(game, { tournamentId, getBot } = {}) {
         hands,
         seats,
         // The players index's order: dealHand deals to getSocketIds() in it
-        seatOrder: Array.from(game.players.values(), (p) => p.position)
+        seatOrder: Array.from(game.players.values(), (p) => p.position),
+        casualVoice: encodeCasualVoice(game.casualVoice),
+        lobbyOrigin: encodeLobbyOrigin(game.lobbyOrigin)
     };
     return {
         v: CODEC_V,
@@ -278,6 +361,16 @@ function hydrate(doc, { now = Date.now(), onGraceExpire = null } = {}) {
     if (!ok) throw fail('restore');
     const { errors } = game.validateGameState();
     if (errors.length > 0) throw fail('invalid', { errors });
+    if (state.casualVoice && typeof state.casualVoice === 'object') {
+        require('../../voice/gameVoice').initCasualVoice(game, {
+            host: state.casualVoice.host ?? null,
+            spectatorsCanTalk: state.casualVoice.spectatorsCanTalk !== false,
+            io: null,
+            lobbyExtras: strings(state.casualVoice.lobbyExtras)
+        });
+    }
+    const lobbyOrigin = decodeLobbyOrigin(state.lobbyOrigin);
+    if (lobbyOrigin) game.lobbyOrigin = lobbyOrigin;
     return {
         game,
         bots: (Array.isArray(doc.bots) ? doc.bots : []).map((b) => json(b)),

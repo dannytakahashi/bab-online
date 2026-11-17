@@ -6,7 +6,8 @@
  *
  *   1. Object.keys of live objects mid-play (chaos runs and a real
  *      tournament with lazy seats): GameState, its seat records and their
- *      bot records, BotPlayer, a game log line, TournamentState, its member
+ *      bot records, BotPlayer, a game log line, a lobby-born game's
+ *      casualVoice and lobbyOrigin, TournamentState, its member
  *      entries, rounds, round games and chat lines. Every key is in SAVED
  *      or DERIVED, and every saved nested value survives JSON unchanged.
  *   2. A static scan of server code: every `game.<x> =`, `t.<x> =` and
@@ -57,16 +58,20 @@ const tournamentCodec = require('../tournamentCodec');
 
 const SERVER = path.join(__dirname, '../../..');
 
-// sha256(JSON.stringify(SAVED)).slice(0, 16) per codec version
+// sha256(JSON.stringify(SAVED)).slice(0, 16) per codec version. Game v1
+// was re-pinned (not bumped) when casualVoice and lobbyOrigin joined SAVED
+// (main's family lobbies and play again): no v1 doc had ever been written,
+// nothing calls serialize before the persist store (PR 4). From PR 4 on a
+// change bumps CODEC_V.
 const PINNED = {
-    game: { 1: '3a9f4c46b400a79e' },
+    game: { 1: '53c0d6fe0850bbdc' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
-    game: { 1: 'f35a4a0132cf66b6' },
+    game: { 1: '26ba3747585567ba' },
     tournament: { 1: 'b361a440bd865499' },
 };
 
@@ -124,6 +129,8 @@ function keyCollector() {
         }
         for (const b of botController.getGameBots(g.gameId)) add('botPlayer', b);
         for (const e of g.gameLog.slice(-20)) add('logEntry', e);
+        add('casualVoice', g.casualVoice);
+        add('lobbyOrigin', g.lobbyOrigin);
         // Saved values that are objects must be JSON values (no Map, Set,
         // class instance or undefined inside)
         for (const k of ['bids', 'tricks', 'score', 'rainbows', 'handStats', 'playerStats', 'handTricks', 'hsiValues', 'trickHistory']) {
@@ -170,7 +177,7 @@ describe('every live field is classified', () => {
         } finally {
             watch.stop();
         }
-        for (const kind of ['game', 'seat', 'seatBot', 'botPlayer', 'logEntry']) expect(c.keys[kind]?.size).toBeGreaterThan(0);
+        for (const kind of ['game', 'seat', 'seatBot', 'botPlayer', 'logEntry', 'casualVoice', 'lobbyOrigin']) expect(c.keys[kind]?.size).toBeGreaterThan(0);
         expect(unclassified(c.keys, gameCodec)).toEqual({});
         expect(c.nested).toEqual([]);
     }, 300000);
@@ -299,6 +306,17 @@ const restoredPresence = (s) => {
     return s.presence === 'gone' ? 'gone' : 'away';
 };
 
+/** `obj`'s SAVED[kind] keys, Maps and Sets as arrays (null for none). */
+function savedView(obj, kind) {
+    if (!obj) return null;
+    const out = {};
+    for (const k of gameCodec.SAVED[kind]) {
+        const v = obj[k];
+        out[k] = v instanceof Map || v instanceof Set ? plain(Array.from(v)) : plain(v);
+    }
+    return out;
+}
+
 /** The value of a SAVED game key, by position rather than by socket. */
 function gameView(game, key) {
     switch (key) {
@@ -308,6 +326,9 @@ function gameView(game, key) {
             return out;
         }
         case 'players': return Array.from(game.players.values(), (p) => p.position);
+        // Sets and Maps as arrays, SAVED keys only (a restore drops the rest)
+        case 'casualVoice': return savedView(game.casualVoice, 'casualVoice');
+        case 'lobbyOrigin': return savedView(game.lobbyOrigin, 'lobbyOrigin');
         // Before PR 2 a live game has no logTotal: its log length counts
         case 'logTotal': return Number.isInteger(game.logTotal) ? game.logTotal : game.gameLog.length;
         default: return plain(game[key]);
@@ -353,6 +374,17 @@ function savedCoverage(game, doc, restored, getBot) {
             }
         }
     }
+    for (const kind of ['casualVoice', 'lobbyOrigin']) {
+        const rec = doc.state[kind];
+        check(`${kind} present`, () => expect(rec === null).toBe(!game[kind]));
+        if (rec) check(`${kind} keys`, () => sameKeys(rec, gameCodec.SAVED[kind]));
+    }
+    // What hydrate sets up besides the saved settings: an empty voice room
+    // (voice spectators re-spectate), no lobby chat
+    if (game.casualVoice) {
+        check('voice room', () => expect([restored.voiceSpectators?.size, restored.voiceOfferDir?.size]).toEqual([0, 0]));
+    }
+    if (game.lobbyOrigin) check('lobby chat', () => expect(restored.lobbyOrigin.messages).toEqual([]));
     const botSeats = game.seatList().filter((s) => s.bot).map((s) => s.position);
     check('bots', () => expect(doc.bots.map((b) => b.position)).toEqual(botSeats));
     for (const rec of doc.bots) {
@@ -385,6 +417,12 @@ function docShape(doc, acc) {
         if (seat.bot) merge(acc, 'seatBot', Object.keys(seat.bot));
     }
     for (const b of doc.bots) merge(acc, 'bot', Object.keys(b));
+    if (st.casualVoice) merge(acc, 'casualVoice', Object.keys(st.casualVoice));
+    if (st.lobbyOrigin) {
+        merge(acc, 'lobbyOrigin', Object.keys(st.lobbyOrigin));
+        merge(acc, 'lobbyOriginSettings', Object.keys(st.lobbyOrigin.settings));
+        for (const e of st.lobbyOrigin.bots) merge(acc, 'lobbyOriginBot', [`length ${e.length}`]);
+    }
     for (const t of st.trickHistory) merge(acc, 'trick', Object.keys(t));
     const cards = [st.leadCard, st.trump, ...st.playedCards, ...Object.values(st.hands).flat(),
         ...st.trickHistory.flatMap((t) => t.cards)];
@@ -494,7 +532,8 @@ describe('SAVED is what serialize writes and hydrate reads back', () => {
         expect(docs).toBeGreaterThan(50);
         // Every kind of encoded object was seen: a shape from a partial
         // sample would pin too little
-        expect(sortedKeys(shape)).toEqual(['bot', 'card', 'doc', 'hands', 'playedCards', 'playerBids', 'seat', 'seatBot', 'seats', 'state', 'trick']);
+        expect(sortedKeys(shape)).toEqual(['bot', 'card', 'casualVoice', 'doc', 'hands', 'lobbyOrigin', 'lobbyOriginBot',
+            'lobbyOriginSettings', 'playedCards', 'playerBids', 'seat', 'seatBot', 'seats', 'state', 'trick']);
         expect({ v: gameCodec.CODEC_V, shape: shapeHash(shape) })
             .toEqual({ v: gameCodec.CODEC_V, shape: PINNED_SHAPE.game[gameCodec.CODEC_V] });
     }, 300000);
