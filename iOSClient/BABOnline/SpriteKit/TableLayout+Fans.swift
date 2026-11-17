@@ -16,8 +16,11 @@ import CoreGraphics
 /// the table's side (past the glow, or past the dealer marker), where the
 /// corner buttons leave no room above it (a 390 pt phone's spectator, whose
 /// pill raises the side seats to the buttons' level; every SE-size screen).
-/// Each seat's spots are tried in that order, so a table that had room before
-/// keeps the same boxes. "Clear" is `fanGap`
+/// Each seat's spots are tried in that order (the side spot last), so every
+/// measured device that had room before keeps its boxes; the search is over all
+/// seats at once, so on some untested sizes a seat taking the side spot can let
+/// the top seat keep an earlier spot, moving fans that fitted before (never
+/// onto anything). "Clear" is `fanGap`
 /// from the trick cards, every seat's glow, name, dealer marker and bid bubble,
 /// the other fans, the corner buttons, the trick piles, my seat's row, my
 /// lifted hand, the fold, the spectator badge and the safe area's edges. Fans

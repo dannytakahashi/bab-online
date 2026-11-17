@@ -1141,8 +1141,14 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   dealer marker, or past the name band) or, compact only, under its name;
   compact only, a side seat's fan may also sit beside its avatar on the
   table's side, level with it (past the glow, else past the dealer marker
-  when the marker is on that side). A seat's spots are tried in that order,
-  so a table that had room before keeps exactly the same boxes. Why the side
+  when the marker is on that side). A seat's spots are tried in that order
+  (the side spot last), so every measured device row that had fans before
+  keeps exactly its boxes. The search (`firstFit`) is over all seats at once,
+  so on some untested sizes (a 464-476 x 640-736 window with the Duo's vertical
+  bar) a side seat taking the new spot lets the top seat keep an earlier spot,
+  and fans that fitted before move (still clear of everything). On the SE the
+  three opponent fans then sit in one row between the side avatars with the
+  partner's about 7.5 pt higher (accepted: before, the SE showed no fans). Why the side
   spot (2026-11-16, after build 12): on a 390 pt phone (iPhone 17e / 16e /
   12-14; measured chrome: score bar 70.7 mid-trick, 80.3 bidding, Exit and
   the log 67.7 x 50.3) a spectator's pill (42.3) raises the cluster and the
