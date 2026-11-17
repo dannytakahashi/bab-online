@@ -960,6 +960,12 @@ class GameManager {
             if (this.isHeldLobbySeat(lobby, p)) m.reconnecting = true;
             // Play again: a place held for someone not back from the last game
             if (this.lobbyGrace.get(p.socketId)?.kind === 'afterGame') m.returning = true;
+            // Play again: back in the lobby but the app still shows the last
+            // game's results (afterGame.unsettled: no lobbyReturnSeen nor
+            // any act in the lobby yet). Only while mapped: a dropped one
+            // is a hold (returning) or a reload-held seat (reconnecting)
+            if (lobby.afterGame?.unsettled?.has(p.socketId) && this.playerLobbies.get(p.socketId) === lobby.id &&
+                !this.lobbyGrace.has(p.socketId)) m.onResults = true;
             return m;
         });
         const out = { members };
@@ -1104,6 +1110,9 @@ class GameManager {
         lobby.players = lobby.players.filter(p => p.socketId !== socketId);
         lobby.readyPlayers.delete(socketId);
         lobby.capable?.delete(socketId);
+        // (play again: a socket that left is no longer on the results here,
+        // also if it joins this lobby again later)
+        lobby.afterGame?.unsettled?.delete(socketId);
         this.playerLobbies.delete(socketId);
         this._clearLobbyGrace(socketId);
 

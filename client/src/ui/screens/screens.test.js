@@ -641,10 +641,11 @@ describe('family lobbies (up to 8; owner 2026-11-16)', () => {
 
 describe('play again: a lobby reopened after its game (owner 2026-11-16)', () => {
   /** A reopened lobby's payload: held rows (returning + reconnecting) and expected names. */
-  function reopened(names, { host = 'me', returning = [], expected = null, bots = [], ready = [], capacity = 8 } = {}) {
+  function reopened(names, { host = 'me', returning = [], expected = null, bots = [], ready = [], capacity = 8, onResults = [] } = {}) {
     const members = names.map((username) => {
       const m = { socketId: bots.includes(username) ? `bot:${username}` : returning.includes(username) ? `away:${username}` : `s-${username}`, username, ready: ready.includes(username), playing: true };
       if (bots.includes(username)) m.isBot = true;
+      if (onResults.includes(username)) m.onResults = true;
       if (returning.includes(username)) {
         m.reconnecting = true;
         m.returning = true;
@@ -664,6 +665,34 @@ describe('play again: a lobby reopened after its game (owner 2026-11-16)', () =>
   const rowOf = (name) => rows().find((r) => r.querySelector('.seat-row__name')?.title === name);
   const update = (data, me = 'me') => updateLobbyPlayersList(null, data.players, me, { lobby: data });
   const releaseButtons = () => [...document.querySelectorAll('#lobbyPlayersList [data-release-hold]')];
+
+  it('a member still on the last game\'s results says "Still on the results" in the "Not back yet" style, never on one\'s own row, with no "Don\'t wait"', () => {
+    showGameLobby(reopened(['me', 'ann', 'bob', 'cat'], { onResults: ['me', 'cat', 'bob'], ready: ['bob'] }), socket, 'me');
+    const status = rowOf('cat').querySelector('.seat-row__status');
+    expect(status.textContent).toBe('Still on the results');
+    expect(status.classList.contains('is-reconnecting')).toBe(true);
+    expect(status.classList.contains('is-returning')).toBe(true);
+    expect(rowOf('cat').dataset.onResults).toBe('true');
+    expect(rowOf('cat').dataset.returning).toBeUndefined();
+    // one's own row (this client is on the lobby screen) and a ready row read as usual
+    expect(rowOf('me').querySelector('.seat-row__status').textContent).toBe('Waiting...');
+    expect(rowOf('me').dataset.onResults).toBeUndefined();
+    expect(rowOf('bob').querySelector('.seat-row__status').textContent).toBe('✓ Ready');
+    expect(rowOf('ann').querySelector('.seat-row__status').textContent).toBe('Waiting...');
+    // they are present: the host gets no "Don't wait" for them
+    expect(releaseButtons()).toHaveLength(0);
+    // they tapped Return to Lobby (the server's update drops the flag)
+    update(reopened(['me', 'ann', 'bob', 'cat'], { ready: ['bob'] }));
+    expect(rowOf('cat').querySelector('.seat-row__status').textContent).toBe('Waiting...');
+    expect(rowOf('cat').querySelector('.seat-row__status').classList.contains('is-returning')).toBe(false);
+    expect(rowOf('cat').dataset.onResults).toBeUndefined();
+  });
+
+  it('a payload without members (an older server) never shows "Still on the results"', () => {
+    const data = reopened(['me', 'ann', 'bob', 'cat'], { onResults: ['cat'] });
+    showGameLobby({ lobbyId: data.lobbyId, players: data.players.map((p) => ({ ...p, onResults: true })), messages: [] }, socket, 'me');
+    expect(rowOf('cat').querySelector('.seat-row__status').textContent).toBe('Waiting...');
+  });
 
   it('a held row says "Not back yet" (not Reconnecting…); the host gets "Don\'t wait", which sends releaseLobbyHold once', () => {
     showGameLobby(reopened(['me', 'ann', 'bob', 'cat'], { returning: ['cat'] }), socket, 'me');

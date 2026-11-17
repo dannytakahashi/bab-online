@@ -91,6 +91,14 @@ struct LobbyPlayerRow: View {
                         .foregroundColor(Theme.textSecondary)
                         .italic()
                         .accessibilityIdentifier("lobby.reconnecting")
+                } else if player.showsOnResults(isCurrentUser: isCurrentUser, isReconnecting: isReconnecting) {
+                    // play again: back in the lobby, still reading the last game's results
+                    // (present and connected: no "Don't wait")
+                    Text(PlayAgainCopy.stillOnResults)
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
+                        .italic()
+                        .accessibilityIdentifier("lobby.onResults")
                 } else if let status {
                     Text(status.rawValue)
                         .font(.caption2)
@@ -156,6 +164,7 @@ struct LobbyPlayerRow: View {
 /// The words of play again (the spec's copy; the web says the same).
 enum PlayAgainCopy {
     static let notBackYet = "Not back yet"
+    static let stillOnResults = "Still on the results"
     static let expected = "Expected"
     static let dontWait = "Don't wait"
     static func dontWaitFor(_ name: String) -> String { "Don't wait for \(name)" }

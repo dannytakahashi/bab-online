@@ -35,8 +35,10 @@ function sendLobbyState(io, lobby, { except = null, onlyTo = null, own = {} } = 
  * Handle player marking themselves as ready
  */
 async function playerReady(socket, io) {
-    // (play again: acting in the lobby means it is on the lobby screen)
-    playAgain.settle(socket.id);
+    // (play again: acting in the lobby means it is on the lobby screen; the
+    // others' lists lose its "Still on the results" with the update below,
+    // or with announceSettled when there is none)
+    const settled = playAgain.settle(socket.id);
     const result = gameManager.setPlayerReady(socket.id);
 
     if (!result.success) {
@@ -44,6 +46,7 @@ async function playerReady(socket, io) {
         // The table filled first (a lobby of more than 4): this member
         // watches; its list is sent again so a client showing it ready resyncs
         if (result.tableFull && result.lobby) sendLobbyState(io, result.lobby, { onlyTo: socket.id });
+        playAgain.announceSettled(io, settled, socket.id);
         return;
     }
 
@@ -210,7 +213,8 @@ function startExtras(io, game, extras) {
  */
 function lobbyChat(socket, io, data) {
     const { message } = data;
-    playAgain.settle(socket.id);
+    // (a chat line carries no list: the others are told it settled)
+    playAgain.announceSettled(io, playAgain.settle(socket.id), socket.id);
 
     if (!message || message.trim().length === 0) {
         return;
@@ -247,11 +251,12 @@ function lobbyChat(socket, io, data) {
  * Handle player unmarking themselves as ready
  */
 function playerUnready(socket, io) {
-    playAgain.settle(socket.id);
+    const settled = playAgain.settle(socket.id);
     const result = gameManager.unsetPlayerReady(socket.id);
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'playerUnready');
+        playAgain.announceSettled(io, settled, socket.id);
         return;
     }
 
@@ -450,7 +455,7 @@ function lobbySeatExpired(io, expired, { tellOld = true } = {}) {
  * full until a human unreadied and readied again).
  */
 async function addBot(socket, io) {
-    playAgain.settle(socket.id);
+    const settled = playAgain.settle(socket.id);
     const lobby = gameManager.getPlayerLobby(socket.id);
 
     if (!lobby) {
@@ -461,6 +466,7 @@ async function addBot(socket, io) {
     // (a place saved for the last game's player counts: play again)
     if (lobby.players.length >= 4 || playAgain.reservationBlocks(lobby)) {
         emitError(socket, { message: 'Lobby is full' }, 'addBot');
+        playAgain.announceSettled(io, settled, socket.id);
         return;
     }
 
@@ -468,6 +474,7 @@ async function addBot(socket, io) {
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'addBot');
+        playAgain.announceSettled(io, settled, socket.id);
         return;
     }
 
@@ -494,7 +501,7 @@ async function addBot(socket, io) {
  */
 function removeBot(socket, io, data) {
     const { botSocketId } = data;
-    playAgain.settle(socket.id);
+    const settled = playAgain.settle(socket.id);
 
     const lobby = gameManager.getPlayerLobby(socket.id);
 
@@ -507,6 +514,7 @@ function removeBot(socket, io, data) {
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'removeBot');
+        playAgain.announceSettled(io, settled, socket.id);
         return;
     }
 
@@ -535,10 +543,11 @@ function removeBot(socket, io, data) {
 function setLobbySpectatorsCanTalk(socket, io, value) {
     const lobby = gameManager.getPlayerLobby(socket.id);
     if (!lobby) return false;
-    playAgain.settle(socket.id);
+    const settled = playAgain.settle(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user || gameManager.lobbyHost(lobby) !== user.username) {
         emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');
+        playAgain.announceSettled(io, settled, socket.id);
         return true;
     }
     if (!lobby.settings) lobby.settings = {};
