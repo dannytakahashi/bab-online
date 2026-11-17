@@ -401,15 +401,22 @@ class MemoryCollection {
 
     /**
      * Throw the driver's E11000 if `candidate` collides with another
-     * document (not `self`) on _id or on a unique index.
+     * document (not `self`) on _id or on a unique index. Linear scans, so
+     * the checks that cannot fail are skipped: a freshly made ObjectId
+     * (`freshId`), and on a change to `self` (already in the collection,
+     * so already unique) an _id or index key it keeps. Long runs (the
+     * 1500-seed chaos suite inserts and updates thousands of users on one
+     * collection) stay linear in their writes instead of quadratic.
      */
-    _assertUnique(candidate, self = null) {
-        if (this.docs.some(d => d !== self && sameId(d._id, candidate._id))) {
+    _assertUnique(candidate, self = null, { freshId = false } = {}) {
+        const keepsId = self !== null && sameId(self._id, candidate._id);
+        if (!freshId && !keepsId && this.docs.some(d => d !== self && sameId(d._id, candidate._id))) {
             throw duplicateKeyError({ _id: 1 }, { _id: candidate._id }, '_id_');
         }
         for (const index of this.uniqueIndexes) {
             const key = this._indexKey(index, candidate);
             if (key === null) continue;
+            if (self !== null && this._indexKey(index, self) === key) continue;
             if (this.docs.some(d => d !== self && this._indexKey(index, d) === key)) throw this._duplicate(index, candidate);
         }
     }
@@ -438,8 +445,9 @@ class MemoryCollection {
      */
     _insert(doc) {
         const copy = clone(doc);
-        if (!copy._id) copy._id = new ObjectId();
-        this._assertUnique(copy);
+        const freshId = !copy._id;
+        if (freshId) copy._id = new ObjectId();
+        this._assertUnique(copy, null, { freshId });
         this.docs.push(copy);
         return copy._id;
     }
