@@ -15,6 +15,12 @@
  *     {message, type, position, at} (`from` never leaves the server);
  *   - an admin rename or merge re-points `from` (renameChatSender), as it
  *     re-points the blockers' lists (adminPanel.test.js drives the panel).
+ * Main's later chat paths ride the same two writers: the "they sent a boy"
+ * quip goes through sendBotChat, and a family game's lobby extras and
+ * voice spectators chat as spectators and get their full state through
+ * carrierFor (also on a startedLobbyRedirect). Lobby chat is never in a
+ * game log (lobbyReturn carries the lobby's own messages, as joinLobby's
+ * lobbyCreated always has).
  * Real handlers, stub io (contract-checked).
  */
 
@@ -306,6 +312,59 @@ describe('every snapshot sent to a socket that blocked the sender leaves the cha
         expect(got).not.toContain(`${bot.username}: nice hand`);
         // "<owner> entered lazy mode. <bot> is playing." names the bot and stays
         expect(got.some((m) => m.includes(bot.username) && m.includes('lazy mode'))).toBe(true);
+    });
+
+    test('the "they sent a boy" quip: `from` is the bot persona, hidden from its blocker', () => {
+        const t = table();
+        say(t, t.sockets[4], '/lazy');
+        const bot = botController.getGameBots(t.game.gameId).find((b) => b.position === 4);
+        // Seat 1 leads a heart, seat 3 ruffs with the 2 of trump (spades):
+        // the cheap ruff an opposing bot (seat 4) remarks on
+        t.game.leadCard = C('5', 'hearts');
+        t.game.playedCards = [C('5', 'hearts'), null, C('2', 'spades'), null];
+        t.game.playedCardsIndex = 2;
+        const realRoll = botController.chatRoll;
+        botController.chatRoll = () => 0;
+        try {
+            botController.handleCardPlayedChat(t.io, t.game, C('2', 'spades'), 3);
+        } finally {
+            botController.chatRoll = realRoll;
+        }
+        jest.advanceTimersByTime(10000);
+        const line = `${bot.username}: they sent a boy`;
+        expect(t.game.gameLog.find((e) => e.message === line)).toMatchObject({ type: 'chat', from: bot.username });
+        rememberBlockList(t.sockets[1], [bot.username]);
+        snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
+        snapshotHandlers.requestSnapshot(t.sockets[2], t.io, {});
+        expect(messages(mine(t, t.sockets[1], 'stateSnapshot')[0].snapshot)).not.toContain(line);
+        expect(messages(mine(t, t.sockets[2], 'stateSnapshot')[0].snapshot)).toContain(line);
+    });
+
+    test('a family game\'s voice spectator: its table chat is hidden from a blocker, and its own full state hides whom it blocked', () => {
+        const clientInfo = require('../clientInfo');
+        const gameVoice = require('../../voice/gameVoice');
+        const t = table();
+        gameVoice.initCasualVoice(t.game, { host: t.names[1], io: t.io });
+        const lines = chatter(t);
+        const extraName = `bc${n}extra`;
+        const extra = newSocket(t, extraName);
+        clientInfo.handle(extra, t.io, { client: 'web', version: '1', caps: ['avatarUrl', 'casualSpectators'] });
+        rememberBlockList(extra, [t.names[2]]);
+        // A lobby extra re-sending joinLobby lands here too (startedLobbyRedirect)
+        mainRoomHandlers.joinAsSpectator(extra, t.io, { gameId: t.game.gameId }, { fromLobby: true });
+        expect(t.game.voiceSpectators.has(extra.id)).toBe(true);
+        const [full] = mine(t, extra, 'spectatorJoined');
+        expectHidesTwo(full.snapshot, lines);
+        expectWireEntries(full.snapshot);
+
+        say(t, extra, 'watching from the lobby');
+        const line = `${extraName}: watching from the lobby`;
+        expect(t.game.gameLog.find((e) => e.message === line)).toMatchObject({ type: 'chat', from: extraName });
+        rememberBlockList(t.sockets[1], [extraName]);
+        snapshotHandlers.requestSnapshot(t.sockets[1], t.io, {});
+        snapshotHandlers.requestSnapshot(t.sockets[3], t.io, {});
+        expect(messages(mine(t, t.sockets[1], 'stateSnapshot')[0].snapshot)).not.toContain(line);
+        expect(messages(mine(t, t.sockets[3], 'stateSnapshot')[0].snapshot)).toContain(line);
     });
 
     test('blockUser / unblockUser take effect at the next snapshot', async () => {
