@@ -12,13 +12,14 @@ enum CardTextureGenerator {
     private static let lock = NSLock()
     private static var cache: [String: SKTexture] = [:]
     /// The same bitmaps as UIImages, only for the cards SwiftUI asked for (the draw for
-    /// deal: four faces and the back), a few at a time (NSCache is thread safe).
+    /// deal: four faces and the back) and the opponents' fans' backs (CardFanNode, red and
+    /// blue), a few at a time (NSCache is thread safe).
     private static let images: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
         c.countLimit = 8
         return c
     }()
-    private static let backKey = "__card_back__"
+    private static let backKeyPrefix = "__card_back__"
     private static var prewarmStarted = false
     #if DEBUG
     /// Renders done inside `texture(for:)` / `cardBackTexture()` (a cache miss on the
@@ -56,8 +57,9 @@ enum CardTextureGenerator {
     }
 
     /// Every face the game deals: 52 + HI / LO jokers. (No table sprite uses the card
-    /// back's texture; only the draw for deal shows the back, through `cardBackImage(width:)`,
-    /// which `prewarm()` renders at the draw's expected size.)
+    /// back's texture: the draw for deal and the opponents' fans (CardFanNode) show the back
+    /// through `cardBackImage(width:colour:)`, which `prewarm()` renders at the draw's
+    /// expected size, in the draw's red.)
     static let allCards: [Card] = {
         let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
         let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
@@ -120,11 +122,11 @@ enum CardTextureGenerator {
         return store(tex, for: card.id)
     }
 
-    /// Returns a cached or freshly rendered card-back texture.
-    static func cardBackTexture() -> SKTexture {
-        let key = backKey
+    /// Returns a cached or freshly rendered card-back texture of `colour`.
+    static func cardBackTexture(colour: CardBackColour = .draw) -> SKTexture {
+        let key = backKey(colour)
         if let hit = cached(key) { return hit }
-        let tex = makeTexture(renderCardBack(pixelSize: pixelSize()))
+        let tex = makeTexture(renderCardBack(pixelSize: pixelSize(), colour: colour))
         #if DEBUG
         lock.lock(); onDemandRenders += 1; lock.unlock()
         #endif
@@ -142,18 +144,22 @@ enum CardTextureGenerator {
         uiImage(card.id) { renderFace(card, scale: displayScale) }
     }
 
-    /// The card back as a UIImage of the textures' size (`pixelSize()`), drawn for that density.
-    static func cardBackImage() -> UIImage {
-        uiImage(backKey) { renderCardBack(pixelSize: pixelSize()) }
+    /// The cache key of the back of `colour` (the textures' and the UIImages').
+    private static func backKey(_ colour: CardBackColour) -> String { "\(backKeyPrefix)\(colour.rawValue)" }
+
+    /// The card back of `colour` as a UIImage of the textures' size (`pixelSize()`), drawn for that density.
+    static func cardBackImage(colour: CardBackColour = .draw) -> UIImage {
+        uiImage(backKey(colour)) { renderCardBack(pixelSize: pixelSize(), colour: colour) }
     }
 
-    /// The card back as the draw shows it (its deck and face-down slots): rendered at the
-    /// draw card's on-screen size, `width` points at the screen scale (`backPixelSize`), so it
-    /// samples 1:1 and the lattice hints itself for the pixels it really gets (renderCardBack).
-    /// Cached per pixel width; `prewarm()` renders the one the draw is expected to ask for.
-    static func cardBackImage(width: CGFloat) -> UIImage {
+    /// The card back as the draw shows it (its deck and face-down slots, always `.draw`'s red)
+    /// or a fan shows it (CardFanNode, the hand's colour): rendered at the card's on-screen
+    /// size, `width` points at the screen scale (`backPixelSize`), so it samples 1:1 and the
+    /// lattice hints itself for the pixels it really gets (renderCardBack). Cached per pixel
+    /// width and colour; `prewarm()` renders the one the draw is expected to ask for.
+    static func cardBackImage(width: CGFloat, colour: CardBackColour = .draw) -> UIImage {
         let px = backPixelSize(width: width)
-        return uiImage("\(backKey)@\(Int(px.width))") { renderCardBack(pixelSize: px) }
+        return uiImage("\(backKey(colour))@\(Int(px.width))") { renderCardBack(pixelSize: px, colour: colour) }
     }
 
     /// The draw back's bitmap: `width` points at `scale`, the card's 300 x 435 aspect.
@@ -201,7 +207,7 @@ enum CardTextureGenerator {
         }
         DispatchQueue.global(qos: .utility).async {
             // the draw for deal's deck at its expected size (NSCache is thread safe)
-            if let drawCardWidth { _ = cardBackImage(width: drawCardWidth) }
+            if let drawCardWidth { _ = cardBackImage(width: drawCardWidth, colour: .draw) }
             for card in allCards where cached(card.id) == nil {
                 _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
                 #if DEBUG
@@ -227,14 +233,16 @@ enum CardTextureGenerator {
     /// Tests only: the cached texture for a key (a card id), without rendering.
     static func cachedTexture(_ id: String) -> SKTexture? { cached(id) }
 
-    /// Tests only: forget the SwiftUI images (`image(for:)`, `cardBackImage()`), keep the textures.
+    /// Tests only: forget the SwiftUI images (`image(for:)`, `cardBackImage(colour:)`), keep the textures.
     static func removeImagesForTesting() { images.removeAllObjects() }
 
     /// Tests only: a face rendered now, as the textures' source bitmap (nothing cached).
     static func renderFaceForTesting(_ card: Card) -> UIImage { renderFace(card, scale: displayScale) }
 
-    /// Tests only: the back rendered now at `pixelSize` (nothing cached).
-    static func renderBackForTesting(pixelSize: CGSize) -> UIImage { renderCardBack(pixelSize: pixelSize) }
+    /// Tests only: the back of `colour` rendered now at `pixelSize` (nothing cached).
+    static func renderBackForTesting(pixelSize: CGSize, colour: CardBackColour = .draw) -> UIImage {
+        renderCardBack(pixelSize: pixelSize, colour: colour)
+    }
     #endif
 
     private static func renderFace(_ card: Card, scale: CGFloat) -> UIImage {
@@ -510,8 +518,10 @@ enum CardTextureGenerator {
 
     // MARK: - Card Back
 
-    /// The back (owner 2026-11-13): the web's classic single-ink LATTICE in its red ink
-    /// (cardFaces.js drawBack / backPanel / backLattice, Theme.CardBack), the same after a half
+    /// The back (owner 2026-11-13): the web's classic single-ink LATTICE in card.backRed or
+    /// card.backBlue, by hand (cardFaces.js drawBack / backPanel / backLattice and
+    /// backFrameForHand; Theme.CardBack, CardBackColour; the blue back is the red one's drawing
+    /// in the other ink, as the web's atlas draws it), the same after a half
     /// turn: a cream card with the faces' grey edge, a white margin, an ink panel with a beaded
     /// band and a thin inner rule, a double-line diamond trellis with dots and lozenges at its
     /// crossings, and a harlequin lozenge medallion.
@@ -526,13 +536,14 @@ enum CardTextureGenerator {
     private static let backField: CGFloat = 16 + 15 + 3.5  // the lattice field's inset
     private static let backBeadPitch: CGFloat = 9
 
-    private static func renderCardBack(pixelSize: CGSize) -> UIImage {
+    private static func renderCardBack(pixelSize: CGSize, colour: CardBackColour) -> UIImage {
         renderCard(pixelSize: pixelSize) { ctx in
             let k = pixelSize.width / cardPixelWidth
             let gc = ctx.cgContext
+            let ink = Theme.CardBack.ink(colour).uiColor.cgColor
             gc.saveGState()
-            backPanel(gc, k: k)
-            backLattice(gc, k: k)
+            backPanel(gc, k: k, ink: ink)
+            backLattice(gc, k: k, ink: ink)
             gc.restoreGState()
         }
     }
@@ -578,8 +589,8 @@ enum CardTextureGenerator {
     }
 
     /// The card, its margin, the ink panel, its beaded band and inner rule (backPanel).
-    private static func backPanel(_ gc: CGContext, k: CGFloat) {
-        let ink = Theme.CardBack.ink.uiColor.cgColor, paper = Theme.CardBack.paper.uiColor.cgColor
+    private static func backPanel(_ gc: CGContext, k: CGFloat, ink: CGColor) {
+        let paper = Theme.CardBack.paper.uiColor.cgColor
         let W = cardPixelWidth, H = cardPixelHeight, R = cornerRadius, M = backMargin
         func minW(_ u: CGFloat) -> CGFloat { max(u, 0.9 / k) }  // a structural rule never under ~1 px
         cardBase(gc, fill: Theme.CardBack.paper.uiColor, stroke: Theme.CardBack.edge.uiColor, lineWidth: 3)
@@ -618,8 +629,8 @@ enum CardTextureGenerator {
     }
 
     /// The trellis (clipped to the field) and the medallion (backLattice).
-    private static func backLattice(_ gc: CGContext, k: CGFloat) {
-        let ink = Theme.CardBack.ink.uiColor.cgColor, paper = Theme.CardBack.paper.uiColor.cgColor
+    private static func backLattice(_ gc: CGContext, k: CGFloat, ink: CGColor) {
+        let paper = Theme.CardBack.paper.uiColor.cgColor
         let W = cardPixelWidth, H = cardPixelHeight, F = backField
         let cx = W / 2, cy = H / 2
         // cells sized so the field's edges run through rows of crossings: 10 half-cells

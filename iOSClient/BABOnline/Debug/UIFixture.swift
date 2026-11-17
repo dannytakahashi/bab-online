@@ -264,13 +264,17 @@ enum UIFixture {
     /// `-uiReject <reason>`: 1 s after the table is up, the server refuses my action
     /// (actionRejected `{action: play, reason}`): the toast with the reason, held 60 s.
     /// `-uiDealer <position>`: that seat dealt this hand (the snapshot's dealer otherwise).
+    /// `-uiHandNo <n>`: the deal is hand n (the snapshot's deal.handNo; its cards unchanged):
+    /// the card backs take that hand's colour (CardBackColour; probe `table.extras` back=).
     /// `-uiToasts YES`: the toast layer is up and holds a toast 60 s (a tap on a dimmed card).
     @MainActor
     private static func seedTableExtras(_ store: GameState, _ snap: TableSnapshot, auth: AuthState) {
         let defaults = UserDefaults.standard
-        if let pos = Int(defaults.string(forKey: "uiDealer") ?? ""), (1...4).contains(pos), var dict = seededSnapshot,
-           var deal = dict["deal"] as? [String: Any] {
-            deal["dealer"] = pos
+        let dealer = Int(defaults.string(forKey: "uiDealer") ?? "").flatMap { (1...4).contains($0) ? $0 : nil }
+        let handNo = Int(defaults.string(forKey: "uiHandNo") ?? "").flatMap { (1...13).contains($0) ? $0 : nil }
+        if dealer != nil || handNo != nil, var dict = seededSnapshot, var deal = dict["deal"] as? [String: Any] {
+            if let dealer { deal["dealer"] = dealer }
+            if let handNo { deal["handNo"] = handNo }
             dict["deal"] = deal
             if let edited = try? TableSnapshot.decode(dict, strict: true) {
                 seededSnapshot = dict
@@ -746,8 +750,12 @@ final class TableDebugProbe: ObservableObject {
         let showsFans = scene.lastModel.map { scene.layout.fans(spectating: $0.hand == nil) != nil } ?? false
         let fans = showsFans ? seats.map { "\($0.key):\($0.value.fanNode.count)" }.joined(separator: ",") : "-"
         let dealer = seats.first { $0.value.dealerNode.isShown }.map { "\($0.key)" } ?? (scene.myDealerNode.isShown ? "me" : "-")
+        // back: the colour the fans' sprites are drawn in (red / blue; mixed: not one colour; -: no backs)
+        let textures = seats.flatMap { $0.value.fanNode.children.compactMap { ($0 as? SKSpriteNode)?.texture } }
+        let colours = Set(textures.map { t in [CardBackColour.red, .blue].first { CardFanNode.backTexture($0) === t }?.rawValue ?? "other" })
+        let back = colours.count > 1 ? "mixed" : colours.first ?? "-"
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
-        let extras = "fans=\(fans) dealer=\(dealer)"
+        let extras = "fans=\(fans) back=\(back) dealer=\(dealer)"
         if extras != tableExtras { tableExtras = extras }
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }

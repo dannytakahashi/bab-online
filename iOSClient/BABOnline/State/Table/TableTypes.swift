@@ -386,3 +386,20 @@ enum HandSequence {
     static let sizes = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13]
     static func handNo(forSize size: Int) -> Int { (sizes.firstIndex(of: size) ?? -1) + 1 }
 }
+
+/// The colour of the card back (owner 2026-11-13: alternate red and blue between hands): the
+/// web's rule, cardFaces.js `backFrameForHand(GameState.handNo)`. Hand 1 red, hand 2 blue,
+/// hand 3 red, ...; no hand (0: the draw for deal, before hand 1; nil; a negative) red. The
+/// hand number is `DealState.handNo` (HandSequence: a zero-bid redeal keeps it, so the colour
+/// switches with the next hand's deal, as the web's), the same number the web counts.
+enum CardBackColour: String, Equatable {
+    case red, blue
+
+    static func forHand(_ handNo: Int?) -> CardBackColour {
+        guard let n = handNo, n >= 1, n % 2 == 0 else { return .red }
+        return .blue
+    }
+
+    /// The draw for deal's deck and face-down cards: before hand 1 (the web's handNo 0).
+    static let draw = forHand(0)
+}
