@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readClientFile } from '../../testing/files.js';
-import { createButton, createIconButton, createChip, createAvatar, setAvatarTurn, openModal, openModalCount, toast, clearToasts, toastQueueLength } from './index.js';
+import { createButton, createIconButton, createSwitch, setSwitch, createChip, createAvatar, setAvatarTurn, openModal, openModalCount, toast, clearToasts, toastQueueLength } from './index.js';
 import { setReducedMotionOverride } from '../motion.js';
 
 const css = readClientFile('styles/kit.css');
@@ -58,6 +58,35 @@ describe('Button / IconButton / Chip / Avatar', () => {
     expect(glow).not.toMatch(/box-shadow|transform|filter/);
     expect(css).toMatch(/\.turn-glow::after,[\s\S]*?animation: kit-turn-glow/);
     expect(css).toMatch(/prefers-reduced-motion: reduce\) \{\s*\.turn-glow::after,[\s\S]*?animation: none/);
+  });
+});
+
+describe('Switch', () => {
+  it('a button role=switch with aria-checked and its visible label; a click asks, the caller shows the value', () => {
+    const onChange = vi.fn();
+    const sw = createSwitch({ label: 'Spectators can talk', checked: true, onChange, id: 'sw' });
+    expect(sw.tagName).toBe('BUTTON');
+    expect(sw.getAttribute('type')).toBe('button');
+    expect(sw.getAttribute('role')).toBe('switch');
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    expect(sw.textContent).toBe('Spectators can talk');
+    expect(sw.getAttribute('style')).toBeNull();
+    sw.click();
+    expect(onChange).toHaveBeenCalledWith(false);
+    expect(sw.getAttribute('aria-checked')).toBe('true'); // not flipped by the click
+    setSwitch(sw, { checked: false, disabled: true });
+    expect(sw.getAttribute('aria-checked')).toBe('false');
+    sw.click();
+    expect(onChange).toHaveBeenCalledTimes(1); // disabled: nothing asked
+    setSwitch(sw, { disabled: false });
+    sw.click();
+    expect(onChange).toHaveBeenLastCalledWith(true);
+  });
+
+  it('kit.css: a 44 px row, the on state is the success token, focus is visible', () => {
+    expect(css).toMatch(/\.kit-switch \{[^}]*min-height: var\(--hit-target\)/);
+    expect(css).toMatch(/\.kit-switch\[aria-checked="true"\] \.kit-switch__track \{[^}]*var\(--success\)/);
+    expect(css).toContain('.kit-switch:focus-visible');
   });
 });
 

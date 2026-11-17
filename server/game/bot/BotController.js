@@ -12,6 +12,50 @@ const { safeBid: fallbackBid } = require('../rules');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
+/**
+ * "they sent a boy" (owner request, 2026-11-16): a player ruffs a non-trump
+ * lead with a 2 or 3 of trump, the first trump of the trick, and an opposing
+ * bot remarks on it. Rare: `chance` per eligible ruff, at most once every
+ * `cooldownTricks` tricks per game.
+ */
+const SENT_A_BOY = Object.freeze({
+    message: 'they sent a boy',
+    ranks: Object.freeze(['2', '3']),
+    chance: 0.35,
+    cooldownTricks: 3,
+});
+
+const isTrumpCard = (card, trump) => !!card && (card.suit === 'joker' || card.suit === trump.suit);
+
+/**
+ * Whether the card just played at `position` (already on the table:
+ * GameState.applyPlay ran) is a small plain trump that is the first trump
+ * over a non-trump lead, i.e. a cheap ruff that is winning the trick for now.
+ * Public state only.
+ */
+function isSentABoy(game, card, position) {
+    const trump = game.trump;
+    if (!trump || !card || card.suit !== trump.suit || !SENT_A_BOY.ranks.includes(String(card.rank))) return false;
+    if (game.playedCardsIndex < 2 || !game.leadCard || isTrumpCard(game.leadCard, trump)) return false;
+    return game.playedCards.every((c, i) => i === position - 1 || !isTrumpCard(c, trump));
+}
+
+/**
+ * A deterministic roll in [0, 1) from the game id and the play: unpredictable
+ * at the table (a random uuid per game) without drawing from Math.random, so
+ * the seeded runs (sim, contract and iOS fixtures: the deck shuffles from the
+ * same stream there) keep their RNG stream. FNV-1a 32-bit.
+ */
+function playRoll(game, salt) {
+    const key = `${game.gameId}|${game.currentHand}|${game.cardIndex}|${salt}`;
+    let h = 0x811c9dc5;
+    for (let i = 0; i < key.length; i++) {
+        h ^= key.charCodeAt(i);
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h / 0x100000000;
+}
+
 class BotController {
     constructor() {
         // Map of gameId -> Map of socketId -> BotPlayer
@@ -22,6 +66,13 @@ class BotController {
 
         // Bot bids/plays replaced by the fallback since startup (noteFallback)
         this.fallbacks = { bid: 0, play: 0 };
+
+        // gameId -> tricks completed since a bot last said "they sent a boy"
+        // (absent: never, so the next one may)
+        this.sentABoyTricks = new Map();
+
+        // Roll for the table quips: (game, salt) -> [0, 1); tests replace it
+        this.chatRoll = playRoll;
     }
 
     /**
@@ -399,6 +450,7 @@ class BotController {
 
         // Notify all bots about this card play
         this.notifyCardPlayed(game.gameId, card, bot.position, game.trump, game.leadPosition);
+        this.handleCardPlayedChat(io, game, card, bot.position);
 
         // Let the caller handle post-play logic (turn advancement, trick completion, etc.)
         return true;
@@ -466,6 +518,9 @@ class BotController {
         for (const bot of gameBots.values()) {
             bot.advanceTrick();
         }
+        if (this.sentABoyTricks.has(gameId)) {
+            this.sentABoyTricks.set(gameId, this.sentABoyTricks.get(gameId) + 1);
+        }
     }
 
     // ==================== PERSONALITY HOOKS ====================
@@ -520,6 +575,41 @@ class BotController {
                 }
             }
         }
+    }
+
+    /**
+     * Called after every card play (human playCard and processBotPlay), once
+     * the card is on the table. When the play is a cheap ruff (isSentABoy),
+     * one bot on the other team sometimes says "they sent a boy":
+     * SENT_A_BOY.chance per ruff, not within SENT_A_BOY.cooldownTricks tricks
+     * of the last one in this game. Only bots this game registered and that
+     * still hold their seat speak. Never throws: the human playCard path
+     * still has to advance the turn after it.
+     * @param {Object} io - Socket.IO server
+     * @param {Object} game - GameState
+     * @param {Object} card - the card just played
+     * @param {number} position - who played it (1-4)
+     */
+    handleCardPlayedChat(io, game, card, position) {
+        try {
+            this.sentABoyChat(io, game, card, position);
+        } catch (err) {
+            gameLogger.error('Bot table chat failed', { gameId: game.gameId, error: err.message, stack: err.stack });
+        }
+    }
+
+    sentABoyChat(io, game, card, position) {
+        if (!isSentABoy(game, card, position)) return;
+        const since = this.sentABoyTricks.get(game.gameId);
+        if (since !== undefined && since < SENT_A_BOY.cooldownTricks) return;
+        const opponents = this.getGameBots(game.gameId).filter((b) =>
+            b.position && b.position % 2 !== position % 2 && game.positions[b.position] === b.socketId);
+        if (opponents.length === 0) return;
+        if (this.chatRoll(game, 'sentABoy') >= SENT_A_BOY.chance) return;
+        const speaker = opponents[Math.min(opponents.length - 1, Math.floor(this.chatRoll(game, 'sentABoy:who') * opponents.length))];
+        this.sentABoyTricks.set(game.gameId, 0);
+        this.sendBotChat(io, game, speaker, SENT_A_BOY.message,
+            pacing.fromRange(pacing(game).BOT_CHAT, this.chatRoll(game, 'sentABoy:delay')));
     }
 
     /**
@@ -643,6 +733,7 @@ class BotController {
                 this.pendingActions.delete(key);
             }
         }
+        this.sentABoyTricks.delete(gameId);
         const gameBots = this.gamesBots.get(gameId);
         if (gameBots) {
             this.gamesBots.delete(gameId);
@@ -658,6 +749,7 @@ class BotController {
             this.cleanupGame(gameId);
         }
         this.gamesBots.clear();
+        this.sentABoyTricks.clear();
         for (const [, timeoutId] of this.pendingActions) {
             clearTimeout(timeoutId);
         }

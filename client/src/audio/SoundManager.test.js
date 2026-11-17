@@ -277,6 +277,21 @@ describe('when a sound plays', () => {
     for (let i = 1; i < picks.length; i++) expect(picks[i]).not.toBe(picks[i - 1]);
   });
 
+  it('draw plays a card variant too, never the one just played, with its own throttle', async () => {
+    const m = await ready({ random: () => 0 });
+    expect(m.play('card')).toBe(true);
+    const card = started(m).at(-1);
+    expect(m.play('draw', { gain: 0.8 })).toBe(true); // same instant: not the card's throttle
+    const draw = started(m).at(-1);
+    expect(CARD_VARIANTS).toContain(draw);
+    expect(draw).not.toBe(card);
+    expect(m.ctx.gains.at(-1).gain.value).toBe(0.8);
+    expect(m.play('draw')).toBe(false); // its own throttle
+    now += THROTTLE_MS;
+    expect(m.play('draw')).toBe(true);
+    expect(started(m).at(-1)).not.toBe(draw);
+  });
+
   it('a delayed, quieter accent starts later on the context clock through its own gain', async () => {
     const m = await ready();
     expect(m.play('overtrump', { delay: 0.09, gain: 0.8 })).toBe(true);

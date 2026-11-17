@@ -1,13 +1,17 @@
 import SpriteKit
 
 /// A seat's remaining cards as a fan of card backs (the web's
-/// OpponentManager fans; TableLayout+Fans.swift): the red lattice back at the
-/// fan's size, one sprite per card, drawn idempotently from the count. Nothing
+/// OpponentManager fans; TableLayout+Fans.swift): the lattice back at the
+/// fan's size in the hand's colour (CardBackColour: red, blue, red, ... by
+/// hand, as the web's tableBackFrame), one sprite per card, drawn
+/// idempotently from the count and the colour. Nothing
 /// here has a `name` (SeatPipsNode's rule); GameContainerView's fan elements
 /// speak the counts ("kim: 5 cards").
 final class CardFanNode: SKNode {
     /// The backs shown now (0: none).
     private(set) var count = 0
+    /// Their colour (the hand's).
+    private(set) var colour: CardBackColour = .red
 
     override init() {
         super.init()
@@ -18,26 +22,34 @@ final class CardFanNode: SKNode {
 
     required init?(coder aDecoder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// The back at the largest fan card's on-screen size (the roomy scale at the device's
-    /// largest zoom), once per process:
-    /// `cardBackImage(width:)` hints the lattice for the pixels it gets.
-    static let backTexture: SKTexture = {
-        let texture = SKTexture(image: CardTextureGenerator.cardBackImage(width: CardFanNode.textureWidth))
+    /// The back of `colour` at the largest fan card's on-screen size (the roomy scale at the
+    /// device's largest zoom), once per process and colour (the blue one when a table first
+    /// reaches hand 2): `cardBackImage(width:colour:)` hints the lattice for the pixels it gets.
+    static func backTexture(_ colour: CardBackColour) -> SKTexture { colour == .blue ? blueBack : redBack }
+    private static let redBack = makeBackTexture(.red)
+    private static let blueBack = makeBackTexture(.blue)
+    private static func makeBackTexture(_ colour: CardBackColour) -> SKTexture {
+        let texture = SKTexture(image: CardTextureGenerator.cardBackImage(width: CardFanNode.textureWidth, colour: colour))
         texture.filteringMode = .linear
         return texture
-    }()
+    }
 
     /// The texture's width in points: a back at the largest fan scale and table zoom.
     static var textureWidth: CGFloat { TableLayout.fanCard.width * (TableLayout.fanScales.max() ?? 1) * CardTextureGenerator.textureZoom }
 
-    /// Show `n` backs (TableLayout.fanSlots): the same children for the same count.
-    func update(count n: Int) {
+    /// Show `n` backs of `colour` (TableLayout.fanSlots): the same children for the same
+    /// count, retextured when the colour changes (the next hand's deal).
+    func update(count n: Int, colour newColour: CardBackColour) {
         let n = min(max(n, 0), TableLayout.fanMaxCards)
+        if newColour != colour {
+            colour = newColour
+            for case let back as SKSpriteNode in children { back.texture = Self.backTexture(newColour) }
+        }
         guard n != count else { return }
         count = n
         removeAllChildren()
         for (i, slot) in TableLayout.fanSlots(count: n).enumerated() {
-            let back = SKSpriteNode(texture: Self.backTexture, size: TableLayout.fanCard)
+            let back = SKSpriteNode(texture: Self.backTexture(colour), size: TableLayout.fanCard)
             back.role = "fan.card"
             back.position = slot.center
             back.zRotation = slot.rotation
@@ -90,11 +102,11 @@ final class DealerChipNode: SKNode {
 }
 
 extension OpponentHandNode {
-    /// The seat's card backs: `count` cards in the layout's fan box (scene coordinates), or
-    /// none where the table has no room for fans (`box` nil).
-    func setFan(count: Int, box: CGRect?, anchor: CGPoint) {
+    /// The seat's card backs: `count` cards of `colour` (the hand's) in the layout's fan box
+    /// (scene coordinates), or none where the table has no room for fans (`box` nil).
+    func setFan(count: Int, colour: CardBackColour, box: CGRect?, anchor: CGPoint) {
         guard let box else {
-            fanNode.update(count: 0)
+            fanNode.update(count: 0, colour: colour)
             fanNode.position = .zero
             fanNode.setScale(1)
             return
@@ -102,7 +114,7 @@ extension OpponentHandNode {
         // the slots are scale 1's: the node carries the table's fan scale (the box's)
         fanNode.setScale(TableLayout.fanScale(of: box))
         fanNode.position = CGPoint(x: box.midX - anchor.x, y: box.midY - anchor.y)
-        fanNode.update(count: count)
+        fanNode.update(count: count, colour: colour)
     }
 
     /// The dealer marker at `chip` (scene coordinates) when this seat dealt.

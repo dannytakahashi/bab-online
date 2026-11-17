@@ -12,9 +12,20 @@ import { getVoiceChatManager } from '../voice/VoiceChatManager.js';
 /**
  * Register voice chat handlers.
  * @param {import('../socket/SocketManager.js').SocketManager} socketManager
+ * @param {Object} [callbacks]
+ * @param {Function} [callbacks.onVoiceSettings] - voiceSettings (a casual game's
+ *   spectator voice: role, canTalk, canChange; docs/claude/voice.md)
  */
-export function registerVoiceHandlers(socketManager) {
+export function registerVoiceHandlers(socketManager, { onVoiceSettings } = {}) {
   const voiceManager = getVoiceChatManager();
+
+  // A casual game's voice settings (private, unsequenced; only to a socket
+  // that said casualSpectators): the page sets the talk mode, starts voice
+  // for a spectator, forces mute for a player while spectators may not talk
+  socketManager.on(SERVER_EVENTS.VOICE_SETTINGS, (data) => {
+    if (!data || typeof data !== 'object') return;
+    onVoiceSettings?.(data);
+  });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LIST, (data) => {
     const { peers } = data;

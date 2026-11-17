@@ -253,6 +253,57 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   (profile replies). Send this cap ONLY from a client whose every avatar
   render site resolves URLs (web: `avatarSrc` / `applyAvatarImg`; iOS:
   AvatarStore); otherwise its custom pictures go blank.
+- `casualSpectators` (`$defs.clientCapCasualSpectators`, its own const:
+  `$defs.clientCap`'s enum is frozen byte for byte by the baselines;
+  2026-11-16, family lobbies): the client can show a lobby of up to 8
+  (`members`, `capacity`), its host switch "Spectators can talk"
+  (`settings`, c2s `setSpectatorsCanTalk`), being an extra who watches the
+  game from its start (spectatorJoined at CREATED, never allPlayersReady),
+  and spectator voice (`voiceSettings`, listen-only offers). Only for such a
+  socket does the server: count it toward a lobby of more than 4 (a lobby
+  holds more than 4 only while EVERY human in it sent the cap; a legacy
+  joiner is refused at 4, a legacy takeover above 4); add `members` /
+  `host` / `settings` / `capacity` to its lobby events and `memberCount` /
+  `capacity` / `memberUsernames` to its main-room list entries; admit it to
+  a casual game's voice room as a spectator; send it `voiceSettings`.
+  Without the cap anywhere the wire is byte-identical (wireGolden). Every
+  shipped iOS build (1.2.0 build 6 to 1.2.2 build 11) sends only
+  `avatarUrl`; the web bundle sends both since the family-lobbies web PR
+  (2026-11-16; `client/src/utils/avatar.js` clientHello, also from a socket
+  that cannot fold avatar URLs, which then sends `casualSpectators` alone),
+  and iOS 1.2.3 (build 12) sends `avatarUrl` and `casualSpectators`.
+  Send this cap ONLY from a client that does all of the above
+  (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
+- `playAgain` (`$defs.clientCapPlayAgain`, its own const for the same
+  reason; 2026-11-16, play again, an automatic return): at the end of a
+  casual game a lobby started, the server moves such a socket, if it is
+  still at the table (a seat owner, a lazy watcher, a lobby extra still
+  watching), into a recreated copy of that lobby (new lobbyId; same name,
+  host, settings, chat, lobby bots; nobody ready) and sends it the private
+  `lobbyReturn` right after its `gameEnd`. A user whose socket had the cap
+  at the start but who is not at the table at the end keeps a place for
+  `PLAY_AGAIN_HOLD_MS` (default 2 minutes): a row marked
+  `members[].returning`, claimed by joinLobby from any client, and by the
+  user's next `joinMainRoom` from a socket with the cap when they had no
+  live socket at the end (answered with the ordinary `lobbyCreated`, no
+  `mainRoomJoined`). An older-app seat owner gets no row but a reservation
+  (`expected`; strangers and Add Bot refused while members + expected would
+  pass 4) and keeps its score-screen calls with the returners until it
+  leaves that screen (private `voicePeerLeft` both ways). c2s
+  `releaseLobbyHold` ("Don't wait"). Nothing changes for a socket without
+  the cap: it gets today's `gameEnd` and Return to Lobby flow. Send this cap
+  ONLY with `casualSpectators` and from a client that handles `lobbyReturn`
+  (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off). Both
+  clients keep their score screen up when `lobbyReturn` arrives and enter
+  that lobby only on its Return to Lobby (owner 2026-11-16), then send
+  `lobbyReturnSeen` (the server cannot otherwise tell the score screen from
+  the lobby screen; until it comes the server treats the socket as still on
+  its results: a drop is a 2-minute hold, and at the next start of a lobby
+  of more than 4 it gets leftLobby instead of becoming a spectator). The web
+  bundle sends the cap since the play-again web PR (2026-11-16; both
+  clientHello variants; docs/claude/web-client.md, Play again); iOS 1.2.3
+  (build 12) with `casualSpectators` (`ClientHello.caps`; iOSClient/CLAUDE.md,
+  "Play again"). Both send `releaseLobbyHold` ("Don't wait").
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

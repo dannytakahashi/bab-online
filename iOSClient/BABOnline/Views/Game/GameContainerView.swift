@@ -63,6 +63,8 @@ private struct GameScreen: View {
 
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var appState: AppState
+    /// Read only in onDisappear, so not observed (LobbyStateLink).
+    @Environment(\.lobbyStateLink) private var lobbyLink
     @EnvironmentObject var actions: ActionCoordinator
 
     @State private var scene: GameSKScene = {
@@ -231,11 +233,18 @@ private struct GameScreen: View {
             leaveFlow = LeaveAlertFlow()
             if gameState.players.leaveCheck != .idle { gameState.apply(.local(.leaveClosed)) }
             scene.cleanupAll()
-            VoiceChatManager.shared.shutdown()
+            // play again (1.2.3): off to the lobby this game's end returned me to, voice
+            // carries on (the server kept those calls); any other way off the table ends it
+            LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
         }
         .sheet(isPresented: $showVoicePanel) {
-            VoicePanelSheet()
+            VoicePanelSheet(watching: Set(gameState.watching.spectators.map(\.username)),
+                            forceListenOnly: fixtureSpectatorVoice == "listen")
                 .presentationDetents([.medium])
+        }
+        // spectator talk off: a player hears none of the spectators (backstop; 1.2.3)
+        .onChange(of: gameState.watching) { _, watching in
+            voiceManager.applyForcedMutes(watching: watching.spectators.map(\.username))
         }
         // a tapped seat avatar opens that player's profile (GameSKScene+SeatTap; iOS 1.2.2)
         .playerProfileHost(seatTaps: true)
@@ -616,10 +625,11 @@ private struct GameScreen: View {
     private func seatRow(_ layout: TableLayout) -> some View {
         let row = layout.seatRow
         let hsi = gameState.myHSI
+        // a pure spectator's row is the watched seat's: its voice button is the pill's (1.2.3)
         #if DEBUG
-        let voice = voiceManager.isActive || UIFixture.showsVoiceButton
+        let voice = (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
         #else
-        let voice = voiceManager.isActive
+        let voice = voiceManager.isActive && !isPureSpectator
         #endif
         if row.voiceFollowsHSI {
             if hsi != nil || voice {
@@ -722,14 +732,45 @@ private struct GameScreen: View {
 
     // MARK: - Spectator / lazy pill (bottom)
 
+    /// `-uiSpectatorVoice listen|full` (fixture mode never starts voice).
+    private var fixtureSpectatorVoice: String? {
+        #if DEBUG
+        return UIFixture.spectatorVoice
+        #else
+        return nil
+        #endif
+    }
+
+    /// A pure spectator in the game's voice room (voiceSettings role spectator, voice on).
+    private var showsSpectatorVoice: Bool {
+        fixtureSpectatorVoice == "listen" || (voiceManager.isActive && voiceManager.settings?.role == .spectator)
+    }
+
+    /// "Spectating", "Spectating (listening only)", or why there is no voice: full.
+    private var spectatingText: String {
+        if fixtureSpectatorVoice == "full" || voiceManager.settings?.role == VoiceSettings.Role.none {
+            return "Spectating \u{2022} \(VoiceCopy.voiceFull)"
+        }
+        if showsSpectatorVoice && (fixtureSpectatorVoice == "listen" || voiceManager.isListenOnly) {
+            return "Spectating (listening only)"
+        }
+        return "Spectating"
+    }
+
     @ViewBuilder
     private var pills: some View {
         if gameState.isSpectator && !gameState.isLazy {
             VStack {
                 Spacer()
                 HStack(spacing: 10) {
+                    // a casual game's spectator voice (1.2.3): the mic button beside the pill
+                    // (listen-only: headphones, "Tap to talk"; a long press opens the panel)
+                    if showsSpectatorVoice {
+                        VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,
+                                        forceListenOnly: fixtureSpectatorVoice == "listen")
+                    }
                     // the web's spectating indicator: team.a on the panel surface
-                    Text("Spectating")
+                    Text(spectatingText)
                         .font(.caption.bold())
                         .foregroundColor(Theme.teamA)
                     // one Exit: the corner / vertical-bar Leave reads "Exit" during play and

@@ -24,8 +24,20 @@
 const rateLimiter = require('./rateLimiter');
 const { socketLogger } = require('../utils/logger');
 
-/** Capabilities this server acts on ($defs.clientCap in contract/src/defs.js). */
-const KNOWN_CAPS = ['avatarUrl'];
+/**
+ * Capabilities this server acts on ($defs.clientCap and
+ * $defs.clientCapCasualSpectators in contract/src/defs.js):
+ *   avatarUrl         renders avatar URLs (above)
+ *   casualSpectators  family lobbies of up to 8 (more than 4 only while
+ *                     every human in it says so), the "Spectators can talk"
+ *                     switch, voiceSettings, listen-only spectator voice
+ *                     (GameManager.lobbyCapacity, server/voice/gameVoice.js)
+ *   playAgain         at the end of a lobby-born casual game the socket is
+ *                     moved back into that lobby (lobbyReturn), a place is
+ *                     held if it is away, its offline hold is claimed on
+ *                     joinMainRoom (server/socket/playAgain.js)
+ */
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

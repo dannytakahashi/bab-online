@@ -16,6 +16,7 @@ const { botController } = require('../game/bot');
 const { Phase } = require('../game/GamePhase');
 const { socketLogger } = require('../utils/logger');
 const { ambientAudience, seesAmbientGame } = require('../utils/ambientChatUsers');
+const clientInfo = require('./clientInfo');
 
 /**
  * Refresh the main room's lobby / in-progress / tournament lists. Every
@@ -28,6 +29,13 @@ const { ambientAudience, seesAmbientGame } = require('../utils/ambientChatUsers'
  * broadcast; otherwise each main-room socket gets its own copy (io.to(socketId),
  * like ambientBots.postAmbientChat): the full list for an audience account,
  * the list without the demo game for everyone else. Same wire shape either way.
+ *
+ * Family lobbies (2026-11-16): a main-room socket that sent the
+ * casualSpectators cap gets lobby entries with the additive memberCount /
+ * capacity / memberUsernames (GameManager.getAllLobbies wide). While none
+ * is in the main room nothing above changes; with one in, the lists go per
+ * socket (one broadcast still when every member is capable and nobody's
+ * demo view differs).
  * @returns {string[]|null} the socket ids that got the full list when it was
  *   sent per socket (null: one broadcast)
  */
@@ -39,7 +47,10 @@ function emitLobbiesUpdated(io) {
     const payload = (inProgressGames) => ({ lobbies, inProgressGames, tournaments });
 
     const audience = ambientAudience();
-    if (audience.all || withoutDemo.length === full.length) {
+    const demoSplit = !(audience.all || withoutDemo.length === full.length);
+    const capable = new Set([...gameManager.mainRoomSocketIds].filter((sid) => clientInfo.socketHasCap(io, sid, 'casualSpectators')));
+    if (capable.size > 0) return emitLobbiesUpdatedWide(io, { capable, demoSplit, lobbies, tournaments, full, withoutDemo });
+    if (!demoSplit) {
         io.to('mainRoom').emit('lobbiesUpdated', payload(full));
         return null;
     }
@@ -57,6 +68,28 @@ function emitLobbiesUpdated(io) {
     const filteredPayload = payload(withoutDemo);
     for (const socketId of seeing) io.to(socketId).emit('lobbiesUpdated', fullPayload);
     for (const socketId of others) io.to(socketId).emit('lobbiesUpdated', filteredPayload);
+    return seeing;
+}
+
+/** emitLobbiesUpdated with a capable socket in the main room (wide lobby entries for it). */
+function emitLobbiesUpdatedWide(io, { capable, demoSplit, lobbies, tournaments, full, withoutDemo }) {
+    const wideLobbies = gameManager.getAllLobbies({ wide: true });
+    const everyoneCapable = [...gameManager.mainRoomSocketIds].every((sid) => capable.has(sid));
+    if (everyoneCapable && !demoSplit) {
+        io.to('mainRoom').emit('lobbiesUpdated', { lobbies: wideLobbies, inProgressGames: full, tournaments });
+        return null;
+    }
+    const seeing = [];
+    for (const socketId of gameManager.mainRoomSocketIds) {
+        const user = gameManager.getUserBySocketId(socketId);
+        const sees = !demoSplit || (user && seesAmbientGame(user.username));
+        if (sees) seeing.push(socketId);
+        io.to(socketId).emit('lobbiesUpdated', {
+            lobbies: capable.has(socketId) ? wideLobbies : lobbies,
+            inProgressGames: sees ? full : withoutDemo,
+            tournaments
+        });
+    }
     return seeing;
 }
 

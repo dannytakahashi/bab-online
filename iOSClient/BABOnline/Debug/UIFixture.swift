@@ -54,7 +54,17 @@ enum UIFixture {
     /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
     static let showsVoicePanel: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoicePanel")
 
+    /// `-uiSpectatorVoice listen|full` on a spectator table (`draw-spectator`,
+    /// `spectator-mid-hand`): the pill's voice button listen-only ("Tap to talk"; a long press
+    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.3).
+    static let spectatorVoice: String? = isActive ? UserDefaults.standard.string(forKey: "uiSpectatorVoice") : nil
+
+    /// `-uiVoiceSwitch YES` with `-uiVoicePanel YES`: the panel shows the in-game "Spectators
+    /// can talk" switch (voiceSettings canChange, as a seated host gets it).
+    static let showsVoiceSwitch: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceSwitch")
+
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
+                                              "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
                                               "tournament-between", "tournament-deadline", "tournament-results", "sign-in"]
 
@@ -97,6 +107,17 @@ enum UIFixture {
             VoiceChatManager.shared.peerInfos = [
                 "sid-kim": VoiceChatManager.PeerInfo(username: "kim"),
                 "sid-hal": VoiceChatManager.PeerInfo(username: "hal", isMuted: true, volume: 1.5),
+            ]
+        }
+        if showsVoiceSwitch {
+            VoiceChatManager.shared.settings = VoiceSettings(gameId: "fixture", host: "ivy", spectatorsCanTalk: true,
+                                                             role: .player, canTalk: true, canChange: true)
+        }
+        if spectatorVoice == "listen" {
+            // a player and a watcher in the panel (the watcher's name is on the badge's list)
+            VoiceChatManager.shared.peerInfos = [
+                "sid-p": VoiceChatManager.PeerInfo(username: "ivy"),
+                "sid-w": VoiceChatManager.PeerInfo(username: "lou"),
             ]
         }
         if screenFixtures.contains(name) {
@@ -153,7 +174,7 @@ enum UIFixture {
                     ] as [String: Any]])
                 }
             }
-            if gameEndStates[name] != nil {
+            if gameEndStates[name] != nil, lobbyReturnMode != "lost" {
                 // gameEnd playerStats as the server sends them (gameHandlers.js: avgHSI rounded);
                 // `-uiNoEndStats YES`: none, as an older server or a missing field
                 let totals: [Int: (bids: Int, tricks: Int, faults: Int, hsi: Double)] = [
@@ -179,9 +200,60 @@ enum UIFixture {
             }
             seedTableExtras(store, snap, auth: auth)
             appState.screen = .game
+            if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
+                seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
+                                store, appState, lobby: lobby)
+            }
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - Play again (1.2.3, PlayAgainUITests)
+
+    /// `-uiLobbyReturn YES` on `game-end` / `game-end-spectator`: 0.5 s after the gameEnd the
+    /// server's lobbyReturn arrives (`LobbyReturn.receive`): the lobby "Family night" with me
+    /// as its host, two other players of the table (the first a returning row, "Not back
+    /// yet"), a bot, and an expected older-app player, "grandpa" (4 members + 1 expected). `-uiLobbyReturn lost`: the same with no
+    /// gameEnd (held in the seq gate for good): the app enters the lobby after
+    /// `LobbyReturn.gameEndWait`. releaseLobbyHold shows in "fixture.sent" as
+    /// `releaseLobbyHold:<name>` and the place goes 0.3 s later, as the server's list does.
+    static let lobbyReturnMode: String? = isActive ? UserDefaults.standard.string(forKey: "uiLobbyReturn") : nil
+
+    @MainActor
+    private static func seedLobbyReturn(gameId: String, me: String, seats: [String], _ store: GameState, _ appState: AppState,
+                                        lobby: LobbyState) {
+        fixtureLobby = lobby
+        let others = Array(seats.filter { $0 != me }.prefix(2))
+        var members: [[String: Any]] = [["socketId": "sid-\(me)", "username": me, "ready": false, "playing": true]]
+        for (i, u) in others.enumerated() {
+            var m: [String: Any] = ["socketId": i == 0 ? "away:fixture-\(u)" : "sid-\(u)", "username": u, "ready": false, "playing": true]
+            if i == 0 { m["reconnecting"] = true; m["returning"] = true }
+            members.append(m)
+        }
+        members.append(["socketId": "bot:fixture-1", "username": "\u{1F916} Bot", "ready": false, "playing": false, "isBot": true])
+        let payload: [String: Any] = [
+            "lobbyId": "00000000-0000-4000-8000-0000000000aa", "name": "Family night",
+            "players": Array(members.prefix(4)), "members": members,
+            "messages": [["username": others.last ?? "kim", "message": "gg! again?", "timestamp": Date().timeIntervalSince1970 * 1000]],
+            "host": me, "settings": ["spectatorsCanTalk": true], "capacity": 8, "expected": ["grandpa"],
+            "lastGame": ["gameId": gameId, "score": ["team1": 312, "team2": 287], "playerStats": [String: Any](), "position": NSNull()],
+        ]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            LobbyReturn.receive(payload, lobbyState: lobby, appState: appState, gameState: store, isBlocked: { _ in false },
+                                leaveLobby: { print("[UIFixture] lobbyReturn: leaveLobby") })
+        }
+    }
+
+    /// The server's answer to "Don't wait" (playAgain.releaseLobbyHold): the hold's row or the
+    /// expected name goes.
+    private static func emulateRelease(_ username: String) {
+        guard lobbyReturnMode != nil, let lobby = fixtureLobby else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            lobby.players.removeAll { $0.username == username && $0.returning }
+            lobby.reconnecting.remove(username)
+            lobby.expected.removeAll { $0 == username }
         }
     }
 
@@ -192,13 +264,17 @@ enum UIFixture {
     /// `-uiReject <reason>`: 1 s after the table is up, the server refuses my action
     /// (actionRejected `{action: play, reason}`): the toast with the reason, held 60 s.
     /// `-uiDealer <position>`: that seat dealt this hand (the snapshot's dealer otherwise).
+    /// `-uiHandNo <n>`: the deal is hand n (the snapshot's deal.handNo; its cards unchanged):
+    /// the card backs take that hand's colour (CardBackColour; probe `table.extras` back=).
     /// `-uiToasts YES`: the toast layer is up and holds a toast 60 s (a tap on a dimmed card).
     @MainActor
     private static func seedTableExtras(_ store: GameState, _ snap: TableSnapshot, auth: AuthState) {
         let defaults = UserDefaults.standard
-        if let pos = Int(defaults.string(forKey: "uiDealer") ?? ""), (1...4).contains(pos), var dict = seededSnapshot,
-           var deal = dict["deal"] as? [String: Any] {
-            deal["dealer"] = pos
+        let dealer = Int(defaults.string(forKey: "uiDealer") ?? "").flatMap { (1...4).contains($0) ? $0 : nil }
+        let handNo = Int(defaults.string(forKey: "uiHandNo") ?? "").flatMap { (1...13).contains($0) ? $0 : nil }
+        if dealer != nil || handNo != nil, var dict = seededSnapshot, var deal = dict["deal"] as? [String: Any] {
+            if let dealer { deal["dealer"] = dealer }
+            if let handNo { deal["handNo"] = handNo }
             dict["deal"] = deal
             if let edited = try? TableSnapshot.decode(dict, strict: true) {
                 seededSnapshot = dict
@@ -212,6 +288,27 @@ enum UIFixture {
         if defaults.bool(forKey: "uiToasts") {
             auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
             ServerErrorToast.visibleSeconds = 60
+        }
+        // `-uiDeal YES`: 8 s after launch (the UI test is reading the probe by then) the next
+        // hand is dealt live (gameStart as the server sends it: 13 cards, dealer 4), so the
+        // deal's fly-in plays (probe "table.deal"); `-uiDealSize <n>` deals n cards instead
+        // (HandSequence: 10 is hand 2, a blue deck and blue backs);
+        // `-uiReduceMotion YES` pins Reduce Motion on (Theme.Motion.reduceMotionOverride)
+        if defaults.bool(forKey: "uiReduceMotion") { Theme.Motion.reduceMotionOverride = true }
+        if defaults.bool(forKey: "uiDeal") {
+            let size = Int(defaults.string(forKey: "uiDealSize") ?? "").flatMap { (1...13).contains($0) ? $0 : nil } ?? 13
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                let ranks = ["A", "K", "Q", "J", "10", "9", "8"]
+                let thirteen: [[String: Any]] = (ranks.map { ["suit": "spades", "rank": $0] } + ranks.prefix(6).map { ["suit": "hearts", "rank": $0] })
+                let cards = Array(thirteen.prefix(size))
+                var payload: [String: Any] = [
+                    "gameId": snap.gameId, "hand": cards, "trump": ["suit": "clubs", "rank": "5"], "score1": 0, "score2": 0,
+                    "dealer": 4, "currentHand": size, "seq": (store.state.sync.lastSeq ?? snap.seq) + 1,
+                    "playerInfo": snap.seats.map { ["position": $0.position, "username": $0.username ?? "P\($0.position)"] as [String: Any] },
+                ]
+                if let pos = snap.viewer.position, snap.viewer.role == .seat { payload["position"] = pos }
+                _ = store.apply(serverEvent: "gameStart", payload: [payload])
+            }
         }
         if let reason = defaults.string(forKey: "uiReject") {
             auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
@@ -277,6 +374,26 @@ enum UIFixture {
             message = "addBot"
         case SocketEvents.Client.blockUser, SocketEvents.Client.unblockUser, SocketEvents.Client.reportUser:
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
+        case SocketEvents.Client.lobbyReturnSeen:
+            message = "lobbyReturnSeen"
+        case SocketEvents.Client.releaseLobbyHold:
+            let username = data["username"] as? String ?? "-"
+            message = "releaseLobbyHold:\(username)"
+            emulateRelease(username)
+        case SocketEvents.Client.setSpectatorsCanTalk:
+            let value = data["spectatorsCanTalk"] as? Bool ?? true
+            message = "setSpectatorsCanTalk:\(value)"
+            // the server's echo a moment later: playerReadyUpdate with settings (a family lobby)
+            // or voiceSettings (the in-game switch)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let lobby = fixtureLobby { lobby.applyFamilyKeys(from: ["settings": ["spectatorsCanTalk": value]]) }
+                let voice = VoiceChatManager.shared
+                if var s = voice.settings {
+                    s.spectatorsCanTalk = value
+                    voice.settings = s
+                    voice.switchPending = nil
+                }
+            }
         default:
             return
         }
@@ -295,7 +412,8 @@ enum UIFixture {
     /// bots (the humans keep their flags); addBotToLobby adds "🤖 Bot <n>" with the lowest free
     /// n, not ready, and leaves the flags alone.
     private static func emulateLobby(_ event: String, _ data: [String: Any]) {
-        guard let lobby = fixtureLobby else { return }
+        guard name == "game-lobby-bots", event == SocketEvents.Client.removeBot || event == SocketEvents.Client.addBot,
+              let lobby = fixtureLobby else { return }
         var players = lobby.players
         if event == SocketEvents.Client.removeBot {
             guard let id = data["botSocketId"] as? String, let i = players.firstIndex(where: { $0.id == id && $0.isBot }) else { return }
@@ -457,6 +575,48 @@ enum UIFixture {
             // `-uiLobbyRejoin YES`: the restore's joinLobby is out and unanswered
             if UserDefaults.standard.bool(forKey: "uiLobbyRejoin") { lobby.rejoiningLobbyId = "l1" }
             appState.screen = .gameLobby
+        case "game-lobby-family", "game-lobby-family-full":
+            // a family lobby (1.2.3) as the server sends it to a capable member
+            // (GameManager.lobbyWire: players = the first 4, members = everyone): 6 humans and
+            // a bot that sits out (no human seat needs it). `-family`: kim and hal readied
+            // (Playing); `-family-full`: kim, hal, jon and ora hold the table, so I (ivy) and
+            // max will watch. Me the host unless `-uiHost <name>`.
+            let full = name == "game-lobby-family-full"
+            let host = UserDefaults.standard.string(forKey: "uiHost") ?? "ivy"
+            let readied = full ? ["kim", "hal", "jon", "ora"] : ["kim", "hal"]
+            let members: [[String: Any]] = ["ivy", "kim", "hal", "jon", "ora", "max", "🤖 Bot"].map { u in
+                let bot = u.hasPrefix("🤖")
+                var m: [String: Any] = ["socketId": bot ? "bot:fixture-1" : "sid-\(u)", "username": u,
+                                        "ready": readied.contains(u), "playing": readied.contains(u)]
+                if bot { m["isBot"] = true }
+                return m
+            }
+            lobby.lobbyId = "l1"
+            lobby.lobbyName = "Family night"
+            lobby.applyPlayers(from: [
+                "lobbyId": "l1", "players": Array(members.prefix(4)).map { $0.filter { $0.key != "playing" } },
+                "members": members, "host": host, "settings": ["spectatorsCanTalk": true], "capacity": 8,
+            ], namesHeldSeats: true)
+            lobby.messages = chat
+            fixtureLobby = lobby
+            appState.screen = .gameLobby
+        case "main-room-family":
+            // the main-room cards of family lobbies: 6 of 8 with me as member 6 (Join), a full
+            // 8/8 that still holds my seat as member 7 (Rejoin), a capacity-4 lobby with a
+            // legacy member that is full (Full)
+            let six = ["kim", "hal", "jon", "ora", "max", "ivy"], eight = ["pat", "ned", "sam", "tia", "uma", "vic", "ivy", "wes"]
+            mainRoom.lobbies = [
+                Lobby(id: "l1", name: "Family night", players: six.prefix(4).map { player($0) }, playerCount: 4,
+                      memberCount: 6, capacity: 8, memberUsernames: six),
+                Lobby(id: "l2", name: "Cousins", players: eight.prefix(4).map { player($0) }, playerCount: 4,
+                      memberCount: 8, capacity: 8, memberUsernames: eight),
+                Lobby(id: "l3", name: "Old phones", players: ["abe", "bea", "cal", "dot"].map { player($0) }, playerCount: 4,
+                      memberCount: 4, capacity: 4, memberUsernames: ["abe", "bea", "cal", "dot"]),
+            ]
+            mainRoom.messages = chat
+            mainRoom.onlineCount = 12
+            mainRoom.onlineUsers = ["ivy", "kim", "hal"]
+            appState.screen = .mainRoom
         case "tournament-lobby":
             tournament.tournamentId = "t1"
             tournament.name = "Sunday Cup"
@@ -553,7 +713,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom", "table.deal".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
@@ -574,6 +734,10 @@ final class TableDebugProbe: ObservableObject {
     @Published var verticalBar = "-"
     /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
     @Published var sent = "-"
+    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1"
+    /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
+    /// in a flight or a fade now, the deck up or not).
+    @Published var tableDeal = "-"
 
     var pose: String {
         let i = insets
@@ -611,11 +775,30 @@ final class TableDebugProbe: ObservableObject {
         let showsFans = scene.lastModel.map { scene.layout.fans(spectating: $0.hand == nil) != nil } ?? false
         let fans = showsFans ? seats.map { "\($0.key):\($0.value.fanNode.count)" }.joined(separator: ",") : "-"
         let dealer = seats.first { $0.value.dealerNode.isShown }.map { "\($0.key)" } ?? (scene.myDealerNode.isShown ? "me" : "-")
+        // back: the colour the fans' sprites are drawn in (red / blue; mixed: not one colour; -: no backs)
+        let textures = seats.flatMap { $0.value.fanNode.children.compactMap { ($0 as? SKSpriteNode)?.texture } }
+        let colours = Set(textures.map { t in [CardBackColour.red, .blue].first { CardFanNode.backTexture($0) === t }?.rawValue ?? "other" })
+        let back = colours.count > 1 ? "mixed" : colours.first ?? "-"
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
-        let extras = "fans=\(fans) dealer=\(dealer)"
+        let extras = "fans=\(fans) back=\(back) dealer=\(dealer)"
         if extras != tableExtras { tableExtras = extras }
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
+        let dealing = Array(scene.handNode.sprites.values) as [SKNode] + scene.opponentManager.nodes.values.flatMap { $0.fanNode.children }
+        let flying = dealing.filter { $0.deal?.flies == true }.count, fading = dealing.filter { $0.deal?.flies == false }.count
+        // while the deck is up: its backs' colour (deckBack=red / blue / mixed) and whether it
+        // keeps off the fold (hinge=ok / over; "-": no deck, or no fold the layout keeps to)
+        let deckTextures = scene.dealDeck?.children.compactMap { ($0 as? SKSpriteNode)?.texture } ?? []
+        let deckColours = Set(deckTextures.map { t in
+            [CardBackColour.red, .blue].first { CardTextureGenerator.cardBackTexture(colour: $0) === t }?.rawValue ?? "other"
+        })
+        let deckBack = deckColours.count > 1 ? "mixed" : deckColours.first ?? "-"
+        let hinge = scene.dealDeck.flatMap { deck in
+            (scene.layout.foldIgnored ? nil : scene.chrome.fold).map { deck.calculateAccumulatedFrame().intersects($0) ? "over" : "ok" }
+        } ?? "-"
+        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) flying=\(flying) fading=\(fading) "
+            + "deck=\(scene.dealDeck == nil ? 0 : 1) deckBack=\(deckBack) hinge=\(hinge)"
+        if deal != tableDeal { tableDeal = deal }
         let zoom = String(format: "%.2f", L.zoom)
         if zoom != tableZoom { tableZoom = zoom }
     }
@@ -633,6 +816,7 @@ struct FixtureProbes: View {
             dot("table.extras", probe.tableExtras)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)
+            dot("table.deal", probe.tableDeal)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -187,6 +187,122 @@ describe('enterTable / exitTable', () => {
   });
 });
 
+describe('play again: the lobby a finished game reopened (lobbyReturn)', () => {
+  let t;
+  const ret = (extra = {}) => ({
+    lobbyId: 'R1', name: 'Family', players: [], members: [], host: 'me', settings: { spectatorsCanTalk: true }, capacity: 8, messages: [],
+    lastGame: { gameId: 'g1', score: { team1: 1, team2: 2 }, playerStats: {}, position: 1 },
+    ...extra,
+  });
+  beforeEach(() => {
+    t = setup();
+    t.session.transition(SCREEN.MAIN_ROOM);
+    t.session.enterTable(ROLE.PLAYER, 'g1');
+  });
+
+  it('GAME_END -> LOBBY is legal; TABLE -> LOBBY is not (the score modal always comes first)', () => {
+    expect(TRANSITIONS[SCREEN.GAME_END]).toContain(SCREEN.LOBBY);
+    expect(TRANSITIONS[SCREEN.TABLE]).not.toContain(SCREEN.LOBBY);
+    expect(EXIT.LOBBY_RETURN).toBe('lobbyReturn');
+  });
+
+  it('remembered at the table or on its score modal, for that game only; nothing changes screen', () => {
+    expect(t.session.noteLobbyReturn(ret({ lastGame: { gameId: 'other' } }))).toBe(false);
+    expect(t.session.noteLobbyReturn(ret())).toBe(true);
+    expect(t.session.screen).toBe(SCREEN.TABLE);
+    t.session.endGame();
+    expect(t.session.endedGameId).toBe('g1');
+    expect(t.session.screen).toBe(SCREEN.GAME_END);
+    expect(t.session.lobbyReturn.data.lobbyId).toBe('R1');
+    expect(t.socket.emit).not.toHaveBeenCalled();
+    expect(t.hooks[SCREEN.LOBBY].enter).not.toHaveBeenCalled();
+  });
+
+  it('after gameEnd too (the usual order), and never off the table', () => {
+    t.session.endGame();
+    expect(t.session.noteLobbyReturn(ret())).toBe(true);
+    const off = setup();
+    off.session.transition(SCREEN.MAIN_ROOM);
+    expect(off.session.noteLobbyReturn(ret())).toBe(false);
+    expect(off.session.lobbyReturn).toBeNull();
+  });
+
+  it('Return: the table goes with EXIT.LOBBY_RETURN, LOBBY shows the remembered lobby, joinLobby asks for it again', () => {
+    t.session.endGame();
+    t.session.noteLobbyReturn(ret());
+    const data = { lobbyId: 'R1', players: [] };
+    expect(t.session.returnToReopenedLobby(data)).toBe(SCREEN.LOBBY);
+    expect(t.teardownTable).toHaveBeenCalledWith(EXIT.LOBBY_RETURN);
+    expect(t.session.screen).toBe(SCREEN.LOBBY);
+    expect(t.hooks[SCREEN.LOBBY].enter).toHaveBeenCalledWith(data, expect.objectContaining({ from: SCREEN.GAME_END }));
+    expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
+    expect(t.emitted('joinMainRoom')).toEqual([]);
+    // the server learns the score screen is left (as iOS 1.2.3 tells it),
+    // before the joinLobby that asks for the lobby again
+    expect(t.emitted('lobbyReturnSeen')).toEqual([{}]);
+    const order = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby');
+    expect(order).toEqual(['lobbyReturnSeen', 'joinLobby']);
+    expect(t.session.lobbyId).toBe('R1');
+    expect(sessionStorage.getItem('lobbyId')).toBe('R1');
+    expect(t.session.pendingLobbyRejoin).toBe('R1');
+    expect(t.session.lobbyRejoinAfterGame).toBe(true);
+    // used: nothing remembered any more
+    expect(t.session.lobbyReturn).toBeNull();
+    expect(t.session.endedGameId).toBeNull();
+    // the lobby's answer clears the re-entry
+    t.session.noteLobby('R1');
+    expect(t.session.pendingLobbyRejoin).toBeNull();
+    expect(t.session.lobbyRejoinAfterGame).toBe(false);
+  });
+
+  it('no lobby return: returnToReopenedLobby does nothing (the caller routes to the main room as before)', () => {
+    t.session.endGame();
+    expect(t.session.returnToReopenedLobby({})).toBeNull();
+    expect(t.session.screen).toBe(SCREEN.GAME_END);
+    expect(t.socket.emit).not.toHaveBeenCalled();
+  });
+
+  it('the lobby started its next game meanwhile: the main room (joinMainRoom first, so it is drawn), then joinLobby asks for that lobby', () => {
+    t.session.endGame();
+    t.session.noteLobbyReturn(ret());
+    t.session.noteLobbyStarted('g9');
+    expect(t.session.returnToReopenedLobby({ lobbyId: 'R1' })).toBe(SCREEN.MAIN_ROOM);
+    expect(t.teardownTable).toHaveBeenCalledWith(EXIT.GAME_END_RETURN);
+    expect(t.session.screen).toBe(SCREEN.MAIN_ROOM);
+    expect(t.emitted('joinMainRoom')).toHaveLength(1);
+    expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
+    const names = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'joinMainRoom' || n === 'joinLobby');
+    expect(names).toEqual(['joinMainRoom', 'joinLobby']);
+    // its joinMainRoom took the socket out of that lobby: nothing to tell
+    expect(t.emitted('lobbyReturnSeen')).toEqual([]);
+    expect(t.session.lobbyRejoinAfterGame).toBe(true);
+    expect(sessionStorage.getItem('lobbyId')).toBeNull();
+  });
+
+  it('forgotten on leftLobby, on a new table, on leaving the score modal and on sign-out', () => {
+    t.session.endGame();
+    t.session.noteLobbyReturn(ret());
+    t.session.forgetLobbyReturn();
+    expect(t.session.lobbyReturn).toBeNull();
+
+    t.session.noteLobbyReturn(ret());
+    t.session.enterTable(ROLE.PLAYER, 'g2');
+    expect(t.session.lobbyReturn).toBeNull();
+
+    t.session.noteLobbyReturn(ret({ lastGame: { gameId: 'g2' } }));
+    t.session.endGame();
+    expect(t.session.lobbyReturn).not.toBeNull();
+    t.session.exitTable(EXIT.GAME_END_RETURN);
+    expect(t.session.lobbyReturn).toBeNull();
+    expect(t.emitted('joinMainRoom')).toHaveLength(1);
+
+    t.session.enterTable(ROLE.PLAYER, 'g3');
+    t.session.noteLobbyReturn(ret({ lastGame: { gameId: 'g3' } }));
+    t.session.clearIdentity();
+    expect(t.session._lobbyReturn).toBeNull();
+  });
+});
+
 describe('session resume', () => {
   let t;
   beforeEach(() => {

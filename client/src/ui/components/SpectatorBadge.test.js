@@ -5,7 +5,7 @@
  * outside click close it), reduced motion respected.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { renderSpectatorBadge, removeSpectatorBadge, isSpectatorListOpen, watchingLabel, EYE_ICON } from './SpectatorBadge.js';
+import { renderSpectatorBadge, removeSpectatorBadge, isSpectatorListOpen, watchingLabel, EYE_ICON, setSpeaking, isWatcherSpeaking } from './SpectatorBadge.js';
 import { clearHud, applyHudLayout } from '../tableHud.js';
 import { computeTableLayout } from '../../phaser/layout/computeTableLayout.js';
 import { setReducedMotionOverride } from '../motion.js';
@@ -31,6 +31,42 @@ afterEach(() => {
   removeSpectatorBadge();
   clearHud();
   setReducedMotionOverride(null);
+});
+
+describe('a watcher speaking (spectator voice, 2026-11-16)', () => {
+  it('setSpeaking lights the badge and that name\'s row; a re-render keeps it; the table\'s teardown forgets it', () => {
+    renderSpectatorBadge(W(['ann', 'bob']));
+    setSpeaking('bob', true);
+    expect(btn().classList.contains('voice-speaking')).toBe(true);
+    const row = (n) => pop().querySelector(`li[data-username="${n}"]`);
+    expect(row('bob').classList.contains('is-speaking')).toBe(true);
+    expect(row('ann').classList.contains('is-speaking')).toBe(false);
+    renderSpectatorBadge(W(['ann', 'bob', 'cat']));
+    expect(row('bob').classList.contains('is-speaking')).toBe(true);
+    setSpeaking('bob', false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+    setSpeaking('ann', true);
+    removeSpectatorBadge();
+    expect(isWatcherSpeaking('ann')).toBe(false);
+  });
+
+  it('a complete list without a speaking name drops its ring (it left); a partial list keeps it', () => {
+    renderSpectatorBadge(W(['ann', 'bob']));
+    setSpeaking('bob', true);
+    // a list cut short (count above the names sent) may just not show bob
+    renderSpectatorBadge({ spectators: [{ username: 'ann', pic: 1 }], count: 2 });
+    expect(isWatcherSpeaking('bob')).toBe(true);
+    renderSpectatorBadge(W(['ann']));
+    expect(isWatcherSpeaking('bob')).toBe(false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+  });
+
+  it('before the badge exists: remembered, shown when it is drawn', () => {
+    setSpeaking('ann', true);
+    expect(slot()).toBeNull();
+    renderSpectatorBadge(W(['ann']));
+    expect(btn().classList.contains('voice-speaking')).toBe(true);
+  });
 });
 
 describe('the badge', () => {

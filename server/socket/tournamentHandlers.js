@@ -22,6 +22,7 @@ const { PERSONALITY_LIST, getDisplayName } = personalities;
  * Create a new tournament from main room
  */
 function createTournament(socket, io) {
+    require('./playAgain').endLingering(io, socket.id, 'createTournament');
     const user = gameManager.getUserBySocketId(socket.id);
     if (!user) {
         emitError(socket, { message: 'User not found' }, 'createTournament');
@@ -100,6 +101,7 @@ const STAYS_PUT = new Set(['Already in a tournament', 'Already in a lobby', 'Alr
  * Join an existing tournament
  */
 async function joinTournament(socket, io, data) {
+    require('./playAgain').endLingering(io, socket.id, 'joinTournament');
     const { tournamentId } = data;
     if (!tournamentId) {
         emitError(socket, { message: 'Tournament ID required' }, 'joinTournament');
@@ -166,7 +168,7 @@ async function joinTournament(socket, io, data) {
  * when a tournament they reference no longer exists).
  */
 function sendToMainRoom(socket) {
-    const mainRoomResult = gameManager.joinMainRoom(socket.id);
+    const mainRoomResult = gameManager.joinMainRoom(socket.id, { wide: require('./clientInfo').hasCap(socket, 'casualSpectators') });
     socket.join('mainRoom');
     const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {
@@ -732,6 +734,7 @@ function tournamentChat(socket, io, data) {
  * Spectate a tournament (join tournament room to see games list)
  */
 function spectateTournament(socket, io, data) {
+    require('./playAgain').endLingering(io, socket.id, 'spectateTournament');
     const { tournamentId } = data;
     const tournament = gameManager.getTournamentById(tournamentId);
     if (!tournament) {
@@ -774,6 +777,7 @@ function spectateTournament(socket, io, data) {
  * Spectate a specific game within a tournament
  */
 function spectateTournamentGame(socket, io, data) {
+    require('./playAgain').endLingering(io, socket.id, 'spectateTournamentGame');
     const { gameId } = data;
 
     // Any game id is accepted here; the ambient demo game is "not found"

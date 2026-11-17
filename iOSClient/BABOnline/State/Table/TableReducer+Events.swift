@@ -16,10 +16,20 @@ extension TableReducer {
                 if let c = p.card { d.drawnCard = c }
             }
         case .playerDrew(let p):
+            var turnedUp = false
             mutateDraw(&s) { d in
                 let r = DrawResult(username: p.username ?? "", position: p.drawOrder, cardIndex: p.cardIndex ?? 0, card: p.card)
-                if let i = d.results.firstIndex(where: { $0.drawOrder == p.drawOrder }) { d.results[i] = r } else { d.results.append(r) }
+                if let i = d.results.firstIndex(where: { $0.drawOrder == p.drawOrder }) {
+                    d.results[i] = r
+                } else {
+                    d.results.append(r)
+                    turnedUp = true
+                }
             }
+            // a new card in the draw for deal (DrawPhaseView flips it): its card sound, spaced by
+            // TableSoundCues when draws come together; never for a re-sent draw order, a snapshot
+            // (the draw is its state) or buffered catch-up (catchUp drops it)
+            if turnedUp { fx.append(.sound(.draw)) }
         case .positionUpdate(let p):
             positionUpdate(&s, p)
         case .teamsAnnounced(let p):
@@ -354,6 +364,7 @@ extension TableReducer {
         s.pending = nil
         s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))  // 21.5: bids start empty every deal
         if let previous { fx.append(.animate(.handCleared(dealSeq: previous.dealSeq))) }
+        fx.append(.animate(.dealt(dealSeq: dealSeq)))
         fx.append(.sound(.deal))
         if let trump = p.trump {
             addLog(&s, "Hand \(size) — Trump: \(trumpString(trump))")

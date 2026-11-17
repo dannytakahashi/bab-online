@@ -23,6 +23,11 @@
  * idempotent: renderTable calls it on every render, the spectatorsUpdated
  * handler on every list. The HUD's clearHud removes the node with the
  * table; removeSpectatorBadge also drops the document listeners.
+ *
+ * Spectator voice (family lobbies, 2026-11-16): a voice spectator's speaking
+ * ring is the badge's (setSpeaking: the badge glows while anyone watching
+ * talks, and that name's row in the list is marked), since a spectator has
+ * no seat to light.
  */
 
 import { el, createIconButton } from '../kit/index.js';
@@ -45,6 +50,37 @@ export function watchingLabel(count) {
 
 let docListeners = null;
 let openedBy = null; // 'click' | 'hover' | null
+// Watching usernames whose voice is speaking now (setSpeaking)
+const speaking = new Set();
+
+/** The badge and the list rows show who of the watchers is speaking. */
+function applySpeaking(slot) {
+  const btn = buttonOf(slot);
+  if (!btn) return;
+  btn.classList.toggle('voice-speaking', speaking.size > 0);
+  for (const li of slot.querySelectorAll('.spectator-popover__row')) {
+    li.classList.toggle('is-speaking', speaking.has(li.dataset.username));
+  }
+}
+
+/**
+ * A watcher's voice started or stopped speaking (VoiceChatManager's
+ * speaking poll, by username: main.js showVoiceControls).
+ * @param {string} username
+ * @param {boolean} on
+ */
+export function setSpeaking(username, on) {
+  if (!username) return;
+  if (on) speaking.add(username);
+  else speaking.delete(username);
+  const slot = hudSpectatorSlot({ create: false });
+  if (slot) applySpeaking(slot);
+}
+
+/** Is a watcher's voice speaking now? (tests, the overlay) */
+export function isWatcherSpeaking(username) {
+  return speaking.has(username);
+}
 
 function popoverOf(slot) {
   return slot?.querySelector(`#${POPOVER_ID}`) || null;
@@ -195,6 +231,12 @@ export function renderSpectatorBadge(watching, { me = null } = {}) {
   more.textContent = count > spectators.length ? `and ${count - spectators.length} more` : '';
   more.hidden = count <= spectators.length;
   slot.dataset.count = String(count);
+  // A complete list: a speaking ring of someone no longer watching goes
+  if (count <= spectators.length) {
+    const names = new Set(spectators.map((s) => s?.username));
+    for (const name of [...speaking]) if (!names.has(name)) speaking.delete(name);
+  }
+  applySpeaking(slot);
   if (count === 0) {
     if (isSpectatorListOpen()) closeSpectatorList();
     slot.hidden = true;
@@ -208,5 +250,6 @@ export function renderSpectatorBadge(watching, { me = null } = {}) {
 export function removeSpectatorBadge() {
   removeDocListeners();
   openedBy = null;
+  speaking.clear();
   hudSpectatorSlot({ create: false })?.remove();
 }

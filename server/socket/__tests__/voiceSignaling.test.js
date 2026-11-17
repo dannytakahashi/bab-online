@@ -358,7 +358,7 @@ describe('V1_REMOVALS #20: the web PCM relay (voiceRelayAudio) is gone, both dir
     });
 
     test('no handler, chunk check, rate-limit key or Joi schema is left', () => {
-        expect(Object.keys(voice).sort()).toEqual(['getVoiceIceServers', 'rememberBlockList', 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
+        expect(Object.keys(voice).sort()).toEqual(['getVoiceIceServers', 'rememberBlockList', 'setSpectatorsCanTalk', 'voiceAnswer', 'voiceIceCandidate', 'voiceOffer']);
         expect(rateLimiter.limits).not.toHaveProperty('voiceRelayAudio');
         expect(require('../validators').schemas).not.toHaveProperty('voiceRelayAudio');
     });

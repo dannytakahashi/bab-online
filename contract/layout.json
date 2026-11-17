@@ -36,7 +36,10 @@
           "playerReady",
           "playerUnready",
           "addBot",
-          "removeBot"
+          "removeBot",
+          "setSpectatorsCanTalk",
+          "releaseLobbyHold",
+          "lobbyReturnSeen"
         ]
       },
       {
@@ -157,6 +160,7 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
+          "lobbyReturn",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",
@@ -288,7 +292,8 @@
           "voicePeerList",
           "voicePeerJoined",
           "voicePeerLeft",
-          "voiceIceServers"
+          "voiceIceServers",
+          "voiceSettings"
         ]
       },
       {
@@ -337,7 +342,10 @@
           "leaveLobby",
           "lobbyChat",
           "playerReady",
-          "playerUnready"
+          "playerUnready",
+          "setSpectatorsCanTalk",
+          "releaseLobbyHold",
+          "lobbyReturnSeen"
         ]
       },
       {
@@ -461,6 +469,7 @@
         "section": "Lobby",
         "events": [
           "lobbyCreated",
+          "lobbyReturn",
           "lobbyMessage",
           "lobbyPlayerJoined",
           "lobbyPlayerLeft",
@@ -569,7 +578,8 @@
           "voicePeerList",
           "voicePeerJoined",
           "voicePeerLeft",
-          "voiceIceServers"
+          "voiceIceServers",
+          "voiceSettings"
         ]
       },
       {

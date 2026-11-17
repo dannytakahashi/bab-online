@@ -187,6 +187,15 @@ describe('seat transcripts (wire characterization)', () => {
         const s = await rejoin(t, 0, 'r1');
         chat(t, s, '/active');
         expect(t.rec.take(mark)).toEqual([
+            // CHANGED (family lobbies, 2026-11-16): the demoted socket h1 (lazy
+            // at its seat: a voice member) leaves voice, both ways with each
+            // voice peer (private; seatLifecycle.watchSeat)
+            'h2:voicePeerLeft{socketId}',
+            'h1:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
+            'h1:voicePeerLeft{socketId}',
+            'h4:voicePeerLeft{socketId}',
+            'h1:voicePeerLeft{socketId}',
             // CHANGED (snapshot v2, additive): +snapshot
             'self(r1):rejoinSuccess{gameId,isLazy,players,snapshot,tournamentId}',
             'room:playerReconnected{position,username}@1',
@@ -271,11 +280,21 @@ describe('seat transcripts (wire characterization)', () => {
         expect(masked).toEqual([
             'room:playerDrew{card,drawOrder,username}',
             'room:gameLogEntry{message,type}',
+            // CHANGED (family lobbies, 2026-11-16): a draw-phase leave tells
+            // the entrants' voice (private voicePeerLeft; chatHandlers
+            // handleDrawPhaseLeave -> gameVoice.playerLeftVoice)
+            'h2:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
+            'h4:voicePeerLeft{socketId}',
             'self(h1):leftGame{}',
             'self(h2):youDrew{card,drawOrder}',
             'room:playerDrew{card,drawOrder,username}',
             'self(h3):youDrew{card,drawOrder}',
             'room:playerDrew{card,drawOrder,username}',
+            // CHANGED (family lobbies): so does a draw-phase disconnect
+            // (queueHandlers.routeGameDisconnect)
+            'h2:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
             'room:playerDrew{card,drawOrder,username}',
             'room:gameLogEntry{message,type}',
             // CHANGED (V1_REMOVALS #7): no playerAssigned at all (h2 and h3

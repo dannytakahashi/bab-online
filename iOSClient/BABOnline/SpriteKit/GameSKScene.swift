@@ -216,6 +216,7 @@ class GameSKScene: SKScene, TableRenderer {
         bidManager.apply(layout: new, viewPosition: v, animator: a, animated: animated)
         chatManager.apply(layout: new)
         effectsManager.apply(layout: new)
+        placeDealDeck()
         #if DEBUG
         relayoutCount += 1
         probe()
@@ -305,6 +306,10 @@ class GameSKScene: SKScene, TableRenderer {
                 effectsManager.showRainbow(position: pos, myPosition: view)
             case .overTrump:
                 effectsManager.showOverTrump()
+            case .dealt(let seq):
+                // this render's deal only (a later deal in the same commit owns the table)
+                guard seq == model.dealSeq, model.showsTable, !model.keepsLastTable else { break }
+                dealIn(back: model.back)
             case .chatBubble(let pos, let message):
                 // Not over my own hand (the bottom seat's spot): the log shows my line
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
@@ -337,6 +342,10 @@ class GameSKScene: SKScene, TableRenderer {
             // fades) hold the nodes, and a cut-off collect must not run later
             Self.stopActions(transientLayer)
             transientLayer.removeAllChildren()
+            // a snapshot shows the table as it is: a deal in flight lands now
+            removeDealDeck()
+            handNode.sprites.values.forEach { $0.finishDeal() }
+            opponentManager.nodes.values.forEach { $0.fanNode.children.forEach { $0.finishDeal() } }
         }
         handNode.position = layout.handBaseline
         handNode.setScale(layout.handScale)
@@ -405,6 +414,119 @@ class GameSKScene: SKScene, TableRenderer {
         myDealerNode.position = model.iDeal ? CGPoint(x: chip.midX, y: chip.midY) : .zero
         myDealerNode.update(shown: model.iDeal)
     }
+
+    // MARK: - The deal
+
+    /// The deck a live deal flies from (a few backs of the hand's colour at the hand's card
+    /// size at `layout.dealOrigin`), up while the cards leave it; nil otherwise.
+    private(set) var dealDeck: SKNode?
+    #if DEBUG
+    /// Live deals shown, and the latest one's cards and kind (fixture probe "table.deal").
+    private(set) var dealsShown = 0
+    private(set) var lastDeal = (cards: 0, mode: "-")
+    #endif
+
+    /// A live deal (`.dealt`): my hand's cards, then every seat's card backs, leave the deck
+    /// one `Deal.stagger` after another after `Deal.wait`, each flying `Deal.flight` into the
+    /// place the render just gave it (the web's CardManager / OpponentManager deal; the same
+    /// motion tokens). Cosmetic: nothing waits for it (taps, the bid panel and the server's
+    /// pacing go on as before; a tap lands its card at once). Under Reduce Motion the cards
+    /// fade in where they are and no deck shows. A snapshot, a later deal or a relayout
+    /// never replays it: a relayout re-aims the flights, a snapshot lands them. The deck's
+    /// backs are `back`, the hand's colour (`model.back`), as the fans' backs it deals.
+    func dealIn(back colour: CardBackColour) {
+        removeDealDeck()
+        let reduce = Theme.Motion.reduceMotion
+        let mine = handNode.sprites.values.sorted { $0.zPosition < $1.zPosition }
+        for (i, s) in mine.enumerated() {
+            animator.deal(s, delay: Deal.wait + Double(i) * Deal.stagger, duration: Deal.flight) { [weak self] n in
+                self?.dealStart(n, width: LayoutConstants.cardWidth)
+            }
+        }
+        var most = mine.count
+        for seat in opponentManager.nodes.values {
+            let backs = seat.fanNode.children.sorted { $0.zPosition < $1.zPosition }
+            most = max(most, backs.count)
+            for (i, b) in backs.enumerated() {
+                animator.deal(b, delay: Deal.wait + Double(i) * Deal.stagger, duration: Deal.flight) { [weak self] n in
+                    self?.dealStart(n, width: TableLayout.fanCard.width)
+                }
+            }
+        }
+        guard most > 0 else { return }
+        #if DEBUG
+        dealsShown += 1
+        lastDeal = (mine.count + opponentManager.nodes.values.reduce(0) { $0 + $1.fanNode.children.count }, reduce ? "fade" : "fly")
+        dealProbe(after: Deal.wait + Double(most - 1) * Deal.stagger + Deal.flight)
+        #endif
+        guard !reduce else { return }
+        let deck = SKNode()
+        deck.role = "deal.deck"
+        deck.zPosition = -0.5  // over the felt, under the hand and the seats: the cards leave from its top
+        deck.hideFromAccessibility()
+        for i in 0..<3 {
+            let back = SKSpriteNode(texture: CardTextureGenerator.cardBackTexture(colour: colour), size: TableLayout.cardSize)
+            back.position = CGPoint(x: CGFloat(i) * 1.5, y: CGFloat(i) * 1.5)
+            back.zPosition = CGFloat(i)
+            back.hideFromAccessibility()
+            deck.addChild(back)
+        }
+        addChild(deck)
+        dealDeck = deck
+        placeDealDeck()
+        deck.alpha = 0
+        // up until the last card has left, then gone
+        let last = Deal.wait + Double(most - 1) * Deal.stagger
+        animator.run(deck, SKAction.sequence([
+            SKAction.fadeIn(withDuration: Theme.Motion.fast),
+            SKAction.wait(forDuration: max(0, last - Theme.Motion.fast)),
+            SKAction.fadeOut(withDuration: Theme.Motion.base),
+            SKAction.run { [weak self, weak deck] in
+                guard let self, let deck else { return }
+                deck.removeFromParent()
+                if self.dealDeck === deck { self.dealDeck = nil }
+            },
+        ]), final: { [weak self] n in
+            n.removeFromParent()
+            if self?.dealDeck === n { self?.dealDeck = nil }
+        })
+    }
+
+    /// Where `node`'s deal flight starts, in its parent's coordinates: the deck, at the hand's
+    /// card size (`width` is the node's unscaled width), square to the table.
+    func dealStart(_ node: SKNode, width: CGFloat) -> Deal.Start? {
+        guard let parent = node.parent, node.scene === self else { return nil }
+        var scale: CGFloat = 1
+        var n: SKNode? = parent
+        while let p = n, p !== self {
+            scale *= p.xScale
+            n = p.parent
+        }
+        guard scale > 0, width > 0 else { return nil }
+        return Deal.Start(point: parent.convert(layout.dealOrigin, from: self),
+                          scale: TableLayout.cardSize.width * layout.handScale / (width * scale), rotation: 0)
+    }
+
+    private func placeDealDeck() {
+        guard let deck = dealDeck else { return }
+        deck.position = layout.dealOrigin
+        deck.setScale(layout.handScale)
+    }
+
+    private func removeDealDeck() {
+        dealDeck?.removeAllActions()
+        dealDeck?.removeFromParent()
+        dealDeck = nil
+    }
+
+    #if DEBUG
+    /// Fixture mode: refresh the probes as the deal starts and once it has landed.
+    private func dealProbe(after: TimeInterval) {
+        guard UIFixture.isActive else { return }
+        probe()
+        run(SKAction.sequence([SKAction.wait(forDuration: after + 0.05), SKAction.run { [weak self] in self?.probe() }]))
+    }
+    #endif
 
     /// Where a seat's played card flies in from: its fan of card backs where the table
     /// shows them, else off-screen on the seat's side (as before 1.2.2).

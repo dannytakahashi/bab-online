@@ -24,10 +24,13 @@ extension View {
     @MainActor
     func previewFixture(_ name: String, open: Bool = false) -> some View {
         let (game, actions, app) = PreviewFixtures.make(name)
+        let lobby = LobbyState()
         return self
             .environmentObject(game)
             .environmentObject(actions)
             .environmentObject(app)
+            .environmentObject(lobby)
+            .environment(\.lobbyStateLink, LobbyStateLink(state: lobby))
             .environmentObject(SafetyState())
             .environment(\.horizontalSizeClass, open ? .regular : .compact)
             .environment(\.verticalSizeClass, .regular)

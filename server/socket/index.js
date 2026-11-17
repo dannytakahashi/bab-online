@@ -13,6 +13,7 @@ const reconnectHandlers = require('./reconnectHandlers');
 const profileHandlers = require('./profileHandlers');
 const tournamentHandlers = require('./tournamentHandlers');
 const voiceHandlers = require('./voiceHandlers');
+const playAgain = require('./playAgain');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
 const adminHandlers = require('./adminHandlers');
@@ -233,6 +234,19 @@ function setupSocketHandlers(io) {
         // ICE servers (Cloudflare TURN credentials, else STUN) for voice peers
         socket.on('getVoiceIceServers', (data) =>
             asyncHandler('getVoiceIceServers', voiceHandlers.getVoiceIceServers)(socket, io, data)
+        );
+        // "Spectators can talk": the lobby host, or a casual game's controller
+        socket.on('setSpectatorsCanTalk', (data) =>
+            syncHandler('setSpectatorsCanTalk', voiceHandlers.setSpectatorsCanTalk)(socket, io, data)
+        );
+        // "Don't wait for <name>": a play-again lobby's host releases a held place
+        socket.on('releaseLobbyHold', (data) =>
+            asyncHandler('releaseLobbyHold', require('./playAgain').releaseLobbyHold)(socket, io, data)
+        );
+        // Play again: the client left the last game's results for the lobby
+        // lobbyReturn kept for it (Return to Lobby); no reply
+        socket.on('lobbyReturnSeen', () =>
+            safeHandler(playAgain.lobbyReturnSeen, { limit: 'lobbyReturnSeen' })(socket, io, {})
         );
 
         // Disconnect - cleanup rate limiter and handle game state

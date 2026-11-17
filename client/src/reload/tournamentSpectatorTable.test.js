@@ -57,4 +57,10 @@ describe('reload while watching a tournament table', () => {
     expect(socket.emitted('spectateTournament')).toHaveLength(0);
     expect(page.session.screen).toBe('tournamentLobby');
   });
+
+  it('a tournament table never runs spectator voice (the server sends no voiceSettings there): no voice session was started', () => {
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    expect(document.getElementById('voice-mute-btn')).toBeNull();
+  });
 });

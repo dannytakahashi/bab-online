@@ -27,6 +27,9 @@ enum SocketEvents {
         static let lobbyChat = "lobbyChat"
         static let playerReady = "playerReady"
         static let playerUnready = "playerUnready"
+        static let setSpectatorsCanTalk = "setSpectatorsCanTalk"
+        static let releaseLobbyHold = "releaseLobbyHold"
+        static let lobbyReturnSeen = "lobbyReturnSeen"
 
         // Session
         static let restoreSession = "restoreSession"
@@ -110,6 +113,7 @@ enum SocketEvents {
 
         // Lobby
         static let lobbyCreated = "lobbyCreated"
+        static let lobbyReturn = "lobbyReturn"
         static let lobbyMessage = "lobbyMessage"
         static let lobbyPlayerJoined = "lobbyPlayerJoined"
         static let lobbyPlayerLeft = "lobbyPlayerLeft"
@@ -192,6 +196,7 @@ enum SocketEvents {
         static let voicePeerJoined = "voicePeerJoined"
         static let voicePeerLeft = "voicePeerLeft"
         static let voiceIceServers = "voiceIceServers"
+        static let voiceSettings = "voiceSettings"
 
         // Connection
         static let connect = "connect"

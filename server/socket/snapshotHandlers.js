@@ -112,12 +112,17 @@ function wireIsLazy(game, sid) {
  * the joiner also logged "<itself> joined as a spectator" (ctr-17). Both
  * clients take a payload with a snapshot (or players + trump) as the full
  * state and anything else as the notice, so neither needs a change.
+ * `notice` false skips step 1 (a family lobby's extras, who watch from the
+ * start: one "X joined as a spectator" line per extra would only repeat the
+ * lobby; the spectator badge lists them).
  */
-function sendSpectatorJoin(game, socket, username) {
-    game.broadcastExcept(socket, 'spectatorJoined', {
-        username,
-        spectatorCount: game.getSpectators().length
-    });
+function sendSpectatorJoin(game, socket, username, { notice = true } = {}) {
+    if (notice) {
+        game.broadcastExcept(socket, 'spectatorJoined', {
+            username,
+            spectatorCount: game.getSpectators().length
+        });
+    }
     socket.emit('spectatorJoined', carrierFor(game, socket, { trump: game.trump }));
 }
 

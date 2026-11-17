@@ -15,6 +15,24 @@
  * CONNECT_TIMEOUT_MS) gets ONE restart (the peer with
  * the lower socket id offers again on fresh ICE servers; the other waits for
  * that offer); if it still fails the peer shows "voice unavailable".
+ *
+ * Listen-only (family lobbies, 2026-11-16; docs/claude/voice.md, Spectator
+ * voice): one desired mode, `_wantTalk`, read by every place that builds a
+ * connection (connectToPeer, handleOffer, the flush after initialize). Off:
+ * no microphone is asked for or held, an offer carries a recvonly audio
+ * transceiver, an answer adds no track (the server's SDP gate relays only
+ * that for a spectator who may not talk). A refused microphone falls back
+ * to listen-only (the session still hears everyone). setTalk() changes the
+ * mode of a running session and re-offers every call not already built in
+ * the new mode (a replacement offer: each side keeps its per-peer mute and
+ * volume); a call still waiting for its answer is re-offered after it.
+ *
+ * Crossing offers (both ends re-offer the same call at once: two spectators
+ * changing mode on one voiceSettings): the end with the lower socket id
+ * keeps its own offer and ignores the other's (the same end that restarts
+ * a failed call); the higher end replaces its offer with an answer. An
+ * offer that arrives after the answer to ours is a new negotiation, never
+ * a collision (the server relays one sender's signals in order).
  */
 
 import { CLIENT_EVENTS } from '../constants/events.js';
@@ -38,6 +56,9 @@ export const CONNECT_TIMEOUT_MS = 20000;
 const SPEAKING_THRESHOLD = 0.005;
 const SPEAKING_POLL_INTERVAL = 100;
 const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
+
+/** A setTalk's re-offers wait this long (the server's voicePeerLeft for a pair it drops lands first). */
+export const REOFFER_DELAY_MS = 300;
 
 /** Keep only well-formed RTCIceServer entries from a voiceIceServers payload. */
 export function sanitizeIceServers(list) {
@@ -78,6 +99,25 @@ export class VoiceChatManager {
 
     // Per-peer mute state
     this._peerMuted = new Map(); // socketId → boolean
+    // Forced mute (a player while spectators may not talk): (socketId,
+    // username) => boolean, or null. Never shown as the player's own mute
+    this._forcedMute = null;
+
+    // Talk mode: the desired one (read by every new connection), whether
+    // the microphone was refused, the mode changes in order, the calls
+    // whose re-offer waits for their answer, the scheduled re-offer
+    this._wantTalk = true;
+    this.micDenied = false;
+    this._modeChain = Promise.resolve();
+    this._reofferPending = new Set();
+    this._reofferTimer = null;
+    this._modeCallbacks = [];
+
+    // Autoplay: an audio element the browser would not play waits for the
+    // next pointerdown (every element is played again then)
+    this._autoplayArmed = false;
+    this._autoplayListener = null;
+    this._autoplayCallbacks = [];
 
     // Per-peer volume control (Web Audio API)
     this._gainNodes = new Map(); // socketId → GainNode
@@ -111,28 +151,30 @@ export class VoiceChatManager {
   }
 
   /**
-   * Initialize voice chat: capture mic and set up signaling listeners.
+   * Initialize voice chat: capture mic (unless listen-only) and set up
+   * signaling listeners. A refused microphone falls back to listen-only:
+   * the session starts anyway and hears everyone (`micDenied`).
    * @param {import('../socket/SocketManager.js').SocketManager} socketManager
+   * @param {Object} [opts]
+   * @param {boolean} [opts.talk] - the desired mode (default: the current one, talk)
    */
-  async initialize(socketManager) {
+  async initialize(socketManager, { talk } = {}) {
     if (this.active) return;
 
     this.socketManager = socketManager;
+    if (typeof talk === 'boolean') this._wantTalk = talk;
     const generation = this._generation;
     // In parallel with the microphone prompt; never rejects
     const iceReady = this.ensureIceServers();
 
-    let stream;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch (err) {
-      console.warn('Mic permission denied:', err.message);
-      throw err;
-    }
+    let stream = await this._streamForMode(null, generation);
     await iceReady;
+    // A voiceSettings during the prompt or the ICE wait changed the mode:
+    // the latest one wins
+    stream = await this._streamForMode(stream, generation);
     if (generation !== this._generation || this.active) {
       // shut down (or started elsewhere) while waiting: release the mic
-      stream.getTracks().forEach(t => t.stop());
+      stream?.getTracks().forEach(t => t.stop());
       return;
     }
     this.localStream = stream;
@@ -141,10 +183,11 @@ export class VoiceChatManager {
     this._localUsername = getGameState().username || null;
     // Set up speaking detection for local stream
     this._setupAudioContext();
-    this._addAnalyser('self', this.localStream);
+    if (this.localStream) this._addAnalyser('self', this.localStream);
     this._startSpeakingDetection();
 
-    console.log('[Voice] initialized, username:', this._localUsername, 'audioCtx:', this._audioContext?.state);
+    console.log('[Voice] initialized, username:', this._localUsername, 'talk:', !!this.localStream, 'audioCtx:', this._audioContext?.state);
+    this._notifyMode();
 
     // Flush buffered events that arrived before initialization.
     // Process offers first — if we have an offer from a peer, we don't need
@@ -167,11 +210,178 @@ export class VoiceChatManager {
   }
 
   /**
+   * The microphone stream the desired mode wants, from `stream` (one held
+   * already, or null): asks for it while talk is wanted (a refusal turns
+   * the mode to listen-only), releases it when not. Repeats while the mode
+   * changed during the prompt.
+   * @returns {Promise<MediaStream|null>}
+   */
+  async _streamForMode(stream, generation) {
+    for (let i = 0; i < 4; i++) {
+      if (generation !== this._generation) break;
+      if (this._wantTalk && !stream) {
+        stream = await this._getMic();
+        if (!stream) break; // refused: listen-only
+      } else if (!this._wantTalk && stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      } else {
+        break;
+      }
+    }
+    return stream;
+  }
+
+  /** The microphone, or null (refused or unavailable: listen-only from now on). */
+  async _getMic() {
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia unavailable');
+      return await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.warn('Mic permission denied:', err?.message);
+      this.micDenied = true;
+      this._wantTalk = false;
+      return null;
+    }
+  }
+
+  /** Is this session sending (holding a microphone)? */
+  isTalking() {
+    return !!(this.active && this.localStream);
+  }
+
+  /** Is this session running listen-only? */
+  isListenOnly() {
+    return !!(this.active && !this.localStream);
+  }
+
+  /** The desired mode (what new connections are built with). */
+  get wantsTalk() {
+    return this._wantTalk;
+  }
+
+  /**
+   * Register a talk-mode change callback ({talking, micDenied}): when a
+   * session starts and whenever setTalk changed what it sends (or a
+   * microphone was refused).
+   */
+  onModeChange(callback) {
+    this._modeCallbacks.push(callback);
+  }
+
+  _notifyMode() {
+    const info = { talking: !!this.localStream, micDenied: this.micDenied };
+    for (const cb of [...this._modeCallbacks]) {
+      try { cb(info); } catch (e) { /* ignore */ }
+    }
+  }
+
+  /**
+   * Talk (true: the microphone, asked for when not held; a refusal stays
+   * listen-only) or listen only (false: the microphone tracks stop at
+   * once). While voice is starting this only sets the mode its initialize
+   * reads; on a running session a real change re-offers every call in the
+   * new mode (REOFFER_DELAY_MS later; a call waiting for its answer after
+   * that answer). Changes run in order.
+   * @returns {Promise<boolean>} whether the session talks afterwards
+   */
+  setTalk(talk) {
+    this._wantTalk = !!talk;
+    if (!this.active) return Promise.resolve(false);
+    const run = this._modeChain.then(() => this._applyMode());
+    this._modeChain = run.catch(() => {});
+    return run.then(() => this.isTalking(), () => this.isTalking());
+  }
+
+  async _applyMode() {
+    if (!this.active) return;
+    const generation = this._generation;
+    const has = !!this.localStream;
+    if (this._wantTalk === has) return;
+    if (this._wantTalk) {
+      const stream = await this._getMic();
+      if (!stream) {
+        this._notifyMode();
+        return;
+      }
+      if (generation !== this._generation || !this.active || !this._wantTalk || this.localStream) {
+        stream.getTracks().forEach(t => t.stop());
+        return;
+      }
+      stream.getAudioTracks().forEach(t => { t.enabled = !this.selfMuted; });
+      this.localStream = stream;
+      this._addAnalyser('self', stream);
+    } else {
+      this.localStream.getTracks().forEach(t => t.stop());
+      this.localStream = null;
+      this._cleanupAnalyser('self');
+      if (this._speakingStates.get('self')) {
+        this._speakingStates.set('self', false);
+        this._speakingCallbacks.forEach(cb => {
+          try { cb('self', false); } catch (e) { /* ignore */ }
+        });
+      }
+    }
+    console.log('[Voice] talk mode:', !!this.localStream);
+    this._notifyMode();
+    this._scheduleReofferAll();
+  }
+
+  /**
+   * Re-offer every call in the current mode (the restart path: a new
+   * connection, keeping the recovery count; the other side's handleOffer
+   * replaces its own and keeps its mute and volume). A call whose offer
+   * still waits for its answer is re-offered once that answer lands (or
+   * its connect timer runs out): offers and answers carry no generation,
+   * so a stale answer must never meet the new connection.
+   */
+  _scheduleReofferAll() {
+    if (this._reofferTimer) clearTimeout(this._reofferTimer);
+    this._reofferTimer = setTimeout(() => {
+      this._reofferTimer = null;
+      this._reofferAll();
+    }, REOFFER_DELAY_MS);
+  }
+
+  _reofferAll() {
+    if (!this.active) return;
+    const talking = !!this.localStream;
+    for (const [socketId, peer] of [...this.peers]) {
+      // An "unavailable" call (failed for good) is offered again too: a
+      // retry, and the server's backstop must see this mode's offer from
+      // every call (live check 2026-11-16: skipping them let it tear down
+      // and re-announce each failed pair 8 s after the switch went off).
+      // A live call built in this mode already (offered or answered after
+      // the change) needs nothing: re-offering it would only cross the
+      // other end's offer
+      if (peer.builtTalk === talking && !this._unavailable.has(socketId)) {
+        this._reofferPending.delete(socketId);
+        continue;
+      }
+      if (peer.connection.signalingState === 'have-local-offer') {
+        this._reofferPending.add(socketId);
+        continue;
+      }
+      this._reoffer(socketId);
+    }
+  }
+
+  _reoffer(socketId) {
+    const peer = this.peers.get(socketId);
+    this._reofferPending.delete(socketId);
+    if (!this.active || !peer) return;
+    const username = peer.username;
+    this._closePeer(socketId, { keepRecovery: true });
+    this.connectToPeer(socketId, username);
+  }
+
+  /**
    * Create a peer connection and send an offer (initiator side).
    * Called when we receive voicePeerList — we initiate to existing peers.
+   * Listen-only: a recvonly audio transceiver instead of the mic track.
    */
   async connectToPeer(socketId, username) {
-    if (!this.active || !this.localStream) {
+    if (!this.active) {
       console.log('[Voice] buffering connectToPeer', socketId, username);
       this._pendingPeers.push({ socketId, username });
       return;
@@ -183,16 +393,30 @@ export class VoiceChatManager {
     console.log('[Voice] connectToPeer', socketId, username);
 
     const pc = this._createPeerConnection(socketId, username);
+    const peer = this.peers.get(socketId);
+    // The mode this call is built in (setTalk re-offers only the others),
+    // and "our offer is being made" (crossing offers: handleOffer)
+    peer.builtTalk = !!this.localStream;
+    peer.makingOffer = true;
 
-    // Add local audio tracks
-    this.localStream.getAudioTracks().forEach(track => {
-      pc.addTrack(track, this.localStream);
-    });
+    if (this.localStream) {
+      // Add local audio tracks
+      this.localStream.getAudioTracks().forEach(track => {
+        pc.addTrack(track, this.localStream);
+      });
+    } else {
+      // Listen-only: receive audio, send none (never a null-track
+      // sendrecv: its SDP would say sendrecv and the server drops it)
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+    }
 
     try {
       // Create and send offer
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
+      // replaced meanwhile (the other end's offer won, a re-offer, a leave):
+      // this offer would meet a connection that is gone
+      if (this.peers.get(socketId) !== peer || pc.signalingState === 'closed') return;
 
       this.socketManager.emit(CLIENT_EVENTS.VOICE_OFFER, {
         targetSocketId: socketId,
@@ -202,19 +426,48 @@ export class VoiceChatManager {
     } catch (err) {
       // PC may have been closed by a concurrent handleOffer — safe to ignore
       console.log('connectToPeer aborted for', socketId, err.message);
+    } finally {
+      peer.makingOffer = false;
     }
+  }
+
+  /**
+   * Does an offer from `socketId` cross one of ours? Our call to it is an
+   * offer still being made or sent and not answered yet (an answer already
+   * received means the other end took our offer, so its new offer is a new
+   * negotiation).
+   */
+  _offerCollides(socketId) {
+    const peer = this.peers.get(socketId);
+    if (!peer || peer.answered) return false;
+    const state = peer.connection.signalingState;
+    if (state === 'closed') return false;
+    return !!peer.makingOffer || state === 'have-local-offer';
+  }
+
+  /** The end that keeps its own offer when two cross: the lower socket id (as for a restart). */
+  _keepsOwnOffer(socketId) {
+    const myId = this.socketManager?.id || '';
+    return !!myId && myId < socketId;
   }
 
   /**
    * Handle an incoming offer from a peer (responder side).
    */
   async handleOffer(fromSocketId, offer, username) {
-    if (!this.active || !this.localStream) {
+    if (!this.active) {
       console.log('[Voice] buffering handleOffer', fromSocketId, username);
       this._pendingOffers.push({ fromSocketId, offer, username });
       return;
     }
     console.log('[Voice] handleOffer from', fromSocketId, username);
+
+    // Crossing offers: the lower socket id keeps its own (the other end
+    // answers it), the higher one answers this one instead of its own
+    if (this._offerCollides(fromSocketId) && this._keepsOwnOffer(fromSocketId)) {
+      console.log('[Voice] crossing offer from', fromSocketId, 'ignored: ours stands');
+      return;
+    }
 
     // If we already have a connection, close it and recreate (a restart
     // after a failure keeps its count; the peer is trying again, so it is
@@ -223,13 +476,18 @@ export class VoiceChatManager {
       this._closePeer(fromSocketId, { keepRecovery: true });
     }
     this._unavailable.delete(fromSocketId);
+    // This new call is built in the current mode: no re-offer owed
+    this._reofferPending.delete(fromSocketId);
 
     const pc = this._createPeerConnection(fromSocketId, username || 'Unknown');
+    this.peers.get(fromSocketId).builtTalk = !!this.localStream;
 
-    // Add local audio tracks
-    this.localStream.getAudioTracks().forEach(track => {
-      pc.addTrack(track, this.localStream);
-    });
+    // Add local audio tracks (listen-only: none, so the answer sends nothing)
+    if (this.localStream) {
+      this.localStream.getAudioTracks().forEach(track => {
+        pc.addTrack(track, this.localStream);
+      });
+    }
 
     try {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
@@ -257,10 +515,17 @@ export class VoiceChatManager {
     // An unavailable peer's connection is closed: nothing to answer
     if (peer.connection.signalingState === 'closed') return;
     console.log('[Voice] handleAnswer from', fromSocketId);
+    // Set before the await: an offer that follows this answer is a new
+    // negotiation, not a crossing one
+    peer.answered = true;
     try {
       await peer.connection.setRemoteDescription(new RTCSessionDescription(answer));
     } catch (err) {
       console.warn('[Voice] handleAnswer failed for', fromSocketId, err.message);
+    }
+    // A mode change waited for this answer: re-offer in the new mode now
+    if (this._reofferPending.has(fromSocketId) && this.peers.get(fromSocketId) === peer) {
+      this._reoffer(fromSocketId);
     }
   }
 
@@ -306,18 +571,58 @@ export class VoiceChatManager {
    */
   mutePeer(socketId) {
     this._peerMuted.set(socketId, true);
-    const peer = this.peers.get(socketId);
-    if (peer?.audioEl) peer.audioEl.volume = 0;
+    this._applyVolume(socketId);
   }
 
   /**
-   * Unmute a specific peer's audio output.
+   * Unmute a specific peer's audio output (a forced mute still holds).
    */
   unmutePeer(socketId) {
     this._peerMuted.set(socketId, false);
-    const vol = this._peerVolumes.get(socketId) ?? 1.0;
+    this._applyVolume(socketId, { speaking: true });
+  }
+
+  /**
+   * Forced mute (a player's backstop while spectators may not talk): the
+   * peers `predicate(socketId, username)` names play at 0 whatever their
+   * own mute, volume or the noise gate say; null lifts it. Applied to the
+   * open calls now and to every later one (ontrack).
+   * @param {((socketId: string, username: string|null) => boolean)|null} predicate
+   */
+  setForcedMute(predicate) {
+    this._forcedMute = typeof predicate === 'function' ? predicate : null;
+    for (const socketId of this.peers.keys()) this._applyVolume(socketId);
+  }
+
+  /** Is this peer muted by the forced mute (not by the player)? */
+  isForcedMuted(socketId) {
+    if (!this._forcedMute) return false;
+    try {
+      return !!this._forcedMute(socketId, this.peers.get(socketId)?.username ?? null);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /** The player's own mute or the forced one: what every volume write checks. */
+  _effectiveMuted(socketId) {
+    return !!this._peerMuted.get(socketId) || this.isForcedMuted(socketId);
+  }
+
+  /**
+   * The element's volume from the mutes, the stored volume and the noise
+   * gate (`speaking`: true opens it, false closes it, null keeps the last
+   * state the speaking poll saw).
+   */
+  _applyVolume(socketId, { speaking = null } = {}) {
     const peer = this.peers.get(socketId);
-    if (peer?.audioEl) peer.audioEl.volume = Math.min(1, vol);
+    if (!peer?.audioEl) return;
+    if (this._effectiveMuted(socketId)) {
+      peer.audioEl.volume = 0;
+      return;
+    }
+    const open = speaking === null ? this._speakingStates.get(socketId) !== false : speaking;
+    peer.audioEl.volume = open ? Math.min(1, this._peerVolumes.get(socketId) ?? 1.0) : 0;
   }
 
   /**
@@ -333,10 +638,7 @@ export class VoiceChatManager {
   setPeerVolume(socketId, volume) {
     const clamped = Math.max(0, Math.min(2, volume));
     this._peerVolumes.set(socketId, clamped);
-    if (!this._peerMuted.get(socketId)) {
-      const peer = this.peers.get(socketId);
-      if (peer?.audioEl) peer.audioEl.volume = Math.min(1, clamped);
-    }
+    this._applyVolume(socketId, { speaking: true });
   }
 
   /**
@@ -534,7 +836,8 @@ export class VoiceChatManager {
    * @param {string} deviceId
    */
   async switchAudioDevice(deviceId) {
-    if (!this.active) return;
+    // listen-only holds no microphone: nothing to switch
+    if (!this.active || !this.localStream) return;
 
     const oldStream = this.localStream;
 
@@ -669,6 +972,20 @@ export class VoiceChatManager {
     this.selfMuted = false;
     this.socketManager = null;
 
+    // Talk mode back to the default (the next session sets its own)
+    this._wantTalk = true;
+    this.micDenied = false;
+    this._forcedMute = null;
+    this._modeChain = Promise.resolve();
+    this._reofferPending.clear();
+    if (this._reofferTimer) {
+      clearTimeout(this._reofferTimer);
+      this._reofferTimer = null;
+    }
+    this._modeCallbacks = [];
+    this._disarmAutoplay();
+    this._autoplayCallbacks = [];
+
     // Recovery state; the ICE servers themselves are kept for the session
     for (const t of this._restartTimers.values()) clearTimeout(t);
     for (const t of this._connectTimers.values()) clearTimeout(t);
@@ -723,7 +1040,8 @@ export class VoiceChatManager {
         peer.stream = event.streams[0];
         // Audio element for playback
         peer.audioEl.srcObject = event.streams[0];
-        peer.audioEl.volume = this._peerMuted.get(socketId) ? 0 : Math.min(1, this._peerVolumes.get(socketId) ?? 1.0);
+        this._applyVolume(socketId, { speaking: true });
+        this._play(peer.audioEl);
         // Web Audio analyser for speaking detection only
         this._addAnalyser(socketId, event.streams[0]);
       }
@@ -756,6 +1074,11 @@ export class VoiceChatManager {
     this._connectTimers.set(socketId, setTimeout(() => {
       this._connectTimers.delete(socketId);
       if (this.peers.get(socketId)?.connection !== pc || pc.signalingState === 'closed') return;
+      // a re-offer that waited for this call's answer, which never came: it goes now
+      if (this._reofferPending.has(socketId)) {
+        this._reoffer(socketId);
+        return;
+      }
       if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') return;
       console.log(`[Voice] connection to ${socketId} not up after ${CONNECT_TIMEOUT_MS} ms`);
       this._onPeerFailed(socketId);
@@ -849,6 +1172,7 @@ export class VoiceChatManager {
     if (!keepRecovery) {
       this._restarts.delete(socketId);
       this._unavailable.delete(socketId);
+      this._reofferPending.delete(socketId);
     }
     const peer = this.peers.get(socketId);
     if (!peer) return;
@@ -863,10 +1187,82 @@ export class VoiceChatManager {
 
     this._gainNodes.delete(socketId);
     this._cleanupAnalyser(socketId);
+    // A peer speaking as its call ends (it left, or its call is replaced:
+    // the new one starts silent) stops speaking now: nothing else would
+    // say so (a listen-only replacement has no track, so no poll)
+    const wasSpeaking = !!this._speakingStates.get(socketId);
     this._speakingStates.delete(socketId);
     this._speakingLastActive.delete(socketId);
+    if (wasSpeaking) {
+      this._speakingCallbacks.forEach(cb => {
+        try { cb(socketId, false); } catch (e) { /* ignore */ }
+      });
+    }
 
     this.peers.delete(socketId);
+  }
+
+  // ============================================
+  // Autoplay: a page that receives voice without a gesture
+  // ============================================
+
+  /**
+   * Register an autoplay-blocked callback: the browser refused to play a
+   * call's audio (NotAllowedError, no user gesture yet). The next
+   * pointerdown plays every call's element again; a call re-created later
+   * and blocked again calls it again.
+   */
+  onAutoplayBlocked(callback) {
+    this._autoplayCallbacks.push(callback);
+  }
+
+  /** Is a blocked element waiting for the next gesture? */
+  get autoplayBlocked() {
+    return this._autoplayArmed;
+  }
+
+  _play(audioEl) {
+    if (!audioEl || typeof audioEl.play !== 'function') return;
+    let p;
+    try {
+      p = audioEl.play();
+    } catch (err) {
+      return;
+    }
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => {
+        if (err?.name === 'NotAllowedError') this._armAutoplay();
+      });
+    }
+  }
+
+  _armAutoplay() {
+    if (this._autoplayArmed || !this.active) return;
+    this._autoplayArmed = true;
+    this._autoplayListener = () => this.resumePlayback();
+    document.addEventListener('pointerdown', this._autoplayListener, true);
+    document.addEventListener('keydown', this._autoplayListener, true);
+    for (const cb of [...this._autoplayCallbacks]) {
+      try { cb(); } catch (e) { /* ignore */ }
+    }
+  }
+
+  _disarmAutoplay() {
+    if (this._autoplayListener) {
+      document.removeEventListener('pointerdown', this._autoplayListener, true);
+      document.removeEventListener('keydown', this._autoplayListener, true);
+    }
+    this._autoplayListener = null;
+    this._autoplayArmed = false;
+  }
+
+  /** A user gesture: play every current call's element (each one; a re-created call has a new element). */
+  resumePlayback() {
+    this._disarmAutoplay();
+    if (this._audioContext?.state === 'suspended') this._audioContext.resume?.()?.catch?.(() => {});
+    for (const peer of this.peers.values()) {
+      if (peer.audioEl?.srcObject) this._play(peer.audioEl);
+    }
   }
 
   _setupAudioContext() {
@@ -928,13 +1324,9 @@ export class VoiceChatManager {
         if (isSpeaking !== wasSpeaking) {
           this._speakingStates.set(id, isSpeaking);
 
-          // Noise gate: mute audio element when peer isn't speaking
-          if (id !== 'self') {
-            const peer = this.peers.get(id);
-            if (peer?.audioEl && !this._peerMuted.get(id)) {
-              peer.audioEl.volume = isSpeaking ? Math.min(1, this._peerVolumes.get(id) ?? 1.0) : 0;
-            }
-          }
+          // Noise gate: mute audio element when peer isn't speaking (a
+          // muted peer, the player's mute or the forced one, stays at 0)
+          if (id !== 'self') this._applyVolume(id, { speaking: isSpeaking });
 
           this._speakingCallbacks.forEach(cb => {
             try { cb(id, isSpeaking); } catch (e) { /* ignore */ }

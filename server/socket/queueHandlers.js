@@ -7,8 +7,9 @@ const gameManager = require('../game/GameManager');
 const { socketLogger } = require('../utils/logger');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { disconnectOwner } = require('./seatLifecycle');
-const { lobbySeatSuspended, lobbySeatExpired } = require('./lobbyHandlers');
+const { lobbySeatSuspended, lobbySeatExpired, tableBotsReadied } = require('./lobbyHandlers');
 const sessionIdentity = require('./sessionIdentity');
+const playAgain = require('./playAgain');
 
 /**
  * A socket disconnected: drop it from the main room / lobby / tournament /
@@ -30,6 +31,9 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     // The user's live socket closed: a parked tab of theirs is told (after
     // a short delay, if nothing took the session back: sessionIdentity)
     if (closed && user) sessionIdentity.liveSocketClosed(io, socket, user.username);
+    // An older app still on a score screen: its lingering calls with the
+    // players back in the lobby end (play again)
+    playAgain.endLingering(io, socket.id, 'disconnect');
     const onlineBefore = gameManager.getOnlineUsernames().length;
     const result = gameManager.handleDisconnect(socket.id, {
         lobbyGrace,
@@ -68,6 +72,9 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
         });
     }
 
+    // A sign-out from a lobby of more than 4 whose table it filled with bots
+    if (result.lobbyBotsReadied && result.lobby) tableBotsReadied(io, result.lobby);
+
     // A pure spectator was already removed from its game; just the room
     if (result.spectatorGame) result.spectatorGame.leaveRoom(io, socket.id);
 
@@ -104,6 +111,9 @@ function routeGameDisconnect(socket, io, result) {
         game.markEntrantDisconnected(socket.id);
         if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
         const username = entrant.username || 'Player';
+        // Its voice peers drop the call now (private voicePeerLeft; before,
+        // nothing told them and each call hung until ICE gave up)
+        require('../voice/gameVoice').playerLeftVoice(io, game, socket.id);
 
         // Auto-draw for the disconnected player (random card); a no-op
         // if they already drew or the draw is no longer open

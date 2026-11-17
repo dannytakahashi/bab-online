@@ -352,6 +352,19 @@ function lobby() {
   return document.getElementById('gameLobbyContainer');
 }
 
+/** A family lobby of 8 (owner 2026-11-16): 8 seat rows, the host's voice switch under them. */
+function familyLobby() {
+  const members = ['me', 'ann', 'bob', 'cat', 'dan', 'eve', 'fay', 'gus'].map((username, i) => ({ socketId: `s${i}`, username, ready: false, playing: false }));
+  showGameLobby({
+    lobbyId: 'L8', players: members.slice(0, 4).map(({ socketId, username, ready }) => ({ socketId, username, ready })),
+    members, host: 'me', settings: { spectatorsCanTalk: true }, capacity: 8, messages: MESSAGES,
+  }, socket, 'me');
+  const root = document.getElementById('gameLobbyContainer');
+  // every member has a row (no "empty slot" rows past the table's 4)
+  expect(root.querySelectorAll('#lobbyPlayersList .seat-row')).toHaveLength(8);
+  return root;
+}
+
 function tournament() {
   showTournamentLobby({
     tournamentId: 't1', name: 'Cup', phase: 'lobby', currentRound: 0, totalRounds: 4, creatorUsername: 'me',
@@ -363,6 +376,7 @@ function tournament() {
 const SCREENS = {
   'main room': { open: mainRoom, chatId: 'mainRoomChatMessages', inputId: 'mainRoomChatInput', chatLabel: 'Global chat', mainLabel: 'Game lobbies', mainIds: ['mainRoomLobbyList'] },
   'game lobby': { open: lobby, chatId: 'lobbyChatArea', inputId: 'lobbyChatInput', chatLabel: 'Lobby chat', mainLabel: 'Seats', mainIds: ['lobbyPlayersList', 'lobbyReadyBtn', 'lobbyAddBotBtn'] },
+  'family lobby of 8': { open: familyLobby, chatId: 'lobbyChatArea', inputId: 'lobbyChatInput', chatLabel: 'Lobby chat', mainLabel: 'Seats', mainIds: ['lobbyPlayersList', 'lobbyVoiceSettings', 'lobbySpectatorsCanTalk', 'lobbyReadyBtn', 'lobbyAddBotBtn'] },
   tournament: { open: tournament, chatId: 'tournamentChatArea', inputId: 'tournamentChatInput', chatLabel: 'Tournament chat', mainLabel: 'Standings', mainIds: ['tournamentScoreboardContainer', 'tournamentActiveGames', 'tournamentPlayersList', 'tournamentButtonRow', 'tournamentReadyBtn', 'tournamentBeginBtn', 'tournamentCancelBtn'] },
 };
 
@@ -545,7 +559,7 @@ describe('the chat log follows the newest message unless the reader scrolled up'
       Object.defineProperty(log, 'clientHeight', { get: () => 40, configurable: true });
       Object.defineProperty(log, 'scrollHeight', { get: () => log.childElementCount * 20, configurable: true });
       Object.defineProperty(log, 'scrollTop', { get: () => top, set: (v) => { top = Math.max(0, Math.min(v, log.scrollHeight - 40)); }, configurable: true });
-      const add = { 'main room': (u, m) => addMainRoomChatMessage(u, m, Date.now()), 'game lobby': addLobbyChatMessage, tournament: (u, m) => addTournamentChatMessage(u, m, false) }[name];
+      const add = { 'main room': (u, m) => addMainRoomChatMessage(u, m, Date.now()), 'game lobby': addLobbyChatMessage, 'family lobby of 8': addLobbyChatMessage, tournament: (u, m) => addTournamentChatMessage(u, m, false) }[name];
       log.scrollTop = log.scrollHeight; // at the end (2 history lines)
       add('cat', 'one');
       expect(top).toBe(20);

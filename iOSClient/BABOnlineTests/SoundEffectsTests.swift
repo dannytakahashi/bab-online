@@ -162,6 +162,47 @@ final class SoundEffectsTests: XCTestCase {
         XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("gameEnd", ["score": ["team1": 10, "team2": 0], "tournamentId": NSNull(), "seq": seq]))), [.gameEnd])
     }
 
+    // MARK: - Reducer: the draw for deal
+
+    /// Each card turned up in the draw sounds once (mine and the bots'); my private youDrew,
+    /// a re-sent draw order and the teams do not.
+    func testEachLiveDrawSoundsOnce() {
+        var s = TableState()
+        TableReducer.reduce(&s, .local(.identity(username: "me", playerId: "sid-me")))
+        TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("startDraw", ["start": true, "seq": 1]))), [])
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("youDrew", ["card": T.card("spades", "Q"), "drawOrder": 1]))), [])
+        var seq = 2
+        for (order, name, rank) in [(1, "me", "Q"), (2, "B1", "8"), (3, "B2", "6"), (4, "B3", "7")] {
+            let fx = TableReducer.reduce(&s, T.ev("playerDrew", ["username": name, "card": T.card("clubs", rank), "drawOrder": order, "seq": seq]))
+            XCTAssertEqual(sounds(fx), [.draw], "draw \(order)")
+            seq += 1
+        }
+        XCTAssertEqual(s.table.phase.draw?.results.count, 4)
+        // the same draw order again (a seq the gate has not seen): state, not a new card
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("playerDrew", ["username": "B3", "card": T.card("clubs", "7"), "drawOrder": 4, "seq": seq]))), [])
+        seq += 1
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("teamsAnnounced", ["team1": ["me", "B2"], "team2": ["B1", "B3"], "resumeInMs": 3000, "seq": seq]))), [])
+    }
+
+    /// A rejoin mid-draw shows the cards already drawn without a sound; the next live draw
+    /// sounds; draws buffered behind a gap and flushed are silent.
+    func testDrawSnapshotAndCatchUpAreSilent() throws {
+        let snap = try T.snapshot("draw-in-progress")
+        var s = TableState()
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, .snapshot(snap, .rejoin, hints: nil))), [])
+        XCTAssertEqual(s.table.phase.draw?.results.count, 2)
+        XCTAssertEqual(sounds(TableReducer.reduce(&s, T.ev("playerDrew", ["username": "B2", "card": T.card("hearts", "2"),
+                                                                          "drawOrder": 3, "seq": snap.seq + 1]))), [.draw])
+        // seq + 2 lost: the 4th draw waits for a resync, then is applied without its sound
+        let buffered = TableReducer.reduce(&s, T.ev("playerDrew", ["username": "B3", "card": T.card("hearts", "3"),
+                                                                    "drawOrder": 4, "seq": snap.seq + 3]))
+        XCTAssertEqual(sounds(buffered), [])
+        let flushed = TableReducer.reduce(&s, .local(.snapshotUnavailable(requestId: s.sync.resyncId)))
+        XCTAssertEqual(s.table.phase.draw?.results.count, 4, "the buffered draw did apply")
+        XCTAssertEqual(sounds(flushed), [])
+    }
+
     // MARK: - Reducer: never for snapshots or catch-up
 
     func testSnapshotsAreSilentEvenOnMyTurn() throws {
@@ -224,7 +265,7 @@ final class SoundEffectsTests: XCTestCase {
             for viewer in game.viewers {
                 let h = ReplayHarness(viewer: viewer)
                 var counts: [SoundKind: Int] = [:]
-                var live = (cards: 0, tricks: 0, ours: 0, deals: 0, hands: 0, ends: 0)
+                var live = (cards: 0, tricks: 0, ours: 0, deals: 0, hands: 0, ends: 0, draws: 0, startDraws: 0)
                 var submitted = 0
                 var refusedPlays = 0
                 for e in game.logs[viewer.label]! {
@@ -245,6 +286,12 @@ final class SoundEffectsTests: XCTestCase {
                     }
                     let d = e.data as? [String: Any]
                     switch e.event {
+                    case "playerDrew":
+                        XCTAssertTrue(heard.allSatisfy { $0 == .draw || $0 == .turn }, ctx)
+                        if heard.contains(.draw) { live.draws += 1 }
+                    case "startDraw":
+                        live.startDraws += 1
+                        XCTAssertFalse(heard.contains { $0 != .turn }, ctx)
                     case "cardPlayed":
                         XCTAssertLessThanOrEqual(heard.filter { $0 == .card }.count, 1, ctx)
                         if heard.contains(.card) { live.cards += 1 }
@@ -267,6 +314,9 @@ final class SoundEffectsTests: XCTestCase {
                 XCTAssertEqual((counts[.trick] ?? 0) + (counts[.trickOurs] ?? 0), live.tricks, label)
                 XCTAssertEqual(counts[.trickOurs] ?? 0, live.ours, label)
                 XCTAssertEqual(counts[.deal] ?? 0, live.deals, label)
+                XCTAssertEqual(counts[.draw] ?? 0, live.draws, label)
+                // four cards per draw for deal at most (a tournament log has one per game)
+                XCTAssertLessThanOrEqual(live.draws, 4 * max(1, live.startDraws), label)
                 XCTAssertEqual((counts[.made] ?? 0) + (counts[.set] ?? 0) + (counts[.handEnd] ?? 0), live.hands, label)
                 if viewer.role == "spectator" {
                     XCTAssertNil(counts[.turn], label)
@@ -287,6 +337,7 @@ final class SoundEffectsTests: XCTestCase {
                     XCTAssertGreaterThan(counts[.turn] ?? 0, 0)
                     XCTAssertGreaterThan(live.ours, 0)
                     XCTAssertEqual(live.ends, 1)
+                    XCTAssertEqual(live.draws, 4, "the draw for deal's four cards")
                 }
             }
         }
@@ -442,6 +493,40 @@ final class SoundEffectsTests: XCTestCase {
         XCTAssertEqual(c.heard, [.card])
         c.clock.advance(TableSoundCues.overTrumpDelay)
         XCTAssertEqual(c.heard, [.card, .overTrump])
+    }
+
+    /// Draws that arrive together (auto-draws, a fast bot) are heard drawSpacing apart, in the
+    /// order they came; one alone plays at once; a snapshot drops the ones still waiting.
+    func testDrawsArrivingTogetherAreSpaced() {
+        let c = Cues()
+        for _ in 0..<3 { c.cues.cue(.draw) }
+        XCTAssertEqual(c.heard, [.draw])
+        c.clock.advance(TableSoundCues.drawSpacing)
+        c.clock.advance(TableSoundCues.drawSpacing)
+        XCTAssertEqual(c.times, [0, TableSoundCues.drawSpacing, 2 * TableSoundCues.drawSpacing])
+        c.clock.advance(5)
+        XCTAssertEqual(c.heard.count, 3, "nothing more")
+        // a draw well after the last one: at once
+        c.cues.cue(.draw)
+        XCTAssertEqual(c.times.last, c.clock.now)
+        // a snapshot (the epoch moved) drops the draw still waiting
+        c.clock.advance(5)
+        c.cues.cue(.draw)
+        c.cues.cue(.draw)
+        c.epoch = "1"
+        c.clock.advance(1)
+        XCTAssertEqual(c.heard.count, 5)
+        c.cues.cue(.draw)
+        XCTAssertEqual(c.heard.count, 6, "a later draw starts clean")
+    }
+
+    /// A draw never holds or is held by the other sounds.
+    func testDrawsDoNotWaitForOtherSounds() {
+        let c = Cues()
+        c.cues.cue(.made)
+        c.cues.cue(.draw)
+        c.cues.cue(.card)
+        XCTAssertEqual(c.heard, [.made, .draw, .card])
     }
 
     func testARedealsTurnWaitsForItsShuffle() {
@@ -633,6 +718,21 @@ final class SoundEffectsTests: XCTestCase {
         clock.t = 400.01
         p.play(.trick)  // within 80 ms of the last that played: dropped
         XCTAssertEqual(out.played.map(\.file), ["trick", "trick"])
+    }
+
+    /// A draw is a card take, a little quieter than a played card, with its own rotation and throttle.
+    func testDrawIsAQuieterCardTake() {
+        let clock = SoundClock()
+        let out = RecordingOutput()
+        let p = player(clock: clock, output: out)
+        p.play(.card)
+        p.play(.draw)              // another kind: not throttled by the card
+        clock.t = 0.3
+        p.play(.draw)
+        XCTAssertEqual(out.played.map(\.file), ["card-1", "card-1", "card-2"])
+        for (got, want) in zip(out.played.map(\.volume), [Float(0.35), Float(0.35 * 0.8), Float(0.35 * 0.8)]) {
+            XCTAssertEqual(got, want, accuracy: 0.0001)
+        }
     }
 
     func testAccentAndSpectatorHandEndAreQuieter() {

@@ -12,11 +12,21 @@ const { sendSpectatorJoin } = require('./snapshotHandlers');
 const { releaseStaleLobbySeat, leaveLobby } = require('./lobbyHandlers');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const { deletedSince } = require('../admin/accountDelete');
+const clientInfo = require('./clientInfo');
+const gameVoice = require('../voice/gameVoice');
+const playAgain = require('./playAgain');
+
+/** Did `socket` announce casualSpectators (a lobby of up to 8, spectator voice)? */
+const isCapable = (socket) => clientInfo.hasCap(socket, gameVoice.CAP);
 
 /**
  * Handle player joining the main room
  */
 function joinMainRoom(socket, io) {
+    // An older app's Return to Lobby from the score screen: its calls with
+    // the players who went back to the lobby end now (play again, lingering)
+    playAgain.endLingering(io, socket.id, 'joinMainRoom');
+
     // Back in the main room: a pure spectator stops watching its game
     // (never affects a seat owner's socket)
     gameManager.leaveSpectating(io, socket.id);
@@ -31,7 +41,13 @@ function joinMainRoom(socket, io) {
         return;
     }
 
-    const result = gameManager.joinMainRoom(socket.id);
+    // Play again: someone whose game ended while they were offline comes
+    // back on a capable client into the lobby that kept their place (the
+    // ordinary joinLobby flow: lobbyCreated, no mainRoomJoined). Never an
+    // away hold (they chose the main room) or a legacy socket
+    if (autoClaimHold(socket, io)) return;
+
+    const result = gameManager.joinMainRoom(socket.id, { wide: isCapable(socket) });
 
     if (!result.success) {
         emitError(socket, { message: result.error || 'Failed to join main room' }, 'joinMainRoom');
@@ -69,6 +85,25 @@ function joinMainRoom(socket, io) {
         username: result.username,
         onlineCount: onlineUsers.length
     });
+}
+
+/**
+ * The joinMainRoom auto-claim of a play-again place (playAgain.autoClaimTarget:
+ * an offline hold, or the seat of a moved member whose older socket never
+ * acted in the lobby, i.e. a restore off the score screen): only for a
+ * socket with the playAgain cap, signed in, with no membership, whose user
+ * is not merge-locked. @returns {boolean} the socket is in that lobby now
+ */
+function autoClaimHold(socket, io) {
+    if (!clientInfo.hasCap(socket, playAgain.CAP)) return false;
+    const user = gameManager.getUserBySocketId(socket.id);
+    if (!user || gameManager.isMergeLocked(user.username) || gameManager.activityOf(socket.id)) return false;
+    const hold = playAgain.autoClaimTarget(user.username, socket.id);
+    if (!hold) return false;
+    joinLobby(socket, io, { lobbyId: hold.lobbyId });
+    const claimed = gameManager.playerLobbies.get(socket.id) === hold.lobbyId;
+    if (claimed) socketLogger.info('Play again: offline hold claimed on joinMainRoom', { socketId: socket.id, lobbyId: hold.lobbyId });
+    return claimed;
 }
 
 /**
@@ -111,9 +146,10 @@ function mainRoomChat(socket, io, data) {
  */
 function createLobby(socket, io, data) {
     const { name } = data || {};
+    playAgain.endLingering(io, socket.id, 'createLobby');
 
     const { filterProfanity } = require('../utils/profanityFilter');
-    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name);
+    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name, { capable: isCapable(socket), io });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'createLobby');
@@ -131,12 +167,10 @@ function createLobby(socket, io, data) {
     socket.leave('mainRoom');
 
     // Notify the player
-    socket.emit('lobbyCreated', {
-        lobbyId: result.lobby.id,
-        players: result.lobby.players,
+    socket.emit('lobbyCreated', gameManager.lobbyWire(result.lobby, {
         messages: result.lobby.messages,
         name: result.lobby.name
-    });
+    }, { withReconnecting: false, to: socket.id }));
 
     // Notify main room of new lobby
     emitLobbiesUpdated(io);
@@ -158,8 +192,22 @@ function joinLobby(socket, io, data) {
         emitError(socket, { message: 'Lobby ID required' }, 'joinLobby');
         return;
     }
+    playAgain.endLingering(io, socket.id, 'joinLobby');
 
-    const result = gameManager.joinSpecificLobby(socket.id, lobbyId);
+    // A lobby that just became a game: one of its extras (a reload during
+    // the start) watches that game instead; anyone else, a table member
+    // included, gets 'Lobby not found' as before
+    if (!gameManager.getLobbyById(lobbyId) && isCapable(socket)) {
+        const user = gameManager.getUserBySocketId(socket.id);
+        const gameId = user ? gameManager.startedLobbyRedirect(lobbyId, user.username) : null;
+        if (gameId && !gameManager.activityOf(socket.id)) {
+            socketLogger.info('joinLobby for a started lobby: spectating its game', { socketId: socket.id, lobbyId, gameId });
+            joinAsSpectator(socket, io, { gameId }, { fromLobby: true });
+            return;
+        }
+    }
+
+    const result = gameManager.joinSpecificLobby(socket.id, lobbyId, { capable: isCapable(socket), io });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'joinLobby');
@@ -171,13 +219,14 @@ function joinLobby(socket, io, data) {
     // This socket holds its seat here already (it took a held seat back in
     // place): it gets the lobby again; the others were told on the resume
     if (result.alreadySeated) {
+        // (play again: a re-entry means it is on the lobby screen)
+        playAgain.settle(socket.id);
         socket.leave('mainRoom');
-        socket.emit('lobbyCreated', {
-            lobbyId: lobby.id, players: lobby.players, messages: lobby.messages, name: lobby.name,
-            ...gameManager.reconnectingField(lobby.id)
-        });
+        socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
+        // Mapped members only: a held seat's socket is gone (a reload) or
+        // never existed (a play-again hold)
         const peers = lobby.players
-            .filter(p => p.socketId !== socket.id && !gameManager.isBot(p.socketId))
+            .filter(p => p.socketId !== socket.id && !gameManager.isBot(p.socketId) && gameManager.playerLobbies.get(p.socketId) === lobby.id)
             .map(p => ({ socketId: p.socketId, username: p.username }));
         if (peers.length > 0) socket.emit('voicePeerList', { peers });
         return;
@@ -198,26 +247,20 @@ function joinLobby(socket, io, data) {
     socket.leave('mainRoom');
 
     // Notify the joining player (with the seats held for a reconnect)
-    socket.emit('lobbyCreated', {
-        lobbyId: lobby.id,
-        players: lobby.players,
-        messages: lobby.messages,
-        name: lobby.name,
-        ...gameManager.reconnectingField(lobby.id)
-    });
+    socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
 
     // Notify existing players in the lobby
     const existingHumans = [];
     lobby.players.forEach(player => {
-        if (player.socketId !== socket.id) {
-            io.to(player.socketId).emit('lobbyPlayerJoined', {
-                lobbyId: lobby.id,
-                players: lobby.players,
+        if (player.socketId !== socket.id && !playAgain.isAwayId(player.socketId)) {
+            io.to(player.socketId).emit('lobbyPlayerJoined', gameManager.lobbyWire(lobby, {
                 newPlayer: result.newPlayer
-            });
+            }, { withReconnecting: false, to: player.socketId }));
 
-            // Send voicePeerJoined to existing human players
-            if (!gameManager.isBot(player.socketId)) {
+            // Send voicePeerJoined to existing human players: mapped
+            // members only (a seat held for its reload grace has a dead
+            // socket, a play-again hold none)
+            if (!gameManager.isBot(player.socketId) && gameManager.playerLobbies.get(player.socketId) === lobby.id) {
                 existingHumans.push({ socketId: player.socketId, username: player.username });
                 io.to(player.socketId).emit('voicePeerJoined', {
                     socketId: socket.id,
@@ -245,8 +288,9 @@ function joinLobby(socket, io, data) {
 /**
  * Handle player joining a game as a spectator
  */
-function joinAsSpectator(socket, io, data) {
+function joinAsSpectator(socket, io, data, { fromLobby = false } = {}) {
     const { gameId } = data;
+    playAgain.endLingering(io, socket.id, 'joinAsSpectator');
 
     // The ambient demo game is "not found" outside its audience (owner,
     // 2026-11-14: AMBIENT_CHAT_USERS, default test1), the same reply as an
@@ -303,6 +347,12 @@ function joinAsSpectator(socket, io, data) {
     gameManager.leaveMainRoom(socket.id);
 
     sendSpectatorJoin(game, socket, user.username);
+
+    // A casual game's voice room, for a capable client: listen-only at
+    // first for a main-room spectator (voiceSettings; it asks for the mic
+    // only when its player taps to talk). Nothing for a legacy client, a
+    // tournament table or the ambient demo
+    gameVoice.admitVoiceSpectator(io, game, socket.id, { fromLobby, announce: true });
 
     socketLogger.info('Player joined as spectator', {
         socketId: socket.id,

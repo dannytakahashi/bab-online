@@ -96,9 +96,10 @@ final class CardArtTests: XCTestCase {
 
     /// The red lattice (cardFaces.js drawBack): cream edge and margin, a card.backRed band,
     /// the medallion with its paper lozenges, a paper trellis across the field, mostly ink,
-    /// none of the old green back or its suit glyphs.
-    private func assertRedLattice(_ p: Pixels, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
-        let ink = Theme.CardBack.ink, paper = Theme.CardBack.paper
+    /// none of the old green back or its suit glyphs. `ink`: the blue back's (card.backBlue).
+    private func assertRedLattice(_ p: Pixels, _ what: String, ink: ThemeColor = Theme.CardBack.ink,
+                                  file: StaticString = #filePath, line: UInt = #line) {
+        let paper = Theme.CardBack.paper
         // cream card edge and margin, the ink panel's band
         XCTAssertTrue(isClose(p.at(8, 217), paper, tol: 6), "\(what): margin \(p.at(8, 217))", file: file, line: line)
         XCTAssertTrue(isClose(p.at(150, 8), paper, tol: 6), "\(what): margin", file: file, line: line)
@@ -163,6 +164,49 @@ final class CardArtTests: XCTestCase {
         // tiny sizes still render the back (one bold medallion diamond, no crash)
         let tiny = Pixels(CardTextureGenerator.renderBackForTesting(pixelSize: CGSize(width: 30, height: 44)))
         XCTAssertTrue(isClose(tiny.at(150, 217.5), Theme.CardBack.paper, tol: 60), "the small medallion is one paper diamond: \(tiny.at(150, 217.5))")
+    }
+
+    /// The blue back (even hands, CardBackColour; cardFaces.js backFrameForHand) is the red one
+    /// in card.backBlue: the same lattice at every size, and pixel for pixel the same drawing,
+    /// only the ink differs (as the web's CardAtlas.test.js "the blue back is the red one in
+    /// the blue ink"): each pixel's place between the ink and the paper is the red back's.
+    func testBlueBackIsTheRedOneInTheBlueInk() {
+        XCTAssertEqual(Theme.CardBack.ink(.blue), Theme.Palette.Card.backBlue)
+        XCTAssertEqual(Theme.CardBack.ink(.red), Theme.CardBack.ink)
+        let sizes: [(String, CGSize)] = [("texture size", CardTextureGenerator.pixelSize())]
+            + [60, 73, 90, 100, 130].map { w in ("\(Int(w)) pt", CardTextureGenerator.backPixelSize(width: w)) }
+        for (what, size) in sizes {
+            let red = Pixels(CardTextureGenerator.renderBackForTesting(pixelSize: size, colour: .red))
+            let blue = Pixels(CardTextureGenerator.renderBackForTesting(pixelSize: size, colour: .blue))
+            assertRedLattice(blue, "blue \(what)", ink: Theme.CardBack.blueInk)
+            XCTAssertEqual(blue.count(Theme.CardBack.ink, tol: 30), 0, "\(what): no red ink in the blue back")
+            XCTAssertEqual(red.count(Theme.CardBack.blueInk, tol: 30), 0, "\(what): no blue ink in the red back")
+            // inside the margin (only ink, paper and their blends): the same place on the ink-paper line
+            let rp = Self.rgb(Theme.CardBack.paper), ri = Self.rgb(Theme.CardBack.ink), bi = Self.rgb(Theme.CardBack.blueInk)
+            func place(_ q: (Int, Int, Int), _ ink: (Int, Int, Int)) -> Double {
+                let d = [Double(rp.0 - ink.0), Double(rp.1 - ink.1), Double(rp.2 - ink.2)]
+                let v = [Double(q.0 - ink.0), Double(q.1 - ink.1), Double(q.2 - ink.2)]
+                return (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / (d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+            }
+            var worst = 0.0, n = 0
+            let x0 = Int(17 * CGFloat(red.w) / 300) + 1, x1 = Int(283 * CGFloat(red.w) / 300) - 1
+            let y0 = Int(17 * CGFloat(red.h) / 435) + 1, y1 = Int(418 * CGFloat(red.h) / 435) - 1
+            for y in y0..<y1 {
+                for x in x0..<x1 {
+                    let i = (y * red.w + x) * 4
+                    let a = (Int(red.bytes[i]), Int(red.bytes[i + 1]), Int(red.bytes[i + 2]))
+                    let b = (Int(blue.bytes[i]), Int(blue.bytes[i + 1]), Int(blue.bytes[i + 2]))
+                    worst = max(worst, abs(place(a, ri) - place(b, bi)))
+                    n += 1
+                }
+            }
+            XCTAssertGreaterThan(n, 1000, what)
+            XCTAssertLessThan(worst, 0.05, "\(what): the blue back's drawing differs from the red one's (\(worst))")
+        }
+        // cached apart: the draw's red and a fan's blue at one width are two images
+        let w = DrawMetrics(width: 390).card.width
+        XCTAssertFalse(CardTextureGenerator.cardBackImage(width: w, colour: .red) === CardTextureGenerator.cardBackImage(width: w, colour: .blue))
+        XCTAssertTrue(CardTextureGenerator.cardBackImage(width: w) === CardTextureGenerator.cardBackImage(width: w, colour: .red), "the draw's is red")
     }
 
     /// The unused SpriteKit back (cardBackTexture / CardSpriteNode.cardBack) draws the same lattice.

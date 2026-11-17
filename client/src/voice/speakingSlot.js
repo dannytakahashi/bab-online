@@ -22,9 +22,12 @@ import { team, rotate } from '../utils/positions.js';
  * @param {Object|null} args.playerData - GameState.playerData ({position[], socket[], username[]})
  * @param {number|null} args.myPosition
  * @param {Object} [args.owners] - GameState.seatOwners ({position: username})
- * @returns {'partner'|'opp1'|'opp2'|null}
+ * @param {boolean} [args.spectator] - I watch (the view from seat 1, whose
+ *   player sits in the 'bottom' slot, OpponentManager's spectator seat): a
+ *   peer at myPosition is that player, never me
+ * @returns {'partner'|'opp1'|'opp2'|'bottom'|null}
  */
-export function speakingSlotFor({ username, socketId, playerData, myPosition, owners = null }) {
+export function speakingSlotFor({ username, socketId, playerData, myPosition, owners = null, spectator = false }) {
   if (!myPosition) return null;
 
   let pos = null;
@@ -44,7 +47,7 @@ export function speakingSlotFor({ username, socketId, playerData, myPosition, ow
   }
   if (!pos) return null;
 
-  if (pos === myPosition) return null;
+  if (pos === myPosition) return spectator ? 'bottom' : null;
   if (pos === team(myPosition)) return 'partner';
   if (pos === rotate(myPosition)) return 'opp1';
   if (pos === rotate(rotate(rotate(myPosition)))) return 'opp2';

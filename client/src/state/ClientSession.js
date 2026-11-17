@@ -10,7 +10,14 @@
  *   LOBBY -> LOBBY | MAIN_ROOM | TOURNAMENT_LOBBY | TABLE | SIGN_IN
  *   TOURNAMENT_LOBBY -> TOURNAMENT_LOBBY | MAIN_ROOM | TABLE | SIGN_IN
  *   TABLE(role) -> TABLE | GAME_END | MAIN_ROOM | TOURNAMENT_LOBBY | SIGN_IN
- *   GAME_END -> MAIN_ROOM | TOURNAMENT_LOBBY | TABLE | SIGN_IN
+ *   GAME_END -> MAIN_ROOM | LOBBY | TOURNAMENT_LOBBY | TABLE | SIGN_IN
+ *
+ * GAME_END -> LOBBY is play again (owner 2026-11-16): at the end of a
+ * casual game a lobby started the server moves this socket back into a
+ * copy of that lobby and says so with the private lobbyReturn. The score
+ * modal stays exactly as it is, for as long as the player likes; the
+ * session only remembers the lobby (noteLobbyReturn), and the modal's
+ * Return to Lobby lands there (exitTable(EXIT.LOBBY_RETURN, {to: LOBBY})).
  *
  * A self-transition re-enters the screen (new data from the server, e.g.
  * mainRoomJoined after a reconnect); TABLE -> TABLE changes the role. An
@@ -74,6 +81,9 @@ export const EXIT = Object.freeze({
   SIGN_OUT: 'signOut',
   RECONNECT_FAILED: 'reconnectFailed',
   NEW_TABLE: 'newTable',
+  // Return to Lobby after a casual game whose lobby reopened (play again):
+  // the teardown keeps voice (the lobby's calls are the game's)
+  LOBBY_RETURN: 'lobbyReturn',
 });
 
 const S = SCREEN;
@@ -84,7 +94,7 @@ export const TRANSITIONS = Object.freeze({
   [S.LOBBY]: [S.LOBBY, S.MAIN_ROOM, S.TOURNAMENT_LOBBY, S.TABLE, S.SIGN_IN],
   [S.TOURNAMENT_LOBBY]: [S.TOURNAMENT_LOBBY, S.MAIN_ROOM, S.TABLE, S.SIGN_IN],
   [S.TABLE]: [S.TABLE, S.GAME_END, S.MAIN_ROOM, S.TOURNAMENT_LOBBY, S.SIGN_IN],
-  [S.GAME_END]: [S.MAIN_ROOM, S.TOURNAMENT_LOBBY, S.TABLE, S.SIGN_IN],
+  [S.GAME_END]: [S.MAIN_ROOM, S.LOBBY, S.TOURNAMENT_LOBBY, S.TABLE, S.SIGN_IN],
 });
 
 const ROLES = new Set(Object.values(ROLE));
@@ -161,6 +171,9 @@ export class ClientSession {
     this._superseded = false; // another tab has the session (sessionSuperseded)
     this._routeInFlight = null; // { kind, at }
     this._pendingLobbyRejoin = null; // lobbyId
+    this._lobbyRejoinAfterGame = false; // that re-entry is a play-again return
+    this._lobbyReturn = null; // play again: { data, gameId, startedGameId }
+    this.endedGameId = null; // the game whose score modal is up (GAME_END)
     this._pendingSpectate = null; // gameId
     this._pendingTournamentRejoin = null; // { tournamentId, spectator }
     this._tournamentWatchSocket = null; // socket id the server knows as the tournament's spectator
@@ -215,6 +228,7 @@ export class ClientSession {
     this._superseded = true;
     this._routeInFlight = null;
     this._pendingLobbyRejoin = null;
+    this._lobbyRejoinAfterGame = false;
     this._pendingTournamentRejoin = null;
     this._pendingSpectate = null;
   }
@@ -254,6 +268,8 @@ export class ClientSession {
   get routeInFlight() { return this._routeInFlight?.kind || null; }
   get pendingSpectate() { return this._pendingSpectate; }
   get pendingLobbyRejoin() { return this._pendingLobbyRejoin; }
+  /** The pending lobby re-entry is a play-again Return to Lobby (its refusal is worded so). */
+  get lobbyRejoinAfterGame() { return !!this._pendingLobbyRejoin && this._lobbyRejoinAfterGame; }
 
   can(to) {
     return (TRANSITIONS[this._screen] || []).includes(to);
@@ -279,7 +295,13 @@ export class ClientSession {
     const ctx = { from, to, reenter, data, session: this };
     if (!reenter) this._runHook(from, 'exit', ctx);
     this._screen = to;
-    if (to !== SCREEN.TABLE && to !== SCREEN.GAME_END) this._role = null;
+    if (to !== SCREEN.TABLE && to !== SCREEN.GAME_END) {
+      this._role = null;
+      // The lobby a finished game reopened is only remembered while its
+      // table (or score modal) is up
+      this._lobbyReturn = null;
+      this.endedGameId = null;
+    }
     if (to !== SCREEN.LOBBY) {
       this.lobbyId = null;
       this._storage.removeItem(STORAGE.LOBBY);
@@ -382,6 +404,11 @@ export class ClientSession {
     }
     if (from !== SCREEN.TABLE || otherTable) this.tableGeneration++;
 
+    // A new table: a lobby return remembered for the last one is over
+    if (from === SCREEN.GAME_END || otherTable) {
+      this._lobbyReturn = null;
+      this.endedGameId = null;
+    }
     this._role = role;
     this._persistTable(role, gameId || (from === SCREEN.TABLE && !otherTable ? this.gameId : null));
     this._pendingSpectate = null;
@@ -398,6 +425,8 @@ export class ClientSession {
   /** gameEnd: the table stays on screen (score modal) but there is nothing to rejoin. */
   endGame() {
     if (!this.can(SCREEN.GAME_END)) return this._illegal(this._screen, SCREEN.GAME_END);
+    // Kept for the score modal's Return (a lobbyReturn names this game)
+    this.endedGameId = this.gameId || this.endedGameId;
     this._clearPersistedIds();
     this.rejoinAttempted = false;
     this.rejoinSucceeded = false;
@@ -410,9 +439,10 @@ export class ClientSession {
    * @param {Object} [options]
    * @param {string} [options.to] - SCREEN to land on (default: the tournament lobby for a tournament player, else the main room)
    * @param {boolean} [options.route=true] - false: tear down only, stay on the current screen
+   * @param {Object} [options.data] - the destination's screen data (LOBBY: the lobby to show)
    * @returns {string|null} the screen it routed to
    */
-  exitTable(reason, { to = null, route = true } = {}) {
+  exitTable(reason, { to = null, route = true, data = undefined } = {}) {
     this.tableGeneration++;
     this._teardown(reason);
     this._role = null;
@@ -431,10 +461,90 @@ export class ClientSession {
       this._gameState.tournamentId = this.watchedTournamentId;
     }
     const dest = to || (this.tournamentId ? SCREEN.TOURNAMENT_LOBBY : SCREEN.MAIN_ROOM);
-    if (!this.transition(dest, undefined)) return null;
+    if (!this.transition(dest, data)) return null;
     if (dest === SCREEN.MAIN_ROOM) this.requestMainRoom();
     else if (dest === SCREEN.TOURNAMENT_LOBBY) this.requestTournament();
     return dest;
+  }
+
+  // ============================================
+  // Play again (lobbyReturn; owner 2026-11-16)
+  // ============================================
+
+  /**
+   * lobbyReturn: the server moved this socket into the lobby the finished
+   * game came from. Remembered (never shown) while this game's table or
+   * score modal is up; the modal's Return to Lobby uses it.
+   * @param {Object} data - the lobbyReturn payload
+   * @returns {boolean} false when it is not for the table on screen
+   */
+  noteLobbyReturn(data) {
+    const gameId = data?.lastGame?.gameId || null;
+    if (!data?.lobbyId || !this.hasTable) return false;
+    const current = this._screen === SCREEN.GAME_END ? this.endedGameId : this.gameId;
+    // (a table entered before its first deal may not know its id yet)
+    if (gameId && current && gameId !== current) return false;
+    this._lobbyReturn = { data, gameId, startedGameId: null };
+    return true;
+  }
+
+  /** The remembered lobby return (null: none, or not for this table). */
+  get lobbyReturn() {
+    const r = this._lobbyReturn;
+    if (!r || !this.hasTable) return null;
+    if (this._screen === SCREEN.GAME_END && r.gameId && this.endedGameId && r.gameId !== this.endedGameId) return null;
+    return r;
+  }
+
+  /** The server took this socket out of that lobby (leftLobby): Return goes to the main room. */
+  forgetLobbyReturn() {
+    this._lobbyReturn = null;
+  }
+
+  /**
+   * The reopened lobby started its next game while this player was still
+   * on the score modal (they were not ready, so they would watch it): the
+   * modal stays; Return asks for that lobby again, which the server answers
+   * with the game to watch (or 'Lobby not found' once it is over).
+   */
+  noteLobbyStarted(gameId) {
+    if (this._lobbyReturn) this._lobbyReturn.startedGameId = gameId || null;
+  }
+
+  /**
+   * The score modal's Return to Lobby after a game whose lobby reopened:
+   * the table goes (voice stays), then the lobby shows at once from what
+   * the server last said; lobbyReturnSeen tells the server the player left
+   * the score screen for it (as iOS 1.2.3 does at its entry: until then the
+   * server holds a dropped seat for the play-again hold and leaves the
+   * player out of the lobby's next game instead of making it a watcher),
+   * and joinLobby asks for it again (the server answers its own member with
+   * lobbyCreated: the lobby as it is now). A lobby that started its
+   * next game meanwhile: the main room (joinMainRoom draws it, so nothing
+   * stands blank) until that joinLobby's answer (the game to watch, or the
+   * error); nothing to tell then (joinMainRoom took the socket out of it).
+   * @param {Object} lobbyData - the LOBBY screen's data
+   * @returns {string|null} the screen it routed to (null: no lobby return)
+   */
+  returnToReopenedLobby(lobbyData) {
+    const r = this.lobbyReturn;
+    if (!r) return null;
+    const lobbyId = r.data.lobbyId;
+    if (r.startedGameId) {
+      // joinMainRoom first (the server answers in order: the main room,
+      // then the redirect's spectatorJoined, which a table ignores it for)
+      if (this.exitTable(EXIT.GAME_END_RETURN, { to: SCREEN.MAIN_ROOM }) !== SCREEN.MAIN_ROOM) return null;
+      this._reenterLobby(lobbyId, { afterGame: true });
+      return SCREEN.MAIN_ROOM;
+    }
+    if (this.exitTable(EXIT.LOBBY_RETURN, { to: SCREEN.LOBBY, data: lobbyData }) !== SCREEN.LOBBY) return null;
+    this.noteLobby(lobbyId);
+    // (no payload; a socket that is no member any more, e.g. a new one
+    // after a reconnect on the modal, changes nothing: its joinLobby below
+    // takes the seat over)
+    this._emit(CLIENT_EVENTS.LOBBY_RETURN_SEEN, {});
+    this._reenterLobby(lobbyId, { afterGame: true });
+    return SCREEN.LOBBY;
   }
 
   _teardown(reason) {
@@ -700,8 +810,9 @@ export class ClientSession {
     return 'mainRoom';
   }
 
-  _reenterLobby(lobbyId) {
+  _reenterLobby(lobbyId, { afterGame = false } = {}) {
     this._pendingLobbyRejoin = lobbyId;
+    this._lobbyRejoinAfterGame = afterGame;
     this._emit(CLIENT_EVENTS.JOIN_LOBBY, { lobbyId });
     return 'lobby';
   }
@@ -800,6 +911,7 @@ export class ClientSession {
     this._gameState?.resetSession?.();
     this._forgetTournamentLobby();
     this._storage.removeItem(STORAGE.LOBBY);
+    this._lobbyReturn = null;
     this._restoredSocketId = null;
     this._restoreSentFor = null;
     this._rejoinSentFor = null;

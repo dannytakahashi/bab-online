@@ -27,6 +27,9 @@ export const CLIENT_EVENTS = {
   PLAYER_UNREADY: 'playerUnready',
   ADD_BOT: 'addBot',
   REMOVE_BOT: 'removeBot',
+  SET_SPECTATORS_CAN_TALK: 'setSpectatorsCanTalk',
+  RELEASE_LOBBY_HOLD: 'releaseLobbyHold',
+  LOBBY_RETURN_SEEN: 'lobbyReturnSeen',
 
   // Game
   DRAW: 'draw',
@@ -109,6 +112,7 @@ export const SERVER_EVENTS = {
 
   // Lobby
   LOBBY_CREATED: 'lobbyCreated',
+  LOBBY_RETURN: 'lobbyReturn',
   LOBBY_MESSAGE: 'lobbyMessage',
   LOBBY_PLAYER_JOINED: 'lobbyPlayerJoined',
   LOBBY_PLAYER_LEFT: 'lobbyPlayerLeft',
@@ -205,6 +209,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_JOINED: 'voicePeerJoined',
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_ICE_SERVERS: 'voiceIceServers',
+  VOICE_SETTINGS: 'voiceSettings',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',

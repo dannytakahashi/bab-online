@@ -3,6 +3,7 @@
  * GameState, director and GameScene): what the table asks the
  * SoundManager to play, counted against the recording itself.
  *
+ *   - The draw for deal: one draw sound per playerDrew (four).
  *   - Live play: one card sound per cardPlayed, one deal per gameStart
  *     (when its cards go down), the tricks split by seat parity, one
  *     made / set per hand. The turn chime is a reminder (TURN_IDLE_MS):
@@ -72,6 +73,7 @@ function expected(log, pos, from = 0) {
   const mine = (e) => e.data.position === pos;
   return {
     card: s2c(log, 'cardPlayed', from).length,
+    draw: s2c(log, 'playerDrew', from).length,
     deal: s2c(log, 'gameStart', from).length,
     // every turn of mine ends in my bid or my play (a human seat, never lazy here)
     turn: s2c(log, 'cardPlayed', from).filter(mine).length,
@@ -85,6 +87,7 @@ function expected(log, pos, from = 0) {
 function actual() {
   return {
     card: count('card'),
+    draw: count('draw'),
     deal: count('deal'),
     turn: count('turn'),
     'trick-ours': count('trick-ours'),
@@ -130,6 +133,7 @@ describe('recorded game: one sound per moment, none for a rejoin', () => {
     expect(bids.some((b) => !b.afterFlip)).toBe(true);
     want.turn += bids.filter((b) => b.afterFlip).length;
     expect(want.card).toBeGreaterThan(20);
+    expect(want.draw).toBe(4);
     expect(want.turn).toBeGreaterThan(5);
     const got = actual();
     expect(got.turn).toBeLessThanOrEqual(want.turn);

@@ -27,6 +27,7 @@ const { socketLogger } = require('../utils/logger');
 const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
 const { randomStockPic } = require('../avatar/stockAvatars');
+const gameVoice = require('../voice/gameVoice');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -287,6 +288,8 @@ function disconnectOwner(io, game, pos, sid) {
         game.broadcast(io, 'playerDisconnected', { position: pos, username });
         game.broadcast(io, 'voicePeerLeft', { socketId: sid });
         logEntry(io, game, `${username} disconnected. Waiting for reconnection...`);
+        // Who controls spectator talk (and so who may talk) can change
+        gameVoice.refreshVoice(io, game);
     } else {
         const view = seat.ownerView;
         if (!game.seatDisconnect(pos, sid)) return;
@@ -295,7 +298,12 @@ function disconnectOwner(io, game, pos, sid) {
         socketLogger.info('Bot-controlled seat owner disconnected, bot continues playing', {
             username, position: pos, gameId: game.gameId, view
         });
-        if (view === 'seat') logEntry(io, game, `${username} disconnected. Bot continues playing.`);
+        if (view === 'seat') {
+            logEntry(io, game, `${username} disconnected. Bot continues playing.`);
+            // A lazy owner at its seat was in the voice room: who controls
+            // spectator talk (and so who may talk) can change
+            gameVoice.refreshVoice(io, game);
+        }
     }
     maybeAbort(io, game);
 }
@@ -327,7 +335,37 @@ function onGraceExpired(io, game, pos) {
  */
 function leaveSpectatingFor(io, game, pos, sid, event) {
     if (!SeatState.checkEdge(game.seat(pos), event).ok) return;
+    // A voice spectator (casual game) drops its spectator-era calls both
+    // ways first: as an owner it connects again from the owner's peer list
+    // (a web client ignores a list entry it is "already connected" to)
+    const watched = gameManager.games.get(gameManager.spectatorGames.get(sid));
+    if (watched) gameVoice.removeVoiceSpectator(io, watched, sid, { bothWays: true });
     gameManager.leaveSpectating(io, sid);
+}
+
+/**
+ * Voice for an owner back at its seat (`socket`, seat `pos`): the other
+ * connected owners at their seats and, in a casual game, the voice
+ * spectators (who always hear the players; a loaded block list leaves a
+ * pair out) get voicePeerJoined, and the owner gets them all in
+ * voicePeerList (it offers). Then every capable socket of the room gets
+ * voiceSettings (the controller of spectator talk may have changed).
+ */
+function announceOwnerVoice(io, game, pos, socket, username) {
+    const peers = [];
+    for (const s of game.seatList()) {
+        if (s.position === pos || s.presence !== Presence.CONNECTED) continue;
+        if (s.controller !== Controller.HUMAN && s.ownerView !== 'seat') continue;
+        peers.push({ socketId: s.ownerSocketId, username: game.getPlayerByPosition(s.position).username });
+        io.to(s.ownerSocketId).emit('voicePeerJoined', { socketId: socket.id, username });
+    }
+    for (const [sid, e] of game.voiceSpectators || []) {
+        if (sid === socket.id || gameVoice.blockedPair(io, socket.id, username, sid, e.username)) continue;
+        peers.push({ socketId: sid, username: e.username });
+        io.to(sid).emit('voicePeerJoined', { socketId: socket.id, username });
+    }
+    if (peers.length > 0) socket.emit('voicePeerList', { peers });
+    gameVoice.refreshVoice(io, game);
 }
 
 /**
@@ -358,15 +396,9 @@ function reconnectOwner(io, game, pos, socket, username) {
     if (game.idleOffer?.pos === pos) game.idleOffer = null;
     game.broadcast(io, 'playerReconnected', { position: pos, username });
 
-    // Voice: the other connected owners at their seats
-    const peers = [];
-    for (const s of game.seatList()) {
-        if (s.position === pos || s.presence !== Presence.CONNECTED) continue;
-        if (s.controller !== Controller.HUMAN && s.ownerView !== 'seat') continue;
-        peers.push({ socketId: s.ownerSocketId, username: game.getPlayerByPosition(s.position).username });
-        io.to(s.ownerSocketId).emit('voicePeerJoined', { socketId: socket.id, username });
-    }
-    if (peers.length > 0) socket.emit('voicePeerList', { peers });
+    // Voice: the other connected owners at their seats (and the voice
+    // spectators of a casual game)
+    announceOwnerVoice(io, game, pos, socket, username);
 
     logEntry(io, game, `${username} reconnected.`);
     replayPresenceTo(game, socket, pos);
@@ -389,11 +421,28 @@ function reconnectOwner(io, game, pos, socket, username) {
  */
 function watchSeat(io, game, pos, socket, username, { via }) {
     leaveSpectatingFor(io, game, pos, socket.id, 'watch');
+    const voiceBefore = new Set(gameVoice.gameVoiceMembers(game).map(m => m.socketId));
     const prev = game.seatWatch(pos, socket.id);
     const seat = game.seat(pos);
     if (seat?.ownerSocketId !== socket.id) return false;
     if (prev) {
+        // The demoted socket (lazy at its seat: a voice member) leaves the
+        // voice room: its calls end both ways (the newer socket watches and
+        // holds no voice; nothing announced it)
+        if (voiceBefore.has(prev)) {
+            const peers = new Set(gameVoice.gameVoiceMembers(game).map(m => m.socketId));
+            for (const sid of game.voiceSpectators?.keys() || []) peers.add(sid);
+            peers.delete(prev);
+            peers.delete(socket.id);
+            for (const p of peers) {
+                io.to(p).emit('voicePeerLeft', { socketId: prev });
+                io.to(prev).emit('voicePeerLeft', { socketId: p });
+            }
+        }
         unmap(game, prev);
+        // It was in the voice room: who controls spectator talk (and so
+        // who may talk) can change
+        if (voiceBefore.has(prev)) gameVoice.refreshVoice(io, game);
         // A parked socket (sessionIdentity: superseded by this one) is not
         // watching anything: it leaves like a gone one
         const prevSocket = io.sockets.sockets.get(prev);
@@ -452,7 +501,11 @@ function reclaimSeat(io, game, pos, socket, username) {
     socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
     // ownerView is 'watch' now: goActive re-sends the seat's full state
     // (restorePlayerState) and the presence replay to this socket
-    return goActive(io, game, pos, socket);
+    if (!goActive(io, game, pos, socket, { voice: false })) return false;
+    // At the seat again: the same voice peer list as a reconnect (it had
+    // none: a reclaimed seat sat silent until the next reconnect)
+    announceOwnerVoice(io, game, pos, socket, username);
+    return true;
 }
 
 // ==================== turn watchdog (AFK) ====================
@@ -659,7 +712,7 @@ function goLazy(io, game, pos, { reason = null } = {}) {
 }
 
 /** /active from the owner socket: the seat is human again. */
-function goActive(io, game, pos, socket) {
+function goActive(io, game, pos, socket, { voice = true } = {}) {
     const released = game.seatGoActive(pos, socket.id);
     if (!released) return false;
     const { bot, ownerView } = released;
@@ -682,6 +735,10 @@ function goActive(io, game, pos, socket) {
         // The watching client switches from its lazy view to the seat
         socket.emit('restorePlayerState', carrierFor(game, socket));
         replayPresenceTo(game, socket, pos);
+        // At the seat again, so in the voice room: who controls spectator
+        // talk can change (reclaimSeat passes voice false: its
+        // announceOwnerVoice refreshes)
+        if (voice) gameVoice.refreshVoice(io, game);
     } else if (game.acceptsTurnInput()) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
@@ -730,6 +787,10 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);
+    // Out of the voice room for good: who controls spectator talk (and so
+    // whether a main-room spectator may still talk) can change; a spectator
+    // that just lost the right arms the backstop
+    gameVoice.refreshVoice(io, game);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c

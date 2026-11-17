@@ -2,7 +2,8 @@ import XCTest
 
 /// iOS 1.2.2 table parity with the web, in fixture mode: the idle-seat offer's
 /// wording, a tied game, a refused action's reason, the bid-total chips, an
-/// unknown chat command's hint, the dealer marker and the opponent card backs.
+/// unknown chat command's hint, the dealer marker and the opponent card backs
+/// (iOS 1.2.3: red on odd hands, blue on even ones, as the web's).
 final class TableParityUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -259,6 +260,34 @@ final class TableParityUITests: XCTestCase {
         app.terminate()
     }
 
+    /// "fans=... back=blue dealer=me" -> "blue" (the colour the fans' sprites are drawn in).
+    private func backColour(_ app: XCUIApplication) -> String? {
+        let extras = Fixture.probe(app, "table.extras")
+        return extras.split(separator: " ").first(where: { $0.hasPrefix("back=") }).map { String($0.dropFirst(5)) }
+    }
+
+    /// iOS 1.2.3: the card backs alternate red / blue by hand as the web's (hand 1 red, hand 2
+    /// blue, ...): the fixture's hand 1, then the same table as hand 2 and hand 3 (`-uiHandNo`),
+    /// seated and spectating.
+    func testTheCardBacksAreTheHandsColour() throws {
+        for (fixture, handNo, want) in [("trick-mid-lead3", nil, "red"), ("trick-mid-lead3", 2, "blue"), ("trick-mid-lead3", 3, "red"),
+                                         ("spectator-mid-hand", 4, "blue")] as [(String, Int?, String)] {
+            let app = Fixture.launch(fixture, extra: handNo.map { ["-uiHandNo", String($0)] } ?? [])
+            XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+            _ = Fixture.settledState(app)
+            guard fans(app) != nil else {
+                XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
+                XCTAssertEqual(backColour(app), "-")
+                app.terminate()
+                return
+            }
+            XCTAssertEqual(backColour(app), want, "\(fixture) hand \(handNo ?? 1): \(Fixture.probe(app, "table.extras"))")
+            XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+            attach(app, "card-backs-hand-\(handNo ?? 1)-\(fixture)")
+            app.terminate()
+        }
+    }
+
     func testASpectatorSeesEverySeatsCardBacks() throws {
         let app = Fixture.launch("spectator-mid-hand")
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
@@ -273,6 +302,125 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(shown, [1: 12, 2: 12, 3: 11, 4: 11])
         XCTAssertEqual(element(app, "fan.1").label, "ivy: 12 cards")
         XCTAssertEqual(element(app, "dealer").label, "Dealer: ivy")
+        app.terminate()
+    }
+
+    // MARK: (h) the deal's fly-in (iOS 1.2.3)
+
+    /// "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1" -> ["deals": "1", "cards": "52", ...]
+    private func dealProbe(_ app: XCUIApplication) -> [String: String] {
+        var out: [String: String] = [:]
+        for part in Fixture.probe(app, "table.deal").split(separator: " ") {
+            let kv = part.split(separator: "=")
+            if kv.count == 2 { out[String(kv[0])] = String(kv[1]) }
+        }
+        return out
+    }
+
+    /// Polls "table.deal" until `done` holds (nil at the deadline); `seen` gets every reading.
+    private func waitForDeal(_ app: XCUIApplication, timeout: TimeInterval, seen: ([String: String]) -> Void = { _ in },
+                             _ done: ([String: String]) -> Bool) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let d = dealProbe(app)
+            seen(d)
+            if done(d) { return d }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return nil
+    }
+
+    private static let idle = ["flying": "0", "fading": "0", "deck": "0", "deckBack": "-", "hinge": "-"]
+
+    private static func isIdle(_ d: [String: String]) -> Bool { idle.allSatisfy { d[$0.key] == $0.value } }
+
+    func testARejoinShowsTheTableWithoutADeal() {
+        let app = Fixture.launch("trick-mid-lead3")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        XCTAssertEqual(dealProbe(app), ["deals": "0", "cards": "0", "mode": "-", "flying": "0", "fading": "0", "deck": "0",
+                                        "deckBack": "-", "hinge": "-"])
+        app.terminate()
+    }
+
+    /// A live deal of `size` cards (`-uiDeal`, `-uiDealSize`) with `extra` launch arguments:
+    /// every card of the new hand (and every seat's backs) flies from the deck and lands; the
+    /// deck is `back` (the hand's colour, as the fans it deals) and never over the fold
+    /// (probe `hinge`).
+    private func checkLiveDeal(size: Int = 13, back: String, extra: [String] = [], shot: String) {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiDealSize", String(size)] + extra)
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        let shown = fans(app)
+        // the deal 8 s after launch: every card of the new hand (and every seat's backs) flies
+        var mid: [String: String]?
+        var sawBefore = false
+        var backs = Set<String>(), hinges = Set<String>()
+        let end = waitForDeal(app, timeout: 20, seen: { d in
+            if d["deals"] == "0" { sawBefore = true }
+            if d["deck"] == "1" {
+                backs.insert(d["deckBack"] ?? "?")
+                hinges.insert(d["hinge"] ?? "?")
+            }
+            if mid == nil, d["deals"] == "1", (Int(d["flying"] ?? "") ?? 0) > 0 {
+                mid = d
+                self.attach(app, "\(shot)-mid")
+            }
+        }) { $0["deals"] == "1" && Self.isIdle($0) }
+        let cards = String(size + (shown == nil ? 0 : 3 * size))
+        XCTAssertEqual(end, ["deals": "1", "cards": cards, "mode": "fly", "flying": "0", "fading": "0", "deck": "0",
+                             "deckBack": "-", "hinge": "-"], "\(shot) landed: nothing in flight, no deck")
+        // seen in flight: the probe is read every few tenths of a second and holds the deal's
+        // start for its 1.3 s, so a test that was reading before the deal sees it (a launch slower
+        // than the fixture's 8 s cannot, and the landed reading above still checks the deal)
+        XCTAssertTrue(sawBefore || mid != nil, "\(shot): the probe was never read before the deal ended")
+        if sawBefore {
+            XCTAssertEqual(mid?["flying"], cards, "\(shot) mid-deal: \(String(describing: mid))")
+            XCTAssertEqual(mid?["deck"], "1", shot)
+            XCTAssertEqual(backs, [back], "\(shot): the deck is the hand's colour")
+        }
+        XCTAssertFalse(hinges.contains("over"), "\(shot): the deck sits on the hinge: \(hinges)")
+        XCTAssertTrue(Fixture.settledState(app).contains("hand=\(size) trick=0"), Fixture.probe(app, "table.state"))
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", shot)
+        if shown != nil {
+            XCTAssertEqual(fans(app), [2: size, 3: size, 4: size], shot)
+            XCTAssertEqual(backColour(app), back, "\(shot): the fans it dealt are the deck's colour")
+        }
+        attach(app, "\(shot)-landed")
+        app.terminate()
+    }
+
+    func testALiveDealFliesFromTheDeckAndLands() {
+        checkLiveDeal(back: "red", shot: "deal")
+    }
+
+    /// Hand 2 (10 cards) is blue: the deck and the backs it deals (CardBackColour).
+    func testABlueHandsDealComesFromABlueDeck() {
+        checkLiveDeal(size: 10, back: "blue", shot: "deal-blue")
+    }
+
+    /// The Duo's poses (`-uiFold`, FoldReader's synthetic hinge): the deck keeps off the fold
+    /// (TableLayout.dealOrigin is the cluster's centre, on the cluster's page / above a
+    /// tabletop hinge) and the deal lands inside the safe area.
+    func testOnAFoldTheDealKeepsOffTheHinge() {
+        for fold in ["book", "tabletop"] {
+            checkLiveDeal(back: "red", extra: ["-uiFold", fold], shot: "deal-\(fold)")
+        }
+    }
+
+    func testUnderReduceMotionTheDealFadesInPlace() {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiReduceMotion", "YES"])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        var flew = false, deck = false
+        let end = waitForDeal(app, timeout: 15, seen: { d in
+            if (d["flying"] ?? "0") != "0" { flew = true }
+            if (d["deck"] ?? "0") != "0" { deck = true }
+        }) { $0["deals"] == "1" && Self.isIdle($0) }
+        XCTAssertEqual(end?["mode"], "fade")
+        XCTAssertNotEqual(end?["cards"] ?? "0", "0")
+        XCTAssertFalse(flew, "nothing crosses the table")
+        XCTAssertFalse(deck, "no deck")
+        XCTAssertTrue(Fixture.settledState(app).contains("hand=13 trick=0"), Fixture.probe(app, "table.state"))
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         app.terminate()
     }
 }

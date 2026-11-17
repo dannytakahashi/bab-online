@@ -12,11 +12,13 @@
  * when
  *   - its target is a connected socket id (never a room: io.to('mainRoom')
  *     would reach everyone), other than the sender;
- *   - both sockets are signed in and share a lobby (playerLobbies) or a game
- *     (playerGames: entrants, seat owners incl. a lazy/resigned owner's
- *     socket) — exactly the peers voicePeerList / voicePeerJoined announce.
- *     Pure spectators never get a peer list, and neither client starts voice
- *     for one (web: lobby/seat; iOS 1.1.0: holdsSeat), so they are refused;
+ *   - both sockets are signed in and in the same voice room
+ *     (gameVoice.voiceRoomOf): a lobby (playerLobbies), or a game (playerGames:
+ *     entrants, seat owners incl. a lazy/resigned owner's socket; plus, in a
+ *     casual game, the capable spectators admitted to its voice room,
+ *     game.voiceSpectators) — exactly the peers voicePeerList /
+ *     voicePeerJoined announce. Any other pure spectator is refused (a
+ *     legacy client never starts voice for one);
  *   - neither user has blocked the other (socket.data.blockedUsers, loaded
  *     at sign-in / restore / sign-up / rejoinGame's token check and kept by
  *     blockUser / unblockUser; a signed-in socket without one is refused,
@@ -25,7 +27,10 @@
  *     (rateLimiter keys voiceOffer, voiceAnswer, voiceIceCandidate;
  *     checked here, so the wrapper stays safeHandler);
  *   - the payload passes its Joi schema (validators.schemas.voiceOffer,
- *     ... ; V1_REMOVALS #18), also checked here.
+ *     ... ; V1_REMOVALS #18), also checked here;
+ *   - offers and answers only: a voice spectator who may not talk sends
+ *     listen-only SDP (gameVoice.gateSignal, server/voice/sdpDirection.js).
+ *     Players are never gated.
  * Anything else is dropped silently: the contract has no rejection event
  * for voice and both clients treat a lost signal as a peer that never
  * answers.
@@ -36,6 +41,8 @@ const gameManager = require('../game/GameManager');
 const { rateLimiter } = require('./errorHandler');
 const { validate } = require('./validators');
 const turnCredentials = require('../voice/turnCredentials');
+const gameVoice = require('../voice/gameVoice');
+const { emitError } = require('./serverError');
 
 /**
  * Has `sock`'s user blocked `username`? Each side is checked against its
@@ -103,11 +110,8 @@ function authorize(socket, io, event, targetSocketId) {
     const to = gameManager.getUserBySocketId(targetSocketId);
     if (!from || !to) return refuse('not_signed_in');
 
-    const lobby = gameManager.playerLobbies.get(socket.id);
-    const game = gameManager.playerGames.get(socket.id);
-    const sameLobby = lobby !== undefined && lobby === gameManager.playerLobbies.get(targetSocketId);
-    const sameGame = game !== undefined && game === gameManager.playerGames.get(targetSocketId);
-    if (!sameLobby && !sameGame) return refuse('not_peers');
+    const room = gameVoice.voiceRoomOf(socket.id);
+    if (room === null || room !== gameVoice.voiceRoomOf(targetSocketId)) return refuse('not_peers');
 
     // Both lists are consulted (no short circuit), so a missing one starts loading either way
     const senderBlocks = blockedBy(socket, to.username);
@@ -134,6 +138,7 @@ function voiceOffer(socket, io, data) {
     if (!targetSocketId || !offer) return;
     if (!authorize(socket, io, 'voiceOffer', targetSocketId)) return;
     if (!checked(socket, 'voiceOffer', data)) return;
+    if (!gameVoice.gateSignal(io, socket.id, targetSocketId, offer.sdp)) return;
 
     // Look up username server-side — don't trust client payload
     const user = gameManager.getUserBySocketId(socket.id);
@@ -150,6 +155,7 @@ function voiceAnswer(socket, io, data) {
     if (!targetSocketId || !answer) return;
     if (!authorize(socket, io, 'voiceAnswer', targetSocketId)) return;
     if (!checked(socket, 'voiceAnswer', data)) return;
+    if (!gameVoice.gateSignal(io, socket.id, targetSocketId, answer.sdp)) return;
 
     io.to(targetSocketId).emit('voiceAnswer', {
         fromSocketId: socket.id,
@@ -173,8 +179,10 @@ function voiceIceCandidate(socket, io, data) {
  * getVoiceIceServers {requestId?} -> voiceIceServers {iceServers, turn,
  * expiresInSec, requestId?} to this socket only (server/voice/turnCredentials.js).
  * TURN credentials go only to a signed-in socket that is a voice peer right
- * now (in a lobby, or an entrant / seat owner of a game: the sockets the
- * relays above accept); anyone else gets the public STUN servers, as does
+ * now (in a voice room: a lobby, an entrant / seat owner of a game, or an
+ * admitted voice spectator: the sockets the relays above accept; no new
+ * exposure, a lone lobby creator already gets them); anyone else gets the
+ * public STUN servers, as does
  * every failure. Joi and the wrapper's rateLimiter.getVoiceIceServers
  * limit run first (index.js). The reply never carries the API token, and
  * nothing here logs a credential.
@@ -183,7 +191,7 @@ async function getVoiceIceServers(socket, io, data) {
     const requestId = typeof data?.requestId === 'string' ? data.requestId : undefined;
     const reply = (answer) => socket.emit('voiceIceServers', requestId !== undefined ? { ...answer, requestId } : answer);
     const user = gameManager.getUserBySocketId(socket.id);
-    const isPeer = gameManager.playerLobbies.has(socket.id) || gameManager.playerGames.has(socket.id);
+    const isPeer = gameVoice.voiceRoomOf(socket.id) !== null;
     if (!user?.username || !isPeer) {
         socketLogger.debug('Voice ICE servers: STUN only', { socketId: socket.id, reason: user?.username ? 'not_a_voice_peer' : 'not_signed_in' });
         reply(turnCredentials.stunOnly());
@@ -198,6 +206,31 @@ async function getVoiceIceServers(socket, io, data) {
     reply(answer);
 }
 
+/**
+ * setSpectatorsCanTalk {spectatorsCanTalk} (Joi + rate limit in the
+ * wrapper): "Spectators can talk", default on (owner 2026-11-16). In a
+ * lobby only its host may set it (lobbyHandlers.setLobbySpectatorsCanTalk;
+ * every member gets the new settings). In a casual game the host while
+ * seated, connected and capable, else any connected capable player (owner
+ * Q3 default; gameVoice.canChange); coalesced per game
+ * (gameVoice.requestSpectatorsCanTalk) and announced with voiceSettings.
+ * Anything else: serverError 'rejected'.
+ */
+function setSpectatorsCanTalk(socket, io, data) {
+    const value = data.spectatorsCanTalk === true;
+    if (require('./lobbyHandlers').setLobbySpectatorsCanTalk(socket, io, value)) return;
+    const game = gameManager.getPlayerGame(socket.id);
+    if (!game || !game.casualVoice || game.isTerminal()) {
+        emitError(socket, { message: 'Spectator talk can only be set in a lobby or a casual game' }, 'setSpectatorsCanTalk');
+        return;
+    }
+    if (!gameVoice.canChange(game, socket.id, io)) {
+        emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');
+        return;
+    }
+    gameVoice.requestSpectatorsCanTalk(io, game, value);
+}
+
 /** Remember the signed-in user's block list on the socket (voice checks it per message). */
 function rememberBlockList(socket, blockedUsers) {
     if (!socket || !socket.data) return;
@@ -209,5 +242,6 @@ module.exports = {
     voiceAnswer,
     voiceIceCandidate,
     getVoiceIceServers,
+    setSpectatorsCanTalk,
     rememberBlockList
 };

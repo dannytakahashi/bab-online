@@ -55,6 +55,40 @@ export function createIconButton({ icon, label, onClick = null, className = '', 
   return btn;
 }
 
+/**
+ * Switch: a `<button role="switch" aria-checked>` with a drawn track and
+ * thumb and its visible label (the accessible name). A click does NOT flip
+ * it: `onChange(next)` asks for the new value and the caller shows it once
+ * it holds (setSwitch), e.g. after the server's echo; meanwhile the caller
+ * may disable it (setSwitch {disabled}).
+ * @param {Object} o
+ * @param {string} o.label
+ * @param {boolean} [o.checked=false]
+ * @param {(next: boolean) => void} [o.onChange]
+ */
+export function createSwitch({ label, checked = false, onChange = null, className = '', id = null } = {}) {
+  const btn = el('button', {
+    className: ['kit-switch', className].filter(Boolean).join(' '),
+    attrs: { type: 'button', role: 'switch', 'aria-checked': String(!!checked), id },
+    children: [
+      el('span', { className: 'kit-switch__track', attrs: { 'aria-hidden': 'true' }, children: [el('span', { className: 'kit-switch__thumb' })] }),
+      el('span', { className: 'kit-switch__label', text: label }),
+    ],
+  });
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    onChange?.(btn.getAttribute('aria-checked') !== 'true');
+  });
+  return btn;
+}
+
+/** Show a switch's value and / or enabled state. */
+export function setSwitch(btn, { checked, disabled } = {}) {
+  if (!btn) return;
+  if (typeof checked === 'boolean') btn.setAttribute('aria-checked', String(checked));
+  if (typeof disabled === 'boolean') btn.disabled = disabled;
+}
+
 /** Text input. */
 export function createInput({ type = 'text', placeholder = '', value = '', label = null, id = null, className = '' } = {}) {
   const input = el('input', {

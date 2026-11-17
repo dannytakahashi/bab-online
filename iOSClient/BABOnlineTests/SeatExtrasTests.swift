@@ -296,7 +296,8 @@ final class SeatExtrasTests: XCTestCase {
             let cards = try XCTUnwrap(state.players.seats[pos]?.cardsInHand)
             XCTAssertEqual(node.fanNode.count, cards, "seat \(pos)")
             XCTAssertEqual(node.fanNode.children.count, cards)
-            XCTAssertTrue(node.fanNode.children.allSatisfy { ($0 as? SKSpriteNode)?.texture === CardFanNode.backTexture })
+            // the fixture is hand 1: the red back (CardBackColourTests: the other hands)
+            XCTAssertTrue(node.fanNode.children.allSatisfy { ($0 as? SKSpriteNode)?.texture === CardFanNode.backTexture(.red) })
             guard cards > 0 else { continue }
             let box = try XCTUnwrap(fans[node.relativePosition])
             XCTAssertTrue(box.insetBy(dx: -0.5, dy: -0.5).contains(sceneRect(node.fanNode, scene)), "seat \(pos): \(sceneRect(node.fanNode, scene)) in \(box)")
@@ -305,7 +306,7 @@ final class SeatExtrasTests: XCTestCase {
     }
 
     func testTheBackIsTheRedLattice() {
-        let size = CardFanNode.backTexture.size()
+        let size = CardFanNode.backTexture(.red).size()
         XCTAssertEqual(size.width / size.height, 100.0 / 145.0, accuracy: 0.02)
         let px = CardTextureGenerator.backPixelSize(width: TableLayout.fanCard.width * 1.3 * CardTextureGenerator.textureZoom)
         XCTAssertEqual(size.width * UIScreen.main.scale, px.width, accuracy: 1.5, "rendered at the largest fan card's on-screen size")

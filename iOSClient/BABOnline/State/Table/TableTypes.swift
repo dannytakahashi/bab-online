@@ -275,13 +275,15 @@ enum HapticKind: Equatable { case error }
 /// for a snapshot (restore, rejoin, resync, a rejected action) or buffered catch-up.
 enum SoundKind: String, Equatable, CaseIterable {
     /// handEnd: a spectator's hand end (no team, so no verdict: made, quieter)
-    case deal, card, overTrump, turn, trick, trickOurs, made, set, handEnd, gameEnd
+    /// draw: a card turned up in the draw for deal (the card takes, quieter; its own kind, so
+    /// its throttle and take rotation are its own)
+    case deal, card, overTrump, turn, trick, trickOurs, made, set, handEnd, gameEnd, draw
 
     /// The bundle's files (Resources/Sounds, copied to the bundle root); a card rotates three takes.
     var files: [String] {
         switch self {
         case .deal: return ["deal"]
-        case .card: return ["card-1", "card-2", "card-3"]
+        case .card, .draw: return ["card-1", "card-2", "card-3"]
         case .overTrump: return ["overtrump"]
         case .turn: return ["turn"]
         case .trick: return ["trick"]
@@ -292,11 +294,12 @@ enum SoundKind: String, Equatable, CaseIterable {
         }
     }
 
-    /// Times the player's volume (the web's OVER_TRUMP_GAIN / SPECTATOR_HAND_END_GAIN):
-    /// the accent sits under the card it follows, a spectator's hand end under a seat's.
+    /// Times the player's volume (the web's OVER_TRUMP_GAIN / SPECTATOR_HAND_END_GAIN /
+    /// DRAW_GAIN): the accent sits under the card it follows, a spectator's hand end under a
+    /// seat's, a draw's card under a played one.
     var gain: Float {
         switch self {
-        case .overTrump: return 0.8
+        case .overTrump, .draw: return 0.8
         case .handEnd: return 0.6
         default: return 1
         }
@@ -382,4 +385,21 @@ enum TrickRules {
 enum HandSequence {
     static let sizes = [12, 10, 8, 6, 4, 2, 1, 3, 5, 7, 9, 11, 13]
     static func handNo(forSize size: Int) -> Int { (sizes.firstIndex(of: size) ?? -1) + 1 }
+}
+
+/// The colour of the card back (owner 2026-11-13: alternate red and blue between hands): the
+/// web's rule, cardFaces.js `backFrameForHand(GameState.handNo)`. Hand 1 red, hand 2 blue,
+/// hand 3 red, ...; no hand (0: the draw for deal, before hand 1; nil; a negative) red. The
+/// hand number is `DealState.handNo` (HandSequence: a zero-bid redeal keeps it, so the colour
+/// switches with the next hand's deal, as the web's), the same number the web counts.
+enum CardBackColour: String, Equatable {
+    case red, blue
+
+    static func forHand(_ handNo: Int?) -> CardBackColour {
+        guard let n = handNo, n >= 1, n % 2 == 0 else { return .red }
+        return .blue
+    }
+
+    /// The draw for deal's deck and face-down cards: before hand 1 (the web's handNo 0).
+    static let draw = forHand(0)
 }

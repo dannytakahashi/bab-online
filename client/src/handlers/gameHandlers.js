@@ -133,7 +133,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Another player drew a card
   socketManager.onGame(SERVER_EVENTS.PLAYER_DREW, (data) => {
     console.log('🃏 Player drew:', data);
-    state.applyPlayerDrew(data);
+    // a new card in the draw (DrawManager flies it from the deck): its sound
+    sounds.drew(state.applyPlayerDrew(data));
     onPlayerDrew?.(data);
   });
 

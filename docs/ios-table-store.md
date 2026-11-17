@@ -453,10 +453,27 @@ card survives fold and unfold, the trick collects across a fold.
   54 faces = 24.55 MB); a phone's stay 1:1 at zoom 1 (300 x 435 on 3x, unchanged).
   Avatar circles render at the same factor.
   Until 1.2.2 no table sprite used the card back (the draw for deal is SwiftUI; 1.2.2's
-  opponent fans draw it at their own size, `CardFanNode.backTexture`): since 1.2.1 it
+  opponent fans draw it at their own size, `CardFanNode.backTexture(_:)`): since 1.2.1 it
   is the web's red lattice, rendered at the draw card's own size
-  (`cardBackImage(width:)`, 1:1, hinted for that density), which `prewarm()` renders
-  for the key window's draw size; `cardBackTexture()` (unused) draws the same lattice.
+  (`cardBackImage(width:colour:)`, 1:1, hinted for that density), which `prewarm()` renders
+  for the key window's draw size; `cardBackTexture(colour:)` (unused) draws the same lattice.
+  From 1.2.3 the back alternates red / blue by hand as the web's (`CardBackColour.forHand`
+  = cardFaces.js `backFrameForHand`: no hand, the draw and odd hands red, even hands blue,
+  card.backRed / card.backBlue via `Theme.CardBack.ink(_:)`; the blue back is the red one's
+  drawing in the other ink). The draw's deck and face-down slots are always `.draw` (red:
+  before hand 1, the web's handNo 0); the fans take `TableRenderModel.back`, the deal's
+  `handNo` (HandSequence, which a zero-bid redeal keeps, so the switch comes with the next
+  hand's deal; a rejoin or spectator join reads the snapshot's `deal.handNo`), and
+  `CardFanNode.update(count:colour:)` retextures its sprites when only the colour changes.
+  iOS draws no other back (no face-down trump, no face-down won tricks), so the web's
+  whisk rule (a sprite keeps the back it was drawn with) has nothing to apply to: the fans
+  are empty between the last trick and the next deal. One fan texture per colour per
+  process (the blue one renders when a table first reaches hand 2, on the main thread, a
+  few milliseconds). Tests: `CardBackColourTests` (the rule on the web's inputs, the model,
+  every recorded game from its first deal counted the web's way, the scene's fans live,
+  rejoined and spectating), `CardArtTests.testBlueBackIsTheRedOneInTheBlueInk`,
+  `TableParityUITests.testTheCardBacksAreTheHandsColour` (`-uiHandNo <n>`, probe
+  `table.extras` `back=red|blue`).
 - Effects: the rainbow, bore and OT sprites keep their art's aspect inside their
   box (128 x 118, 80 x 80, 120 x 120). No larger art exists (client/assets has the
   same PNGs): b/2b/3b/4b/ot are registered as 3x (their pixels are ~3x the box),
@@ -860,6 +877,7 @@ ActionCoordinator through `TableSoundCues` (when) into `SoundPlaying` (default
 
 | Live delta event | Sound | Who |
 | --- | --- | --- |
+| playerDrew, a new draw order (the draw for deal; owner 2026-11-16) | `draw`: a card take (card-1/2/3 in turn) at gain 0.8, its own throttle and rotation; draws that arrive together come `drawSpacing` (0.3 s, DrawPhaseView's flip stagger) apart | everyone |
 | gameStart (each deal, a redeal too) | `deal` | everyone |
 | cardPlayed | `card` (card-1/2/3 in turn), plus the `overTrump` accent when `TrickRules.isOverTrump` (gain 0.8, 90 ms after the card) | everyone |
 | my own play (`.local(.submitPlay)` in PLAYING) | `card` at once: the card shows in its slot now (TableRenderModel); its echo cardPlayed is then quiet except for an over-trump's accent, which goes with the effect | the seat |
@@ -889,7 +907,7 @@ reminder (owner 2026-11-15, "only if the player doesn't play for 5s"):
 `turnIdle` (5 s) after its event, counted from the end of `afterDeal` (0.5 s)
 after a deal (or a held one), and dropped if MyTurnState is no longer
 `.choosing` by then; each new turn cue and each deal restarts the wait; the
-over-trump accent comes `overTrumpDelay` (90 ms) after the card. A hand end is
+over-trump accent comes `overTrumpDelay` (90 ms) after the card; the draw for deal's cards come at least `drawSpacing` (0.3 s) apart, the first at once. A hand end is
 heard as made, deal +0.5 s, and the chime +6.0 s only if the bid is still open. Whatever still waits is dropped when
 the epoch moves (`GameState.sceneResets`, a snapshot; or the table's gameId).
 Its timers run on their own clock (`soundClock`, not the ack clock the ack
@@ -901,7 +919,7 @@ UserDefaults; nothing plays while muted, at volume 0 or while the app is not
 `.active` (background, Control Center); the same `SoundKind` within 80 ms is
 dropped (`throttle`; the wall clock, and a clock stepped back counts as outside
 the window, so it never silences a sound); `SoundKind.gain` scales the volume
-(overTrump 0.8, handEnd 0.6); two AVAudioPlayers per file (`AudioPlayerPool`, created
+(overTrump 0.8, draw 0.8, handEnd 0.6); two AVAudioPlayers per file (`AudioPlayerPool`, created
 on the first sound), a busy pair restarts its first. Audio session: see
 `docs/claude/voice.md`, iOS sounds and voice. Under XCTest and in UI fixture
 mode the shared player is silent and never touches the session.
@@ -916,7 +934,7 @@ corner buttons are measured into `TableChrome.cornerButton` (both corners'
 obstacle, the zoom's chrome), so a third button there, or a wider Log
 cluster, would move every layout.
 
-Tests: `SoundEffectsTests` (each live event's sound, trick-ours parity for all
+Tests: `SoundEffectsTests` (each live event's sound, each new draw once (not youDrew, a re-sent draw order or the teams), a mid-draw rejoin and buffered draws silent, draws arriving together spaced and dropped by a snapshot, the draw's quieter take, trick-ours parity for all
 four winners, made / set with a bore, the over-trump accent on the card, my
 own card at submit with a quiet echo (and my over-trump's accent on the echo),
 the turn cue's edge, a refused bid and an ack timeout silent, a spectator's
@@ -946,6 +964,80 @@ Not verified: nobody has listened on a device (volume against voice chat, the
 silent switch, the 48 ms AAC lead-in); with voice on the session is
 playAndRecord / voiceChat, so sounds then ignore the silent switch and go
 through voice processing.
+
+## The deal's fly-in (iOS 1.2.3, build 12)
+
+Owner 2026-11-16, "no shuffle animation on ios": the web has no shuffle
+animation as such (no code shuffles cards on screen); what it shows with the
+shuffle sound is the deal: the new hand flies from the trump card into the
+hand, staggered, and each seat's card backs fly from it into their fan
+(`CardManager.displayHand` / `_createCardSprite`, `OpponentManager._drawFan`:
+200 ms at the deck, then each card `slow * 2` = 700 ms with the emphasized
+ease, `dealStagger` 35 ms after the one before; instant under reduced motion).
+iOS rendered the new hand at once. Now:
+
+- The reducer's gameStart emits `.animate(.dealt(dealSeq:))` next to the deal
+  sound; `catchUp` strips it with the sounds, and a snapshot never emits it, so
+  a rejoin, restore, spectate, resync or buffered replay shows the hand where
+  it is.
+- `GameSKScene.apply` step 3 runs `dealIn(back: model.back)` for the model's current deal:
+  my hand's sprites (left to right) and every fan's backs go through
+  `Animator.deal` with the web's timing (`Deal.wait` 0.2 s, `Deal.flight`
+  `Theme.Motion.slow * 2`, `Deal.stagger` `Theme.Motion.dealStagger`). Each
+  card rests (hidden) where the render put it, then flies from
+  `TableLayout.dealOrigin` (the trick cluster's centre: the iOS trump is in
+  the score bar, off the scene) at the hand's card size, to its slot, scale
+  and turn (`LiveAnimator.deal`: a custom action that reads its target each
+  frame, so a relayout or a re-render meanwhile just moves the landing:
+  `Deal.retarget`; the start is computed when the flight starts). A small
+  deck (three table backs, z -0.5: under the hand and the seats) sits at the
+  origin until the last card has left. `InstantAnimator` (the tests) does
+  nothing: the render already placed everything.
+- Cosmetic only: nothing waits for it. The bid panel, taps and the server's
+  pacing are as before (a 13-card hand has landed 1.32 s after gameStart; a
+  tap on a card still flying lands it at once, `HandNode.handleCardTap`;
+  `detach` lands a card leaving the hand; a snapshot (`render(reset:)`)
+  lands everything and drops the deck; a new deal lands the old one).
+- Reduce Motion: no flight and no deck; the cards fade in where they are
+  (`Deal.fade`, `Theme.Motion.base`), as `Theme+Motion.swift` now lists.
+- The deck's back is the 300 x 435 table back in the hand's colour
+  (`cardBackTexture(colour: model.back)`, `CardBackColour`, "Card textures": red on odd
+  hands, blue on even ones, as the fans' backs it deals), both colours rendered
+  by `prewarm()` off the main thread with the faces (before, only the unused
+  `CardSpriteNode.cardBack` asked for the red one, on demand).
+- The Duo: the origin is the cluster's centre, so it follows TableLayout's
+  fold handling (an undocked book fold puts the cluster on one page, a
+  tabletop fold above the hinge); the deck keeps off the hinge at every
+  reachable fold (`TableLayoutTests.reachableFolds`). Cards bound for the hand
+  below a tabletop hinge cross it in flight, as played cards do.
+- Fixture flags: `-uiDeal YES` (8 s after launch a live gameStart of 13 cards,
+  dealer 4; `-uiDealSize <n>` deals n cards: 10 is hand 2, blue) and
+  `-uiReduceMotion YES`; probe `table.deal`
+  ("deals=1 cards=52 mode=fly flying=52 fading=0 deck=1 deckBack=red hinge=ok":
+  deals shown, the latest one's cards and kind, what is in flight or fading
+  now, the deck, its backs' colour and whether it is clear of a fold the
+  layout keeps to ("-": no deck, or no such fold); refreshed when the deal
+  starts and once it has landed).
+
+Tests: `DealAnimationTests` (reducer: live gameStart yes, every fixture
+snapshot / rejoin no, catch-up after a snapshot and a lapsed resync no;
+scene: every card and back in flight from the deck at the hand card's size,
+the deck the hand's colour as the fans (hand 2 blue, hands 1 and 13 red, with
+fans and on a phone's pane without), the deck off the hinge at every reachable
+Duo fold, Reduce Motion fades in place, a rejoin has no deal, a snapshot mid-deal lands
+it, a relayout re-aims, a tap lands and lifts, a redeal replaces the deck,
+InstantAnimator; in a window, the flights land on the render's slots and the
+tree equals a fresh render's; the timing and the ease are the web's),
+`TableParityUITests` (`testARejoinShowsTheTableWithoutADeal`,
+`testALiveDealFliesFromTheDeckAndLands`, `testABlueHandsDealComesFromABlueDeck`,
+`testOnAFoldTheDealKeepsOffTheHinge` (`-uiFold book` and `tabletop`),
+`testUnderReduceMotionTheDealFadesInPlace`).
+
+Not done / known: the web's end-of-hand whisk (tricks flying back to the
+trump before the deal) has no iOS counterpart; the deal sound is held 0.5 s
+after a made / set at a hand end (`TableSoundCues.afterHandEnd`) while the
+cards start at 0.2 s; the fans' backs fly from their small fan texture, so
+they are soft for the first frames of their flight. Not seen on a device.
 
 ## iOS 1.2.2: table parity with the web (build 10)
 
@@ -1032,9 +1124,10 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   from a spectator recorded as a seat's owner, whose list shows only
   `/leave`.
 - **Opponent card backs** (owner request; web `displayOpponentCardsBySeat`):
-  each seat with an avatar holds a fan of the red lattice back
-  (`CardFanNode`, `CardTextureGenerator.cardBackImage(width:)` at the largest
-  fan card's size and the device's largest zoom, one texture per process), one
+  each seat with an avatar holds a fan of the lattice back, red or blue by
+  hand from 1.2.3 (`CardBackColour`, "Card textures" above)
+  (`CardFanNode`, `CardTextureGenerator.cardBackImage(width:colour:)` at the largest
+  fan card's size and the device's largest zoom, one texture per colour per process), one
   sprite per card in `TableRenderModel.Opponent.cards` (`SeatState.
   cardsInHand`: the deal's size, minus one per cardPlayed, zero on
   destroyHands, the snapshot's value after a rejoin; a spectator sees four).

@@ -30,7 +30,7 @@ router.get('/privacy', (req, res) => {
 </head>
 <body>
     <h1>BAB Online — Privacy Policy</h1>
-    <p><strong>Last updated:</strong> November 15, 2026</p>
+    <p><strong>Last updated:</strong> November 16, 2026</p>
 
     <p>BAB Online collects only what the game needs to run. There are no ads, no tracking, no analytics, and we never sell your data.</p>
 
@@ -48,7 +48,7 @@ router.get('/privacy', (req, res) => {
 
     <h2>Chat and Voice</h2>
     <p><strong>Text chat</strong> is filtered for profanity and shown to the other players in the room. It is never saved to our database or written to our logs: the server keeps the last 50 main room messages, and each lobby's, game's, or tournament's chat until it ends, in memory only.</p>
-    <p><strong>Voice chat</strong> is optional and needs your permission to use the microphone. Audio is encrypted and goes directly between players' devices (WebRTC); it is never recorded, and our server only passes along the messages that set up the call. To set up the call your device contacts a STUN server (Cloudflare's, or Google's public ones), which sees your IP address. When a direct connection isn't possible, the encrypted audio is relayed through Cloudflare, which sees the IP addresses involved but cannot listen to the audio. As in any peer-to-peer call, the players you talk with can see your IP address.</p>
+    <p><strong>Voice chat</strong> is optional and needs your permission to use the microphone. Audio is encrypted and goes directly, over WebRTC, between the devices of the people in a game's voice chat (players and, in casual games, spectators); it is never recorded, and our server only passes along the messages that set up the call. To set up the call your device contacts a STUN server (Cloudflare's, or Google's public ones), which sees your IP address. When a direct connection isn't possible, the encrypted audio is relayed through Cloudflare, which sees the IP addresses involved but cannot listen to the audio. As in any peer-to-peer call, the people in that voice chat can see your IP address. In casual games, people watching can listen and, if allowed, talk.</p>
 
     <h2>Who Can See Your Data</h2>
     <p>Your username, profile picture, and statistics are public: they appear on the leaderboard, in player search and profiles, and at the table, and anyone can see them, even without an account. So do game records (who played, the scores, and when) on the Records page. Reports, block lists, sessions, and logs are never shown to other players; admins can see reports and the admin log.</p>
@@ -158,7 +158,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>What data do you collect?</summary>
-        <p>Your username, a hashed password, your profile picture, your game statistics and game records, the players you block, and any reports you file. Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection. Chat is not saved, and voice chat goes directly between players and is never recorded (when needed, Cloudflare relays the encrypted audio). We do not collect your real name, email address, location, or device identifiers, and there are no ads or tracking. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
+        <p>Your username, a hashed password, your profile picture, your game statistics and game records, the players you block, and any reports you file. Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection. Chat is not saved, and voice chat goes directly between the people in a game's voice chat and is never recorded (when needed, Cloudflare relays the encrypted audio). We do not collect your real name, email address, location, or device identifiers, and there are no ads or tracking. See our <a href="/privacy">Privacy Policy</a> for full details.</p>
     </details>
 
     <details>

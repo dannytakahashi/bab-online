@@ -35,14 +35,14 @@ class SKOpponentManager {
         applyExtras(model, layout: layout)
     }
 
-    /// Card backs (where the layout has room for every seat's fan) and the dealer marker,
-    /// from the model and the layout alone.
+    /// Card backs (where the layout has room for every seat's fan; the hand's colour,
+    /// `model.back`) and the dealer marker, from the model and the layout alone.
     func applyExtras(_ model: TableRenderModel, layout: TableLayout) {
         let fans = layout.fans(spectating: model.hand == nil)
         for o in model.opponents {
             guard let node = nodes[o.position] else { continue }
             let anchor = layout.seatAnchor(o.rel)
-            node.setFan(count: o.cards, box: fans?[o.rel], anchor: anchor)
+            node.setFan(count: o.cards, colour: model.back, box: fans?[o.rel], anchor: anchor)
             node.setDealer(model.dealer == o.position, chip: layout.dealerChip(o.rel), anchor: anchor)
         }
     }

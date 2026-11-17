@@ -134,6 +134,8 @@ function handleDrawPhaseLeave(socket, io, game, { notify = true } = {}) {
 
     game.leaveRoom(io, socket.id);
     if (gameManager.playerGames.get(socket.id) === game.gameId) gameManager.playerGames.delete(socket.id);
+    // Its voice peers drop the call now (private voicePeerLeft)
+    require('../voice/gameVoice').playerLeftVoice(io, game, socket.id);
     const owner = entrant.username || user?.username;
     if (owner) gameManager.clearActiveGame(owner, game.gameId);
     if (notify) socket.emit('leftGame');
