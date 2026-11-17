@@ -332,6 +332,16 @@ describe('createPersistHarness: restarts', () => {
         gameManager.startedLobbies.set('L0', { gameId: 'g0', extras: new Set(['cat']) });
         botController.sentABoyTricks.set('g0', 1);
         botController.chatRoll = () => 0;
+        // One SDP gate drop: a voice spectator who may not talk offers to send
+        const GameState = require('../../game/GameState');
+        const casual = new GameState('gv');
+        gameVoice.initCasualVoice(casual, { spectatorsCanTalk: false });
+        casual.voiceSpectators.set('spec-sid', { username: 'cat', fromLobby: false, gateSince: null });
+        gameManager.games.set('gv', casual);
+        gameManager.spectatorGames.set('spec-sid', 'gv');
+        const sendSdp = ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'c=IN IP4 0.0.0.0', 'a=sendrecv', 'a=mid:0', ''].join('\r\n');
+        expect(gameVoice.gateSignal(null, 'spec-sid', 'seat-sid', sendSdp)).toBe(false);
+        expect(gameVoice._gateDrops()).toBeGreaterThan(0);
         const voiceReset = jest.spyOn(gameVoice, '_resetForTests');
 
         await harness.restart({ kind: 'kill' });
