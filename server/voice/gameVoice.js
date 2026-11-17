@@ -514,6 +514,17 @@ function retire(game) {
     game?.voiceOfferDir?.clear();
 }
 
+/**
+ * Tests only (testUtils/persistHarness.js PROCESS_RESETS): a fresh
+ * process's module state, the SDP gate drop count at zero. The per-game
+ * voice state (casualVoice, voiceSpectators, voiceOfferDir) lives on the
+ * games, and its timers are game timers: GameManager._resetForTests.
+ */
+function _resetForTests() {
+    if (process.env.JEST_WORKER_ID === undefined) throw new Error('_resetForTests is for Jest only');
+    gateDrops = 0;
+}
+
 module.exports = {
     CAP,
     MAX_VOICE_PEOPLE,
@@ -539,4 +550,5 @@ module.exports = {
     blockedPair,
     retire,
     _gateDrops: () => gateDrops,
+    _resetForTests,
 };

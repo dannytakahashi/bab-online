@@ -216,9 +216,13 @@ class BotController {
             if (game.positions[currentPosition] !== bot.socketId || !this.getBot(game.gameId, bot.socketId)) return;
             // Contain failures: an uncaughtException here would exit the
             // whole server (see utils/shutdown.js), dropping every game
+            // A throw may leave the game half-written: tainted (the persist
+            // codec keeps its last good doc) until a run completes cleanly
             try {
                 actionHandler(io, game, bot);
+                game.markTainted?.(false);
             } catch (err) {
+                game.markTainted?.(true);
                 gameLogger.error('Bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
             }
         }, delay);
@@ -545,7 +549,9 @@ class BotController {
             if (game.epoch !== epoch || game.isTerminal()) return;
             // A bot released meanwhile (/active) says nothing more
             if (!this.getBot(game.gameId, bot.socketId)) return;
-            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
+            // `from` is the bot persona ('🤖 …'), never an account: a check
+            // of chat senders against `users` must skip it (isBotName)
+            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat', { from: bot.username });
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
                 message,
@@ -754,6 +760,23 @@ class BotController {
             clearTimeout(timeoutId);
         }
         this.pendingActions.clear();
+    }
+
+    /**
+     * Tests only: back to a fresh process's state (testUtils/persistHarness.js
+     * restart): every pending bid/play/draw/chat timer cancelled, no bot
+     * registered, the fallback counts and the chat sequence at zero, the
+     * "they sent a boy" cooldowns forgotten (clearAll) and the quip roll
+     * back to its default (a Jest mock installed on it stays, as
+     * GameManager._resetForTests keeps spies). Jest only (JEST_WORKER_ID),
+     * as GameManager._resetForTests.
+     */
+    _resetForTests() {
+        if (process.env.JEST_WORKER_ID === undefined) throw new Error('_resetForTests is for Jest only');
+        this.clearAll();
+        this.fallbacks = { bid: 0, play: 0 };
+        delete this.chatSeq;
+        if (this.chatRoll?._isMockFunction !== true) this.chatRoll = playRoll;
     }
 }
 

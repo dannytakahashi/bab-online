@@ -957,6 +957,12 @@ function cancelTournamentCleanup(tournamentId) {
     }
 }
 
+/** Tests only: drop every pending results-window cleanup (a killed process's timers). */
+function _resetCleanupTimersForTests() {
+    for (const timer of cleanupTimers.values()) clearTimeout(timer);
+    cleanupTimers.clear();
+}
+
 /**
  * Broadcast the outcome of a finished round: either the between-rounds prompt
  * or the final standings. Shared by the normal game-end and abort paths.
@@ -1038,5 +1044,6 @@ module.exports = {
     returnToTournament,
     broadcastRoundOutcome,
     handleAbortedTournamentGame,
-    scheduleTournamentCleanup
+    scheduleTournamentCleanup,
+    _resetCleanupTimersForTests
 };
