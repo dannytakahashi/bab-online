@@ -19,6 +19,24 @@ describe('createGameLog', () => {
     expect(gameLog.container.id).toBe('gameFeed');
   });
 
+  // Its first labels (before any score header render): a spectator's name
+  // no team of theirs, a seat's are unchanged
+  it('first labels: a player\'s "Your Team" / "Opponents"', () => {
+    resetGameState();
+    gameLog = createGameLog();
+    const names = [...gameLog.container.querySelectorAll('.log-score__names')].map((n) => n.textContent);
+    expect(names).toEqual(['Your Team', 'Opponents']);
+  });
+
+  it('first labels: a spectator\'s "Team 1" / "Team 2"', () => {
+    resetGameState();
+    getGameState().isSpectator = true;
+    gameLog = createGameLog();
+    const names = [...gameLog.container.querySelectorAll('.log-score__names')].map((n) => n.textContent);
+    expect(names).toEqual(['Team 1', 'Team 2']);
+    resetGameState();
+  });
+
   it('has score section', () => {
     gameLog = createGameLog();
     const scoreSection = gameLog.container.querySelector('#gameLogScore');

@@ -6,15 +6,33 @@ import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
 
 /**
+ * The score header's names before the teams exist (the draw for deal: no
+ * seats yet). A seat's are "Your Team" / "Opponents"; a spectator has no
+ * team, so theirs are the teams' own neutral names, "Team 1" (seats 1 and
+ * 3, which a spectator's side shows) / "Team 2", as the teams panel names
+ * them (ui/tableHud.js).
+ *
+ * @param {boolean} spectator - the viewer has no seat
+ * @returns {Object} { teamName, oppName }
+ */
+export function placeholderTeamNames(spectator = false) {
+  return spectator
+    ? { teamName: 'Team 1', oppName: 'Team 2' }
+    : { teamName: 'Your Team', oppName: 'Opponents' };
+}
+
+/**
  * Get team names based on position and player data.
  *
  * @param {number} myPosition - Player's position (1-4)
  * @param {Object} playerData - Player data object with positions and usernames
+ * @param {Object} [opts]
+ * @param {boolean} [opts.spectator] - the viewer has no seat (a spectator)
  * @returns {Object} { teamName, oppName }
  */
-export function getTeamNames(myPosition, playerData) {
+export function getTeamNames(myPosition, playerData, { spectator = false } = {}) {
   if (!playerData || !playerData.position || !playerData.username) {
-    return { teamName: 'Your Team', oppName: 'Opponents' };
+    return placeholderTeamNames(spectator);
   }
 
   const getUsername = (pos) => {
@@ -98,7 +116,7 @@ export function formatHandCompleteMessages(options) {
 export function formatGameEndMessages(options) {
   const { myPosition, playerData, teamScore, oppScore, isSpectator } = options;
 
-  const { teamName, oppName } = getTeamNames(myPosition, playerData);
+  const { teamName, oppName } = getTeamNames(myPosition, playerData, { spectator: !!isSpectator });
 
   // Determine winner
   let resultMsg;
