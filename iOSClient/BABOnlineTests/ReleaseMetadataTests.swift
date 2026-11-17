@@ -15,7 +15,8 @@ final class ReleaseMetadataTests: XCTestCase {
     /// games played per period, and 1.2.1 was released; build 10 is 1.2.2: web parity, i.e.
     /// profiles with photo upload, the admin panel, lobby, tournament and table parity with
     /// opponent card backs, table sounds and error reports; build 10 went to TestFlight, so
-    /// build 11 adds the New Game label on phones and went to review; build 12 is 1.2.3:
+    /// build 11 adds the New Game label on phones and went to review, then was pulled from it
+    /// (owner 2026-11-16) for build 12, which replaces it as 1.2.2:
     /// family lobbies of up to 8 and spectator voice, the casualSpectators cap).
     static let minimumBuild = 12
 
@@ -30,13 +31,13 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (3: 1.0.0 (1) and
-    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9), 1.2.2 (10) and (11) and 1.2.3 (12) are current, pinned
+    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9), 1.2.2 (10), (11) and (12) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6) and 1.2.1 (9) were released; 1.2.2 (11) went to review; 1.2.3 ships as build 12 or later and builds never go back")
-        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.3", "1.2.2 (11) went to review (its train is closed): the next upload is 1.2.3")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6) and 1.2.1 (9) were released; 1.2.2 (11) was pulled from review; 1.2.2 ships as build 12 or later and builds never go back")
+        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.2", "1.2.2 (11) was pulled from review before release, so build 12 is still 1.2.2")
     }
 
     /// README "Releasing (App Store)", which the owner follows to archive and upload, names

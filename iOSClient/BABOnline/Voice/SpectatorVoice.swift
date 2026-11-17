@@ -2,7 +2,7 @@ import Foundation
 
 /// s2c `voiceSettings` (private, unsequenced; server/voice/gameVoice.js `settingsFor`): what
 /// a casual game's voice room says to this socket. Only a socket that sent the
-/// casualSpectators cap (1.2.3, build 12) gets it, at the start, on spectating, on each
+/// casualSpectators cap (1.2.2, build 12) gets it, at the start, on spectating, on each
 /// applied "Spectators can talk" change and when a seat owner drops, returns or reclaims.
 struct VoiceSettings: Equatable {
     enum Role: String, Equatable {

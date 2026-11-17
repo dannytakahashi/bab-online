@@ -57,7 +57,7 @@ private struct GameLobbyScreen: View {
     /// The table filled without me: Ready would be refused, I will watch the game.
     private var watchesOnly: Bool { !isReady && lobbyState.tableFullWithout(authState.username) }
 
-    /// Family lobbies (1.2.3): the host's "Spectators can talk" switch, a read-only line for
+    /// Family lobbies (1.2.2 (12)): the host's "Spectators can talk" switch, a read-only line for
     /// everyone else, and what it means for those who do not get a seat.
     private var voiceSection: some View {
         let isHost = lobbyState.isHost(authState.username)
@@ -96,7 +96,7 @@ private struct GameLobbyScreen: View {
         .accessibilityIdentifier("lobby.voice")
     }
 
-    /// Play again (1.2.3): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
+    /// Play again (1.2.2 (12)): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
     @State private var releasing: Set<String> = []
 
     /// The host (or anyone present while the host is held) may give up a returning row or an

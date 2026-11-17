@@ -26,7 +26,7 @@ final class LobbyState: ObservableObject {
     /// a restore on another socket (`rejoinSocketId` stays the abandoned one's).
     var abandonedRejoinLobbyId: String?
 
-    // Family lobbies (1.2.3, build 12): the additive keys of every lobby event, sent only to
+    // Family lobbies (1.2.2, build 12): the additive keys of every lobby event, sent only to
     // a socket with the casualSpectators cap (GameManager.lobbyWire). `players` then holds
     // `members` (everyone, up to 8) instead of the first 4.
     /// How many the lobby may hold: 8 while every human in it is capable, else 4.
@@ -38,7 +38,7 @@ final class LobbyState: ObservableObject {
     /// A server that sends the family keys (`settings`): the lobby shows its Voice section.
     @Published var hasSettings = false
 
-    // Play again (1.2.3, build 12; server/socket/playAgain.js; `LobbyReturn`)
+    // Play again (1.2.2, build 12; server/socket/playAgain.js; `LobbyReturn`)
     /// The last game's older-app players whose place is saved without a row (`expected`, sent
     /// only while one stands: an event with `members` and no `expected` means none).
     @Published var expected: [String] = []
@@ -104,7 +104,7 @@ final class LobbyState: ObservableObject {
     /// seat is; lobbyPlayerJoined names the player who came back (`newPlayer`).
     func applyPlayers(from dict: [String: Any], namesHeldSeats: Bool) {
         applyFamilyKeys(from: dict)
-        // `members` (1.2.3): everyone, each held seat marked on its own entry; `players`
+        // `members` (1.2.2 (12)): everyone, each held seat marked on its own entry; `players`
         // stops at 4 and names the held seats in `reconnecting`
         if let members = dict["members"] as? [[String: Any]] {
             let saved = dict["expected"] as? [String] ?? []

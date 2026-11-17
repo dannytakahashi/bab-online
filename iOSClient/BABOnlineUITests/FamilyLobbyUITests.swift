@@ -1,6 +1,6 @@
 import XCTest
 
-/// Family lobbies of up to 8 and spectator voice on screen (1.2.3, build 12). Fixtures:
+/// Family lobbies of up to 8 and spectator voice on screen (1.2.2, build 12). Fixtures:
 /// `game-lobby-family` (7 members, me the host; `-uiHost kim`: someone else),
 /// `game-lobby-family-full` (the table filled without me), `main-room-family` (the n/8 cards),
 /// `spectator-mid-hand -uiSpectatorVoice listen|full`, `game-lobby -uiVoicePanel YES

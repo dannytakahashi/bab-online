@@ -148,7 +148,7 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
     expect(socket.emitted('joinMainRoom')).toEqual([]);
     // the server learns the score screen is left for the lobby (as iOS
-    // 1.2.3 tells it), first: until then it counts this socket as still on
+    // 1.2.2 (12) tells it), first: until then it counts this socket as still on
     // its results
     expect(socket.emitted('lobbyReturnSeen')).toEqual([{}]);
     expect(socket.emittedNames().filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby')).toEqual(['lobbyReturnSeen', 'joinLobby']);

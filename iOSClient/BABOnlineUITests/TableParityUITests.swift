@@ -3,7 +3,7 @@ import XCTest
 /// iOS 1.2.2 table parity with the web, in fixture mode: the idle-seat offer's
 /// wording, a tied game, a refused action's reason, the bid-total chips, an
 /// unknown chat command's hint, the dealer marker and the opponent card backs
-/// (iOS 1.2.3: red on odd hands, blue on even ones, as the web's).
+/// (iOS 1.2.2 (12): red on odd hands, blue on even ones, as the web's).
 final class TableParityUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -266,7 +266,7 @@ final class TableParityUITests: XCTestCase {
         return extras.split(separator: " ").first(where: { $0.hasPrefix("back=") }).map { String($0.dropFirst(5)) }
     }
 
-    /// iOS 1.2.3: the card backs alternate red / blue by hand as the web's (hand 1 red, hand 2
+    /// iOS 1.2.2 (12): the card backs alternate red / blue by hand as the web's (hand 1 red, hand 2
     /// blue, ...): the fixture's hand 1, then the same table as hand 2 and hand 3 (`-uiHandNo`),
     /// seated and spectating.
     func testTheCardBacksAreTheHandsColour() throws {
@@ -305,7 +305,7 @@ final class TableParityUITests: XCTestCase {
         app.terminate()
     }
 
-    // MARK: (h) the deal's fly-in (iOS 1.2.3)
+    // MARK: (h) the deal's fly-in (iOS 1.2.2 (12))
 
     /// "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1" -> ["deals": "1", "cards": "52", ...]
     private func dealProbe(_ app: XCUIApplication) -> [String: String] {

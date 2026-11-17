@@ -2,7 +2,7 @@ import XCTest
 import SpriteKit
 @testable import BAB_Online
 
-/// iOS 1.2.3: the card back alternates red and blue by hand, as the web's (owner 2026-11-13;
+/// iOS 1.2.2 (12): the card back alternates red and blue by hand, as the web's (owner 2026-11-13;
 /// cardFaces.js backFrameForHand, tableBack.js tableBackFrame, client/src/table/backColour*.test.js):
 /// the draw for deal and hand 1 red, hand 2 blue, hand 3 red, ...; every back the table shows
 /// (the opponents' fans) is the current hand's colour, and the switch comes with the next deal.

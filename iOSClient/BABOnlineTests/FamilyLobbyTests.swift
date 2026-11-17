@@ -2,7 +2,7 @@ import XCTest
 @preconcurrency import WebRTC
 @testable import BAB_Online
 
-/// Family lobbies of up to 8 and spectator voice (1.2.3, build 12; the server's PR A:
+/// Family lobbies of up to 8 and spectator voice (1.2.2, build 12; the server's PR A:
 /// GameManager.lobbyWire / getAllLobbies({wide}), server/voice/gameVoice.js). Every payload
 /// here is shaped as the server sends it to a socket with the casualSpectators cap, and
 /// each additive key is also left out (an older server: today's behavior).

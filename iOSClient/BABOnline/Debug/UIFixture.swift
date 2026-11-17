@@ -60,7 +60,7 @@ enum UIFixture {
 
     /// `-uiSpectatorVoice listen|full` on a spectator table (`draw-spectator`,
     /// `spectator-mid-hand`): the pill's voice button listen-only ("Tap to talk"; a long press
-    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.3).
+    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.2 (12)).
     static let spectatorVoice: String? = isActive ? UserDefaults.standard.string(forKey: "uiSpectatorVoice") : nil
 
     /// `-uiVoiceSwitch YES` with `-uiVoicePanel YES`: the panel shows the in-game "Spectators
@@ -218,7 +218,7 @@ enum UIFixture {
         }
     }
 
-    // MARK: - Play again (1.2.3, PlayAgainUITests)
+    // MARK: - Play again (1.2.2 (12), PlayAgainUITests)
 
     /// `-uiLobbyReturn YES` on `game-end` / `game-end-spectator`: 0.5 s after the gameEnd the
     /// server's lobbyReturn arrives (`LobbyReturn.receive`): the lobby "Family night" with me
@@ -590,7 +590,7 @@ enum UIFixture {
             if UserDefaults.standard.bool(forKey: "uiLobbyRejoin") { lobby.rejoiningLobbyId = "l1" }
             appState.screen = .gameLobby
         case "game-lobby-family", "game-lobby-family-full":
-            // a family lobby (1.2.3) as the server sends it to a capable member
+            // a family lobby (1.2.2 (12)) as the server sends it to a capable member
             // (GameManager.lobbyWire: players = the first 4, members = everyone): 6 humans and
             // a bot that sits out (no human seat needs it). `-family`: kim and hal readied
             // (Playing); `-family-full`: kim, hal, jon and ora hold the table, so I (ivy) and

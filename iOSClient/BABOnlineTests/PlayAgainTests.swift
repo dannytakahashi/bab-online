@@ -3,7 +3,7 @@ import SocketIO
 @preconcurrency import WebRTC
 @testable import BAB_Online
 
-/// Play again (owner 2026-11-16; iOS 1.2.3, build 12; server/socket/playAgain.js): at the end
+/// Play again (owner 2026-11-16; iOS 1.2.2, build 12; server/socket/playAgain.js): at the end
 /// of a casual game a lobby started, the server moves this socket back into that lobby and
 /// sends `lobbyReturn` right after `gameEnd`. The owner's rule: the score screen stays exactly
 /// as it is until the person taps the existing Return to Lobby, which then enters that lobby
@@ -286,7 +286,7 @@ final class PlayAgainTests: XCTestCase {
         app.screen = .gameLobby
         LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
         XCTAssertEqual(voice.bufferedCount, 0, "shut down: the game's signals never reach that lobby")
-        // no LobbyState in the environment (LobbyStateLink nil): shut down as before 1.2.3
+        // no LobbyState in the environment (LobbyStateLink nil): shut down as before 1.2.2 (12)
         voice.connectToPeer("sid-kim", username: "kim")
         lobby.carriesVoice = true
         LobbyReturn.tableGone(lobbyState: nil, appState: app, voice: voice)

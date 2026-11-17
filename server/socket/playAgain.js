@@ -503,7 +503,7 @@ function announceSettled(io, lobby, socketId) {
 }
 
 /**
- * c2s lobbyReturnSeen (no payload; iOS 1.2.3 build 12): the person left the
+ * c2s lobbyReturnSeen (no payload; iOS 1.2.2 (12) build 12): the person left the
  * last game's results for the lobby lobbyReturn put them in (Return to
  * Lobby; also the client's own entry when that game's gameEnd never came,
  * or a lobbyReturn that arrived off the table). The results stay up until

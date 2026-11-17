@@ -1,6 +1,6 @@
 import XCTest
 
-/// Play again on screen (1.2.3, build 12; owner 2026-11-16). Fixture `game-end` /
+/// Play again on screen (1.2.2, build 12; owner 2026-11-16). Fixture `game-end` /
 /// `game-end-spectator` with `-uiLobbyReturn YES`: 0.5 s after the gameEnd the server's
 /// lobbyReturn arrives ("Family night": me the host, ivy's place held, kim, a bot, grandpa expected).
 /// The score screen must stay exactly as it is until Return to Lobby (label unchanged), which

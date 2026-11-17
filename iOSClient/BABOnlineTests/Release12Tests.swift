@@ -275,7 +275,7 @@ final class ClientHelloTests: XCTestCase {
         XCTAssertEqual(p["client"] as? String, "ios")
         XCTAssertEqual(p["version"] as? String, "1.2.0")
         XCTAssertEqual(p["build"] as? String, "3")
-        // 1.2.3 (12): family lobbies of up to 8 and spectator voice, and play again (the
+        // 1.2.2 (12): family lobbies of up to 8 and spectator voice, and play again (the
         // automatic return to the lobby: lobbyReturn) (contract/README.md "Client capabilities")
         XCTAssertEqual(p["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain"])
         // contract/src/c2s.js clientHello: client ^[a-z0-9-]+$ (1-16), version 1-32, build <= 64, caps <= 16
