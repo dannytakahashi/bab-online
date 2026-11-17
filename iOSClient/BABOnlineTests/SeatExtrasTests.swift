@@ -189,7 +189,8 @@ final class SeatExtrasTests: XCTestCase {
 
     func testFansAreClearOfEverythingAtTheListedSizes() {
         for (name, size, chrome, _, _) in Self.devices {
-            for bar in [CGFloat(0), 56] {
+            // no banner, a 56 pt banner, and the row's own bar (the measured spectator's pill)
+            for bar in Set([CGFloat(0), 56, chrome.bottomBar]).sorted() {
                 var c = chrome
                 c.bottomBar = bar
                 let L = TableLayout(size: size, chrome: c)
