@@ -1,5 +1,5 @@
 /**
- * "they sent a boy" (BotController.handleCardPlayedChat, owner request
+ * "he sends a boy" (BotController.handleCardPlayedChat, owner request
  * 2026-11-16): a 2 or 3 of trump (not a joker), the first trump of a trick
  * whose lead is not trump, makes one bot on the OTHER team sometimes say
  * so: 35% per ruff, at most once every 3 tricks per game. The roll is
@@ -23,7 +23,7 @@ const { makeIo, makeSocket, events, lazySeat } = require('../../../testUtils/gam
 const { gameLogger, socketLogger, logger } = require('../../../utils/logger');
 
 const C = (rank, suit) => ({ rank, suit });
-const LINE = 'they sent a boy';
+const LINE = 'he sends a boy';
 const TRUMP = C('5', 'spades');
 let seq = 0;
 let realRoll;

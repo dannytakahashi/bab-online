@@ -618,7 +618,7 @@ const PROCESS_RESETS = [
     // their timers and pauses cancelled, every map emptied
     ['gameManager', (m) => m._resetForTests()],
     // Every bot timer (bid / play / draw / chat), registrations, counters,
-    // the "they sent a boy" cooldowns and quip roll
+    // the "he sends a boy" cooldowns and quip roll
     ['botController', (m) => m._resetForTests()],
     // The spectator-voice SDP gate drop count (the per-game voice state
     // dies with the games above; play-again holds and reservations are

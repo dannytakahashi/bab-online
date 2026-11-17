@@ -30,7 +30,7 @@
  * without the lobby chat), both by username; null for any other game. Not
  * saved: the voice spectators and their relayed SDP directions (socket
  * keyed: spectators re-spectate and are admitted again), and process state
- * outside the game: BotController's "they sent a boy" cooldown (a restored
+ * outside the game: BotController's "he sends a boy" cooldown (a restored
  * table may quip one cooldown sooner), GameManager.startedLobbies (the
  * extras' reload redirect into a just-started game) and every lobby,
  * play-again holds and reservations included (they live on lobbies).
