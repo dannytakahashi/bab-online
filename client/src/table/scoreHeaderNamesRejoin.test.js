@@ -4,6 +4,15 @@
  * A rejoin's snapshot (rejoinSuccess: events-humans-s13 seat2-rejoin,
  * ios_cal at seat 2) builds the game log with the players' names at once,
  * never "Your Team" / "Opponents", and they stay names to gameEnd.
+ *
+ * A check that rejoin still names the teams, not a regression guard for
+ * the placeholder flash: it passes on the pre-change client too, because
+ * renderTable creates the log and draws the score header in the same
+ * synchronous render and the snapshot always carries all four seats (the
+ * server refuses rejoinGame until every seat is taken: reconnectHandlers
+ * rejoinGame, `game.entrants !== null`), so a rejoin never had a visible
+ * placeholder. The guards are scoreHeaderNames.test.js (a seat's createUI)
+ * and spectatorScoreHeader*.test.js (the draw's positionUpdate).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 

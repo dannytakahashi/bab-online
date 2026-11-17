@@ -35,14 +35,82 @@ final class ScoreBarNamesTests: XCTestCase {
     }
 
     func testVoiceOverSaysTheSideThenTheNames() {
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("ann/cat", side: .mine, spectator: false), "Your team, ann and cat")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("bob/dan", side: .theirs, spectator: false), "Opponents, bob and dan")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("", side: .mine, spectator: false), "Your team")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("", side: .theirs, spectator: false), "Opponents")
-        // a name with a slash in it keeps it (only the first "/" splits the pair)
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("a/b/c", side: .mine, spectator: false), "Your team, a and b/c")
+        typealias N = ScoreBarView.SideNames
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "ann", second: "cat"), side: .mine, spectator: false), "Your team, ann and cat")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "bob", second: "dan"), side: .theirs, spectator: false), "Opponents, bob and dan")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(nil, side: .mine, spectator: false), "Your team")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(nil, side: .theirs, spectator: false), "Opponents")
         // a spectator's initials as shown
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel("a & c", side: .mine, spectator: true), "a & c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "a", second: "c", separator: " & "), side: .mine, spectator: true), "a & c")
+    }
+
+    /// A "/" inside a username (an account older than the sign-up rules may have one) is read
+    /// as part of that name, in either seat: the label comes from the two names, never from
+    /// splitting the shown "a/b/c" (which read the first player's "a/b" as "a and b/c").
+    func testVoiceOverKeepsASlashInsideEitherName() {
+        let first = ScoreBarView.seatTeams(position: 1, usernames: [1: "a/b", 2: "x", 3: "c", 4: "y"])
+        XCTAssertEqual(first.team?.joined, "a/b/c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(first.team, side: .mine, spectator: false), "Your team, a/b and c")
+        let second = ScoreBarView.seatTeams(position: 1, usernames: [1: "a", 2: "x", 3: "b/c", 4: "y"])
+        XCTAssertEqual(second.team?.joined, "a/b/c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(second.team, side: .mine, spectator: false), "Your team, a and b/c")
+        let opp = ScoreBarView.seatTeams(position: 1, usernames: [1: "a", 2: "x/1", 3: "c", 4: "y"])
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(opp.opp, side: .theirs, spectator: false), "Opponents, x/1 and y")
+    }
+
+    /// The fitting with a fake font (one point a character): the pair whole when it fits at up
+    /// to 0.75, else each name cut at its end so both show with the "/" between them.
+    func testFittedNamesKeepTheSeparatorAndBothNames() {
+        typealias N = ScoreBarView.SideNames
+        let chars: (String) -> CGFloat = { CGFloat($0.count) }
+        // fits at full size, or shrunk to 0.75 (11 characters in 10 pt: 11 <= 10 / 0.75 - 2)
+        XCTAssertEqual(ScoreBarView.fittedNames(N(first: "ann", second: "cat"), width: 20, measure: chars), "ann/cat")
+        XCTAssertEqual(ScoreBarView.fittedNames(N(first: "annabel", second: "cat"), width: 10, measure: chars), "annabel/cat")
+        // two long names: half each, both cut at the end, the "/" kept
+        let two = ScoreBarView.fittedNames(N(first: "Bartholomew_Longname", second: "Christopherson_Ivory"), width: 18, measure: chars)
+        XCTAssertEqual(two, "Bartholom…/Christoph…")
+        // a short name keeps all of it; the long one gets the rest
+        let one = ScoreBarView.fittedNames(N(first: "ann", second: "Christopherson_Ivory"), width: 18, measure: chars)
+        XCTAssertEqual(one, "ann/Christopherson_Iv…")
+        XCTAssertEqual(ScoreBarView.fittedNames(N(first: "Christopherson_Ivory", second: "ann"), width: 18, measure: chars), "Christopherson_Iv…/ann")
+        // never cut to nothing, and no space before the "…" (a bot's "🤖 Maximilian")
+        XCTAssertEqual(ScoreBarView.fittedNames(N(first: "Bartholomew", second: "Christopher"), width: 3, measure: chars), "B…/C…")
+        XCTAssertEqual(ScoreBarView.cut("🤖 Maximilian", to: 3, measure: chars), "🤖…")
+    }
+
+    /// The real caption2 at the side's width on a 320 / 375 pt phone, the Duo and an iPad, at
+    /// every type size the bar allows: two 20-character names (and bots') show the start of
+    /// both names with the "/" between them, inside the line at 0.75. (Middle truncation of
+    /// the joined text showed "Bartholomew_…pherson_Ivory": the "/" went first.)
+    func testLongNamesShowBothStartsAndTheSlashOnAPhone() {
+        typealias N = ScoreBarView.SideNames
+        let pairs = [
+            N(first: "Bartholomew_Longname", second: "Christopherson_Ivory"),
+            N(first: "🤖 Maximilian", second: "🤖 Christopher"),
+            N(first: "WWWWWWWWWWWWWWWWWWWW", second: "MWMWMWMWMWMWMWMWMWMW"),
+            N(first: "ann", second: "Alexandria_Featherly"),
+        ]
+        for screen in [CGFloat(320), 375, 466, 744] {
+            // a side's column: the bar less its padding (12 a side) and the 100 pt centre, halved
+            let width = (screen - 24 - 100) / 2
+            for type in [DynamicTypeSize.xSmall, .large, .xLarge] {
+                let measure = ScoreBarView.captionWidth(type)
+                for pair in pairs {
+                    let shown = ScoreBarView.fittedNames(pair, width: width, measure: measure)
+                    let parts = shown.components(separatedBy: "/")
+                    XCTAssertEqual(parts.count, 2, "\(screen) \(type): \(shown)")
+                    XCTAssertTrue(pair.first.hasPrefix(parts[0].replacingOccurrences(of: "…", with: "")), "\(screen) \(type): \(shown)")
+                    XCTAssertTrue(pair.second.hasPrefix(parts[1].replacingOccurrences(of: "…", with: "")), "\(screen) \(type): \(shown)")
+                    XCTAssertGreaterThanOrEqual(parts[0].count, 2, "\(screen) \(type): \(shown)")
+                    XCTAssertGreaterThanOrEqual(parts[1].count, 2, "\(screen) \(type): \(shown)")
+                    XCTAssertLessThanOrEqual(measure(shown) * ScoreBarView.namesMinScale, width, "\(screen) \(type): \(shown)")
+                }
+            }
+        }
+        // the reviewer's 375 pt case, at the default size: both names' starts
+        let shown = ScoreBarView.fittedNames(pairs[0], width: (375 - 124) / 2, measure: ScoreBarView.captionWidth(.large))
+        XCTAssertTrue(shown.hasPrefix("Bartholomew"), shown)
+        XCTAssertTrue(shown.contains("/Christ"), shown)
     }
 
     /// The store's seats give the bar's names (trick-mid-lead3: ivy at seat 1, hal her partner).
