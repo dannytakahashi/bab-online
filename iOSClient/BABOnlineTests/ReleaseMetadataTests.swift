@@ -18,7 +18,7 @@ final class ReleaseMetadataTests: XCTestCase {
     /// build 11 adds the New Game label on phones and went to review, then was pulled from it
     /// (owner 2026-11-16) for build 12, which replaced it as 1.2.2:
     /// family lobbies of up to 8 and spectator voice, the casualSpectators cap; build 13
-    /// is still 1.2.2, to replace build 12 if it is still waiting for review (owner 2026-11-17): the card-back fans on
+    /// is still 1.2.2 and replaced build 12 in review (owner 2026-11-17): the card-back fans on
     /// 390 pt phones, the refreshed boot splash and the sign-in / register in the web's style).
     static let minimumBuild = 13
 
