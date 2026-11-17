@@ -8,7 +8,7 @@ const { gameLogger } = require('../../utils/logger');
 const { safeTimeout } = require('../../utils/safeTimer');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
-const { safeBid: fallbackBid } = require('../rules');
+const { safeBid: fallbackBid, HAND_PROGRESSION, nextHandSize } = require('../rules');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -24,6 +24,21 @@ const SENT_A_BOY = Object.freeze({
     chance: 0.35,
     cooldownTricks: 3,
 });
+
+/**
+ * "alls we gotta do is not be stupid" (owner request, 2026-11-16): the final
+ * hand of the game is dealt with one team ahead by `minLead` points or more,
+ * and a bot on that team says it. `chance` per game, at most once per game
+ * (an all-zero redeal of the final hand does not roll again).
+ */
+const NOT_BE_STUPID = Object.freeze({
+    message: 'alls we gotta do is not be stupid',
+    minLead: 50, // owner 2026-11-16 ("maybe 50pts?")
+    chance: 0.6,
+});
+
+/** The last deal of the game: the end of HAND_PROGRESSION (nothing is dealt after it). */
+const isFinalHand = (handSize) => HAND_PROGRESSION.includes(handSize) && nextHandSize(handSize) === 0;
 
 const isTrumpCard = (card, trump) => !!card && (card.suit === 'joker' || card.suit === trump.suit);
 
@@ -70,6 +85,10 @@ class BotController {
         // gameId -> tricks completed since a bot last said "they sent a boy"
         // (absent: never, so the next one may)
         this.sentABoyTricks = new Map();
+
+        // gameIds whose final deal was already considered for "alls we gotta
+        // do is not be stupid" (said or not: once per game)
+        this.notBeStupidGames = new Set();
 
         // Roll for the table quips: (game, salt) -> [0, 1); tests replace it
         this.chatRoll = playRoll;
@@ -619,6 +638,41 @@ class BotController {
     }
 
     /**
+     * Called by dealHand after every deal (each hand and the all-zero
+     * redeal), once the hands are out. On the game's final hand, when one
+     * team leads by NOT_BE_STUPID.minLead or more, one bot of the leading
+     * team that still holds its seat sometimes says "alls we gotta do is not
+     * be stupid": NOT_BE_STUPID.chance, decided once per game (a redeal of
+     * the final hand does not roll again). Never throws: the deal still has
+     * to open the bidding after it.
+     * @param {Object} io - Socket.IO server
+     * @param {Object} game - GameState
+     */
+    handleHandDealtChat(io, game) {
+        try {
+            this.notBeStupidChat(io, game);
+        } catch (err) {
+            gameLogger.error('Bot table chat failed', { gameId: game.gameId, error: err.message, stack: err.stack });
+        }
+    }
+
+    notBeStupidChat(io, game) {
+        if (!isFinalHand(game.currentHand) || this.notBeStupidGames.has(game.gameId)) return;
+        this.notBeStupidGames.add(game.gameId);
+        const lead = game.score.team1 - game.score.team2;
+        if (Math.abs(lead) < NOT_BE_STUPID.minLead) return;
+        // team1 sits at the odd seats
+        const parity = lead > 0 ? 1 : 0;
+        const leaders = this.getGameBots(game.gameId).filter((b) =>
+            b.position && b.position % 2 === parity && game.positions[b.position] === b.socketId);
+        if (leaders.length === 0) return;
+        if (this.chatRoll(game, 'notBeStupid') >= NOT_BE_STUPID.chance) return;
+        const speaker = leaders[Math.min(leaders.length - 1, Math.floor(this.chatRoll(game, 'notBeStupid:who') * leaders.length))];
+        this.sendBotChat(io, game, speaker, NOT_BE_STUPID.message,
+            pacing.fromRange(pacing(game).BOT_CHAT, this.chatRoll(game, 'notBeStupid:delay')));
+    }
+
+    /**
      * Called after hand scoring is calculated.
      * Mike reacts when his team gets set. Zach reacts when set but he made his bid.
      * Danny reacts when opponents sandbag (win 2+ tricks over their bid).
@@ -740,6 +794,7 @@ class BotController {
             }
         }
         this.sentABoyTricks.delete(gameId);
+        this.notBeStupidGames.delete(gameId);
         const gameBots = this.gamesBots.get(gameId);
         if (gameBots) {
             this.gamesBots.delete(gameId);
@@ -756,6 +811,7 @@ class BotController {
         }
         this.gamesBots.clear();
         this.sentABoyTricks.clear();
+        this.notBeStupidGames.clear();
         for (const [, timeoutId] of this.pendingActions) {
             clearTimeout(timeoutId);
         }
