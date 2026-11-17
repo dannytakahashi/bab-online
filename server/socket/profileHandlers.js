@@ -557,32 +557,44 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
  * nothing and leaves the caches alone. Retry- and replay-safe (see
  * STATS_GAMES_KEPT above); never rejects.
  * @param {Object} game - The completed game object
+ * @param {Object} [opts]
+ * @param {Object|null} [opts.record] - the gameRecords document already
+ *   built for this end (buildGameEndRecord(game)), inserted as is; null:
+ *   nothing to record. Omitted: built here. Deploy survival builds it once
+ *   and hands the same object to the ENDED tombstone
+ *   (gameCodec.serializeEnded), so the two can never differ (completedAt,
+ *   a deleted owner's name or pending entry).
  * @returns {Promise<void>}
  */
-function recordGameStats(game) {
+function recordGameStats(game, { record } = {}) {
     const key = game?.gameId;
     if (key && statsWrites.has(key)) return statsWrites.get(key);
-    const run = writeGameStats(game)
+    const run = writeGameStats(game, record)
         .catch(error => { authLogger.error('End-of-game writes failed', { gameId: key, error: error.message }); })
         .finally(() => { if (key) statsWrites.delete(key); });
     if (key) statsWrites.set(key, run);
     return trackInFlight(run);
 }
 
-async function writeGameStats(game) {
-    const usersCollection = getUsersCollection();
-    const gameRecordsCollection = getGameRecordsCollection();
-
+/**
+ * The gameRecords document the end of `game` inserts (writeGameStats, step
+ * 1): buildGameRecord plus `statsDeltas` {bucket, byPosition} (each human
+ * owner's counters, seatStatsDelta) and `statsPending` (who still gets
+ * them; left out when nobody does). One builder, so the live end of a game
+ * and a persisted ENDED tombstone (deploy survival) insert the same
+ * record. No I/O: it reads the game, gameManager.deletedUsernames and the
+ * clock (completedAt).
+ * @param {Object} game - a finished game
+ * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
+ */
+function buildGameEndRecord(game) {
     // Every seat with a human owner, as the original human player (resigned
     // and lazy positions included)
     const players = [1, 2, 3, 4]
         .map(position => ({ position, player: game.getOriginalPlayer(position) }))
         .filter(({ position, player }) => player && player.username && game.seat(position)?.ownerUsername);
 
-    if (players.length === 0) {
-        authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
-        return;
-    }
+    if (players.length === 0) return null;
 
     // A bot played a seat for good (native bot or resign bot): the bot-game
     // bucket. Lazy seats still count as human games for their owner.
@@ -596,15 +608,29 @@ async function writeGameStats(game) {
     const statsPending = players
         .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
         .map(({ position, player }) => ({ position, username: player.username }));
-    let record = { gameId: game.gameId, statsDeltas: { bucket, byPosition }, statsPending };
+
+    const doc = buildGameRecord(game, { withBots });
+    doc.statsDeltas = { bucket, byPosition };
+    if (statsPending.length > 0) doc.statsPending = statsPending;
+    return doc;
+}
+
+async function writeGameStats(game, prebuilt) {
+    const usersCollection = getUsersCollection();
+    const gameRecordsCollection = getGameRecordsCollection();
+
+    const doc = prebuilt === undefined ? buildGameEndRecord(game) : prebuilt;
+    if (!doc) {
+        authLogger.debug('Skipping stat recording — no human players', { gameId: game.gameId });
+        return;
+    }
+    const withBots = doc.withBots === true;
+    let record = { gameId: game.gameId, statsDeltas: doc.statsDeltas, statsPending: doc.statsPending || [] };
     // Not a record read back: never applied before
     let fresh = true;
 
     try {
         if (gameRecordsCollection) {
-            const doc = buildGameRecord(game, { withBots });
-            doc.statsDeltas = record.statsDeltas;
-            if (statsPending.length > 0) doc.statsPending = statsPending;
             try {
                 record = await insertGameRecord(gameRecordsCollection, doc);
                 fresh = record === doc;
@@ -1246,6 +1272,15 @@ function _setLeaderboardMinGamesForTests(n = LEADERBOARD_MIN_GAMES) {
     invalidateLeaderboard();
 }
 
+/**
+ * Tests only: forget this process's end-of-game chains (a killed process:
+ * testUtils/persistHarness.js), so a later recordGameStats for the same
+ * game starts its own chain instead of joining a dead one.
+ */
+function _resetStatsWritesForTests() {
+    statsWrites.clear();
+}
+
 function _resetCachesForTests() {
     invalidateLeaderboard();
     invalidateRecords();
@@ -1264,8 +1299,11 @@ module.exports = {
     updateProfilePic,
     uploadProfilePic,
     recordGameStats,
+    buildGameRecord,
+    buildGameEndRecord,
     resumePendingGameStats,
     _setStatsRetryDelaysForTests,
+    _resetStatsWritesForTests,
     STATS_GAMES_KEPT,
     STATS_GUARD_SKEW_MS,
     getUserProfilePic,

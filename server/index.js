@@ -11,6 +11,17 @@
 
 require('dotenv').config();
 
+// Deploy measurement (docs/claude/server-infra.md, Deploys): one id per
+// process and the time it started, before anything else loads. Paired with
+// 'Instance listening', 'Instance DB ready', 'Ready: first 200' (/ready),
+// 'First socket connection' and the old instance's SIGTERM line, it gives
+// the gap between a new deployment serving and the old one being stopped.
+// Only the first 8 characters of RAILWAY_DEPLOYMENT_ID (enough to tell
+// deployments apart in the log)
+const bootId = require('crypto').randomUUID();
+const bootLog = { deployment: (process.env.RAILWAY_DEPLOYMENT_ID || 'local').slice(0, 8), bootId };
+require('./utils/logger').logger.info('Instance boot', { ...bootLog, at: new Date().toISOString() });
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -95,6 +106,7 @@ if (shouldEnable()) {
 function start() {
     // Hardcode port 3000 - Railway requires this (using PORT env var causes 502)
     server.listen(3000, () => {
+        logger.info('Instance listening', { ...bootLog, at: new Date().toISOString() });
         logger.info('Server running on port 3000');
         logger.info(`Environment: ${config.env}`);
         console.log('Server started successfully on port 3000');
@@ -113,6 +125,7 @@ function start() {
     connectDB()
         .then(() => {
             logger.info('Database connected');
+            logger.info('Instance DB ready', { ...bootLog, at: new Date().toISOString() });
             // End-of-game stats a previous process left half-applied
             return require('./socket/profileHandlers').resumePendingGameStats();
         })

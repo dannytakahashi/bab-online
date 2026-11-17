@@ -5,7 +5,13 @@
 const express = require('express');
 const { getDB } = require('../database');
 const { healthHandler } = require('./health');
+const { logger } = require('../utils/logger');
 const router = express.Router();
+
+// Deploy measurement (docs/claude/server-infra.md, Deploys): the first 200
+// from /ready is when Railway's healthcheck can pass and switch traffic to
+// this instance; logged once per process
+let readyLogged = false;
 
 // The main page (`/`, the built client/dist/index.html) is served by
 // server/staticAssets.js, mounted before these routes
@@ -248,6 +254,10 @@ router.get('/ready', async (req, res) => {
 
         await db.admin().ping();
 
+        if (!readyLogged) {
+            readyLogged = true;
+            logger.info('Ready: first 200', { at: new Date().toISOString() });
+        }
         res.json({
             status: 'ready',
             checks: {

@@ -2213,6 +2213,43 @@ class GameManager {
         }
         await Promise.all(usernames.map(u => this.clearActiveTournament(u, tournamentId)));
     }
+
+    /**
+     * Tests only: forget everything, as a process that was killed and
+     * started again would (testUtils/persistHarness.js restart). Every
+     * game and tournament goes stale first, with no emit, no terminate and
+     * no DB write: its epoch is bumped (so an awaited continuation's
+     * aliveCheck / isLive fails) and its timers cancelled (pauses resolve
+     * false); lobby-grace timers are cancelled. Then every field is what
+     * the constructor makes (main-room listeners included). Jest spies
+     * installed on the singleton (own mock-function properties) stay
+     * installed, so a test's spy keeps recording and mocking after a
+     * harness restart.
+     * What still runs after this (module state elsewhere, an async chain
+     * that never checks an epoch) is persistHarness.killInstance's to cut.
+     * Bots live in BotController: reset it too (BotController._resetForTests).
+     * Jest only (JEST_WORKER_ID, not NODE_ENV: the contract suites also run
+     * with NODE_ENV=production).
+     */
+    _resetForTests() {
+        if (process.env.JEST_WORKER_ID === undefined) throw new Error('_resetForTests is for Jest only');
+        for (const game of this.games.values()) {
+            game.epoch++;
+            game._cancelAllTimers();
+        }
+        for (const tournament of this.tournaments.values()) {
+            tournament.retired = true;
+            tournament.epoch++;
+            tournament.clearTimers();
+        }
+        for (const held of this.lobbyGrace.values()) clearTimeout(held.timer);
+        for (const key of Object.keys(this)) {
+            const value = this[key];
+            if (typeof value === 'function' && value._isMockFunction === true) continue;
+            delete this[key];
+        }
+        Object.assign(this, new GameManager());
+    }
 }
 
 // Singleton instance

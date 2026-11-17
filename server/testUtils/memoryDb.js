@@ -110,12 +110,19 @@ function parentFor(doc, path, create) {
     return [obj, parts[parts.length - 1]];
 }
 
-function applyUpdate(doc, update) {
+/**
+ * Apply an update document. `$setOnInsert` writes only when the update
+ * inserts (an upsert that matched nothing), as Mongo does; otherwise it is
+ * a no-op.
+ */
+function applyUpdate(doc, update, { inserting = false } = {}) {
     for (const [op, fields] of Object.entries(update)) {
+        if (op === '$setOnInsert' && !inserting) continue;
         for (const [path, arg] of Object.entries(fields)) {
             const [parent, key] = parentFor(doc, path, op !== '$unset' && op !== '$pull');
             switch (op) {
-                case '$set': parent[key] = clone(arg); break;
+                case '$set':
+                case '$setOnInsert': parent[key] = clone(arg); break;
                 case '$unset': if (parent) delete parent[key]; break;
                 case '$inc': parent[key] = (parent[key] || 0) + arg; break;
                 case '$push': {
@@ -283,15 +290,156 @@ function compareBy(spec) {
 
 let sortEnabled = false;
 
+/** Same _id the way the unique _id index compares: an ObjectId never equals a string. */
+function sameId(a, b) {
+    if ((a instanceof ObjectId) !== (b instanceof ObjectId)) return false;
+    return equals(a, b);
+}
+
+/**
+ * The error the driver throws for a duplicate key (a MongoServerError with
+ * code 11000, keyPattern and keyValue), so code that checks
+ * `err.code === 11000` sees the same thing under Jest.
+ */
+function duplicateKeyError(keyPattern, keyValue, indexName) {
+    const shown = Object.entries(keyValue).map(([k, v]) => `${k}: ${JSON.stringify(v instanceof ObjectId ? String(v) : v)}`).join(', ');
+    const err = new Error(`E11000 duplicate key error collection: memoryDb index: ${indexName} dup key: { ${shown} }`);
+    err.name = 'MongoServerError';
+    err.code = 11000;
+    err.keyPattern = { ...keyPattern };
+    err.keyValue = { ...keyValue };
+    return err;
+}
+
+/** An index's name as the server makes it ({gameId: 1} -> 'gameId_1'). */
+const indexName = (keys) => Object.entries(keys).map(([k, v]) => `${k}_${v}`).join('_');
+
+/** A comparable form of one indexed value (missing = null, as Mongo indexes it). */
+function indexValue(v) {
+    if (v === undefined || v === null) return null;
+    if (v instanceof ObjectId) return { $oid: v.toHexString() };
+    if (v instanceof Date) return { $date: v.getTime() };
+    return v;
+}
+
+/**
+ * The document an upsert inserts before its update applies: the filter's
+ * equality conditions (top level and inside $and; `{$eq: v}` too), as Mongo
+ * seeds it. Other operator conditions contribute nothing.
+ */
+function upsertSeed(filter = {}) {
+    const doc = {};
+    const take = (f) => {
+        for (const [key, cond] of Object.entries(f)) {
+            if (key === '$and') { cond.forEach(take); continue; }
+            if (key.startsWith('$')) continue;
+            let value = cond;
+            if (isPlainObject(cond) && Object.keys(cond).some(k => k.startsWith('$'))) {
+                if (!('$eq' in cond)) continue;
+                value = cond.$eq;
+            }
+            const [parent, last] = parentFor(doc, key, true);
+            parent[last] = clone(value);
+        }
+    };
+    take(filter);
+    return doc;
+}
+
 class MemoryCollection {
-    constructor(docs = []) {
+    /**
+     * @param {Array<Object>} [docs] seed documents (checked like inserts)
+     * @param {{unique?: Array<{keys: Object, partialFilterExpression?: Object}>}} [options]
+     *   unique secondary indexes, as database.js builds them (createMemoryDb
+     *   declares the server's); createIndex adds more
+     */
+    constructor(docs = [], { unique = [] } = {}) {
         this.docs = [];
+        this.uniqueIndexes = [];
+        for (const { keys, partialFilterExpression } of unique) {
+            this._addUniqueIndex(keys, partialFilterExpression ? { partialFilterExpression } : {});
+        }
         docs.forEach(d => this._insert(d));
     }
 
+    /**
+     * createIndex as the driver answers it (the index name). `unique: true`
+     * (with an optional partialFilterExpression) is enforced from then on
+     * by every insert, upsert, update and replace, which then throw the
+     * driver's E11000 with that index's keyPattern and keyValue; building
+     * it over documents that already collide throws E11000, as the server's
+     * build does. Other indexes change nothing here.
+     */
+    async createIndex(keys, options = {}) {
+        if (options.unique) this._addUniqueIndex(keys, options);
+        return options.name || indexName(keys);
+    }
+
+    _addUniqueIndex(keys, { partialFilterExpression = null, name = null } = {}) {
+        const index = { keys: { ...keys }, partialFilterExpression, name: name || indexName(keys) };
+        const seen = new Set();
+        for (const d of this.docs) {
+            const key = this._indexKey(index, d);
+            if (key === null) continue;
+            if (seen.has(key)) throw this._duplicate(index, d);
+            seen.add(key);
+        }
+        this.uniqueIndexes = this.uniqueIndexes.filter(i => i.name !== index.name).concat(index);
+    }
+
+    /** The document's key in a unique index, or null when the index does not cover it (partial). */
+    _indexKey(index, doc) {
+        if (index.partialFilterExpression && !matches(doc, index.partialFilterExpression)) return null;
+        return JSON.stringify(Object.keys(index.keys).map(path => indexValue(resolve(doc, path)[0])));
+    }
+
+    _duplicate(index, doc) {
+        const keyValue = {};
+        for (const path of Object.keys(index.keys)) keyValue[path] = resolve(doc, path)[0] ?? null;
+        return duplicateKeyError(index.keys, keyValue, index.name);
+    }
+
+    /**
+     * Throw the driver's E11000 if `candidate` collides with another
+     * document (not `self`) on _id or on a unique index.
+     */
+    _assertUnique(candidate, self = null) {
+        if (this.docs.some(d => d !== self && sameId(d._id, candidate._id))) {
+            throw duplicateKeyError({ _id: 1 }, { _id: candidate._id }, '_id_');
+        }
+        for (const index of this.uniqueIndexes) {
+            const key = this._indexKey(index, candidate);
+            if (key === null) continue;
+            if (this.docs.some(d => d !== self && this._indexKey(index, d) === key)) throw this._duplicate(index, candidate);
+        }
+    }
+
+    /**
+     * Change `doc` in place with `fn`, all or nothing: with unique indexes
+     * the change is made on a copy and checked first, so a duplicate key
+     * throws and leaves the document as it was (as the server does).
+     */
+    _mutate(doc, fn) {
+        if (this.uniqueIndexes.length === 0) {
+            fn(doc);
+            return;
+        }
+        const next = clone(doc);
+        fn(next);
+        this._assertUnique(next, doc);
+        for (const key of Object.keys(doc)) delete doc[key];
+        Object.assign(doc, next);
+    }
+
+    /**
+     * Insert a copy, with a new ObjectId when it has no _id. A duplicate _id
+     * or unique-index key throws the driver's E11000 (code 11000): seeds and
+     * test helpers that call this directly get the same check as insertOne.
+     */
     _insert(doc) {
         const copy = clone(doc);
         if (!copy._id) copy._id = new ObjectId();
+        this._assertUnique(copy);
         this.docs.push(copy);
         return copy._id;
     }
@@ -326,12 +474,27 @@ class MemoryCollection {
         return this.docs.filter(d => matches(d, filter)).length;
     }
 
+    /**
+     * updateOne. With `upsert: true` and no match it inserts the filter's
+     * equality fields plus the update ($setOnInsert included) and answers as
+     * the driver does (upsertedCount 1, upsertedId); a duplicate _id then
+     * throws E11000. arrayFilters together with upsert throws (unsupported).
+     */
     async updateOne(filter, update, options = {}) {
         const doc = this.docs.find(d => matches(d, filter));
+        if (!doc && options.upsert) {
+            if (options.arrayFilters) throw new Error('memoryDb: upsert with arrayFilters is unsupported');
+            const seed = upsertSeed(filter);
+            applyUpdate(seed, update, { inserting: true });
+            const upsertedId = this._insert(seed);
+            return { acknowledged: true, matchedCount: 0, modifiedCount: 0, upsertedCount: 1, upsertedId };
+        }
         if (!doc) return { matchedCount: 0, modifiedCount: 0 };
         const before = JSON.stringify(doc);
-        if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
-        else applyUpdate(doc, update);
+        this._mutate(doc, (d) => {
+            if (options.arrayFilters) applyArrayFilterSet(d, update, options.arrayFilters);
+            else applyUpdate(d, update);
+        });
         return { matchedCount: 1, modifiedCount: before === JSON.stringify(doc) ? 0 : 1 };
     }
 
@@ -341,33 +504,40 @@ class MemoryCollection {
      * Atomic here by construction (no await between match and write).
      */
     async findOneAndUpdate(filter, update, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in findOneAndUpdate');
         const doc = this.docs.find(d => matches(d, filter));
         if (!doc) return null;
         const before = clone(doc);
-        applyUpdate(doc, update);
+        this._mutate(doc, (d) => applyUpdate(d, update));
         const out = options.returnDocument === 'after' ? clone(doc) : before;
         return applyProjection(out, options.projection);
     }
 
     async updateMany(filter, update, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in updateMany');
         let modified = 0;
         const targets = this.docs.filter(d => matches(d, filter));
         for (const doc of targets) {
             const before = JSON.stringify(doc);
-            if (options.arrayFilters) applyArrayFilterSet(doc, update, options.arrayFilters);
-            else applyUpdate(doc, update);
+            this._mutate(doc, (d) => {
+                if (options.arrayFilters) applyArrayFilterSet(d, update, options.arrayFilters);
+                else applyUpdate(d, update);
+            });
             if (before !== JSON.stringify(doc)) modified++;
         }
         return { matchedCount: targets.length, modifiedCount: modified };
     }
 
     /** replaceOne as the driver does it: the whole document but its _id. */
-    async replaceOne(filter, replacement) {
+    async replaceOne(filter, replacement, options = {}) {
+        if (options.upsert) throw new Error('memoryDb: upsert is unsupported in replaceOne');
         const i = this.docs.findIndex(d => matches(d, filter));
         if (i === -1) return { matchedCount: 0, modifiedCount: 0 };
         const next = clone(replacement);
         delete next._id;
-        this.docs[i] = { _id: this.docs[i]._id, ...next };
+        const replaced = { _id: this.docs[i]._id, ...next };
+        this._assertUnique(replaced, this.docs[i]);
+        this.docs[i] = replaced;
         return { matchedCount: 1, modifiedCount: 1 };
     }
 
@@ -390,10 +560,20 @@ class MemoryCollection {
     }
 }
 
+/**
+ * The unique secondary indexes database.js builds (ensureUsernameIndex,
+ * ensureGameIdIndex), so a second user with a taken name or a second
+ * gameRecords entry for one game fails with E11000 here too.
+ */
+const SERVER_UNIQUE_INDEXES = Object.freeze({
+    users: [{ keys: { username: 1 } }],
+    gameRecords: [{ keys: { gameId: 1 }, partialFilterExpression: { gameId: { $exists: true } } }],
+});
+
 function createMemoryDb({ users = [], gameRecords = [], reports = [], passwordResets = [], adminAudit = [] } = {}) {
     return {
-        users: new MemoryCollection(users),
-        gameRecords: new MemoryCollection(gameRecords),
+        users: new MemoryCollection(users, { unique: SERVER_UNIQUE_INDEXES.users }),
+        gameRecords: new MemoryCollection(gameRecords, { unique: SERVER_UNIQUE_INDEXES.gameRecords }),
         reports: new MemoryCollection(reports),
         // the admin panel's (server/admin/)
         passwordResets: new MemoryCollection(passwordResets),
@@ -406,4 +586,4 @@ function enableSort(on = true) {
     sortEnabled = on;
 }
 
-module.exports = { MemoryCollection, createMemoryDb, matches, applyProjection, enableSort };
+module.exports = { MemoryCollection, createMemoryDb, SERVER_UNIQUE_INDEXES, matches, applyProjection, enableSort };

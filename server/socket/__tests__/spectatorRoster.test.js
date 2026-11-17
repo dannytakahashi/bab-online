@@ -58,7 +58,10 @@ function table(log = [], io = makeIo(log)) {
     for (let pos = 1; pos <= 4; pos++) {
         sids[pos] = `sr${seq}-p${pos}`;
         gameManager.registerUser(sids[pos], `user${pos}`);
-        mockDb.current.users._insert({ username: `user${pos}`, profilePic: pos });
+        // One user doc per name (users.username is unique): a second table in a test reuses it
+        if (!mockDb.current.users.docs.some((d) => d.username === `user${pos}`)) {
+            mockDb.current.users._insert({ username: `user${pos}`, profilePic: pos });
+        }
     }
     const game = gameManager.createGame([1, 2, 3, 4].map((p) => sids[p]));
     for (let pos = 1; pos <= 4; pos++) {

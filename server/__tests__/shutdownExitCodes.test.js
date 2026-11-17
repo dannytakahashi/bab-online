@@ -138,3 +138,43 @@ test('a shutdown that wedges is cut off by the hard deadline with the same code'
 test('the default deadline covers the normal shutdown', () => {
     expect(HARD_EXIT_MS).toBeGreaterThan(NOTICE_MS + SETTLE_MS);
 });
+
+describe('the SIGTERM line carries the deploy measurements', () => {
+    const connectionStats = require('../utils/connectionStats');
+    afterEach(() => connectionStats._resetForTests());
+
+    test('at (ISO, ms), the connection arrivals and the socket count', async () => {
+        jest.setSystemTime(Date.UTC(2026, 10, 16, 12, 0, 30, 250));
+        connectionStats.noteConnection(Date.UTC(2026, 10, 16, 11, 59, 0, 0));
+        connectionStats.noteConnection(Date.UTC(2026, 10, 16, 12, 0, 10, 5));
+        const { server, io } = fakeServers();
+        io.of = (ns) => ({ sockets: new Map(ns === '/' ? [['a', {}], ['b', {}]] : []) });
+        setupGracefulShutdown(server, io);
+        process.listeners('SIGTERM').find((fn) => !before.SIGTERM.includes(fn))();
+        const line = logs.find((l) => l.msg === 'Received SIGTERM, starting graceful shutdown');
+        expect(line.meta).toEqual({
+            exitCode: 0,
+            at: '2026-11-16T12:00:30.250Z',
+            lastConnectionAt: '2026-11-16T12:00:10.005Z',
+            connectionsInLast60s: 1,
+            connectionsTotal: 2,
+            sockets: 2,
+        });
+        await jest.advanceTimersByTimeAsync(NOTICE_MS + SETTLE_MS);
+        expect(exit).toHaveBeenCalledWith(0);
+    });
+
+    test('an io that cannot count gives sockets null, no io gives 0; the shutdown goes on', async () => {
+        const { server, io } = fakeServers();
+        const h = setupGracefulShutdown(server, io);
+        h.shutdown('SIGTERM', 0);
+        expect(logs.find((l) => l.msg.startsWith('Received SIGTERM')).meta).toMatchObject({ sockets: null, connectionsInLast60s: 0, lastConnectionAt: null });
+        await jest.advanceTimersByTimeAsync(NOTICE_MS + SETTLE_MS);
+        expect(exit).toHaveBeenCalledWith(0);
+
+        logs.length = 0;
+        const bare = setupGracefulShutdown({ close: (cb) => cb?.() }, null);
+        bare.shutdown('SIGINT', 0);
+        expect(logs.find((l) => l.msg.startsWith('Received SIGINT')).meta).toMatchObject({ sockets: 0 });
+    });
+});

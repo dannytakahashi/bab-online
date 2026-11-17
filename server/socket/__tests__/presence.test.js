@@ -73,7 +73,10 @@ function table({ bots = {} } = {}) {
         } else {
             sids[pos] = `pr${seq}-p${pos}`;
             gameManager.registerUser(sids[pos], `user${pos}`);
-            mockDb.current.users._insert({ username: `user${pos}`, profilePic: pos });
+            // One user doc per name (users.username is unique): a second table in a test reuses it
+            if (!mockDb.current.users.docs.some((d) => d.username === `user${pos}`)) {
+                mockDb.current.users._insert({ username: `user${pos}`, profilePic: pos });
+            }
         }
     }
     const game = gameManager.createGame([1, 2, 3, 4].map((p) => sids[p]));
