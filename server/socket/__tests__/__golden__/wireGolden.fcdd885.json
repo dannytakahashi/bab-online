@@ -123,9 +123,9 @@
     }
   },
   "collidingPics": {
-    "emits": 1023,
-    "bytes": 79190,
-    "wireSha256": "d70381f4ddd4a151577e86613cb60a9567e47a6afdb76767a9acb4cab86a5b9a",
+    "emits": 1024,
+    "bytes": 79303,
+    "wireSha256": "2c5a1abf417094eb485cb4dbc6d7e2ad84c617bd9713868ffda514ae461ce5f5",
     "seatPics": [
       5,
       1,
