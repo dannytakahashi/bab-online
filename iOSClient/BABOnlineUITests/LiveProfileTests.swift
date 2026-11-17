@@ -55,8 +55,8 @@ final class LiveProfileTests: XCTestCase {
         app.launch()
 
         // register, with a space after each password: it is not part of the password sent
-        let toRegister = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Register")).firstMatch
-        XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Register link on the sign-in screen")
+        let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
+        XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Create Account on the sign-in screen")
         toRegister.tap()
         let name = app.textFields["Username"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))

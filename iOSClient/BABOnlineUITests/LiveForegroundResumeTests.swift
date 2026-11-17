@@ -122,8 +122,8 @@ final class LiveForegroundResumeTests: XCTestCase {
             return
         }
         // first use: register the account
-        let toRegister = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Register")).firstMatch
-        XCTAssertTrue(toRegister.waitForExistence(timeout: 10), "no Register link")
+        let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
+        XCTAssertTrue(toRegister.waitForExistence(timeout: 10), "no Create Account on the sign-in screen")
         toRegister.tap()
         let name = app.textFields["Username"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))

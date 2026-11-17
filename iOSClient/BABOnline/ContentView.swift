@@ -27,8 +27,12 @@ struct ContentView: View {
     var body: some View {
         ZStack {
             if showSplash {
-                SplashView()
-                    .transition(.opacity)
+                // over the next screen, which is drawn under it as it fades (no dip to black)
+                SplashView(onFinished: {
+                    withAnimation(.easeInOut(duration: SplashTimeline.handOff)) { showSplash = false }
+                })
+                .zIndex(1)
+                .transition(.opacity)
             } else {
                 ZStack {
                     Group {
@@ -38,6 +42,7 @@ struct ContentView: View {
                                 .accessibilityElement(children: .contain).accessibilityIdentifier("screen.signIn")
                         case .register:
                             RegisterView()
+                                .accessibilityElement(children: .contain).accessibilityIdentifier("screen.register")
                         case .mainRoom:
                             MainRoomView()
                                 .accessibilityElement(children: .contain).accessibilityIdentifier("screen.mainRoom")
@@ -56,7 +61,8 @@ struct ContentView: View {
                         ConnectionStatusToast()
                     }
                 }
-                .transition(.opacity)
+                .zIndex(0)
+                .transition(.identity)
             }
         }
         #if DEBUG
@@ -100,14 +106,10 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.3), value: appState.screen)
         .onAppear {
             Self.prewarmCards(for: appState.screen)
+            // the splash ends itself (SplashView's onFinished, 1.25 s; 0.9 s under Reduce Motion)
             #if DEBUG
-            if UIFixture.isActive { showSplash = false; return }
+            if UIFixture.isActive && !UIFixture.showsSplash { showSplash = false }
             #endif
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    showSplash = false
-                }
-            }
         }
     }
 }
