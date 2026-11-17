@@ -33,7 +33,7 @@ const SENT_A_BOY = Object.freeze({
  */
 const NOT_BE_STUPID = Object.freeze({
     message: 'alls we gotta do is not be stupid',
-    minLead: 100,
+    minLead: 50, // owner 2026-11-16 ("maybe 50pts?")
     chance: 0.6,
 });
 

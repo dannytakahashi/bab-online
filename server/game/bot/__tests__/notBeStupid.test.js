@@ -1,7 +1,7 @@
 /**
  * "alls we gotta do is not be stupid" (BotController.handleHandDealtChat,
  * owner request 2026-11-16): the final hand of the game (the end of
- * HAND_PROGRESSION, the 13) is dealt with one team ahead by 100 or more, and
+ * HAND_PROGRESSION, the 13) is dealt with one team ahead by 50 or more, and
  * one bot of the LEADING team sometimes says so: 60%, decided once per game
  * (an all-zero redeal of the final hand does not roll again). The roll is
  * replaced here (botController.chatRoll) so every case is deterministic.
@@ -99,10 +99,10 @@ describe('the trigger', () => {
         expect(t.game.gameLog.some((e) => e.message === `🤖 Mary: ${LINE}` && e.type === 'chat')).toBe(true);
     });
 
-    test('a lead of exactly 100 is enough; 99 is not', async () => {
-        const at = table({ score: { team1: 300, team2: 200 } });
+    test('a lead of exactly 50 is enough; 49 is not', async () => {
+        const at = table({ score: { team1: 250, team2: 200 } });
         expect((await dealt(at)).length).toBe(1);
-        const under = table({ score: { team1: 299, team2: 200 } });
+        const under = table({ score: { team1: 249, team2: 200 } });
         expect(await dealt(under)).toEqual([]);
         expect(under.rolls).toEqual([]);
     });
