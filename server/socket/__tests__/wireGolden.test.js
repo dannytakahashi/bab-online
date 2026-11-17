@@ -29,6 +29,10 @@
  * Re-recorded 2026-11-16 for the bots' "they sent a boy" line
  * (BotController.handleCardPlayedChat): 3 more chatMessage emits per game,
  * hands, trumps and pictures unchanged (its roll never draws Math.random).
+ * Re-recorded 2026-11-16 for the bots' "alls we gotta do is not be stupid"
+ * line (BotController.handleHandDealtChat, the final hand with a 100+
+ * lead): oneHuman 1 more chatMessage emit, twoHumans unchanged; hands,
+ * trumps and pictures unchanged (same Math.random-free roll).
  */
 
 const fs = require('fs');

@@ -696,6 +696,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     }
 
     gameLogger.info('Hand dealt', { gameId: game.gameId, handSize: game.currentHand, dealer: game.dealer, firstHand });
+    // The final hand with a big lead: "alls we gotta do is not be stupid"
+    botController.handleHandDealtChat(io, game);
     game.currentTurn = game.bidder;
     if (!game.transition(Phase.DEALING, Phase.BIDDING)) return;
 
