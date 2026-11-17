@@ -65,7 +65,10 @@ describe('/privacy', () => {
         expect(html).toContain('Railway, our host, also records the IP address of every connection');
         // safetyHandlers logs blocks and who reported whom, never the reason
         expect(html).toContain('reports (who reported whom, not the reason)');
-        expect(html).toContain('It is never written to our logs.');
+        // Narrowed for deploy survival (owner, 2026-11-17): the database's own
+        // slow-operation log may record a saved game update, chat included
+        expect(html).toContain('It is never written to our application\'s logs.');
+        expect(html).not.toContain('It is never written to our logs.');
         // Deploy survival (LIVE_PERSIST, server-infra.md Live game persistence):
         // a game's and a tournament's chat is in its live document
         expect(html).toContain('A game\'s or tournament\'s chat is saved to our database with the rest of the game while it is in progress (see "Games in progress" above), so it can continue after a server update, and is deleted with it.');
