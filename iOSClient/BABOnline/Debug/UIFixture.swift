@@ -868,6 +868,26 @@ struct FixtureProbes: View {
     }
 }
 
+/// "splash.logo": where the boot splash draws its logo, in global points ("x y w h", one
+/// decimal), so a UI test can hold it to the sign-in logo's frame (the splash itself is one
+/// full-screen VoiceOver element). A 1x1 dot like FixtureProbes', shown in fixture mode only.
+struct SplashLogoProbe: View {
+    let frame: CGRect
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.black)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .accessibilityElement()
+            .accessibilityLabel("splash.logo")
+            .accessibilityIdentifier("splash.logo")
+            .accessibilityValue(String(format: "%.1f %.1f %.1f %.1f", frame.minX, frame.minY, frame.width, frame.height))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .allowsHitTesting(false)
+    }
+}
+
 /// Measures the window (size + safe-area insets) for "ui.pose".
 struct FixtureWindowProbe: View {
     @Environment(\.horizontalSizeClass) private var h

@@ -11,7 +11,7 @@ import SwiftUI
 // MARK: - Phrases
 
 /// The phrases by the logo: the web's `SPLASH_PHRASES` (SignIn.js), in its order. Kept in
-/// sync by `AuthPhraseSyncTests`, which reads the web file from the checkout.
+/// sync by `AuthSplashTests.testPhrasesMatchTheWeb`, which reads the web file from the checkout.
 enum SplashPhrases {
     static let all: [String] = [
         "he sends a boy!",
@@ -106,12 +106,25 @@ struct AuthLogo: View {
     let screenWidth: CGFloat
     var phrase: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// True while the boot splash stands over this screen (ContentView): the phrase waits
+    /// for the hand-off, so it plays in where it can be seen.
+    @Environment(\.bootSplashShowing) private var splashShowing
     @State private var phraseIn = false
 
     var body: some View {
         AuthLogoImage(width: width)
+            .accessibilityIdentifier("auth.logo")
             .overlay(alignment: .topLeading) {
                 if let phrase { phraseView(phrase) }
+            }
+            // where the boot splash puts its logo, so its last frame is this screen's logo
+            // (measured only while the splash stands over this screen)
+            .background {
+                if splashShowing {
+                    GeometryReader { g in
+                        Color.clear.preference(key: AuthLogoFrameKey.self, value: g.frame(in: .global))
+                    }
+                }
             }
     }
 
@@ -138,18 +151,42 @@ struct AuthLogo: View {
             .frame(width: width, height: height, alignment: .topLeading)
             .accessibilityHidden(true)
             .allowsHitTesting(false)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(Theme.Motion.emphasizedAnimation(Theme.Motion.slow).delay(AuthTiming.phraseDelay)) {
-                    phraseIn = true
-                }
-            }
+            .onAppear { if !splashShowing { playPhrase() } }
+            .onChange(of: splashShowing) { _, showing in if !showing { playPhrase() } }
+    }
+
+    private func playPhrase() {
+        guard !reduceMotion, !phraseIn else { return }
+        withAnimation(Theme.Motion.emphasizedAnimation(Theme.Motion.slow).delay(AuthTiming.phraseDelay)) {
+            phraseIn = true
+        }
     }
 }
 
 enum AuthTiming {
     /// The phrase plays in once the boot splash has mostly cleared (or the screen change has).
     static let phraseDelay: TimeInterval = 0.2
+}
+
+/// The sign-in / register logo's frame in global coordinates, for the boot splash
+/// (ContentView passes it to SplashView's `logoTarget`). nil where no auth logo is drawn.
+struct AuthLogoFrameKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+
+private struct BootSplashShowingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// True while the boot splash stands over the screen (ContentView sets it).
+    var bootSplashShowing: Bool {
+        get { self[BootSplashShowingKey.self] }
+        set { self[BootSplashShowingKey.self] = newValue }
+    }
 }
 
 extension Theme.Motion {
@@ -188,9 +225,10 @@ struct AuthCard<Content: View>: View {
 
 /// A labelled kit input (the web's `authField`): the label above in text.secondary 14 pt
 /// medium, the input at least 44 pt tall, 16 pt text, surface.s0, a line.strong edge that
-/// turns team.a while focused. The field's own title is its accessibility label (and,
-/// with no placeholder, VoiceOver reads it once: the visible label is hidden from it);
-/// the identifier is the label too, which the live UI tests find the fields by.
+/// turns team.a while focused. The input carries the label as its accessibility label
+/// (SwiftUI does not expose a TextField's title to VoiceOver when it has a prompt), so
+/// VoiceOver reads it once, the visible label being hidden from it; the identifier is the
+/// label too, which the live UI tests find the fields by.
 struct AuthField<Focus: Hashable>: View {
     let label: String
     @Binding var text: String
@@ -221,6 +259,7 @@ struct AuthField<Focus: Hashable>: View {
                     RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
                         .stroke(isFocused ? Theme.Auth.fieldFocus : Theme.Auth.fieldEdge, lineWidth: 1)
                 }
+                .accessibilityLabel(Text(label))
                 .accessibilityIdentifier(label)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,8 +280,8 @@ struct AuthField<Focus: Hashable>: View {
 
 /// The web's kit buttons on the auth card: full width, at least 44 pt, radius md, 16 pt
 /// semibold; primary (primary.base under text.onPrimary), secondary (surface.s3, a
-/// line.strong edge, text.primary) and ghost (text.secondary, 14 pt). Disabled at 45%
-/// and pressed at 97%, as `.kit-btn`.
+/// line.strong edge, text.primary) and ghost (text.secondary, 14 pt). Pressed at 97%, as
+/// `.kit-btn`; disabled at 45%, except the primary, whose fill alone dims (to 70%).
 struct AuthButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, ghost }
     let kind: Kind
@@ -275,7 +314,7 @@ private struct AuthButtonBody<Label: View>: View {
                 }
             }
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-            .opacity(isEnabled ? 1 : 0.45)
+            .opacity(isEnabled || kind == .primary ? 1 : Self.disabledOpacity)
             .scaleEffect(pressed && isEnabled ? 0.97 : 1)
             .animation(.easeOut(duration: Theme.Motion.fast), value: pressed)
     }
@@ -288,9 +327,16 @@ private struct AuthButtonBody<Label: View>: View {
         }
     }
 
+    /// The kit's disabled secondary / ghost button (`.kit-btn:disabled`).
+    static var disabledOpacity: Double { 0.45 }
+    /// A disabled primary keeps reading as the main action (the web's Sign In is never
+    /// dimmed: it toasts on empty fields): only its fill dims, to 70%, and the label stays
+    /// text.onPrimary at full strength (4.8:1 on that fill over the card; 8.3:1 enabled).
+    static var disabledPrimaryFill: Double { 0.7 }
+
     private var background: Color {
         switch kind {
-        case .primary: return Theme.buttonBackground
+        case .primary: return isEnabled ? Theme.buttonBackground : Theme.buttonBackground.opacity(Self.disabledPrimaryFill)
         case .secondary: return Theme.buttonSecondary
         case .ghost: return .clear
         }

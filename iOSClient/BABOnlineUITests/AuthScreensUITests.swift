@@ -44,10 +44,15 @@ final class AuthScreensUITests: XCTestCase {
         let app = Fixture.launch("sign-in", extra: ["-uiPhrase", "13"])
         XCTAssertTrue(element(app, "screen.signIn").waitForExistence(timeout: 20))
         XCTAssertFalse(element(app, "splash").exists, "fixture mode skips the splash")
-        XCTAssertTrue(app.images["BAB Online"].exists, "the logo")
+        let logo = app.images["auth.logo"]
+        XCTAssertTrue(logo.exists, "the logo")
+        XCTAssertEqual(logo.label, "BAB Online")
         let name = app.textFields["Username"], pass = app.secureTextFields["Password"]
         XCTAssertTrue(name.exists)
         XCTAssertTrue(pass.exists)
+        // VoiceOver names each field (the identifier alone would let the queries above pass)
+        XCTAssertEqual(name.label, "Username")
+        XCTAssertEqual(pass.label, "Password")
         XCTAssertEqual(name.value as? String, "ivy", "the saved username is pre-filled")
         XCTAssertTrue(app.staticTexts["New user?"].exists)
         let signIn = button(app, "Sign In")
@@ -72,6 +77,9 @@ final class AuthScreensUITests: XCTestCase {
         XCTAssertTrue(app.textFields["Username"].exists)
         XCTAssertTrue(app.secureTextFields["Password"].exists)
         XCTAssertTrue(app.secureTextFields["Confirm Password"].exists)
+        XCTAssertEqual(app.textFields["Username"].label, "Username")
+        XCTAssertEqual(app.secureTextFields["Password"].label, "Password")
+        XCTAssertEqual(app.secureTextFields["Confirm Password"].label, "Confirm Password")
         XCTAssertFalse(button(app, "Register").isEnabled)
         shot("register")
         let reg = app.secureTextFields["Password"]
@@ -144,9 +152,10 @@ final class AuthScreensUITests: XCTestCase {
     /// A real launch's splash ends by itself on the sign-in, and VoiceOver can read it.
     func testSplashHandsOff() {
         let app = Fixture.launch("sign-in", extra: ["-uiSplash", "YES"])
-        let signIn = element(app, "screen.signIn")
-        XCTAssertTrue(signIn.waitForExistence(timeout: 10), "the splash handed off")
-        XCTAssertTrue(app.textFields["Username"].waitForExistence(timeout: 2))
+        // the sign-in is laid out under the splash but hidden: its fields get their names
+        // (and identifiers) only at the hand-off
+        XCTAssertTrue(app.textFields["Username"].waitForExistence(timeout: 10), "the splash handed off")
+        XCTAssertTrue(button(app, "Sign In").exists)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: element(app, "splash"))
         wait(for: [gone], timeout: 3)
         app.terminate()
@@ -156,13 +165,55 @@ final class AuthScreensUITests: XCTestCase {
         XCTAssertTrue(splash.waitForExistence(timeout: 10))
         XCTAssertEqual(splash.label, "BAB Online")
         sleep(2)
-        XCTAssertFalse(element(held, "screen.signIn").exists, "a held frame never hands off")
+        XCTAssertFalse(held.textFields["Username"].exists, "a held frame never hands off")
+        XCTAssertFalse(button(held, "Sign In").exists, "nothing under the splash is named")
+        XCTAssertFalse(button(held, "Create Account").exists)
+    }
+
+    /// The splash's last frame puts its logo exactly where the sign-in's logo stands (so the
+    /// hand-off cross-fades one logo, not two), full motion and Reduce Motion; on the iPad in
+    /// landscape too.
+    func testSplashLogoIsTheSignInsLogo() {
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        for orientation in pad ? [UIDeviceOrientation.portrait, .landscapeLeft] : [.portrait] {
+            XCUIDevice.shared.orientation = orientation
+            checkSplashLogo(landscape: orientation.isLandscape)
+        }
+    }
+
+    private func checkSplashLogo(landscape: Bool) {
+        let signIn = Fixture.launch("sign-in", extra: ["-uiPhrase", "13"])
+        XCTAssertTrue(element(signIn, "screen.signIn").waitForExistence(timeout: 20))
+        let logo = signIn.images["auth.logo"]
+        XCTAssertTrue(logo.waitForExistence(timeout: 5))
+        sleep(1)
+        let target = logo.frame
+        signIn.terminate()
+        for (t, extra) in [(1.32, []), (0.9, ["-uiReduceMotion", "YES"])] as [(Double, [String])] {
+            let held = Fixture.launch("sign-in", extra: ["-uiPhrase", "13", "-uiSplashFrame", "\(t)"] + extra)
+            XCTAssertTrue(element(held, "splash").waitForExistence(timeout: 10))
+            sleep(1)
+            if landscape && extra.isEmpty { shot("splash-final-landscape") }
+            // the sign-in under the splash is hidden: nothing there has a name
+            XCTAssertFalse(held.textFields["Username"].exists, "the sign-in is hidden under the splash")
+            XCTAssertFalse(held.secureTextFields["Password"].exists)
+            let parts = Fixture.probe(held, "splash.logo").split(separator: " ").compactMap { Double($0) }
+            XCTAssertEqual(parts.count, 4, "splash.logo probe")
+            guard parts.count == 4 else { return }
+            let f = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+            for (a, b, what) in [(f.minX, target.minX, "x"), (f.minY, target.minY, "y"),
+                                 (f.width, target.width, "width"), (f.height, target.height, "height")] {
+                XCTAssertEqual(a, b, accuracy: 1, "splash logo \(what) at \(t) s: \(f) vs the sign-in's \(target)")
+            }
+            held.terminate()
+        }
     }
 
     /// The splash's frames (held by `-uiSplashFrame`), full motion and Reduce Motion.
     func testSplashFrames() {
         for (tag, t, extra) in [("0.00", 0.0, []), ("0.15", 0.15, []), ("0.30", 0.3, []), ("0.45", 0.45, []),
-                                ("0.60", 0.6, []), ("0.80", 0.8, []), ("final", 1.25, []),
+                                ("0.60", 0.6, []), ("0.80", 0.8, []), ("1.10", 1.1, []), ("1.20", 1.2, []),
+                                ("final", 1.32, []),
                                 ("reduced-0.15", 0.15, ["-uiReduceMotion", "YES"]), ("reduced-final", 0.9, ["-uiReduceMotion", "YES"])]
                 as [(String, Double, [String])] {
             let app = Fixture.launch("sign-in", extra: ["-uiSplashFrame", "\(t)"] + extra)

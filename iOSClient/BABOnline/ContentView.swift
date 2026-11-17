@@ -12,6 +12,10 @@ struct ContentView: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var showSplash = true
+    /// Where the sign-in's logo stands (global), for the splash's last frame.
+    @State private var splashLogoTarget: CGRect?
+    /// The screen is shown (opaque, in the accessibility tree): from the splash's hand-off.
+    @State private var contentShown = false
     /// The one "the server restarted" message after a reconnect (RestartNotice).
     @ObservedObject private var restart = RestartNotices.shared
 
@@ -24,16 +28,19 @@ struct ContentView: View {
         }
     }
 
+    /// The screens laid out under the boot splash: the auth screens, whose logo the splash
+    /// ends on (they have no side effects on appearing beyond the Keychain pre-fill). Others
+    /// (the main room joins it, a game starts voice) appear at the hand-off, as before.
+    static func drawsUnderSplash(_ screen: AppState.Screen) -> Bool {
+        screen == .signIn || screen == .register
+    }
+
     var body: some View {
         ZStack {
-            if showSplash {
-                // over the next screen, which is drawn under it as it fades (no dip to black)
-                SplashView(onFinished: {
-                    withAnimation(.easeInOut(duration: SplashTimeline.handOff)) { showSplash = false }
-                })
-                .zIndex(1)
-                .transition(.opacity)
-            } else {
+            // the sign-in / register is laid out under the splash from launch (hidden from
+            // VoiceOver and the UI tests until the hand-off), so the splash can put its logo on
+            // that screen's logo; any other screen comes in at the hand-off, as before
+            if !showSplash || Self.drawsUnderSplash(appState.screen) {
                 ZStack {
                     Group {
                         switch appState.screen {
@@ -61,9 +68,31 @@ struct ContentView: View {
                         ConnectionStatusToast()
                     }
                 }
+                // nothing under the splash reaches VoiceOver or the UI tests: transparent until the
+                // hand-off (`accessibilityHidden` alone leaves the text fields and the scroll view
+                // in the tree), then shown at once under the fading splash (no dip to black)
+                .opacity(contentShown ? 1 : 0)
+                .accessibilityHidden(!contentShown)
+                .environment(\.bootSplashShowing, showSplash)
                 .zIndex(0)
                 .transition(.identity)
             }
+            if showSplash {
+                // over the next screen, which is drawn under it as it fades
+                SplashView(logoTarget: splashLogoTarget, onFinished: {
+                    var now = Transaction()
+                    now.disablesAnimations = true
+                    withTransaction(now) { contentShown = true }
+                    withAnimation(.easeInOut(duration: SplashTimeline.handOff)) { showSplash = false }
+                })
+                .zIndex(1)
+                .transition(.opacity)
+            }
+        }
+        // the sign-in logo's frame (AuthLogoFrameKey, reported only while the splash shows);
+        // the last one is kept if that screen goes, so the splash's logo never jumps
+        .onPreferenceChange(AuthLogoFrameKey.self) { frame in
+            if let frame, frame != splashLogoTarget { splashLogoTarget = frame }
         }
         #if DEBUG
         .overlay {
@@ -106,9 +135,9 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.3), value: appState.screen)
         .onAppear {
             Self.prewarmCards(for: appState.screen)
-            // the splash ends itself (SplashView's onFinished, 1.25 s; 0.9 s under Reduce Motion)
+            // the splash ends itself (SplashView's onFinished, 1.32 s; 0.9 s under Reduce Motion)
             #if DEBUG
-            if UIFixture.isActive && !UIFixture.showsSplash { showSplash = false }
+            if UIFixture.isActive && !UIFixture.showsSplash { showSplash = false; contentShown = true }
             #endif
         }
     }

@@ -1,14 +1,20 @@
 import SwiftUI
 
-/// The boot splash (build 13): the lamp comes up over the night card room, four aces are
-/// dealt from under it into a fanned hand, the logo settles in under the lamp, and the
-/// app hands off by fading the splash away over the next screen. It starts on the launch
-/// screen's colour (LaunchBackground = surface.s0, the room), so the first frame is the
-/// launch screen, and ends on the sign-in's own background (AuthVignette), so a hand-off
-/// to sign-in only changes what stands on it. 1.25 s, then a 0.35 s fade (1.6 s in all;
-/// the old splash took 1.9 s). Reduce Motion: everything fades in where it ends, and the
-/// hand-off comes at 0.9 s. No sound, no haptics. VoiceOver hears "BAB Online".
+/// The boot splash (build 13): the lamp comes up over the night card room, a hand of four
+/// aces fans out from under it, the logo settles in exactly where the sign-in's logo
+/// stands, the hand is gathered up and put away, and the app hands off by fading the
+/// splash away over the next screen. It starts on the launch screen's colour
+/// (LaunchBackground = surface.s0, the room), so the first frame is the launch screen, and
+/// ends on the sign-in without its card and phrase: the same AuthVignette, and the logo on
+/// the sign-in logo's own frame (`logoTarget`, measured from the sign-in that ContentView
+/// lays out under the splash), so the hand-off only brings the card in. 1.32 s, then a
+/// 0.35 s fade (1.67 s in all; the old splash took 1.9 s). Reduce Motion: the lamp and the
+/// logo fade in where they end (no hand), and the hand-off comes at 0.9 s. No sound, no
+/// haptics. VoiceOver hears one image, "BAB Online".
 struct SplashView: View {
+    /// The sign-in logo's frame in global coordinates (`AuthLogoFrameKey`); nil while the
+    /// screen under the splash has no logo (a restored session's main room).
+    var logoTarget: CGRect?
     /// Called once when the splash has finished (never while a fixture holds a frame).
     var onFinished: () -> Void = {}
 
@@ -18,15 +24,27 @@ struct SplashView: View {
 
     var body: some View {
         let timeline = SplashTimeline(reduceMotion: reduceMotion || Self.fixtureReduceMotion)
-        TimelineView(.animation(minimumInterval: nil, paused: done || Self.heldFrame != nil)) { context in
-            let t = Self.heldFrame ?? context.date.timeIntervalSince(start)
-            SplashFrame(t: min(max(t, 0), timeline.finish), timeline: timeline)
+        GeometryReader { g in
+            let layout = SplashLayout(container: g.frame(in: .global), logoTarget: logoTarget)
+            ZStack {
+                TimelineView(.animation(minimumInterval: nil, paused: done || Self.heldFrame != nil)) { context in
+                    let t = Self.heldFrame ?? context.date.timeIntervalSince(start)
+                    SplashFrame(t: min(max(t, 0), timeline.finish), timeline: timeline, layout: layout)
+                }
+                // VoiceOver's one element (the cards' letters and the logo inside are not read)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("BAB Online")
+                .accessibilityAddTraits(.isImage)
+                .accessibilityIdentifier("splash")
+                #if DEBUG
+                if UIFixture.isActive {
+                    SplashLogoProbe(frame: layout.logo.offsetBy(dx: g.frame(in: .global).minX, dy: g.frame(in: .global).minY))
+                }
+                #endif
+            }
+            .frame(width: g.size.width, height: g.size.height)
         }
         .ignoresSafeArea()
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("BAB Online")
-        .accessibilityAddTraits(.isImage)
-        .accessibilityIdentifier("splash")
         .allowsHitTesting(false)
         .task {
             guard Self.heldFrame == nil else { return }
@@ -54,6 +72,30 @@ struct SplashView: View {
     }
 }
 
+/// Where the splash's logo and hand stand on its full-screen canvas (`container`, global):
+/// the logo exactly on the sign-in logo's frame when there is one, else (a restored
+/// session's main room) at the sign-in's size under the lamp's centre; the hand below it.
+struct SplashLayout: Equatable {
+    /// The logo's frame in the splash's own coordinates.
+    let logo: CGRect
+    let size: CGSize
+
+    init(container: CGRect, logoTarget: CGRect?) {
+        size = container.size
+        if let target = logoTarget, target.width > 1, target.height > 1 {
+            logo = target.offsetBy(dx: -container.minX, dy: -container.minY)
+        } else {
+            let w = AuthLogoImage.width(for: container.size), h = w / AuthLogoImage.aspect
+            logo = CGRect(x: (container.width - w) / 2, y: container.height * 0.36 - h / 2, width: w, height: h)
+        }
+    }
+
+    var cardWidth: CGFloat { logo.width * 0.26 }
+    var cardHeight: CGFloat { cardWidth * 435 / 300 }
+    /// The fanned hand's centre: under the logo.
+    var fanY: CGFloat { logo.maxY + Theme.Space.s6 + cardHeight / 2 }
+}
+
 /// The splash's timing as a pure function of the time since it appeared (0...1 progress
 /// per element), so a frame is reproducible (tests, the `-uiSplashFrame` screenshots).
 struct SplashTimeline {
@@ -61,13 +103,20 @@ struct SplashTimeline {
 
     /// The lamp (the vignette) comes up.
     static let lampStart: TimeInterval = 0, lampDuration: TimeInterval = 0.5
-    /// The deal: one card every 70 ms, each a 0.46 s flight on the emphasized curve.
+    /// The hand fans out of a squared stack under the lamp: one card every 70 ms, each a
+    /// 0.46 s flight on the emphasized curve. Its cards are opaque, as real cards, and the
+    /// hand is drawn as one layer, so a fade never shows one card through another.
     static let dealStart: TimeInterval = 0.12, dealStagger: TimeInterval = 0.07, dealFlight: TimeInterval = 0.46
+    /// The hand (one layer) comes up as the deal starts.
+    static let handFadeIn: TimeInterval = 0.16
     /// The logo settles in once the hand is mostly down.
     static let logoStart: TimeInterval = 0.52, logoDuration: TimeInterval = 0.42
-    /// The hand-off starts (a short hold after the logo lands).
-    static let finish: TimeInterval = 1.25
-    /// Reduce Motion: one fade of everything, then the hand-off.
+    /// The hand is gathered (the fan closes, it drops a little) and put away (one layer
+    /// fading) before the hand-off, so only the sign-in's card comes in under the logo.
+    static let gatherStart: TimeInterval = 1.02, gatherDuration: TimeInterval = 0.28
+    /// The hand-off starts.
+    static let finish: TimeInterval = 1.32
+    /// Reduce Motion: one fade of the lamp and the logo (no hand), then the hand-off.
     static let reducedFade: TimeInterval = Theme.Motion.slow, reducedFinish: TimeInterval = 0.9
     /// The cross-fade to the next screen (ContentView).
     static let handOff: TimeInterval = Theme.Motion.slow
@@ -81,13 +130,23 @@ struct SplashTimeline {
         reduceMotion ? fade(t) : Self.easeOut(Self.progress(t, Self.lampStart, Self.lampDuration))
     }
 
-    /// Card `i`'s flight, 0 (under the lamp) ... 1 (in the hand).
+    /// Card `i`'s flight, 0 (in the stack under the lamp) ... 1 (in the fanned hand).
     func card(_ i: Int, _ t: TimeInterval) -> Double {
         reduceMotion ? 1 : Self.emphasized(Self.progress(t, Self.dealStart + Double(i) * Self.dealStagger, Self.dealFlight))
     }
 
-    func cardOpacity(_ i: Int, _ t: TimeInterval) -> Double {
-        reduceMotion ? fade(t) : min(1, Self.progress(t, Self.dealStart + Double(i) * Self.dealStagger, Self.dealFlight * 0.3))
+    /// The gathering-up, 0 (fanned) ... 1 (squared).
+    func gather(_ t: TimeInterval) -> Double {
+        reduceMotion ? 1 : Self.emphasized(Self.progress(t, Self.gatherStart, Self.gatherDuration))
+    }
+
+    /// The whole hand's opacity, as one layer: up as the deal starts, away as it is
+    /// gathered (gone by `finish`); none under Reduce Motion.
+    func handOpacity(_ t: TimeInterval) -> Double {
+        guard !reduceMotion else { return 0 }
+        let up = Self.easeOut(Self.progress(t, Self.dealStart, Self.handFadeIn))
+        let away = Self.progress(t, Self.gatherStart + Self.gatherDuration * 0.25, Self.gatherDuration * 0.75)
+        return up * (1 - away * away)
     }
 
     func logo(_ t: TimeInterval) -> Double {
@@ -128,6 +187,7 @@ struct SplashTimeline {
 private struct SplashFrame: View {
     let t: TimeInterval
     let timeline: SplashTimeline
+    let layout: SplashLayout
 
     /// The hand: four aces, as the old splash's four suits.
     private static let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
@@ -135,34 +195,35 @@ private struct SplashFrame: View {
     private static let angles: [Double] = [-24, -8, 8, 24]
 
     var body: some View {
-        GeometryReader { g in
-            let size = g.size
-            let logoW = AuthLogoImage.width(for: size)
-            let logoH = logoW / AuthLogoImage.aspect
-            let cardW = logoW * 0.26, cardH = cardW * 435 / 300
-            // the logo under the lamp's centre (the vignette's 36%), the hand below it
-            let logoY = size.height * 0.36
-            let fanY = logoY + logoH / 2 + Theme.Space.s6 + cardH / 2
-            let lamp = timeline.lamp(t), logo = timeline.logo(t)
-            ZStack {
-                Theme.Auth.room
-                AuthVignette().opacity(lamp)
-                ForEach(0..<SplashTimeline.cardCount, id: \.self) { i in
-                    let p = timeline.card(i, t)
-                    SplashCard(suit: Self.suits[i], width: cardW)
-                        // the pivot under the hand, as a hand is held
-                        .rotationEffect(.degrees(Self.angles[i] * p), anchor: UnitPoint(x: 0.5, y: 2.3))
-                        .scaleEffect(0.55 + 0.45 * p)
-                        .position(x: size.width / 2, y: logoY + (fanY - logoY) * p)
-                        .opacity(timeline.cardOpacity(i, t))
+        let size = layout.size, logoRect = layout.logo
+        let lamp = timeline.lamp(t), logo = timeline.logo(t), gather = timeline.gather(t)
+        let hand = timeline.handOpacity(t)
+        ZStack {
+            Theme.Auth.room
+            AuthVignette().opacity(lamp)
+            if hand > 0 {
+                ZStack {
+                    ForEach(0..<SplashTimeline.cardCount, id: \.self) { i in
+                        let p = timeline.card(i, t)
+                        SplashCard(suit: Self.suits[i], width: layout.cardWidth)
+                            // the pivot under the hand, as a hand is held; the fan closes as it is gathered
+                            .rotationEffect(.degrees(Self.angles[i] * p * (1 - gather)), anchor: UnitPoint(x: 0.5, y: 2.3))
+                            .scaleEffect((0.55 + 0.45 * p) * (1 - 0.08 * gather))
+                            .position(x: size.width / 2,
+                                      y: logoRect.midY + (layout.fanY - logoRect.midY) * p + Theme.Space.s4 * gather)
+                    }
                 }
-                AuthLogoImage(width: logoW)
-                    .scaleEffect(timeline.reduceMotion ? 1 : 0.94 + 0.06 * logo)
-                    .position(x: size.width / 2, y: logoY + (timeline.reduceMotion ? 0 : 10 * (1 - logo)))
-                    .opacity(logo)
+                .frame(width: size.width, height: size.height)
+                // one layer: the opaque cards never show through each other while the hand fades
+                .compositingGroup()
+                .opacity(hand)
             }
-            .frame(width: size.width, height: size.height)
+            AuthLogoImage(width: logoRect.width)
+                .scaleEffect(timeline.reduceMotion ? 1 : 0.94 + 0.06 * logo)
+                .position(x: logoRect.midX, y: logoRect.midY + (timeline.reduceMotion ? 0 : 10 * (1 - logo)))
+                .opacity(logo)
         }
+        .frame(width: size.width, height: size.height)
     }
 }
 

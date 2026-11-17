@@ -58,12 +58,13 @@ final class AuthSplashTests: XCTestCase {
             let tl = SplashTimeline(reduceMotion: reduceMotion)
             XCTAssertEqual(tl.lamp(0), 0)
             XCTAssertEqual(tl.logo(0), 0)
-            for i in 0..<SplashTimeline.cardCount { XCTAssertEqual(tl.cardOpacity(i, 0), 0, "card \(i)") }
+            XCTAssertEqual(tl.handOpacity(0), 0)
         }
     }
 
-    /// Never slower than the old splash (1.5 s + a 0.4 s fade), everything in place by the
-    /// hand-off, and Reduce Motion is only fades (the cards never move) and quicker.
+    /// Never slower than the old splash (1.5 s + a 0.4 s fade), the lamp and the logo in
+    /// place by the hand-off and the hand put away, and Reduce Motion is only fades (no hand)
+    /// and quicker.
     func testSplashTiming() {
         let full = SplashTimeline(reduceMotion: false), reduced = SplashTimeline(reduceMotion: true)
         XCTAssertLessThanOrEqual(full.total, 1.9)
@@ -71,19 +72,49 @@ final class AuthSplashTests: XCTestCase {
         for tl in [full, reduced] {
             XCTAssertEqual(tl.lamp(tl.finish), 1)
             XCTAssertEqual(tl.logo(tl.finish), 1)
-            for i in 0..<SplashTimeline.cardCount {
-                XCTAssertEqual(tl.card(i, tl.finish), 1)
-                XCTAssertEqual(tl.cardOpacity(i, tl.finish), 1)
-            }
+            // the hand never cross-fades over the sign-in's form
+            XCTAssertEqual(tl.handOpacity(tl.finish), 0, "the hand is gone by the hand-off")
         }
         let lastCard = SplashTimeline.dealStart + Double(SplashTimeline.cardCount - 1) * SplashTimeline.dealStagger + SplashTimeline.dealFlight
-        XCTAssertLessThan(lastCard, SplashTimeline.finish)
+        XCTAssertLessThan(lastCard, SplashTimeline.gatherStart, "the hand is down before it is gathered")
+        XCTAssertLessThanOrEqual(SplashTimeline.gatherStart + SplashTimeline.gatherDuration, SplashTimeline.finish)
         XCTAssertLessThan(SplashTimeline.logoStart + SplashTimeline.logoDuration, SplashTimeline.finish)
+        // the whole hand is up between the deal and the gathering
+        XCTAssertEqual(full.handOpacity(lastCard), 1)
+        XCTAssertEqual(full.gather(lastCard), 0)
+        XCTAssertEqual(full.gather(full.finish), 1)
         for t in stride(from: 0.0, through: reduced.finish, by: 0.05) {
+            XCTAssertEqual(reduced.handOpacity(t), 0, "Reduce Motion shows no hand")
             for i in 0..<SplashTimeline.cardCount { XCTAssertEqual(reduced.card(i, t), 1, "Reduce Motion moved a card") }
         }
         // the deal is staggered: the first card is down before the last one leaves
         XCTAssertGreaterThan(full.card(0, 0.4), full.card(3, 0.4))
+    }
+
+    /// The splash's logo stands exactly on the sign-in logo's frame (global, as measured under
+    /// the splash), whatever the splash's own origin; without one, at the sign-in's size.
+    func testSplashLogoIsTheSignInsLogo() {
+        let target = CGRect(x: 52.5, y: 118.25, width: 270, height: 270 / AuthLogoImage.aspect)
+        let full = SplashLayout(container: CGRect(x: 0, y: 0, width: 375, height: 667), logoTarget: target)
+        XCTAssertEqual(full.logo, target)
+        // a canvas whose origin is not the window's (an iPad window, a Duo pose)
+        let offset = SplashLayout(container: CGRect(x: 10, y: -20, width: 375, height: 667), logoTarget: target)
+        XCTAssertEqual(offset.logo, target.offsetBy(dx: -10, dy: 20))
+        XCTAssertGreaterThan(full.fanY - full.cardHeight / 2, target.maxY, "the hand is below the logo")
+        let none = SplashLayout(container: CGRect(x: 0, y: 0, width: 375, height: 667), logoTarget: nil)
+        XCTAssertEqual(none.logo.width, AuthLogoImage.width(for: CGSize(width: 375, height: 667)), accuracy: 0.01)
+        XCTAssertEqual(none.logo.midX, 187.5, accuracy: 0.01)
+        XCTAssertEqual(SplashLayout(container: CGRect(x: 0, y: 0, width: 375, height: 667), logoTarget: .zero).logo, none.logo)
+    }
+
+    /// Only the auth screens are laid out under the splash (the main room joins it on
+    /// appearing, a game starts voice: they still come in at the hand-off).
+    func testScreensUnderTheSplash() {
+        XCTAssertTrue(ContentView.drawsUnderSplash(.signIn))
+        XCTAssertTrue(ContentView.drawsUnderSplash(.register))
+        for screen in [AppState.Screen.mainRoom, .gameLobby, .tournamentLobby, .game] {
+            XCTAssertFalse(ContentView.drawsUnderSplash(screen), "\(screen)")
+        }
     }
 
     /// The emphasized curve: CSS cubic-bezier(0.2, 0.8, 0.2, 1), monotonic, fast out of the gate.
