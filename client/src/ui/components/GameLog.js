@@ -10,6 +10,7 @@ import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
+import { placeholderTeamNames } from './ScoreModal.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -49,16 +50,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   scoreSection.id = 'gameLogScore';  // Legacy ID
   scoreSection.className = 'log-score';
 
-  // My team (team A or B by my seat: setTeams) and the opponents
+  // My team (team A or B by my seat: setTeams) and the opponents; before
+  // the teams exist a spectator's are "Team 1" / "Team 2" (they have no team)
+  const placeholder = placeholderTeamNames(!!getGameState().isSpectator);
   const teamScoreDiv = document.createElement('div');
   teamScoreDiv.id = 'teamScoreDisplay';
   teamScoreDiv.className = 'log-score__team is-mine';
-  teamScoreDiv.append(line('log-score__names', 'Your Team'), line('log-score__value', '0', 'team-score-value'), line('log-score__detail', 'Tricks: 0', 'team-tricks-value'));
+  teamScoreDiv.append(line('log-score__names', placeholder.teamName), line('log-score__value', '0', 'team-score-value'), line('log-score__detail', 'Tricks: 0', 'team-tricks-value'));
 
   const oppScoreDiv = document.createElement('div');
   oppScoreDiv.id = 'oppScoreDisplay';
   oppScoreDiv.className = 'log-score__team is-opp';
-  oppScoreDiv.append(line('log-score__names', 'Opponents'), line('log-score__value', '0', 'opp-score-value'), line('log-score__detail', 'Tricks: 0', 'opp-tricks-value'));
+  oppScoreDiv.append(line('log-score__names', placeholder.oppName), line('log-score__value', '0', 'opp-score-value'), line('log-score__detail', 'Tricks: 0', 'opp-tricks-value'));
 
   // Hand indicator (between the two score displays)
   const handIndicator = document.createElement('div');

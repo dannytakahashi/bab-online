@@ -1868,7 +1868,7 @@ function initializeApp() {
       messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
 
       // Update game log score display
-      const { teamName, oppName } = getTeamNames(position, playerData);
+      const { teamName, oppName } = getTeamNames(position, playerData, { spectator: !!isSpectator });
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
 
       // Determine return flow: tournament game returns to tournament, normal game to main room.
