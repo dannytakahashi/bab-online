@@ -21,6 +21,10 @@
  * same way; the host (anyone present while the host is away) may give
  * either up with "Don't wait" (releaseLobbyHold). Add Bot stays hidden
  * while members + expected fill the table (the server refuses it then).
+ * A member back in the lobby whose app still shows the last game's results
+ * (`members[].onResults`: no Return to Lobby yet) reads "Still on the
+ * results" in the same style, never on one's own row and with no "Don't
+ * wait" (they are present and connected, and voice reaches them).
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
@@ -51,6 +55,9 @@ let reconnecting = new Set();
 // (expected, no row)
 let returning = new Set();
 let expected = [];
+// Members back in the lobby whose app still shows the last game's results
+// (members[].onResults)
+let onResults = new Set();
 // The family-lobby view of the last payload with `members` (null: a payload
 // without them, drawn as before): capacity, host, settings, and the counts
 // the Ready button reads
@@ -167,8 +174,10 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
     // every member carries its own held mark
     reconnecting = new Set(members.filter((m) => m.reconnecting).map((m) => m.username));
     returning = new Set(members.filter((m) => m.returning && !m.isBot).map((m) => m.username));
+    onResults = new Set(members.filter((m) => m.onResults && !m.isBot).map((m) => m.username));
   } else {
     returning = new Set();
+    onResults = new Set();
     if (Array.isArray(list)) reconnecting = new Set(list);
     if (returned) reconnecting.delete(returned);
   }
@@ -222,10 +231,15 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
     // play again: a place held for someone not back from the last game
     const notBack = !player.ready && !player.isBot && returning.has(player.username);
     if (notBack) row.dataset.returning = 'true';
+    // play again: back in the lobby, still reading the last game's results
+    // (never one's own row: this client is on the lobby screen)
+    const reading = !player.ready && !player.isBot && !notBack && !away &&
+      player.username !== currentUsername && onResults.has(player.username);
+    if (reading) row.dataset.onResults = 'true';
     if (role !== 'Sitting out') {
       side.appendChild(el('span', {
-        className: `seat-row__status${player.ready ? ' is-ready' : ''}${away || notBack ? ' is-reconnecting' : ''}${notBack ? ' is-returning' : ''}`,
-        text: player.ready ? '✓ Ready' : notBack ? 'Not back yet' : away ? 'Reconnecting…' : 'Waiting...',
+        className: `seat-row__status${player.ready ? ' is-ready' : ''}${away || notBack || reading ? ' is-reconnecting' : ''}${notBack || reading ? ' is-returning' : ''}`,
+        text: player.ready ? '✓ Ready' : notBack ? 'Not back yet' : away ? 'Reconnecting…' : reading ? 'Still on the results' : 'Waiting...',
       }));
     }
 
@@ -552,6 +566,7 @@ export function removeGameLobby() {
   lobbyUserColors = {};
   reconnecting = new Set();
   returning = new Set();
+  onResults = new Set();
   expected = [];
   lobbyView = null;
   lastMemberCount = 0;

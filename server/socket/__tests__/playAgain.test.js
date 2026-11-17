@@ -1009,7 +1009,7 @@ describe('a mixed game: the legacy player\'s wire', () => {
         const created = on.onJoin.filter((x) => x.event === 'lobbyCreated').map((x) => JSON.parse(x.json));
         expect(created).toHaveLength(1);
         expect(Object.keys(created[0])).toEqual(['lobbyId', 'players', 'messages', 'name']);
-        for (const x of on.onJoin) expect(x.json).not.toMatch(/"(returning|expected|members|lastGame)"/);
+        for (const x of on.onJoin) expect(x.json).not.toMatch(/"(returning|expected|members|lastGame|onResults)"/);
     });
 });
 
@@ -1104,5 +1104,227 @@ describe('the next start while someone still reads the last results', () => {
         const { game: g2 } = await startLobbyGame(w.io, socks);
         await toBidding(w.io, g2, socks);
         for (const s of socks) expect(w.to(s, 'leftLobby', mark)).toEqual([]);
+    });
+});
+
+// docs/BACKLOG.md (web review of PR E, finding 5): someone still reading the
+// last results looked like any member who is not ready
+describe('members[].onResults: "Still on the results"', () => {
+    const flagged = (data) => (data?.members || []).filter((m) => m.onResults).map((m) => m.socketId);
+    const plainUpdates = (w, s, from) => w.to(s, 'playerReadyUpdate', from)
+        .filter((l) => !('readySocketId' in l.data) && !('unreadySocketId' in l.data));
+
+    test('set at the return for every moved member (lobbyReturn, the wire), only in members', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        const ids = socks.map((s) => s.id);
+        for (const s of socks) expect(flagged(w.last(s, 'lobbyReturn'))).toEqual(ids);
+        const wire = gameManager.lobbyWire(back, {}, { to: socks[0].id });
+        expect(flagged(wire)).toEqual(ids);
+        // players (the frozen 4) never carries it
+        for (const p of wire.players) expect(p.onResults).toBeUndefined();
+        // a socket that is not a capable member gets no members at all
+        expect(gameManager.lobbyWire(back, {}, { to: 'someone-else' }).members).toBeUndefined();
+    });
+
+    test('lobbyReturnSeen clears it; the other capable members get one plain playerReadyUpdate without it, the settler nothing', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const mark = w.log.length;
+        playAgain.lobbyReturnSeen(socks[1], w.io);
+        expect(w.names(socks[1], mark)).toEqual([]);
+        for (const s of [socks[0], socks[2], socks[3]]) {
+            const got = w.to(s, 'playerReadyUpdate', mark);
+            expect(got).toHaveLength(1);
+            expect(Object.keys(got[0].data)).not.toContain('readySocketId');
+            expect(flagged(got[0].data)).toEqual([socks[0].id, socks[2].id, socks[3].id]);
+        }
+        // twice: nothing more
+        const again = w.log.length;
+        playAgain.lobbyReturnSeen(socks[1], w.io);
+        expect(w.log.slice(again).filter((l) => l.event === 'playerReadyUpdate')).toEqual([]);
+    });
+
+    test('an act in the lobby clears it: chat announces it; Ready and Unready carry it in their own update (no extra one); a refused act announces it', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        let mark = w.log.length;
+        lobbyHandlers.lobbyChat(socks[1], w.io, { message: 'again?' });
+        expect(plainUpdates(w, socks[0], mark)).toHaveLength(1);
+        expect(flagged(w.last(socks[0], 'playerReadyUpdate'))).toEqual([socks[0].id, socks[2].id, socks[3].id]);
+
+        mark = w.log.length;
+        await lobbyHandlers.playerReady(socks[2], w.io);
+        const ready = w.to(socks[0], 'playerReadyUpdate', mark);
+        expect(ready).toHaveLength(1);
+        expect(ready[0].data.readySocketId).toBe(socks[2].id);
+        expect(flagged(ready[0].data)).toEqual([socks[0].id, socks[3].id]);
+
+        // (socks[2] is settled by its Ready: Unready from a member still on
+        // its results is in the next test)
+        mark = w.log.length;
+        lobbyHandlers.playerUnready(socks[2], w.io);
+        expect(w.to(socks[0], 'playerReadyUpdate', mark)).toHaveLength(1);
+
+        // socks[3]: a refused talk-setting change (not the host) sends no list of its own
+        mark = w.log.length;
+        lobbyHandlers.setLobbySpectatorsCanTalk(socks[3], w.io, false);
+        expect(w.errors(socks[3])).toEqual(['Only the host can change this']);
+        expect(plainUpdates(w, socks[0], mark)).toHaveLength(1);
+        expect(flagged(w.last(socks[0], 'playerReadyUpdate'))).toEqual([socks[0].id]);
+        expect(w.to(socks[3], 'playerReadyUpdate', mark)).toEqual([]);
+        // an act from a settled member announces nothing
+        mark = w.log.length;
+        lobbyHandlers.lobbyChat(socks[3], w.io, { message: 'hi' });
+        expect(w.log.slice(mark).filter((l) => l.event === 'playerReadyUpdate')).toEqual([]);
+    });
+
+    test('every other first act from a member still on its results tells the others once: Unready (its own update), the joinLobby re-entry, refused Add Bot / Remove Bot / "Don\'t wait"', async () => {
+        const w = world();
+        const socks = names(6).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks.slice(0, 4));
+        const back = returnedLobby(w, socks[0]);
+        let remaining = socks.map((s) => s.id);
+        expect(flagged(gameManager.lobbyWire(back, {}, { to: socks[0].id }))).toEqual(remaining);
+        const others = (actor) => socks.filter((s) => s !== actor);
+        // each other member: exactly one playerReadyUpdate since `mark`, with `actor` no longer flagged
+        const toldOnce = (actor, mark, check = () => {}) => {
+            remaining = remaining.filter((id) => id !== actor.id);
+            for (const s of others(actor)) {
+                const got = w.to(s, 'playerReadyUpdate', mark);
+                expect(got).toHaveLength(1);
+                check(got[0].data);
+                expect(flagged(got[0].data)).toEqual(remaining);
+            }
+        };
+        const plain = (data) => {
+            expect(data).not.toHaveProperty('readySocketId');
+            expect(data).not.toHaveProperty('unreadySocketId');
+        };
+
+        // Unready (it was not ready): its own update carries the cleared flag, no extra one
+        let mark = w.log.length;
+        lobbyHandlers.playerUnready(socks[3], w.io);
+        expect(back.afterGame.unsettled.has(socks[3].id)).toBe(false);
+        toldOnce(socks[3], mark, (d) => expect(d.unreadySocketId).toBe(socks[3].id));
+
+        // the joinLobby re-entry (alreadySeated): the lobby to itself, one plain update to the others
+        mark = w.log.length;
+        mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        expect(gameManager.getPlayerLobby(socks[2].id)).toBe(back);
+        const created = w.to(socks[2], 'lobbyCreated', mark);
+        expect(created).toHaveLength(1);
+        expect(w.to(socks[2], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[2], mark, plain);
+        expect(flagged(created[0].data)).toEqual(remaining);
+
+        // refused "Don't wait" (not the host, the host present)
+        mark = w.log.length;
+        await playAgain.releaseLobbyHold(socks[1], w.io, { username: socks[5].data.username });
+        expect(w.errors(socks[1])).toEqual(['Only the host can do this']);
+        expect(w.to(socks[1], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[1], mark, plain);
+
+        // refused Add Bot (the table is full)
+        mark = w.log.length;
+        await lobbyHandlers.addBot(socks[0], w.io);
+        expect(w.errors(socks[0])).toEqual(['Lobby is full']);
+        expect(w.to(socks[0], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[0], mark, plain);
+
+        // refused Remove Bot (no such bot)
+        mark = w.log.length;
+        lobbyHandlers.removeBot(socks[4], w.io, { botSocketId: 'nobody' });
+        expect(w.errors(socks[4])).toEqual(['Bot not found in lobby']);
+        expect(w.to(socks[4], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[4], mark, plain);
+        expect(remaining).toEqual([socks[5].id]);
+
+        // the same acts again, all settled: nothing more
+        mark = w.log.length;
+        lobbyHandlers.playerUnready(socks[3], w.io);
+        mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        await lobbyHandlers.addBot(socks[0], w.io);
+        lobbyHandlers.removeBot(socks[4], w.io, { botSocketId: 'nobody' });
+        const extra = w.log.slice(mark).filter((l) => l.event === 'playerReadyUpdate' && !('unreadySocketId' in l.data));
+        expect(extra).toEqual([]);
+    });
+
+    test('a leave clears it (lobbyPlayerLeft\'s list; a later join is not on the results); a drop shows the hold, never onResults', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        let mark = w.log.length;
+        lobbyHandlers.leaveLobby(socks[3], w.io);
+        expect(back.afterGame.unsettled.has(socks[3].id)).toBe(false);
+        const left = w.to(socks[0], 'lobbyPlayerLeft', mark);
+        expect(left).toHaveLength(1);
+        expect(flagged(left[0].data)).toEqual([socks[0].id, socks[1].id, socks[2].id]);
+        // the same socket joins again from the main room: on the lobby screen
+        mainRoomHandlers.joinMainRoom(socks[3], w.io);
+        mainRoomHandlers.joinLobby(socks[3], w.io, { lobbyId: back.id });
+        expect(gameManager.getPlayerLobby(socks[3].id)).toBe(back);
+        expect(flagged(w.last(socks[0], 'lobbyPlayerJoined'))).toEqual([socks[0].id, socks[1].id, socks[2].id]);
+
+        // socks[2] drops while still on its results: a hold ("Not back yet")
+        mark = w.log.length;
+        await w.kill(socks[2]);
+        expect(gameManager.lobbyGrace.get(socks[2].id).kind).toBe('afterGame');
+        const update = w.to(socks[0], 'playerReadyUpdate', mark).pop().data;
+        const row = update.members.find((m) => m.socketId === socks[2].id);
+        expect(row).toMatchObject({ returning: true, reconnecting: true });
+        expect(row.onResults).toBeUndefined();
+        expect(flagged(update)).toEqual([socks[0].id, socks[1].id]);
+    });
+
+    test('a reload-held seat (PLAY_AGAIN_HOLD_MS=0) is reconnecting, never onResults; the same socket back in place, never off its results, is again', async () => {
+        process.env.PLAY_AGAIN_HOLD_MS = '0';
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        await w.kill(socks[1]);
+        const row = gameManager.lobbyExtrasWire(back).members[1];
+        expect(row.reconnecting).toBe(true);
+        expect(row.onResults).toBeUndefined();
+        expect(row.returning).toBeUndefined();
+        // a parked socket takes the session back (resumeHeldLobbySeat)
+        expect(gameManager.resumeHeldLobbySeat(socks[1].id, socks[1].data.username)).toBeTruthy();
+        expect(gameManager.lobbyExtrasWire(back).members[1].onResults).toBe(true);
+    });
+
+    test('legacy members never get it: their lobby events are the old payloads; only the capable ones are told', async () => {
+        const w = world();
+        const socks = ['full', 'full', 'legacy', 'legacy'].map((k, i) => w.user(`or${i}_${seq}`, k));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        // the legacy player taps Return and Join (the card)
+        mainRoomHandlers.joinMainRoom(socks[2], w.io);
+        const mark = w.log.length;
+        mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        expect(flagged(w.last(socks[0], 'lobbyPlayerJoined'))).toEqual([socks[0].id, socks[1].id]);
+        playAgain.lobbyReturnSeen(socks[1], w.io);
+        lobbyHandlers.lobbyChat(socks[0], w.io, { message: 'ok' });
+        await lobbyHandlers.playerReady(socks[2], w.io);
+        // the plain announcements went to the capable members only
+        const plain = w.log.slice(mark).filter((l) => l.event === 'playerReadyUpdate' &&
+            !('readySocketId' in l.data) && !('unreadySocketId' in l.data));
+        expect(plain.map((l) => l.to).sort()).toEqual([socks[0].id, socks[1].id].sort());
+        expect(flagged(plain.find((l) => l.to === socks[0].id).data)).toEqual([socks[0].id]);
+        // socks[2] (legacy) got its old events only
+        expect(w.received(socks[2], mark).length).toBeGreaterThan(0);
+        for (const x of w.received(socks[2], mark)) expect(x.json).not.toMatch(/"(onResults|members|returning|expected)"/);
     });
 });

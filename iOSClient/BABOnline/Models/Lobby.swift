@@ -141,6 +141,10 @@ struct LobbyPlayer: Identifiable, Equatable {
     /// A place held for someone not back from the last game yet (`members[].returning`, play
     /// again, 1.2.3): a row with no socket ("Not back yet"; "Don't wait for <name>").
     var returning: Bool = false
+    /// Back in the lobby, connected, but the app still shows the last game's results
+    /// (`members[].onResults`, play again; the server's afterGame.unsettled: no
+    /// lobbyReturnSeen yet): "Still on the results" on the others' screens.
+    var onResults: Bool = false
 
     static func from(_ dict: [String: Any]) -> LobbyPlayer? {
         guard let username = dict["username"] as? String else { return nil }
@@ -149,7 +153,14 @@ struct LobbyPlayer: Identifiable, Equatable {
         let isReady = dict["isReady"] as? Bool ?? dict["ready"] as? Bool ?? false
         let isBot = dict["isBot"] as? Bool ?? false
         return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot,
-                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true)
+                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true,
+                           onResults: dict["onResults"] as? Bool == true)
+    }
+
+    /// The row says "Still on the results": someone else's human row, not ready, not held
+    /// (a held row says "Not back yet" or "Reconnecting…").
+    func showsOnResults(isCurrentUser: Bool, isReconnecting: Bool) -> Bool {
+        onResults && !isCurrentUser && !isBot && !isReady && !returning && !isReconnecting
     }
 }
 

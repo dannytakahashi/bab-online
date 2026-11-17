@@ -220,6 +220,10 @@ enum UIFixture {
     /// `LobbyReturn.gameEndWait`. releaseLobbyHold shows in "fixture.sent" as
     /// `releaseLobbyHold:<name>` and the place goes 0.3 s later, as the server's list does.
     static let lobbyReturnMode: String? = isActive ? UserDefaults.standard.string(forKey: "uiLobbyReturn") : nil
+    /// `-uiOnResults YES` with `-uiLobbyReturn`: the second other player (kim) and I still read
+    /// the results (`members[].onResults`, as the server sends every moved row at the return):
+    /// kim's row says "Still on the results", mine never does.
+    static let onResultsMode = isActive && UserDefaults.standard.bool(forKey: "uiOnResults")
 
     @MainActor
     private static func seedLobbyReturn(gameId: String, me: String, seats: [String], _ store: GameState, _ appState: AppState,
@@ -227,9 +231,11 @@ enum UIFixture {
         fixtureLobby = lobby
         let others = Array(seats.filter { $0 != me }.prefix(2))
         var members: [[String: Any]] = [["socketId": "sid-\(me)", "username": me, "ready": false, "playing": true]]
+        if onResultsMode { members[0]["onResults"] = true }
         for (i, u) in others.enumerated() {
             var m: [String: Any] = ["socketId": i == 0 ? "away:fixture-\(u)" : "sid-\(u)", "username": u, "ready": false, "playing": true]
             if i == 0 { m["reconnecting"] = true; m["returning"] = true }
+            if i == 1, onResultsMode { m["onResults"] = true }
             members.append(m)
         }
         members.append(["socketId": "bot:fixture-1", "username": "\u{1F916} Bot", "ready": false, "playing": false, "isBot": true])

@@ -173,7 +173,11 @@ const defs = {
         // Play again (additive 2026-11-16): a place held for someone not
         // back from the last game yet (a row with no socket: `away:` id)
         returning: konst(true),
-    }, { optional: ['isBot', 'reconnecting', 'returning'] }),
+        // Play again (additive 2026-11-16): a moved member, mapped and
+        // connected, whose app still shows the last game's results (no
+        // lobbyReturnSeen nor any act in the lobby yet): "Still on the results"
+        onResults: konst(true),
+    }, { optional: ['isBot', 'reconnecting', 'returning', 'onResults'] }),
     // The host's lobby settings (2026-11-16): "Spectators can talk", default on
     lobbySettings: obj({ spectatorsCanTalk: bool() }),
     // serverError.code (V1_REMOVALS #1 phase A): one list with the server

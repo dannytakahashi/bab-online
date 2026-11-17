@@ -77,6 +77,23 @@ final class PlayAgainUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Add Bot"].exists, "3 members, nobody expected: Add Bot again")
     }
 
+    /// kim is back in the lobby but still on the results (`members[].onResults`): the row says
+    /// so in the "Not back yet" style, with no "Don't wait"; my own row never does.
+    func testSomeoneStillOnTheResultsSaysSo() {
+        let app = Fixture.launch("game-end", extra: ["-uiLobbyReturn", "YES", "-uiOnResults", "YES"])
+        XCTAssertTrue(app.buttons["Return to Lobby"].waitForExistence(timeout: 20))
+        app.buttons["Return to Lobby"].tap()
+        XCTAssertTrue(any(app, "screen.gameLobby").waitForExistence(timeout: 5))
+        let onResults = app.staticTexts.matching(identifier: "lobby.onResults")
+        XCTAssertTrue(onResults.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertEqual(onResults.count, 1, "kim's row only, never mine")
+        XCTAssertEqual(onResults.firstMatch.label, "Still on the results")
+        XCTAssertEqual(app.staticTexts.matching(identifier: "lobby.returning").count, 1, "ivy's place is still \"Not back yet\"")
+        XCTAssertFalse(app.buttons["lobby.dontWait.kim"].exists, "kim is present: no \"Don't wait\"")
+        XCTAssertTrue(app.buttons["lobby.dontWait.ivy"].exists)
+        keep("play-again-still-on-results")
+    }
+
     func testASpectatorsResultsStayToo() {
         let app = Fixture.launch("game-end-spectator", extra: ["-uiLobbyReturn", "YES"])
         assertResultsStay(app, title: "Game Over")
