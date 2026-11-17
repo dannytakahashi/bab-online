@@ -1,5 +1,6 @@
 import XCTest
 import SocketIO
+@preconcurrency import WebRTC
 @testable import BAB_Online
 
 /// Play again (owner 2026-11-16; iOS 1.2.3, build 12; server/socket/playAgain.js): at the end
@@ -10,6 +11,31 @@ import SocketIO
 @MainActor
 final class PlayAgainTests: XCTestCase {
     private let lobbyId = "00000000-0000-4000-8000-0000000000aa"
+
+    /// lobbyReturnSeen sends and the VoiceOver announcement, recorded instead of sent / spoken.
+    private var seen = 0
+    private var later: [(delay: TimeInterval, work: @MainActor () -> Void)] = []
+    private var spoken: [AttributedString] = []
+    private var managers: [VoiceChatManager] = []
+    private var restoreHooks: (() -> Void)?
+
+    override func setUp() async throws {
+        let send = LobbyReturn.sendSeen, announce = LobbyReturn.announceLater, post = LobbyReturn.post
+        restoreHooks = { LobbyReturn.sendSeen = send; LobbyReturn.announceLater = announce; LobbyReturn.post = post }
+        seen = 0
+        later = []
+        spoken = []
+        LobbyReturn.sendSeen = { [unowned self] in self.seen += 1 }
+        LobbyReturn.announceLater = { [unowned self] delay, work in self.later.append((delay, work)) }
+        LobbyReturn.post = { [unowned self] text in self.spoken.append(text) }
+    }
+
+    override func tearDown() async throws {
+        restoreHooks?()
+        restoreHooks = nil
+        for m in managers { m.shutdown() }
+        managers = []
+    }
 
     /// jon's table (seat 4 of hand-resolving) on screen, the last hand resolving; `ended`: its
     /// gameEnd applied (GameEndView up).
@@ -145,6 +171,126 @@ final class PlayAgainTests: XCTestCase {
         receive(lobbyReturn(gameId: "g-old"), lobby, app, store)
         XCTAssertEqual(app.screen, .gameLobby)
         XCTAssertFalse(lobby.carriesVoice)
+    }
+
+    // MARK: - The server is told; VoiceOver hears it once the lobby is up (review 2026-11-16)
+
+    func testReturnTellsTheServerAndAnnouncesOnceTheLobbyIsUp() throws {
+        let (store, app, gameId) = try table(ended: true)
+        let lobby = LobbyState()
+        receive(lobbyReturn(gameId: gameId), lobby, app, store)
+        XCTAssertEqual(seen, 0, "on the results the server is told nothing: the person is still reading them")
+        XCTAssertTrue(later.isEmpty)
+
+        XCTAssertTrue(LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store))
+        XCTAssertEqual(seen, 1, "Return to Lobby: lobbyReturnSeen (the server settles this socket)")
+        XCTAssertTrue(spoken.isEmpty, "not in the tick that changes the screen (the lobby is not up yet)")
+        XCTAssertEqual(later.map(\.delay), [LobbyReturn.announceDelay])
+        XCTAssertGreaterThan(LobbyReturn.announceDelay, 0.3, "after ContentView's 0.3 s screen animation")
+        later[0].work()
+        XCTAssertEqual(spoken.count, 1)
+        XCTAssertEqual(String(spoken[0].characters), LobbyReturn.backInText("Family night"))
+        XCTAssertEqual(spoken[0].accessibilitySpeechAnnouncementPriority, .high,
+                       "VoiceOver's speech for the new screen must not cut it off")
+    }
+
+    func testNoAnnouncementOnceTheLobbyWentAgain() throws {
+        let (store, app, gameId) = try table(ended: true)
+        let lobby = LobbyState()
+        receive(lobbyReturn(gameId: gameId), lobby, app, store)
+        LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store)
+        LobbySocketHandler.applyLeftLobby(lobbyState: lobby, appState: app)  // gone within the delay
+        later.forEach { $0.work() }
+        XCTAssertTrue(spoken.isEmpty)
+    }
+
+    func testEveryWayIntoTheLobbyTellsTheServer() throws {
+        // no gameEnd within 5 s
+        let (store, app, gameId) = try table(ended: false)
+        let lobby = LobbyState()
+        var waited: [() -> Void] = []
+        receive(lobbyReturn(gameId: gameId), lobby, app, store, scheduled: { _, work in waited.append(work) })
+        XCTAssertEqual(seen, 0)
+        waited[0]()
+        XCTAssertEqual(seen, 1)
+        // a lobbyReturn at the main room
+        let app2 = AppState(), store2 = GameState(), lobby2 = LobbyState()
+        app2.screen = .mainRoom
+        receive(lobbyReturn(gameId: "g1"), lobby2, app2, store2)
+        XCTAssertEqual(seen, 2)
+        // the main room's way (no return kept) sends nothing of the kind
+        XCTAssertFalse(LobbyReturn.enterOnReturn(lobbyState: LobbyState(), appState: app, gameState: store))
+        XCTAssertEqual(seen, 2)
+    }
+
+    // MARK: - Voice from the table into the lobby, through GameScreen's onDisappear path
+
+    private func manager() -> VoiceChatManager {
+        let m = VoiceChatManager(hooks: .init(requestRecordPermission: { true }, configureAudioSession: {},
+                                              sendOffer: { _, _, _ in }, sendAnswer: { _, _ in }),
+                                 iceStore: IceServerStore(timeout: 0.05, emit: { _ in }))
+        managers.append(m)
+        return m
+    }
+
+    private func waitUntil(_ what: String, timeout: TimeInterval = 10, _ condition: () -> Bool) async throws {
+        let end = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > end { return XCTFail("timed out: \(what)") }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// A running session with a call (real RTCPeerConnection): Return to Lobby, then the table's
+    /// onDisappear (`LobbyReturn.tableGone`, what GameScreen runs) keeps the session and the call,
+    /// in talk mode. The next way off a table (the flag is spent) shuts it down as before.
+    func testVoiceAndItsCallsCarryIntoTheLobby() async throws {
+        let (store, app, gameId) = try table(ended: true)
+        let lobby = LobbyState()
+        let voice = manager()
+        try await voice.initialize()
+        voice.settings = VoiceSettings(gameId: gameId, host: "ivy", spectatorsCanTalk: false, role: .player, canTalk: true, canChange: false)
+        voice.connectToPeer("sid-ivy", username: "ivy")
+        try await waitUntil("the call to ivy") { voice.signalingState(of: "sid-ivy") != nil }
+        receive(lobbyReturn(gameId: gameId), lobby, app, store)
+        XCTAssertTrue(voice.isActive, "the results keep voice running")
+
+        XCTAssertTrue(LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store, voice: voice))
+        LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
+        XCTAssertTrue(voice.isActive, "not shut down on the way into the lobby")
+        XCTAssertNotNil(voice.signalingState(of: "sid-ivy"), "the call to ivy is kept (the server sends no new peer list)")
+        XCTAssertNil(voice.settings, "lobby talk mode")
+        XCTAssertTrue(voice.talkAllowed)
+
+        // later, off a table some other way: shut down
+        app.screen = .mainRoom
+        LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
+        XCTAssertFalse(voice.isActive)
+        XCTAssertNil(voice.signalingState(of: "sid-ivy"))
+    }
+
+    /// Signals buffered while the session was not up yet stay buffered into the lobby; a stray
+    /// lobbyCreated (no return) or a missing link still shuts down and drops them.
+    func testBufferedSignalsCarryButAStrayLobbyCreatedShutsDown() throws {
+        let (store, app, gameId) = try table(ended: true)
+        let lobby = LobbyState()
+        let voice = manager()
+        voice.connectToPeer("sid-kim", username: "kim")  // the peer list came before the session was up
+        XCTAssertEqual(voice.bufferedCount, 1)
+        receive(lobbyReturn(gameId: gameId), lobby, app, store)
+        LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store, voice: voice)
+        LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
+        XCTAssertEqual(voice.bufferedCount, 1, "kept for the lobby's start (GameLobbyView.startVoice)")
+
+        // a stray lobbyCreated while at a table: the lobby screen, no flag
+        app.screen = .gameLobby
+        LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
+        XCTAssertEqual(voice.bufferedCount, 0, "shut down: the game's signals never reach that lobby")
+        // no LobbyState in the environment (LobbyStateLink nil): shut down as before 1.2.3
+        voice.connectToPeer("sid-kim", username: "kim")
+        lobby.carriesVoice = true
+        LobbyReturn.tableGone(lobbyState: nil, appState: app, voice: voice)
+        XCTAssertEqual(voice.bufferedCount, 0)
     }
 
     // MARK: - gameEnd still in the seq gate
@@ -296,6 +442,7 @@ final class PlayAgainTests: XCTestCase {
         XCTAssertTrue(ClientHello.caps.contains("playAgain"))
         XCTAssertEqual(SocketEvents.Server.lobbyReturn, "lobbyReturn")
         XCTAssertEqual(SocketEvents.Client.releaseLobbyHold, "releaseLobbyHold")
+        XCTAssertEqual(SocketEvents.Client.lobbyReturnSeen, "lobbyReturnSeen")
     }
 }
 
@@ -375,6 +522,42 @@ final class PlayAgainSocketTests: XCTestCase {
         service.connect()
         wait("in the lobby") { self.app.screen == .gameLobby && self.lobby.lobbyId == Self.lobbyId }
         XCTAssertEqual(lobby.lobbyName, "Family night")
+        wait("lobbyReturnSeen on the wire") { self.server.events.contains { $0.name == "lobbyReturnSeen" } }
+    }
+
+    /// On the results with a lobby kept behind them, connected: nothing goes out until Return to
+    /// Lobby, which sends lobbyReturnSeen (the server settles the socket: playAgain.settle) and
+    /// nothing else (no joinMainRoom, no joinLobby).
+    @MainActor
+    func testReturnToLobbySendsLobbyReturnSeen() throws {
+        app.screen = .mainRoom
+        server.replies = { name, _ in
+            name == "restoreSession" ? [("restoreSessionResponse", ["success": true, "username": "jon", "blockedUsers": []])] : []
+        }
+        service.serverURLOverride = server.url
+        service.connect()
+        wait("the restore's joinMainRoom") { self.server.events.contains { $0.name == "joinMainRoom" } }
+
+        let snap = try TableSnapshot.decode(try FixtureLoader.v2Snapshot("hand-resolving"), strict: true)
+        store.apply(.snapshot(snap, .rejoin, hints: nil))
+        let gameId = try XCTUnwrap(store.gameId)
+        _ = store.apply(serverEvent: "gameEnd", payload: [["score": ["team1": 3, "team2": 1], "playerStats": [String: Any](),
+                                                           "tournamentId": NSNull(), "seq": snap.seq + 1] as [String: Any]])
+        app.screen = .game
+        LobbyReturn.receive(Self.lobbyPayload(extra: ["lastGame": ["gameId": gameId, "score": ["team1": 3, "team2": 1],
+                                                                   "playerStats": [String: Any](), "position": 4]]),
+                            lobbyState: lobby, appState: app, gameState: store, isBlocked: { _ in false })
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertFalse(server.events.contains { $0.name == "lobbyReturnSeen" }, "still on the results")
+        let before = server.events.count
+
+        XCTAssertTrue(LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store, voice: VoiceChatManager()))
+        wait("lobbyReturnSeen") { self.server.events.contains { $0.name == "lobbyReturnSeen" } }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let sent = server.events.dropFirst(before).map(\.name)
+        XCTAssertEqual(sent.filter { $0 == "lobbyReturnSeen" }.count, 1)
+        XCTAssertFalse(sent.contains("joinMainRoom") || sent.contains("joinLobby"), "the server has this socket in the lobby already")
+        XCTAssertEqual(app.screen, .gameLobby)
     }
 
     /// A restore on the score screen that kept a lobby: that was the old socket's, so it is

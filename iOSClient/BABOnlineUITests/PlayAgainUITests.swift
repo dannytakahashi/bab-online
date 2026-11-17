@@ -57,6 +57,8 @@ final class PlayAgainUITests: XCTestCase {
         XCTAssertTrue(any(app, "lobby.expected.grandpa").label.contains("Not back yet"))
         XCTAssertFalse(app.buttons["Add Bot"].exists, "4 members and one expected: no bot")
         XCTAssertEqual(app.buttons["Ready"].label, "Ready", "nobody is ready after a game")
+        XCTAssertEqual(Fixture.probe(app, "fixture.sent").components(separatedBy: "|").filter { $0 == "lobbyReturnSeen" }.count, 1,
+                       "Return told the server the results were left (lobbyReturnSeen), once")
         keep("play-again-lobby")
 
         // the host may stop waiting: ivy's hold, then grandpa's reservation
@@ -81,6 +83,7 @@ final class PlayAgainUITests: XCTestCase {
         app.buttons["Return to Lobby"].tap()
         XCTAssertTrue(any(app, "screen.gameLobby").waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Family night"].exists)
+        XCTAssertTrue(Fixture.probe(app, "fixture.sent").contains("lobbyReturnSeen"))
         XCTAssertEqual(app.staticTexts.matching(identifier: "lobby.returning").count, 1, "ivy's place held")
         XCTAssertTrue(any(app, "lobby.expected.grandpa").exists)
     }
@@ -90,6 +93,7 @@ final class PlayAgainUITests: XCTestCase {
         XCTAssertTrue(any(app, "gameEnd").waitForExistence(timeout: 20))
         app.buttons["Return to Lobby"].tap()
         XCTAssertTrue(any(app, "screen.mainRoom").waitForExistence(timeout: 5), "today's way: the main room")
+        XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("lobbyReturnSeen"))
     }
 
     func testNoGameEndInTimeEntersTheLobby() {
@@ -100,5 +104,6 @@ final class PlayAgainUITests: XCTestCase {
         XCTAssertTrue(lobby.waitForExistence(timeout: 30), "into the lobby after LobbyReturn.gameEndWait")
         XCTAssertFalse(any(app, "gameEnd").exists, "no score screen ever showed")
         XCTAssertTrue(app.staticTexts["Family night"].exists)
+        XCTAssertTrue(Fixture.probe(app, "fixture.sent").contains("lobbyReturnSeen"), "its own entry tells the server too")
     }
 }

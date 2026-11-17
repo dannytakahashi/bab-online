@@ -2816,6 +2816,25 @@
       ],
       "notes": "New (2026-11-16, play again). Sent by iOS from 1.2.3 (build 12): \"Don't wait for <name>\" on a returning row or an expected name of the lobby (GameLobbyView; LobbyEmitter.releaseLobbyHold), shown to the host, or to anyone present while the host is held. The web sends it from its play-again PR (web: false until then). \"Don't wait for <name>\" in a lobby reopened after a game (server/socket/playAgain.js): releases that user's hold (a row marked members[].returning) or reservation (expected) at once, as its expiry would: a leave that keeps everyone's ready flags. The lobby host only; while the host is away (held), any present member. Anyone else, a socket in no lobby, or a name with nothing held: serverError {code: 'rejected'}. Wrapper limit 10 / 30 s per socket."
     },
+    "lobbyReturnSeen": {
+      "payload": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": true
+      },
+      "optionalPayload": true,
+      "status": "active",
+      "joi": null,
+      "rateLimit": "lobbyReturnSeen",
+      "sentBy": {
+        "web": false,
+        "ios": true
+      },
+      "examples": [
+        {}
+      ],
+      "notes": "New (2026-11-16, play again; additive). Sent by iOS from 1.2.3 (build 12) when the person leaves the last game's results for the lobby lobbyReturn kept behind them (GameEndView Return to Lobby -> LobbyReturn.enter; also its own entry when that game's gameEnd never applied within 5 s, or a lobbyReturn that arrived off the table). The web sends it from its play-again PR (web: false until then). The results stay up until that tap (owner 2026-11-16), so without it the server cannot tell the score screen from the lobby screen: the socket stays in lobby.afterGame.unsettled until it acts in the lobby. Settles it (server/socket/playAgain.js lobbyReturnSeen -> settle): a later drop is the ordinary 30 s reload grace (no \"Not back yet\" hold), another socket of the same user no longer takes the seat on its joinMainRoom (autoClaimTarget), and at the next start it is an extra like any member (an unsettled one gets leftLobby instead of spectatorJoined: GameManager.startGameFromLobby onResults, playAgain.leftOnResults). No reply; a socket in no lobby changes nothing. Wrapper limit 10 / 30 s per socket."
+    },
     "removeBot": {
       "payload": {
         "type": "object",
@@ -5582,7 +5601,8 @@
       "emittedFrom": [
         "server/socket/lobbyHandlers.js:leaveLobby",
         "server/socket/lobbyHandlers.js:releaseStaleLobbySeat",
-        "server/socket/upgradeGate.js:replyLeave"
+        "server/socket/upgradeGate.js:replyLeave",
+        "server/socket/playAgain.js:leftOnResults"
       ]
     },
     "playerReadyUpdate": {
@@ -10537,7 +10557,8 @@
         "server/voice/gameVoice.js:runBackstop",
         "server/voice/gameVoice.js:endBlockedCall",
         "server/socket/playAgain.js:voiceAtReturn",
-        "server/socket/playAgain.js:endLingeringEntry"
+        "server/socket/playAgain.js:endLingeringEntry",
+        "server/socket/playAgain.js:leftOnResults"
       ],
       "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)) and, since 2026-11-16, a game's voice peers: a voice spectator leaving (to the members, never the room), an entrant dropping or leaving during the draw, a demoted owner socket (watchSeat, both ways), a blocked pair (both ways), the spectator talk switch and its backstop (server/voice/gameVoice.js). Play again (2026-11-16, server/socket/playAgain.js), private, both ways: at a lobby-born game's end between the members moved back to the lobby and every other socket of the game's voice room (main-room spectators, owners not moved) except an older-app owner still on the score screen, whose calls with them linger until it leaves that screen (joinMainRoom, another entry point, a disconnect) or the lobby starts or goes. Every shipped iOS build only drops the peer on a private one.",
       "added": [

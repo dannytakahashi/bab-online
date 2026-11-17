@@ -474,12 +474,59 @@ function autoClaimTarget(username, socketId) {
 }
 
 /**
- * `socketId` did something in its lobby (Ready, Unready, chat, Add / Remove
- * Bot, the talk setting, "Don't wait"): it is on the lobby screen, so a
- * later drop is an ordinary reload (the 30 s grace), not a hold.
+ * `socketId` is on the lobby screen: it entered the lobby (c2s
+ * lobbyReturnSeen) or did something there (Ready, Unready, chat, Add /
+ * Remove Bot, the talk setting, "Don't wait"). A later drop is an ordinary
+ * reload (the 30 s grace), not a hold; another socket's joinMainRoom no
+ * longer takes its seat (autoClaimTarget); at the next start it is an
+ * extra like any member (GameManager.startGameFromLobby).
  */
 function settle(socketId) {
     gameManager.getPlayerLobby(socketId)?.afterGame?.unsettled.delete(socketId);
+}
+
+/**
+ * c2s lobbyReturnSeen (no payload; iOS 1.2.3 build 12): the person left the
+ * last game's results for the lobby lobbyReturn put them in (Return to
+ * Lobby; also the client's own entry when that game's gameEnd never came,
+ * or a lobbyReturn that arrived off the table). The results stay up until
+ * that tap (owner 2026-11-16), so until then the server cannot tell the
+ * score screen from the lobby screen. Settles the socket; nothing is sent
+ * back, and a socket in no lobby (or long settled) changes nothing.
+ */
+function lobbyReturnSeen(socket) {
+    settle(socket.id);
+}
+
+/**
+ * GameManager.startGameFromLobby left out `onResults`: members moved back at
+ * the last game's end whose client still shows its results (unsettled).
+ * They are not made extras (a spectatorJoined would replace the results);
+ * each gets leftLobby (iOS keeps the results and its Return goes to the
+ * main room, LobbySocketHandler.applyLeftLobby) and its calls with the new
+ * game's table, its extras and each other end (private voicePeerLeft both
+ * ways): they are in no voice room now, and must not hear the next game.
+ */
+function leftOnResults(io, startResult) {
+    const left = startResult?.onResults || [];
+    if (!io || left.length === 0) return;
+    guarded('leftOnResults', () => {
+        const stayed = [
+            ...(startResult.players || []).filter((sid) => !gameManager.isBot(sid)),
+            ...(startResult.extras || []).map((e) => e.socketId),
+        ];
+        left.forEach(({ socketId }, i) => {
+            io.to(socketId).emit('leftLobby', {});
+            const peers = [...stayed, ...left.slice(i + 1).map((l) => l.socketId)];
+            for (const sid of peers) {
+                io.to(socketId).emit('voicePeerLeft', { socketId: sid });
+                io.to(sid).emit('voicePeerLeft', { socketId });
+            }
+        });
+        socketLogger.info('Play again: members still on the results left out of the next game', {
+            gameId: startResult.game?.gameId, left: left.length,
+        });
+    });
 }
 
 /**
@@ -707,6 +754,8 @@ module.exports = {
     offlineHoldFor,
     autoClaimTarget,
     settle,
+    lobbyReturnSeen,
+    leftOnResults,
     holdOnDrop,
     releaseHold,
     dropReservations,

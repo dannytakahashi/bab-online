@@ -349,6 +349,8 @@ enum UIFixture {
             message = "addBot"
         case SocketEvents.Client.blockUser, SocketEvents.Client.unblockUser, SocketEvents.Client.reportUser:
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
+        case SocketEvents.Client.lobbyReturnSeen:
+            message = "lobbyReturnSeen"
         case SocketEvents.Client.releaseLobbyHold:
             let username = data["username"] as? String ?? "-"
             message = "releaseLobbyHold:\(username)"

@@ -73,6 +73,8 @@ class RateLimiter {
             returnToTournament: { max: 10, windowMs: 30000 },
             // "Don't wait for <name>" in a play-again lobby (host): one per tap
             releaseLobbyHold: { max: 10, windowMs: 30000 },
+            // Play again: Return to Lobby off the results (one per return)
+            lobbyReturnSeen: { max: 10, windowMs: 30000 },
             spectateTournament: { max: 10, windowMs: 60000 },
             spectateTournamentGame: { max: 10, windowMs: 60000 },
             cancelTournament: { max: 10, windowMs: 60000 },

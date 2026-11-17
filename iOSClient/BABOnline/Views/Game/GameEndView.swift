@@ -6,7 +6,8 @@ import SwiftUI
 struct GameEndView: View {
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var lobbyState: LobbyState
+    /// Read only in Return to Lobby, so not observed (LobbyStateLink).
+    @Environment(\.lobbyStateLink) private var lobbyLink
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var hSize
 
@@ -123,7 +124,8 @@ struct GameEndView: View {
         let savedTournamentId = gameState.tournamentId
         // play again (1.2.3): this game's end moved me back into its lobby, kept behind
         // these results until now (LobbyReturn); the server has me there already
-        if savedTournamentId == nil, LobbyReturn.enterOnReturn(lobbyState: lobbyState, appState: appState, gameState: gameState) {
+        if savedTournamentId == nil, let lobbyState = lobbyLink.state,
+           LobbyReturn.enterOnReturn(lobbyState: lobbyState, appState: appState, gameState: gameState) {
             return
         }
         gameState.reset()

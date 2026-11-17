@@ -63,7 +63,8 @@ private struct GameScreen: View {
 
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var lobbyState: LobbyState
+    /// Read only in onDisappear, so not observed (LobbyStateLink).
+    @Environment(\.lobbyStateLink) private var lobbyLink
     @EnvironmentObject var actions: ActionCoordinator
 
     @State private var scene: GameSKScene = {
@@ -234,9 +235,7 @@ private struct GameScreen: View {
             scene.cleanupAll()
             // play again (1.2.3): off to the lobby this game's end returned me to, voice
             // carries on (the server kept those calls); any other way off the table ends it
-            if !LobbyReturn.keepsVoice(lobbyState: lobbyState, appState: appState) {
-                VoiceChatManager.shared.shutdown()
-            }
+            LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
         }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet(watching: Set(gameState.watching.spectators.map(\.username)),

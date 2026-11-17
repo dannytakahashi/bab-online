@@ -59,6 +59,13 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.releaseLobbyHold, ["username": username])
     }
 
+    /// Play again (1.2.3): the person left the last game's results for the lobby the server
+    /// moved this socket into at the game's end (`LobbyReturn.enter`). No reply. An empty
+    /// payload, so fixture mode records it ("fixture.sent").
+    static func lobbyReturnSeen() {
+        socket.emit(SocketEvents.Client.lobbyReturnSeen, [:])
+    }
+
     static func joinAsSpectator(gameId: String) {
         socket.emit(SocketEvents.Client.joinAsSpectator, ["gameId": gameId])
     }

@@ -318,7 +318,9 @@ describe('at gameEnd: the capable players are back in the same lobby', () => {
             expect(gameManager.spectatorGames.has(s.id)).toBe(false);
         }
         expect(w.last(socks[5], 'lobbyReturn').capacity).toBe(8);
-        // Next game: the first 4 to tap Ready play (extras 0 and 1 this time)
+        // Next game: the first 4 to tap Ready play (extras 0 and 1 this time);
+        // the other two left their results for the lobby (Return to Lobby)
+        for (const s of socks.slice(2, 4)) playAgain.lobbyReturnSeen(s);
         const order = [socks[4], socks[5], socks[0], socks[1]];
         const g2 = await playLobbyGame(w.io, order);
         expect(g2.gameId).not.toBe(game.gameId);
@@ -998,5 +1000,99 @@ describe('a mixed game: the legacy player\'s wire', () => {
         expect(created).toHaveLength(1);
         expect(Object.keys(created[0])).toEqual(['lobbyId', 'players', 'messages', 'name']);
         for (const x of on.onJoin) expect(x.json).not.toMatch(/"(returning|expected|members|lastGame)"/);
+    });
+});
+
+// Review 2026-11-16 (PR F): the results stay up until Return to Lobby, so
+// the client says when it leaves them (c2s lobbyReturnSeen)
+describe('lobbyReturnSeen: the person left the results for the lobby', () => {
+    test('a drop after it is the ordinary 30 s reload grace (no "Not back yet"), and another device\'s joinMainRoom is the main room', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const back = returnedLobby(w, socks[0]);
+        expect(back.afterGame.unsettled.has(socks[1].id)).toBe(true);
+        const mark = w.log.length;
+        playAgain.lobbyReturnSeen(socks[1]);
+        expect(back.afterGame.unsettled.has(socks[1].id)).toBe(false);
+        expect(w.names(socks[1], mark)).toEqual([]);
+        // the same user on a second device: its joinMainRoom leaves the seat alone
+        const ipad = w.user(socks[1].data.username, 'full', { join: false });
+        const at = w.log.length;
+        mainRoomHandlers.joinMainRoom(ipad, w.io);
+        expect(w.to(ipad, 'mainRoomJoined', at)).toHaveLength(1);
+        expect(w.to(socks[1], 'leftLobby', at)).toEqual([]);
+        expect(back.players[1].socketId).toBe(socks[1].id);
+        // and a drop is a reload: 30 s, no returning row
+        await w.kill(socks[1]);
+        expect(gameManager.lobbyGrace.get(socks[1].id).kind).toBeUndefined();
+        expect(gameManager.lobbyExtrasWire(back).members[1].returning).toBeUndefined();
+        // still unsettled: a drop is a play-again hold
+        await w.kill(socks[2]);
+        expect(gameManager.lobbyGrace.get(socks[2].id).kind).toBe('afterGame');
+    });
+
+    test('off a lobby, or twice, it changes nothing', async () => {
+        const w = world();
+        const s = w.user(names(1)[0]);
+        const mark = w.log.length;
+        playAgain.lobbyReturnSeen(s);
+        playAgain.lobbyReturnSeen(s);
+        expect(w.names(s, mark)).toEqual([]);
+        expect(gameManager.playerLobbies.has(s.id)).toBe(false);
+    });
+});
+
+describe('the next start while someone still reads the last results', () => {
+    test('a family of 6: the 4 others start; the one still on its results gets leftLobby (no spectatorJoined), its calls end both ways; a settled member is an extra', async () => {
+        const w = world();
+        const socks = names(6).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks.slice(0, 4));
+        const back = returnedLobby(w, socks[0]);
+        expect(back.players).toHaveLength(6);
+        // socks[4] left its results for the lobby; socks[5] still reads them
+        playAgain.lobbyReturnSeen(socks[4]);
+        const mark = w.log.length;
+        // (the handlers' promises settle only as the game goes on: not awaited)
+        const { game: g2 } = await startLobbyGame(w.io, socks.slice(0, 4));
+        await toBidding(w.io, g2, socks.slice(0, 4));
+
+        const reader = socks[5];
+        expect(w.to(reader, 'spectatorJoined', mark)).toEqual([]);
+        expect(w.to(reader, 'leftLobby', mark)).toHaveLength(1);
+        expect(w.to(reader, 'mainRoomJoined', mark)).toEqual([]);
+        expect(gameManager.spectatorGames.has(reader.id)).toBe(false);
+        expect(gameManager.playerLobbies.has(reader.id)).toBe(false);
+        expect(g2.voiceSpectators?.has(reader.id) ?? false).toBe(false);
+        expect(g2.lobbyOrigin.extras.has(reader.data.username)).toBe(false);
+        expect(gameManager.startedLobbyRedirect(back.id, reader.data.username)).toBeFalsy();
+        // its calls with the table and the extra end, both ways
+        const others = socks.slice(0, 5).map((s) => s.id).sort();
+        expect(w.to(reader, 'voicePeerLeft', mark).map((l) => l.data.socketId).sort()).toEqual(others);
+        for (const s of socks.slice(0, 5)) {
+            expect(w.to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toContain(reader.id);
+        }
+        // the settled one is an extra, as before
+        expect(w.to(socks[4], 'spectatorJoined', mark)).toHaveLength(1);
+        expect(w.to(socks[4], 'leftLobby', mark)).toEqual([]);
+        expect(g2.lobbyOrigin.extras.has(socks[4].data.username)).toBe(true);
+        // its Return to Lobby then sends joinMainRoom: the main room, the new game listed
+        const at = w.log.length;
+        mainRoomHandlers.joinMainRoom(reader, w.io);
+        expect(w.to(reader, 'mainRoomJoined', at)).toHaveLength(1);
+        expect(w.last(reader, 'mainRoomJoined').inProgressGames.some((g) => g.gameId === g2.gameId)).toBe(true);
+    });
+
+    test('a lobby of 4 never leaves anyone out (an unsettled member cannot be off a full table)', async () => {
+        const w = world();
+        const socks = names(4).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks);
+        const mark = w.log.length;
+        const { game: g2 } = await startLobbyGame(w.io, socks);
+        await toBidding(w.io, g2, socks);
+        for (const s of socks) expect(w.to(s, 'leftLobby', mark)).toEqual([]);
     });
 });

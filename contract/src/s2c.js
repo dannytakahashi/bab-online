@@ -359,7 +359,7 @@ const s2c = {
         payload: empty,
         status: 'active', to: 'self',
         clientReads: reads(W.lobby, I.lobby),
-        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/upgradeGate.js:replyLeave'],
+        emittedFrom: ['server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/upgradeGate.js:replyLeave', 'server/socket/playAgain.js:leftOnResults'],
     },
     playerReadyUpdate: {
         payload: anyOf(
@@ -981,7 +981,7 @@ const s2c = {
         payload: anyOf(variant('room', obj({ socketId: str() })), variant('private', obj({ socketId: str() }))),
         status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.voice, I.voice),
-        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:startExtras', 'server/voice/gameVoice.js:removeVoiceSpectator', 'server/voice/gameVoice.js:playerLeftVoice', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/voice/gameVoice.js:endBlockedCall', 'server/socket/playAgain.js:voiceAtReturn', 'server/socket/playAgain.js:endLingeringEntry'],
+        emittedFrom: ['server/socket/seatLifecycle.js:disconnectOwner', 'server/socket/seatLifecycle.js:watchSeat', 'server/socket/lobbyHandlers.js:leaveLobby', 'server/socket/lobbyHandlers.js:releaseStaleLobbySeat', 'server/socket/queueHandlers.js:handleDisconnect', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:startExtras', 'server/voice/gameVoice.js:removeVoiceSpectator', 'server/voice/gameVoice.js:playerLeftVoice', 'server/voice/gameVoice.js:applySpectatorsCanTalk', 'server/voice/gameVoice.js:runBackstop', 'server/voice/gameVoice.js:endBlockedCall', 'server/socket/playAgain.js:voiceAtReturn', 'server/socket/playAgain.js:endLingeringEntry', 'server/socket/playAgain.js:leftOnResults'],
         notes: 'room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)) and, since 2026-11-16, a game\'s voice peers: a voice spectator leaving (to the members, never the room), an entrant dropping or leaving during the draw, a demoted owner socket (watchSeat, both ways), a blocked pair (both ways), the spectator talk switch and its backstop (server/voice/gameVoice.js). Play again (2026-11-16, server/socket/playAgain.js), private, both ways: at a lobby-born game\'s end between the members moved back to the lobby and every other socket of the game\'s voice room (main-room spectators, owners not moved) except an older-app owner still on the score screen, whose calls with them linger until it leaves that screen (joinMainRoom, another entry point, a disconnect) or the lobby starts or goes. Every shipped iOS build only drops the peer on a private one.',
     },
     voiceSettings: {

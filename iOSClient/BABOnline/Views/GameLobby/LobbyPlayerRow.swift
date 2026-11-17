@@ -22,6 +22,11 @@ struct LobbyPlayerRow: View {
     /// Sent and waiting for the server's list.
     var isReleasing = false
 
+    /// A held seat's avatar, name and ready mark are dimmed; its controls ("Don't wait") are
+    /// not: a play-again hold is also `reconnecting`, and a dimmed row made the host's working
+    /// button look disabled (0.28 while it waited) with too little text contrast.
+    private var dim: Double { isReconnecting ? 0.7 : 1 }
+
     var body: some View {
         HStack(spacing: Theme.Space.s3) {
             // Avatar
@@ -41,6 +46,7 @@ struct LobbyPlayerRow: View {
                         }
                     }
                 )
+                .opacity(dim)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -92,6 +98,7 @@ struct LobbyPlayerRow: View {
                         .accessibilityIdentifier("lobby.status.\(player.username)")
                 }
             }
+            .opacity(dim)
 
             Spacer()
 
@@ -124,23 +131,25 @@ struct LobbyPlayerRow: View {
             }
 
             // Ready indicator
-            if player.isReady {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(Theme.success)
-                    .font(.title3)
-                    .accessibilityLabel("Ready")
-            } else {
-                Image(systemName: "circle")
-                    .foregroundColor(Theme.textDim)
-                    .font(.title3)
-                    .accessibilityLabel("Not ready")
+            Group {
+                if player.isReady {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(Theme.success)
+                        .font(.title3)
+                        .accessibilityLabel("Ready")
+                } else {
+                    Image(systemName: "circle")
+                        .foregroundColor(Theme.textDim)
+                        .font(.title3)
+                        .accessibilityLabel("Not ready")
+                }
             }
+            .opacity(dim)
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(Theme.surface)
         .cornerRadius(Theme.Radius.md)
-        .opacity(isReconnecting ? 0.7 : 1)
     }
 }
 

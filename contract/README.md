@@ -293,8 +293,13 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   (server/socket/playAgain.js; `PLAY_AGAIN=off` turns it off).
   iOS 1.2.3 (build 12) sends it with `casualSpectators` (`ClientHello.caps`):
   it keeps its score screen up when `lobbyReturn` arrives and enters that
-  lobby only on its Return to Lobby (owner 2026-11-16), and sends
-  `releaseLobbyHold` (iOSClient/CLAUDE.md, "Play again").
+  lobby only on its Return to Lobby (owner 2026-11-16), then sends
+  `lobbyReturnSeen` (the server cannot otherwise tell its score screen from
+  the lobby screen), and sends `releaseLobbyHold` (iOSClient/CLAUDE.md,
+  "Play again"). A web client with the cap must send `lobbyReturnSeen` the
+  same way: until it does, the server treats it as still on its results
+  (a drop is a 2-minute hold, and at the next start of a lobby of more than
+  4 it gets leftLobby instead of becoming a spectator).
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

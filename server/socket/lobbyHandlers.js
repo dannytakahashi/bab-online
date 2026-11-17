@@ -129,6 +129,9 @@ async function startLobbyIfAllReady(io, lobby) {
     });
 
     startExtras(io, game, startResult.extras || []);
+    // Play again: members still reading the last game's results are not
+    // made spectators of this one (leftLobby, their calls end)
+    playAgain.leftOnResults(io, startResult);
     // Every capable socket of the voice room learns its role, who may talk
     // and who controls the switch (nothing for a legacy client)
     gameVoice.refreshVoice(io, game);
