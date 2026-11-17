@@ -314,6 +314,39 @@ describe('createPersistHarness: restarts', () => {
         expect(second.log.length).toBeGreaterThan(0);
     }, 60000);
 
+    test('a kill ends play-again holds and reservations, bot quip cooldowns and voice counters', async () => {
+        const { safeTimeout } = require('../../utils/safeTimer');
+        const gameVoice = require('../../voice/gameVoice');
+        const harness = h.createPersistHarness({ db: mockDb.current, holder: mockDb });
+        await harness.boot();
+        // A play-again lobby as playAgain.openLobby leaves it: a hold (a
+        // lobbyGrace entry of kind afterGame) and a reservation (its timer
+        // on the lobby, not in lobbyGrace)
+        const holdExpired = jest.fn();
+        const reservationExpired = jest.fn();
+        gameManager.lobbies.set('L1', {
+            id: 'L1', players: [], readyPlayers: new Set(), messages: [],
+            afterGame: { fromGameId: 'g0', reserved: new Map([['bob', { timer: safeTimeout(reservationExpired, 120000, 'test') }]]), lingering: new Map(), unsettled: new Set(), io: null },
+        });
+        gameManager.lobbyGrace.set('away:x', { lobbyId: 'L1', username: 'amy', timer: safeTimeout(holdExpired, 120000, 'test'), kind: 'afterGame', offline: true });
+        gameManager.startedLobbies.set('L0', { gameId: 'g0', extras: new Set(['cat']) });
+        botController.sentABoyTricks.set('g0', 1);
+        botController.chatRoll = () => 0;
+        const voiceReset = jest.spyOn(gameVoice, '_resetForTests');
+
+        await harness.restart({ kind: 'kill' });
+        expect(gameManager.lobbies.size).toBe(0);
+        expect(gameManager.lobbyGrace.size).toBe(0);
+        expect(gameManager.startedLobbies.size).toBe(0);
+        expect(botController.sentABoyTricks.size).toBe(0);
+        expect(botController.chatRoll(new (require('../../game/GameState'))('g1'), 'x')).toBeGreaterThan(0);
+        expect(voiceReset).toHaveBeenCalledTimes(1);
+        expect(gameVoice._gateDrops()).toBe(0);
+        await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
+        expect(holdExpired).not.toHaveBeenCalled();
+        expect(reservationExpired).not.toHaveBeenCalled();
+    });
+
     test('the singleton resets refuse to run outside Jest', () => {
         const saved = process.env.JEST_WORKER_ID;
         delete process.env.JEST_WORKER_ID;

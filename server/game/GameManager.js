@@ -2234,7 +2234,8 @@ class GameManager {
      * game and tournament goes stale first, with no emit, no terminate and
      * no DB write: its epoch is bumped (so an awaited continuation's
      * aliveCheck / isLive fails) and its timers cancelled (pauses resolve
-     * false); lobby-grace timers are cancelled. Then every field is what
+     * false); lobby-grace timers (play-again holds included) and play-again
+     * reservation timers are cancelled. Then every field is what
      * the constructor makes (main-room listeners included). Jest spies
      * installed on the singleton (own mock-function properties) stay
      * installed, so a test's spy keeps recording and mocking after a
@@ -2256,7 +2257,14 @@ class GameManager {
             tournament.epoch++;
             tournament.clearTimers();
         }
+        // Lobby-grace timers, play-again holds among them (kind 'afterGame')
         for (const held of this.lobbyGrace.values()) clearTimeout(held.timer);
+        // Play-again reservations (socket/playAgain.js) time out on the
+        // lobby, not in lobbyGrace; ended here with no emit (no teardown:
+        // its lingering-call voicePeerLeft would reach the dead io)
+        for (const lobby of this.lobbies.values()) {
+            for (const rec of lobby.afterGame?.reserved?.values() || []) clearTimeout(rec.timer);
+        }
         for (const key of Object.keys(this)) {
             const value = this[key];
             if (typeof value === 'function' && value._isMockFunction === true) continue;

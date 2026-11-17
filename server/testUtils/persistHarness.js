@@ -107,6 +107,7 @@ function loadServerModules() {
         shutdown: require('../utils/shutdown'),
         connectionStats: require('../utils/connectionStats'),
         livePersistSwitch: require('../utils/livePersistSwitch'),
+        gameVoice: require('../voice/gameVoice'),
         logger: require('../utils/logger'),
     };
 }
@@ -616,8 +617,13 @@ const PROCESS_RESETS = [
     // Games and tournaments go stale (epoch bump: aliveCheck / isLive fail),
     // their timers and pauses cancelled, every map emptied
     ['gameManager', (m) => m._resetForTests()],
-    // Every bot timer (bid / play / draw / chat), registrations, counters
+    // Every bot timer (bid / play / draw / chat), registrations, counters,
+    // the "they sent a boy" cooldowns and quip roll
     ['botController', (m) => m._resetForTests()],
+    // The spectator-voice SDP gate drop count (the per-game voice state
+    // dies with the games above; play-again holds and reservations are
+    // GameManager's lobbyGrace / lobby timers, cancelled there)
+    ['gameVoice', (m) => m._resetForTests()],
     // shuttingDown, the drain deadline and in-flight set; pending retry
     // waits (profileHandlers' end-of-game backoff) never end, so a dead
     // process's write is never retried
@@ -644,9 +650,11 @@ const PROCESS_RESETS = [
  *     (faults.abandon); otherwise they apply if the test releases them, as
  *     a write already on the wire may;
  *   - every process-scoped module is reset (PROCESS_RESETS): game and
- *     tournament epochs bumped, every game / tournament / lobby-grace /
- *     bot / retry / cleanup / notice timer cancelled, end-of-game chains
- *     and caches forgotten, shuttingDown false, LIVE_PERSIST unread.
+ *     tournament epochs bumped, every game / tournament / lobby-grace
+ *     (play-again holds too) / play-again reservation / bot / retry /
+ *     cleanup / notice timer cancelled, end-of-game chains, caches, bot
+ *     quip cooldowns and voice counters forgotten, shuttingDown false,
+ *     LIVE_PERSIST unread.
  *
  * Not reachable in one Jest process (a real SIGKILL would stop them): a
  * continuation already queued (a released stalled op's caller, a
