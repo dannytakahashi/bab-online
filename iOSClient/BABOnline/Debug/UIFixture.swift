@@ -289,6 +289,27 @@ enum UIFixture {
             auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
             ServerErrorToast.visibleSeconds = 60
         }
+        // `-uiDeal YES`: 8 s after launch (the UI test is reading the probe by then) the next
+        // hand is dealt live (gameStart as the server sends it: 13 cards, dealer 4), so the
+        // deal's fly-in plays (probe "table.deal"); `-uiDealSize <n>` deals n cards instead
+        // (HandSequence: 10 is hand 2, a blue deck and blue backs);
+        // `-uiReduceMotion YES` pins Reduce Motion on (Theme.Motion.reduceMotionOverride)
+        if defaults.bool(forKey: "uiReduceMotion") { Theme.Motion.reduceMotionOverride = true }
+        if defaults.bool(forKey: "uiDeal") {
+            let size = Int(defaults.string(forKey: "uiDealSize") ?? "").flatMap { (1...13).contains($0) ? $0 : nil } ?? 13
+            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                let ranks = ["A", "K", "Q", "J", "10", "9", "8"]
+                let thirteen: [[String: Any]] = (ranks.map { ["suit": "spades", "rank": $0] } + ranks.prefix(6).map { ["suit": "hearts", "rank": $0] })
+                let cards = Array(thirteen.prefix(size))
+                var payload: [String: Any] = [
+                    "gameId": snap.gameId, "hand": cards, "trump": ["suit": "clubs", "rank": "5"], "score1": 0, "score2": 0,
+                    "dealer": 4, "currentHand": size, "seq": (store.state.sync.lastSeq ?? snap.seq) + 1,
+                    "playerInfo": snap.seats.map { ["position": $0.position, "username": $0.username ?? "P\($0.position)"] as [String: Any] },
+                ]
+                if let pos = snap.viewer.position, snap.viewer.role == .seat { payload["position"] = pos }
+                _ = store.apply(serverEvent: "gameStart", payload: [payload])
+            }
+        }
         if let reason = defaults.string(forKey: "uiReject") {
             auth.isAuthenticated = true  // the toast layer is mounted for a signed-in user only
             ServerErrorToast.visibleSeconds = 60
@@ -692,7 +713,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom", "table.deal".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
@@ -713,6 +734,10 @@ final class TableDebugProbe: ObservableObject {
     @Published var verticalBar = "-"
     /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
     @Published var sent = "-"
+    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1"
+    /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
+    /// in a flight or a fade now, the deck up or not).
+    @Published var tableDeal = "-"
 
     var pose: String {
         let i = insets
@@ -759,6 +784,21 @@ final class TableDebugProbe: ObservableObject {
         if extras != tableExtras { tableExtras = extras }
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
+        let dealing = Array(scene.handNode.sprites.values) as [SKNode] + scene.opponentManager.nodes.values.flatMap { $0.fanNode.children }
+        let flying = dealing.filter { $0.deal?.flies == true }.count, fading = dealing.filter { $0.deal?.flies == false }.count
+        // while the deck is up: its backs' colour (deckBack=red / blue / mixed) and whether it
+        // keeps off the fold (hinge=ok / over; "-": no deck, or no fold the layout keeps to)
+        let deckTextures = scene.dealDeck?.children.compactMap { ($0 as? SKSpriteNode)?.texture } ?? []
+        let deckColours = Set(deckTextures.map { t in
+            [CardBackColour.red, .blue].first { CardTextureGenerator.cardBackTexture(colour: $0) === t }?.rawValue ?? "other"
+        })
+        let deckBack = deckColours.count > 1 ? "mixed" : deckColours.first ?? "-"
+        let hinge = scene.dealDeck.flatMap { deck in
+            (scene.layout.foldIgnored ? nil : scene.chrome.fold).map { deck.calculateAccumulatedFrame().intersects($0) ? "over" : "ok" }
+        } ?? "-"
+        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) flying=\(flying) fading=\(fading) "
+            + "deck=\(scene.dealDeck == nil ? 0 : 1) deckBack=\(deckBack) hinge=\(hinge)"
+        if deal != tableDeal { tableDeal = deal }
         let zoom = String(format: "%.2f", L.zoom)
         if zoom != tableZoom { tableZoom = zoom }
     }
@@ -776,6 +816,7 @@ struct FixtureProbes: View {
             dot("table.extras", probe.tableExtras)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)
+            dot("table.deal", probe.tableDeal)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

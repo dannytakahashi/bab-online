@@ -51,6 +51,9 @@ enum TableAnimation: Equatable {
     case trickCollected(winner: Int, TrickKey)
     case handCleared(dealSeq: Int)
     case handsDestroyed(dealSeq: Int)
+    /// A live gameStart: the new hand (and the card backs) fly in from the deck
+    /// (GameSKScene.dealIn). Never from a snapshot or a buffered catch-up.
+    case dealt(dealSeq: Int)
     case bidPlaced(position: Int, bid: String, dealSeq: Int)
     case bore(position: Int, bid: String, dealSeq: Int)
     case rainbow(position: Int, dealSeq: Int)
@@ -86,11 +89,17 @@ enum TableReducer {
     }
 
     /// Catch-up (buffered events replayed after a snapshot or a lapsed resync): its effects
-    /// without the sounds, so a rejoin or resync never plays a burst.
+    /// without the sounds and the deal's fly-in, so a rejoin or resync never plays a burst
+    /// and shows the hand where it is.
     static func catchUp(_ fx: inout [TableEffect], _ body: (inout [TableEffect]) -> Void) {
         var inner: [TableEffect] = []
         body(&inner)
-        fx += inner.filter { if case .sound = $0 { return false } else { return true } }
+        fx += inner.filter {
+            switch $0 {
+            case .sound, .animate(.dealt): return false
+            default: return true
+            }
+        }
     }
 
     // MARK: - Seq gate (contract/README.md R1-R5)

@@ -56,10 +56,11 @@ enum CardTextureGenerator {
         return CGSize(width: (pts.width * scale).rounded(.up), height: (pts.height * scale).rounded(.up))
     }
 
-    /// Every face the game deals: 52 + HI / LO jokers. (No table sprite uses the card
-    /// back's texture: the draw for deal and the opponents' fans (CardFanNode) show the back
-    /// through `cardBackImage(width:colour:)`, which `prewarm()` renders at the draw's
-    /// expected size, in the draw's red.)
+    /// Every face the game deals: 52 + HI / LO jokers. (The only table sprites with the card
+    /// back's texture, `cardBackTexture(colour:)`, are the live deal's deck (GameSKScene.dealIn,
+    /// the hand's colour; `prewarm()` renders both colours): the draw for deal and the
+    /// opponents' fans (CardFanNode) show the back through `cardBackImage(width:colour:)`,
+    /// which `prewarm()` renders at the draw's expected size, in the draw's red.)
     static let allCards: [Card] = {
         let ranks: [Rank] = [.two, .three, .four, .five, .six, .seven, .eight, .nine, .ten, .jack, .queen, .king, .ace]
         let suits: [Suit] = [.spades, .hearts, .diamonds, .clubs]
@@ -188,7 +189,8 @@ enum CardTextureGenerator {
     }
 
     /// Render every face the game deals on a background queue (once per process), so
-    /// the first deal finds them cached instead of drawing 13 cards on the main thread.
+    /// the first deal finds them cached instead of drawing 13 cards on the main thread
+    /// (and the table backs of the deal's deck, red and blue; `prewarmRenders` counts the faces only).
     /// Called when a game lobby, tournament lobby or game screen shows. Faces already
     /// rendered on demand are skipped (and kept). `completion` runs on the main queue
     /// once every face is cached (at once when an earlier call already started).
@@ -208,6 +210,11 @@ enum CardTextureGenerator {
         DispatchQueue.global(qos: .utility).async {
             // the draw for deal's deck at its expected size (NSCache is thread safe)
             if let drawCardWidth { _ = cardBackImage(width: drawCardWidth, colour: .draw) }
+            // the table's backs at the faces' size, both colours: the deck a live deal flies
+            // from (GameSKScene.dealIn, the hand's colour)
+            for colour in [CardBackColour.red, .blue] where cached(backKey(colour)) == nil {
+                _ = store(makeTexture(renderCardBack(pixelSize: pixelSize(), colour: colour)), for: backKey(colour))
+            }
             for card in allCards where cached(card.id) == nil {
                 _ = store(makeTexture(renderFace(card, scale: scale)), for: card.id)
                 #if DEBUG

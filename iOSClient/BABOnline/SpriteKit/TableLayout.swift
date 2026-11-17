@@ -388,6 +388,11 @@ struct TableLayout: Equatable {
 
     func trickRect(_ r: Positions.RelativePosition) -> CGRect { Self.rect(trickSlot(r), trickCardSize) }
 
+    /// Where a live deal comes from (GameSKScene.dealIn): the trick cluster's centre, empty
+    /// while a hand is dealt. The web deals from its trump card on the felt; the iOS trump is
+    /// in the score bar, off the scene.
+    var dealOrigin: CGPoint { CGPoint(x: tcx, y: cc) }
+
     /// Where a played card flies in from: off-screen on the seat's side.
     func trickEntry(_ r: Positions.RelativePosition) -> CGPoint {
         let tw = trickCardSize.width, th = trickCardSize.height
