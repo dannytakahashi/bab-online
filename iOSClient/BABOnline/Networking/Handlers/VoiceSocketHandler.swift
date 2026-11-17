@@ -54,6 +54,15 @@ final class VoiceSocketHandler {
             }
         }
 
+        // A casual game's voice settings for this socket (1.2.3: spectator voice, the in-game
+        // switch; only sent to a client with the casualSpectators cap)
+        socket.on(SocketEvents.Server.voiceSettings) { [gameState] data, _ in
+            guard let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async {
+                Self.applyVoiceSettings(dict, manager: .shared, gameState: gameState)
+            }
+        }
+
         // ICE servers for this session (the answer to getVoiceIceServers; credentials stay in memory)
         socket.on(SocketEvents.Server.voiceIceServers) { data, _ in
             guard let dict = data.first as? [String: Any] else { return }

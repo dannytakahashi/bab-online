@@ -53,6 +53,7 @@ struct BABOnlineApp: App {
                 .environmentObject(authState)
                 .environmentObject(mainRoomState)
                 .environmentObject(lobbyState)
+                .environment(\.lobbyStateLink, LobbyStateLink(state: lobbyState))
                 .environmentObject(gameState)
                 .environmentObject(actions)
                 .environmentObject(tournamentState)

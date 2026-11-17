@@ -10,24 +10,41 @@ struct Lobby: Identifiable, Equatable {
     /// players' positions), each read optionally: the web card's "Hand: N", the two teams'
     /// scores and "N watching".
     var progress: GameProgress? = nil
+    /// Family lobbies (1.2.3, build 12; additive `$defs.lobby` keys the server sends only to a
+    /// socket with the casualSpectators cap): every member's count (`playerCount` stays at
+    /// most 4), how many the lobby may hold (8 while every human in it is capable, else 4)
+    /// and every member's name. nil: an older server (at most 4; `players` is everyone).
+    var memberCount: Int? = nil
+    var capacity: Int? = nil
+    var memberUsernames: [String]? = nil
 
-    /// The seated names, as the web's lobby card lists them (the main-room list carries
-    /// no isBot: a bot shows under the server's "🤖 Bot" name there too).
-    var memberNames: String { players.map(\.username).joined(separator: ", ") }
+    /// Everyone in the lobby: `memberCount` when the server sent it, else `playerCount`.
+    var members: Int { memberCount ?? playerCount }
+    /// How many the lobby may hold: `capacity` when sent, else 4.
+    var seatsTotal: Int { capacity ?? 4 }
+    /// The card's count: "3/8", "4/4".
+    var countText: String { "\(members)/\(seatsTotal)" }
 
-    /// Is `username` seated here (a held seat included: the server keeps it in `players`).
+    /// The members' names, as the web's lobby card lists them (the main-room list carries
+    /// no isBot: a bot shows under the server's "🤖 Bot" name there too): every member of
+    /// a family lobby (`memberUsernames`), else `players` (at most 4).
+    var memberNames: String { (memberUsernames ?? players.map(\.username)).joined(separator: ", ") }
+
+    /// Is `username` a member here (a held seat included: the server keeps it in the list).
+    /// `memberUsernames` also names members 5 to 8, whom `players` (at most 4) leaves out.
     func seats(_ username: String?) -> Bool {
         guard let username, !username.isEmpty else { return false }
+        if let memberUsernames { return memberUsernames.contains(username) }
         return players.contains { $0.username == username }
     }
 
     /// The waiting lobby card's control, as the web's `lobbyActionButton` (MainRoom.js):
-    /// Join an open seat, Rejoin a full lobby that still seats me (joinLobby moves my seat
-    /// to this socket), else a disabled Full.
+    /// Join below the lobby's capacity, Rejoin a full lobby that still seats me (joinLobby
+    /// moves my seat to this socket), else a disabled Full.
     enum Action: Equatable { case join, rejoin, full }
 
     func action(for username: String?) -> Action {
-        if playerCount < 4 { return .join }
+        if members < seatsTotal { return .join }
         return seats(username) ? .rejoin : .full
     }
 
@@ -58,7 +75,10 @@ struct Lobby: Identifiable, Equatable {
         }
 
         return Lobby(id: id, name: name, players: players, playerCount: playerCount, isInProgress: isInProgress,
-                     progress: GameProgress.from(dict))
+                     progress: GameProgress.from(dict),
+                     memberCount: (dict["memberCount"] as? Int).map { max(0, $0) },
+                     capacity: (dict["capacity"] as? Int).flatMap { (4...8).contains($0) ? $0 : nil },
+                     memberUsernames: (dict["memberUsernames"] as? [Any])?.compactMap { $0 as? String })
     }
 }
 
@@ -114,6 +134,13 @@ struct LobbyPlayer: Identifiable, Equatable {
     var pic: String?
     var isReady: Bool
     var isBot: Bool
+    /// A family lobby's member (`members[].playing`, 1.2.3): seated at the table right now
+    /// (the table bots and the first humans to ready, up to 4; every member of a lobby of 4
+    /// or fewer). nil: an entry from `players` (an older server).
+    var playing: Bool? = nil
+    /// A place held for someone not back from the last game yet (`members[].returning`, play
+    /// again, 1.2.3): a row with no socket ("Not back yet"; "Don't wait for <name>").
+    var returning: Bool = false
 
     static func from(_ dict: [String: Any]) -> LobbyPlayer? {
         guard let username = dict["username"] as? String else { return nil }
@@ -121,7 +148,31 @@ struct LobbyPlayer: Identifiable, Equatable {
         let pic = picString(from: dict["pic"])
         let isReady = dict["isReady"] as? Bool ?? dict["ready"] as? Bool ?? false
         let isBot = dict["isBot"] as? Bool ?? false
-        return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot)
+        return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot,
+                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true)
+    }
+}
+
+/// What a family lobby's row says about its member (1.2.3; the web's GameLobby rows):
+/// "Playing" (seated at the table), "Will watch" (the table is full without them: they
+/// spectate the game), "Sitting out" (a bot no human seat needs). nil: nothing to say (a
+/// lobby of 4 or fewer, where everyone plays, or a human who may still take a seat).
+enum LobbySeatStatus: String, Equatable {
+    case playing = "Playing"
+    case willWatch = "Will watch"
+    case sittingOut = "Sitting out"
+
+    /// `members`: the whole list; the statuses show only in a lobby of more than 4.
+    static func of(_ player: LobbyPlayer, in members: [LobbyPlayer]) -> LobbySeatStatus? {
+        guard members.count > 4, let playing = player.playing else { return nil }
+        if playing { return .playing }
+        if player.isBot { return .sittingOut }
+        return tableFull(members) ? .willWatch : nil
+    }
+
+    /// Four members hold the table's seats (the server's `playing`).
+    static func tableFull(_ members: [LobbyPlayer]) -> Bool {
+        members.filter { $0.playing == true }.count >= 4
     }
 }
 

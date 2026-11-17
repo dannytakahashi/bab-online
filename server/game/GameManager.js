@@ -1176,10 +1176,21 @@ class GameManager {
         // it always did (entrant order, draw, golden wire)
         const onTable = new Set(table.map(p => p.socketId));
         const playerSocketIds = lobby.players.filter(p => onTable.has(p.socketId)).map(p => p.socketId);
-        const extras = lobby.players
+        // Play again: a member moved back at the last game's end whose
+        // client still shows that game's results (afterGame.unsettled: it
+        // has not entered the lobby yet, c2s lobbyReturnSeen, nor acted in
+        // it) never becomes an extra. A spectatorJoined would replace the
+        // results it is reading (owner 2026-11-16: they stay until the
+        // person taps Return to Lobby); it is told leftLobby instead
+        // (lobbyHandlers.startLobbyIfAllReady), so its Return goes to the
+        // main room, where the new game is listed
+        const unsettled = lobby.afterGame?.unsettled || new Set();
+        const offTable = lobby.players
             .filter(p => !p.isBot && !onTable.has(p.socketId) && this.playerLobbies.get(p.socketId) === lobbyId &&
                 (!io || io.sockets?.sockets?.has(p.socketId)))
             .map(p => ({ socketId: p.socketId, username: p.username }));
+        const extras = offTable.filter(p => !unsettled.has(p.socketId));
+        const onResults = offTable.filter(p => unsettled.has(p.socketId));
 
         // Play again: what the lobby was, for its return when the game
         // ends (never on the wire); then its own after-game state ends
@@ -1209,7 +1220,7 @@ class GameManager {
             this.startedLobbies.set(lobbyId, { gameId: game.gameId, extras: new Set(extras.map(e => e.username)) });
         }
 
-        return { success: true, game, players: playerSocketIds, extras, lobby };
+        return { success: true, game, players: playerSocketIds, extras, onResults, lobby };
     }
 
     // ==================== BOT METHODS ====================

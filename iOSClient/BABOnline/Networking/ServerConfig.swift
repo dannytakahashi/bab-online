@@ -48,8 +48,15 @@ enum AppInfo {
 /// for this socket afterwards uses the capable shapes (custom pictures as
 /// `avatarUrl` / `avatarUrls`, docs/avatars.md). No reply; the last hello wins.
 enum ClientHello {
-    /// The capabilities this build acts on ($defs.clientCap).
-    static let caps = ["avatarUrl"]
+    /// The capabilities this build acts on ($defs.clientCap, $defs.clientCapCasualSpectators).
+    /// `casualSpectators` (1.2.3, build 12): this build shows a lobby of up to 8 (`members`,
+    /// `capacity`, the host's "Spectators can talk"), watches the game as a lobby extra
+    /// (spectatorJoined at CREATED), and follows `voiceSettings` (listen-only offers, the
+    /// in-game switch). `playAgain` (1.2.3, build 12): at the end of a casual game a lobby
+    /// started, the server moves this socket back into that lobby (`lobbyReturn`); the app keeps
+    /// the score screen up and enters the lobby on its Return to Lobby (`LobbyReturn`). Builds
+    /// 6 to 11 sent only avatarUrl and stay "legacy" to the server.
+    static let caps = ["avatarUrl", "casualSpectators", "playAgain"]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

@@ -218,8 +218,16 @@ final class AuthSocketHandler {
                     self.tournamentState.rejoinSocketId = nil
                 }
 
+                // a lobby a game's end kept behind its score screen (play again, LobbyReturn) was
+                // the old socket's: the restore goes to the main room as from any score screen,
+                // and the server's joinMainRoom answer puts this socket back in that lobby
+                // (playAgain.autoClaimTarget: lobbyCreated) while its place is held
+                if self.lobbyState.returnFromGameId != nil { self.lobbyState.reset() }
+
                 let route = RestoreRoute.of(data, screen: self.appState.screen, lobbyId: self.lobbyState.lobbyId,
-                                            tournamentId: TournamentRejoin.rememberedId(self.tournamentState))
+                                            tournamentId: TournamentRejoin.rememberedId(self.tournamentState),
+                                            spectatingGameId: SpectateRejoin.rememberedId(self.gameState, screen: self.appState.screen))
+                if case .spectate = route {} else { SpectateRejoin.pendingGameId = nil }
                 if case .tournamentLobby = route {} else { self.tournamentState.rejoiningTournamentId = nil }
                 switch route {
                 case .rejoinGame(let gameId):
@@ -239,6 +247,22 @@ final class AuthSocketHandler {
                     // the lobby stays on screen; lobbyCreated (the seat back) or the refusal
                     // (LobbySocketHandler.handleRejoinRefused) answers
                     self.rejoinLobby(lobbyId)
+                case .spectate(let gameId):
+                    // the table stays on screen; spectatorJoined (a full state) or the refusal
+                    // (LobbySocketHandler.handleRejoinRefused) answers. The calls of the old
+                    // socket are dead (its peers dropped them): voice starts over when the
+                    // new socket's voiceSettings arrives
+                    self.lobbyState.rejoiningLobbyId = nil
+                    let sid = self.socket.socketId
+                    if SpectateRejoin.pendingGameId == gameId, SpectateRejoin.socketId == sid, sid != nil {
+                        print("[Auth] Re-spectate already sent on this socket")
+                    } else {
+                        print("[Auth] Session restored while spectating \(gameId): watching again")
+                        SpectateRejoin.pendingGameId = gameId
+                        SpectateRejoin.socketId = sid
+                        VoiceChatManager.shared.shutdown()
+                        LobbyEmitter.joinAsSpectator(gameId: gameId)
+                    }
                 case .mainRoom:
                     print("[Auth] Session restored for: \(username)")
                     self.lobbyState.rejoiningLobbyId = nil

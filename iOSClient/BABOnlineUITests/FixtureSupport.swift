@@ -10,6 +10,8 @@ enum Fixture {
                                  "main-room-cards": "screen.mainRoom", "game-lobby-reconnecting": "screen.gameLobby",
                                  "tournament-deadline": "screen.tournamentLobby", "tournament-results": "screen.tournamentLobby",
                                  "game-lobby-bots": "screen.gameLobby",
+                                 "game-lobby-family": "screen.gameLobby", "game-lobby-family-full": "screen.gameLobby",
+                                 "main-room-family": "screen.mainRoom",
                                  "tournament-lobby": "screen.tournamentLobby", "tournament-round": "screen.tournamentLobby",
                                  "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn"]
 

@@ -54,7 +54,17 @@ enum UIFixture {
     /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
     static let showsVoicePanel: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoicePanel")
 
+    /// `-uiSpectatorVoice listen|full` on a spectator table (`draw-spectator`,
+    /// `spectator-mid-hand`): the pill's voice button listen-only ("Tap to talk"; a long press
+    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.3).
+    static let spectatorVoice: String? = isActive ? UserDefaults.standard.string(forKey: "uiSpectatorVoice") : nil
+
+    /// `-uiVoiceSwitch YES` with `-uiVoicePanel YES`: the panel shows the in-game "Spectators
+    /// can talk" switch (voiceSettings canChange, as a seated host gets it).
+    static let showsVoiceSwitch: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceSwitch")
+
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
+                                              "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
                                               "tournament-between", "tournament-deadline", "tournament-results", "sign-in"]
 
@@ -97,6 +107,17 @@ enum UIFixture {
             VoiceChatManager.shared.peerInfos = [
                 "sid-kim": VoiceChatManager.PeerInfo(username: "kim"),
                 "sid-hal": VoiceChatManager.PeerInfo(username: "hal", isMuted: true, volume: 1.5),
+            ]
+        }
+        if showsVoiceSwitch {
+            VoiceChatManager.shared.settings = VoiceSettings(gameId: "fixture", host: "ivy", spectatorsCanTalk: true,
+                                                             role: .player, canTalk: true, canChange: true)
+        }
+        if spectatorVoice == "listen" {
+            // a player and a watcher in the panel (the watcher's name is on the badge's list)
+            VoiceChatManager.shared.peerInfos = [
+                "sid-p": VoiceChatManager.PeerInfo(username: "ivy"),
+                "sid-w": VoiceChatManager.PeerInfo(username: "lou"),
             ]
         }
         if screenFixtures.contains(name) {
@@ -153,7 +174,7 @@ enum UIFixture {
                     ] as [String: Any]])
                 }
             }
-            if gameEndStates[name] != nil {
+            if gameEndStates[name] != nil, lobbyReturnMode != "lost" {
                 // gameEnd playerStats as the server sends them (gameHandlers.js: avgHSI rounded);
                 // `-uiNoEndStats YES`: none, as an older server or a missing field
                 let totals: [Int: (bids: Int, tricks: Int, faults: Int, hsi: Double)] = [
@@ -179,9 +200,60 @@ enum UIFixture {
             }
             seedTableExtras(store, snap, auth: auth)
             appState.screen = .game
+            if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
+                seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
+                                store, appState, lobby: lobby)
+            }
             print("[UIFixture] seeded \(name): phase \(store.phase)")
         } catch {
             print("[UIFixture] \(name): \(error)")
+        }
+    }
+
+    // MARK: - Play again (1.2.3, PlayAgainUITests)
+
+    /// `-uiLobbyReturn YES` on `game-end` / `game-end-spectator`: 0.5 s after the gameEnd the
+    /// server's lobbyReturn arrives (`LobbyReturn.receive`): the lobby "Family night" with me
+    /// as its host, two other players of the table (the first a returning row, "Not back
+    /// yet"), a bot, and an expected older-app player, "grandpa" (4 members + 1 expected). `-uiLobbyReturn lost`: the same with no
+    /// gameEnd (held in the seq gate for good): the app enters the lobby after
+    /// `LobbyReturn.gameEndWait`. releaseLobbyHold shows in "fixture.sent" as
+    /// `releaseLobbyHold:<name>` and the place goes 0.3 s later, as the server's list does.
+    static let lobbyReturnMode: String? = isActive ? UserDefaults.standard.string(forKey: "uiLobbyReturn") : nil
+
+    @MainActor
+    private static func seedLobbyReturn(gameId: String, me: String, seats: [String], _ store: GameState, _ appState: AppState,
+                                        lobby: LobbyState) {
+        fixtureLobby = lobby
+        let others = Array(seats.filter { $0 != me }.prefix(2))
+        var members: [[String: Any]] = [["socketId": "sid-\(me)", "username": me, "ready": false, "playing": true]]
+        for (i, u) in others.enumerated() {
+            var m: [String: Any] = ["socketId": i == 0 ? "away:fixture-\(u)" : "sid-\(u)", "username": u, "ready": false, "playing": true]
+            if i == 0 { m["reconnecting"] = true; m["returning"] = true }
+            members.append(m)
+        }
+        members.append(["socketId": "bot:fixture-1", "username": "\u{1F916} Bot", "ready": false, "playing": false, "isBot": true])
+        let payload: [String: Any] = [
+            "lobbyId": "00000000-0000-4000-8000-0000000000aa", "name": "Family night",
+            "players": Array(members.prefix(4)), "members": members,
+            "messages": [["username": others.last ?? "kim", "message": "gg! again?", "timestamp": Date().timeIntervalSince1970 * 1000]],
+            "host": me, "settings": ["spectatorsCanTalk": true], "capacity": 8, "expected": ["grandpa"],
+            "lastGame": ["gameId": gameId, "score": ["team1": 312, "team2": 287], "playerStats": [String: Any](), "position": NSNull()],
+        ]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            LobbyReturn.receive(payload, lobbyState: lobby, appState: appState, gameState: store, isBlocked: { _ in false },
+                                leaveLobby: { print("[UIFixture] lobbyReturn: leaveLobby") })
+        }
+    }
+
+    /// The server's answer to "Don't wait" (playAgain.releaseLobbyHold): the hold's row or the
+    /// expected name goes.
+    private static func emulateRelease(_ username: String) {
+        guard lobbyReturnMode != nil, let lobby = fixtureLobby else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            lobby.players.removeAll { $0.username == username && $0.returning }
+            lobby.reconnecting.remove(username)
+            lobby.expected.removeAll { $0 == username }
         }
     }
 
@@ -277,6 +349,26 @@ enum UIFixture {
             message = "addBot"
         case SocketEvents.Client.blockUser, SocketEvents.Client.unblockUser, SocketEvents.Client.reportUser:
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
+        case SocketEvents.Client.lobbyReturnSeen:
+            message = "lobbyReturnSeen"
+        case SocketEvents.Client.releaseLobbyHold:
+            let username = data["username"] as? String ?? "-"
+            message = "releaseLobbyHold:\(username)"
+            emulateRelease(username)
+        case SocketEvents.Client.setSpectatorsCanTalk:
+            let value = data["spectatorsCanTalk"] as? Bool ?? true
+            message = "setSpectatorsCanTalk:\(value)"
+            // the server's echo a moment later: playerReadyUpdate with settings (a family lobby)
+            // or voiceSettings (the in-game switch)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if let lobby = fixtureLobby { lobby.applyFamilyKeys(from: ["settings": ["spectatorsCanTalk": value]]) }
+                let voice = VoiceChatManager.shared
+                if var s = voice.settings {
+                    s.spectatorsCanTalk = value
+                    voice.settings = s
+                    voice.switchPending = nil
+                }
+            }
         default:
             return
         }
@@ -295,7 +387,8 @@ enum UIFixture {
     /// bots (the humans keep their flags); addBotToLobby adds "🤖 Bot <n>" with the lowest free
     /// n, not ready, and leaves the flags alone.
     private static func emulateLobby(_ event: String, _ data: [String: Any]) {
-        guard let lobby = fixtureLobby else { return }
+        guard name == "game-lobby-bots", event == SocketEvents.Client.removeBot || event == SocketEvents.Client.addBot,
+              let lobby = fixtureLobby else { return }
         var players = lobby.players
         if event == SocketEvents.Client.removeBot {
             guard let id = data["botSocketId"] as? String, let i = players.firstIndex(where: { $0.id == id && $0.isBot }) else { return }
@@ -457,6 +550,48 @@ enum UIFixture {
             // `-uiLobbyRejoin YES`: the restore's joinLobby is out and unanswered
             if UserDefaults.standard.bool(forKey: "uiLobbyRejoin") { lobby.rejoiningLobbyId = "l1" }
             appState.screen = .gameLobby
+        case "game-lobby-family", "game-lobby-family-full":
+            // a family lobby (1.2.3) as the server sends it to a capable member
+            // (GameManager.lobbyWire: players = the first 4, members = everyone): 6 humans and
+            // a bot that sits out (no human seat needs it). `-family`: kim and hal readied
+            // (Playing); `-family-full`: kim, hal, jon and ora hold the table, so I (ivy) and
+            // max will watch. Me the host unless `-uiHost <name>`.
+            let full = name == "game-lobby-family-full"
+            let host = UserDefaults.standard.string(forKey: "uiHost") ?? "ivy"
+            let readied = full ? ["kim", "hal", "jon", "ora"] : ["kim", "hal"]
+            let members: [[String: Any]] = ["ivy", "kim", "hal", "jon", "ora", "max", "🤖 Bot"].map { u in
+                let bot = u.hasPrefix("🤖")
+                var m: [String: Any] = ["socketId": bot ? "bot:fixture-1" : "sid-\(u)", "username": u,
+                                        "ready": readied.contains(u), "playing": readied.contains(u)]
+                if bot { m["isBot"] = true }
+                return m
+            }
+            lobby.lobbyId = "l1"
+            lobby.lobbyName = "Family night"
+            lobby.applyPlayers(from: [
+                "lobbyId": "l1", "players": Array(members.prefix(4)).map { $0.filter { $0.key != "playing" } },
+                "members": members, "host": host, "settings": ["spectatorsCanTalk": true], "capacity": 8,
+            ], namesHeldSeats: true)
+            lobby.messages = chat
+            fixtureLobby = lobby
+            appState.screen = .gameLobby
+        case "main-room-family":
+            // the main-room cards of family lobbies: 6 of 8 with me as member 6 (Join), a full
+            // 8/8 that still holds my seat as member 7 (Rejoin), a capacity-4 lobby with a
+            // legacy member that is full (Full)
+            let six = ["kim", "hal", "jon", "ora", "max", "ivy"], eight = ["pat", "ned", "sam", "tia", "uma", "vic", "ivy", "wes"]
+            mainRoom.lobbies = [
+                Lobby(id: "l1", name: "Family night", players: six.prefix(4).map { player($0) }, playerCount: 4,
+                      memberCount: 6, capacity: 8, memberUsernames: six),
+                Lobby(id: "l2", name: "Cousins", players: eight.prefix(4).map { player($0) }, playerCount: 4,
+                      memberCount: 8, capacity: 8, memberUsernames: eight),
+                Lobby(id: "l3", name: "Old phones", players: ["abe", "bea", "cal", "dot"].map { player($0) }, playerCount: 4,
+                      memberCount: 4, capacity: 4, memberUsernames: ["abe", "bea", "cal", "dot"]),
+            ]
+            mainRoom.messages = chat
+            mainRoom.onlineCount = 12
+            mainRoom.onlineUsers = ["ivy", "kim", "hal"]
+            appState.screen = .mainRoom
         case "tournament-lobby":
             tournament.tournamentId = "t1"
             tournament.name = "Sunday Cup"

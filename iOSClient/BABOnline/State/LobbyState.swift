@@ -26,8 +26,45 @@ final class LobbyState: ObservableObject {
     /// a restore on another socket (`rejoinSocketId` stays the abandoned one's).
     var abandonedRejoinLobbyId: String?
 
+    // Family lobbies (1.2.3, build 12): the additive keys of every lobby event, sent only to
+    // a socket with the casualSpectators cap (GameManager.lobbyWire). `players` then holds
+    // `members` (everyone, up to 8) instead of the first 4.
+    /// How many the lobby may hold: 8 while every human in it is capable, else 4.
+    @Published var capacity: Int = 4
+    /// Who sets "Spectators can talk" (nil: an older server, or a lobby with no human).
+    @Published var host: String?
+    /// The host's "Spectators can talk" (default on).
+    @Published var spectatorsCanTalk: Bool = true
+    /// A server that sends the family keys (`settings`): the lobby shows its Voice section.
+    @Published var hasSettings = false
+
+    // Play again (1.2.3, build 12; server/socket/playAgain.js; `LobbyReturn`)
+    /// The last game's older-app players whose place is saved without a row (`expected`, sent
+    /// only while one stands: an event with `members` and no `expected` means none).
+    @Published var expected: [String] = []
+    /// The game whose end moved me back into this lobby (`lobbyReturn`) while that game's
+    /// score screen is still up: its Return to Lobby enters this lobby instead of the main
+    /// room. nil otherwise.
+    @Published var returnFromGameId: String?
+    /// Set by `LobbyReturn.enter` from the table: the game screen going away keeps voice
+    /// running into the lobby (one shot; `LobbyReturn.keepsVoice` clears it).
+    var carriesVoice = false
+
     var playerCount: Int { players.count }
-    var isFull: Bool { players.count >= 4 }
+    var isFull: Bool { players.count >= capacity }
+    /// Ready seats at the table, out of 4: ready members who play (every ready member of a
+    /// lobby of 4 or fewer).
+    var readyAtTable: Int { min(4, players.filter { $0.isReady && $0.playing != false }.count) }
+    /// The table has its 4 (bots and the first to ready) in a lobby of more than 4.
+    var tableFull: Bool { players.count > 4 && LobbySeatStatus.tableFull(players) }
+
+    /// My Ready would be refused: the table filled without me ("Table full — you'll watch").
+    func tableFullWithout(_ username: String?) -> Bool {
+        guard tableFull, let username else { return false }
+        return players.first { $0.username == username && !$0.isBot }?.playing != true
+    }
+
+    func isHost(_ username: String?) -> Bool { username != nil && host == username }
 
     func reset() {
         lobbyId = ""
@@ -36,6 +73,13 @@ final class LobbyState: ObservableObject {
         messages = []
         isReady = false
         reconnecting = []
+        capacity = 4
+        host = nil
+        spectatorsCanTalk = true
+        hasSettings = false
+        expected = []
+        returnFromGameId = nil
+        carriesVoice = false
         chatDraft = ""
         rejoiningLobbyId = nil
         rejoinSocketId = nil
@@ -59,14 +103,60 @@ final class LobbyState: ObservableObject {
     /// playerReadyUpdate carry `reconnecting` while a seat is held, so without the field no
     /// seat is; lobbyPlayerJoined names the player who came back (`newPlayer`).
     func applyPlayers(from dict: [String: Any], namesHeldSeats: Bool) {
+        applyFamilyKeys(from: dict)
+        // `members` (1.2.3): everyone, each held seat marked on its own entry; `players`
+        // stops at 4 and names the held seats in `reconnecting`
+        if let members = dict["members"] as? [[String: Any]] {
+            let saved = dict["expected"] as? [String] ?? []
+            if saved != expected { expected = saved }
+            setPlayers(members.compactMap { LobbyPlayer.from($0) },
+                       reconnecting: members.compactMap { $0["reconnecting"] as? Bool == true ? $0["username"] as? String : nil })
+            return
+        }
         guard let list = dict["players"] as? [[String: Any]] else { return }
         setPlayers(list.compactMap { LobbyPlayer.from($0) },
                    reconnecting: namesHeldSeats ? (dict["reconnecting"] as? [String] ?? []) : nil,
                    returned: (dict["newPlayer"] as? [String: Any])?["username"] as? String)
     }
 
+    /// `capacity`, `host`, `settings` of a lobby event (each kept when absent: an event of an
+    /// older server, or one that does not carry them).
+    func applyFamilyKeys(from dict: [String: Any]) {
+        if let c = dict["capacity"] as? Int, (4...8).contains(c), c != capacity { capacity = c }
+        if let h = dict["host"] as? String, h != host { host = h }
+        if let settings = dict["settings"] as? [String: Any] {
+            if !hasSettings { hasSettings = true }
+            if let talk = settings["spectatorsCanTalk"] as? Bool, talk != spectatorsCanTalk { spectatorsCanTalk = talk }
+        }
+    }
+
     /// A human seat that is not ready and is held for its player shows "Reconnecting…".
     func isReconnecting(_ player: LobbyPlayer) -> Bool {
         !player.isReady && !player.isBot && reconnecting.contains(player.username)
     }
+
+    /// lobbyCreated's body, also `lobbyReturn`'s lobby part: the id, the name, every member
+    /// (held seats named), the chat (minus blocked senders), not ready.
+    func applyLobby(_ dict: [String: Any], isBlocked: (String) -> Bool) {
+        lobbyId = dict["lobbyId"] as? String ?? ""
+        lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
+        isReady = false
+        applyPlayers(from: dict, namesHeldSeats: true)
+        if let list = dict["messages"] as? [[String: Any]] {
+            messages = list.compactMap { ChatMessage.from($0) }.filter { !isBlocked($0.username) }
+        }
+    }
+
+    /// May send "Don't wait for <name>" (releaseLobbyHold): the host, or anyone present while
+    /// the host is away (held), as the server allows (playAgain.releaseLobbyHold).
+    func canRelease(_ username: String?) -> Bool {
+        guard let username, players.contains(where: { $0.username == username && !$0.isBot && !$0.returning }) else { return false }
+        if isHost(username) { return true }
+        guard let host else { return false }
+        return players.contains { $0.username == host && !$0.isBot && ($0.returning || reconnecting.contains(host)) }
+    }
+
+    /// Add Bot: below 4 members, counting the last game's saved places (the server refuses
+    /// it while members + expected would reach 4).
+    var canAddBot: Bool { players.count + expected.count < 4 }
 }

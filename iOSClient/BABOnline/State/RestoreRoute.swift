@@ -16,13 +16,19 @@ enum RestoreRoute: Equatable {
     case tournament(tournamentId: String)
     case tournamentLobby(tournamentId: String)
     case lobby(lobbyId: String)
+    /// A pure spectator of a casual game (1.2.3): watch it again (`joinAsSpectator`), which
+    /// also brings back its spectator voice. The server keeps no pointer for a spectator.
+    case spectate(gameId: String)
     case mainRoom
 
     /// `tournamentId`: the tournament lobby the screen shows (`TournamentRejoin.rememberedId`).
+    /// `spectatingGameId`: the casual game the table shows to a pure spectator
+    /// (`SpectateRejoin.rememberedId`).
     static func of(_ data: [String: Any], screen: AppState.Screen, lobbyId: String,
-                   tournamentId: String = "") -> RestoreRoute {
+                   tournamentId: String = "", spectatingGameId: String = "") -> RestoreRoute {
         if let id = data["activeGameId"] as? String, !id.isEmpty { return .rejoinGame(gameId: id) }
         if let id = data["activeTournamentId"] as? String, !id.isEmpty { return .tournament(tournamentId: id) }
+        if screen == .game, !spectatingGameId.isEmpty { return .spectate(gameId: spectatingGameId) }
         // the server records activeTournamentId only at beginTournament, and a disconnect in
         // the lobby phase removes the member at once: join again (web: sessionStorage tournamentId)
         if screen == .tournamentLobby, !tournamentId.isEmpty { return .tournamentLobby(tournamentId: tournamentId) }
@@ -47,6 +53,28 @@ enum RestoreRoute: Equatable {
         default: return "Couldn't get back into the tournament"
         }
     }
+}
+
+/// Watching a casual game again after a restore (`RestoreRoute.spectate`, 1.2.3): the
+/// table stays on screen, `joinAsSpectator` goes out once per socket, and its
+/// spectatorJoined answers (a full state: the table resyncs; voiceSettings follows, so
+/// spectator voice comes back, listen-only until "Tap to talk"). A refusal ("Game not
+/// found": the game ended meanwhile) leaves the table for the main room with a toast.
+@MainActor
+enum SpectateRejoin {
+    /// The game whose re-spectate is unanswered, and the socket it went out on.
+    static var pendingGameId: String?
+    static var socketId: String?
+
+    /// The game a restore should watch again: a pure spectator (not a lazy owner, who has
+    /// the server's game pointer) at a casual table (no tournament) that has not ended.
+    static func rememberedId(_ store: GameState, screen: AppState.Screen) -> String {
+        guard screen == .game, store.isSpectator, !store.isLazy, store.tournamentId == nil,
+              store.phase != .ended, let id = store.gameId else { return "" }
+        return id
+    }
+
+    static let refusedMessage = "The game ended while you were offline"
 }
 
 /// Leaving a lobby whose re-entry is still unanswered: Leave, or the answer never came (the

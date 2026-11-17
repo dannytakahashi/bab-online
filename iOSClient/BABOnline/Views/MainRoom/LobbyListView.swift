@@ -69,7 +69,7 @@ struct LobbyListView: View {
     }
 }
 
-/// A main-room card: a waiting lobby (name, n/4, the seated names, Join / Rejoin / Full) or
+/// A main-room card: a waiting lobby (name, n/4 or n/8, the members' names, Join / Rejoin / Full) or
 /// a game in progress (the teams, "Hand N", each team's score in its color, "N watching",
 /// Spectate), as the web's MainRoom.js cards.
 struct LobbyRowView: View {
@@ -87,7 +87,8 @@ struct LobbyRowView: View {
                 if isInProgress, let progress = lobby.progress {
                     progressLines(progress)
                 } else {
-                    Text("\(lobby.playerCount)/4 players")
+                    // "n/8" for a family lobby (memberCount / capacity, 1.2.3), else "n/4"
+                    Text("\(lobby.countText) players")
                         .font(.caption)
                         .foregroundColor(Theme.textSecondary)
 
