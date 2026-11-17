@@ -1167,6 +1167,8 @@ describe('members[].onResults: "Still on the results"', () => {
         expect(ready[0].data.readySocketId).toBe(socks[2].id);
         expect(flagged(ready[0].data)).toEqual([socks[0].id, socks[3].id]);
 
+        // (socks[2] is settled by its Ready: Unready from a member still on
+        // its results is in the next test)
         mark = w.log.length;
         lobbyHandlers.playerUnready(socks[2], w.io);
         expect(w.to(socks[0], 'playerReadyUpdate', mark)).toHaveLength(1);
@@ -1182,6 +1184,78 @@ describe('members[].onResults: "Still on the results"', () => {
         mark = w.log.length;
         lobbyHandlers.lobbyChat(socks[3], w.io, { message: 'hi' });
         expect(w.log.slice(mark).filter((l) => l.event === 'playerReadyUpdate')).toEqual([]);
+    });
+
+    test('every other first act from a member still on its results tells the others once: Unready (its own update), the joinLobby re-entry, refused Add Bot / Remove Bot / "Don\'t wait"', async () => {
+        const w = world();
+        const socks = names(6).map((n) => w.user(n));
+        lobbyOf(w, socks);
+        await playLobbyGame(w.io, socks.slice(0, 4));
+        const back = returnedLobby(w, socks[0]);
+        let remaining = socks.map((s) => s.id);
+        expect(flagged(gameManager.lobbyWire(back, {}, { to: socks[0].id }))).toEqual(remaining);
+        const others = (actor) => socks.filter((s) => s !== actor);
+        // each other member: exactly one playerReadyUpdate since `mark`, with `actor` no longer flagged
+        const toldOnce = (actor, mark, check = () => {}) => {
+            remaining = remaining.filter((id) => id !== actor.id);
+            for (const s of others(actor)) {
+                const got = w.to(s, 'playerReadyUpdate', mark);
+                expect(got).toHaveLength(1);
+                check(got[0].data);
+                expect(flagged(got[0].data)).toEqual(remaining);
+            }
+        };
+        const plain = (data) => {
+            expect(data).not.toHaveProperty('readySocketId');
+            expect(data).not.toHaveProperty('unreadySocketId');
+        };
+
+        // Unready (it was not ready): its own update carries the cleared flag, no extra one
+        let mark = w.log.length;
+        lobbyHandlers.playerUnready(socks[3], w.io);
+        expect(back.afterGame.unsettled.has(socks[3].id)).toBe(false);
+        toldOnce(socks[3], mark, (d) => expect(d.unreadySocketId).toBe(socks[3].id));
+
+        // the joinLobby re-entry (alreadySeated): the lobby to itself, one plain update to the others
+        mark = w.log.length;
+        mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        expect(gameManager.getPlayerLobby(socks[2].id)).toBe(back);
+        const created = w.to(socks[2], 'lobbyCreated', mark);
+        expect(created).toHaveLength(1);
+        expect(w.to(socks[2], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[2], mark, plain);
+        expect(flagged(created[0].data)).toEqual(remaining);
+
+        // refused "Don't wait" (not the host, the host present)
+        mark = w.log.length;
+        await playAgain.releaseLobbyHold(socks[1], w.io, { username: socks[5].data.username });
+        expect(w.errors(socks[1])).toEqual(['Only the host can do this']);
+        expect(w.to(socks[1], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[1], mark, plain);
+
+        // refused Add Bot (the table is full)
+        mark = w.log.length;
+        await lobbyHandlers.addBot(socks[0], w.io);
+        expect(w.errors(socks[0])).toEqual(['Lobby is full']);
+        expect(w.to(socks[0], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[0], mark, plain);
+
+        // refused Remove Bot (no such bot)
+        mark = w.log.length;
+        lobbyHandlers.removeBot(socks[4], w.io, { botSocketId: 'nobody' });
+        expect(w.errors(socks[4])).toEqual(['Bot not found in lobby']);
+        expect(w.to(socks[4], 'playerReadyUpdate', mark)).toEqual([]);
+        toldOnce(socks[4], mark, plain);
+        expect(remaining).toEqual([socks[5].id]);
+
+        // the same acts again, all settled: nothing more
+        mark = w.log.length;
+        lobbyHandlers.playerUnready(socks[3], w.io);
+        mainRoomHandlers.joinLobby(socks[2], w.io, { lobbyId: back.id });
+        await lobbyHandlers.addBot(socks[0], w.io);
+        lobbyHandlers.removeBot(socks[4], w.io, { botSocketId: 'nobody' });
+        const extra = w.log.slice(mark).filter((l) => l.event === 'playerReadyUpdate' && !('unreadySocketId' in l.data));
+        expect(extra).toEqual([]);
     });
 
     test('a leave clears it (lobbyPlayerLeft\'s list; a later join is not on the results); a drop shows the hold, never onResults', async () => {
