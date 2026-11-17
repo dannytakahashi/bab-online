@@ -11,21 +11,42 @@
  * A mock that does define the getters (persistHarness.databaseMock,
  * dbOutage's outage) keeps its own. With LIVE_PERSIST unset or off this
  * file does nothing.
+ *
+ * Setup files share the test file's module registry, and run before its
+ * jest.mock factories are registered: a module loaded here would be the
+ * real one, with its own dependencies bound, in write runs only. So this
+ * file loads nothing but the dependency-free mode switch. It registers the
+ * stand-in under liveStore's global symbol itself (the getter names are
+ * written out here; liveTestCollections.test.js checks they match
+ * liveStore.LIVE_GETTERS), and loads memoryDb only when a test first asks
+ * the stand-in for a collection, after that test's mocks are in place.
  */
 
 'use strict';
 
 const { livePersistMode } = require('../utils/livePersistSwitch');
 
+const TEST_FALLBACK = Symbol.for('bab.liveStore.testCollections');
+const COLLECTION_BY_GETTER = Object.freeze({
+    getLiveGamesCollection: 'liveGames',
+    getLiveTournamentsCollection: 'liveTournaments',
+    getServerInstancesCollection: 'serverInstances'
+});
+
 if (livePersistMode(process.env, { warn: () => {} }) !== 'off') {
-    const { MemoryCollection } = require('./memoryDb');
-    const { _setTestFallbackCollections, LIVE_GETTERS } = require('../game/persist/liveStore');
-    const byGetter = Object.fromEntries(Object.entries(LIVE_GETTERS).map(([name, getter]) => [getter, name]));
     let colls = null;
-    const fresh = () => {
-        colls = { liveGames: new MemoryCollection(), liveTournaments: new MemoryCollection(), serverInstances: new MemoryCollection() };
+    globalThis[TEST_FALLBACK] = (getter) => {
+        const name = COLLECTION_BY_GETTER[getter];
+        if (!name) return null;
+        if (!colls) {
+            const { MemoryCollection } = require('./memoryDb');
+            colls = { liveGames: new MemoryCollection(), liveTournaments: new MemoryCollection(), serverInstances: new MemoryCollection() };
+        }
+        return colls[name];
     };
-    fresh();
-    _setTestFallbackCollections((getter) => (byGetter[getter] ? colls[byGetter[getter]] : null));
-    beforeEach(fresh);
+    beforeEach(() => {
+        colls = null;
+    });
 }
+
+module.exports = { TEST_FALLBACK, COLLECTION_BY_GETTER };
