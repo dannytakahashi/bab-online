@@ -34,6 +34,7 @@ const safetyHandlers = require('../safetyHandlers');
 const clientInfo = require('../clientInfo');
 const voice = require('../voiceHandlers');
 const playAgain = require('../playAgain');
+const { botController } = require('../../game/bot');
 const { makeIo, makeSocket, mulberry32 } = require('../../testUtils/gameDriver');
 const { playLobbyGame, startLobbyGame, toBidding, advanceUntil } = require('../../testUtils/playAgainDriver');
 const { Controller } = require('../../game/SeatState');
@@ -946,11 +947,20 @@ describe('a mixed game: the legacy player\'s wire', () => {
         if (off) process.env.PLAY_AGAIN = 'off'; else delete process.env.PLAY_AGAIN;
         const random = jest.spyOn(Math, 'random').mockImplementation(mulberry32(4242));
         jest.setSystemTime(Date.UTC(2026, 10, 16, 12));
+        // The bots' table quips roll from the game id (a fresh uuid per run):
+        // the same id for both runs, so they say the same things at the
+        // same plays and the two wires stay comparable byte for byte
+        const realRoll = botController.chatRoll;
+        botController.chatRoll = (game, salt) => realRoll(Object.create(game, { gameId: { value: 'mixed-game' } }), salt);
         const w = world();
         const tag = off ? 'x' : 'y';
         const socks = ['full', 'full', 'legacy', 'legacy'].map((k, i) => w.user(`mx${i}${tag}${seq}`, k));
         lobbyOf(w, socks);
-        await playLobbyGame(w.io, socks);
+        try {
+            await playLobbyGame(w.io, socks);
+        } finally {
+            botController.chatRoll = realRoll;
+        }
         random.mockRestore();
         const end = gameEndIndex(w);
         const ret = w.log.length;
