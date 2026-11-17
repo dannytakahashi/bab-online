@@ -18,6 +18,7 @@ import { resetMyAction } from '../state/MyAction.js';
 import { resetTableDirector } from '../phaser/TableDirector.js';
 import {
   resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_IDLE_MS, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
+  DRAW_GAIN, DRAW_SPACING_MS,
 } from './tableSounds.js';
 import { SERVER_EVENTS as E } from '../constants/events.js';
 import { applyTableSnapshot } from '../state/tableSync.js';
@@ -442,5 +443,97 @@ describe('never on catch-up', () => {
     deal();
     sounds.synced();
     expect(sounds.dealShown()).toBe(false);
+  });
+});
+
+describe('the draw for deal', () => {
+  const drew = (drawOrder, username, card = c('7', 'clubs')) => fire(E.PLAYER_DREW, { username, card, drawOrder, socketId: `s-${drawOrder}` });
+  /** DRAW_SPACING_MS pass: the waiting draw timer fires. */
+  const spacing = () => {
+    const due = timers.list;
+    timers.list = [];
+    for (const t of due) {
+      expect(t.ms).toBe(DRAW_SPACING_MS);
+      t.fn();
+    }
+  };
+  const startDraw = () => {
+    gate.reset();
+    seq = 0;
+    fire(E.START_DRAW, { start: true });
+  };
+
+  it('each card drawn (mine and the bots\') is a quieter card take; my private youDrew, a re-sent draw and the teams are not', () => {
+    startDraw();
+    socket.fire(E.YOU_DREW, { card: c('Q', 'spades'), drawOrder: 1 });
+    expect(names()).toEqual([]);
+    drew(1, 'me', c('Q', 'spades'));
+    spacing();
+    drew(2, 'B1');
+    spacing();
+    drew(3, 'B2');
+    spacing();
+    drew(4, 'B3');
+    spacing();
+    expect(names()).toEqual(['draw', 'draw', 'draw', 'draw']);
+    for (const p of played) expect(p.opts).toEqual({ gain: DRAW_GAIN });
+    expect(getGameState().draw.drawn).toHaveLength(4);
+    // the same draw order again: state, not a new card
+    drew(4, 'B3');
+    fire(E.TEAMS_ANNOUNCED, { team1: ['me', 'B2'], team2: ['B1', 'B3'], resumeInMs: 3000 });
+    spacing();
+    expect(names()).toHaveLength(4);
+  });
+
+  it('draws that arrive together (the 30 s auto-draws) are heard one by one, DRAW_SPACING_MS apart', () => {
+    startDraw();
+    drew(1, 'me');
+    drew(2, 'B1');
+    drew(3, 'B2');
+    expect(names()).toEqual(['draw']);
+    expect(sounds.drawsWaiting).toBe(2);
+    spacing();
+    expect(names()).toEqual(['draw', 'draw']);
+    spacing();
+    expect(names()).toEqual(['draw', 'draw', 'draw']);
+    spacing(); // the last one's spacing runs out: nothing waits
+    expect(timers.list).toEqual([]);
+    drew(4, 'B3');
+    expect(names()).toHaveLength(4);
+  });
+
+  it('a snapshot drops the draws still waiting', () => {
+    startDraw();
+    drew(1, 'me');
+    drew(2, 'B1');
+    drew(3, 'B2');
+    sounds.synced();
+    expect(sounds.drawsWaiting).toBe(0);
+    expect(timers.list).toEqual([]);
+    expect(names()).toEqual(['draw']);
+  });
+
+  it('draws the gate buffered and flushed are silent', () => {
+    startDraw(); // seq 1
+    seq = 2; // seq 2 is lost
+    drew(2, 'B1'); // 3: buffered
+    drew(3, 'B2'); // 4: buffered
+    expect(gate.buffered).toBe(2);
+    gate.flushBuffer();
+    expect(getGameState().draw.drawn).toHaveLength(2);
+    expect(names()).toEqual([]);
+    drew(4, 'B3'); // 5, live
+    expect(names()).toEqual(['draw']);
+  });
+
+  it('through the real restore path: a rejoin mid-draw shows the cards drawn without a sound; the next live draw sounds', () => {
+    // contract/fixtures/v2 draw-in-progress: two drawn, seq 3
+    const fixture = JSON.parse(readFileSync(resolve(ROOT, 'contract/fixtures/v2/draw-in-progress.json'), 'utf8'));
+    applyTableSnapshot({ snapshot: fixture.snapshot }, { source: 'rejoin' });
+    expect(getGameState().draw.drawn).toHaveLength(2);
+    expect(names()).toEqual([]);
+    seq = fixture.snapshot.seq;
+    drew(3, 'B2');
+    expect(names()).toEqual(['draw']);
   });
 });

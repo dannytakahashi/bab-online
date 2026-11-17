@@ -12,6 +12,9 @@ import Foundation
 ///   new turn (and each deal) restarts the wait, so an old turn's timer never chimes early for
 ///   the next one
 /// - an over-trump's accent lands `overTrumpDelay` after the card's sound
+/// - the draw for deal's cards (`draw`) sound at least `drawSpacing` apart: draws that arrive
+///   together (the server's 30 s auto-draws, a fast bot draw) are heard one by one, as
+///   DrawPhaseView flips a batch (slot i at i * 0.3 + 0.1 s)
 /// Anything still waiting is dropped when a snapshot resets the scene or the game changes.
 @MainActor
 final class TableSoundCues {
@@ -19,6 +22,7 @@ final class TableSoundCues {
     static let afterHandEnd: TimeInterval = 0.5
     static let afterDeal: TimeInterval = 0.5
     static let overTrumpDelay: TimeInterval = 0.09
+    static let drawSpacing: TimeInterval = 0.3
 
     private let clock: AckClock
     private let sounds: SoundPlaying
@@ -34,6 +38,9 @@ final class TableSoundCues {
     private var turnWaits = false
     private var turnTimer: AckCancellable?
     private var accents: [AckCancellable] = []
+    /// The draw spacing: while it runs, later draws wait their turn (a count: the takes rotate).
+    private var drawHold: AckCancellable?
+    private var drawsWaiting = 0
 
     init(clock: AckClock, sounds: SoundPlaying, isMyChoice: @escaping @MainActor () -> Bool, epoch: @escaping @MainActor () -> String) {
         self.clock = clock
@@ -65,8 +72,19 @@ final class TableSoundCues {
             }
         case .overTrump:
             accents.append(after(Self.overTrumpDelay) { $0.sounds.play(.overTrump) })
+        case .draw:
+            if drawHold != nil { drawsWaiting += 1 } else { playDraw() }
         case .card, .trick, .trickOurs:
             sounds.play(kind)
+        }
+    }
+
+    /// One draw's card now; the next waiting one `drawSpacing` later.
+    private func playDraw() {
+        sounds.play(.draw)
+        drawHold = after(Self.drawSpacing) { s in
+            s.drawHold = nil
+            if s.drawsWaiting > 0 { s.drawsWaiting -= 1; s.playDraw() }
         }
     }
 
@@ -113,9 +131,11 @@ final class TableSoundCues {
     }
 
     private func dropAll() {
-        for t in [handEndHold, dealHold, turnTimer].compactMap({ $0 }) + accents { t.cancel() }
+        for t in [handEndHold, dealHold, turnTimer, drawHold].compactMap({ $0 }) + accents { t.cancel() }
         handEndHold = nil
         dealHold = nil
+        drawHold = nil
+        drawsWaiting = 0
         turnTimer = nil
         accents = []
         heldDeal = false

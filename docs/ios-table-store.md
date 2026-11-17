@@ -860,6 +860,7 @@ ActionCoordinator through `TableSoundCues` (when) into `SoundPlaying` (default
 
 | Live delta event | Sound | Who |
 | --- | --- | --- |
+| playerDrew, a new draw order (the draw for deal; owner 2026-11-16) | `draw`: a card take (card-1/2/3 in turn) at gain 0.8, its own throttle and rotation; draws that arrive together come `drawSpacing` (0.3 s, DrawPhaseView's flip stagger) apart | everyone |
 | gameStart (each deal, a redeal too) | `deal` | everyone |
 | cardPlayed | `card` (card-1/2/3 in turn), plus the `overTrump` accent when `TrickRules.isOverTrump` (gain 0.8, 90 ms after the card) | everyone |
 | my own play (`.local(.submitPlay)` in PLAYING) | `card` at once: the card shows in its slot now (TableRenderModel); its echo cardPlayed is then quiet except for an over-trump's accent, which goes with the effect | the seat |
@@ -889,7 +890,7 @@ reminder (owner 2026-11-15, "only if the player doesn't play for 5s"):
 `turnIdle` (5 s) after its event, counted from the end of `afterDeal` (0.5 s)
 after a deal (or a held one), and dropped if MyTurnState is no longer
 `.choosing` by then; each new turn cue and each deal restarts the wait; the
-over-trump accent comes `overTrumpDelay` (90 ms) after the card. A hand end is
+over-trump accent comes `overTrumpDelay` (90 ms) after the card; the draw for deal's cards come at least `drawSpacing` (0.3 s) apart, the first at once. A hand end is
 heard as made, deal +0.5 s, and the chime +6.0 s only if the bid is still open. Whatever still waits is dropped when
 the epoch moves (`GameState.sceneResets`, a snapshot; or the table's gameId).
 Its timers run on their own clock (`soundClock`, not the ack clock the ack
@@ -901,7 +902,7 @@ UserDefaults; nothing plays while muted, at volume 0 or while the app is not
 `.active` (background, Control Center); the same `SoundKind` within 80 ms is
 dropped (`throttle`; the wall clock, and a clock stepped back counts as outside
 the window, so it never silences a sound); `SoundKind.gain` scales the volume
-(overTrump 0.8, handEnd 0.6); two AVAudioPlayers per file (`AudioPlayerPool`, created
+(overTrump 0.8, draw 0.8, handEnd 0.6); two AVAudioPlayers per file (`AudioPlayerPool`, created
 on the first sound), a busy pair restarts its first. Audio session: see
 `docs/claude/voice.md`, iOS sounds and voice. Under XCTest and in UI fixture
 mode the shared player is silent and never touches the session.
@@ -916,7 +917,7 @@ corner buttons are measured into `TableChrome.cornerButton` (both corners'
 obstacle, the zoom's chrome), so a third button there, or a wider Log
 cluster, would move every layout.
 
-Tests: `SoundEffectsTests` (each live event's sound, trick-ours parity for all
+Tests: `SoundEffectsTests` (each live event's sound, each new draw once (not youDrew, a re-sent draw order or the teams), a mid-draw rejoin and buffered draws silent, draws arriving together spaced and dropped by a snapshot, the draw's quieter take, trick-ours parity for all
 four winners, made / set with a bore, the over-trump accent on the card, my
 own card at submit with a quiet echo (and my over-trump's accent on the echo),
 the turn cue's edge, a refused bid and an ack timeout silent, a spectator's

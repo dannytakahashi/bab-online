@@ -13,8 +13,8 @@
  *   running one keeps the audio device and its render thread awake.
  * - Muted, or the tab hidden: nothing plays (sounds are never queued, so a
  *   tab coming back makes no burst).
- * - The same sound (the card-* variants count as one) at most once per
- *   THROTTLE_MS.
+ * - The same sound (the card-* variants count as one; a draw's card is its
+ *   own) at most once per THROTTLE_MS.
  * - It never throws: a failure is logged once and the sound skipped.
  *
  * The files are built by scripts/build-sounds.py (npm run build:sounds);
@@ -49,6 +49,11 @@ export const SOUND_URLS = Object.freeze({
 
 /** play('card') picks one of these (never the one just played). */
 export const CARD_VARIANTS = Object.freeze(['card-1', 'card-2', 'card-3']);
+/**
+ * Names that play a card variant: 'card' (a card played) and 'draw' (a card
+ * turned up in the draw for deal: its own name, so its own throttle).
+ */
+const CARD_NAMES = new Set(['card', 'draw']);
 /** Master gain: quiet by default (the files are mastered to -24 dBFS RMS). */
 export const DEFAULT_VOLUME = 0.35;
 export const STORAGE_KEY = 'bab.sound';
@@ -319,7 +324,7 @@ export class SoundManager {
   // ---------- playing ----------
 
   /**
-   * Play a sound now (or `delay` s later), if it may. 'card' picks a variant.
+   * Play a sound now (or `delay` s later), if it may. 'card' and 'draw' pick a variant.
    * @param {string} name
    * @param {Object} [opts]
    * @param {number} [opts.delay] - seconds after now
@@ -334,7 +339,7 @@ export class SoundManager {
       const t = this._now();
       const last = this._last.get(name);
       if (last !== undefined && t - last < THROTTLE_MS) return false;
-      const file = name === 'card' ? this._pickCard() : name;
+      const file = CARD_NAMES.has(name) ? this._pickCard() : name;
       const buffer = this._buffers.get(file);
       if (!buffer) return false;
       this._last.set(name, t);
@@ -350,7 +355,7 @@ export class SoundManager {
       }
       out.connect(this._master);
       src.start(ctx.currentTime + Math.max(0, delay));
-      if (name === 'card') this._lastCard = file;
+      if (CARD_NAMES.has(name)) this._lastCard = file;
       return true;
     } catch (err) {
       this._warnOnce(`play:${name}`, err);

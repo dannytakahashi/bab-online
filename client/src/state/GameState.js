@@ -498,14 +498,15 @@ export class GameState {
     this.setHasDrawn(false);
   }
 
-  /** A draw (playerDrew), once per draw order. */
+  /** A draw (playerDrew), once per draw order. @returns {boolean} whether it was a new draw */
   applyPlayerDrew(data) {
     const order = Number(data?.drawOrder);
-    if (!data?.username || !(order >= 1 && order <= 4)) return;
+    if (!data?.username || !(order >= 1 && order <= 4)) return false;
     if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null };
-    if (this.draw.drawn.some((d) => d.drawOrder === order)) return;
+    if (this.draw.drawn.some((d) => d.drawOrder === order)) return false;
     this.draw.drawn.push({ drawOrder: order, username: data.username, card: data.card ? { suit: data.card.suit, rank: data.card.rank } : null });
     this.draw.drawn.sort((a, b) => a.drawOrder - b.drawOrder);
+    return true;
   }
 
   /** My own draw (youDrew; the auto-draw sends it too). */
