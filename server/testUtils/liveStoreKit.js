@@ -48,10 +48,18 @@ function installStore(holder, opts = {}) {
     return store;
 }
 
-async function advanceUntil(pred, { step = 100, cap = 120000 } = {}) {
+/**
+ * Advance fake time in `step`s until `pred()` holds (at most `cap` ms of fake
+ * time). `yieldIo`, when given, is awaited after every step: a test whose
+ * game awaits REAL I/O (liveStore.realMongo: handleDrawComplete reads the
+ * drawers' saved profiles from a real users collection) passes a short real
+ * sleep, so the fake clock never outruns a database reply under load.
+ */
+async function advanceUntil(pred, { step = 100, cap = 120000, yieldIo = null } = {}) {
     for (let t = 0; t < cap; t += step) {
         if (pred()) return true;
         await jest.advanceTimersByTimeAsync(step);
+        if (yieldIo) await yieldIo();
     }
     if (pred()) return true;
     throw new Error('advanceUntil: condition not met');
@@ -62,7 +70,7 @@ async function advanceUntil(pred, { step = 100, cap = 120000 } = {}) {
  * and seating, played on until `until` (default: BIDDING).
  * @returns {Promise<{game: Object, sockets: Object[], bots: Object[]}>}
  */
-async function startGame(io, log, { humans = [], until = null, personalities = ['mary', 'sharon', 'mike', 'danny'] } = {}) {
+async function startGame(io, log, { humans = [], until = null, personalities = ['mary', 'sharon', 'mike', 'danny'], yieldIo = null } = {}) {
     const gameManager = require('../game/GameManager');
     const { botController } = require('../game/bot');
     const gameLifecycle = require('../socket/gameLifecycle');
@@ -85,7 +93,7 @@ async function startGame(io, log, { humans = [], until = null, personalities = [
     bots.forEach((b) => botController.registerBot(game.gameId, b));
     gameLifecycle.beginDraw(io, game);
     sockets.forEach((s, i) => { gameHandlers.draw(s, io, { num: i }); });
-    await advanceUntil(until || (() => game.stage === Phase.BIDDING || game.isTerminal()));
+    await advanceUntil(until || (() => game.stage === Phase.BIDDING || game.isTerminal()), { yieldIo });
     return { game, sockets, bots };
 }
 

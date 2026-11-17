@@ -125,8 +125,12 @@ afterEach(() => {
 });
 
 const coll = (name) => mockHolder.current[name];
-// Real I/O: wait on real immediates (never faked here) until the store is idle
-const ioTurn = () => new Promise((r) => setImmediate(r));
+// Real I/O needs real wall-clock time, not just an event-loop turn: under
+// load (CI runs this file in two full Jest runs) a mongod reply can take
+// longer than a burst of fake-time steps. This is the environment's own
+// setTimeout, captured before any test fakes timers, so it is never faked.
+const realSetTimeout = setTimeout;
+const ioTurn = () => new Promise((r) => realSetTimeout(r, 1));
 const settle = async (store) => {
     for (let i = 0; i < 2000 && store.pending() > 0; i++) {
         if (h.fakeTimersOn()) await jest.advanceTimersByTimeAsync(0);
@@ -143,7 +147,7 @@ const savedDoc = (id) => coll('liveGames').findOne({ _id: id });
  */
 async function dealt(store, humans = [], { keepFake = false } = {}) {
     jest.useFakeTimers({ doNotFake: ['setImmediate', 'nextTick', 'queueMicrotask'] });
-    const ctx = await kit.startGame(io, log, { humans });
+    const ctx = await kit.startGame(io, log, { humans, yieldIo: ioTurn });
     await settle(store);
     if (!keepFake) jest.useRealTimers();
     return ctx;
