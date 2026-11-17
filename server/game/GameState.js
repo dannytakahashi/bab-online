@@ -31,6 +31,9 @@ const {
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
 const { isValidBid, isLegalPlay, firstLegalCard } = require('./rules');
+// The persist store's change hooks (persist/hooks.js): passive, one null
+// check while LIVE_PERSIST is off
+const persistHooks = require('./persist/hooks');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -272,6 +275,7 @@ class GameState {
                 reportViolation('invariant', { gameId: this.gameId, stage: to, errors });
             }
         }
+        persistHooks.gameChanged(this);
         return true;
     }
 
@@ -691,6 +695,7 @@ class GameState {
             const errors = validateSeats(this);
             if (errors.length > 0) reportViolation('seat-invariant', { gameId: this.gameId, pos, event, errors });
         }
+        persistHooks.gameChanged(this);
     }
 
     /** Check an edge; report and return null when illegal. */
@@ -1475,6 +1480,7 @@ class GameState {
         }
 
         this.logAction('addLogEntry', { message: message.slice(0, 50), type });
+        persistHooks.gameChanged(this);
     }
 
     /**
@@ -1505,6 +1511,26 @@ class GameState {
         for (const e of this.gameLog) {
             if (e.type === 'chat' && e.from === oldName) {
                 e.from = newName;
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * An account was deleted: drop the chat lines it sent here (a chat
+     * line whose internal `from` is `username`, player or spectator).
+     * System, bid, trick and score lines stay, and so do the lines of a
+     * bot persona (never an account name). The caller has the persist
+     * store write the whole log again (liveStore.scrubChat).
+     * @returns {number} lines removed
+     */
+    scrubChatFrom(username) {
+        let n = 0;
+        for (let i = this.gameLog.length - 1; i >= 0; i--) {
+            const e = this.gameLog[i];
+            if (e.type === 'chat' && e.from === username) {
+                this.gameLog.splice(i, 1);
                 n++;
             }
         }
@@ -1628,7 +1654,9 @@ class GameState {
      * sends never bump it.
      */
     nextSeq() {
-        return ++this.eventSeq;
+        const seq = ++this.eventSeq;
+        persistHooks.gameChanged(this);
+        return seq;
     }
 
     /**

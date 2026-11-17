@@ -30,6 +30,12 @@
  *   passwordResets.username (open links of a source are revoked, see below)
  * Not moved: adminAudit (a log of what happened, by the names of the time).
  * Tournament history is in-memory only (TournamentState), so nothing to move.
+ * Live games and tournaments saved for deploy survival (liveGames /
+ * liveTournaments, LIVE_PERSIST write) are not touched either: the panel's
+ * merge re-points the live chat senders in memory
+ * (GameManager.renameChatSender, which has the saved log rewritten whole),
+ * and this CLI, in its own process, cannot reach them; a saved seat or
+ * chat line may keep the old name until its game ends (a day at most).
  *
  * Runs as a CLI in its own process: the running server's leaderboard and
  * records caches (profileHandlers.js) cannot see a merge, so the pages show

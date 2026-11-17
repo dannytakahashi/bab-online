@@ -27,6 +27,11 @@ const WIDE_LOBBY = 8;
 const gameVoice = () => require('../voice/gameVoice');
 /** Play again (after a lobby-born casual game), loaded lazily (it requires this one). */
 const playAgain = () => require('../socket/playAgain');
+/**
+ * The live persist store (deploy survival; persist/liveStore.js), loaded
+ * lazily. With LIVE_PERSIST off every call on it is a no-op.
+ */
+const liveStore = () => require('./persist/liveStore').getLiveStore();
 
 class GameManager {
     constructor() {
@@ -157,7 +162,12 @@ class GameManager {
      */
     renameChatSender(oldName, newName) {
         let n = 0;
-        for (const game of this.games.values()) n += game.renameChatSender?.(oldName, newName) || 0;
+        for (const game of this.games.values()) {
+            const k = game.renameChatSender?.(oldName, newName) || 0;
+            // Lines changed in place: the saved log is written whole next time
+            if (k > 0) liveStore().markFullLog(game);
+            n += k;
+        }
         return n;
     }
 
@@ -1425,6 +1435,8 @@ class GameManager {
         }));
 
         this.games.set(gameId, game);
+        // Saved while it runs once it is dealt (LIVE_PERSIST write; no-op off)
+        liveStore().track(game);
 
         return game;
     }
@@ -1635,6 +1647,8 @@ class GameManager {
             if (rec.gameId === id) this.startedLobbies.delete(lobbyId);
         }
         this.games.delete(id);
+        // No more live writes; the terminal claim (gameEnd / abortGame) ends its doc
+        liveStore().remove(game);
     }
 
     /**
@@ -1853,6 +1867,8 @@ class GameManager {
 
         this.tournaments.set(tournamentId, tournament);
         this.playerTournaments.set(socketId, tournamentId);
+        // Saved from creation on, the lobby included (LIVE_PERSIST write; no-op off)
+        liveStore().trackTournament(tournament);
 
         // Leave main room
         this.leaveMainRoom(socketId);
@@ -2113,6 +2129,8 @@ class GameManager {
             }
         }
         this.tournaments.delete(tournamentId);
+        // Its saved doc is deleted (LIVE_PERSIST write; no-op off)
+        liveStore().remove(tournament);
         return orphaned;
     }
 

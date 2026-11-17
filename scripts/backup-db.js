@@ -11,6 +11,8 @@
  * handed to mongodump through a pipe: never on its command line or on disk.
  * Prints per-collection counts, never a document. The archive holds every
  * password hash and session token: keep it encrypted, never in a repository.
+ * It never holds the live-game collections (dbBackup.LIVE_COLLECTIONS: games
+ * in progress are kept at most a day, privacy policy "Games in progress").
  */
 
 const fs = require('fs');
@@ -25,6 +27,8 @@ const USAGE = `Usage:
   --keep N           after a good backup, delete all but the newest N <db>-*.archive.gz there
   --db <name>        database to dump (default: DB_NAME from this shell, else babonline; .env is never read)
   --allow-no-users   keep the archive even when <db>.users is missing or empty
+
+  Never dumped: ${B.LIVE_COLLECTIONS.join(', ')} (games in progress)
 
   Exit: 0 ok; 1 failed, nothing kept; 2 usage; 3 archive kept but --keep pruning failed`;
 
@@ -118,7 +122,7 @@ async function main() {
     console.log(`Tool:    ${version}`);
     console.log(`Dumping to ${final} ...`);
     const started = Date.now();
-    const tool = B.runTool('mongodump', [`--db=${args.db}`, '--gzip', `--archive=${partial}`], B.uriWithoutDbPath(uri));
+    const tool = B.runTool('mongodump', B.dumpArgs(args.db, partial), B.uriWithoutDbPath(uri));
     const removeHandlers = B.onStopSignals(() => {
         // SIGKILL: SIGTERM can take seconds while it waits on the server, and we exit now
         if (tool.child && tool.child.exitCode === null) tool.child.kill('SIGKILL');
@@ -173,6 +177,7 @@ async function main() {
     console.log(`\nCollections (documents):`);
     const width = Math.max(...counts.map((c) => c.ns.length));
     for (const c of counts) console.log(`  ${c.ns.padEnd(width)}  ${c.count}`);
+    console.log(`Skipped: ${B.LIVE_COLLECTIONS.join(', ')} (games in progress; never backed up)`);
     console.log(`\nArchive: ${final}`);
     console.log(`Size:    ${B.formatBytes(size)} (${size} bytes)   Time: ${seconds} s`);
     console.log(`SHA-256: ${digest}`);

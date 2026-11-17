@@ -77,11 +77,12 @@ test('defaults to process.env and console.warn', () => {
     }
 });
 
-test('dependency-free (any layer can require it), and nothing reads it yet', () => {
+test('dependency-free (any layer can require it), and only the persist store reads it', () => {
     const src = fs.readFileSync(path.join(__dirname, '..', 'livePersistSwitch.js'), 'utf8');
     expect(src).not.toMatch(/require\(/);
 
-    // No production module requires it yet (PR 4 wires the store)
+    // One reader: the live persist store (deploy survival PR 4), which every
+    // other module asks (getLiveStore().mode / .health())
     const serverDir = path.join(__dirname, '..', '..');
     const readers = [];
     const walk = (dir) => {
@@ -94,5 +95,5 @@ test('dependency-free (any layer can require it), and nothing reads it yet', () 
         }
     };
     walk(serverDir);
-    expect(readers).toEqual([]);
+    expect(readers).toEqual([path.join('game', 'persist', 'liveStore.js')]);
 });

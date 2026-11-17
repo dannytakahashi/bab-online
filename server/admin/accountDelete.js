@@ -56,7 +56,9 @@
  *
  * In memory (forgetAccount): the leaderboard / records caches, the avatar
  * store, `gameManager.deletedUsernames` (an in-flight game cannot write
- * the name back into a new game record), and the voice block lists of the
+ * the name back into a new game record), with LIVE_PERSIST write the
+ * account's chat in live games and tournaments and their saved docs
+ * (liveStore.scrubChat), and the voice block lists of the
  * players whose lists changed (refreshBlockLists, without telling their
  * clients: a dead name in a client's list is harmless, and iOS builds up
  * to 1.2.1 build 9 show every blockListUpdated as a "Block list updated."
@@ -85,7 +87,11 @@ const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
 // sign-up of the name, unlike gameManager.deletedUsernames): a seat in a
 // game created before then belonged to the deleted account, so nobody
 // signed in as the name now may take it (rejoinGame, spectate, /active).
-// Games do not outlive the process, so this covers every live game.
+// Covers every live game while games do not outlive the process. Deploy
+// survival (LIVE_PERSIST=on, PR 5) lets a game move to a new process: the
+// adoption must rebuild this from the name hold's deletedAt (users doc
+// {mergedInto: '[deleted]', deletedAt}) for every seat owner and chat
+// sender it looks up. Write mode (PR 4) adopts nothing.
 const deletedAt = new Map();
 
 /** Was `username` deleted after `sinceMs` (a game's createdAt)? */
@@ -243,6 +249,11 @@ function forgetAccount(io, db, username, erased = {}) {
         // game record after the anonymization
         gameManager.deletedUsernames?.add(name);
         deletedAt.set(name, Date.now());
+        // Deploy survival (LIVE_PERSIST write): their chat lines leave every
+        // live game (by sender) and tournament (by username, players' and
+        // spectators'), and the saved docs are rewritten without them.
+        // System lines stay. A no-op with LIVE_PERSIST off
+        require('../game/persist/liveStore').getLiveStore().scrubChat(name);
     }
     return refreshBlockLists(io, db, erased.blockers || [], { emit: false });
 }

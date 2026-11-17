@@ -564,12 +564,16 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
  *   and hands the same object to the ENDED tombstone
  *   (gameCodec.serializeEnded), so the two can never differ (completedAt,
  *   a deleted owner's name or pending entry).
+ * @param {Function} [opts.onRecorded] - called once the gameRecords
+ *   insert is acknowledged (inserted, or found already there): the persist
+ *   store then deletes the game's ENDED tombstone (persist/liveStore.js).
+ *   Not called when the insert failed for good or nothing is recorded.
  * @returns {Promise<void>}
  */
-function recordGameStats(game, { record } = {}) {
+function recordGameStats(game, { record, onRecorded } = {}) {
     const key = game?.gameId;
     if (key && statsWrites.has(key)) return statsWrites.get(key);
-    const run = writeGameStats(game, record)
+    const run = writeGameStats(game, record, onRecorded)
         .catch(error => { authLogger.error('End-of-game writes failed', { gameId: key, error: error.message }); })
         .finally(() => { if (key) statsWrites.delete(key); });
     if (key) statsWrites.set(key, run);
@@ -615,7 +619,7 @@ function buildGameEndRecord(game) {
     return doc;
 }
 
-async function writeGameStats(game, prebuilt) {
+async function writeGameStats(game, prebuilt, onRecorded = null) {
     const usersCollection = getUsersCollection();
     const gameRecordsCollection = getGameRecordsCollection();
 
@@ -635,6 +639,13 @@ async function writeGameStats(game, prebuilt) {
                 record = await insertGameRecord(gameRecordsCollection, doc);
                 fresh = record === doc;
                 authLogger.info('Game result recorded', { gameId: game.gameId, withBots });
+                if (onRecorded) {
+                    try {
+                        onRecorded();
+                    } catch (error) {
+                        authLogger.error('onRecorded failed', { gameId: game.gameId, error: error.message });
+                    }
+                }
             } catch (error) {
                 // No record after every retry: the stats still go in (the
                 // per-user guard keeps them single), logged with the deltas

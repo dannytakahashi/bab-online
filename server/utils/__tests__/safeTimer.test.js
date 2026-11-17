@@ -111,7 +111,7 @@ const BARE_TIMERS = {
     'game/GameState.js': 2, // pause() resolve; setTimer, which guards fn
     'game/bot/BotController.js': 2, // bot bid/play and draw: own try/catch with game context
     'routes/avatar.js': 1, // lookup wait: resolve(false)
-    'utils/safeTimer.js': 2, // the wrappers themselves
+    'utils/safeTimer.js': 3, // the wrappers themselves
     'utils/shutdown.js': 3, // notice / settle waits, the hard-exit deadline
     'utils/timing.js': 3, // delay (resolve), schedule/debounce (unused helpers)
     'voice/turnCredentials.js': 1, // fetch timeout: ac.abort()

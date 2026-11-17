@@ -78,7 +78,7 @@ test('shape: 200 with status, db and live counts, nothing that names anyone', as
 
     const { status, body } = await get('/health');
     expect(status).toBe(200);
-    expect(Object.keys(body).sort()).toEqual(['db', 'live', 'memory', 'status', 'timestamp', 'uptime']);
+    expect(Object.keys(body).sort()).toEqual(['db', 'live', 'memory', 'persist', 'status', 'timestamp', 'uptime']);
     expect(body.status).toBe('ok');
     expect(body.db).toBe('connected');
     expect(body.live).toEqual({ sockets: 3, games: 3, tournaments: 2, lobbies: 1 });
@@ -142,4 +142,54 @@ test('real GameState entrants: a human entrant counts before seating, bot entran
     gameManager.games.set(human.gameId, human);
     gameManager.games.set(bots.gameId, bots);
     expect(gameManager.getHealthCounts().games).toBe(1);
+});
+
+describe('persist block (deploy survival: LIVE_PERSIST and the unique gameId index)', () => {
+    const liveStore = require('../game/persist/liveStore');
+    const database = require('../database');
+    const KEYS = ['adopted', 'bootSwept', 'docsOwned', 'effectiveMode', 'lastSweepAt', 'mode', 'uniqueGameIdIndex'];
+
+    afterEach(() => liveStore._resetForTests());
+
+    test.each([
+        ['off', 'off'],
+        ['write', 'write'],
+        // Handoff and adoption are PR 5: 'on' runs as 'write'
+        ['on', 'write'],
+    ])('LIVE_PERSIST=%s: mode and effectiveMode %s, counts only, no instance id', async (mode, effectiveMode) => {
+        const store = liveStore.createLiveStore({
+            mode, bootId: 'boot-id-not-shown', getCollections: () => ({}),
+            gameIdIndexUnique: () => database.getGameIdIndexUnique(),
+            logger: { info() {}, warn() {} },
+        });
+        liveStore._setForTests(store);
+        const { status, body } = await get('/health');
+        expect(status).toBe(200);
+        expect(Object.keys(body.persist).sort()).toEqual(KEYS);
+        expect(body.persist).toEqual({
+            mode, effectiveMode, uniqueGameIdIndex: null, docsOwned: 0, adopted: 0, lastSweepAt: null, bootSwept: false,
+        });
+        expect(JSON.stringify(body)).not.toContain('boot-id-not-shown');
+    });
+
+    test('uniqueGameIdIndex is what the startup probe read from gameRecords', async () => {
+        liveStore._setForTests(liveStore.createLiveStore({ mode: 'off', getCollections: () => ({}) }));
+        const unique = { indexes: async () => [{ key: { _id: 1 }, name: '_id_' }, { key: { gameId: 1 }, name: 'gameId_1', unique: true }] };
+        const fallback = { indexes: async () => [{ key: { gameId: 1 }, name: 'gameId_nonunique' }] };
+        await expect(database.probeGameIdIndex(unique)).resolves.toBe(true);
+        await expect(database.probeGameIdIndex(fallback)).resolves.toBe(false);
+        await expect(database.probeGameIdIndex({ indexes: async () => { throw new Error('down'); } })).resolves.toBe(null);
+        const spy = jest.spyOn(database, 'getGameIdIndexUnique');
+        spy.mockReturnValue(false);
+        expect((await get('/health')).body.persist.uniqueGameIdIndex).toBe(false);
+        spy.mockReturnValue(true);
+        expect((await get('/health')).body.persist.uniqueGameIdIndex).toBe(true);
+    });
+
+    test('a store that throws never fails /health: persist is null', async () => {
+        liveStore._setForTests({ health: () => { throw new Error('broken'); }, install() {}, close() {} });
+        const { status, body } = await get('/health');
+        expect(status).toBe(200);
+        expect(body.persist).toBeNull();
+    });
 });

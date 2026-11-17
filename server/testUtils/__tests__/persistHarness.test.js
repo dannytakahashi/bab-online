@@ -185,6 +185,22 @@ describe('flushStore', () => {
         expect(turns).toBeGreaterThanOrEqual(2);
     });
 
+    test('an immediate made while the fake clock ticks (1 ms later) is reached through pendingImmediates', async () => {
+        let immediate = null;
+        let writes = 0;
+        const store = {
+            pending: () => (immediate ? 1 : 0),
+            pendingImmediates: () => (immediate ? 1 : 0),
+            markDirty() { immediate = setImmediate(() => { immediate = null; writes++; }); },
+        };
+        setTimeout(() => store.markDirty(), 10);
+        await jest.advanceTimersByTimeAsync(10);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(immediate).not.toBeNull();
+        await h.flushStore(store);
+        expect(writes).toBe(1);
+    });
+
     test('throws when the store never settles', async () => {
         await expect(h.flushStore({ pending: () => 1 }, { rounds: 5 })).rejects.toThrow(/still 1 pending/);
     });
