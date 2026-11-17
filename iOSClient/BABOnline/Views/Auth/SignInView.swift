@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// The sign-in screen in the web's look (SignIn.js; AuthChrome.swift): the night card room,
+/// the logo with a phrase, and a card with Username, Password, Sign In, "New user?" and
+/// Create Account.
 struct SignInView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var authState: AuthState
@@ -12,30 +15,18 @@ struct SignInView: View {
     /// as a wrong password (PasswordEntry, AsTypedRetry).
     @State private var asTypedRetry = AsTypedRetry<SignInRequest>()
     @State private var attempt = 0
+    /// One phrase per screen, as the web picks one when its screen is made.
+    @State private var phrase = SplashPhrases.random()
+    @FocusState private var focus: Field?
+
+    private enum Field { case username, password }
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
-
-            // Scrolls on short heights (keyboard, landscape), capped at a readable width
-            GeometryReader { g in
-            ScrollView {
-            VStack(spacing: Theme.Space.s8) {
-                Spacer(minLength: 24)
-
-                // Logo / Title
-                VStack(spacing: Theme.Space.s2) {
-                    Text("BAB")
-                        .themeFont(Theme.TypeScale.display, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
-                        .foregroundColor(Theme.primary)
-                    Text("Back Alley Bridge")
-                        .font(.title3)
-                        .foregroundColor(Theme.textSecondary)
-                }
-
+        AuthScreen(phrase: phrase) {
+            AuthCard {
                 // Connection status
                 if !socketService.isConnected {
-                    HStack(spacing: 6) {
+                    HStack(spacing: Theme.Space.s2) {
                         ProgressView()
                             .tint(Theme.warning)
                             .scaleEffect(0.8)
@@ -43,63 +34,41 @@ struct SignInView: View {
                             .font(.caption)
                             .foregroundColor(Theme.warning)
                     }
+                    .accessibilityElement(children: .combine)
                 }
 
-                // Form
-                VStack(spacing: Theme.Space.s4) {
-                    TextField("Username", text: $username)
-                        .textFieldStyle(BABTextFieldStyle())
-                        .textContentType(.username)
-                        .autocapitalization(.none)
-                        .autocorrectionDisabled()
+                AuthField(label: "Username", text: $username, contentType: .username, focus: $focus, field: .username)
+                    .submitLabel(.next)
+                    .onSubmit { focus = .password }
 
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(BABTextFieldStyle())
-                        .textContentType(.password)
+                AuthField(label: "Password", text: $password, secure: true, contentType: .password, focus: $focus, field: .password)
+                    .submitLabel(.go)
+                    .onSubmit { if canSignIn { signIn() } }
 
-                    if let error = authState.error {
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(Theme.error)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
+                if let error = authState.error {
+                    Text(error)
+                        .font(.caption)
+                        .foregroundColor(Theme.error)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                    Button(action: signIn) {
-                        HStack {
-                            if isLoading {
-                                ProgressView()
-                                    .tint(Theme.buttonForeground)
-                                    .scaleEffect(0.8)
-                            }
-                            Text("Sign In")
-                                .fontWeight(.semibold)
+                Button(action: signIn) {
+                    HStack(spacing: Theme.Space.s2) {
+                        if isLoading {
+                            ProgressView()
+                                .tint(Theme.buttonForeground)
+                                .scaleEffect(0.8)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(canSignIn ? Theme.buttonBackground : Theme.buttonDisabled)
-                        .foregroundColor(canSignIn ? Theme.buttonForeground : Theme.buttonDisabledForeground)
-                        .cornerRadius(Theme.Radius.md)
+                        Text("Sign In")
                     }
-                    .disabled(!canSignIn)
                 }
-                .padding(.horizontal, Theme.Space.s8)
+                .buttonStyle(AuthButtonStyle(kind: .primary))
+                .disabled(!canSignIn)
 
-                Button(action: { appState.screen = .register }) {
-                    Text("Don't have an account? ")
-                        .foregroundColor(Theme.textSecondary) +
-                    Text("Register")
-                        .foregroundColor(Theme.primary)
-                        .bold()
-                }
-                .font(.callout)
+                AuthDivider(text: "New user?")
 
-                Spacer(minLength: 24)
-            }
-            .frame(maxWidth: 440)
-            .frame(maxWidth: .infinity, minHeight: g.size.height)
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
+                Button("Create Account") { appState.screen = .register }
+                    .buttonStyle(AuthButtonStyle(kind: .secondary))
             }
         }
         .onAppear {
@@ -142,6 +111,7 @@ struct SignInView: View {
 
 // MARK: - Custom TextField Style
 
+/// The chat fields' style (main room, lobbies, the game log).
 struct BABTextFieldStyle: TextFieldStyle {
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration

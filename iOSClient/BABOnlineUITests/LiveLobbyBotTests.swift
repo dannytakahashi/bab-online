@@ -42,8 +42,8 @@ final class LiveLobbyBotTests: XCTestCase {
         app.launch()
 
         // register (a fresh simulator has no saved session)
-        let toRegister = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Register")).firstMatch
-        XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Register link on the sign-in screen")
+        let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
+        XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Create Account on the sign-in screen")
         toRegister.tap()
         let name = app.textFields["Username"]
         XCTAssertTrue(name.waitForExistence(timeout: 10))
