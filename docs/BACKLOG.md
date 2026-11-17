@@ -47,6 +47,23 @@ remove an item in the PR that fixes it.
   the draw snapshot); or write `activeGameId` when the game is created, at the
   start of DRAWING, instead of at seating. A jest case: restore an entrant's
   session mid-draw and expect `activeGameId` and a draw-stage rejoin.
+- **Play again: someone still reading the last results looks like any member
+  who is not ready** (web review of PR E, finding 5; 2026-11-16). After a
+  lobby-born game everyone moved back sits in the lobby while their results
+  stay up until Return to Lobby (owner decision), so the others see a plain
+  not-ready row. In a lobby of more than 4 this no longer blocks anything: the
+  next start leaves an unsettled member out (`playAgain.leftOnResults`). In a
+  lobby of 4 the others wait for that person's Ready (voice runs through the
+  results, so they can call them back; a dropped reader becomes a "Not back
+  yet" hold with "Don't wait"). The server knows who is still on the results
+  (`lobby.afterGame.unsettled`, cleared by `lobbyReturnSeen`, which both
+  clients send). Deferred, since it is not small: an additive
+  `members[].onResults` (capable copy only), a playerReadyUpdate to the others
+  when someone settles (lobbyReturnSeen and the joinLobby re-entry send none
+  today), "Still on the results" on both clients' rows (never on one's own),
+  and maybe the host's "Don't wait" for such a row (a leave that keeps the
+  ready flags, its Return then going to the main room); the recorded
+  play-again payloads would change.
 
 ## Web
 
