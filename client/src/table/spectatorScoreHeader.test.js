@@ -13,9 +13,6 @@
  * logic for both, ScoreModal.test.js and GameLog.test.js).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { REPO_ROOT } from '../testing/files.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));

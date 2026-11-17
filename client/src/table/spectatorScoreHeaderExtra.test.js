@@ -51,11 +51,11 @@ describe('a family lobby\'s extra (spectatorJoined at CREATED, then startDraw)',
     expect(header()).toEqual(['Team 1', 'Team 2']);
   });
 
-  it('the room\'s startDraw (its clearUI takes the log down, as a seat\'s draw has none), then the teams and the table: the log comes back neutral, then by name', () => {
+  it('the room\'s startDraw (its clearUI takes the log down, as a seat\'s draw has none), then the teams and the table: the log comes back neutral', () => {
     page.socket.fire('startDraw', { start: true });
     replay.advance(50);
     expect(page.session.role).toBe('spectator');
-    expect(header().join(' ')).not.toMatch(/Your Team|Opponents/);
+    expect(header()).toEqual([]); // the log is down for the draw
     page.socket.fire('positionUpdate', {
       positions: [1, 2, 3, 4],
       sockets: ['s-a', 's-b', 's-c', 's-d'],
@@ -64,9 +64,25 @@ describe('a family lobby\'s extra (spectatorJoined at CREATED, then startDraw)',
     });
     page.socket.fire('teamsAnnounced', { team1: ['ann', 'cat'], team2: ['bob', 'dan'], resumeInMs: 3000 });
     replay.advance(100);
-    expect(header().join(' ')).not.toMatch(/Your Team|Opponents/);
+    expect(header()).toEqual([]); // still down through the teams panel
     page.socket.fire('createUI', {});
     replay.advance(3000);
     expect(header()).toEqual(['Team 1', 'Team 2']);
+  });
+
+  it('seated (the deal): the teams by name, seats 1/3 then 2/4', () => {
+    // A spectator's gameStart, as the recorded one: playerInfo, no players.
+    page.socket.fire('gameStart', {
+      gameId: 'g9',
+      trump: { suit: 'clubs', rank: '2' },
+      score1: 0,
+      score2: 0,
+      dealer: 1,
+      currentHand: 12,
+      hand: [],
+      playerInfo: ['ann', 'bob', 'cat', 'dan'].map((username, i) => ({ position: i + 1, username, pic: i + 1 })),
+    });
+    replay.advance(5000);
+    expect(header()).toEqual(['ann/cat', 'bob/dan']);
   });
 });
