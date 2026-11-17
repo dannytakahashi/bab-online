@@ -22,6 +22,9 @@ import SpriteKit
 /// that are not ready (my seat ready): there removeBot and addBot change the list the way
 /// the server answers them (`emulateLobby`) and show in "fixture.sent" as `removeBot:<id>` / `addBot`.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
+/// `-uiLobbyName "<title>"` (or the environment's `UI_FIXTURE_LOBBY_NAME`, which keeps an
+/// apostrophe: XCUITest's launch arguments read "iosplay1's" as a quote) renames a
+/// game-lobby fixture's lobby (the header's fit).
 /// `-uiLeaveDrive settle|hold` drives the Leave alert's reopen (`leaveAlertPresented`), and
 /// the chat messages the app sends show in the "fixture.sent" probe (`recordSent`).
 enum UIFixture {
@@ -47,8 +50,9 @@ enum UIFixture {
             return ["username": parts[0], "message": parts[1], "isSpectator": true]
         }
 
-    /// `-uiVoice YES`: my seat's row shows the voice button as if voice were on (fixture mode
-    /// never starts voice; screenshots and the seat-row UI tests).
+    /// `-uiVoice YES`: my seat's row (and the game lobby's header) shows the voice button as if
+    /// voice were on (fixture mode never starts voice; screenshots and the seat-row and lobby
+    /// header UI tests).
     static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
 
     /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
@@ -122,6 +126,10 @@ enum UIFixture {
         }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+            // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
+            // fit at a real lobby's name)
+            if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
+                ?? UserDefaults.standard.string(forKey: "uiLobbyName") { lobby.lobbyName = title }
             print("[UIFixture] seeded screen \(name)")
             return
         }
