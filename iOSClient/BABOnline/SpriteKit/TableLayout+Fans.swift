@@ -12,7 +12,15 @@ import CoreGraphics
 /// takes the largest at which every seat has a clear spot: above the avatar,
 /// and for the top seat also beside it on the left (past the dealer marker, or
 /// past the name band; the bid bubble is on its right) or, compact only, under
-/// its name. "Clear" is `fanGap`
+/// its name; compact only, a side seat's fan may also sit beside its avatar on
+/// the table's side (past the glow, or past the dealer marker), where the
+/// corner buttons leave no room above it (a 390 pt phone's spectator, whose
+/// pill raises the side seats to the buttons' level; every SE-size screen).
+/// Each seat's spots are tried in that order (the side spot last), so every
+/// measured device that had room before keeps its boxes; the search is over all
+/// seats at once, so on some untested sizes a seat taking the side spot can let
+/// the top seat keep an earlier spot, moving fans that fitted before (never
+/// onto anything). "Clear" is `fanGap`
 /// from the trick cards, every seat's glow, name, dealer marker and bid bubble,
 /// the other fans, the corner buttons, the trick piles, my seat's row, my
 /// lifted hand, the fold, the spectator badge and the safe area's edges. Fans
@@ -133,6 +141,18 @@ extension TableLayout {
         let a = seatAnchor(r)
         let b = CGSize(width: Self.fanBox.width * scale, height: Self.fanBox.height * scale)
         let above = CGRect(x: a.x - b.width / 2, y: a.y + Self.glowRadius + Self.gap, width: b.width, height: b.height)
+        if r == .left || r == .right {
+            guard scale < 1 else { return [above] }
+            // a phone whose side seats sit level with the corner buttons (a spectator's pill
+            // raises the seats; an SE-size screen always): the compact fan may sit beside the
+            // avatar on the table's side, level with it, past the glow, else past the dealer marker
+            let inward: CGFloat = r == .left ? 1 : -1
+            let glow = a.x + inward * (Self.glowRadius + Self.gap)
+            let chip = a.x + inward * (Self.dealerChipOffset + Self.dealerChip / 2 + Self.fanGap)
+            return [above] + [glow, chip].map { edge in
+                CGRect(x: inward > 0 ? edge : edge - b.width, y: a.y - b.height / 2, width: b.width, height: b.height)
+            }
+        }
         guard r == .top else { return [above] }
         // beside the avatar, level with it: past the dealer marker (above the name band), else
         // past the name band's edge

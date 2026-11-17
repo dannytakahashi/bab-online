@@ -239,8 +239,9 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         attach(app, "card-backs-seated")
         guard let shown = fans(app) else {
-            // only the smallest phones (an SE-size screen): the lightweight seats of before, no fan elements
-            XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
+            // every phone from the SE (375 pt) up has room (a side seat's fan beside its avatar where the corner
+            // buttons leave none above it); a narrower window: the lightweight seats of before, no fan elements
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, 375, "this screen has room for the fans")
             XCTAssertFalse(element(app, "fan.2").exists)
             app.terminate()
             return
@@ -257,7 +258,17 @@ final class TableParityUITests: XCTestCase {
         // no fan covers another, my hand's cards or the bid/score chrome
         let frames = [2, 3, 4].map { element(app, "fan.\($0)").frame }
         for i in frames.indices { for j in frames.indices where j > i { XCTAssertFalse(frames[i].intersects(frames[j])) } }
+        assertClearOfTheCornerButtons(app, frames)
         app.terminate()
+    }
+
+    /// No fan under Exit or the log button (where they are on the felt; the closed Duo puts them in its bar).
+    private func assertClearOfTheCornerButtons(_ app: XCUIApplication, _ fans: [CGRect], file: StaticString = #filePath, line: UInt = #line) {
+        for id in ["leave", "log"] {
+            let button = app.buttons[id]
+            guard button.exists, !button.frame.isEmpty else { continue }
+            for f in fans { XCTAssertFalse(f.intersects(button.frame), "fan \(f) under \(id) \(button.frame)", file: file, line: line) }
+        }
     }
 
     /// "fans=... back=blue dealer=me" -> "blue" (the colour the fans' sprites are drawn in).
@@ -276,7 +287,7 @@ final class TableParityUITests: XCTestCase {
             XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
             _ = Fixture.settledState(app)
             guard fans(app) != nil else {
-                XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
+                XCTAssertLessThan(app.windows.firstMatch.frame.width, 375, "this screen has room for the fans")
                 XCTAssertEqual(backColour(app), "-")
                 app.terminate()
                 return
@@ -295,12 +306,19 @@ final class TableParityUITests: XCTestCase {
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         attach(app, "card-backs-spectator")
         guard let shown = fans(app) else {
-            XCTAssertLessThan(app.windows.firstMatch.frame.width, 390, "this screen has room for the fans")
+            XCTAssertLessThan(app.windows.firstMatch.frame.width, 375, "this screen has room for the fans")
             app.terminate()
             return
         }
         XCTAssertEqual(shown, [1: 12, 2: 12, 3: 11, 4: 11])
         XCTAssertEqual(element(app, "fan.1").label, "ivy: 12 cards")
+        // every seat's fan on screen, none over another or under the corner buttons (a 390 pt
+        // phone: the pill raises the side seats, so theirs sit beside the avatar)
+        let window = app.windows.firstMatch.frame
+        let frames = [1, 2, 3, 4].map { element(app, "fan.\($0)").frame }
+        for f in frames { XCTAssertTrue(window.contains(f), "\(f)") }
+        for i in frames.indices { for j in frames.indices where j > i { XCTAssertFalse(frames[i].intersects(frames[j])) } }
+        assertClearOfTheCornerButtons(app, frames)
         XCTAssertEqual(element(app, "dealer").label, "Dealer: ivy")
         app.terminate()
     }

@@ -226,9 +226,7 @@ final class PlayAgainTests: XCTestCase {
     // MARK: - Voice from the table into the lobby, through GameScreen's onDisappear path
 
     private func manager() -> VoiceChatManager {
-        let m = VoiceChatManager(hooks: .init(requestRecordPermission: { true }, configureAudioSession: {},
-                                              sendOffer: { _, _, _ in }, sendAnswer: { _, _ in }),
-                                 iceStore: IceServerStore(timeout: 0.05, emit: { _ in }))
+        let m = VoiceChatManager.silent()
         managers.append(m)
         return m
     }
@@ -451,9 +449,7 @@ final class PlayAgainTests: XCTestCase {
     }
 
     func testTheLobbyIsInTalkModeForEveryone() {
-        let m = VoiceChatManager(hooks: .init(requestRecordPermission: { true }, configureAudioSession: {},
-                                              sendOffer: { _, _, _ in }, sendAnswer: { _, _ in }),
-                                 iceStore: IceServerStore(timeout: 0.05, emit: { _ in }))
+        let m = VoiceChatManager.silent()
         // a lobby extra the host's switch held to listening
         m.settings = VoiceSettings(gameId: "g1", host: "ivy", spectatorsCanTalk: false, role: .spectator, canTalk: false, canChange: false)
         m.setDesiredMode(canTalk: false, wantsMic: true)
@@ -582,7 +578,7 @@ final class PlayAgainSocketTests: XCTestCase {
         XCTAssertFalse(server.events.contains { $0.name == "lobbyReturnSeen" }, "still on the results")
         let before = server.events.count
 
-        XCTAssertTrue(LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store, voice: VoiceChatManager()))
+        XCTAssertTrue(LobbyReturn.enterOnReturn(lobbyState: lobby, appState: app, gameState: store, voice: VoiceChatManager.silent()))
         wait("lobbyReturnSeen") { self.server.events.contains { $0.name == "lobbyReturnSeen" } }
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let sent = server.events.dropFirst(before).map(\.name)
