@@ -148,6 +148,20 @@ class GameManager {
     }
 
     /**
+     * An admin rename or merge moved `oldName` to `newName`: re-point the
+     * internal chat sender (`from`) of every live game's log
+     * (GameState.renameChatSender). A spectator's chat stays in the log
+     * after the account is signed out (findLiveActivity does not count
+     * spectating), and the blockers' lists now name `newName`.
+     * @returns {number} lines re-pointed
+     */
+    renameChatSender(oldName, newName) {
+        let n = 0;
+        for (const game of this.games.values()) n += game.renameChatSender?.(oldName, newName) || 0;
+        return n;
+    }
+
+    /**
      * Where `username` plays right now, from memory (not the database's
      * activeGameId, which is written only once the draw is over): a live
      * game that has them as an entrant (draw phase), a seat owner (any

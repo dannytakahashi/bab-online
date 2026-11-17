@@ -202,8 +202,10 @@ function chatMessage(socket, io, data) {
     const { filterProfanity } = require('../utils/profanityFilter');
     const cleanMessage = filterProfanity(data.message);
 
-    // Add to game log for reconnection persistence
-    game.addLogEntry(`${username}: ${cleanMessage}`, position, 'chat');
+    // Add to game log for reconnection persistence. `from` is the sender
+    // the broadcast names, so a snapshot can leave the line out for a
+    // viewer who blocked them, as the clients hide the live message
+    game.addLogEntry(`${username}: ${cleanMessage}`, position, 'chat', { from: username });
 
     // Broadcast to players in the same game only. Both clients label
     // spectator chat from isSpectator (the `type` copy only iOS 1.0.0 read

@@ -549,7 +549,9 @@ class BotController {
             if (game.epoch !== epoch || game.isTerminal()) return;
             // A bot released meanwhile (/active) says nothing more
             if (!this.getBot(game.gameId, bot.socketId)) return;
-            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat');
+            // `from` is the bot persona ('🤖 …'), never an account: a check
+            // of chat senders against `users` must skip it (isBotName)
+            game.addLogEntry(`${bot.username}: ${message}`, bot.position, 'chat', { from: bot.username });
             game.broadcast(io, 'chatMessage', {
                 position: bot.position,
                 message,

@@ -849,6 +849,29 @@ describe('actions', () => {
             expect(await ask(auth.signIn, 'signInResponse', { username: 'DeeOld', password: 'not-it' })).toEqual({ success: false, message: '"DeeOld" was combined into your account "Dee". Please sign in as Dee.' });
         });
 
+        test('chat the account sent in a live game (a spectator\'s) follows the rename, so the blocker\'s next snapshot still leaves it out', async () => {
+            const { buildSnapshotV2 } = require('../../game/snapshotV2');
+            const bea = await signedIn('Bea');
+            const seats = ['P1', 'P2', 'P3', 'P4'].map((u, i) => w.user(`adm-rc${i}-${n}`, u));
+            const game = gameManager.createGame(seats.map(s => s.id));
+            try {
+                // what chatHandlers logs for a spectator named Cy
+                game.addLogEntry('Cy: hello', null, 'chat', { from: 'Cy' });
+                game.addLogEntry('P1: hi', 1, 'chat', { from: 'P1' });
+                game.addLogEntry('Cy is now spectating.', null, 'system');
+                const shown = () => buildSnapshotV2(game, seats[0].id, { hideChatFrom: bea.data.blockedUsers }).log.map(e => e.message);
+                expect(shown()).not.toContain('Cy: hello');
+                expect(await request(owner, 'renameAccount', { username: 'Cy', newName: 'Cyrus', confirm: 'Cyrus' })).toMatchObject({ ok: true });
+                expect([...bea.data.blockedUsers]).toEqual(['Cyrus', 'Zed']);
+                const mine = game.gameLog.filter(e => ['Cy: hello', 'P1: hi', 'Cy is now spectating.'].includes(e.message));
+                expect(mine.map(e => [e.message, e.from])).toEqual([['Cy: hello', 'Cyrus'], ['P1: hi', 'P1'], ['Cy is now spectating.', undefined]]);
+                expect(shown()).not.toContain('Cy: hello');
+                expect(shown()).toEqual(expect.arrayContaining(['P1: hi', 'Cy is now spectating.']));
+            } finally {
+                gameManager.abortGame(game.gameId, w.io);
+            }
+        });
+
         test('refused for a player in a game still in its draw (memory) or one the database shows in a game; nothing written, not signed out, not locked', async () => {
             const cy = await signedIn('Cy');
             const others = ['P1', 'P2', 'P3'].map((u, i) => w.user(`adm-rg${i}-${n}`, u));
@@ -1036,6 +1059,28 @@ describe('actions', () => {
             const replan = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
             expect(replan.plan.changeCount).toBe(0);
             expect(await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: replan.planHash, confirm: 'Bea' })).toMatchObject({ ok: false, error: 'refused' });
+        });
+
+        test('chat a source sent in a live game now names the target, as the blockers\' lists do', async () => {
+            const { buildSnapshotV2 } = require('../../game/snapshotV2');
+            await users().insertOne({ username: 'Dee', password: PW, blockedUsers: ['Cy'] });
+            const seats = ['P1', 'P2', 'P3', 'P4'].map((u, i) => w.user(`adm-mc${i}-${n}`, u));
+            const game = gameManager.createGame(seats.map(s => s.id));
+            try {
+                game.addLogEntry('Cy: hello', null, 'chat', { from: 'Cy' });
+                game.addLogEntry('Bea: hey', null, 'chat', { from: 'Bea' });
+                const prev = await request(owner, 'planMerge', { target: 'Bea', sources: ['Cy'] });
+                expect(await request(owner, 'applyMerge', { target: 'Bea', sources: ['Cy'], planHash: prev.planHash, confirm: 'Bea' })).toMatchObject({ ok: true });
+                const deeList = (await users().findOne({ username: 'Dee' })).blockedUsers;
+                expect(deeList).toEqual(['Bea']);
+                expect(game.gameLog.filter(e => e.type === 'chat').map(e => [e.message, e.from])).toEqual([['Cy: hello', 'Bea'], ['Bea: hey', 'Bea']]);
+                // Dee signed in again (the list as saved): both lines stay hidden
+                const log = buildSnapshotV2(game, seats[0].id, { hideChatFrom: new Set(deeList) }).log.map(e => e.message);
+                expect(log).not.toContain('Cy: hello');
+                expect(log).not.toContain('Bea: hey');
+            } finally {
+                gameManager.abortGame(game.gameId, w.io);
+            }
         });
 
         test('a preview that went stale (data changed after it) is refused and nothing is written', async () => {
