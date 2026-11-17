@@ -203,6 +203,9 @@ extension Theme.Motion {
 /// type sizes, so the fields keep their words).
 struct AuthCard<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var typeSize
+    /// The boot splash ends on this screen without its card (ContentView), so the card is
+    /// what the hand-off brings in.
+    @Environment(\.bootSplashShowing) private var splashShowing
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -218,6 +221,8 @@ struct AuthCard<Content: View>: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
                     .stroke(Theme.Auth.cardEdge, lineWidth: 1)
             }
+            .opacity(splashShowing ? 0 : 1)
+            .animation(.easeOut(duration: SplashTimeline.handOff), value: splashShowing)
     }
 }
 

@@ -48,6 +48,9 @@ struct SplashView: View {
         .allowsHitTesting(false)
         .task {
             guard Self.heldFrame == nil else { return }
+            // the clock starts when the splash is on screen, not when the view was made, so a
+            // late first frame still shows the deal from its start
+            start = Date()
             try? await Task.sleep(for: .seconds(timeline.finish))
             done = true
             onFinished()
@@ -118,7 +121,7 @@ struct SplashTimeline {
     static let finish: TimeInterval = 1.32
     /// Reduce Motion: one fade of the lamp and the logo (no hand), then the hand-off.
     static let reducedFade: TimeInterval = Theme.Motion.slow, reducedFinish: TimeInterval = 0.9
-    /// The cross-fade to the next screen (ContentView).
+    /// The hand-off (ContentView): the sign-in's card fades in over the swapped-in screen, or another screen fades in under the splash.
     static let handOff: TimeInterval = Theme.Motion.slow
     static let cardCount = 4
 

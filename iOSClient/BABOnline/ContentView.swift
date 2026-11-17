@@ -70,8 +70,9 @@ struct ContentView: View {
                 }
                 // nothing under the splash reaches VoiceOver or the UI tests: transparent until the
                 // hand-off (`accessibilityHidden` alone leaves the text fields and the scroll view
-                // in the tree), then shown at once under the fading splash (no dip to black)
+                // in the tree), then shown at once at the hand-off (no dip)
                 .opacity(contentShown ? 1 : 0)
+                .animation(nil, value: contentShown)
                 .accessibilityHidden(!contentShown)
                 .environment(\.bootSplashShowing, showSplash)
                 .zIndex(0)
@@ -82,8 +83,18 @@ struct ContentView: View {
                 SplashView(logoTarget: splashLogoTarget, onFinished: {
                     var now = Transaction()
                     now.disablesAnimations = true
-                    withTransaction(now) { contentShown = true }
-                    withAnimation(.easeInOut(duration: SplashTimeline.handOff)) { showSplash = false }
+                    if Self.drawsUnderSplash(appState.screen) {
+                        // the splash's last frame is this screen without its card: swapped in one
+                        // frame, then only the card fades in (AuthCard, \.bootSplashShowing). A
+                        // cross-fade of the two near-identical full screens dimmed the whole frame
+                        // ~0.25 s in recorded launches (review 2026-11-17), even with this one opaque
+                        withTransaction(now) { contentShown = true }
+                        showSplash = false
+                    } else {
+                        // a restored session's screen appears at the hand-off, under the fading splash
+                        withTransaction(now) { contentShown = true }
+                        withAnimation(.easeInOut(duration: SplashTimeline.handOff)) { showSplash = false }
+                    }
                 })
                 .zIndex(1)
                 .transition(.opacity)
@@ -92,7 +103,14 @@ struct ContentView: View {
         // the sign-in logo's frame (AuthLogoFrameKey, reported only while the splash shows);
         // the last one is kept if that screen goes, so the splash's logo never jumps
         .onPreferenceChange(AuthLogoFrameKey.self) { frame in
-            if let frame, frame != splashLogoTarget { splashLogoTarget = frame }
+            guard let frame, frame != splashLogoTarget else { return }
+            // the first frame at once; a later one (the connecting line going away moves the
+            // sign-in's logo ~16 pt) glides there, so the splash's logo and hand never jump
+            if splashLogoTarget == nil || !showSplash {
+                splashLogoTarget = frame
+            } else {
+                withAnimation(.easeInOut(duration: 0.25)) { splashLogoTarget = frame }
+            }
         }
         #if DEBUG
         .overlay {

@@ -69,9 +69,18 @@ final class AuthScreensUITests: XCTestCase {
         app.keyboards.buttons.matching(NSPredicate(format: "label ==[c] %@", "next")).firstMatch.tap()
         XCTAssertTrue((pass.value(forKey: "hasKeyboardFocus") as? Bool) ?? false, "Next moves to Password")
 
+        // iOS AutoFill: leaving a filled password field asks "Save Password?" over the next
+        // screen, and a new-password field's "Use Strong Password?" sheet covers the bottom of
+        // the screen (fresh iPhone simulators, review 2026-11-17), so the password is cleared
+        // before leaving and the register's Back is tried before any password is typed there
+        pass.tap()
+        pass.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 8))
+        dismissAutoFill(app)
+
         let create = button(app, "Create Account")
         reveal(app, create)
         create.tap()
+        dismissAutoFill(app)
         XCTAssertTrue(element(app, "screen.register").waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Create Account"].exists, "the card's title")
         XCTAssertTrue(app.textFields["Username"].exists)
@@ -82,14 +91,35 @@ final class AuthScreensUITests: XCTestCase {
         XCTAssertEqual(app.secureTextFields["Confirm Password"].label, "Confirm Password")
         XCTAssertFalse(button(app, "Register").isEnabled)
         shot("register")
-        let reg = app.secureTextFields["Password"]
-        reg.tap()
-        reg.typeText("short")
-        XCTAssertTrue(element(app, "register.passwordRule").waitForExistence(timeout: 3))
         let back = button(app, "Back to Sign In")
         reveal(app, back)
         back.tap()
+        dismissAutoFill(app)
         XCTAssertTrue(element(app, "screen.signIn").waitForExistence(timeout: 5))
+
+        // the password rule, last (its field brings up the strong-password sheet)
+        let again = button(app, "Create Account")
+        reveal(app, again)
+        again.tap()
+        XCTAssertTrue(element(app, "screen.register").waitForExistence(timeout: 5))
+        let reg = app.secureTextFields["Password"]
+        reg.tap()
+        dismissAutoFill(app)
+        reg.typeText("short")
+        XCTAssertTrue(element(app, "register.passwordRule").waitForExistence(timeout: 3))
+    }
+
+    /// Closes the system's AutoFill prompts when they show ("Save Password?" -> Not Now, the
+    /// strong-password suggestion -> its own-password choice); does nothing otherwise.
+    private func dismissAutoFill(_ app: XCUIApplication) {
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let labels = ["Not Now", "Choose My Own Password", "Don’t Use"]
+        for root in [app, springboard] {
+            for label in labels {
+                let b = root.buttons[label]
+                if b.exists && b.isHittable { b.tap(); return }
+            }
+        }
     }
 
     /// Not connected: both forms say so and keep their buttons off.
