@@ -15,11 +15,16 @@
  * Setup files share the test file's module registry, and run before its
  * jest.mock factories are registered: a module loaded here would be the
  * real one, with its own dependencies bound, in write runs only. So this
- * file loads nothing but the dependency-free mode switch. It registers the
- * stand-in under liveStore's global symbol itself (the getter names are
- * written out here; liveTestCollections.test.js checks they match
- * liveStore.LIVE_GETTERS), and loads memoryDb only when a test first asks
- * the stand-in for a collection, after that test's mocks are in place.
+ * file never loads liveStore (and through it the logger, safeTimer and
+ * hooks): it registers the stand-in under liveStore's global symbol itself
+ * (the getter names are written out here; liveTestCollections.test.js checks
+ * they match liveStore.LIVE_GETTERS).
+ *
+ * It does load memoryDb (whose only dependency is the mongodb driver) here,
+ * once, and not lazily: loading the driver draws one Math.random, and a lazy
+ * load lands inside a seeded game whenever the test reset its modules (the
+ * seeded wireGolden / avatarPayloads goldens then shift in write runs only).
+ * The class is kept in this closure, so jest.resetModules never reloads it.
  */
 
 'use strict';
@@ -34,12 +39,12 @@ const COLLECTION_BY_GETTER = Object.freeze({
 });
 
 if (livePersistMode(process.env, { warn: () => {} }) !== 'off') {
+    const { MemoryCollection } = require('./memoryDb');
     let colls = null;
     globalThis[TEST_FALLBACK] = (getter) => {
         const name = COLLECTION_BY_GETTER[getter];
         if (!name) return null;
         if (!colls) {
-            const { MemoryCollection } = require('./memoryDb');
             colls = { liveGames: new MemoryCollection(), liveTournaments: new MemoryCollection(), serverInstances: new MemoryCollection() };
         }
         return colls[name];
