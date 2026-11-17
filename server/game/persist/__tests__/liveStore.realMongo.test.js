@@ -205,7 +205,8 @@ test('a played game: insert, then updates; the BSON round trip equals serialize(
 
 test('the real driver: a fenced update matches 0 and a re-sent insert is E11000 (what the store branches on); another owner fences the store', async () => {
     if (!client) return;
-    const store = kit.installStore(mockHolder, { getIo: () => io });
+    // fenceOnLoss: PR 5's 'on' (write mode stops persisting instead: liveStore.test)
+    const store = kit.installStore(mockHolder, { getIo: () => io, fenceOnLoss: true });
     const { game, sockets } = await dealt(store, ['Hal']);
     const res = await coll('liveGames').updateOne({ _id: game.gameId, owner: 'boot-Z', released: false }, { $set: { x: 1 } });
     expect(res.matchedCount).toBe(0);

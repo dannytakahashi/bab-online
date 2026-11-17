@@ -5,6 +5,7 @@
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
 const { recordGameStats, buildGameEndRecord, getUserProfilePic } = require('./profileHandlers');
+const { trackInFlight } = require('../utils/shutdown');
 const {
     rotatePosition,
     isRainbow,
@@ -970,11 +971,18 @@ async function handleHandComplete(game, io) {
             // kill between the two can still record it exactly once. The
             // tombstone goes once the record's insert is acknowledged. The
             // one await in game code; bounded, and in write mode it never
-            // fences (the end goes on as below whatever it answers)
+            // fences (the end goes on as below whatever it answers). The
+            // claim and the stats it holds up are ONE in-flight write, so a
+            // SIGTERM during a slow claim still waits for the stats (and
+            // the store's close ends the claim's wait at once)
             const record = buildGameEndRecord(game);
-            if ((await store.claimEnded(game, { record, tournamentId })) === 'fenced') return;
-            recordGameStats(game, { record, onRecorded: () => store.recordAcked(game.gameId) })
-                .catch(logContinuationError('recordGameStats', game));
+            const claim = store.claimEnded(game, { record, tournamentId });
+            trackInFlight(Promise.resolve(claim).then((outcome) => {
+                if (outcome === 'fenced') return null;
+                return recordGameStats(game, { record, onRecorded: () => store.recordAcked(game.gameId) })
+                    .finally(() => store.recordSettled(game.gameId));
+            }).catch(logContinuationError('recordGameStats', game)));
+            if ((await claim) === 'fenced') return;
         } else {
             recordGameStats(game).catch(logContinuationError('recordGameStats', game));
         }

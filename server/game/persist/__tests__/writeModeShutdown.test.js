@@ -5,7 +5,10 @@
  * and liveTournaments (deleteMany {owner: me}), bounded at 2 s and waited
  * for like an in-flight write; no write follows the notice. Another
  * instance's docs are untouched. A doc it fails to delete keeps ownerMode
- * 'write' (only 'on' docs are ever adoptable, PR 5) and its TTL.
+ * 'write' (only 'on' docs are ever adoptable, PR 5) and its TTL. A
+ * SIGTERM while a game's terminal claim is stuck still records that game:
+ * the store's close ends the claim's wait, and the claim plus the stats
+ * write are one in-flight write the drain waits for.
  * shutdown.js is the real one (process.exit stubbed), over real games.
  */
 
@@ -19,6 +22,9 @@ const gameManager = require('../../GameManager');
 const { botController } = require('../../bot');
 const liveStore = require('../liveStore');
 const shutdown = require('../../../utils/shutdown');
+const chatHandlers = require('../../../socket/chatHandlers');
+const profileHandlers = require('../../../socket/profileHandlers');
+const { Phase } = require('../../GamePhase');
 const { setupTournament } = require('../../../testUtils/tournamentDriver');
 const { gameLogger, socketLogger, authLogger, logger, dbLogger } = require('../../../utils/logger');
 
@@ -62,6 +68,7 @@ afterEach(() => {
     process.exitCode = savedExitCode;
     mockDb.current.faults.clear();
     liveStore._resetForTests();
+    profileHandlers._resetStatsWritesForTests();
     shutdown._resetShutdownStateForTests();
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
@@ -166,3 +173,31 @@ test('off: the hook does nothing (index.js passes it only in write; even passed,
     expect(order).toEqual(['emit:gameLogEntry', 'emit:serverShutdown', 'io.close']);
     expect(db().faults.calls.filter((c) => h.LIVE_COLLECTIONS.includes(c.collection))).toEqual([]);
 });
+
+test('SIGTERM while a finished game\'s terminal claim is stuck: the stats still start and are recorded before exit', async () => {
+    const store = kit.installStore(mockDb, { getIo: () => io });
+    await store.start({ io });
+    const { game, sockets } = await kit.startGame(io, log, { humans: ['Hal'] });
+    for (const s of sockets) await chatHandlers.chatMessage(s, io, { message: '/lazy' });
+    await h.flushStore(store);
+    // Mongo stalls for the live docs (a failover during the deploy): the claim hangs
+    db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+    await kit.advanceUntil(() => game.isTerminal(), { step: 1000, cap: 3 * 3600000 });
+    expect(game.stage).toBe(Phase.ENDED);
+    await jest.advanceTimersByTimeAsync(0);
+    // The claim is waiting; the stats have not started
+    expect(db().gameRecords.docs).toHaveLength(0);
+    expect(shutdown.inFlightCount()).toBeGreaterThan(0);
+    shutdown.setupGracefulShutdown(server(), io, { games: () => gameManager.games.values(), persist: store });
+    process.listeners('SIGTERM').find((fn) => !before.SIGTERM.includes(fn))();
+    // The exit comes once the self-delete gives up (2 s), before the
+    // claim's own CLAIM_MAX_MS bound would have let the stats start
+    const waited = shutdown.NOTICE_MS + liveStore.SHUTDOWN_DELETE_MS + shutdown.SETTLE_MS + 100;
+    expect(waited).toBeLessThan(liveStore.CLAIM_MAX_MS);
+    await jest.advanceTimersByTimeAsync(waited);
+    expect(exit).toHaveBeenCalledWith(0);
+    const recordAt = db().faults.calls.findIndex((c) => c.collection === 'gameRecords' && c.op === 'insertOne');
+    expect(recordAt).toBeGreaterThanOrEqual(0);
+    expect(db().gameRecords.docs.map((r) => r.gameId)).toEqual([game.gameId]);
+    expect(db().users.docs.find((u) => u.username === 'Hal').botStats.gamesPlayed).toBe(1);
+}, 60000);

@@ -87,11 +87,14 @@ describe('/privacy', () => {
         // How Long We Keep It (the TTL: expireAt = createdAt + 24 h)
         expect(html).toContain('<li><strong>Games in progress:</strong> until the game ends, or about 10 minutes after a tournament ends, and at most one day. Copies in backups expire as described below.</li>');
         expect(html).toContain('reconnecting you to games in progress, including after a server update');
-        // Deletion: the chat scrub, and the results window's standings. "saved
+        // Deletion: the chat scrub, and a tournament's standings (a member who
+        // left a running one can delete their account: their scoreboard row
+        // stays until the tournament is deleted). "saved
         // state": the scrub runs only with LIVE_PERSIST write/on (liveStore.scrubChat),
         // so off (nothing saved) keeps today's in-memory chat as it was
         expect(html).toContain('replaces your username with "[deleted]" in game records, and removes your chat messages from the saved state of any game or tournament still in progress.');
-        expect(html).toContain('<strong>A tournament that has just finished</strong> keeps your username in its final standings for about 10 minutes, then it is deleted.');
+        expect(html).not.toContain('A tournament that has just finished');
+        expect(html).toContain('<strong>A tournament you played in</strong> keeps your username in its standings while it is running (also if you left it) and for about 10 minutes after it ends, then it is deleted.');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {

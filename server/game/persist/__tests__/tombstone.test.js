@@ -12,7 +12,10 @@
  *   - abort: a casual game's doc is deleted, a tournament table becomes an
  *     `aborted` tombstone with no record until its tournament lists it;
  *   - write mode never fences at the end: a claim that fails or finds no
- *     doc still records the stats as today.
+ *     doc still records the stats as today;
+ *   - nothing stays in memory: a failed claim, a record insert that fails
+ *     for good or an ack for a game no claim waits for lets the game go
+ *     (the doc, if any, is left to the TTL).
  */
 
 const mockDb = { current: null };
@@ -202,7 +205,55 @@ describe('gameEnd', () => {
         expect(records()).toHaveLength(1);
         expect(db().users.docs.find((u) => u.username === 'Hal').botStats.gamesPlayed).toBe(1);
         expect(log.filter((l) => l.event === 'lobbiesUpdated' && l.at >= log.find((x) => x.event === 'gameEnd').at).length).toBeGreaterThan(0);
+        // The failed claim let the game go: no state, no tombstone, no early ack kept
+        expect(store._state(game).done).toBe(true);
+        expect(store._tombstone(game.gameId)).toBeNull();
+        expect(store._recordedEarly(game.gameId)).toBeNull();
+        expect(store.health().docsOwned).toBe(0);
+        expect(store.pending()).toBe(0);
     }, 60000);
+
+    test('a record insert that fails for good: the tombstone is let go in memory (its doc is left to the TTL)', async () => {
+        const store = install();
+        const { game } = await halsGame(store);
+        db().faults.fail({ collections: 'gameRecords', ops: 'insertOne' });
+        await playToEnd(game);
+        await h.flushStore(store);
+        // Every insert retry fails; recordGameStats settles
+        await kit.advanceUntil(() => store._tombstone(game.gameId) === null, { step: 1000, cap: 600000 });
+        await h.flushStore(store);
+        expect(records()).toHaveLength(0);
+        expect(store._state(game).done).toBe(true);
+        expect(store.health().docsOwned).toBe(0);
+        expect(kit.savedGame(db(), game.gameId)).toMatchObject({ kind: 'ended', owner: 'boot-A' });
+        expect(store.logs.some((l) => /tombstone is left to expire/.test(l.msg))).toBe(true);
+    }, 60000);
+
+    test('a claim past its bound whose record already failed for good: no tombstone is kept when it lands', async () => {
+        const store = install();
+        const { game } = await halsGame(store);
+        db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+        db().faults.fail({ collections: 'gameRecords', ops: 'insertOne' });
+        await playToEnd(game);
+        await jest.advanceTimersByTimeAsync(liveStore.CLAIM_MAX_MS + 10);
+        await kit.advanceUntil(() => store._recordedEarly(game.gameId) === 'failed', { step: 1000, cap: 600000 });
+        db().faults.release();
+        await h.flushStore(store);
+        expect(store._recordedEarly(game.gameId)).toBeNull();
+        expect(store._tombstone(game.gameId)).toBeNull();
+        expect(store._state(game).done).toBe(true);
+        expect(store.health().docsOwned).toBe(0);
+        expect(kit.savedGame(db(), game.gameId)).toMatchObject({ kind: 'ended' });
+        expect(store.logs.some((l) => /tombstone is left to expire/.test(l.msg))).toBe(true);
+    }, 60000);
+
+    test('a record ack for a game no claim waits for is not kept', () => {
+        const store = install();
+        store.recordAcked('g-unknown');
+        expect(store._recordedEarly('g-unknown')).toBeNull();
+        store.recordSettled('g-unknown');
+        expect(store.health().docsOwned).toBe(0);
+    });
 
     test('a claim that finds the doc gone answers error, never fenced (write mode)', async () => {
         const store = install();
@@ -212,7 +263,25 @@ describe('gameEnd', () => {
         gameManager._retire(game, null);
         expect(store.claimable(game)).toBe(true);
         await expect(store.claimEnded(game, { tournamentId: 'T-x' })).resolves.toBe('error');
+        expect(store._state(game).done).toBe(true);
+        expect(store.health().docsOwned).toBe(0);
     });
+
+    test('a claim past its bound: an early record ack is kept for it, then consumed when its tombstone lands', async () => {
+        const store = install();
+        const { game } = await halsGame(store);
+        db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+        await playToEnd(game);
+        await jest.advanceTimersByTimeAsync(liveStore.CLAIM_MAX_MS + 10);
+        await kit.advanceUntil(() => records().length === 1, { step: 10, cap: 5000 });
+        expect(store._recordedEarly(game.gameId)).toBe('acked');
+        db().faults.release();
+        await h.flushStore(store);
+        expect(store._recordedEarly(game.gameId)).toBeNull();
+        expect(store._tombstone(game.gameId)).toBeNull();
+        expect(kit.savedGame(db(), game.gameId)).toBeNull();
+        expect(store.health().docsOwned).toBe(0);
+    }, 60000);
 });
 
 describe('abort', () => {

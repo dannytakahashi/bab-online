@@ -29,16 +29,22 @@
  *     and $push {$each: new log lines, $slice: -500}; after a failed or
  *     ambiguous write, a chat scrub or a sender rename, the next one $sets
  *     the whole log (still an update). E11000 on the insert (an ambiguous
- *     insert that did land) is read back: ours, then updates; else a fence
+ *     insert that did land) is read back: ours, then updates; else lost
  *   - matchedCount 0 -> findOne: gone at or after expireAt - 10 min ->
  *     stop persisting and play on; ANYTHING else (gone early, another
- *     owner, mine but released) is a fence: the local copy is retired
+ *     owner, mine but released) means the doc is lost. In write mode (the
+ *     only mode in PR 4) that also stops persisting and plays on, with a
+ *     warning: no instance can adopt a 'write' doc, so a lost one is an
+ *     outside delete (an operator, a restore, a rolled-back write), never
+ *     a successor, and the game must not end over it. With `fenceOnLoss`
+ *     (PR 5's 'on'; tests) a lost doc is a fence: the local copy is retired
  *     (game.freeze: nothing more is emitted or timed; GameManager._retire
  *     with no io; a tournament is deleted from GameManager), no side
  *     effect runs, and the sockets at it are engine-closed
  *     (socket.conn.close(), what io.close does per client: the clients
  *     reconnect as after a transport close; never socket.disconnect(),
- *     which web reads as terminal)
+ *     which web reads as terminal). PR 5 note: a sweep must never delete
+ *     a doc whose owner instance is still alive, whatever its ownerMode
  *   - expireAt is the entity's createdAt + 24 h (Mongo's TTL index deletes
  *     it then); the store stops writing, and deletes its doc, at
  *     createdAt + 23 h 50 m, so a TTL delete is never taken for a fence
@@ -89,12 +95,28 @@ const CLAIM_MAX_MS = 5000;
 const LOG_EVERY_MS = 60 * 1000;
 
 const COLLECTION = { game: 'liveGames', tournament: 'liveTournaments' };
+const LIVE_GETTERS = Object.freeze({
+    liveGames: 'getLiveGamesCollection',
+    liveTournaments: 'getLiveTournamentsCollection',
+    serverInstances: 'getServerInstancesCollection'
+});
+// Jest only (testUtils/liveTestCollections.js, LIVE_PERSIST=write runs):
+// stand-in live collections for the many tests whose jest.mock('../database')
+// has no live getters, so the whole suite exercises the store. On
+// globalThis so a jest.resetModules() keeps it; never set outside NODE_ENV=test
+const TEST_FALLBACK = Symbol.for('bab.liveStore.testCollections');
 
-/** The live collections from a database module; a missing getter (a partial jest.mock) is null. */
+/**
+ * The live collections from a database module; a missing getter (a partial
+ * jest.mock) is null, or under Jest the registered stand-in.
+ */
 function defaultCollections(database = require('../../database')) {
+    const fallback = process.env.NODE_ENV === 'test' && typeof globalThis[TEST_FALLBACK] === 'function'
+        ? globalThis[TEST_FALLBACK]
+        : null;
     const get = (name) => {
         const fn = database[name];
-        if (typeof fn !== 'function') return null;
+        if (typeof fn !== 'function') return fallback ? fallback(name) || null : null;
         try {
             return fn() || null;
         } catch {
@@ -102,10 +124,16 @@ function defaultCollections(database = require('../../database')) {
         }
     };
     return {
-        liveGames: get('getLiveGamesCollection'),
-        liveTournaments: get('getLiveTournamentsCollection'),
-        serverInstances: get('getServerInstancesCollection')
+        liveGames: get(LIVE_GETTERS.liveGames),
+        liveTournaments: get(LIVE_GETTERS.liveTournaments),
+        serverInstances: get(LIVE_GETTERS.serverInstances)
     };
+}
+
+/** Jest only: `fn(getterName)` -> a collection, for database mocks without the live getters; null clears. */
+function _setTestFallbackCollections(fn) {
+    if (fn) globalThis[TEST_FALLBACK] = fn;
+    else delete globalThis[TEST_FALLBACK];
 }
 
 function defaultLogger() {
@@ -188,6 +216,10 @@ function bounded(p, ms, onTimeout) {
  * @param {Function} [opts.listGames] / [opts.listTournaments] - () => iterable of live ids (heartbeat)
  * @param {Function} [opts.tournamentOfGame] - gameId -> the live TournamentState it belongs to, or null
  * @param {Function} [opts.gameIdIndexUnique] - () => true | false | null (/health)
+ * @param {boolean} [opts.fenceOnLoss=false] - a lost doc (gone early, another
+ *   owner, released) fences the entity instead of stopping its writes. Off
+ *   in write mode (PR 4: nothing can adopt a 'write' doc); PR 5's 'on' and
+ *   the fence tests set it
  */
 function createLiveStore({
     mode = 'off',
@@ -209,7 +241,8 @@ function createLiveStore({
         const tid = gm.tournamentGames.get(gameId);
         return tid ? gm.tournaments.get(tid) || null : null;
     },
-    gameIdIndexUnique = defaultGameIdIndexUnique
+    gameIdIndexUnique = defaultGameIdIndexUnique,
+    fenceOnLoss = false
 } = {}) {
     const effectiveMode = mode === 'on' ? 'write' : mode;
     const active = effectiveMode === 'write';
@@ -222,8 +255,12 @@ function createLiveStore({
     const byId = new Map();
     // gameId -> {st, tournamentId, recordAcked, tournamentAcked, deleting, retry}
     const tombstones = new Map();
-    // Record acks that came in before their tombstone was registered
-    const recordedEarly = new Set();
+    // How the record went for a game whose claim is still pending (past its
+    // CLAIM_MAX_MS bound, so the stats started first): gameId -> 'acked'
+    // (insert acknowledged) | 'failed' (recordGameStats settled without it)
+    const recordedEarly = new Map();
+    // Callers' waits on claims not settled yet: close() ends them at once
+    const claimWaits = new Set();
     // Fire-and-forget ops outside an entity's queue (instance doc, deletes)
     const looseOps = new Set();
     const logState = new Map();
@@ -477,7 +514,7 @@ function createLiveStore({
     /**
      * An insert hit E11000 or an update matched nothing: what is there?
      * Ours (an ambiguous insert that landed): write it again as an update.
-     * Gone near expireAt: stop. Anything else: fenced.
+     * Gone near expireAt: stop. Anything else: lost (stop, or a fence with fenceOnLoss).
      */
     async function readBack(st, coll, op) {
         let doc;
@@ -492,15 +529,15 @@ function createLiveStore({
                 stop(st, 'expired');
                 return;
             }
-            fence(st, 'gone');
+            lost(st, 'gone');
             return;
         }
         if (doc.owner !== bootId) {
-            fence(st, 'owner');
+            lost(st, 'owner');
             return;
         }
         if (doc.released) {
-            fence(st, 'released');
+            lost(st, 'released');
             return;
         }
         // Ours and live: the earlier insert did land. Updates from now on,
@@ -525,6 +562,8 @@ function createLiveStore({
         st.done = true;
         if (byId.get(`${st.kind}:${st.id}`) === st) byId.delete(`${st.kind}:${st.id}`);
         if (st.kind === 'tournament') settleTournamentTombstones(st.id);
+        // An early record ack only ever serves this game's pending claim
+        else if (tombstones.get(st.id)?.st !== st) recordedEarly.delete(st.id);
     }
 
     function stop(st, why) {
@@ -543,6 +582,21 @@ function createLiveStore({
         } catch (err) {
             logFailure('cap delete', st, err);
         }
+    }
+
+    /**
+     * The doc is gone early, another owner's, or released. Write mode: stop
+     * persisting and play on (nothing adopts a 'write' doc, so nobody else
+     * runs this game). fenceOnLoss: a fence.
+     */
+    function lost(st, why) {
+        if (st.done) return;
+        if (fenceOnLoss) {
+            fence(st, why);
+            return;
+        }
+        logger.warn('Live doc lost; no longer saved, play goes on', { [idField(st)]: st.id, rev: st.rev, why });
+        forget(st);
     }
 
     function fence(st, why) {
@@ -577,16 +631,26 @@ function createLiveStore({
     }
 
     function registerTombstone(st, { tournamentId, recordAcked }) {
+        const early = recordedEarly.get(st.id);
+        recordedEarly.delete(st.id);
+        if (early === 'failed' && !recordAcked) {
+            // The record's insert already failed for good: nothing will
+            // delete this tombstone, so it is left to the TTL from now
+            giveUpTombstone(st);
+            return;
+        }
         const tb = {
             gameId: st.id,
             st,
             tournamentId: tournamentId || null,
-            recordAcked: recordAcked || recordedEarly.delete(st.id),
+            recordAcked: recordAcked || early === 'acked',
             tournamentAcked: !tournamentId || tournamentLists(tournamentId, st.id),
             deleting: false,
             retry: false
         };
         tombstones.set(st.id, tb);
+        // The tombstone needs the id and the queue, never the game: let the GameState go
+        st.entity = null;
         maybeDeleteTombstone(tb);
     }
 
@@ -643,6 +707,14 @@ function createLiveStore({
         }
         const aborted = game.isTerminal() && game.stage !== Phase.ENDED;
         const claim = enqueue(st, async () => {
+            const outcome = await claimOnce();
+            // Nothing registered (an error, a gone doc): the doc, if any, is
+            // left to the TTL (or this process's shutdown delete), and the
+            // game is let go here
+            if (!tombstones.has(st.id) && !st.done) forget(st);
+            return outcome;
+        });
+        async function claimOnce() {
             const coll = collectionFor(st);
             if (!coll) return 'error';
             if (aborted && !tournamentId) {
@@ -714,8 +786,20 @@ function createLiveStore({
             logger.warn('Terminal claim matched no doc; ending as usual', { gameId: st.id, rev: st.rev, why: doc ? 'owner' : 'gone' });
             forget(st);
             return 'error';
+        }
+        // The caller's wait: CLAIM_MAX_MS at most, and over at once when the
+        // store closes (SIGTERM: the stats it holds up start now, inside the
+        // shutdown drain; the claim itself goes on in the queue, which
+        // shutdown() waits for). Write mode: nothing adopts the tombstone,
+        // so the order matters only once PR 5 can
+        return new Promise((resolve) => {
+            const done = (outcome) => {
+                if (!claimWaits.delete(done)) return;
+                resolve(outcome);
+            };
+            claimWaits.add(done);
+            bounded(claim, CLAIM_MAX_MS, 'error').then(done, () => done('error'));
         });
-        return bounded(claim, CLAIM_MAX_MS, 'error');
     }
 
     /** profileHandlers' insertGameRecord was acknowledged for `gameId` (recordGameStats onRecorded). */
@@ -723,11 +807,39 @@ function createLiveStore({
         if (!active) return;
         const tb = tombstones.get(gameId);
         if (!tb) {
-            recordedEarly.add(gameId);
+            // Kept only while the game's claim is still pending (it registers
+            // the tombstone later); otherwise there is nothing to delete
+            const st = byId.get(`game:${gameId}`);
+            if (st && !st.done) recordedEarly.set(gameId, 'acked');
             return;
         }
         tb.recordAcked = true;
         maybeDeleteTombstone(tb);
+    }
+
+    /**
+     * recordGameStats for `gameId` settled (gameEnd). A tombstone whose
+     * record insert was never acknowledged (it failed for good) is let go
+     * here: its doc is left to the TTL (or this process's shutdown delete),
+     * so nothing stays in memory for the rest of the process.
+     */
+    function recordSettled(gameId) {
+        if (!active) return;
+        const tb = tombstones.get(gameId);
+        if (!tb) {
+            // The claim is still pending: it lets the game go when it lands
+            const st = byId.get(`game:${gameId}`);
+            if (st && !st.done && recordedEarly.get(gameId) !== 'acked') recordedEarly.set(gameId, 'failed');
+            return;
+        }
+        if (tb.recordAcked) return;
+        tombstones.delete(gameId);
+        giveUpTombstone(tb.st);
+    }
+
+    function giveUpTombstone(st) {
+        forget(st);
+        logger.warn('Game record not acknowledged; its tombstone is left to expire', { gameId: st.id, rev: st.rev });
     }
 
     // ---------- removal, chat ----------
@@ -877,6 +989,7 @@ function createLiveStore({
         if (heartbeat) clearInterval(heartbeat);
         heartbeat = null;
         for (const st of byId.values()) cancelImmediate(st);
+        for (const done of [...claimWaits]) done('error');
         uninstall();
     }
 
@@ -977,6 +1090,7 @@ function createLiveStore({
         claimable,
         claimEnded,
         recordAcked,
+        recordSettled,
         scrubChat,
         start,
         close,
@@ -989,6 +1103,7 @@ function createLiveStore({
         // Tests
         _state: (entity) => byEntity.get(entity) || null,
         _tombstone: (gameId) => tombstones.get(gameId) || null,
+        _recordedEarly: (gameId) => recordedEarly.get(gameId) || null,
         get closed() { return closed; },
         get started() { return started; }
     };
@@ -1041,7 +1156,9 @@ function _setForTests(store) {
 module.exports = {
     createLiveStore,
     defaultCollections,
+    LIVE_GETTERS,
     getLiveStore,
+    _setTestFallbackCollections,
     _resetForTests,
     _setForTests,
     TTL_MS,

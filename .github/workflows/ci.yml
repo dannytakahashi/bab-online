@@ -70,8 +70,11 @@ jobs:
           REQUIRE_REAL_MONGO: '1'
 
       # Deploy survival: the whole suite again with the live persist store
-      # on (LIVE_PERSIST=write, server/game/persist/liveStore.js), so its
-      # hooks in game code are proven to change nothing anywhere (no coverage)
+      # on (LIVE_PERSIST=write, server/game/persist/liveStore.js; no
+      # coverage). server/testUtils/liveTestCollections.js gives every test
+      # whose database mock lacks the live getters in-memory live
+      # collections, so the store writes, claims and tombstones in every
+      # game test; any change it made to play would fail them
       - name: Server tests with LIVE_PERSIST=write (Jest)
         run: npm test
         env:
@@ -85,6 +88,18 @@ jobs:
         env:
           MONGO_URI: mongodb://localhost:27017/test
           NODE_ENV: test
+
+      # The race check again with the live persist store writing
+      # (liveTestCollections.js, as above). The chaos, tournament and
+      # contract suites already ran with it in the write-mode Jest step
+      # (default seeds); `npm run test:contract` (1500 seeds, about 5 min)
+      # stays a local check
+      - name: Race check with LIVE_PERSIST=write
+        run: npm run test:race
+        env:
+          MONGO_URI: mongodb://localhost:27017/test
+          NODE_ENV: test
+          LIVE_PERSIST: write
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v5

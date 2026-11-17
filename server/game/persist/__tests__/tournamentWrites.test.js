@@ -171,12 +171,27 @@ test('each mutator and direct field write reaches the doc on its own (no other c
         ['markGameComplete', () => t.markGameComplete('g-fake-1')],
         ['completeRound', () => t.completeRound()],
         ['liveness: the ready deadline (direct write)', () => liveness.armReadyDeadline(io, t)],
+        ['ready marks (direct, then a broadcast)', () => {
+            for (const sid of t.players.keys()) if (sid !== t.createdBy) t.readyPlayers.add(sid);
+            t.broadcast(io, 'tournamentReadyUpdate', liveness.readyUpdatePayload(t));
+        }],
+        // The idle host's hand-off (tournamentLiveness.handOffHost, from the
+        // hostIdle timer): the new host and handedOffThisWait
+        ['liveness: the idle host handed off (direct write)', async () => {
+            const host = t.createdBy;
+            expect(t.handedOffThisWait).toBeFalsy();
+            liveness.refreshHostIdle(io, t);
+            await jest.advanceTimersByTimeAsync(liveness.hostIdleMs() + 1);
+            expect(t.createdBy).not.toBe(host);
+            expect(t.handedOffThisWait).toBe(true);
+        }],
         ['broadcast after a direct write', () => { t.handedOffThisWait = true; t.broadcast(io, 'tournamentMessage', liveness.systemLine('x')); }],
     ];
     for (const [name, step] of steps) {
-        step();
+        await step();
         await h.flushStore(store);
         expect([name, stored(kit.savedTournament(db(), t.tournamentId))]).toEqual([name, expected(t)]);
+        if (name.startsWith('liveness: the idle host')) expect(kit.savedTournament(db(), t.tournamentId).state.handedOffThisWait).toBe(true);
     }
     expect(kit.savedTournament(db(), t.tournamentId).state.readyDeadlineAt).toBe(t.readyDeadlineAt);
     expect(t.readyDeadlineAt).not.toBeNull();

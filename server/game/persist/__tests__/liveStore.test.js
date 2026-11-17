@@ -6,10 +6,12 @@
  *     in flight make exactly one follow-up, rev counts writes;
  *   - the first write is the only insert: never an insert or upsert after
  *     its ack; an ambiguous insert that landed is read back (E11000) and
- *     updated; another owner's doc under the id is a fence;
+ *     updated; another owner's doc under the id is lost;
  *   - matchedCount 0, every cause: gone near expireAt -> stop and play on;
- *     gone early, another owner, mine but released -> fence (retired,
- *     frozen, sockets engine-closed, no emit, never recreated);
+ *     gone early, another owner, mine but released -> lost: in write mode
+ *     stop persisting and play on (nothing adopts a 'write' doc), with
+ *     fenceOnLoss (PR 5's 'on') a fence (retired, frozen, sockets
+ *     engine-closed, no emit, never recreated);
  *   - the stored doc always ends equal to serialize(game) (chaos runs);
  *   - a tainted game keeps its last good doc;
  *   - log lines $push'ed ($slice -500), the whole log after a failure or a
@@ -242,8 +244,24 @@ describe('E11000 on the insert', () => {
         expectDocMatches(game);
     });
 
-    test("another owner's doc under the id: fenced, never overwritten", async () => {
+    test("another owner's doc under the id: never overwritten; write mode plays on", async () => {
         const store = install();
+        const { game, sockets } = await kit.startGame(io, log, { humans: ['Hal'], until: () => true });
+        db().liveGames._insert({ _id: game.gameId, owner: 'boot-B', released: false, kind: 'live', marker: 1 });
+        await kit.advanceUntil(() => game.stage === Phase.BIDDING);
+        await h.flushStore(store);
+        expect(game.frozen).toBeFalsy();
+        expect(gameManager.games.get(game.gameId)).toBe(game);
+        expect(sockets[0].conn.close).not.toHaveBeenCalled();
+        expect(store.logs.find((l) => /Live doc lost/.test(l.msg)).meta).toMatchObject({ gameId: game.gameId, why: 'owner' });
+        game.addLogEntry('later', null, 'system');
+        await h.flushStore(store);
+        expect(kit.savedGame(db(), game.gameId)).toMatchObject({ owner: 'boot-B', marker: 1 });
+        expect(store._state(game).done).toBe(true);
+    });
+
+    test("another owner's doc under the id, fenceOnLoss: fenced, never overwritten", async () => {
+        const store = install({ fenceOnLoss: true });
         const { game, sockets } = await kit.startGame(io, log, { humans: ['Hal'], until: () => true });
         db().liveGames._insert({ _id: game.gameId, owner: 'boot-B', released: false, kind: 'live', marker: 1 });
         await kit.advanceUntil(() => game.stage === Phase.BIDDING || game.frozen);
@@ -257,7 +275,7 @@ describe('E11000 on the insert', () => {
 
 describe('matchedCount 0: what is there decides', () => {
     async function playing(storeOpts) {
-        const store = install(storeOpts);
+        const store = install({ fenceOnLoss: true, ...storeOpts });
         const ctx = await kit.startGame(io, log, { humans: ['Hal'] });
         await h.flushStore(store);
         expect(kit.savedGame(db(), ctx.game.gameId)).not.toBeNull();
@@ -283,6 +301,34 @@ describe('matchedCount 0: what is there decides', () => {
         expect(liveOps('insertOne')).toHaveLength(inserts);
         expect(store.pending()).toBe(0);
     }
+
+    test.each([
+        ['gone', (id) => db().liveGames.deleteOne({ _id: id })],
+        ['owner', (id) => db().liveGames.updateOne({ _id: id }, { $set: { owner: 'boot-B' } })],
+        ['released', (id) => db().liveGames.updateOne({ _id: id }, { $set: { released: true, releasedAt: new Date() } })]
+    ])('write mode (no fenceOnLoss), doc %s: stop persisting, play on, no fence, no emit lost', async (why, change) => {
+        const { store, game, sockets } = await playing({ fenceOnLoss: false });
+        await change(game.gameId);
+        const before = kit.savedGame(db(), game.gameId);
+        game.addLogEntry('change', null, 'system');
+        await h.flushStore(store);
+        expect(game.frozen).toBeFalsy();
+        expect(gameManager.games.get(game.gameId)).toBe(game);
+        expect(botController.gamesBots.has(game.gameId)).toBe(true);
+        expect(sockets[0].conn.close).not.toHaveBeenCalled();
+        expect(store.logs.filter((l) => /fenced/.test(l.msg))).toEqual([]);
+        expect(store.logs.filter((l) => /Live doc lost/.test(l.msg)).map((l) => l.meta)).toEqual([{ gameId: game.gameId, rev: expect.any(Number), why }]);
+        // The game plays on; nothing more is written (never recreated, never overwritten)
+        const ops = db().faults.calls.length;
+        const seq = game.eventSeq;
+        await jest.advanceTimersByTimeAsync(60000);
+        await h.flushStore(store);
+        expect(game.eventSeq).toBeGreaterThan(seq);
+        expect(liveOps().slice(ops)).toEqual([]);
+        expect(kit.savedGame(db(), game.gameId)).toEqual(before);
+        expect(store.pending()).toBe(0);
+        expect(store.health().docsOwned).toBe(0);
+    });
 
     test('gone early (adopted, ended or discarded elsewhere): fence', async () => {
         const ctx = await playing();
@@ -444,12 +490,44 @@ describe('outages never hold a game up', () => {
     });
 
     test('a database module without the live getters (a partial jest.mock) or before connectDB gives null collections', () => {
+        // (Under LIVE_PERSIST=write, testUtils/liveTestCollections.js fills the gap: off here)
+        const saved = globalThis[Symbol.for('bab.liveStore.testCollections')];
+        liveStore._setTestFallbackCollections(null);
+        try {
+            expectNullCollections();
+        } finally {
+            if (saved) liveStore._setTestFallbackCollections(saved);
+        }
+    });
+
+    test('under Jest a registered stand-in fills only the missing getters', () => {
+        const saved = globalThis[Symbol.for('bab.liveStore.testCollections')];
+        const stand = { liveGames: {}, liveTournaments: {}, serverInstances: {} };
+        liveStore._setTestFallbackCollections((getter) => stand[Object.keys(liveStore.LIVE_GETTERS).find((k) => liveStore.LIVE_GETTERS[k] === getter)]);
+        try {
+            const own = {};
+            expect(liveStore.defaultCollections({ getLiveGamesCollection: () => own })).toEqual({ liveGames: own, liveTournaments: stand.liveTournaments, serverInstances: stand.serverInstances });
+            // A getter that exists but answers null (an outage, before connectDB) stays null
+            expect(liveStore.defaultCollections({ getLiveGamesCollection: () => null }).liveGames).toBeNull();
+            const env = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            try {
+                expect(liveStore.defaultCollections({})).toEqual({ liveGames: null, liveTournaments: null, serverInstances: null });
+            } finally {
+                process.env.NODE_ENV = env;
+            }
+        } finally {
+            liveStore._setTestFallbackCollections(saved || null);
+        }
+    });
+
+    function expectNullCollections() {
         expect(liveStore.defaultCollections({ getUsersCollection: () => ({}) })).toEqual({ liveGames: null, liveTournaments: null, serverInstances: null });
         expect(liveStore.defaultCollections({ getLiveGamesCollection: () => undefined, getLiveTournamentsCollection: () => { throw new Error('x'); } }))
             .toEqual({ liveGames: null, liveTournaments: null, serverInstances: null });
         const coll = {};
         expect(liveStore.defaultCollections({ getLiveGamesCollection: () => coll }).liveGames).toBe(coll);
-    });
+    }
 });
 
 describe('modes', () => {
