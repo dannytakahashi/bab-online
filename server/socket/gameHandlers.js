@@ -4,7 +4,7 @@
 
 const gameManager = require('../game/GameManager');
 const Deck = require('../game/Deck');
-const { recordGameStats, getUserProfilePic } = require('./profileHandlers');
+const { recordGameStats, buildGameEndRecord, getUserProfilePic } = require('./profileHandlers');
 const {
     rotatePosition,
     isRainbow,
@@ -29,6 +29,8 @@ const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
+/** The live persist store (deploy survival), lazily: a no-op with LIVE_PERSIST off. */
+const liveStore = () => require('../game/persist/liveStore').getLiveStore();
 const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const { randomStockPic } = require('../avatar/stockAvatars');
@@ -960,7 +962,22 @@ async function handleHandComplete(game, io) {
         // Persist stats in the background: a slow DB must not hold up the
         // end of the game for the players. Retried, replay-safe and waited
         // for by a graceful shutdown (profileHandlers, End-of-game writes)
-        recordGameStats(game).catch(logContinuationError('recordGameStats', game));
+        const store = liveStore();
+        if (store.claimable(game)) {
+            // Deploy survival (LIVE_PERSIST write; persist/liveStore.js):
+            // the record is built once, and the game's saved doc becomes
+            // the ENDED tombstone holding it BEFORE the stats start, so a
+            // kill between the two can still record it exactly once. The
+            // tombstone goes once the record's insert is acknowledged. The
+            // one await in game code; bounded, and in write mode it never
+            // fences (the end goes on as below whatever it answers)
+            const record = buildGameEndRecord(game);
+            if ((await store.claimEnded(game, { record, tournamentId })) === 'fenced') return;
+            recordGameStats(game, { record, onRecorded: () => store.recordAcked(game.gameId) })
+                .catch(logContinuationError('recordGameStats', game));
+        } else {
+            recordGameStats(game).catch(logContinuationError('recordGameStats', game));
+        }
 
         // Clear active game for all players
         try {

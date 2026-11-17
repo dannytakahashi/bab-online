@@ -43,7 +43,12 @@
  *   users.adminSetBy          who made someone an admin
  * Not renamed: adminAudit (a log of what happened, by the names of the
  * time; the rename's own entry links old -> new) and passwordResets'
- * createdBy (history). Tournament history is in memory only.
+ * createdBy (history). Tournament history is in memory only. The live
+ * docs saved for deploy survival (liveGames / liveTournaments, LIVE_PERSIST
+ * write) are not renamed here: adminHandlers re-points the live chat
+ * senders in memory (GameManager.renameChatSender, which has each changed
+ * game's saved log rewritten whole); a seat or tournament member keeps the
+ * name it played under until the game ends.
  *
  * Order: the guarded rename first (the step that can be refused: the name
  * appeared meanwhile, the account entered a game or was merged; it also

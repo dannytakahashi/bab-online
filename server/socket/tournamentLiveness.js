@@ -81,6 +81,7 @@ function armReadyDeadline(io, t, { restart = true } = {}) {
     if (restart) {
         const ms = readyDeadlineMs();
         t.readyDeadlineAt = ms > 0 ? Date.now() + ms : null;
+        t._changed?.();
     }
     if (t.readyDeadlineAt == null) return;
     const left = t.readyDeadlineAt - Date.now();
@@ -177,7 +178,10 @@ function handOffHost(io, t) {
         reason: 'hostIdle'
     });
     t.broadcast(io, 'tournamentMessage', systemLine(`${oldName} was idle, so ${next.username} is now the host.`));
-    if (t.phase === 'between_rounds') t.handedOffThisWait = true;
+    if (t.phase === 'between_rounds') {
+        t.handedOffThisWait = true;
+        t._changed?.();
+    }
     require('./gameLifecycle').emitLobbiesUpdated(io);
     refreshHostIdle(io, t);
 }

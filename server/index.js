@@ -18,7 +18,8 @@ require('dotenv').config();
 // the gap between a new deployment serving and the old one being stopped.
 // Only the first 8 characters of RAILWAY_DEPLOYMENT_ID (enough to tell
 // deployments apart in the log)
-const bootId = require('crypto').randomUUID();
+// (utils/instanceId.js: the same bootId owns this process's live docs)
+const { bootId } = require('./utils/instanceId');
 const bootLog = { deployment: (process.env.RAILWAY_DEPLOYMENT_ID || 'local').slice(0, 8), bootId };
 require('./utils/logger').logger.info('Instance boot', { ...bootLog, at: new Date().toISOString() });
 
@@ -117,15 +118,29 @@ function start() {
         }
     });
 
+    // Live persist (LIVE_PERSIST, read once here; deploy survival,
+    // server/game/persist/liveStore.js). Off: none of it runs
+    const liveStore = require('./game/persist/liveStore').getLiveStore();
+    const persisting = liveStore.mode !== 'off';
+
     // Setup graceful shutdown
     // Live tables hear about the update in their game log before serverShutdown
-    setupGracefulShutdown(server, io, { games: () => require('./game/GameManager').games.values() });
+    // (write mode: then this process deletes its saved games and tournaments)
+    setupGracefulShutdown(server, io, {
+        games: () => require('./game/GameManager').games.values(),
+        ...(persisting && { persist: liveStore })
+    });
 
     // Connect to database in background (fire and forget like original)
     connectDB()
         .then(() => {
             logger.info('Database connected');
             logger.info('Instance DB ready', { ...bootLog, at: new Date().toISOString() });
+            // Write mode: this process's serverInstances doc and heartbeat
+            // (no sweep, no adoption), in parallel with the stats sweep
+            if (persisting) {
+                liveStore.start({ io }).catch(err => logger.error('Live persist start failed', { error: err.message }));
+            }
             // End-of-game stats a previous process left half-applied
             return require('./socket/profileHandlers').resumePendingGameStats();
         })

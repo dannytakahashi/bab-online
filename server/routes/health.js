@@ -36,7 +36,24 @@ function liveCounts(io = ioRef, gameManager = require('../game/GameManager')) {
     return { sockets, ...counts };
 }
 
-function healthBody({ io = ioRef, gameManager, dbState = safeDbState } = {}) {
+/**
+ * Deploy survival (server/game/persist/liveStore.js): {mode (LIVE_PERSIST
+ * as read at boot), effectiveMode (what runs: 'on' runs as 'write' until
+ * handoff and adoption land), uniqueGameIdIndex (gameRecords' unique
+ * gameId index: true / false / null before it is probed; check it is true
+ * before setting write), docsOwned (live docs this process holds),
+ * adopted, lastSweepAt, bootSwept (adoption: 0 / null / false until it
+ * exists)}. Counts and flags only. null if unreadable.
+ */
+function persistHealth() {
+    try {
+        return require('../game/persist/liveStore').getLiveStore().health();
+    } catch {
+        return null;
+    }
+}
+
+function healthBody({ io = ioRef, gameManager, dbState = safeDbState, persist = persistHealth } = {}) {
     const mem = process.memoryUsage();
     return {
         status: 'ok',
@@ -48,7 +65,8 @@ function healthBody({ io = ioRef, gameManager, dbState = safeDbState } = {}) {
             unit: 'MB'
         },
         db: dbState(),
-        live: liveCounts(io, gameManager)
+        live: liveCounts(io, gameManager),
+        persist: persist()
     };
 }
 
@@ -64,4 +82,4 @@ function healthHandler(req, res) {
     res.json(healthBody());
 }
 
-module.exports = { setHealthIo, healthHandler, healthBody, liveCounts };
+module.exports = { setHealthIo, healthHandler, healthBody, liveCounts, persistHealth };

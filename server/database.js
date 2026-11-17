@@ -12,6 +12,13 @@ const dbName = dbNameFrom();
 let db, usersCollection, gameRecordsCollection, reportsCollection;
 // Admin panel (server/admin/): one-time reset links and the audit log
 let passwordResetsCollection, adminAuditCollection;
+// Deploy survival (server/game/persist/liveStore.js; LIVE_PERSIST): live
+// games and tournaments, and one document per server process
+let liveGamesCollection, liveTournamentsCollection, serverInstancesCollection;
+// Whether gameRecords has its UNIQUE gameId index (ensureGameIdIndex may
+// have fallen back to a non-unique one): null until probed. /health
+// persist.uniqueGameIdIndex; a precondition for LIVE_PERSIST=on
+let gameIdIndexUnique = null;
 
 // Resolved once the collections are assigned (see whenReady)
 let resolveReady;
@@ -86,6 +93,9 @@ async function connectDB() {
     reportsCollection = db.collection("reports");
     passwordResetsCollection = db.collection("passwordResets");
     adminAuditCollection = db.collection("adminAudit");
+    liveGamesCollection = db.collection("liveGames");
+    liveTournamentsCollection = db.collection("liveTournaments");
+    serverInstancesCollection = db.collection("serverInstances");
     resolveReady();
 
     try {
@@ -133,11 +143,14 @@ async function ensureIndexes({
     gameRecords = gameRecordsCollection,
     reports = reportsCollection,
     passwordResets = passwordResetsCollection,
-    adminAudit = adminAuditCollection
+    adminAudit = adminAuditCollection,
+    liveGames = liveGamesCollection,
+    liveTournaments = liveTournamentsCollection,
+    serverInstances = serverInstancesCollection
 } = {}) {
     return Promise.allSettled([
         safeIndex(gameRecords, { completedAt: -1 }, {}, 'gameRecords.completedAt_-1'),
-        ensureGameIdIndex(gameRecords),
+        ensureGameIdIndex(gameRecords).then(() => probeGameIdIndex(gameRecords)),
         // The startup sweep's lookup (profileHandlers.resumePendingGameStats):
         // only records whose stats are not applied yet are in it
         safeIndex(gameRecords, { statsPending: 1 },
@@ -148,8 +161,60 @@ async function ensureIndexes({
         // A deleted account's name hold (server/admin/accountDelete.js)
         // goes when its nameHeldUntil passes; only holds carry the field
         safeIndex(users, { nameHeldUntil: 1 }, { expireAfterSeconds: 0 }, 'users.nameHeldUntil_1 (TTL)'),
-        ...adminIndexes({ users, passwordResets, adminAudit })
+        ...adminIndexes({ users, passwordResets, adminAudit }),
+        ...liveIndexes({ liveGames, liveTournaments, serverInstances })
     ]);
+}
+
+/**
+ * Deploy survival's collections (server/game/persist/liveStore.js; built
+ * whatever LIVE_PERSIST says, so they are there before it is set):
+ * liveGames and liveTournaments by owner and released (handoff and
+ * adoption), a TTL on expireAt (each doc's createdAt + 24 h: at most a
+ * day, whatever happens to the process), and liveTournaments by member
+ * (state.players.username: a returning member's tournament);
+ * serverInstances expire a day after their last heartbeat. A collection
+ * a caller did not pass (scripts/restore-db.js, tests) is skipped.
+ */
+const LIVE_INSTANCE_TTL_SEC = 24 * 60 * 60;
+function liveIndexes({ liveGames, liveTournaments, serverInstances }) {
+    const out = [];
+    for (const [name, coll] of [['liveGames', liveGames], ['liveTournaments', liveTournaments]]) {
+        if (!coll) continue;
+        out.push(
+            safeIndex(coll, { released: 1 }, {}, `${name}.released_1`),
+            safeIndex(coll, { owner: 1 }, {}, `${name}.owner_1`),
+            safeIndex(coll, { expireAt: 1 }, { expireAfterSeconds: 0 }, `${name}.expireAt_1 (TTL)`)
+        );
+    }
+    if (liveTournaments) {
+        out.push(safeIndex(liveTournaments, { 'state.players.username': 1 }, {}, 'liveTournaments.state.players.username_1'));
+    }
+    if (serverInstances) {
+        out.push(safeIndex(serverInstances, { beatAt: 1 }, { expireAfterSeconds: LIVE_INSTANCE_TTL_SEC }, 'serverInstances.beatAt_1 (TTL)'));
+    }
+    return out;
+}
+
+/**
+ * Read back whether gameRecords has a UNIQUE index on exactly {gameId: 1}
+ * (getGameIdIndexUnique). Never throws: a collection that cannot list its
+ * indexes leaves the answer null (unknown).
+ * @returns {Promise<boolean|null>}
+ */
+async function probeGameIdIndex(collection) {
+    let unique = null;
+    try {
+        if (collection && typeof collection.indexes === 'function') {
+            const indexes = await collection.indexes();
+            unique = indexes.some(i => i.unique === true && i.key
+                && Object.keys(i.key).length === 1 && i.key.gameId === 1);
+        }
+    } catch (error) {
+        unique = null;
+    }
+    if (collection === gameRecordsCollection) gameIdIndexUnique = unique;
+    return unique;
 }
 
 /**
@@ -273,5 +338,11 @@ module.exports = {
     getGameRecordsCollection: () => gameRecordsCollection,
     getReportsCollection: () => reportsCollection,
     getPasswordResetsCollection: () => passwordResetsCollection,
-    getAdminAuditCollection: () => adminAuditCollection
+    getAdminAuditCollection: () => adminAuditCollection,
+    getLiveGamesCollection: () => liveGamesCollection,
+    getLiveTournamentsCollection: () => liveTournamentsCollection,
+    getServerInstancesCollection: () => serverInstancesCollection,
+    getGameIdIndexUnique: () => gameIdIndexUnique,
+    probeGameIdIndex,
+    LIVE_INSTANCE_TTL_SEC
 };
