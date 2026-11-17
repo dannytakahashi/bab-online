@@ -750,7 +750,15 @@ body > .voice-btn {
 .log-score__team { color: var(--text-primary); }
 .log-score__team.is-team-a { color: var(--team-a); }
 .log-score__team.is-team-b { color: var(--team-b); }
-.log-score__names { color: var(--text-secondary); font-size: var(--type-xs); overflow-wrap: anywhere; }
+.log-score__names {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    overflow-wrap: anywhere;
+    /* one line's height even while empty (names not known yet: the header
+       shows no placeholder), so the scores below never jump */
+    min-height: 1.2em; /* (no lh unit) */
+    min-height: 1lh;
+}
 .log-score__value { font-size: var(--type-lg); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .log-score__detail { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 

@@ -19,6 +19,7 @@ import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
+import { scoreHeaderNames } from '../../ui/components/ScoreModal.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -624,9 +625,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const pos = state.position || 1;
-    const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData, { spectator: !!state.isSpectator });
-    const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
-    const oppName = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
+    // Player names only, '' until they are known (never a placeholder)
+    const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: !!state.isSpectator });
     const bid = (p) => state.bids?.[p] ?? '-';
     const anyBid = Object.keys(state.bids || {}).length > 0;
     const teamBids = anyBid ? `${bid(pos)}/${bid(team(pos))}` : '-/-';
@@ -1093,12 +1093,10 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Update game log score display
-    if (window.ModernUtils && window.ModernUtils.getTeamNames) {
-      const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
-      if (window.updateGameLogScoreFromLegacy) {
-        window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
-      }
+    // Update game log score display (player names only, as renderScoreHeader)
+    if (window.updateGameLogScoreFromLegacy) {
+      const { teamName, oppName } = scoreHeaderNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
+      window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
     }
 
     announce(state.isSpectator ? 'Hand over.' : `Hand over. Score: your team ${teamScore}, opponents ${oppScore}.`);

@@ -124,13 +124,14 @@ describe('GameScene handleCardPlayed (opponent)', () => {
 describe('GameScene handleHandComplete', () => {
   it('logs and scores the final 13-card hand (a view: GameState is not written)', () => {
     const scene = new GameScene();
-    scene.state = Object.freeze({ position: 2, playerData: {}, bids: {} });
+    const playerData = {
+      position: [1, 2, 3, 4],
+      username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+    };
+    scene.state = Object.freeze({ position: 2, playerData, bids: {} });
     scene.callbacks = {};
     const formatHandCompleteMessages = vi.fn(() => ['hand line 1', 'hand line 2']);
-    window.ModernUtils = {
-      formatHandCompleteMessages,
-      getTeamNames: vi.fn(() => ({ teamName: 'Us', oppName: 'Them' })),
-    };
+    window.ModernUtils = { formatHandCompleteMessages };
     window.addToGameFeedFromLegacy = vi.fn();
     window.updateGameLogScoreFromLegacy = vi.fn();
 
@@ -152,7 +153,8 @@ describe('GameScene handleHandComplete', () => {
       );
       expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 1');
       expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 2');
-      expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('Us', 'Them', -40, 120);
+      // the header by name: me/partner (2/4), then opp1/opp2 (3/1)
+      expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('bob/dan', 'cat/ann', -40, 120);
     } finally {
       delete window.ModernUtils;
       delete window.addToGameFeedFromLegacy;

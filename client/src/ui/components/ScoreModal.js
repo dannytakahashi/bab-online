@@ -6,11 +6,12 @@ import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
 
 /**
- * The score header's names before the teams exist (the draw for deal: no
- * seats yet). A seat's are "Your Team" / "Opponents"; a spectator has no
- * team, so theirs are the teams' own neutral names, "Team 1" (seats 1 and
- * 3, which a spectator's side shows) / "Team 2", as the teams panel names
- * them (ui/tableHud.js).
+ * The names getTeamNames gives before the teams exist (the draw for deal: no
+ * seats yet), for the game-end lines and the score modal. A seat's are
+ * "Your Team" / "Opponents"; a spectator has no team, so theirs are the
+ * teams' own neutral names, "Team 1" (seats 1 and 3, which a spectator's
+ * side shows) / "Team 2", as the teams panel names them (ui/tableHud.js).
+ * The game log's score header never shows these (scoreHeaderNames).
  *
  * @param {boolean} spectator - the viewer has no seat
  * @returns {Object} { teamName, oppName }
@@ -19,6 +20,45 @@ export function placeholderTeamNames(spectator = false) {
   return spectator
     ? { teamName: 'Team 1', oppName: 'Team 2' }
     : { teamName: 'Your Team', oppName: 'Opponents' };
+}
+
+/** A seat's username in playerData, or null (not seated / not known yet). */
+function seatUsername(playerData, pos) {
+  if (!playerData || !Array.isArray(playerData.position) || !Array.isArray(playerData.username)) return null;
+  const idx = playerData.position.indexOf(pos);
+  if (idx === -1) return null;
+  const entry = playerData.username[idx];
+  const name = typeof entry === 'string' ? entry : entry?.username;
+  return typeof name === 'string' && name ? name : null;
+}
+
+/**
+ * The game log score header's names: player names only, never a
+ * placeholder (owner 2026-11-17). A seat's are "me/partner" and
+ * "opp1/opp2" (opp1 the next seat clockwise); a spectator's, seats 1/3 and
+ * 2/4, as getTeamNames. A side whose two names are not both known yet is
+ * '' (the draw, before the seats exist; a seat whose own position is not
+ * known yet has no side): the header keeps the line's height empty
+ * (table.css) until they are.
+ *
+ * @param {number|null} myPosition - my seat (1-4), null for a spectator or not yet seated
+ * @param {Object|null} playerData - { position: [], username: [{username}] }
+ * @param {Object} [opts]
+ * @param {boolean} [opts.spectator] - the viewer has no seat
+ * @returns {{teamName: string, oppName: string}}
+ */
+export function scoreHeaderNames(myPosition, playerData, { spectator = false } = {}) {
+  const me = spectator ? 1 : Number(myPosition);
+  if (![1, 2, 3, 4].includes(me)) return { teamName: '', oppName: '' };
+  const pair = (a, b) => {
+    const first = seatUsername(playerData, a);
+    const second = seatUsername(playerData, b);
+    return first && second ? `${first}/${second}` : '';
+  };
+  return {
+    teamName: pair(me, team(me)),
+    oppName: pair(rotate(me), rotate(rotate(rotate(me)))),
+  };
 }
 
 /**
