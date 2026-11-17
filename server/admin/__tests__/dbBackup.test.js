@@ -1,7 +1,9 @@
 /**
  * scripts/backup-db.js and scripts/restore-db.js plumbing (server/admin/dbBackup.js).
  * The end-to-end drill (dump, drop, restore, sign in) is manual: the runbook
- * in docs/claude/server-infra.md, Backups and restore.
+ * in docs/claude/server-infra.md, Backups and restore. The live-game
+ * collections' exclusion runs the real tools when they are installed (last
+ * describe).
  */
 
 const fs = require('fs');
@@ -261,4 +263,173 @@ describe('the --db default: DB_NAME from the shell only, a bad one is a usage er
         expect(r.stderr).toContain('nothing written');
         expect(r.stdout).not.toContain('Restoring');
     });
+});
+
+describe('live-game collections are never backed up or restored (deploy survival PR 4)', () => {
+    test('the three collections', () => {
+        expect(B.LIVE_COLLECTIONS).toEqual(['liveGames', 'liveTournaments', 'serverInstances']);
+        expect(Object.isFrozen(B.LIVE_COLLECTIONS)).toBe(true);
+    });
+
+    test('mongodump excludes each of them', () => {
+        expect(B.dumpArgs('babonline', '/b/x.gz.partial')).toEqual([
+            '--db=babonline',
+            '--excludeCollection=liveGames',
+            '--excludeCollection=liveTournaments',
+            '--excludeCollection=serverInstances',
+            '--gzip',
+            '--archive=/b/x.gz.partial'
+        ]);
+    });
+
+    test('mongorestore excludes them by their name in the archive, same name or --into-db', () => {
+        const excludes = ['--nsExclude=babonline.liveGames', '--nsExclude=babonline.liveTournaments', '--nsExclude=babonline.serverInstances'];
+        expect(B.restoreArgs({ archive: '/a.gz', db: 'babonline', targetDb: 'babonline', drop: true })).toEqual([
+            '--gzip', '--archive=/a.gz', '--nsInclude=babonline.*', ...excludes, '--drop'
+        ]);
+        // The rename mode: --nsExclude still names the SOURCE namespace
+        // (mongorestore matches include / exclude before renaming)
+        expect(B.restoreArgs({ archive: '/a.gz', db: 'babonline', targetDb: 'babonline_restore_1', drop: false })).toEqual([
+            '--gzip', '--archive=/a.gz', '--nsInclude=babonline.*', ...excludes,
+            '--nsFrom=babonline.*', '--nsTo=babonline_restore_1.*'
+        ]);
+    });
+
+    test('both scripts say so in --help', () => {
+        const scripts = path.resolve(__dirname, '..', '..', '..', 'scripts');
+        for (const script of ['backup-db.js', 'restore-db.js']) {
+            const env = { ...process.env };
+            for (const k of ['MONGO_URI', 'RESTORE_URI', 'DB_NAME']) delete env[k];
+            const r = spawnSync(process.execPath, [path.join(scripts, script), '--help'], { env, encoding: 'utf8', timeout: 10000 });
+            expect(r.status).toBe(0);
+            expect(r.stdout).toContain('liveGames, liveTournaments, serverInstances (games in progress)');
+        }
+    });
+});
+
+/*
+ * The real tools against a local mongod (MONGO_URI; CI's mongo service or
+ * your own): scripts/backup-db.js and scripts/restore-db.js end to end on
+ * scratch databases bab_jest_backup_<pid>_<ts>*, dropped afterwards (never
+ * 'babonline'). Returns early, passing, when mongodump / mongorestore are
+ * not installed (the MongoDB Database Tools are not on every runner) or no
+ * local mongod answers (REQUIRE_REAL_MONGO=1 turns the latter into a failure).
+ */
+describe('backup and restore leave the live-game collections out (real mongodump / mongorestore)', () => {
+    const { MongoClient } = require('mongodb');
+    const scripts = path.resolve(__dirname, '..', '..', '..', 'scripts');
+    const envUri = process.env.MONGO_URI;
+    const required = process.env.REQUIRE_REAL_MONGO === '1';
+    const stamp = `${process.pid}_${Date.now()}`;
+    const SRC = `bab_jest_backup_${stamp}`;
+    const INTO = `bab_jest_backup_${stamp}_into`;
+    const INTO_OLD = `bab_jest_backup_${stamp}_old`;
+    // bcrypt-shaped so restore-db.js's sanity check passes; built from parts
+    const HASH = ['', '2b', '10', 'x'.repeat(53)].join('$');
+    let base = null;
+    let client = null;
+    let work = null;
+    let skip = null;
+
+    // A child env that can only reach the local mongod, with no .env in its cwd
+    const childEnv = (extra = {}) => {
+        const env = { ...process.env, ...extra };
+        for (const k of ['RESTORE_URI', 'DB_NAME']) delete env[k];
+        if (!('MONGO_URI' in extra)) delete env.MONGO_URI;
+        return env;
+    };
+    const run = (script, args, extra) => spawnSync(process.execPath, [path.join(scripts, script), ...args],
+        { cwd: work, env: childEnv(extra), encoding: 'utf8', timeout: 60000 });
+    const names = async (db) => (await client.db(db).listCollections({}, { nameOnly: true }).toArray()).map((c) => c.name).sort();
+
+    beforeAll(async () => {
+        const m = /^(mongodb:\/\/[^/?@]+)/.exec(envUri || '');
+        if (!m || !B.isLocalUri(m[1])) {
+            if (required) throw new Error('dbBackup: REQUIRE_REAL_MONGO=1 but MONGO_URI is not a localhost mongod');
+            skip = 'MONGO_URI is not a localhost mongod';
+            return;
+        }
+        base = m[1];
+        if (!B.toolVersion('mongodump') || !B.toolVersion('mongorestore')) { skip = 'mongodump / mongorestore not installed'; return; }
+        try {
+            client = await new MongoClient(base, { serverSelectionTimeoutMS: 1500 }).connect();
+        } catch (e) {
+            client = null;
+            if (required) throw new Error(`dbBackup: REQUIRE_REAL_MONGO=1 but no mongod at ${base}: ${e.message}`);
+            skip = 'no mongod';
+            return;
+        }
+        work = fs.mkdtempSync(path.join(os.tmpdir(), 'bab-backup-live-'));
+        const db = client.db(SRC);
+        await db.collection('users').insertMany([
+            { username: 'alice', password: HASH },
+            { username: 'bob', password: HASH }
+        ]);
+        await db.collection('gameRecords').insertOne({ gameId: 'g0', completedAt: new Date() });
+        await db.collection('liveGames').insertOne({ _id: 'g1', rev: 1, chat: 'in progress' });
+        await db.collection('liveTournaments').insertOne({ _id: 't1', rev: 1 });
+        await db.collection('serverInstances').insertOne({ _id: 'boot-1', beatSeq: 1 });
+    }, 30000);
+
+    afterAll(async () => {
+        if (client) {
+            for (const d of [SRC, INTO, INTO_OLD]) await client.db(d).dropDatabase().catch(() => {});
+            await client.close();
+        }
+        if (work) fs.rmSync(work, { recursive: true, force: true });
+    });
+
+    test('backup-db.js dumps everything but them; restore-db.js --into-db restores the rest', () => {
+        if (skip) { console.info(`dbBackup real tools: ${skip}, skipping`); return; }
+        const out = path.join(work, 'out');
+        const dump = run('backup-db.js', ['--out', out, '--db', SRC], { MONGO_URI: base });
+        expect(dump.status).toBe(0);
+        expect(dump.stdout).toContain(`${SRC}.users`);
+        expect(dump.stdout).toContain(`${SRC}.gameRecords`);
+        for (const c of B.LIVE_COLLECTIONS) expect(dump.stdout).not.toContain(`${SRC}.${c}`);
+        expect(dump.stdout).toContain('Skipped: liveGames, liveTournaments, serverInstances');
+        const archive = path.join(out, fs.readdirSync(out).find((f) => f.endsWith('.archive.gz')));
+
+        const restore = run('restore-db.js', [archive, '--uri', base, '--db', SRC, '--into-db', INTO]);
+        expect(restore.stdout).toContain('Sanity check passed.');
+        expect(restore.status).toBe(0);
+        return names(INTO).then((n) => {
+            expect(n).toEqual(expect.arrayContaining(['users', 'gameRecords']));
+            for (const c of B.LIVE_COLLECTIONS) expect(n).not.toContain(c);
+        });
+    }, 90000);
+
+    test('an archive that holds them (older checkout): neither --into-db nor a same-name --drop restore writes them', async () => {
+        if (skip) { console.info(`dbBackup real tools: ${skip}, skipping`); return; }
+        const archive = path.join(work, 'old.archive.gz');
+        const raw = await B.runTool('mongodump', [`--db=${SRC}`, '--gzip', `--archive=${archive}`], base).done;
+        expect(raw.code).toBe(0);
+        expect(B.parseDumpSummary(raw.stderr).map((c) => c.ns)).toContain(`${SRC}.liveGames`);
+
+        // Rename mode
+        const into = run('restore-db.js', [archive, '--uri', base, '--db', SRC, '--into-db', INTO_OLD]);
+        expect(into.status).toBe(0);
+        expect(into.stdout).toContain('Skipped: liveGames, liveTournaments, serverInstances');
+        const n = await names(INTO_OLD);
+        expect(n).toEqual(expect.arrayContaining(['users', 'gameRecords']));
+        for (const c of B.LIVE_COLLECTIONS) expect(n).not.toContain(c);
+
+        // Same name with --drop: the target's own live documents stay exactly
+        // as they are now (not the archive's, not dropped); the rest is restored
+        const db = client.db(SRC);
+        await db.collection('users').deleteOne({ username: 'bob' });
+        await db.collection('liveGames').updateOne({ _id: 'g1' }, { $set: { rev: 2 } });
+        await db.collection('liveGames').insertOne({ _id: 'g2', rev: 1 });
+        await db.collection('serverInstances').deleteMany({});
+        const same = run('restore-db.js', [archive, '--uri', base, '--db', SRC, '--drop']);
+        expect(same.stdout).toContain('Sanity check passed.');
+        expect(same.status).toBe(0);
+        expect(await db.collection('users').countDocuments({})).toBe(2);
+        expect(await db.collection('liveGames').find({}).sort({ _id: 1 }).toArray()).toEqual([
+            { _id: 'g1', rev: 2, chat: 'in progress' },
+            { _id: 'g2', rev: 1 }
+        ]);
+        expect(await db.collection('serverInstances').countDocuments({})).toBe(0);
+        expect(await db.collection('liveTournaments').countDocuments({})).toBe(1);
+    }, 90000);
 });
