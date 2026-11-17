@@ -1088,7 +1088,8 @@ function initializeApp() {
 
   /**
    * The score modal's Return to Lobby after a casual game whose lobby
-   * reopened (play again, owner 2026-11-16): into that lobby, voice kept.
+   * reopened (play again, owner 2026-11-16): into that lobby, voice kept
+   * (ClientSession sends lobbyReturnSeen, then joinLobby).
    * @returns {boolean} false: no lobby return (the main room, as before)
    */
   function returnToReopenedLobby() {
@@ -1511,7 +1512,9 @@ function initializeApp() {
     onLeftLobby: () => {
       console.log('Left lobby, returning to main room');
       // The score modal's lobby is not this socket's any more (another tab
-      // took the seat): its Return goes to the main room, as before
+      // took the seat, or the lobby started its next game while this player
+      // was still on the results: playAgain.leftOnResults): its Return goes
+      // to the main room, as before
       session.forgetLobbyReturn();
       // The lobby's exit hook stops voice and removes it (a late reply at a
       // table changes nothing)
@@ -1538,8 +1541,10 @@ function initializeApp() {
       const startedGameId = data.gameId || data.snapshot?.gameId || null;
       if (full && session.screen === SCREEN.GAME_END && session.lobbyReturn && startedGameId && startedGameId !== session.endedGameId) {
         // Play again: the reopened lobby started its next game while this
-        // player was still on the score modal (not ready, so an extra: the
-        // server made it a watcher). The modal stays (owner 2026-11-16);
+        // player was still on the score modal and the server made it an
+        // extra (today's server never does: Return's lobbyReturnSeen has not
+        // come, so it sends leftLobby instead, playAgain.leftOnResults, and
+        // onLeftLobby forgets the return). The modal stays (owner 2026-11-16);
         // this socket stops watching (joinMainRoom: no table events reach
         // the modal) and Return asks for the lobby, which the server
         // answers with that game to watch while it lasts

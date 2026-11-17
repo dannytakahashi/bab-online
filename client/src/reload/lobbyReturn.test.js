@@ -147,6 +147,11 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(chat).not.toMatch(/hidden|nope/);
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
     expect(socket.emitted('joinMainRoom')).toEqual([]);
+    // the server learns the score screen is left for the lobby (as iOS
+    // 1.2.3 tells it), first: until then it counts this socket as still on
+    // its results
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([{}]);
+    expect(socket.emittedNames().filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby')).toEqual(['lobbyReturnSeen', 'joinLobby']);
     expect(sessionStorage.getItem('lobbyId')).toBe('R1');
     expect(sessionStorage.getItem('gameId')).toBeNull();
     expect(page.voice.shutdown).not.toHaveBeenCalled();
@@ -178,9 +183,12 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(document.getElementById('gameLobbyContainer')).toBeNull();
     socket.fire('gameEnd', gameEnd());
     expect(page.session.screen).toBe('gameEnd');
+    // nothing told while the results are up
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
     returnButton().click();
     expect(page.session.screen).toBe('lobby');
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([{}]);
   });
 
   it('the forced mute of the table (spectators may not talk) ends at lobbyReturn, the modal still up: extras back in the lobby are heard', async () => {
@@ -274,6 +282,7 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     returnButton().click();
     expect(page.session.screen).toBe('mainRoom');
     expect(socket.emitted('joinLobby')).toEqual([]);
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
   });
 
   it('leftLobby while the modal is up (another tab took the seat): Return goes to the main room', async () => {
@@ -287,6 +296,7 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(page.session.screen).toBe('mainRoom');
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(socket.emitted('joinLobby')).toEqual([]);
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
   });
 
   it('a reconnect on the modal keeps it (no joinMainRoom); Return then re-enters from the new socket', async () => {
@@ -300,6 +310,9 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(socket.emitted('rejoinGame')).toEqual([]);
     returnButton().click();
     expect(page.session.screen).toBe('lobby');
+    // (from the new socket, which is no member yet: the server ignores it,
+    // and the joinLobby after it takes the held seat over)
+    expect(socket.emittedNames().filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby')).toEqual(['lobbyReturnSeen', 'joinLobby']);
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
   });
 
@@ -339,6 +352,8 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(page.session.screen).toBe('mainRoom');
     expect(document.getElementById('gameLobbyContainer')).toBeNull();
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
+    // it never shows that lobby: nothing to tell (its joinMainRoom leaves it)
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
   });
 });
 
@@ -376,7 +391,34 @@ describe('a lobby extra who watched the game', () => {
 });
 
 describe('the reopened lobby starts its next game while this player is still on the score modal', () => {
-  it('the modal stays (this socket stops watching that game); Return asks for the lobby, answered with the game to watch', async () => {
+  it('the server leaves it out (leftLobby, its calls end; playAgain.leftOnResults): the modal stays as it is, Return goes to the main room', async () => {
+    await seated();
+    socket.fire('gameEnd', gameEnd());
+    socket.fire('lobbyReturn', lobbyReturn({ names: ['me', 'ann', 'bob', 'cat', 'dan'] }));
+    const before = modal();
+    const button = returnButton();
+    button.focus();
+    // the four others readied and started without me: leftLobby, then the
+    // private voicePeerLeft for each of them
+    socket.fire('leftLobby', {});
+    for (const name of ['ann', 'bob', 'cat', 'dan']) socket.fire('voicePeerLeft', { socketId: `s-${name}` });
+    expect(page.session.screen).toBe('gameEnd');
+    expect(modal()).toBe(before);
+    expect(returnButton()).toBe(button);
+    expect(document.activeElement).toBe(button);
+    expect(page.voice.removePeer).toHaveBeenCalledWith('s-ann');
+    expect(socket.emittedNames()).toEqual([]);
+    expect(page.session.lobbyReturn).toBeNull();
+
+    button.click();
+    expect(page.session.screen).toBe('mainRoom');
+    expect(socket.emitted('joinMainRoom')).toHaveLength(1);
+    expect(socket.emitted('joinLobby')).toEqual([]);
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
+    expect(page.voice.shutdown).toHaveBeenCalled();
+  });
+
+  it('a server that makes it an extra instead (spectatorJoined at the modal): the modal stays (this socket stops watching that game); Return asks for the lobby, answered with the game to watch', async () => {
     await seated();
     socket.fire('gameEnd', gameEnd());
     socket.fire('lobbyReturn', lobbyReturn({ names: ['me', 'ann', 'bob', 'cat', 'dan'] }));
@@ -408,6 +450,8 @@ describe('the reopened lobby starts its next game while this player is still on 
     // the main room is asked for first (nothing stands blank), then the lobby
     expect(socket.emittedNames().filter((n) => n === 'joinMainRoom' || n === 'joinLobby')).toEqual(['joinMainRoom', 'joinLobby']);
     expect(socket.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
+    // its joinMainRoom took the socket out of that lobby: nothing to tell
+    expect(socket.emitted('lobbyReturnSeen')).toEqual([]);
     socket.fire('mainRoomJoined', mainRoomPayload());
     expect(page.session.screen).toBe('mainRoom');
     expect(document.getElementById('mainRoomContainer')).not.toBeNull();

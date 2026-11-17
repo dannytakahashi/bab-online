@@ -237,6 +237,11 @@ describe('play again: the lobby a finished game reopened (lobbyReturn)', () => {
     expect(t.hooks[SCREEN.LOBBY].enter).toHaveBeenCalledWith(data, expect.objectContaining({ from: SCREEN.GAME_END }));
     expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
     expect(t.emitted('joinMainRoom')).toEqual([]);
+    // the server learns the score screen is left (as iOS 1.2.3 tells it),
+    // before the joinLobby that asks for the lobby again
+    expect(t.emitted('lobbyReturnSeen')).toEqual([{}]);
+    const order = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby');
+    expect(order).toEqual(['lobbyReturnSeen', 'joinLobby']);
     expect(t.session.lobbyId).toBe('R1');
     expect(sessionStorage.getItem('lobbyId')).toBe('R1');
     expect(t.session.pendingLobbyRejoin).toBe('R1');
@@ -268,6 +273,8 @@ describe('play again: the lobby a finished game reopened (lobbyReturn)', () => {
     expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
     const names = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'joinMainRoom' || n === 'joinLobby');
     expect(names).toEqual(['joinMainRoom', 'joinLobby']);
+    // its joinMainRoom took the socket out of that lobby: nothing to tell
+    expect(t.emitted('lobbyReturnSeen')).toEqual([]);
     expect(t.session.lobbyRejoinAfterGame).toBe(true);
     expect(sessionStorage.getItem('lobbyId')).toBeNull();
   });

@@ -514,12 +514,15 @@ export class ClientSession {
   /**
    * The score modal's Return to Lobby after a game whose lobby reopened:
    * the table goes (voice stays), then the lobby shows at once from what
-   * the server last said, and joinLobby asks for it again (the server
-   * answers its own member with lobbyCreated: the lobby as it is now, and
-   * knows the player left the score screen). A lobby that started its
+   * the server last said; lobbyReturnSeen tells the server the player left
+   * the score screen for it (as iOS 1.2.3 does at its entry: until then the
+   * server holds a dropped seat for the play-again hold and leaves the
+   * player out of the lobby's next game instead of making it a watcher),
+   * and joinLobby asks for it again (the server answers its own member with
+   * lobbyCreated: the lobby as it is now). A lobby that started its
    * next game meanwhile: the main room (joinMainRoom draws it, so nothing
    * stands blank) until that joinLobby's answer (the game to watch, or the
-   * error).
+   * error); nothing to tell then (joinMainRoom took the socket out of it).
    * @param {Object} lobbyData - the LOBBY screen's data
    * @returns {string|null} the screen it routed to (null: no lobby return)
    */
@@ -536,6 +539,10 @@ export class ClientSession {
     }
     if (this.exitTable(EXIT.LOBBY_RETURN, { to: SCREEN.LOBBY, data: lobbyData }) !== SCREEN.LOBBY) return null;
     this.noteLobby(lobbyId);
+    // (no payload; a socket that is no member any more, e.g. a new one
+    // after a reconnect on the modal, changes nothing: its joinLobby below
+    // takes the seat over)
+    this._emit(CLIENT_EVENTS.LOBBY_RETURN_SEEN, {});
     this._reenterLobby(lobbyId, { afterGame: true });
     return SCREEN.LOBBY;
   }
