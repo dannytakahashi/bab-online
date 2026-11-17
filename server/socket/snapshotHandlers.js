@@ -83,15 +83,28 @@ function carrierPlayers(game) {
  *     data.trump), so a tab left open across the deploy still rejoins and
  *     spectates. Current web and iOS 1.2.0 take them from the snapshot.
  *   - tournamentId (rejoinSuccess): web and iOS 1.2.0 (passed in `extra`).
- * `extra` keys go between those and the snapshot, which is last.
+ * `extra` keys go between those and the snapshot, which is last. The
+ * snapshot's log leaves out chat from the socket's blocked users
+ * (hideChatFrom).
  */
 function carrierFor(game, socket, extra = {}) {
     const base = avatarWire.wireClientState(game, { gameId: game.gameId, players: carrierPlayers(game) });
     return {
         ...base,
         ...extra,
-        snapshot: snapshotFor(game, socket.id)
+        snapshot: snapshotFor(game, socket.id, { hideChatFrom: hideChatFrom(socket) })
     };
+}
+
+/**
+ * The usernames whose chat a snapshot log sent to `socket` leaves out: its
+ * block list (socket.data.blockedUsers, a Set loaded at sign-in, restore,
+ * sign-up and rejoinGame's token check, kept by blockUser / unblockUser).
+ * null when none is loaded.
+ */
+function hideChatFrom(socket) {
+    const blocked = socket?.data?.blockedUsers;
+    return blocked instanceof Set && blocked.size > 0 ? blocked : null;
 }
 
 /** getClientState's isLazy for seat socket `sid` (the rejoinSuccess value). */
@@ -147,7 +160,7 @@ function requestSnapshot(socket, io, data) {
     const game = gameOf(socket.id);
     const reply = {
         snapshot: game && !game.isTerminal()
-            ? snapshotFor(game, socket.id, { log: req.log !== false })
+            ? snapshotFor(game, socket.id, { log: req.log !== false, hideChatFrom: hideChatFrom(socket) })
             : null,
     };
     if (req.requestId !== undefined) reply.requestId = req.requestId;

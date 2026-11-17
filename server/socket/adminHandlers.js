@@ -205,6 +205,9 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
         // Already complete (possibly by an earlier apply that stopped
         // after retiring): a source still connected is signed out now
         for (const name of plan.sources) signOutUser(io, name);
+        // A retry after an apply that stopped partway: the block lists
+        // already name the target
+        for (const name of plan.sources) gameManager.renameChatSender(name, target);
         throw new AdminError('refused', 'Nothing to do. This merge is already complete.');
     }
     // Playing right now, from memory (the plan saw only the database's
@@ -250,6 +253,9 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
     // Backstop: nothing of a retired name should be connected by now
     for (const name of result.retired) signedOut += signOutUser(io, name);
     invalidateCaches();
+    // Blockers' lists now name the target (otherUsersBlocks, every source):
+    // so does the live chat a source sent (snapshot hideChatFrom)
+    for (const name of plan.sources) gameManager.renameChatSender(name, target);
     if (result.notRetired.length) {
         // The database refused to retire a source (in a game or a
         // tournament, or merged into another account, since the plan: the
@@ -471,6 +477,7 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
             gameManager.unlockMerge(locked);
             invalidate([from, to]);
         }
+        gameManager.renameChatSender(from, to);
         await refreshBlockLists(io, db, moved.blockers, { silent: true });
         Object.assign(counts, pick(moved));
         return {
@@ -546,6 +553,10 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
     invalidate([from, to]);
     const blockers = counts.blockers || [];
     delete counts.blockers;
+    // The blockers' lists name `to` now: so does the chat the account sent
+    // in a live game (a spectator's, kept after the sign-out), which a
+    // blocker's next snapshot leaves out (snapshotV2 hideChatFrom)
+    gameManager.renameChatSender(from, to);
     await refreshBlockLists(io, db, blockers, { silent: true });
     if (!oldNameKept) {
         logger.warn('Rename: the old name was taken before its redirect was written', { actor: actor.username, from, to });

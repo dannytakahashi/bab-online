@@ -53,6 +53,9 @@ class TournamentState {
         // deadline the next idle spell starts the round instead of a second
         // hand-off (tournamentLiveness; reset with each new deadline)
         this.handedOffThisWait = false;
+        // When the last round completed (phase 'complete'; null before): the
+        // start of the results window (deploy survival saves it)
+        this.completedAt = null;
         // key → handle ('readyDeadline', 'hostIdle'); all cleared on every
         // round start and on retire, so none outlives its phase
         this.timers = new Map();
@@ -436,6 +439,7 @@ class TournamentState {
         this.scoreMissedRound(this.getCurrentRound()?.roundNumber ?? this.currentRound);
         if (this.currentRound >= this.totalRounds) {
             this.phase = 'complete';
+            this.completedAt = Date.now();
         } else {
             this.phase = 'between_rounds';
             this.resetAllReady();
