@@ -28,7 +28,8 @@ struct SplashView: View {
             let layout = SplashLayout(container: g.frame(in: .global), logoTarget: logoTarget)
             ZStack {
                 TimelineView(.animation(minimumInterval: nil, paused: done || Self.heldFrame != nil)) { context in
-                    let t = Self.heldFrame ?? context.date.timeIntervalSince(start)
+                    // once done, the final frame exactly (the hand-off swaps the screen in under it)
+                    let t = Self.heldFrame ?? (done ? timeline.finish : context.date.timeIntervalSince(start))
                     SplashFrame(t: min(max(t, 0), timeline.finish), timeline: timeline, layout: layout)
                 }
                 // VoiceOver's one element (the cards' letters and the logo inside are not read)

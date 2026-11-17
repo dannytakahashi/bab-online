@@ -104,22 +104,26 @@ final class AuthScreensUITests: XCTestCase {
         XCTAssertTrue(element(app, "screen.register").waitForExistence(timeout: 5))
         let reg = app.secureTextFields["Password"]
         reg.tap()
-        dismissAutoFill(app)
+        dismissAutoFill(app, wait: 2)  // the strong-password suggestion comes up after the focus
         reg.typeText("short")
         XCTAssertTrue(element(app, "register.passwordRule").waitForExistence(timeout: 3))
     }
 
     /// Closes the system's AutoFill prompts when they show ("Save Password?" -> Not Now, the
     /// strong-password suggestion -> its own-password choice); does nothing otherwise.
-    private func dismissAutoFill(_ app: XCUIApplication) {
+    private func dismissAutoFill(_ app: XCUIApplication, wait: TimeInterval = 0) {
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         let labels = ["Not Now", "Choose My Own Password", "Don’t Use"]
-        for root in [app, springboard] {
-            for label in labels {
-                let b = root.buttons[label]
-                if b.exists && b.isHittable { b.tap(); return }
+        let deadline = Date().addingTimeInterval(wait)
+        repeat {
+            for root in [app, springboard] {
+                for label in labels {
+                    let b = root.buttons[label]
+                    if b.exists && b.isHittable { b.tap(); return }
+                }
             }
-        }
+            if Date() < deadline { usleep(200_000) }
+        } while Date() < deadline
     }
 
     /// Not connected: both forms say so and keep their buttons off.
