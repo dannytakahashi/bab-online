@@ -98,7 +98,7 @@ final class GameSocketHandler {
                 LobbyEmitter.joinMainRoom()
             }
         case .spectatorState:
-            SpectateRejoin.pendingGameId = nil  // a restore's re-spectate answered (1.2.3)
+            SpectateRejoin.pendingGameId = nil  // a restore's re-spectate answered (1.2.2 (12))
             appState.screen = .game
             RestartNotices.shared.survived()
             print("[Game] Joined as spectator")

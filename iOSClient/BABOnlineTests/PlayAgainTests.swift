@@ -3,7 +3,7 @@ import SocketIO
 @preconcurrency import WebRTC
 @testable import BAB_Online
 
-/// Play again (owner 2026-11-16; iOS 1.2.3, build 12; server/socket/playAgain.js): at the end
+/// Play again (owner 2026-11-16; iOS 1.2.2, build 12; server/socket/playAgain.js): at the end
 /// of a casual game a lobby started, the server moves this socket back into that lobby and
 /// sends `lobbyReturn` right after `gameEnd`. The owner's rule: the score screen stays exactly
 /// as it is until the person taps the existing Return to Lobby, which then enters that lobby
@@ -286,7 +286,7 @@ final class PlayAgainTests: XCTestCase {
         app.screen = .gameLobby
         LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
         XCTAssertEqual(voice.bufferedCount, 0, "shut down: the game's signals never reach that lobby")
-        // no LobbyState in the environment (LobbyStateLink nil): shut down as before 1.2.3
+        // no LobbyState in the environment (LobbyStateLink nil): shut down as before 1.2.2 (12)
         voice.connectToPeer("sid-kim", username: "kim")
         lobby.carriesVoice = true
         LobbyReturn.tableGone(lobbyState: nil, appState: app, voice: voice)
@@ -408,6 +408,37 @@ final class PlayAgainTests: XCTestCase {
         lobby.reset()
         XCTAssertEqual(lobby.expected, [])
         XCTAssertFalse(lobby.carriesVoice)
+    }
+
+    /// `members[].onResults` (docs/BACKLOG.md, web review finding 5): a member back in the lobby
+    /// whose app still shows the results says "Still on the results", never on one's own row,
+    /// a ready row or a held one; the server's next list without the flag clears it.
+    func testSomeoneStillOnTheResultsSaysSo() {
+        let lobby = LobbyState()
+        var dict = lobbyReturn(gameId: "g1")
+        var members = [member("ivy"), member("jon"), member("kim", returning: true), member("\u{1F916} Bot", bot: true)]
+        for i in members.indices { members[i]["onResults"] = true }
+        dict["members"] = members
+        lobby.applyLobby(dict, isBlocked: { _ in false })
+        let row = { (name: String) in lobby.players.first { $0.username == name }! }
+        XCTAssertTrue(row("ivy").onResults)
+        XCTAssertTrue(row("ivy").showsOnResults(isCurrentUser: false, isReconnecting: lobby.isReconnecting(row("ivy"))))
+        XCTAssertFalse(row("jon").showsOnResults(isCurrentUser: true, isReconnecting: false), "never on my own row")
+        XCTAssertFalse(row("kim").showsOnResults(isCurrentUser: false, isReconnecting: lobby.isReconnecting(row("kim"))),
+                       "a held row says \"Not back yet\"")
+        XCTAssertFalse(row("\u{1F916} Bot").showsOnResults(isCurrentUser: false, isReconnecting: false))
+        XCTAssertFalse(lobby.canRelease("jon"), "ivy is present (the host): no \"Don't wait\" for anyone but kim")
+        var ready = LobbyPlayer.from(members[0])!
+        ready.isReady = true
+        XCTAssertFalse(ready.showsOnResults(isCurrentUser: false, isReconnecting: false))
+
+        // ivy tapped Return to Lobby: the server's playerReadyUpdate without the flag
+        members[0]["onResults"] = nil
+        lobby.applyPlayers(from: ["lobbyId": lobbyId, "players": members, "members": members], namesHeldSeats: true)
+        XCTAssertFalse(row("ivy").onResults)
+        XCTAssertFalse(row("ivy").showsOnResults(isCurrentUser: false, isReconnecting: false))
+        XCTAssertTrue(row("kim").returning, "the rest of the list as before")
+        XCTAssertEqual(PlayAgainCopy.stillOnResults, "Still on the results")
     }
 
     func testAnOlderServersLobbyHasNoReturningOrExpected() {

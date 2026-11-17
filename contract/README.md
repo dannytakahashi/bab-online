@@ -271,7 +271,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `avatarUrl`; the web bundle sends both since the family-lobbies web PR
   (2026-11-16; `client/src/utils/avatar.js` clientHello, also from a socket
   that cannot fold avatar URLs, which then sends `casualSpectators` alone),
-  and iOS 1.2.3 (build 12) sends `avatarUrl` and `casualSpectators`.
+  and iOS 1.2.2 (build 12) sends `avatarUrl` and `casualSpectators`.
   Send this cap ONLY from a client that does all of the above
   (server/voice/gameVoice.js; docs/claude/voice.md "Spectator voice").
 - `playAgain` (`$defs.clientCapPlayAgain`, its own const for the same
@@ -301,7 +301,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   its results: a drop is a 2-minute hold, and at the next start of a lobby
   of more than 4 it gets leftLobby instead of becoming a spectator). The web
   bundle sends the cap since the play-again web PR (2026-11-16; both
-  clientHello variants; docs/claude/web-client.md, Play again); iOS 1.2.3
+  clientHello variants; docs/claude/web-client.md, Play again); iOS 1.2.2 (12)
   (build 12) with `casualSpectators` (`ClientHello.caps`; iOSClient/CLAUDE.md,
   "Play again"). Both send `releaseLobbyHold` ("Don't wait").
 

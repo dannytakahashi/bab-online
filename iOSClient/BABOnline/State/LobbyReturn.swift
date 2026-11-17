@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Play again (owner 2026-11-16; iOS 1.2.3, build 12; server/socket/playAgain.js): at the end
+/// Play again (owner 2026-11-16; iOS 1.2.2, build 12; server/socket/playAgain.js): at the end
 /// of a casual game a lobby started, the server moves this socket back into a recreated copy
 /// of that lobby (new id; same name, host, settings, chat and lobby bots; nobody ready) and
 /// says so with the private, unsequenced `lobbyReturn`, right after its `gameEnd`.
@@ -146,7 +146,7 @@ enum LobbyReturn {
     /// GameContainerView's onDisappear: the table went away. Voice carries on into the lobby
     /// this game's end returned me to (`keepsVoice`: its calls and buffered signals stay);
     /// any other way off the table shuts it down. `lobbyState` nil (no link in the
-    /// environment): shut down, as before 1.2.3.
+    /// environment): shut down, as before 1.2.2 (12).
     static func tableGone(lobbyState: LobbyState?, appState: AppState, voice: VoiceChatManager) {
         if let lobbyState, keepsVoice(lobbyState: lobbyState, appState: appState) {
             print("[Voice] Kept into the lobby after the game")

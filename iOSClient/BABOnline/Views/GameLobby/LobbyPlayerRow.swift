@@ -12,11 +12,11 @@ struct LobbyPlayerRow: View {
     /// The server holds this seat while its player reconnects (`LobbyState.isReconnecting`):
     /// the row says so instead of looking like an idle player who has not readied.
     var isReconnecting = false
-    /// Sets "Spectators can talk" (family lobbies, 1.2.3): "(host)" after the name.
+    /// Sets "Spectators can talk" (family lobbies, 1.2.2 (12)): "(host)" after the name.
     var isHost = false
     /// A family lobby's Playing / Will watch / Sitting out (nil in a lobby of 4 or fewer).
     var status: LobbySeatStatus? = nil
-    /// "Don't wait for <name>" on a returning row (play again, 1.2.3; `LobbyState.canRelease`);
+    /// "Don't wait for <name>" on a returning row (play again, 1.2.2 (12); `LobbyState.canRelease`);
     /// nil: no control.
     var onRelease: (() -> Void)? = nil
     /// Sent and waiting for the server's list.
@@ -91,6 +91,14 @@ struct LobbyPlayerRow: View {
                         .foregroundColor(Theme.textSecondary)
                         .italic()
                         .accessibilityIdentifier("lobby.reconnecting")
+                } else if player.showsOnResults(isCurrentUser: isCurrentUser, isReconnecting: isReconnecting) {
+                    // play again: back in the lobby, still reading the last game's results
+                    // (present and connected: no "Don't wait")
+                    Text(PlayAgainCopy.stillOnResults)
+                        .font(.caption2)
+                        .foregroundColor(Theme.textSecondary)
+                        .italic()
+                        .accessibilityIdentifier("lobby.onResults")
                 } else if let status {
                     Text(status.rawValue)
                         .font(.caption2)
@@ -156,12 +164,13 @@ struct LobbyPlayerRow: View {
 /// The words of play again (the spec's copy; the web says the same).
 enum PlayAgainCopy {
     static let notBackYet = "Not back yet"
+    static let stillOnResults = "Still on the results"
     static let expected = "Expected"
     static let dontWait = "Don't wait"
     static func dontWaitFor(_ name: String) -> String { "Don't wait for \(name)" }
 }
 
-/// "Don't wait" for a returning row or an expected player (play again, 1.2.3): releases the
+/// "Don't wait" for a returning row or an expected player (play again, 1.2.2 (12)): releases the
 /// place at once (LobbyEmitter.releaseLobbyHold). VoiceOver says whom it is for.
 struct DontWaitButton: View {
     let username: String

@@ -2,7 +2,7 @@ import XCTest
 @preconcurrency import WebRTC
 @testable import BAB_Online
 
-/// Family lobbies of up to 8 and spectator voice (1.2.3, build 12; the server's PR A:
+/// Family lobbies of up to 8 and spectator voice (1.2.2, build 12; the server's PR A:
 /// GameManager.lobbyWire / getAllLobbies({wide}), server/voice/gameVoice.js). Every payload
 /// here is shaped as the server sends it to a socket with the casualSpectators cap, and
 /// each additive key is also left out (an older server: today's behavior).
@@ -126,6 +126,58 @@ final class FamilyLobbyTests: XCTestCase {
         state.reset()
         XCTAssertEqual(state.capacity, 4)
         XCTAssertTrue(state.spectatorsCanTalk)
+    }
+
+    // MARK: - The lobby header's count (LobbyCount, LobbyHeaderProbe)
+
+    func testTheHeaderCountIsTheWebsWordsAndVoiceOverHearsItInFull() {
+        let state = LobbyState()
+        let members = ["ivy", "kim", "hal", "jon"].enumerated().map { member($0.1, ready: $0.0 < 2, playing: $0.0 < 2) }
+        state.applyPlayers(from: ["lobbyId": "l1", "players": members, "members": members, "host": "ivy", "capacity": 8,
+                                  "settings": ["spectatorsCanTalk": true]], namesHeldSeats: true)
+        let count = LobbyCount(state)
+        XCTAssertEqual(count.text, "Players 4/8 \u{00B7} Ready 2/4", "GameLobby.js's header")
+        XCTAssertEqual(count.parts, ["Players 4/8", "Ready 2/4"])
+        XCTAssertEqual(count.spoken, "4 of 8 players, 2 of 4 ready")
+
+        // an older server (no family keys): the count alone, out of 4
+        let legacy = LobbyState()
+        legacy.applyPlayers(from: ["lobbyId": "l1", "players": [member("ivy", ready: true, playing: nil)]], namesHeldSeats: true)
+        XCTAssertEqual(LobbyCount(legacy).text, "Players 1/4")
+        XCTAssertEqual(LobbyCount(legacy).spoken, "1 of 4 players")
+    }
+
+    func testTheHeaderProbeCatchesACutOffOrCoveredCount() {
+        let box = CGRect(x: 0, y: 0, width: 370, height: 44)
+        let fits: [String: CGRect] = [
+            "form.stacked": box, "leave": CGRect(x: 0, y: 12, width: 60, height: 20),
+            "title": CGRect(x: 130, y: 2, width: 120, height: 22), "titleIdeal": CGRect(x: 130, y: 2, width: 120, height: 22),
+            "count.0": CGRect(x: 120, y: 26, width: 140, height: 16), "countIdeal.0": CGRect(x: 120, y: 26, width: 140, height: 16),
+            "mic": CGRect(x: 326, y: 0, width: 44, height: 44),
+        ]
+        XCTAssertEqual(LobbyHeaderProbe.check(fits, container: box), "stacked ok")
+
+        // build 12 on an iPhone 17: "4/8 · Rea..." (the count squeezed below its full width)
+        var cut = fits
+        cut["count.0"] = CGRect(x: 120, y: 26, width: 90, height: 16)
+        XCTAssertTrue(LobbyHeaderProbe.check(cut, container: box).contains("count.0 cut off (90 of 140 pt)"))
+
+        var covered = fits
+        covered["count.0"] = CGRect(x: 300, y: 10, width: 140, height: 16)
+        let check = LobbyHeaderProbe.check(covered, container: box)
+        XCTAssertTrue(check.contains("count.0 outside"), check)
+        XCTAssertTrue(check.contains("count.0 overlaps mic"), check)
+
+        var twoForms = fits
+        twoForms["form.row"] = box
+        XCTAssertTrue(LobbyHeaderProbe.check(twoForms, container: box).hasPrefix("row+stacked: 2 forms"))
+
+        // a wrapped title is not cut off; a one-line one is
+        var squeezedTitle = fits
+        squeezedTitle["title"] = CGRect(x: 130, y: 2, width: 80, height: 22)
+        XCTAssertTrue(LobbyHeaderProbe.check(squeezedTitle, container: box).contains("title cut off"))
+        squeezedTitle["form.wrapped"] = squeezedTitle.removeValue(forKey: "form.stacked")
+        XCTAssertEqual(LobbyHeaderProbe.check(squeezedTitle, container: box), "wrapped ok")
     }
 
     func testFourMemberFamilyLobbyShowsNoStatuses() {

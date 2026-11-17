@@ -479,23 +479,41 @@ function autoClaimTarget(username, socketId) {
  * Remove Bot, the talk setting, "Don't wait"). A later drop is an ordinary
  * reload (the 30 s grace), not a hold; another socket's joinMainRoom no
  * longer takes its seat (autoClaimTarget); at the next start it is an
- * extra like any member (GameManager.startGameFromLobby).
+ * extra like any member (GameManager.startGameFromLobby). Its row's
+ * members[].onResults ("Still on the results" on the others' screens)
+ * goes with it.
+ * @returns {Object|null} the lobby when this call settled the socket (it
+ *   was unsettled), else null. A caller whose own reply does not carry the
+ *   list to the others passes it to announceSettled
  */
 function settle(socketId) {
-    gameManager.getPlayerLobby(socketId)?.afterGame?.unsettled.delete(socketId);
+    const lobby = gameManager.getPlayerLobby(socketId);
+    return lobby?.afterGame?.unsettled.delete(socketId) ? lobby : null;
 }
 
 /**
- * c2s lobbyReturnSeen (no payload; iOS 1.2.3 build 12): the person left the
+ * The lobby's other capable members get the list again (playerReadyUpdate,
+ * the plain variant) after `socketId` settled (`lobby` from settle; null:
+ * nothing to tell), so its row no longer reads "Still on the results".
+ * Legacy members get nothing: their copy has no members[].
+ */
+function announceSettled(io, lobby, socketId) {
+    if (!lobby) return;
+    guarded('announceSettled', () => sendCapable(lobby, { io, except: socketId }));
+}
+
+/**
+ * c2s lobbyReturnSeen (no payload; iOS 1.2.2 (12) build 12): the person left the
  * last game's results for the lobby lobbyReturn put them in (Return to
  * Lobby; also the client's own entry when that game's gameEnd never came,
  * or a lobbyReturn that arrived off the table). The results stay up until
  * that tap (owner 2026-11-16), so until then the server cannot tell the
  * score screen from the lobby screen. Settles the socket; nothing is sent
- * back, and a socket in no lobby (or long settled) changes nothing.
+ * back to it (the others' copies lose its onResults: announceSettled), and
+ * a socket in no lobby (or long settled) changes nothing.
  */
-function lobbyReturnSeen(socket) {
-    settle(socket.id);
+function lobbyReturnSeen(socket, io) {
+    announceSettled(io, settle(socket.id), socket.id);
 }
 
 /**
@@ -571,14 +589,23 @@ function releaseHold(io, awayId, reason) {
 
 // ==================== reservations ====================
 
-/** playerReadyUpdate (plain) to the lobby's capable members: `expected` changed. */
-function sendExpected(lobby) {
-    const io = lobby?.afterGame?.io;
-    if (!io) return;
+/**
+ * playerReadyUpdate (plain) to the lobby's mapped capable members (but
+ * `except`): something only their copy shows changed.
+ */
+function sendCapable(lobby, { io = null, except = null } = {}) {
+    io = io || lobby?.afterGame?.io;
+    if (!io || !lobby) return;
     for (const p of lobby.players) {
-        if (p.isBot || gameManager.playerLobbies.get(p.socketId) !== lobby.id || !lobby.capable?.has(p.socketId)) continue;
+        if (p.isBot || p.socketId === except) continue;
+        if (gameManager.playerLobbies.get(p.socketId) !== lobby.id || !lobby.capable?.has(p.socketId)) continue;
         io.to(p.socketId).emit('playerReadyUpdate', gameManager.lobbyWire(lobby, {}, { to: p.socketId }));
     }
+}
+
+/** playerReadyUpdate (plain) to the lobby's capable members: `expected` changed. */
+function sendExpected(lobby) {
+    sendCapable(lobby);
 }
 
 function endReservation(lobbyId, username, { notify = true, reason = null } = {}) {
@@ -719,23 +746,28 @@ async function releaseLobbyHold(socket, io, data) {
         emitError(socket, { message: 'Not in a lobby' }, 'releaseLobbyHold');
         return;
     }
-    settle(socket.id);
+    // (a release sends the list to everyone: the hold's lobbyPlayerLeft, the
+    // reservation's playerReadyUpdate; a refusal sends none, so the others
+    // are told this member settled)
+    const settled = settle(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
     const host = gameManager.lobbyHost(lobby);
     const hostRow = lobby.players.find((p) => !p.isBot && p.username === host);
     const hostPresent = !!hostRow && gameManager.playerLobbies.get(hostRow.socketId) === lobby.id;
     if (!user || (hostPresent && host !== user.username)) {
         emitError(socket, { message: 'Only the host can do this' }, 'releaseLobbyHold');
+        announceSettled(io, settled, socket.id);
         return;
     }
     const username = data.username;
     const row = lobby.players.find((p) => !p.isBot && p.username === username && isHold(p.socketId));
     if (row) {
-        releaseHold(io, row.socketId, 'released');
+        if (!releaseHold(io, row.socketId, 'released')) announceSettled(io, settled, socket.id);
         return;
     }
     if (endReservation(lobby.id, username, { reason: 'released' })) return;
     emitError(socket, { message: 'Nobody by that name is coming back' }, 'releaseLobbyHold');
+    announceSettled(io, settled, socket.id);
 }
 
 module.exports = {
@@ -754,6 +786,7 @@ module.exports = {
     offlineHoldFor,
     autoClaimTarget,
     settle,
+    announceSettled,
     lobbyReturnSeen,
     leftOnResults,
     holdOnDrop,

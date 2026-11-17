@@ -624,7 +624,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const pos = state.position || 1;
-    const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData);
+    const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData, { spectator: !!state.isSpectator });
     const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
     const oppName = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
     const bid = (p) => state.bids?.[p] ?? '-';
@@ -1095,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update game log score display
     if (window.ModernUtils && window.ModernUtils.getTeamNames) {
-      const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData);
+      const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
       if (window.updateGameLogScoreFromLegacy) {
         window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
       }

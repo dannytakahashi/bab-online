@@ -457,7 +457,7 @@ card survives fold and unfold, the trick collects across a fold.
   is the web's red lattice, rendered at the draw card's own size
   (`cardBackImage(width:colour:)`, 1:1, hinted for that density), which `prewarm()` renders
   for the key window's draw size; `cardBackTexture(colour:)` (unused) draws the same lattice.
-  From 1.2.3 the back alternates red / blue by hand as the web's (`CardBackColour.forHand`
+  From 1.2.2 (12) the back alternates red / blue by hand as the web's (`CardBackColour.forHand`
   = cardFaces.js `backFrameForHand`: no hand, the draw and odd hands red, even hands blue,
   card.backRed / card.backBlue via `Theme.CardBack.ink(_:)`; the blue back is the red one's
   drawing in the other ink). The draw's deck and face-down slots are always `.draw` (red:
@@ -965,7 +965,7 @@ silent switch, the 48 ms AAC lead-in); with voice on the session is
 playAndRecord / voiceChat, so sounds then ignore the silent switch and go
 through voice processing.
 
-## The deal's fly-in (iOS 1.2.3, build 12)
+## The deal's fly-in (iOS 1.2.2, build 12)
 
 Owner 2026-11-16, "no shuffle animation on ios": the web has no shuffle
 animation as such (no code shuffles cards on screen); what it shows with the
@@ -1125,7 +1125,7 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   `/leave`.
 - **Opponent card backs** (owner request; web `displayOpponentCardsBySeat`):
   each seat with an avatar holds a fan of the lattice back, red or blue by
-  hand from 1.2.3 (`CardBackColour`, "Card textures" above)
+  hand from 1.2.2 (12) (`CardBackColour`, "Card textures" above)
   (`CardFanNode`, `CardTextureGenerator.cardBackImage(width:colour:)` at the largest
   fan card's size and the device's largest zoom, one texture per colour per process), one
   sprite per card in `TableRenderModel.Opponent.cards` (`SeatState.

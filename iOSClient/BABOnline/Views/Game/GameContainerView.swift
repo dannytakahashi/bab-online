@@ -233,7 +233,7 @@ private struct GameScreen: View {
             leaveFlow = LeaveAlertFlow()
             if gameState.players.leaveCheck != .idle { gameState.apply(.local(.leaveClosed)) }
             scene.cleanupAll()
-            // play again (1.2.3): off to the lobby this game's end returned me to, voice
+            // play again (1.2.2 (12)): off to the lobby this game's end returned me to, voice
             // carries on (the server kept those calls); any other way off the table ends it
             LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
         }
@@ -242,7 +242,7 @@ private struct GameScreen: View {
                             forceListenOnly: fixtureSpectatorVoice == "listen")
                 .presentationDetents([.medium])
         }
-        // spectator talk off: a player hears none of the spectators (backstop; 1.2.3)
+        // spectator talk off: a player hears none of the spectators (backstop; 1.2.2 (12))
         .onChange(of: gameState.watching) { _, watching in
             voiceManager.applyForcedMutes(watching: watching.spectators.map(\.username))
         }
@@ -625,7 +625,7 @@ private struct GameScreen: View {
     private func seatRow(_ layout: TableLayout) -> some View {
         let row = layout.seatRow
         let hsi = gameState.myHSI
-        // a pure spectator's row is the watched seat's: its voice button is the pill's (1.2.3)
+        // a pure spectator's row is the watched seat's: its voice button is the pill's (1.2.2 (12))
         #if DEBUG
         let voice = (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
         #else
@@ -763,7 +763,7 @@ private struct GameScreen: View {
             VStack {
                 Spacer()
                 HStack(spacing: 10) {
-                    // a casual game's spectator voice (1.2.3): the mic button beside the pill
+                    // a casual game's spectator voice (1.2.2 (12)): the mic button beside the pill
                     // (listen-only: headphones, "Tap to talk"; a long press opens the panel)
                     if showsSpectatorVoice {
                         VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,

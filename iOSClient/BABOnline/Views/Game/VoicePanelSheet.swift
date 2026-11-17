@@ -5,7 +5,7 @@ struct VoicePanelSheet: View {
     @ObservedObject var voiceManager = VoiceChatManager.shared
     @Environment(\.dismiss) private var dismiss
     /// The table's spectators (the spectator badge's names): their rows go under "Watching"
-    /// with "(watching)" (1.2.3, spectator voice). Empty in a lobby.
+    /// with "(watching)" (1.2.2 (12), spectator voice). Empty in a lobby.
     var watching: Set<String> = []
     /// UI fixtures: show the listen-only self row without a voice session.
     var forceListenOnly = false

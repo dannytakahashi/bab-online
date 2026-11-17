@@ -45,17 +45,19 @@ private struct GameLobbyScreen: View {
     /// "Spectators can talk" sent by the host, until the server's playerReadyUpdate echoes it.
     @State private var talkPending: Bool?
 
-    /// The header's count: "6/8 · Ready 2/4" from a server that sends the family keys
-    /// (1.2.3), else "3/4" as before.
-    private var countText: String {
-        guard lobbyState.hasSettings else { return "\(lobbyState.playerCount)/4" }
-        return "\(lobbyState.playerCount)/\(lobbyState.capacity) \u{00B7} Ready \(lobbyState.readyAtTable)/4"
+    /// The header's mic button: voice is on (fixture mode: `-uiVoice YES`).
+    private var showsMic: Bool {
+        #if DEBUG
+        voiceManager.isActive || UIFixture.showsVoiceButton
+        #else
+        voiceManager.isActive
+        #endif
     }
 
     /// The table filled without me: Ready would be refused, I will watch the game.
     private var watchesOnly: Bool { !isReady && lobbyState.tableFullWithout(authState.username) }
 
-    /// Family lobbies (1.2.3): the host's "Spectators can talk" switch, a read-only line for
+    /// Family lobbies (1.2.2 (12)): the host's "Spectators can talk" switch, a read-only line for
     /// everyone else, and what it means for those who do not get a seat.
     private var voiceSection: some View {
         let isHost = lobbyState.isHost(authState.username)
@@ -94,7 +96,7 @@ private struct GameLobbyScreen: View {
         .accessibilityIdentifier("lobby.voice")
     }
 
-    /// Play again (1.2.3): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
+    /// Play again (1.2.2 (12)): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
     @State private var releasing: Set<String> = []
 
     /// The host (or anyone present while the host is held) may give up a returning row or an
@@ -185,41 +187,14 @@ private struct GameLobbyScreen: View {
             ScrollView {
             layout {
                 VStack(spacing: 0) {
-                // Header
-                HStack {
-                    // in the vertical bar Leave is a toolbar item and the title leads
-                    if !bar.usesVerticalBar {
-                        Button(action: leaveLobby) {
-                            HStack(spacing: Theme.Space.s1) {
-                                Image(systemName: "chevron.left")
-                                    .accessibilityHidden(true)
-                                Text("Leave")
-                            }
-                            .foregroundColor(Theme.textSecondary)
-                        }
-
-                        Spacer()
-                    }
-
-                    Text(lobbyState.lobbyName.isEmpty ? "Game Lobby" : lobbyState.lobbyName)
-                        .font(.headline)
-                        .foregroundColor(Theme.textPrimary)
-
-                    Spacer()
-
-                    HStack(spacing: Theme.Space.s3) {
-                        if voiceManager.isActive {
-                            VoiceMuteButton(onLongPress: {
-                                showVoicePanel = true
-                            })
-                            .scaleEffect(0.8)
-                        }
-
-                        Text(countText)
-                            .foregroundColor(Theme.textSecondary)
-                            .accessibilityIdentifier("lobby.count")
-                    }
-                }
+                // Header (LobbyHeaderView: one row, the count under the title, or wrapped;
+                // in the vertical bar Leave is a toolbar item and the title leads)
+                LobbyHeaderView(title: lobbyState.lobbyName.isEmpty ? "Game Lobby" : lobbyState.lobbyName,
+                                count: LobbyCount(lobbyState),
+                                showsLeave: !bar.usesVerticalBar,
+                                showsMic: showsMic,
+                                leave: leaveLobby,
+                                openVoicePanel: { showVoicePanel = true })
                 .padding()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
 

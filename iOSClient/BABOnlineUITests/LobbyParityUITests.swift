@@ -64,6 +64,28 @@ final class LobbyParityUITests: XCTestCase {
         keep("main-room-cards-in-progress")
     }
 
+    // MARK: - Game lobby: the header
+
+    /// A lobby from a server without the family keys: "Players 4/4", in full, VoiceOver
+    /// "4 of 4 players" (the family lobby's header: FamilyLobbyUITests).
+    func testTheLegacyHeaderCountIsFullyVisible() {
+        let app = Fixture.launch("game-lobby", extra: ["-uiVoice", "YES"], env: ["UI_FIXTURE_LOBBY_NAME": "iosplay1's Game"])
+        XCTAssertTrue(Fixture.readyElement(app, "game-lobby").waitForExistence(timeout: 20))
+        XCTAssertTrue(app.staticTexts["iosplay1's Game"].exists)
+        XCTAssertTrue(any(app, "lobby.mic").exists, "the header's mic")
+        let count = any(app, "lobby.count")
+        XCTAssertTrue(count.waitForExistence(timeout: 5))
+        XCTAssertEqual(count.label, "4 of 4 players")
+        var check = Fixture.probe(app, "lobby.headerCheck")
+        for _ in 0..<10 where !check.hasSuffix(" ok") {
+            Thread.sleep(forTimeInterval: 0.3)
+            check = Fixture.probe(app, "lobby.headerCheck")
+        }
+        XCTAssertTrue(check.hasSuffix(" ok"), check)
+        XCTAssertTrue(app.windows.firstMatch.frame.insetBy(dx: -0.5, dy: -0.5).contains(count.frame))
+        keep("game-lobby-header-legacy")
+    }
+
     // MARK: - Game lobby: a held seat
 
     func testAHeldSeatSaysReconnecting() {

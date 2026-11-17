@@ -87,7 +87,7 @@ struct LobbyRowView: View {
                 if isInProgress, let progress = lobby.progress {
                     progressLines(progress)
                 } else {
-                    // "n/8" for a family lobby (memberCount / capacity, 1.2.3), else "n/4"
+                    // "n/8" for a family lobby (memberCount / capacity, 1.2.2 (12)), else "n/4"
                     Text("\(lobby.countText) players")
                         .font(.caption)
                         .foregroundColor(Theme.textSecondary)

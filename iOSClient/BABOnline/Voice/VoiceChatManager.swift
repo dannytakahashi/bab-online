@@ -53,11 +53,11 @@ final class VoiceChatManager: ObservableObject {
     /// The volumes set in the voice panel, by username: a player who comes back on a new
     /// socket (a reconnect, the next game) keeps theirs while the app runs.
     private var savedVolumes: [String: Double] = [:]
-    /// The per-person mutes, by username (1.2.3): kept across any re-created call (a
+    /// The per-person mutes, by username (1.2.2 (12)): kept across any re-created call (a
     /// spectator's listen-only re-offer, a reconnect on a new socket) while the app runs.
     private var savedMutes: [String: Bool] = [:]
 
-    // MARK: - Talk mode (1.2.3, build 12: spectator voice; docs/claude/voice.md "Spectator voice")
+    // MARK: - Talk mode (1.2.2, build 12: spectator voice; docs/claude/voice.md "Spectator voice")
 
     /// What the server allows (voiceSettings.canTalk; a player and a lobby member always).
     @Published private(set) var talkAllowed = true
@@ -192,7 +192,7 @@ final class VoiceChatManager: ObservableObject {
     /// Initialize voice chat: request mic, configure audio session, start capture.
     /// A session that may not or does not want to talk (`wantsToTalk` false: a main-room
     /// spectator) starts listen-only with no permission prompt. A refused mic no longer
-    /// leaves voice off (1.2.3): the session listens only and still hears everyone.
+    /// leaves voice off (1.2.2 (12)): the session listens only and still hears everyone.
     func initialize() async throws {
         guard !isActive, !Self.voiceDisabled else { return }
         let generation = startGeneration
@@ -387,7 +387,7 @@ final class VoiceChatManager: ObservableObject {
     func shutdown() {
         startGeneration &+= 1  // an initialize() still awaiting the permission prompt gives up
         // buffered signals and the game's talk mode go whether or not voice ever started
-        // (before 1.2.3 an inactive shutdown returned first and the buffers grew forever)
+        // (before 1.2.2 (12) an inactive shutdown returned first and the buffers grew forever)
         pendingPeers.removeAll()
         pendingOffers.removeAll()
         reofferPending.removeAll()

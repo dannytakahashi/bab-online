@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Floating circular mic mute/unmute button for voice chat.
-/// Listen-only (1.2.3: a spectator who may not or has not chosen to talk, or a refused mic)
+/// Listen-only (1.2.2 (12): a spectator who may not or has not chosen to talk, or a refused mic)
 /// it shows headphones: a tap is "Tap to talk" (asks for the mic) when talking is allowed,
 /// else a toast says why. It is never `.disabled`, which would also end the long press that
 /// opens the voice panel.

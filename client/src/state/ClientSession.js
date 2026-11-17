@@ -515,7 +515,7 @@ export class ClientSession {
    * The score modal's Return to Lobby after a game whose lobby reopened:
    * the table goes (voice stays), then the lobby shows at once from what
    * the server last said; lobbyReturnSeen tells the server the player left
-   * the score screen for it (as iOS 1.2.3 does at its entry: until then the
+   * the score screen for it (as iOS 1.2.2 (12) does at its entry: until then the
    * server holds a dropped seat for the play-again hold and leaves the
    * player out of the lobby's next game instead of making it a watcher),
    * and joinLobby asks for it again (the server answers its own member with

@@ -122,7 +122,7 @@ struct GameEndView: View {
 
     private func returnAction() {
         let savedTournamentId = gameState.tournamentId
-        // play again (1.2.3): this game's end moved me back into its lobby, kept behind
+        // play again (1.2.2 (12)): this game's end moved me back into its lobby, kept behind
         // these results until now (LobbyReturn); the server has me there already
         if savedTournamentId == nil, let lobbyState = lobbyLink.state,
            LobbyReturn.enterOnReturn(lobbyState: lobbyState, appState: appState, gameState: gameState) {

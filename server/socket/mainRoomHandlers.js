@@ -219,8 +219,9 @@ function joinLobby(socket, io, data) {
     // This socket holds its seat here already (it took a held seat back in
     // place): it gets the lobby again; the others were told on the resume
     if (result.alreadySeated) {
-        // (play again: a re-entry means it is on the lobby screen)
-        playAgain.settle(socket.id);
+        // (play again: a re-entry means it is on the lobby screen; the
+        // others' rows lose its "Still on the results")
+        playAgain.announceSettled(io, playAgain.settle(socket.id), socket.id);
         socket.leave('mainRoom');
         socket.emit('lobbyCreated', gameManager.lobbyWire(lobby, { messages: lobby.messages, name: lobby.name }, { to: socket.id }));
         // Mapped members only: a held seat's socket is gone (a reload) or

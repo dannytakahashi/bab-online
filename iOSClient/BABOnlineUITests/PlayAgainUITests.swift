@@ -1,6 +1,6 @@
 import XCTest
 
-/// Play again on screen (1.2.3, build 12; owner 2026-11-16). Fixture `game-end` /
+/// Play again on screen (1.2.2, build 12; owner 2026-11-16). Fixture `game-end` /
 /// `game-end-spectator` with `-uiLobbyReturn YES`: 0.5 s after the gameEnd the server's
 /// lobbyReturn arrives ("Family night": me the host, ivy's place held, kim, a bot, grandpa expected).
 /// The score screen must stay exactly as it is until Return to Lobby (label unchanged), which
@@ -75,6 +75,23 @@ final class PlayAgainUITests: XCTestCase {
         XCTAssertTrue(any(app, "lobby.expected").waitForNonExistence(timeout: 3))
         reveal(app, app.buttons["Add Bot"])
         XCTAssertTrue(app.buttons["Add Bot"].exists, "3 members, nobody expected: Add Bot again")
+    }
+
+    /// kim is back in the lobby but still on the results (`members[].onResults`): the row says
+    /// so in the "Not back yet" style, with no "Don't wait"; my own row never does.
+    func testSomeoneStillOnTheResultsSaysSo() {
+        let app = Fixture.launch("game-end", extra: ["-uiLobbyReturn", "YES", "-uiOnResults", "YES"])
+        XCTAssertTrue(app.buttons["Return to Lobby"].waitForExistence(timeout: 20))
+        app.buttons["Return to Lobby"].tap()
+        XCTAssertTrue(any(app, "screen.gameLobby").waitForExistence(timeout: 5))
+        let onResults = app.staticTexts.matching(identifier: "lobby.onResults")
+        XCTAssertTrue(onResults.firstMatch.waitForExistence(timeout: 3))
+        XCTAssertEqual(onResults.count, 1, "kim's row only, never mine")
+        XCTAssertEqual(onResults.firstMatch.label, "Still on the results")
+        XCTAssertEqual(app.staticTexts.matching(identifier: "lobby.returning").count, 1, "ivy's place is still \"Not back yet\"")
+        XCTAssertFalse(app.buttons["lobby.dontWait.kim"].exists, "kim is present: no \"Don't wait\"")
+        XCTAssertTrue(app.buttons["lobby.dontWait.ivy"].exists)
+        keep("play-again-still-on-results")
     }
 
     func testASpectatorsResultsStayToo() {

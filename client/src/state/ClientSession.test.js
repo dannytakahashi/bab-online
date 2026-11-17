@@ -237,7 +237,7 @@ describe('play again: the lobby a finished game reopened (lobbyReturn)', () => {
     expect(t.hooks[SCREEN.LOBBY].enter).toHaveBeenCalledWith(data, expect.objectContaining({ from: SCREEN.GAME_END }));
     expect(t.emitted('joinLobby')).toEqual([{ lobbyId: 'R1' }]);
     expect(t.emitted('joinMainRoom')).toEqual([]);
-    // the server learns the score screen is left (as iOS 1.2.3 tells it),
+    // the server learns the score screen is left (as iOS 1.2.2 (12) tells it),
     // before the joinLobby that asks for the lobby again
     expect(t.emitted('lobbyReturnSeen')).toEqual([{}]);
     const order = t.socket.emit.mock.calls.map((c) => c[0]).filter((n) => n === 'lobbyReturnSeen' || n === 'joinLobby');

@@ -22,6 +22,9 @@ import SpriteKit
 /// that are not ready (my seat ready): there removeBot and addBot change the list the way
 /// the server answers them (`emulateLobby`) and show in "fixture.sent" as `removeBot:<id>` / `addBot`.
 /// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
+/// `-uiLobbyName "<title>"` (or the environment's `UI_FIXTURE_LOBBY_NAME`, which keeps an
+/// apostrophe: XCUITest's launch arguments read "iosplay1's" as a quote) renames a
+/// game-lobby fixture's lobby (the header's fit).
 /// `-uiLeaveDrive settle|hold` drives the Leave alert's reopen (`leaveAlertPresented`), and
 /// the chat messages the app sends show in the "fixture.sent" probe (`recordSent`).
 enum UIFixture {
@@ -47,8 +50,9 @@ enum UIFixture {
             return ["username": parts[0], "message": parts[1], "isSpectator": true]
         }
 
-    /// `-uiVoice YES`: my seat's row shows the voice button as if voice were on (fixture mode
-    /// never starts voice; screenshots and the seat-row UI tests).
+    /// `-uiVoice YES`: my seat's row (and the game lobby's header) shows the voice button as if
+    /// voice were on (fixture mode never starts voice; screenshots and the seat-row and lobby
+    /// header UI tests).
     static let showsVoiceButton: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoice")
 
     /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
@@ -56,7 +60,7 @@ enum UIFixture {
 
     /// `-uiSpectatorVoice listen|full` on a spectator table (`draw-spectator`,
     /// `spectator-mid-hand`): the pill's voice button listen-only ("Tap to talk"; a long press
-    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.3).
+    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.2 (12)).
     static let spectatorVoice: String? = isActive ? UserDefaults.standard.string(forKey: "uiSpectatorVoice") : nil
 
     /// `-uiVoiceSwitch YES` with `-uiVoicePanel YES`: the panel shows the in-game "Spectators
@@ -122,6 +126,10 @@ enum UIFixture {
         }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+            // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
+            // fit at a real lobby's name)
+            if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
+                ?? UserDefaults.standard.string(forKey: "uiLobbyName") { lobby.lobbyName = title }
             print("[UIFixture] seeded screen \(name)")
             return
         }
@@ -210,7 +218,7 @@ enum UIFixture {
         }
     }
 
-    // MARK: - Play again (1.2.3, PlayAgainUITests)
+    // MARK: - Play again (1.2.2 (12), PlayAgainUITests)
 
     /// `-uiLobbyReturn YES` on `game-end` / `game-end-spectator`: 0.5 s after the gameEnd the
     /// server's lobbyReturn arrives (`LobbyReturn.receive`): the lobby "Family night" with me
@@ -220,6 +228,10 @@ enum UIFixture {
     /// `LobbyReturn.gameEndWait`. releaseLobbyHold shows in "fixture.sent" as
     /// `releaseLobbyHold:<name>` and the place goes 0.3 s later, as the server's list does.
     static let lobbyReturnMode: String? = isActive ? UserDefaults.standard.string(forKey: "uiLobbyReturn") : nil
+    /// `-uiOnResults YES` with `-uiLobbyReturn`: the second other player (kim) and I still read
+    /// the results (`members[].onResults`, as the server sends every moved row at the return):
+    /// kim's row says "Still on the results", mine never does.
+    static let onResultsMode = isActive && UserDefaults.standard.bool(forKey: "uiOnResults")
 
     @MainActor
     private static func seedLobbyReturn(gameId: String, me: String, seats: [String], _ store: GameState, _ appState: AppState,
@@ -227,9 +239,11 @@ enum UIFixture {
         fixtureLobby = lobby
         let others = Array(seats.filter { $0 != me }.prefix(2))
         var members: [[String: Any]] = [["socketId": "sid-\(me)", "username": me, "ready": false, "playing": true]]
+        if onResultsMode { members[0]["onResults"] = true }
         for (i, u) in others.enumerated() {
             var m: [String: Any] = ["socketId": i == 0 ? "away:fixture-\(u)" : "sid-\(u)", "username": u, "ready": false, "playing": true]
             if i == 0 { m["reconnecting"] = true; m["returning"] = true }
+            if i == 1, onResultsMode { m["onResults"] = true }
             members.append(m)
         }
         members.append(["socketId": "bot:fixture-1", "username": "\u{1F916} Bot", "ready": false, "playing": false, "isBot": true])
@@ -576,7 +590,7 @@ enum UIFixture {
             if UserDefaults.standard.bool(forKey: "uiLobbyRejoin") { lobby.rejoiningLobbyId = "l1" }
             appState.screen = .gameLobby
         case "game-lobby-family", "game-lobby-family-full":
-            // a family lobby (1.2.3) as the server sends it to a capable member
+            // a family lobby (1.2.2 (12)) as the server sends it to a capable member
             // (GameManager.lobbyWire: players = the first 4, members = everyone): 6 humans and
             // a bot that sits out (no human seat needs it). `-family`: kim and hal readied
             // (Playing); `-family-full`: kim, hal, jon and ora hold the table, so I (ivy) and

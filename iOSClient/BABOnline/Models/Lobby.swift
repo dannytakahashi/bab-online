@@ -10,7 +10,7 @@ struct Lobby: Identifiable, Equatable {
     /// players' positions), each read optionally: the web card's "Hand: N", the two teams'
     /// scores and "N watching".
     var progress: GameProgress? = nil
-    /// Family lobbies (1.2.3, build 12; additive `$defs.lobby` keys the server sends only to a
+    /// Family lobbies (1.2.2, build 12; additive `$defs.lobby` keys the server sends only to a
     /// socket with the casualSpectators cap): every member's count (`playerCount` stays at
     /// most 4), how many the lobby may hold (8 while every human in it is capable, else 4)
     /// and every member's name. nil: an older server (at most 4; `players` is everyone).
@@ -134,13 +134,17 @@ struct LobbyPlayer: Identifiable, Equatable {
     var pic: String?
     var isReady: Bool
     var isBot: Bool
-    /// A family lobby's member (`members[].playing`, 1.2.3): seated at the table right now
+    /// A family lobby's member (`members[].playing`, 1.2.2 (12)): seated at the table right now
     /// (the table bots and the first humans to ready, up to 4; every member of a lobby of 4
     /// or fewer). nil: an entry from `players` (an older server).
     var playing: Bool? = nil
     /// A place held for someone not back from the last game yet (`members[].returning`, play
-    /// again, 1.2.3): a row with no socket ("Not back yet"; "Don't wait for <name>").
+    /// again, 1.2.2 (12)): a row with no socket ("Not back yet"; "Don't wait for <name>").
     var returning: Bool = false
+    /// Back in the lobby, connected, but the app still shows the last game's results
+    /// (`members[].onResults`, play again; the server's afterGame.unsettled: no
+    /// lobbyReturnSeen yet): "Still on the results" on the others' screens.
+    var onResults: Bool = false
 
     static func from(_ dict: [String: Any]) -> LobbyPlayer? {
         guard let username = dict["username"] as? String else { return nil }
@@ -149,11 +153,18 @@ struct LobbyPlayer: Identifiable, Equatable {
         let isReady = dict["isReady"] as? Bool ?? dict["ready"] as? Bool ?? false
         let isBot = dict["isBot"] as? Bool ?? false
         return LobbyPlayer(id: id, username: username, pic: pic, isReady: isReady, isBot: isBot,
-                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true)
+                           playing: dict["playing"] as? Bool, returning: dict["returning"] as? Bool == true,
+                           onResults: dict["onResults"] as? Bool == true)
+    }
+
+    /// The row says "Still on the results": someone else's human row, not ready, not held
+    /// (a held row says "Not back yet" or "Reconnecting…").
+    func showsOnResults(isCurrentUser: Bool, isReconnecting: Bool) -> Bool {
+        onResults && !isCurrentUser && !isBot && !isReady && !returning && !isReconnecting
     }
 }
 
-/// What a family lobby's row says about its member (1.2.3; the web's GameLobby rows):
+/// What a family lobby's row says about its member (1.2.2 (12); the web's GameLobby rows):
 /// "Playing" (seated at the table), "Will watch" (the table is full without them: they
 /// spectate the game), "Sitting out" (a bot no human seat needs). nil: nothing to say (a
 /// lobby of 4 or fewer, where everyone plays, or a human who may still take a seat).

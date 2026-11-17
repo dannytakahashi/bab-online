@@ -47,7 +47,7 @@ final class LobbySocketHandler {
     /// Internal for LobbyRejoinTests.
     @MainActor
     func handleRejoinRefused(_ dict: [String: Any]) -> Bool {
-        // a restore's re-spectate refused (1.2.3; the game ended while away): off the table
+        // a restore's re-spectate refused (1.2.2 (12); the game ended while away): off the table
         if dict["handler"] as? String == SocketEvents.Client.joinAsSpectator, let gameId = SpectateRejoin.pendingGameId {
             print("[Lobby] Re-spectate refused (\(gameId)): \(dict["message"] as? String ?? "?")")
             SpectateRejoin.pendingGameId = nil
@@ -177,7 +177,7 @@ final class LobbySocketHandler {
             }
         }
 
-        // Play again (1.2.3): back in the lobby after the game, the score screen kept up
+        // Play again (1.2.2 (12)): back in the lobby after the game, the score screen kept up
         socket.on(SocketEvents.Server.lobbyReturn) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
@@ -198,7 +198,7 @@ final class LobbySocketHandler {
             guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
                 guard let lobbyState = self?.lobbyState else { return }
-                // a family lobby's event lists everyone (`members`, 1.2.3) and may name a new host
+                // a family lobby's event lists everyone (`members`, 1.2.2 (12)) and may name a new host
                 if dict["members"] != nil {
                     lobbyState.applyPlayers(from: dict, namesHeldSeats: false)
                     return

@@ -1,7 +1,7 @@
 {
   "build": 12,
-  "version": "1.2.3",
-  "commit": "e61e1200d144bd88fb3859a0cfa27618e73b064b",
+  "version": "1.2.2",
+  "commit": "eb467466fb04b9f55a100f1bd0b81d36bd93ee6b",
   "sources": [
     "iOSClient/BABOnline/Networking/Wire/ServerEvent.swift",
     "iOSClient/BABOnline/Networking/Wire/WirePayloads.swift",

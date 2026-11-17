@@ -16,7 +16,7 @@ enum RestoreRoute: Equatable {
     case tournament(tournamentId: String)
     case tournamentLobby(tournamentId: String)
     case lobby(lobbyId: String)
-    /// A pure spectator of a casual game (1.2.3): watch it again (`joinAsSpectator`), which
+    /// A pure spectator of a casual game (1.2.2 (12)): watch it again (`joinAsSpectator`), which
     /// also brings back its spectator voice. The server keeps no pointer for a spectator.
     case spectate(gameId: String)
     case mainRoom
@@ -55,7 +55,7 @@ enum RestoreRoute: Equatable {
     }
 }
 
-/// Watching a casual game again after a restore (`RestoreRoute.spectate`, 1.2.3): the
+/// Watching a casual game again after a restore (`RestoreRoute.spectate`, 1.2.2 (12)): the
 /// table stays on screen, `joinAsSpectator` goes out once per socket, and its
 /// spectatorJoined answers (a full state: the table resyncs; voiceSettings follows, so
 /// spectator voice comes back, listen-only until "Tap to talk"). A refusal ("Game not
