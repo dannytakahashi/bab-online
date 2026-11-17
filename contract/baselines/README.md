@@ -57,6 +57,7 @@ the test and the release step alike:
 | iOS 1.2.2 (10) | `ios-1.2.2-b10.*` | a805147 (branch ios/1.2.2, frozen 2026-11-16 before its PR merged; archived from main 3f9863a, which adds only the first-deal corner-button fix and the AdminApi warnings fix, no file the floor or schema reads; iOS sends string requestIds, so the `stateSnapshot.requestId` waiver holds) | TestFlight 2026-11-16, not submitted |
 | iOS 1.2.2 (11) | `ios-1.2.2-b11.*` | cd9e11c (branch ios/build-11, frozen 2026-11-16 before its PR merged; the merge commit on main has the same `iOSClient/BABOnline` and `contract/src`; the schema is byte-identical to build 10's and the floor differs only in its build and commit; the `stateSnapshot.requestId` waiver holds as for 10) | submitted for review 2026-11-16, pulled from review the same day for build 12 |
 | iOS 1.2.2 (12) | `ios-1.2.2-b12.*` | eb46746 (branch nits/family-nits, frozen 2026-11-16 before PR #310 merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: family lobbies, spectator voice, play again with members[].onResults, polish, the lobby-header and spectator-label fixes; build 12 replaces 1.2.2 (11), pulled from review, so it stays 1.2.2; the `stateSnapshot.requestId` waiver holds) | to be uploaded and submitted for review |
+| iOS 1.2.2 (13) | `ios-1.2.2-b13.*` | 523a1f9 (branch release/ios-1.2.2-b13, frozen 2026-11-17 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: build 12 plus the 390 pt card-back fans fix (#313), the voice-test hardening (#312) and the refreshed boot splash with the sign-in / register in the web's style (#314); no wire change, so the contract and decodes match build 12's; still 1.2.2, to replace build 12 if it is still waiting for review; the `stateSnapshot.requestId` waiver holds) | to be uploaded and submitted for review |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -77,8 +78,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 12                  # HEAD must be build 12 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 12 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 13                  # HEAD must be build 13 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 13 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
