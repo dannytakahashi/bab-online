@@ -80,10 +80,13 @@ final class VoiceChatManager: ObservableObject {
     var wantsToTalk: Bool { talkAllowed && wantsMic }
 
     /// What the manager talks to outside itself, replaced by the unit tests (two managers
-    /// negotiating real WebRTC offers in-process, a permission prompt held open).
+    /// negotiating real WebRTC offers in-process, a permission prompt held open). The tests'
+    /// hooks never touch AVAudioSession (`BABOnlineTests/Support/SilentVoice.swift`).
     struct Hooks {
         var requestRecordPermission: @MainActor () async -> Bool
         var configureAudioSession: @MainActor () throws -> Void
+        /// shutdown(): drop the session (removes the mic indicator; the category is kept).
+        var deactivateAudioSession: @MainActor () -> Void
         var sendOffer: @MainActor (_ target: String, _ offer: RTCSessionDescription, _ username: String?) -> Void
         var sendAnswer: @MainActor (_ target: String, _ answer: RTCSessionDescription) -> Void
 
@@ -93,6 +96,9 @@ final class VoiceChatManager: ObservableObject {
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
                 try session.setActive(true)
+            },
+            deactivateAudioSession: {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             },
             sendOffer: { VoiceEmitter.sendOffer(targetSocketId: $0, offer: $1, username: $2) },
             sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) })
@@ -127,12 +133,21 @@ final class VoiceChatManager: ObservableObject {
     private static let speakingPollInterval: TimeInterval = 0.1
     private static let speakingHoldMs: TimeInterval = 0.4
 
-    private let factory: RTCPeerConnectionFactory = {
+    private let factory: RTCPeerConnectionFactory
+
+    /// nil (the app): WebRTC's own audio device module (the VoiceProcessingIO audio unit on
+    /// RTCAudioSession). The unit tests pass a silent `RTCAudioDevice`: under XCTest the real
+    /// unit initialising against the simulator's audio HAL on a busy Mac aborted the whole
+    /// run ("Initialize: RPC timeout. Apparently deadlocked."; docs/claude/voice.md, Tests).
+    private static func makeFactory(audioDevice: RTCAudioDevice?) -> RTCPeerConnectionFactory {
         RTCInitializeSSL()
         let encoderFactory = RTCDefaultVideoEncoderFactory()
         let decoderFactory = RTCDefaultVideoDecoderFactory()
-        return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory)
-    }()
+        guard let audioDevice else {
+            return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory)
+        }
+        return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory, audioDevice: audioDevice)
+    }
 
     private var localAudioTrack: RTCAudioTrack?
     private var peers: [String: PeerState] = [:]  // socketId → connection state
@@ -180,9 +195,11 @@ final class VoiceChatManager: ObservableObject {
     /// Between the mic being ready and the ICE servers answering: peers and offers are buffered.
     private var awaitingIce = false
 
-    /// `hooks` / `iceStore`: the unit tests' (the app has one manager, `shared`).
-    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil) {
+    /// `hooks` / `iceStore` / `audioDevice`: the unit tests' (the app has one manager,
+    /// `shared`, with the defaults).
+    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil) {
         self.hooks = hooks
+        self.factory = Self.makeFactory(audioDevice: audioDevice)
         self.iceStore = iceStore ?? IceServerStore(emit: { VoiceEmitter.getIceServers($0) })
         self.iceStore.onChange = { [weak self] config in self?.applyIce(config) }
     }
@@ -426,7 +443,7 @@ final class VoiceChatManager: ObservableObject {
         localAudioTrack = nil
 
         // Deactivate audio session to remove mic indicator
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        hooks.deactivateAudioSession()
 
         // Clear state
         speakingLastActive.removeAll()

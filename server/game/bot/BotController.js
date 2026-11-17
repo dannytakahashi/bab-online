@@ -13,13 +13,13 @@ const { safeBid: fallbackBid, HAND_PROGRESSION, nextHandSize } = require('../rul
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
 /**
- * "they sent a boy" (owner request, 2026-11-16): a player ruffs a non-trump
+ * "he sends a boy" (owner request, 2026-11-16): a player ruffs a non-trump
  * lead with a 2 or 3 of trump, the first trump of the trick, and an opposing
  * bot remarks on it. Rare: `chance` per eligible ruff, at most once every
  * `cooldownTricks` tricks per game.
  */
 const SENT_A_BOY = Object.freeze({
-    message: 'they sent a boy',
+    message: 'he sends a boy',
     ranks: Object.freeze(['2', '3']),
     chance: 0.35,
     cooldownTricks: 3,
@@ -82,7 +82,7 @@ class BotController {
         // Bot bids/plays replaced by the fallback since startup (noteFallback)
         this.fallbacks = { bid: 0, play: 0 };
 
-        // gameId -> tricks completed since a bot last said "they sent a boy"
+        // gameId -> tricks completed since a bot last said "he sends a boy"
         // (absent: never, so the next one may)
         this.sentABoyTricks = new Map();
 
@@ -605,7 +605,7 @@ class BotController {
     /**
      * Called after every card play (human playCard and processBotPlay), once
      * the card is on the table. When the play is a cheap ruff (isSentABoy),
-     * one bot on the other team sometimes says "they sent a boy":
+     * one bot on the other team sometimes says "he sends a boy":
      * SENT_A_BOY.chance per ruff, not within SENT_A_BOY.cooldownTricks tricks
      * of the last one in this game. Only bots this game registered and that
      * still hold their seat speak. Never throws: the human playCard path
@@ -822,7 +822,7 @@ class BotController {
      * Tests only: back to a fresh process's state (testUtils/persistHarness.js
      * restart): every pending bid/play/draw/chat timer cancelled, no bot
      * registered, the fallback counts and the chat sequence at zero, the
-     * "they sent a boy" cooldowns forgotten (clearAll) and the quip roll
+     * "he sends a boy" cooldowns forgotten (clearAll) and the quip roll
      * back to its default (a Jest mock installed on it stays, as
      * GameManager._resetForTests keeps spies). Jest only (JEST_WORKER_ID),
      * as GameManager._resetForTests.

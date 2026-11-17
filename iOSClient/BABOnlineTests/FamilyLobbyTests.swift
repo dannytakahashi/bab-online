@@ -244,9 +244,7 @@ final class FamilyLobbyTests: XCTestCase {
 @MainActor
 final class VoiceSettingsRoutingTests: XCTestCase {
     private func manager() -> VoiceChatManager {
-        VoiceChatManager(hooks: .init(requestRecordPermission: { true }, configureAudioSession: {},
-                                      sendOffer: { _, _, _ in }, sendAnswer: { _, _ in }),
-                         iceStore: IceServerStore(timeout: 0.05, emit: { _ in }))
+        VoiceChatManager.silent()
     }
 
     private func settings(_ role: String, canTalk: Bool, on: Bool = true, canChange: Bool = false, game: String = "g1") -> [String: Any] {
@@ -366,11 +364,9 @@ final class SpectatorVoiceManagerTests: XCTestCase {
     }
 
     private func make(_ wire: Wire, permission: @escaping @MainActor () async -> Bool = { true }) -> VoiceChatManager {
-        let m = VoiceChatManager(hooks: .init(requestRecordPermission: { wire.prompts += 1; return await permission() },
-                                              configureAudioSession: {},
-                                              sendOffer: { to, sdp, _ in wire.offers.append((to, sdp)) },
-                                              sendAnswer: { to, sdp in wire.answers.append((to, sdp)) }),
-                                 iceStore: IceServerStore(timeout: 0.05, emit: { _ in }))
+        let m = VoiceChatManager.silent(requestRecordPermission: { wire.prompts += 1; return await permission() },
+                                        sendOffer: { to, sdp, _ in wire.offers.append((to, sdp)) },
+                                        sendAnswer: { to, sdp in wire.answers.append((to, sdp)) })
         managers.append(m)
         return m
     }
