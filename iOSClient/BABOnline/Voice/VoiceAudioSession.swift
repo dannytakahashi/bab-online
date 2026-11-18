@@ -50,6 +50,61 @@ enum VoiceAudioPolicy {
     }
 }
 
+/// The safety net's pacing (owner 2026-11-18: an iPhone Air on build 14, spectating with
+/// listen-only voice, ran hot and stuttered; the net reacted to every route change, its own
+/// override's included, so a route WebRTC keeps putting back could ping-pong with it). Pure.
+struct SpeakerForceGate {
+    /// At most one forced speaker per this many seconds.
+    static let minInterval: TimeInterval = 5
+    /// This many forces within `loopWindow` is a fight over the route: the net stops for the call.
+    static let loopThreshold = 3
+    static let loopWindow: TimeInterval = 30
+
+    private(set) var forces: [TimeInterval] = []
+    private(set) var gaveUp = false
+
+    /// A route change the app's own override caused never runs the net again.
+    static func reacts(to reason: AVAudioSession.RouteChangeReason?) -> Bool { reason != .override }
+
+    /// May the net force the speaker at `now` (seconds, any monotonic clock)? Records it if so.
+    mutating func allow(at now: TimeInterval) -> Bool {
+        if gaveUp { return false }
+        forces = forces.filter { now - $0 < Self.loopWindow }
+        if let last = forces.last, now - last < Self.minInterval { return false }
+        if forces.count >= Self.loopThreshold {
+            gaveUp = true
+            return false
+        }
+        forces.append(now)
+        return true
+    }
+}
+
+/// Route-change churn, for telemetry: more than `limit` route changes within `window` while
+/// voice runs is reported once per launch (clientError kind `voiceRouteChurn`, with the
+/// reasons seen), so a loop on a device shows in the server log. Pure.
+struct RouteChurnMeter {
+    static let window: TimeInterval = 10
+    static let limit = 20
+
+    private(set) var times: [TimeInterval] = []
+    private(set) var reasons: [UInt: Int] = [:]
+
+    /// Records one change; true the first time the window holds more than `limit`.
+    mutating func record(reason: UInt, at now: TimeInterval) -> Bool {
+        times = times.filter { now - $0 < Self.window }
+        times.append(now)
+        reasons[reason, default: 0] += 1
+        return times.count == Self.limit + 1
+    }
+
+    /// "reasons 3:12, 8:9" (AVAudioSession.RouteChangeReason raw values, most first).
+    var summary: String {
+        "reasons " + reasons.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .map { "\($0.key):\($0.value)" }.joined(separator: ", ")
+    }
+}
+
 /// The live audio session for `VoiceChatManager.Hooks.live`, through `RTCAudioSession` so
 /// WebRTC's activation count includes the app's (with raw AVAudioSession calls WebRTC held the
 /// only count and deactivated the session whenever its audio unit stopped). Never used by the
@@ -68,6 +123,10 @@ final class VoiceAudioSession {
     private var activated = false
     /// Route changes and media services resets, watched while active.
     private var observers: [NSObjectProtocol] = []
+    /// The safety net's pacing for this call (reset by `deactivate`).
+    private var gate = SpeakerForceGate()
+    private var churn = RouteChurnMeter()
+    private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     /// Category, mode and options, then active; the route safety net watches while it runs.
     func activate() throws {
@@ -85,8 +144,9 @@ final class VoiceAudioSession {
             // lock; handled later on main, never inside a lock.
             let center = NotificationCenter.default
             observers = [
-                center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { _ in
-                    DispatchQueue.main.async { VoiceAudioSession.shared.keepSpeaker() }
+                center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { note in
+                    let raw = (note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? NSNumber)?.uintValue
+                    DispatchQueue.main.async { VoiceAudioSession.shared.routeChanged(rawReason: raw) }
                 },
                 center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { _ in
                     DispatchQueue.main.async { VoiceAudioSession.shared.restoreAfterMediaServicesReset() }
@@ -101,6 +161,8 @@ final class VoiceAudioSession {
     func deactivate() {
         observers.forEach { NotificationCenter.default.removeObserver($0) }
         observers = []
+        gate = SpeakerForceGate()
+        churn = RouteChurnMeter()
         guard activated else { return }
         activated = false
         let rtc = RTCAudioSession.sharedInstance()
@@ -109,8 +171,20 @@ final class VoiceAudioSession {
         try? rtc.setActive(false)
     }
 
-    /// Every route change: checked without the session lock (WebRTC's worker holds it through
-    /// its whole audio unit set-up, when route changes cluster), locked only to force.
+    /// Every route change: counted (churn telemetry), then the net, except for the app's own
+    /// override, checked without the session lock (WebRTC's worker holds it through its whole
+    /// audio unit set-up, when route changes cluster), locked only to force.
+    private func routeChanged(rawReason: UInt?) {
+        guard activated else { return }
+        if churn.record(reason: rawReason ?? 0, at: now) {
+            let message = "over \(RouteChurnMeter.limit) audio route changes in \(Int(RouteChurnMeter.window)) s while voice runs; \(churn.summary); speaker forced \(gate.forces.count)x"
+            print("[Voice] \(message)")
+            ErrorReporter.shared.report(kind: "voiceRouteChurn", message: message)
+        }
+        guard SpeakerForceGate.reacts(to: rawReason.flatMap(AVAudioSession.RouteChangeReason.init(rawValue:))) else { return }
+        keepSpeaker()
+    }
+
     private func keepSpeaker() {
         guard activated, Self.receiverAlone(RTCAudioSession.sharedInstance().session) else { return }
         let rtc = RTCAudioSession.sharedInstance()
@@ -148,6 +222,15 @@ final class VoiceAudioSession {
     /// Call with the lock held (checks again under it).
     private func forceSpeakerIfNeeded(_ rtc: RTCAudioSession) {
         guard Self.receiverAlone(rtc.session) else { return }
+        let wasGivenUp = gate.gaveUp
+        guard gate.allow(at: now) else {
+            if gate.gaveUp && !wasGivenUp {
+                let message = "speaker forced \(SpeakerForceGate.loopThreshold)x in \(Int(SpeakerForceGate.loopWindow)) s and the receiver came back: safety net off for this call"
+                print("[Voice] \(message)")
+                ErrorReporter.shared.report(kind: "voiceRoute", message: message)
+            }
+            return
+        }
         do {
             try rtc.overrideOutputAudioPort(.speaker)
             print("[Voice] route was the receiver, forced the speaker")

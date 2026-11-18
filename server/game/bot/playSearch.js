@@ -602,7 +602,16 @@ const solver = new Solver();
  * @param {Object|null} q.playContext
  * @param {Function} [q.estimateTricks] - (hand) => expected own tricks, for bid weighting
  * @param {Object} [q.options] - overrides of SEARCH
- * @param {Object} [q.stats] - filled with {samples, nodes} when given
+ * @param {Object} [q.stats] - filled with {samples, nodes} when given. With
+ *   `stats.detail` set (the /help explainer) also, per candidate k of
+ *   `cands` (the cards searched; `ruleIdx` = the rule card's index, -1 if it
+ *   is not among them): `totals[k]` (summed hand-score utility), `tricks[k]`
+ *   (summed tricks our side takes from here), `makes[k]` (deals where our
+ *   side reaches its bid) and `sets[k]` (deals where the other side misses
+ *   its own, never with a bid of 0), over the `samples` deals solved; plus
+ *   `contract` {myBid, oppBid, myTricks, oppTricks, myMult, oppMult}. A last
+ *   seat with one winning card sets `onlyWinner` and no deals. Nothing in
+ *   the detail reaches the returned card.
  * @returns {Object|null} the card to play, or null to keep the rule-based card
  */
 function searchCard(q) {
@@ -632,6 +641,7 @@ function searchCard(q) {
         oppMult = (isTeam1 ? playContext.team2Mult : playContext.team1Mult) || 1;
     }
     if (myTricks + oppTricks !== handSize - hand.length) return null;
+    const detail = q.stats && q.stats.detail ? q.stats : null;
     const utility = [];
     for (let v = 0; v <= hand.length; v++) {
         utility.push(teamScore(myBid, myMult, myTricks + v) - teamScore(oppBid, oppMult, oppTricks + hand.length - v));
@@ -649,7 +659,15 @@ function searchCard(q) {
             const winners = legal.filter(c => beats(c, top.card, lead, pos.trumpSuitId));
             if (winners.length > 0) candidates = winners;
         }
-        if (candidates.length === 1) return candidates[0] === ruleCard ? null : candidates[0];
+        if (candidates.length === 1) {
+            if (detail) {
+                detail.cands = candidates.slice();
+                detail.ruleIdx = candidates.indexOf(ruleCard);
+                detail.onlyWinner = true;
+                detail.samples = 0;
+            }
+            return candidates[0] === ruleCard ? null : candidates[0];
+        }
     }
 
     // Seed from the position so the same view always gives the same card
@@ -690,6 +708,11 @@ function searchCard(q) {
     let solved = 0;
     solver.nodes = 0;
     const row = new Float64Array(candidates.length);
+    // Detail only (stats.detail): our tricks per candidate in this deal, and the sums
+    const rowTricks = detail ? new Int32Array(candidates.length) : null;
+    const tricks = detail ? new Float64Array(candidates.length) : null;
+    const makes = detail ? new Int32Array(candidates.length) : null;
+    const sets = detail ? new Int32Array(candidates.length) : null;
     for (const deal of deals) {
         if (solver.nodes >= opt.nodeBudget && solved >= opt.minSamples) break;
         const live = [];
@@ -707,17 +730,35 @@ function searchCard(q) {
             for (let k = 0; k < candidates.length; k++) {
                 guess = solver.valueAfter(handsMask, leadPosition, trumpBroken, position, candidates[k], guess, hand.length);
                 row[k] = utility[guess];
+                if (rowTricks) rowTricks[k] = guess;
             }
         } catch (e) {
             if (e === Solver.LIMIT) break;
             throw e;
         }
         for (let k = 0; k < candidates.length; k++) totals[k] += row[k];
+        if (detail) {
+            for (let k = 0; k < candidates.length; k++) {
+                const v = rowTricks[k];
+                tricks[k] += v;
+                if (myTricks + v >= myBid) makes[k]++;
+                if (oppBid > 0 && oppTricks + hand.length - v < oppBid) sets[k]++;
+            }
+        }
         solved++;
         // Too costly a position to reach the minimum: stop early
         if (solved === 1 && solver.nodes * opt.minSamples > opt.nodeHardCap * 1.5) break;
     }
     if (q.stats) { q.stats.samples = solved; q.stats.nodes = solver.nodes; }
+    if (detail) {
+        detail.cands = candidates.slice();
+        detail.ruleIdx = ruleIdx;
+        detail.totals = Array.from(totals);
+        detail.tricks = Array.from(tricks);
+        detail.makes = Array.from(makes);
+        detail.sets = Array.from(sets);
+        detail.contract = { myBid, oppBid, myTricks, oppTricks, myMult, oppMult };
+    }
     if (opt.trace) opt.trace.push([hand.length, pos.table.length, solved, solver.nodes, candidates.length]);
     if (solved < opt.minSamples) return null;
 

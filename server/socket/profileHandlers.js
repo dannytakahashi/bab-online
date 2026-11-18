@@ -269,7 +269,9 @@ const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
 /**
  * End-of-game writes, made safe to retry and to replay:
  *   1. the gameRecords entry goes in first, carrying `statsDeltas` (the
- *      bucket and each human seat's 12 counters, by position: no names) and
+ *      bucket and each human seat's 12 counters, by position: no names;
+ *      the reader also honours a per-seat `bucketByPosition`, seatBucket,
+ *      which nothing writes yet) and
  *      `statsPending` ([{position, username}] still to apply). The unique
  *      gameId index (database.ensureGameIdIndex) makes a second insert fail
  *      with E11000, and the write then reuses the stored entry
@@ -461,10 +463,34 @@ async function explainNotCredited(users, username, gameId, { bucket, delta }) {
     }
 }
 
+/** The two stats buckets a record can route to; anything else is not a bucket. */
+const STATS_BUCKETS = new Set(['stats', 'botStats']);
+
 /**
- * Steps 2 and 3 for one record: every pending player's guarded `$inc`, then
- * the record's pending list cut to what failed (unset when nothing did).
- * Safe to run twice for the same record, also from two processes.
+ * The bucket one seat of a record goes to: `statsDeltas.bucketByPosition`
+ * for that seat when it names a bucket (a per-player bot-assisted game,
+ * written from /help's stats writer on), else the whole-game
+ * `statsDeltas.bucket` ('botStats' or, for anything else, 'stats'). An
+ * unknown per-seat value, or a bucketByPosition that is not a plain
+ * object, falls back to the whole-game bucket. Records
+ * without `bucketByPosition` (every record before it) route as before.
+ * @param {Object|undefined} statsDeltas
+ * @param {number|string} position
+ * @returns {'stats'|'botStats'}
+ */
+function seatBucket(statsDeltas, position) {
+    const wholeGame = statsDeltas?.bucket === 'botStats' ? 'botStats' : 'stats';
+    const byPos = statsDeltas?.bucketByPosition;
+    if (!byPos || typeof byPos !== 'object' || Array.isArray(byPos) || !Object.hasOwn(byPos, position)) return wholeGame;
+    const seat = byPos[position];
+    return STATS_BUCKETS.has(seat) ? seat : wholeGame;
+}
+
+/**
+ * Steps 2 and 3 for one record: every pending player's guarded `$inc` (into
+ * that seat's bucket, seatBucket), then the record's pending list cut to
+ * what failed (unset when nothing did). Safe to run twice for the same
+ * record, also from two processes.
  * @param {{gameId: string, statsDeltas?: Object, statsPending?: Array}} record
  * @param {{users: Collection, gameRecords?: Collection, fresh?: boolean}} collections
  *   fresh: this chain just inserted the record (or none could be written)
@@ -473,7 +499,6 @@ async function explainNotCredited(users, username, gameId, { bucket, delta }) {
 async function applyPendingStats(record, { users, gameRecords, fresh = false }) {
     const { gameId } = record;
     const pending = Array.isArray(record.statsPending) ? record.statsPending : [];
-    const bucket = record.statsDeltas?.bucket === 'botStats' ? 'botStats' : 'stats';
     const byPosition = record.statsDeltas?.byPosition || {};
     const done = new Set();
     const endedAt = record.completedAt instanceof Date ? record.completedAt.getTime() : Date.now();
@@ -491,6 +516,7 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
             done.add(entry);
             return;
         }
+        const bucket = seatBucket(record.statsDeltas, entry.position);
         const $inc = {};
         for (const [field, value] of Object.entries(delta)) $inc[`${bucket}.${field}`] = value;
         try {

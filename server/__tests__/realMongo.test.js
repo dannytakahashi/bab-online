@@ -877,6 +877,26 @@ describe('real mongod', () => {
         expect(cy.statsGames).toHaveLength(profile.STATS_GAMES_KEPT);
         expect(cy.statsGames.at(-1).id).toBe('p-real-2');
 
+        // A per-seat bucket (statsDeltas.bucketByPosition; nothing writes it
+        // yet): the stored keys come back as strings, the marked seat goes to
+        // its own bucket, the others to the whole game's
+        const alanNow = await mockHolder.users.findOne({ username: 'Alan' });
+        const dotBefore = (await mockHolder.users.findOne({ username: 'Dot' })).stats.gamesPlayed;
+        await mockHolder.gameRecords.insertOne({
+            gameId: 'p-real-3',
+            completedAt: new Date(),
+            statsDeltas: { bucket: 'stats', bucketByPosition: { 4: 'botStats' }, byPosition: { 1: { gamesPlayed: 1 }, 4: { gamesPlayed: 1, totalHSI: 40 } } },
+            statsPending: [{ position: 1, username: 'Alan' }, { position: 4, username: 'Dot' }]
+        });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        const alanMix = await mockHolder.users.findOne({ username: 'Alan' });
+        expect(alanMix.stats.gamesPlayed).toBe(alanNow.stats.gamesPlayed + 1);
+        expect(alanMix.botStats).toEqual(alanNow.botStats);
+        const dot = await mockHolder.users.findOne({ username: 'Dot' });
+        expect(dot.stats.gamesPlayed).toBe(dotBefore);
+        expect(dot.botStats).toEqual({ gamesPlayed: 1, totalHSI: 40 });
+        expect((await mockHolder.gameRecords.findOne({ gameId: 'p-real-3' })).statsPending).toBeUndefined();
+
         // Existing duplicate game ids: warn, non-unique fallback, retried on the next boot
         const dups = db.collection('gameRecords_gid_dups');
         await dups.insertMany([{ gameId: 'twin' }, { gameId: 'twin' }]);

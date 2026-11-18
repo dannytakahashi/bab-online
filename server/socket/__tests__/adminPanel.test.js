@@ -775,7 +775,7 @@ describe('actions', () => {
         test('the sign-up rules, taken ignoring case (tombstones too), a tombstone, the same name and a wrong confirmation are refused; nothing changes', async () => {
             const before = JSON.stringify([users().all(), mockDb.current.gameRecords.all(), mockDb.current.reports.all()]);
             const cases = [
-                [{ newName: 'C', confirm: 'C' }, 'refused', /at least 3 characters/],
+                [{ newName: 'C', confirm: 'C' }, 'refused', /at least 2 characters/],
                 [{ newName: ' Cyrus', confirm: ' Cyrus' }, 'refused', /start or end with a space/],
                 [{ newName: 'Cy😀x', confirm: 'Cy😀x' }, 'refused', /emoji/],
                 [{ newName: 'shit5', confirm: 'shit5' }, 'refused', /That username is not allowed/],

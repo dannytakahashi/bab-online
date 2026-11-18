@@ -45,7 +45,7 @@
  * a snapshot's seq as the baseline). It registers nothing (GameManager,
  * BotController, rooms) and arms no timer but the grace timers: the
  * adopter does that, then the restore kick (gameHandlers.resumeTrick /
- * handleHandComplete, seatLifecycle.openTrick for the bots' card memory).
+ * handleHandComplete, tableView.openTrick for the bots' card memory).
  *
  * The bid clock (socket/bidClock.js: game.bidClock, game.bidTimeouts) is
  * DERIVED: a deadline is an instant on the old process, and every restored

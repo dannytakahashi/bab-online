@@ -4,7 +4,8 @@
  * rules), and every other path (sign-in, restoreSession, profile lookups,
  * merges) stays an exact match on the stored name.
  *
- *   - 3 to 20 characters
+ *   - 2 to 20 characters (3 to 20 until 2026-11-18, when the owner allowed
+ *     two-letter names such as "Jo")
  *   - ASCII letters, digits, space, underscore, hyphen, period
  *   - starts with a letter or digit; no space at either end, no double space
  *   - no emoji, so nobody can take a bot's name: every bot is shown as
@@ -19,7 +20,7 @@
 
 const { handleSpellings } = require('./profanityFilter');
 
-const MIN_LENGTH = 3;
+const MIN_LENGTH = 2;
 const MAX_LENGTH = 20;
 
 const ALLOWED = /^[A-Za-z0-9 _.-]+$/;

@@ -197,7 +197,7 @@ enum AdminCopy {
     }
 
     static let renameSelfRefusal = "You cannot rename your own account here: it would sign you out before you see the result. Ask another admin to rename it."
-    static let renameRules = "3 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count)."
+    static let renameRules = "2 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count)."
     static func renameLines(_ user: String) -> [String] {
         [
             "\(user) is signed out everywhere (refused while they are in a game or tournament) and any open reset link is cancelled. They sign in again with the new name and the same password.",

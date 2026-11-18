@@ -87,6 +87,9 @@ describe('the format matrix (checkNewUsername)', () => {
         ['mary_2', true],
         ['007', true],
         ['abc', true],
+        ['Jo', true],
+        ['ab', true],
+        ['07', true],
         ['A'.repeat(20), true],
         ['a b c d e f g h i j', true],
         // refused
@@ -94,7 +97,8 @@ describe('the format matrix (checkNewUsername)', () => {
         ['   ', M.empty],
         [null, M.empty],
         [42, M.empty],
-        ['ab', M.tooShort],
+        ['J', M.tooShort],
+        ['7', M.tooShort],
         ['A'.repeat(21), M.tooLong],
         [' Bob', M.edgeSpace],
         ['Bob ', M.edgeSpace],
@@ -165,7 +169,7 @@ describe('sign-up through the handler', () => {
     });
 
     test.each([
-        ['ab', rules.MESSAGES.tooShort],
+        ['J', rules.MESSAGES.tooShort],
         ['🤖 Mary', rules.MESSAGES.botPrefix],
         ['Bob ', rules.MESSAGES.edgeSpace],
         ['Zoë', rules.MESSAGES.characters],
@@ -274,7 +278,7 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
     afterEach(() => rateLimiter.clearSocket(socket.id));
 
     test('names refused by the rules or as taken never lock the player out: the next good name registers', async () => {
-        for (const name of ['ab', '🤖 Mary', 'Bob ', 'Zoë', 'A'.repeat(21), 'alan t', 'DANNY', 'Alan T']) {
+        for (const name of ['J', '🤖 Mary', 'Bob ', 'Zoë', 'A'.repeat(21), 'alan t', 'DANNY', 'Alan T']) {
             const { reply, error } = await attempt(name);
             expect(error).toBeUndefined();
             expect(reply.success).toBe(false);
@@ -288,7 +292,7 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
     test('cheap refusals still have a cap: past rateLimiter.signUp the wrapper answers error rateLimit', async () => {
         const { max } = rateLimiter.limits.signUp;
         expect(max).toBeGreaterThanOrEqual(10);
-        for (let i = 0; i < max; i++) expect((await attempt('ab')).reply.success).toBe(false);
+        for (let i = 0; i < max; i++) expect((await attempt('J')).reply.success).toBe(false);
         const over = await attempt('Fresh Name');
         expect(over.reply).toBeUndefined();
         expect(over.error).toMatchObject({ code: 'rateLimit', handler: 'signUp' });
@@ -307,6 +311,6 @@ describe('the sign-up budget (one socket, through the real asyncHandler wrapper)
         expect(hash).not.toHaveBeenCalled();
         expect(await mockDb.current.users.countDocuments({ username: 'Acct Four' })).toBe(0);
         // A refusal by the rules still gets its own message, not the budget one
-        expect((await attempt('ab')).reply.message).toBe(rules.MESSAGES.tooShort);
+        expect((await attempt('J')).reply.message).toBe(rules.MESSAGES.tooShort);
     });
 });

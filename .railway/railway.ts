@@ -28,12 +28,14 @@ export default defineRailway(() => {
       // was Railway's injected 8080). 120 s covers connectDB's backoff
       healthcheckPath: "/ready",
       healthcheckTimeout: 120,
-      // Seconds between SIGTERM and SIGKILL for the old deploy (owner
-      // approved 2026-11-16). The graceful shutdown (game-log notice,
-      // serverShutdown, 1 s, close, in-flight stats writes, 0.5 s) takes
-      // ~1.5 s and is capped at 10 s (shutdown.js HARD_EXIT_MS), so 15 s lets
-      // it always exit by itself with its own code
-      drainingSeconds: 15,
+      // Seconds between SIGTERM and SIGKILL for the old deploy (15 approved
+      // 2026-11-16; 20 approved 2026-11-18, ahead of deploy survival PR 5).
+      // The graceful shutdown (game-log notice, serverShutdown, 1 s, close,
+      // in-flight stats writes, 0.5 s) takes ~1.5 s and is capped at 10 s
+      // (shutdown.js HARD_EXIT_MS); PR 5's live-game handoff raises that cap
+      // to 15 s, and 20 s keeps 5 s above it, so the process always exits by
+      // itself with its own code
+      drainingSeconds: 20,
     },
     replicas: { "us-west2": 1 },
     domains: [{ domain: "babonline.io", port: 3000 }],
