@@ -305,6 +305,10 @@ If a player disconnects, a 60-second grace period starts. If they don't return, 
 
 At a tournament table, a player who is connected but sits on their turn for 90 seconds is not replaced automatically: the other players at the table get the same "Replace with Bot" prompt, and it is withdrawn as soon as the idle player acts.
 
+### Bid timer
+
+If you have not bid 10 seconds into your bidding turn, a 30-second timer starts: everyone at the table hears some "thinking music" and you see a countdown on your bid panel. When it runs out, you bid 0 ("<name> ran out of time." in the game log); a bid at any time stops it. It applies in every game, casual and tournament, and only to players (bots bid at once). Running out twice in a row without bidding or playing a card yourself counts as idle: at a casual table a bot takes over your seat (type `/active` to return); at a tournament table the other players are offered to replace you. A solo game (you plus three bots) just bids 0 for you.
+
 ### Tournaments
 
 Create a tournament from the main room to compete across 4 rounds of randomly-assigned games:
@@ -468,6 +472,7 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `resignationAvailable` | Disconnected player's grace period expired (or, with `idle: true`, an idle player at a tournament table) |
 | `playerResigned` | Player replaced by bot |
 | `playerLazyMode` | Player entered lazy mode (bot playing) |
+| `bidClock` | The bid timer started (`running`, with the time left) or stopped (`reason`: bid, timeout, turn, controller); unsequenced |
 | `playerActiveMode` | Player took back control from bot |
 | `spectatorJoined` | Spectator joined the game |
 | `profileResponse` | User profile data |
@@ -502,5 +507,6 @@ docker-compose up -d --build
 ## Credits
 
 Sound effects: Casino Audio by Kenney (kenney.nl), CC0. The samples used are in
-`sounds-src/kenney-casino-audio/` with the pack's License.txt; the chimes are
-synthesized by `scripts/build-sounds.py`.
+`sounds-src/kenney-casino-audio/` with the pack's License.txt; the chimes and
+the bid timer's tune (an original composition) are synthesized by
+`scripts/build-sounds.py`.

@@ -9,6 +9,12 @@
  * turn resumes its clock (no fresh 90 s). At a tournament table with
  * another owner present the others are offered the seat instead (owner,
  * 2026-11-15).
+ *
+ * These cases idle human BID turns for 90 s to test the watchdog itself, so
+ * the bid clock (socket/bidClock.js: bids 0 after 40 s, which ends the turn
+ * and its watchdog) is off for this file (BID_CLOCK=off). How the two meet
+ * with the clock on (defaults: the clock always bids first; the strike
+ * rule) is in bidClock.test.js.
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -42,6 +48,7 @@ let seq = 0;
 beforeEach(() => {
     jest.useFakeTimers();
     delete process.env.AFK_TIMEOUT_MS;
+    process.env.BID_CLOCK = 'off';
     mockDb.current = createMemoryDb({ users: [] });
     for (const l of [gameLogger, socketLogger, authLogger, logger]) {
         for (const m of ['info', 'debug', 'warn']) jest.spyOn(l, m).mockImplementation(() => {});
@@ -51,6 +58,7 @@ beforeEach(() => {
 
 afterEach(() => {
     delete process.env.AFK_TIMEOUT_MS;
+    delete process.env.BID_CLOCK;
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
     jest.clearAllTimers();

@@ -18,6 +18,14 @@
       "stage": "PLAYING"
     },
     {
+      "name": "bid-clock-running",
+      "file": "bid-clock-running.json",
+      "description": "Another seat asks while the bidder's bid clock runs: bidClock {position, inMs (from serverTime), durationMs}; the key is absent otherwise.",
+      "capturedFrom": "stateSnapshot",
+      "viewerRole": "seat",
+      "stage": "BIDDING"
+    },
+    {
       "name": "bidding-mid",
       "file": "bidding-mid.json",
       "description": "The seat on turn asks with 2 bids in (one a bore): multipliers so far, no team bids yet.",

@@ -69,6 +69,7 @@ beforeEach(() => {
 
 const realRandom = Math.random;
 afterEach(() => {
+    delete process.env.BID_CLOCK;
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
     for (const id of Array.from(gameManager.lobbies.keys())) gameManager.lobbies.delete(id);
@@ -293,6 +294,9 @@ describe('snapshot v2 fixtures from real games', () => {
     }, 30000);
 
     test('presence-mixed', async () => {
+        // Its 61 s wait for a grace to run out sits on a bid turn: the bid
+        // clock (bidClock.js) would bid 0 at 40 s, so it is off here
+        process.env.BID_CLOCK = 'off';
         Math.random = mulberry32(105);
         const w = world('fx-pres');
         const t = await lobbyTable(w, ['quin', 'rae', 'sid', 'tess']);
@@ -313,6 +317,30 @@ describe('snapshot v2 fixtures from real games', () => {
         ]);
         await jest.advanceTimersByTimeAsync(1000);
         await Promise.all([...t.draws, ...t.starting]);
+        delete process.env.BID_CLOCK;
+    }, 30000);
+
+    test('bid-clock-running', async () => {
+        delete process.env.BID_CLOCK;
+        Math.random = mulberry32(107);
+        const w = world('fx-clock');
+        const t = await lobbyTable(w, ['uma', 'vic', 'wes', 'xia']);
+        await toBidding(w, t);
+        const { game } = t;
+        const pos = game.currentTurn;
+        const SeatState = require('../../game/SeatState');
+        // toBidding ends 500 ms after the first-hand hold (T0); go to T0+25 s:
+        // the clock started at T0+10 s, 15 s are left
+        await jest.advanceTimersByTimeAsync(SeatState.BID_CLOCK_DELAY_MS + 15000 - 500);
+        expect(game.bidClock.endAt - Date.now()).toBe(15000);
+        expect(game.bidClock).toMatchObject({ pos, running: true });
+        const bc = ask(w, owner(w, game, pos === 1 ? 2 : 1), 'bid-clock-running', 'Another seat asks while the bidder\'s bid clock runs: bidClock {position, inMs (from serverTime), durationMs}; the key is absent otherwise.');
+        expect(bc.bidClock).toEqual({ position: pos, inMs: game.bidClock.endAt - Date.now(), durationMs: SeatState.BID_CLOCK_MS });
+        expect(bc.turn).toEqual({ position: pos, action: 'bid' });
+        await bid(w, game, '1');
+        expect(snapshotHandlers.snapshotFor(game, owner(w, game, 1).id)).not.toHaveProperty('bidClock');
+        await jest.advanceTimersByTimeAsync(1000);
+        await Promise.all([...t.draws, ...t.starting]);
     }, 30000);
 
     test('tournament-game', async () => {
@@ -331,7 +359,7 @@ describe('snapshot v2 fixtures from real games', () => {
 
     test('the committed fixtures are what the server produces (run npm run contract:fixtures)', () => {
         const names = [...captured.keys()].sort();
-        expect(names).toEqual(['action-rejected', 'between-tricks', 'bidding-mid', 'created-countdown', 'draw-in-progress',
+        expect(names).toEqual(['action-rejected', 'between-tricks', 'bid-clock-running', 'bidding-mid', 'created-countdown', 'draw-in-progress',
             'hand-resolving', 'lazy-at-seat', 'lazy-watcher', 'presence-mixed', 'spectator-mid-hand', 'teams-announced',
             'tournament-game', 'trick-mid-lead3', 'trick-resolving']);
         const index = names.map((n) => {

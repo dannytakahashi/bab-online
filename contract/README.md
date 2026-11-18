@@ -153,11 +153,12 @@ skips exact repeats of a validated (event, target kind, payload).
 
 - **R1.** `seq` is per gameId, starts at 0 and only increases. Each room
   broadcast (`game:<id>`) carries previous+1 and reaches every room member,
-  except `spectatorsUpdated`: the one UNSEQUENCED room event (schema `seq:
-  false` with `to: room`; `GameState.emitUnsequenced`; no seq on the wire, no
-  bump). Its payload is the whole spectator list, so order against other
-  events does not matter, and the App Store build registers no handler for
-  it: a sequenced form would open a gap in that build's gate (a
+  except the two UNSEQUENCED room events, `spectatorsUpdated` and `bidClock`
+  (schema `seq: false` with `to: room`; `GameState.emitUnsequenced`; no seq
+  on the wire, no bump). Each payload is an absolute state (the whole
+  spectator list; a running clock with its deadline, or stopped), so order
+  against other events does not matter, and shipped builds register no
+  handler for them: a sequenced form would open a gap in their gate (a
   requestSnapshot) on every change. The guard holds both rules.
   gameStart bumps it once per deal and is sent to every connected seat owner
   and every spectator, all with the same value. Private game events (replays,
@@ -200,6 +201,56 @@ skips exact repeats of a validated (event, target kind, payload).
 
 Checked per receiver in every chaos seed and in contract F1/F2/F3
 (`server/testUtils/seqCheck.js`).
+
+## Bid clock (bidClock)
+
+Owner 2026-11-18, every game (`server/socket/bidClock.js`, server/CLAUDE.md
+"Bid clock"). A human-controlled seat whose bid turn has been open 10 s
+(`BID_CLOCK_DELAY_MS`) without a bid gets a 30 s clock (`BID_CLOCK_MS`, the
+exact length of the tune `bidclock.m4a`); when it runs out the server bids
+'0' for the seat. Bots never get one.
+
+- `bidClock {gameId, position, running: true, inMs, durationMs}` to the
+  room (players, lazy watchers, spectators), unsequenced (R1). `inMs` is the
+  time from emission to the server's bid, RELATIVE like `resumeInMs`:
+  measure it from receipt with a monotonic clock, never compare it with a
+  wall clock. The client's deadline (receipt + inMs) is LATE by the one-way
+  delay d: a bid sent with "1" showing can reach the server ~2d - 1 s after
+  it already bid 0 (then `actionRejected not_your_turn` rolls it back). So
+  show the countdown against `receipt + inMs - 750 ms` and stop offering the
+  bid at 0, while the tune stays END-aligned with `receipt + inMs` (its
+  offset into the file is `file duration - remaining`, from the decoded
+  file's own duration, not a constant: AAC priming differs per decoder) so
+  its end cue lines up with the `stopped {timeout}` that arrives d late.
+  `durationMs` scales the countdown; never assume 30 s (tests shorten it).
+- `bidClock {gameId, position, running: false, reason}`: `bid` (the seat
+  bid; sent before its bidReceived), `timeout` (the server bids 0 right
+  after: let the tune's last fraction ring, detached from the clock state,
+  so the bidReceived / updateTurn that follow do not cut it), `controller`
+  (a bot took the seat), `turn` (the turn moved some other way). Nothing
+  is sent on gameEnd / abortGame / a deploy freeze: clients stop on those,
+  on every clearing event (bidReceived for that seat, updateTurn to another
+  seat, doneBidding, gameStart, destroyHands), on a snapshot without
+  `bidClock`, on leaving the table and on their own socket's disconnect
+  (the rejoin snapshot restarts it if it still runs).
+- Order of a timeout (one synchronous run): `bidClock stopped {timeout}` →
+  `gameLogEntry "<name> ran out of time."` (seq n+1) → `bidReceived {bid:
+  '0'}` (seq n+2) → whatever a bid triggers next (`updateTurn`; for the 4th
+  bid doneBidding ..., or the all-zero redeal's line, destroyHands, new
+  gameStarts). No existing order changes. Shipped clients (iOS <= 1.2.3 (14))
+  see only the two log lines and the ordinary bid.
+- A `running` is never sent before the 10 s pre-wait except on a same-turn
+  resume (/active, reclaimSeat), which comes right after sequenced events
+  that do not clear the clock (playerActiveMode, a log line). That is what
+  makes applying it on arrival safe on the web during a seq-gap buffer: a
+  sequenced gameStart / updateTurn / destroyHands replayed later belongs to
+  an older turn only if the gap outlived the pre-wait, and a gap resolves in
+  5 s or less. Keep it that way.
+- Snapshot v2 `bidClock {position, inMs, durationMs}` (inMs relative to the
+  snapshot's own `serverTime`) is present ONLY while the clock runs and
+  absent otherwise (pre-wait, stopped, any other stage). A snapshot is
+  state, so a client may (re)start the tune from it at the right offset;
+  within 750 ms of the tune already playing for that seat, keep it playing.
 
 ## Resume holds (resumeInMs)
 
@@ -329,7 +380,12 @@ Avatar field rules (docs/avatars.md has the invariants I1-I6):
 
 `server/game/snapshotV2.js` (`$defs.snapshotV2`): one normalized table view
 for ONE viewer, the receiving socket. Every key is always present, the key
-order is fixed, no socket ids appear.
+order is fixed, no socket ids appear. One documented exception: `bidClock`
+(additive 2026-11-18) is present only while a bid clock runs and absent
+otherwise ("Bid clock" above), so every snapshot and recording taken
+without a running clock is unchanged; shipped iOS decodes `TableSnapshot`
+with Codable, which ignores an unknown key, and the generated Swift makes
+it Optional.
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
 actionRejected (no log) and the spectator full state;

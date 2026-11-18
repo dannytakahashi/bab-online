@@ -61,6 +61,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    delete process.env.BID_CLOCK;
     delete process.env.GAME_STALL_MS;
     delete process.env.GAME_STALL_RETRY_MS;
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
@@ -381,6 +382,9 @@ describe('progress watchdog', () => {
     });
 
     test('a slow human turn is never touched (solo game: no AFK either)', async () => {
+        // The stall watchdog's own rule; the bid clock (which does bound a
+        // human bid turn: 0 after 40 s) is off here, see bidClock.test.js
+        process.env.BID_CLOCK = 'off';
         const ctx = startGame({ humans: 1 });
         const human = ctx.sockets[0];
         // Bots play until it is the human's turn

@@ -45,6 +45,7 @@ const GamePhase = require('../game/GamePhase');
 const { botController } = require('../game/bot');
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('./gameDriver');
 const pacing = require('../game/pacing');
+const { bidClockErrors, bidClockWireErrors } = require('./bidClockCheck');
 
 const { Phase } = GamePhase;
 const MAX_STEPS = 400;
@@ -547,6 +548,8 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
 
         const { errors } = game.validateGameState();
         if (errors.length) return fail('invariant', { errors, trail: trail.slice(-15) });
+        const clockErrors = bidClockErrors(game);
+        if (clockErrors.length) return fail('bid clock', { errors: clockErrors, trail: trail.slice(-15) });
         const broken = consistency();
         if (broken) return fail('consistency', { broken, trail: trail.slice(-15), humans });
         if (!liveness()) return fail('hang', { trail: trail.filter(t => !/^(draw|validBid|legalPlay|randomBid|randomPlay|spectate)/.test(t)), turn: game.currentTurn, humans, spectators: [...game.spectators.keys()] });
@@ -572,6 +575,8 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
     const dead = log.slice(terminalIdx + 1).filter((l) => GAME_EVENTS.has(l.event) && targets.has(l.to) && l.data?.gameId !== dummy.gameId);
     if (dead.length) return fail('emit after terminal', { dead: dead.slice(0, 5).map((l) => `${l.to}:${l.event}`) });
     if (!game.isTerminal()) return fail('not terminal');
+    const clockWire = bidClockWireErrors(log, game.roomName);
+    if (clockWire.length) return fail('bid clock wire', { errors: clockWire.slice(0, 5) });
     if (Array.from(gameManager.playerGames.values()).includes(gameId)) return fail('playerGames leak');
     if (Array.from(gameManager.spectatorGames.values()).includes(gameId)) return fail('spectatorGames leak');
     if (botController.gamesBots.has(gameId)) return fail('gamesBots leak');

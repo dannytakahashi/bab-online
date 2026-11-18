@@ -38,6 +38,7 @@ struct TableSnapshot: Codable, Equatable {
     var tournament: Tournament?
     var log: [LogEntry]
     var resume: Resume?
+    var bidClock: BidClock?
 
     enum Stage: Codable, Equatable, Hashable {
         case created
@@ -592,6 +593,12 @@ struct TableSnapshot: Codable, Equatable {
             var c = encoder.singleValueContainer()
             try c.encode(rawValue)
         }
+    }
+
+    struct BidClock: Codable, Equatable {
+        var position: Int
+        var inMs: Int
+        var durationMs: Int
     }
 }
 

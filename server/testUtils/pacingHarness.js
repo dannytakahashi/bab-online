@@ -156,6 +156,10 @@ async function runGame(seed, { humans = 1, maxSteps = 200000 } = {}) {
             await jest.advanceTimersToNextTimerAsync();
         }
         if (endAt === null) throw new Error(`seed ${seed}: game did not end (stage ${game.stage})`);
+        // It jumps to the next timer: a human turn it missed would now run
+        // into the bid clock (10 s, then a bid 0 at 40 s) and quietly change
+        // what it measures instead of failing; it never waits on purpose
+        if (log.some((l) => l.event === 'bidClock')) throw new Error(`seed ${seed}: a bid clock ran (a human bid turn was left idle)`);
         await pending;
 
         const total = endAt - start;

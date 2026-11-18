@@ -157,6 +157,12 @@ class GameState {
         // The turn watchdog's clock: {pos, turn, deadline} of the turn it was
         // last armed for, so /lazy then /active resumes it (seatLifecycle.armAfk)
         this.afkClock = null;
+        // The bid clock (socket/bidClock.js): {pos, turn, startAt, endAt,
+        // durationMs, running, toppedUp} of the bid turn it was last armed
+        // for, or null; and each seat's timeouts in a row ({pos: n}, the
+        // strike rule). Both DERIVED: never saved, fresh after a restore
+        this.bidClock = null;
+        this.bidTimeouts = {};
         this._seatHistory = this._history ? [] : null;
 
         // HSI values for current hand (position → hsi), stored for reconnection
@@ -307,6 +313,7 @@ class GameState {
         this.epoch++;
         this._cancelAllTimers();
         this.resume = null;
+        if (this.bidClock) this.bidClock.running = false;  // its timer is gone; nothing emitted
         gameLogger.info('Game terminated', { gameId: this.gameId, from, to, event });
         return true;
     }
@@ -399,6 +406,17 @@ class GameState {
     }
 
     /**
+     * The running bid clock as snapshot v2 carries it ({position, inMs,
+     * durationMs}, inMs relative to `now`), or null (none, still in its
+     * pre-wait, or stopped).
+     */
+    bidClockInfo(now = Date.now()) {
+        const c = this.bidClock;
+        if (!c || !c.running || !this.hasTimer('bidClock')) return null;
+        return { position: c.pos, inMs: Math.max(0, Math.round(c.endAt - now)), durationMs: c.durationMs };
+    }
+
+    /**
      * Named one-shot timer owned by this game (replaces any timer under the
      * same key). The callback is skipped if the game ended/aborted (or was
      * frozen) meanwhile; sync throws and async rejections are logged, never
@@ -475,6 +493,7 @@ class GameState {
         this.epoch++;
         this._cancelAllTimers();
         this.resume = null;
+        if (this.bidClock) this.bidClock.running = false;
         gameLogger.info('Game frozen', { gameId: this.gameId, stage: this._stage });
         return true;
     }
@@ -717,6 +736,9 @@ class GameState {
         // The turn watchdog (seatLifecycle.armAfk) only runs for a connected
         // human: a controller change or the owner dropping ends it
         if (s.controller !== to.controller || to.presence !== Presence.CONNECTED) this.clearTimer('afk:' + pos);
+        // The bid clock only runs for a human controller (presence does not
+        // matter). Safety net: bidClock.onTurn emits the stop right after
+        if (s.controller !== to.controller && this.bidClock && this.bidClock.pos === pos) this.clearTimer('bidClock');
         s.controller = to.controller;
         s.presence = to.presence;
     }
@@ -1857,7 +1879,12 @@ class GameState {
             if (check.reason === 'illegal_card') {
                 // A refused card goes to the end of the hand, as before this
                 // path was shared (the recorded fixtures' snapshots pin it)
-                if (this.removeCardFromHand(socketId, card)) this.getHand(socketId).push(card);
+                if (this.removeCardFromHand(socketId, card)) {
+                    this.getHand(socketId).push(card);
+                    // The hand's order is saved (persist codec) and the
+                    // refusal broadcasts nothing: tell the live store
+                    persistHooks.gameChanged(this);
+                }
             }
             return check;
         }

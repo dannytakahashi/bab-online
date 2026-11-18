@@ -121,6 +121,17 @@
       "bytes": 5736,
       "sha256": "21b3c1a0bde7cd4c525085705957c5b08f605bd33428013156cb4e39b6d92500",
       "recipe": "a53656bcddd28334"
+    },
+    "bidclock": {
+      "source": "synthesized",
+      "gain_db": -23.8,
+      "duration": 30.0,
+      "rms_dbfs": -30.0,
+      "peak_dbfs": -14.8,
+      "centroid_hz": 408,
+      "bytes": 185537,
+      "sha256": "89c9b2c623a7a5bb3a97049a318e4e1a98e5d2b5384f978feb00df3f3573c413",
+      "recipe": "e967f2b75c0116d5"
     }
   }
 }

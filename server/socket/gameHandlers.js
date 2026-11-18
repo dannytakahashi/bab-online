@@ -26,6 +26,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const { recordTableScores } = require('../game/tournamentScoring');
 const seatLifecycle = require('./seatLifecycle');
 const progressWatchdog = require('./progressWatchdog');
+const bidClock = require('./bidClock');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
@@ -67,6 +68,9 @@ function rejectAction(socket, game, action, reason, extra = {}) {
  * @param {string} actionType - 'bid' or 'play'
  */
 function triggerBotIfNeeded(io, game, actionType) {
+    // The bid clock first (bidClock.js): arms on a human bid turn, stops on
+    // a bot's turn, a controller change or the end of bidding
+    bidClock.onTurn(io, game);
     const seat = game.seat(game.currentTurn);
     // A human seat acts through its own socket; a connected one gets the
     // turn watchdog (seatLifecycle.armAfk: lazy after AFK_TIMEOUT_MS idle).
@@ -608,6 +612,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         reportViolation('deal-wrong-stage', { gameId: game.gameId, stage: game.stage });
         return;
     }
+    // No bid clock carries into a new deal (the redeal's included)
+    bidClock.reset(io, game);
     // Hand 1 passes (1, 12), which equals the constructor defaults (bidder 2)
     game.resetForNewHand(dealer, handSize);
     // Identifies this deal so a stale continuation (e.g. the first-hand
@@ -729,9 +735,7 @@ async function playerBid(socket, io, data) {
 
     const position = game.getPositionBySocketId(socket.id);
 
-    // Stage, turn, a repeat and the bid itself: GameState.applyBid, the
-    // path bots bid through too
-    const result = game.applyBid(position, data.bid);
+    const result = placeBid(io, game, position, data.bid);
     if (!result.ok) {
         const extra = result.reason === 'not_your_turn' ? { position, currentTurn: game.currentTurn }
             : result.reason === 'invalid_bid' ? { position, bid: result.bid, handSize: game.currentHand }
@@ -739,17 +743,44 @@ async function playerBid(socket, io, data) {
         rejectAction(socket, game, 'bid', result.reason, extra);
         return;
     }
-    const bid = result.bid;
+    await result.done;
+}
+
+/**
+ * Place a seat's bid: a human's (playerBid) or the bid clock's timeout '0'
+ * (bidClock.expire, `timedOut`), one path for both. Stage, turn, a repeat
+ * and the bid itself are GameState.applyBid's, the path bots bid through
+ * too. Refused: `{ok: false, reason, bid?}` and nothing happened. Accepted:
+ * `{ok: true, bid, done}`; everything up to the next turn's trigger has
+ * been emitted synchronously and `done` settles once handlePostBid has.
+ */
+function placeBid(io, game, position, rawBid, { timedOut = false } = {}) {
+    const result = game.applyBid(position, rawBid);
+    if (!result.ok) return result;
+    return { ...result, done: bidAccepted(io, game, position, result.bid, timedOut) };
+}
+
+async function bidAccepted(io, game, position, bid, timedOut) {
+    const player = game.getPlayerByPosition(position);
+    // The tune stops for everyone ('timeout': clients let its end cue ring)
+    bidClock.stop(io, game, timedOut ? 'timeout' : 'bid');
+    if (timedOut) {
+        // Only once the bid was accepted, so the line is never left without it
+        const line = `${player.username} ran out of time.`;
+        game.addLogEntry(line, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: line, type: 'system' });
+    } else {
+        bidClock.clearStrikes(game, position);
+    }
     seatLifecycle.clearAfk(io, game, position);
     // A bid during the first-hand hold opens the turn early (its pause
     // then just ends): the table is no longer held
     if (game.resume && game.resume.kind === 'firstTurn') game.resume = null;
 
     // Add bid to game log
-    const player = game.getPlayerByPosition(position);
     game.addLogEntry(`${player.username} bid ${bid}.`, position, 'bid');
 
-    gameLogger.debug('Bid received', { position, bid, gameId: game.gameId });
+    gameLogger.debug('Bid received', { position, bid, gameId: game.gameId, timedOut });
     // The echo is the normalized string, as bidArray and bot bids are; iOS
     // 1.1.0 still SENDS numeric bids as an Int (accepted above) and decodes
     // either form (BidWire). V1_REMOVALS #11
@@ -761,6 +792,10 @@ async function playerBid(socket, io, data) {
 
     // Advance turn
     game.currentTurn = rotatePosition(game.currentTurn);
+
+    // Timeouts in a row count as idle (bidClock strike rule): before the
+    // next turn opens, so its trigger already sees the bot
+    if (timedOut) bidClock.afterTimeout(io, game, position);
 
     // Handle post-bid logic (check if all bids done, trigger next bot, etc.)
     await handlePostBid(io, game);
@@ -797,8 +832,9 @@ async function playCard(socket, io, data) {
         return;
     }
 
-    // The seat acted: its turn watchdog is over
+    // The seat acted: its turn watchdog is over, and it is not idle
     seatLifecycle.clearAfk(io, game, position);
+    bidClock.clearStrikes(game, position);
 
     game.broadcast(io, 'cardPlayed', game.cardPlayedPayload(card, position));
 
@@ -1099,6 +1135,7 @@ module.exports = {
     draw,
     autoDraw,
     playerBid,
+    placeBid,
     playCard,
     handleDrawComplete,
     forceResign,

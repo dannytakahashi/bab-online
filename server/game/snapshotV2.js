@@ -193,6 +193,9 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
     // seat owner (GameState.spectatorList); capped list, true count ----
     const watching = spectatorsWire(game.spectatorList(), avatarResolve);
 
+    // ---- the bid clock (socket/bidClock.js), only while it runs ----
+    const clock = typeof game.bidClockInfo === 'function' ? game.bidClockInfo(now) : null;
+
     return {
         v: SNAPSHOT_VERSION,
         gameId: game.gameId,
@@ -241,6 +244,9 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         log: logEntries,
         // The open server-timed hold (pacing.js), relative to serverTime
         resume: typeof game.resumeInfo === 'function' ? game.resumeInfo(now) : null,
+        // additive (2026-11-18): the RUNNING bid clock, relative to
+        // serverTime; the key is absent otherwise (also in its pre-wait)
+        ...(clock && { bidClock: clock }),
     };
 }
 

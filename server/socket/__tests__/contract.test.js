@@ -303,6 +303,74 @@ describe('(b) F1 full human game through the lobby', () => {
     }, 120000);
 });
 
+// ==================== (b2) the bid clock ====================
+
+describe('(b2) bid clock', () => {
+    test('running, stopped {timeout | bid | controller}, a same-turn resume, snapshots mid-clock; seq and snapshot invariants hold', async () => {
+        const SeatState = require('../../game/SeatState');
+        const pacing = require('../../game/pacing');
+        Math.random = mulberry32(31);
+        const w = world('b2');
+        const seqWatch = watchSeq(w.io);
+        const snaps = watchSnapshots(w);
+        const names = ['b2_ann', 'b2_bob', 'b2_cat', 'b2_dan'];
+        const socks = names.map((n, i) => w.user(`b2-h${i}`, n));
+        mainRoomHandlers.createLobby(socks[0], w.io, { name: 'Clock table' });
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+        const draws = socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING && !game.resume, 100);
+        const spec = w.user('b2-spec', 'b2_fan');
+        mainRoomHandlers.joinAsSpectator(spec, w.io, { gameId: game.gameId });
+        const owner = (pos) => w.sockets.get(game.seat(pos).ownerSocketId);
+        const clockEvents = () => events(w.log, 'bidClock').map((l) => (l.data.running ? `running:${l.data.position}` : `${l.data.reason}:${l.data.position}`));
+        const ask = (s) => {
+            const mark = w.log.length;
+            snapshotHandlers.requestSnapshot(s, w.io, { requestId: 'b2' });
+            return w.log.slice(mark).find((l) => l.event === 'stateSnapshot').data.snapshot;
+        };
+
+        // 1. the seat on turn idles: running at 10 s, a snapshot mid-clock, the timeout bid 0
+        const p1 = game.currentTurn;
+        await jest.advanceTimersByTimeAsync(SeatState.BID_CLOCK_DELAY_MS);
+        expect(clockEvents()).toEqual([`running:${p1}`]);
+        expect(ask(spec).bidClock).toEqual({ position: p1, inMs: SeatState.BID_CLOCK_MS, durationMs: SeatState.BID_CLOCK_MS });
+        await jest.advanceTimersByTimeAsync(SeatState.BID_CLOCK_MS);
+        expect(game.playerBids[p1 - 1]).toBe('0');
+        expect(clockEvents()).toEqual([`running:${p1}`, `timeout:${p1}`]);
+        // 2. the next seat bids mid-tune
+        const p2 = game.currentTurn;
+        await jest.advanceTimersByTimeAsync(SeatState.BID_CLOCK_DELAY_MS + 5000);
+        await gameHandlers.playerBid(owner(p2), w.io, { bid: '1' });
+        expect(clockEvents().slice(2)).toEqual([`running:${p2}`, `bid:${p2}`]);
+        expect(ask(spec)).not.toHaveProperty('bidClock');
+        // 3. the next seat goes /lazy mid-tune and /active again before its bot bids
+        const p3 = game.currentTurn;
+        await jest.advanceTimersByTimeAsync(SeatState.BID_CLOCK_DELAY_MS + 5000);
+        chatHandlers.chatMessage(owner(p3), w.io, { message: '/lazy' });
+        chatHandlers.chatMessage(owner(p3), w.io, { message: '/active' });
+        expect(clockEvents().slice(4)).toEqual([`running:${p3}`, `controller:${p3}`, `running:${p3}`]);
+        await gameHandlers.playerBid(owner(p3), w.io, { bid: '1' });
+        // the rest bid at once: no clock
+        while (game.stage === Phase.BIDDING) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '1' });
+        }
+        expect(clockEvents().slice(7)).toEqual([`bid:${p3}`]);
+        await jest.advanceTimersByTimeAsync(1000);
+        // every bidClock went to the room unsequenced
+        expect(events(w.log, 'bidClock').every((l) => l.to === game.roomName && !('seq' in l.data))).toBe(true);
+        const sq = seqWatch.stop();
+        expect(sq.failures).toEqual([]);
+        const sn = snaps.stop();
+        expect(sn.failures).toEqual([]);
+        await Promise.all([...starting, ...draws]);
+    }, 60000);
+});
+
 // ==================== (f) requestSnapshot ====================
 
 describe('(f) requestSnapshot -> stateSnapshot', () => {
