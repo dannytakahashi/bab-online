@@ -287,19 +287,33 @@ final class BidClockTests: XCTestCase {
     }
 
     func testVoiceOverHearsItTwicePerClock() {
-        typealias A = BidOverlayView.Announcement
-        let first = BidOverlayView.announcement(.seconds(30, low: false), deadline: 100)
+        let c = BidCountdown(position: 1, deadline: 100, durationMs: 30000)
+        func said(_ d: BidCountdownModel.Display, _ c: BidCountdown?) -> BidOverlayView.Announcement? {
+            BidOverlayView.announcement(d, of: c)
+        }
+        let first = said(.seconds(30, low: false), c)
         XCTAssertEqual(first?.text, "30 seconds to bid")
         // the next seconds are the same announcement (no onChange): silent
-        XCTAssertEqual(BidOverlayView.announcement(.seconds(29, low: false), deadline: 100), first)
-        let ten = BidOverlayView.announcement(.seconds(10, low: true), deadline: 100)
+        XCTAssertEqual(said(.seconds(29, low: false), c), first)
+        let ten = said(.seconds(10, low: true), c)
         XCTAssertNotEqual(ten, first)
         XCTAssertEqual(ten?.text, "10 seconds to bid")
-        XCTAssertEqual(BidOverlayView.announcement(.seconds(9, low: true), deadline: 100), ten)
-        // a new clock is a new announcement; none when nothing shows
-        XCTAssertNotEqual(BidOverlayView.announcement(.seconds(30, low: false), deadline: 200), first)
-        XCTAssertNil(BidOverlayView.announcement(.expired, deadline: 100))
-        XCTAssertNil(BidOverlayView.announcement(.seconds(3, low: true), deadline: nil))
+        XCTAssertEqual(said(.seconds(9, low: true), c), ten)
+        // a snapshot restating the clock (rejoin, gap resync, actionRejected) rebuilds its
+        // deadline from receipt: within BidCountdownModel.sameClock it is the same clock, silent
+        var restated = c
+        restated.deadline = 100 + BidCountdownModel.sameClock
+        XCTAssertEqual(said(.seconds(9, low: true), restated), ten)
+        restated.deadline = 100 - 0.2
+        XCTAssertEqual(said(.seconds(9, low: true), restated), ten)
+        // a new clock (a resume's top-up) or another seat's is a new announcement
+        restated.deadline = 100 + BidCountdownModel.sameClock + 0.01
+        XCTAssertNotEqual(said(.seconds(9, low: true), restated), ten)
+        XCTAssertNotEqual(said(.seconds(30, low: false), BidCountdown(position: 1, deadline: 200, durationMs: 30000)), first)
+        XCTAssertNotEqual(said(.seconds(30, low: false), BidCountdown(position: 3, deadline: 100, durationMs: 30000)), first)
+        // none when nothing shows
+        XCTAssertNil(said(.expired, c))
+        XCTAssertNil(said(.seconds(3, low: true), nil))
     }
 
     // MARK: - The tune
@@ -431,6 +445,12 @@ final class BidClockTests: XCTestCase {
         clock.t = 5
         center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
         XCTAssertEqual(p.calls.last, .start(10))
+        // inactive only (Notification Center, Control Center, the app switcher): silent too
+        center.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertEqual(p.calls.last, .stop(0))
+        clock.t = 7
+        center.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertEqual(p.calls.last, .start(8))
         // my socket drops: the clock and the tune end (C4)
         let connected = PassthroughSubject<Bool, Never>()
         actions.watchConnection(connected)

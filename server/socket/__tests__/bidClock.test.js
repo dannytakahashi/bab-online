@@ -584,6 +584,18 @@ describe('timeouts in a row (strike rule)', () => {
             expect(lines(w.log).filter((m) => m === `${name} ran out of time.`)).toHaveLength(2);
             expect(lines(w.log)).toContain(`${name} was idle and ${l.data.botUsername} is playing for them. Type /active to return.`);
         }
+        // the order contract/README.md "Bid clock" documents: the takeover's
+        // playerLazyMode comes after the timeout's bidReceived '0' for that
+        // seat and before whatever that bid triggers (updateTurn / doneBidding)
+        const room = w.log.filter((l) => l.to === game.roomName);
+        for (const l of room.filter((x) => x.event === 'playerLazyMode')) {
+            const i = room.indexOf(l);
+            const before = room.slice(0, i).filter((x) => ['bidReceived', 'updateTurn', 'doneBidding'].includes(x.event)).pop();
+            expect(before.event).toBe('bidReceived');
+            expect(before.data).toMatchObject({ bid: '0', position: l.data.position });
+            const after = room.slice(i + 1).find((x) => ['bidReceived', 'updateTurn', 'doneBidding'].includes(x.event));
+            expect(['updateTurn', 'doneBidding']).toContain(after.event);
+        }
         expect(seqWatch.stop().failures).toEqual([]);
         expect(bidClockWireErrors(w.log, game.roomName)).toEqual([]);
     }, 60000);

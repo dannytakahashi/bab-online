@@ -13,7 +13,7 @@ import { parseSnapshotV2 } from './snapshotV2.js';
 import { tableSnapshotOf } from './tableSync.js';
 import {
   setBidClockNow, bidClockNow, parseBidClockEvent, validBidClock, countdownMs, countdownSeconds, clockFrom,
-  BID_CLOCK_UI_MARGIN_MS,
+  secondsToBid, sameClock, BID_CLOCK_UI_MARGIN_MS, TUNE_RESYNC_MS,
 } from './bidClock.js';
 
 // The repo root (vitest's config root is client/)
@@ -159,5 +159,23 @@ describe('the snapshot\'s bidClock', () => {
     expect(snap?.stage).toBe('BIDDING');
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('the countdown\'s words and "the same clock"', () => {
+  it('secondsToBid: singular at 1, as iOS BidCountdownModel.announcement', () => {
+    expect(secondsToBid(1)).toBe('1 second to bid');
+    expect(secondsToBid(0)).toBe('0 seconds to bid');
+    expect(secondsToBid(27)).toBe('27 seconds to bid');
+  });
+
+  it('sameClock: the same seat with the deadline within TUNE_RESYNC_MS', () => {
+    const a = { position: 2, deadline: 10000, durationMs: 30000 };
+    expect(sameClock(a, { ...a, deadline: 10000 + TUNE_RESYNC_MS })).toBe(true);
+    expect(sameClock(a, { ...a, deadline: 10000 - TUNE_RESYNC_MS })).toBe(true);
+    expect(sameClock(a, { ...a, deadline: 10000 + TUNE_RESYNC_MS + 1 })).toBe(false);
+    expect(sameClock(a, { ...a, position: 3 })).toBe(false);
+    expect(sameClock(null, a)).toBe(false);
+    expect(sameClock(a, null)).toBe(false);
   });
 });

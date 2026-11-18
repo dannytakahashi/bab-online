@@ -312,6 +312,38 @@ describe('the bid clock\'s countdown (owner 2026-11-18)', () => {
     expect(said()).toEqual(['6 seconds to bid']);
   });
 
+  it('a snapshot restating the running clock (its deadline rebuilt from receipt) says nothing new; a top-up or a clock after a stop does', () => {
+    run(1, 15000);
+    tick(6000);
+    expect(said()).toEqual(['15 seconds to bid', '10 seconds to bid']);
+    // a background probe's stateSnapshot / gap resync: the same clock, 200 ms off
+    state.applyBidClock({ gameId: 'g1', position: 1, running: true, inMs: 9000 - 200, durationMs: 30000 });
+    bm.showBidUI(5, () => true);
+    bm.syncClock();
+    expect(clockEl()).toBeTruthy();
+    expect(said()).toHaveLength(2);
+    // its deadline is followed: the countdown ends 200 ms sooner
+    tick(9000 - 200 - BID_CLOCK_UI_MARGIN_MS);
+    expect(bm.expired).toBe(true);
+    // a resume's top-up (to 10 s) is a new clock
+    run(1, 10000);
+    expect(said()).toEqual(['15 seconds to bid', '10 seconds to bid', '10 seconds to bid']);
+    // stopped (/lazy), then resumed at the same deadline (/active): announced
+    // again (a second later: announce() drops the same words within 1 s)
+    tick(1000);
+    state.applyBidClock({ gameId: 'g1', position: 1, running: false, reason: 'controller' });
+    bm.syncClock();
+    run(1, 9000);
+    expect(said()).toEqual(['15 seconds to bid', '10 seconds to bid', '10 seconds to bid', '9 seconds to bid']);
+  });
+
+  it('"1 second to bid", singular, as iOS says it', () => {
+    run(1, 1500);
+    expect(clockEl().textContent).toBe('1');
+    expect(clockEl().getAttribute('aria-label')).toBe('1 second to bid');
+    expect(said()).toEqual(['1 second to bid']);
+  });
+
   it('table.css: a quiet number out of the flow (the sheet\'s box does not change), the warning token for the low state', () => {
     const c = rule('.bid-sheet__clock');
     expect(c).toContain('position: absolute');

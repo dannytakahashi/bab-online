@@ -87,6 +87,20 @@ export function countdownMs(clock, now = bidClockNow()) {
   return clock.deadline - BID_CLOCK_UI_MARGIN_MS - now;
 }
 
+/** The countdown's words for screen readers: "1 second to bid", "27 seconds to bid" (as iOS BidCountdownModel.announcement). */
+export function secondsToBid(n) {
+  return `${n} ${n === 1 ? 'second' : 'seconds'} to bid`;
+}
+
+/**
+ * The same clock restated (a snapshot rebuilds the deadline from its own
+ * receipt time): the same seat, the deadline within TUNE_RESYNC_MS, the
+ * rule the tune keeps playing by. A resume's top-up moves it further.
+ */
+export function sameClock(a, b) {
+  return !!a && !!b && a.position === b.position && Math.abs(a.deadline - b.deadline) <= TUNE_RESYNC_MS;
+}
+
 /** Whole seconds the countdown shows (ceil, never below 0). */
 export function countdownSeconds(clock, now = bidClockNow()) {
   return Math.max(0, Math.ceil(countdownMs(clock, now) / 1000));

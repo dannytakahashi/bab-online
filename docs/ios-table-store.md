@@ -1008,7 +1008,8 @@ the event: they read "<name> ran out of time." and the ordinary bid 0.
   do). Everyone at the table hears it (seat, lazy watcher, spectator), each with
   their own "soundEnabled" / "soundVolume": SoundPlayer stops it when the sound
   goes off or the volume to 0, follows the volume, and `tuneResync` restarts it
-  at its place when the sound comes back; `didEnterBackground` stops it,
+  at its place when the sound comes back; `willResignActive` (Notification
+  Center, Control Center, the app switcher) and `didEnterBackground` stop it,
   `didBecomeActive` resyncs. Its own AVAudioPlayer (`AudioTuneOutput`), outside
   the two-per-file pool, made on the first start after the session is ambient;
   the same session rule as the other sounds. Silent under XCTest and UI fixtures.
@@ -1016,13 +1017,17 @@ the event: they read "<name> ran out of time." and the ordinary bid 0.
   my seat's clock while the bid choice is mine (`.seat`, not submitted). Whole
   seconds to `deadline - 0.75 s` (C2's margin), capped at the clock's length,
   the warning colour for the last 10, no motion, redrawn 4 times a second
-  (TimelineView). It sits on the panel's top edge at its trailing corner (a
+  (one TimelineView around the panel, paused while there is no clock: never an
+  if / else on the clock, whose two identities would rebuild the grid and drop
+  a touch or VoiceOver's focus when it appears). It sits on the panel's top edge at its trailing corner (a
   zero-height strip at the panel's top holds it by its bottom, 1 pt into the
   panel's 2 pt top margin), over the felt: the 340 x 140 band and every button,
   cell, chip row and HSI frame are unchanged. At 0 the number goes and the grid
   and bottom row dim and refuse (Submit too) until the server's bid 0 lands; if
   nothing came within 5 s bidding opens again. VoiceOver: label "Time to bid: N
-  seconds", announcements "N seconds to bid" when it appears and at 10 s.
+  seconds", announcements "N seconds to bid" when it appears and at 10 s; a
+  snapshot restating the clock (deadline within 0.75 s,
+  `BidCountdownModel.sameClock`) announces nothing again.
 - Fixtures: `-uiBidClock <s>` runs the clock for the seat on turn
   (`-uiBidClockSeat <pos>`: another seat) with the countdown held at exactly
   that many seconds (`-uiBidClockLive YES`: running down); the contract fixture

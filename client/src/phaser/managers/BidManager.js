@@ -30,7 +30,7 @@ import { BORES, bidTotalsFor } from '../../rules/bids.js';
 import { getMyAction } from '../../state/MyAction.js';
 import { announce } from '../../ui/handA11y.js';
 import {
-  bidClockNow, countdownMs, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
+  bidClockNow, countdownMs, secondsToBid, sameClock, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
 } from '../../state/bidClock.js';
 
 /** The layout's sheet box model on the sheet (CSS variables). */
@@ -68,7 +68,7 @@ export class BidManager {
     this.titleRow = null;
     this.clockEl = null;
     this._clockTimer = null;
-    this._clockDeadline = null;
+    this._clockSeen = null; // {position, deadline} of the clock last shown (sameClock)
     this._clockSaid = new Set();
     this.expired = false;
   }
@@ -341,17 +341,23 @@ export class BidManager {
    * bidClock event, a snapshot's render, my bid, the turn moving on).
    */
   syncClock() {
+    // the clock went (stopped, my socket dropped) or is another seat's: the
+    // next one for me is new, even at the same deadline (/lazy then /active)
+    const live = this.state.bidClock;
+    if (!live || live.position !== this._clockSeen?.position) this._clockSeen = null;
     const clock = this._myClock();
     if (!clock) {
       this._removeClock();
       return;
     }
-    if (this._clockDeadline !== clock.deadline) {
-      // a new clock (or a resume): announced afresh, offered again
-      this._clockDeadline = clock.deadline;
+    if (!sameClock(this._clockSeen, clock)) {
+      // a new clock (or a resume's top-up): announced afresh, offered again
       this._clockSaid = new Set();
       this._setExpired(false);
     }
+    // a restatement (a snapshot rebuilds the deadline from its receipt):
+    // follow its deadline, say nothing again
+    this._clockSeen = { position: clock.position, deadline: clock.deadline };
     this._tickClock();
   }
 
@@ -385,17 +391,17 @@ export class BidManager {
     }
     if (this.clockEl) {
       this.clockEl.textContent = String(secs);
-      this.clockEl.setAttribute('aria-label', `${secs} seconds to bid`);
+      this.clockEl.setAttribute('aria-label', secondsToBid(secs));
       this.clockEl.classList.toggle('bid-sheet__clock--low', secs <= BID_CLOCK_LOW_S);
     }
     // once when it appears, once at BID_CLOCK_LOW_S (one announcement if it appears below that)
     if (!this._clockSaid.has('shown')) {
       this._clockSaid.add('shown');
       if (secs <= BID_CLOCK_LOW_S) this._clockSaid.add('low');
-      announce(`${secs} seconds to bid`);
+      announce(secondsToBid(secs));
     } else if (secs <= BID_CLOCK_LOW_S && !this._clockSaid.has('low')) {
       this._clockSaid.add('low');
-      announce(`${BID_CLOCK_LOW_S} seconds to bid`);
+      announce(secondsToBid(BID_CLOCK_LOW_S));
     }
     // the next whole second (a hidden tab's throttled timer just lands later)
     const next = ms - (secs - 1) * 1000;
@@ -425,7 +431,7 @@ export class BidManager {
     this._clearClockTimer();
     this._removeClockEl();
     if (this.expired) this._setExpired(false);
-    // _clockDeadline and what was said stay: the same clock on a rebuilt
+    // _clockSeen and what was said stay: the same clock on a rebuilt
     // sheet is not announced again
   }
 

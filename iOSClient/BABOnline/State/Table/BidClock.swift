@@ -92,6 +92,10 @@ enum BidCountdownModel {
 
     /// How often the countdown is redrawn while it shows.
     static let tick: TimeInterval = 0.25
+    /// Two deadlines for the same seat this close are one clock restated (a snapshot rebuilds
+    /// it from its own receipt), not a new one: VoiceOver is not told again. The tune's own
+    /// `BidClockTune.tolerance` and the web's TUNE_RESYNC_MS.
+    static let sameClock: TimeInterval = 0.75
 
     /// VoiceOver: "Time to bid: 27 seconds".
     static func label(_ n: Int) -> String { "Time to bid: \(n) \(n == 1 ? "second" : "seconds")" }

@@ -89,11 +89,15 @@ final class ActionCoordinator: ObservableObject {
         store.ioRequests
             .sink { [weak self] fx in self?.handle(fx) }
             .store(in: &cancellables)
-        // the tune follows the app and the sound setting: nothing in the background, back at
+        // the tune follows the app and the sound setting: nothing unless the app is active
+        // (Notification Center, Control Center or the app switcher make it inactive, not
+        // background: SoundPlayer.isAppActive would not have started it there either), back at
         // its place when the app is active again or the sound comes back on
-        notifications.publisher(for: UIApplication.didEnterBackgroundNotification)
-            .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.backgrounded() } }
-            .store(in: &cancellables)
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            notifications.publisher(for: name)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.backgrounded() } }
+                .store(in: &cancellables)
+        }
         notifications.publisher(for: UIApplication.didBecomeActiveNotification)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.sync() } }
             .store(in: &cancellables)

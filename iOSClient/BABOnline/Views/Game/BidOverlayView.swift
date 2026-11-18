@@ -71,13 +71,14 @@ struct BidOverlayView: View {
     }
 
     var body: some View {
-        if let clock = myClock {
-            // redrawn 4 times a second while my clock runs (a number is at most 0.25 s late)
-            TimelineView(.periodic(from: Date(), by: BidCountdownModel.tick)) { _ in
-                panel(BidCountdownModel.display(clock, mine: gameState.myTurn == .choosing(.bid), now: gameState.clockNow()))
-            }
-        } else {
-            panel(.hidden)
+        // One structure with or without a clock: redrawn 4 times a second while my clock runs
+        // (a number is at most 0.25 s late), paused otherwise. Never an if / else on the
+        // clock: its two branches would be two identities, so the clock appearing (or a
+        // connection drop taking it away) would rebuild the grid and the buttons, losing a
+        // touch in progress and VoiceOver's focus.
+        let clock = myClock
+        TimelineView(.animation(minimumInterval: BidCountdownModel.tick, paused: clock == nil)) { _ in
+            panel(clock.map { BidCountdownModel.display($0, mine: gameState.myTurn == .choosing(.bid), now: gameState.clockNow()) } ?? .hidden)
         }
     }
 
@@ -196,7 +197,7 @@ struct BidOverlayView: View {
                     }
                 }
         }
-        .onChange(of: Self.announcement(clock, deadline: myClock?.deadline), initial: true) { _, said in
+        .onChange(of: Self.announcement(clock, of: myClock), initial: true) { _, said in
             if let said { AccessibilityNotification.Announcement(said.text).post() }
         }
         .padding(.horizontal, Theme.Space.s2)
@@ -211,17 +212,23 @@ struct BidOverlayView: View {
 
     /// VoiceOver hears the countdown twice per clock: when it appears and when it reaches
     /// `lowAt` (the number itself is not live). Equal by (clock, low) only, so the text of
-    /// each new second does not announce again.
+    /// each new second does not announce again. The same clock is the same seat with the
+    /// deadline within `BidCountdownModel.sameClock`: every snapshot carrying the clock (a
+    /// rejoin, a gap resync, actionRejected) rebuilds the deadline from its own receipt, which
+    /// is a restatement, not a new clock (a resume's top-up moves it by more).
     struct Announcement: Equatable {
+        let position: Int
         let deadline: TimeInterval
         let low: Bool
         let text: String
-        static func == (a: Self, b: Self) -> Bool { a.deadline == b.deadline && a.low == b.low }
+        static func == (a: Self, b: Self) -> Bool {
+            a.position == b.position && a.low == b.low && abs(a.deadline - b.deadline) <= BidCountdownModel.sameClock
+        }
     }
 
-    static func announcement(_ clock: BidCountdownModel.Display, deadline: TimeInterval?) -> Announcement? {
-        guard let deadline, case .seconds(let n, let low) = clock else { return nil }
-        return Announcement(deadline: deadline, low: low, text: BidCountdownModel.announcement(n))
+    static func announcement(_ clock: BidCountdownModel.Display, of countdown: BidCountdown?) -> Announcement? {
+        guard let countdown, case .seconds(let n, let low) = clock else { return nil }
+        return Announcement(position: countdown.position, deadline: countdown.deadline, low: low, text: BidCountdownModel.announcement(n))
     }
 
     private func submitBid() {

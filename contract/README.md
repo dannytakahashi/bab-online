@@ -239,6 +239,18 @@ exact length of the tune `bidclock.m4a`); when it runs out the server bids
   bid doneBidding ..., or the all-zero redeal's line, destroyHands, new
   gameStarts). No existing order changes. Shipped clients (iOS <= 1.2.3 (14))
   see only the two log lines and the ordinary bid.
+- Timeouts in a row (strike rule, `BID_TIMEOUT_AFK_STRIKES`, default 2; off
+  when 0, when `AFK_TIMEOUT_MS` is 0, in AFK-exempt solo games and for a
+  disconnected seat): when the timeout is the connected seat's Nth in a row,
+  a bot takes the seat as after an AFK takeover, inside that same run,
+  after `bidReceived {bid: '0'}` and before whatever it triggers:
+  `playerLazyMode`, the log line "<name> was idle and <bot> is playing for
+  them. Type /active to return.", then `updateTurn` / doneBidding / the
+  redeal (any idle offer for the seat was already withdrawn, with its
+  `playerReconnected`, before `bidReceived`). Not at a tournament table
+  where another owner is present: that seat is kept and offered to the
+  others when its next clock starts (`resignationAvailable {idle: true}`
+  and the "seems idle" line, as the AFK watchdog makes the offer).
 - A `running` is never sent before the 10 s pre-wait except on a same-turn
   resume (/active, reclaimSeat), which comes right after sequenced events
   that do not clear the clock (playerActiveMode, a log line). That is what

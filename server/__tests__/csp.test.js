@@ -69,7 +69,10 @@ test('the cards\' index font is a same-origin file font-src \'self\' allows: a h
 test('the sound effects are same-origin files the page fetches (connect-src \'self\'): hashed /dist/assets m4a, never data:', () => {
     const src = fs.readFileSync(path.join(ROOT, 'client', 'src', 'audio', 'SoundManager.js'), 'utf8');
     const imports = [...src.matchAll(/from '\.\.\/\.\.\/assets\/sounds\/([\w-]+)\.m4a\?url';/g)].map((m) => m[1]);
-    expect(imports).toHaveLength(11);
+    // one import per manifest entry (sounds-src/sounds.json), so a new sound
+    // cannot leave this count behind
+    const manifest = Object.keys(JSON.parse(fs.readFileSync(path.join(ROOT, 'sounds-src', 'sounds.json'), 'utf8')).sounds);
+    expect(imports.slice().sort()).toEqual(manifest.slice().sort());
     for (const name of imports) expect(fs.existsSync(path.join(ROOT, 'client', 'assets', 'sounds', `${name}.m4a`))).toBe(true);
     // fetch() is connect-src: 'self' (the page's own host) allows it in both policies
     expect(header['connect-src']).toContain("'self'");
@@ -83,7 +86,7 @@ test('the sound effects are same-origin files the page fetches (connect-src \'se
     const built = Math.max(0, ...files.filter((f) => f.endsWith('.js')).map((f) => fs.statSync(path.join(assets, f)).mtimeMs));
     if (built < fs.statSync(path.join(ROOT, 'client', 'src', 'audio', 'SoundManager.js')).mtimeMs) return;
     const sounds = files.filter((f) => /\.m4a$/.test(f));
-    expect(sounds).toHaveLength(11);
+    expect(sounds).toHaveLength(manifest.length);
     const js = files.filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
     for (const f of sounds) expect(js).toContain(`/dist/assets/${f}`);
     expect(js).not.toMatch(/data:audio\//);
