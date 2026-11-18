@@ -769,7 +769,7 @@ struct FixtureAvatarLoader: AvatarLoading {
 }
 
 /// What the fixture UI tests read through accessibility probes:
-/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom", "table.deal".
+/// "ui.pose", "table.layoutCheck", "table.state", "table.extras", "table.zoom", "table.deal", "table.bidClock".
 @MainActor
 final class TableDebugProbe: ObservableObject {
     static let shared = TableDebugProbe()
