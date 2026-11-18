@@ -1182,15 +1182,21 @@ body > .voice-btn {
     max-width: 100%;
 }
 
-.hud-teams__label {
-    margin: 0;
-    font-size: var(--teams-label-font);
-    font-weight: var(--weight-bold);
-    line-height: 1.2;
+/* no heading (the names are the team's label: owner 2026-11-17): a bar in
+   the team's colour tops the column, and the avatars wear the seat rings'
+   team colour (mine stays primary) */
+.hud-teams__team::before {
+    content: "";
+    display: block;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--team-a);
 }
 
-.hud-teams__team[data-team="a"] .hud-teams__label { color: var(--team-a); }
-.hud-teams__team[data-team="b"] .hud-teams__label { color: var(--team-b); }
+.hud-teams__team[data-team="b"]::before { background: var(--team-b); }
+.hud-teams__team[data-team="a"] .hud-teams__avatar { border-color: var(--team-a); }
+.hud-teams__team[data-team="b"] .hud-teams__avatar { border-color: var(--team-b); }
+.hud-teams__team .hud-teams__player.is-mine .hud-teams__avatar { border-color: var(--primary-base); }
 
 .hud-teams__players {
     display: flex;

@@ -5,23 +5,6 @@
 import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
 
-/**
- * The names getTeamNames gives before the teams exist (the draw for deal: no
- * seats yet), for the game-end lines and the score modal. A seat's are
- * "Your Team" / "Opponents"; a spectator has no team, so theirs are the
- * teams' own neutral names, "Team 1" (seats 1 and 3, which a spectator's
- * side shows) / "Team 2", as the teams panel names them (ui/tableHud.js).
- * The game log's score header never shows these (scoreHeaderNames).
- *
- * @param {boolean} spectator - the viewer has no seat
- * @returns {Object} { teamName, oppName }
- */
-export function placeholderTeamNames(spectator = false) {
-  return spectator
-    ? { teamName: 'Team 1', oppName: 'Team 2' }
-    : { teamName: 'Your Team', oppName: 'Opponents' };
-}
-
 /** A seat's username in playerData, or null (not seated / not known yet). */
 function seatUsername(playerData, pos) {
   if (!playerData || !Array.isArray(playerData.position) || !Array.isArray(playerData.username)) return null;
@@ -62,7 +45,12 @@ export function scoreHeaderNames(myPosition, playerData, { spectator = false } =
 }
 
 /**
- * Get team names based on position and player data.
+ * The game-end lines', the hand's lines' and the score modal's team names:
+ * player names, "me/partner" and "opp1/opp2" (a spectator's seats 1/3 and
+ * 2/4), never a placeholder or a team number (owner 2026-11-17). Before the
+ * seats exist (the draw for deal: no playerData) both are '' and each
+ * caller leaves the names out (formatGameEndMessages, showFinalScoreOverlay);
+ * a seat whose name alone is missing reads P<seat>.
  *
  * @param {number} myPosition - Player's position (1-4)
  * @param {Object} playerData - Player data object with positions and usernames
@@ -71,21 +59,18 @@ export function scoreHeaderNames(myPosition, playerData, { spectator = false } =
  * @returns {Object} { teamName, oppName }
  */
 export function getTeamNames(myPosition, playerData, { spectator = false } = {}) {
-  if (!playerData || !playerData.position || !playerData.username) {
-    return placeholderTeamNames(spectator);
+  const me = spectator ? 1 : Number(myPosition);
+  if (!playerData || !playerData.position || !playerData.username || ![1, 2, 3, 4].includes(me)) {
+    return { teamName: '', oppName: '' };
   }
 
-  const getUsername = (pos) => {
-    const idx = playerData.position.indexOf(pos);
-    if (idx === -1 || !playerData.username[idx]) return `P${pos}`;
-    return playerData.username[idx].username || `P${pos}`;
-  };
+  const getUsername = (pos) => seatUsername(playerData, pos) || `P${pos}`;
 
-  const partnerPos = team(myPosition);
-  const opp1Pos = rotate(myPosition);
-  const opp2Pos = rotate(rotate(rotate(myPosition)));
+  const partnerPos = team(me);
+  const opp1Pos = rotate(me);
+  const opp2Pos = rotate(rotate(rotate(me)));
 
-  const teamName = `${getUsername(myPosition)}/${getUsername(partnerPos)}`;
+  const teamName = `${getUsername(me)}/${getUsername(partnerPos)}`;
   const oppName = `${getUsername(opp1Pos)}/${getUsername(opp2Pos)}`;
 
   return { teamName, oppName };
@@ -136,10 +121,11 @@ export function formatHandCompleteMessages(options) {
   // Get bids safely
   const getBid = (idx) => (bids && bids[idx] !== undefined ? bids[idx] : '?');
 
+  const named = (name) => (name ? `${name}: ` : '');
   return [
     '--- HAND COMPLETE ---',
-    `${teamName}: Bid ${getBid(myBidIdx)}/${getBid(partnerBidIdx)}, Won ${teamTricks}, ${teamChangeStr} → ${teamScore}`,
-    `${oppName}: Bid ${getBid(opp1BidIdx)}/${getBid(opp2BidIdx)}, Won ${oppTricks}, ${oppChangeStr} → ${oppScore}`,
+    `${named(teamName)}Bid ${getBid(myBidIdx)}/${getBid(partnerBidIdx)}, Won ${teamTricks}, ${teamChangeStr} → ${teamScore}`,
+    `${named(oppName)}Bid ${getBid(opp1BidIdx)}/${getBid(opp2BidIdx)}, Won ${oppTricks}, ${oppChangeStr} → ${oppScore}`,
   ];
 }
 
@@ -157,11 +143,15 @@ export function formatGameEndMessages(options) {
   const { myPosition, playerData, teamScore, oppScore, isSpectator } = options;
 
   const { teamName, oppName } = getTeamNames(myPosition, playerData, { spectator: !!isSpectator });
+  const named = !!(teamName && oppName);
 
-  // Determine winner
-  let resultMsg;
+  // Determine winner (a spectator's by the teams' names; without them,
+  // only the score)
+  let resultMsg = null;
   if (isSpectator) {
-    if (teamScore > oppScore) {
+    if (!named) {
+      resultMsg = teamScore === oppScore ? 'TIE GAME' : null;
+    } else if (teamScore > oppScore) {
       resultMsg = `${teamName} wins!`;
     } else if (teamScore < oppScore) {
       resultMsg = `${oppName} wins!`;
@@ -176,7 +166,10 @@ export function formatGameEndMessages(options) {
     resultMsg = 'TIE GAME';
   }
 
-  return ['=== GAME OVER ===', `${teamName}: ${teamScore}`, `${oppName}: ${oppScore}`, resultMsg];
+  const scores = named
+    ? [`${teamName}: ${teamScore}`, `${oppName}: ${oppScore}`]
+    : [`Final Score: ${teamScore} - ${oppScore}`];
+  return ['=== GAME OVER ===', ...scores, ...(resultMsg ? [resultMsg] : [])];
 }
 
 /** The score modal on screen (closed by removeFinalScoreOverlay). */
@@ -192,6 +185,8 @@ let scoreModal = null;
  * @param {number} options.oppScore - Final opponent score
  * @param {Object} options.playerStats - Player stats object { position: { username, totalBids, totalTricks, setsCaused } }
  * @param {Function} options.onReturnToLobby - Called when user clicks return button
+ * @param {string} [options.teamName] - my side's names (getTeamNames; '' while not known)
+ * @param {string} [options.oppName] - the other side's
  * @returns {Object} { overlay, destroy }
  */
 export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName }) {
@@ -216,9 +211,10 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
 
   const body = [];
 
-  // Score display
+  // Score display: the teams by name ("me/partner" first; a spectator's
+  // seats 1/3 first), else only the score (never a team number)
   const scoreDiv = el('div', { className: 'result-score' });
-  if (isSpectator && teamName && oppName) {
+  if (teamName && oppName) {
     scoreDiv.textContent = `${teamName}: ${teamScore}  —  ${oppName}: ${oppScore}`;
   } else {
     scoreDiv.textContent = `Final Score: ${teamScore} - ${oppScore}`;

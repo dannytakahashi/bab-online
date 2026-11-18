@@ -155,6 +155,11 @@ describe('GameScene handleHandComplete', () => {
       expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 2');
       // the header by name: me/partner (2/4), then opp1/opp2 (3/1)
       expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('bob/dan', 'cat/ann', -40, 120);
+      // the announcer names the sides too, mine first (owner 2026-11-17:
+      // never "your team" / "opponents")
+      const lines = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
+      expect(lines.at(-1)).toBe('Hand over. Score: bob and dan -40, cat and ann 120.');
+      expect(lines.join(' ')).not.toMatch(/your team|opponents|Team [12]/i);
     } finally {
       delete window.ModernUtils;
       delete window.addToGameFeedFromLegacy;

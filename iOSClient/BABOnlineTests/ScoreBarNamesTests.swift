@@ -5,7 +5,9 @@ import SwiftUI
 /// The score bar names the players (owner 2026-11-17): a seated player's sides read
 /// "me/partner" and "opp1/opp2", as the web's score header, never "Your Team" / "Opponents";
 /// a side whose names are not known yet is empty (the line keeps its height); a spectator's
-/// initials ("a & c") are unchanged. Long names stay on one line inside the 84 pt cap.
+/// sides are seats 1/3 and 2/4 by name (no longer the initials "a & c"). Each team's bore
+/// level ("B", "2B") sits by its own score, not "T1: B | T2: 2B" in the centre. Long names
+/// stay on one line inside the 84 pt cap.
 @MainActor
 final class ScoreBarNamesTests: XCTestCase {
     private let seated: [Int: String] = [1: "ann", 2: "bob", 3: "cat", 4: "dan"]
@@ -34,14 +36,52 @@ final class ScoreBarNamesTests: XCTestCase {
         }
     }
 
-    func testVoiceOverSaysTheSideThenTheNames() {
+    func testVoiceOverReadsTheNamesNeverTheSide() {
         typealias N = ScoreBarView.SideNames
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "ann", second: "cat"), side: .mine, spectator: false), "Your team, ann and cat")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "bob", second: "dan"), side: .theirs, spectator: false), "Opponents, bob and dan")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(nil, side: .mine, spectator: false), "Your team")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(nil, side: .theirs, spectator: false), "Opponents")
-        // a spectator's initials as shown
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "a", second: "c", separator: " & "), side: .mine, spectator: true), "a & c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "ann", second: "cat")), "ann and cat")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(N(first: "bob", second: "dan")), "bob and dan")
+        // nothing while not known (never "Your team" / "Opponents")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(nil), "")
+    }
+
+    /// A spectator's sides: seats 1/3 on the left, 2/4 on the right, full names as the web's
+    /// spectator header ("ann/cat", "bob/dan"), whatever position the store holds; a side
+    /// missing a name is empty.
+    func testASpectatorSeesBothTeamsByName() {
+        for pos in [nil, 1, 2, 3, 4] as [Int?] {
+            let t = ScoreBarView.viewerTeams(position: pos, spectator: true, usernames: seated)
+            XCTAssertEqual(t.team, ScoreBarView.SideNames(first: "ann", second: "cat"), "\(String(describing: pos))")
+            XCTAssertEqual(t.opp, ScoreBarView.SideNames(first: "bob", second: "dan"), "\(String(describing: pos))")
+            XCTAssertEqual(t.team?.joined, "ann/cat")
+            XCTAssertEqual(t.opp?.joined, "bob/dan")
+        }
+        let partial = ScoreBarView.viewerTeams(position: nil, spectator: true, usernames: [1: "ann", 2: "bob", 4: "dan"])
+        XCTAssertNil(partial.team)
+        XCTAssertEqual(partial.opp?.joined, "bob/dan")
+        // a seat is unchanged: "me/partner"
+        XCTAssertEqual(ScoreBarView.viewerTeams(position: 2, spectator: false, usernames: seated).team?.joined, "bob/dan")
+    }
+
+    /// Each team's multiplier is its bore level by its own side: the viewer's team on the left
+    /// (team 1, seats 1 and 3, for a spectator); VoiceOver says whose it is by name.
+    func testEachTeamsBoreLevelSitsOnItsOwnSide() {
+        XCTAssertNil(ScoreBarView.boreLevel(1))
+        XCTAssertEqual([2, 4, 8, 16].compactMap(ScoreBarView.boreLevel), ["B", "2B", "3B", "4B"])
+        XCTAssertNil(ScoreBarView.boreLevel(3))
+        XCTAssertTrue(ScoreBarView.sideMults(team1: 1, team2: 2, myTeam: 1) == (1, 2))
+        XCTAssertTrue(ScoreBarView.sideMults(team1: 1, team2: 2, myTeam: 2) == (2, 1))
+        XCTAssertTrue(ScoreBarView.sideMults(team1: 4, team2: 1, myTeam: 2) == (1, 4))
+        typealias N = ScoreBarView.SideNames
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: N(first: "ann", second: "cat"), side: .mine, spectator: false),
+                       "ann and cat, bore B")
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("2B", names: N(first: "bob", second: "dan"), side: .theirs, spectator: true),
+                       "bob and dan, bore 2B")
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: nil, side: .theirs, spectator: false), "bore B")
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: nil, side: .mine, spectator: true), "Seats 1 and 3, bore B")
+        for label in [ScoreBarView.multiplierAccessibilityLabel("4B", names: nil, side: .theirs, spectator: true),
+                      ScoreBarView.multiplierAccessibilityLabel("4B", names: nil, side: .mine, spectator: false)] {
+            XCTAssertFalse(label.contains("T1") || label.contains("T2") || label.contains("Team") || label.contains("Opponents"), label)
+        }
     }
 
     /// A "/" inside a username (an account older than the sign-up rules may have one) is read
@@ -50,12 +90,12 @@ final class ScoreBarNamesTests: XCTestCase {
     func testVoiceOverKeepsASlashInsideEitherName() {
         let first = ScoreBarView.seatTeams(position: 1, usernames: [1: "a/b", 2: "x", 3: "c", 4: "y"])
         XCTAssertEqual(first.team?.joined, "a/b/c")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(first.team, side: .mine, spectator: false), "Your team, a/b and c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(first.team), "a/b and c")
         let second = ScoreBarView.seatTeams(position: 1, usernames: [1: "a", 2: "x", 3: "b/c", 4: "y"])
         XCTAssertEqual(second.team?.joined, "a/b/c")
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(second.team, side: .mine, spectator: false), "Your team, a and b/c")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(second.team), "a and b/c")
         let opp = ScoreBarView.seatTeams(position: 1, usernames: [1: "a", 2: "x/1", 3: "c", 4: "y"])
-        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(opp.opp, side: .theirs, spectator: false), "Opponents, x/1 and y")
+        XCTAssertEqual(ScoreBarView.namesAccessibilityLabel(opp.opp), "x/1 and y")
     }
 
     /// The fitting with a fake font (one point a character): the pair whole when it fits at up
@@ -154,6 +194,37 @@ final class ScoreBarNamesTests: XCTestCase {
                     if fixture == "trick-mid-lead3" { XCTAssertLessThanOrEqual(l.height, 84, "\(fixture) \(width) \(type)") }
                     XCTAssertEqual(l.height, s.height, accuracy: 0.5, "\(fixture) \(width) \(type): a long name changed the bar's height")
                     XCTAssertLessThanOrEqual(l.width, width + 0.5, "\(fixture) \(width) \(type)")
+                }
+            }
+        }
+    }
+
+    /// The bore levels by the scores never change the bar's size: bidding-mid (seat 4's own
+    /// team on B) with no bore, with its B, and with both teams on 4B is the same height and
+    /// inside the width, at every width and type size (the 84 pt cap holds with them).
+    func testBoreLevelsKeepTheBarsSize() throws {
+        func mults(_ t1: Int, _ t2: Int) throws -> ReplayHarness {
+            let h = ReplayHarness()
+            let snap = try T.snapshot("bidding-mid") { raw in
+                guard var bids = raw["bids"] as? [String: Any] else { return }
+                bids["mults"] = ["team1": t1, "team2": t2]
+                raw["bids"] = bids
+                if t1 == 1 && t2 == 1 { bids["byPosition"] = [NSNull(), "1", "1", NSNull()]; raw["bids"] = bids }
+            }
+            h.store.apply(.snapshot(snap, .rejoin, hints: nil))
+            return h
+        }
+        let none = try mults(1, 1), one = try mults(1, 2), both = try mults(16, 16)
+        XCTAssertEqual(one.store.team2Mult, 2)
+        XCTAssertEqual(both.store.team1Mult, 16)
+        for width in [CGFloat(320), 375, 466, 744, 1032] {
+            for type in [DynamicTypeSize.large, .xLarge, .xxxLarge, .accessibility5] {
+                let a = fit(ScoreBarView().environmentObject(none.store).environment(\.dynamicTypeSize, type), width: width)
+                for h in [one, both] {
+                    let b = fit(ScoreBarView().environmentObject(h.store).environment(\.dynamicTypeSize, type), width: width)
+                    XCTAssertEqual(b.height, a.height, accuracy: 0.5, "\(width) \(type)")
+                    XCTAssertLessThanOrEqual(b.height, 84, "\(width) \(type)")
+                    XCTAssertLessThanOrEqual(b.width, width + 0.5, "\(width) \(type)")
                 }
             }
         }

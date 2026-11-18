@@ -17,6 +17,7 @@
  *     card played and each trick's winner.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { scoreHeaderNames } from '../ui/components/ScoreModal.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -212,10 +213,15 @@ describe('the hand toolbar mirrors the canvas hand', () => {
     replayTo(done + 1);
     const after = said.slice(n);
     expect(after).toContain(`You played the ${btnLabel(turn.card)}.`);
-    const won = after.filter((t) => /^(You|.+) won the trick\. Tricks: your team \d+, opponents \d+\.$/.test(t));
+    const won = after.filter((t) => /^(You|.+) won the trick\. Tricks: .+ and .+ \d+, .+ and .+ \d+\.$/.test(t));
     expect(won, after.join(' | ')).toHaveLength(1);
-    // the counts are the table's (GameState, after the event applied)
-    expect(won[0]).toContain(`your team ${page.gameState.teamTricks}, opponents ${page.gameState.oppTricks}`);
+    // the sides by their players' names, mine first (owner 2026-11-17: never
+    // "your team" / "opponents"); the counts are the table's (GameState,
+    // after the event applied)
+    const { teamName, oppName } = scoreHeaderNames(page.gameState.position, page.gameState.playerData);
+    const said2 = (names) => names.split('/').join(' and ');
+    expect(won[0]).toContain(`Tricks: ${said2(teamName)} ${page.gameState.teamTricks}, ${said2(oppName)} ${page.gameState.oppTricks}.`);
+    expect(won[0]).not.toMatch(/your team|opponents|Team [12]/i);
     expect(myAction().state).toBe('idle');
   });
 });

@@ -131,6 +131,23 @@ final class ReducerUnitTests: XCTestCase {
         XCTAssertEqual(s.log.unread, 0)
     }
 
+    /// The bidding's log line names each team (owner 2026-11-17): a seat's own team first,
+    /// "me/partner" then "opp1/opp2" (opp1 the next seat clockwise, as the score bar), each
+    /// with its bids in the same order; a spectator's seats 1/3 then 2/4.
+    func testBiddingCompleteNamesEachTeam() {
+        var s = T.dealtState()  // 1 me, 2 L, 3 P, 4 R
+        let book = BidBook(byPosition: ["1", "B", "0", "2"])
+        s.table.viewer.position = 2
+        TableReducer.logBiddingComplete(&s, book)
+        XCTAssertEqual(s.log.entries.last?.message, "Bidding complete — L/R: B/2, P/me: 0/1")
+        s.table.viewer = ViewerState(role: .spectator, position: nil)
+        TableReducer.logBiddingComplete(&s, book)
+        XCTAssertEqual(s.log.entries.last?.message, "Bidding complete — me/P: 1/0, L/R: B/2")
+        for entry in s.log.entries {
+            XCTAssertFalse(entry.message.contains("Your team") || entry.message.contains("Opponents"), entry.message)
+        }
+    }
+
     func testGoldenLogStrings() {
         var s = T.dealtState(hand: [T.card("spades", "A")], size: 1, dealer: 4, trump: T.card("hearts", "Q"))
         XCTAssertEqual(s.log.entries.last?.message, "Hand 1 — Trump: Q\u{2665}")
@@ -140,7 +157,7 @@ final class ReducerUnitTests: XCTestCase {
         bid(&s, 3, "0", array: ["1", "B", "0"], seq: 5)
         bid(&s, 4, "0", array: ["1", "B", "0", "0"], seq: 6)
         TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "B", "0", "0"], "lead": 1, "seq": 7]))
-        XCTAssertEqual(s.log.entries.last?.message, "Bidding complete — Your team: 1/0, Opponents: B/0")
+        XCTAssertEqual(s.log.entries.last?.message, "Bidding complete — me/P: 1/0, L/R: B/0", "each team by name, never Your team / Opponents")
         TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "A"), "position": 1, "trump": false, "seq": 8]))
         for (i, p) in [2, 3, 4].enumerated() {
             TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", String(i + 2)), "position": p, "trump": false, "seq": 9 + i]))

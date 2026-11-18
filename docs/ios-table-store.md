@@ -1110,8 +1110,9 @@ wire). 1.2.0 through 1.2.1 are unaffected.
   the row centred (times the table's zoom; a 1-card hand is one chip, not a
   bar); the
   panel's vertical padding went from 4 + 4 to 2 + 1 so a 13-card panel is
-  still 140 pt (the bid band). VoiceOver: "Bids: your team 3, opponents 2, of
-  7 tricks. Over by 1".
+  still 140 pt (the bid band). VoiceOver: "Bids: ann and cat 3, bob and dan 2,
+  of 7 tricks. Over by 1" (the sides by name, mine first, never "your team" /
+  "opponents", owner 2026-11-17; "Bids: 5 of 7 tricks" while not known).
 - **Unknown chat command** (web: the server's "Unknown command: /x"):
   `ChatCommand.resolve` sends a command or its unique prefix as the command;
   any other line starting with "/" (ambiguous "/l", "/shrug", "/lazy now",

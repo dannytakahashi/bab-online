@@ -36,9 +36,11 @@ final class TableChromeAnimationTests: XCTestCase {
         guard let last = samples.last else { return }
         // the table spot: just under the score bar
         let bar = names.frame
-        // the bar names the players, read with its side first (never the old placeholder)
-        XCTAssertTrue(names.label.hasPrefix("Your team, "), "score bar names: \(names.label)")
-        XCTAssertTrue(app.staticTexts["scoreBar.oppNames"].label.hasPrefix("Opponents, "), "score bar names: \(app.staticTexts["scoreBar.oppNames"].label)")
+        // the bar names the players, read by name only (never the old placeholder or a side)
+        for label in [names.label, app.staticTexts["scoreBar.oppNames"].label] {
+            XCTAssertTrue(label.contains(" and "), "score bar names: \(label)")
+            XCTAssertFalse(label.contains("Your team") || label.contains("Opponents"), "score bar names: \(label)")
+        }
         XCTAssertFalse(app.staticTexts["Your Team"].exists, "the old placeholder in the score bar")
         XCTAssertLessThan(abs(last.leave - last.log), 1, "Exit and the log button share a top: \(last)")
         XCTAssertGreaterThan(last.leave, bar.maxY, "under the score bar: \(last) bar \(bar)")

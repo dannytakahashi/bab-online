@@ -30,7 +30,11 @@ final class DrawPhaseUITests: XCTestCase {
         let app = Fixture.launch(state, extra: extra)
         XCTAssertTrue(app.staticTexts["Draw for Deal"].waitForExistence(timeout: 20), "\(state) did not come up")
         if state == "draw-teams" {
-            XCTAssertTrue(app.staticTexts["Team 1"].waitForExistence(timeout: 8), "no teams")
+            // the teams by name (no "Team 1" heading since owner 2026-11-17): fay and gus, seats 1 and 3
+            let team = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "fay and gus")).firstMatch
+            XCTAssertTrue(team.waitForExistence(timeout: 8), "no teams")
+            XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "🤖 Mike and eve")).firstMatch.exists, "team 2 by name")
+            XCTAssertFalse(app.staticTexts["Team 1"].exists || app.staticTexts["Team 2"].exists, "a team number heading")
             sleep(1)
         } else {
             sleep(2)

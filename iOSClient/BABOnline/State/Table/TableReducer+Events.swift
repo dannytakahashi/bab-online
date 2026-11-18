@@ -402,16 +402,19 @@ extension TableReducer {
         if BidRules.isBore(bid) { fx.append(.animate(.bore(position: pos, bid: bid, dealSeq: dealSeq))) }
     }
 
+    /// "Bidding complete — ann/cat: 1/0, bob/dan: B/0": each team by its players' names with
+    /// their bids in the same order (owner 2026-11-17: never "Your team" / "Opponents"; the
+    /// web logs no such line). A seat's own team first ("me/partner", then "opp1/opp2", opp1
+    /// the next seat clockwise, as the score bar); a spectator's seats 1/3 then 2/4.
     static func logBiddingComplete(_ s: inout TableState, _ bids: BidBook) {
         let players = s.players
-        let name = { (pos: Int) in players.name(pos) }
-        let b = { (pos: Int) in bids.bid(at: pos) ?? "-" }
-        if s.table.viewer.role == .spectator {
-            addLog(&s, "Bidding complete — \(name(1))/\(name(3)): \(b(1))/\(b(3)), \(name(2))/\(name(4)): \(b(2))/\(b(4))")
-        } else if let me = s.table.viewer.position {
-            let opp = me % 2 == 1 ? [2, 4] : [1, 3]
-            addLog(&s, "Bidding complete — Your team: \(b(me))/\(b(Positions.team(me))), Opponents: \(b(opp[0]))/\(b(opp[1]))")
+        let me: Int
+        if s.table.viewer.role == .spectator { me = 1 } else if let p = s.table.viewer.position { me = p } else { return }
+        let r = Positions.getRelativePositions(myPos: me)
+        let side = { (a: Int, b: Int) in
+            "\(players.name(a))/\(players.name(b)): \(bids.bid(at: a) ?? "-")/\(bids.bid(at: b) ?? "-")"
         }
+        addLog(&s, "Bidding complete — \(side(me, r.partner)), \(side(r.opp1, r.opp2))")
     }
 
     static func cardPlayed(_ s: inout TableState, _ p: WirePayload.CardPlayed, _ fx: inout [TableEffect]) {

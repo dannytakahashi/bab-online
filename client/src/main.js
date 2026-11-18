@@ -1872,7 +1872,8 @@ function initializeApp() {
       messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
 
       // Update game log score display (player names only: the header
-      // never shows a placeholder; the score modal keeps getTeamNames')
+      // never shows a placeholder; the score modal's getTeamNames gives the
+      // same names, never a placeholder either)
       const header = scoreHeaderNames(position, playerData, { spectator: !!isSpectator });
       window.updateGameLogScoreFromLegacy(header.teamName, header.oppName, teamScore, oppScore);
       const { teamName, oppName } = getTeamNames(position, playerData, { spectator: !!isSpectator });

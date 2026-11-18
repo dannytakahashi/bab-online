@@ -883,7 +883,7 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     pad: Math.max(SPACE.s3, SPACE.s6 * s),
     gap: Math.max(SPACE.s2, SPACE.s4 * s),
     avatar: Math.max(24, SPACE.s10 * s),
-    fonts: { label: Math.max(TYPE.md, TYPE.xl * s), names: Math.max(TYPE.sm, 18 * s), vs: Math.max(TYPE.sm, TYPE.md * s) },
+    fonts: { names: Math.max(TYPE.sm, 18 * s), vs: Math.max(TYPE.sm, TYPE.md * s) },
   };
 
   // ---------- effects (transient: not part of the overlap checks) ----------

@@ -1023,7 +1023,7 @@ export class GameScene extends Phaser.Scene {
     const isMyTeam = winner % 2 === myPosition % 2;
 
     // the announcer: who took it, and (for a seat) the hand's tricks so far
-    const tally = this.state.isSpectator ? '' : ` Tricks: your team ${this.state.teamTricks || 0}, opponents ${this.state.oppTricks || 0}.`;
+    const tally = this.state.isSpectator ? '' : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
     announce(`${this._seatName(winner)} won the trick.${tally}`);
 
     // Animate cards to winner's stack via TrickManager
@@ -1099,7 +1099,7 @@ export class GameScene extends Phaser.Scene {
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
     }
 
-    announce(state.isSpectator ? 'Hand over.' : `Hand over. Score: your team ${teamScore}, opponents ${oppScore}.`);
+    announce(state.isSpectator ? 'Hand over.' : `Hand over.${this._teamsSaid(' Score:', teamScore, oppScore)}`);
 
     // Clear hand cards
     if (this.cardManager) {
@@ -1383,6 +1383,19 @@ export class GameScene extends Phaser.Scene {
     const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
     if (!r.legal && r.reason) return `${r.reason}.`;
     return 'Wait for the trick to clear.';
+  }
+
+  /**
+   * A count per side for the announcer, the sides by their players' names,
+   * mine first (" Tricks: ann and cat 3, bob and dan 2."), never "your
+   * team" / "opponents" (owner 2026-11-17); '' while the names are not known.
+   */
+  _teamsSaid(lead, mine, theirs) {
+    const s = this.state;
+    const { teamName, oppName } = scoreHeaderNames(s.position, s.playerData, { spectator: !!s.isSpectator });
+    if (!teamName || !oppName) return '';
+    const said = (names) => names.split('/').join(' and ');
+    return `${lead} ${said(teamName)} ${mine}, ${said(oppName)} ${theirs}.`;
   }
 
   /** Who a seat is, for the announcer: "You", or the seat's name. */

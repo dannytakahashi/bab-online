@@ -9,9 +9,7 @@ struct ScoreBarView: View {
             // Team side (positions 1 & 3)
             VStack(spacing: 2) {
                 namesLabel(team1Names, side: .mine)
-                Text("\(gameState.teamScore)")
-                    .font(.title3.bold())
-                    .foregroundColor(Theme.team(myTeam))
+                scoreLine(gameState.teamScore, team: myTeam, mult: sideMults.mine, names: team1Names, side: .mine)
 
                 HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.teamBids {
@@ -44,21 +42,13 @@ struct ScoreBarView: View {
                 Text("Hand \(handNumber)")
                     .font(.caption2)
                     .foregroundColor(Theme.textDim)
-
-                if gameState.team1Mult > 1 || gameState.team2Mult > 1 {
-                    Text(multiplierText)
-                        .font(.caption2.bold())
-                        .foregroundColor(Theme.warning)
-                }
             }
             .frame(width: 100)
 
             // Opponent side (positions 2 & 4)
             VStack(spacing: 2) {
                 namesLabel(team2Names, side: .theirs)
-                Text("\(gameState.oppScore)")
-                    .font(.title3.bold())
-                    .foregroundColor(Theme.team(3 - myTeam))
+                scoreLine(gameState.oppScore, team: 3 - myTeam, mult: sideMults.theirs, names: team2Names, side: .theirs)
 
                 HStack(spacing: Theme.Space.s2) {
                     if let bids = gameState.oppBids {
@@ -112,13 +102,68 @@ struct ScoreBarView: View {
     /// The two sides of the bar: mine (the left; seats 1 and 3 for a spectator) and theirs.
     enum Side { case mine, theirs }
 
+    /// A side's score in its team's colour and, while that team has bored, its bore level
+    /// ("B", "2B", "3B", "4B": the bid's own word, as the web's header shows it in the team's
+    /// "Bids: B/1") just after the score on its baseline, caption2 bold in the warning colour.
+    /// A hidden copy of the level before the score keeps the score centred in its column; the
+    /// score never shrinks, and caption2 on title3's baseline adds no height (the 84 pt cap:
+    /// `ScoreBarNamesTests.testBoreLevelsKeepTheBarsSize`). It was one "T1: B | T2: 2B" line
+    /// in the centre column (owner 2026-11-17: never a team number). VoiceOver:
+    /// `multiplierAccessibilityLabel`. Identifiers `scoreBar.teamMult` / `scoreBar.oppMult`
+    /// (the scores `scoreBar.teamScore` / `scoreBar.oppScore`).
+    @ViewBuilder
+    private func scoreLine(_ score: Int, team: Int, mult: Int, names: SideNames?, side: Side) -> some View {
+        let scoreText = Text("\(score)")
+            .font(.title3.bold())
+            .foregroundColor(Theme.team(team))
+            .accessibilityIdentifier(side == .mine ? "scoreBar.teamScore" : "scoreBar.oppScore")
+        if let level = Self.boreLevel(mult) {
+            let levelText = Text(level).font(.caption2.bold()).lineLimit(1)
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {
+                levelText.hidden().accessibilityHidden(true)
+                scoreText.fixedSize().layoutPriority(1)
+                levelText
+                    .foregroundColor(Theme.warning)
+                    .accessibilityLabel(Self.multiplierAccessibilityLabel(level, names: names, side: side, spectator: gameState.isSpectator))
+                    .accessibilityIdentifier(side == .mine ? "scoreBar.teamMult" : "scoreBar.oppMult")
+            }
+        } else {
+            scoreText
+        }
+    }
+
+    /// A team's multiplier as its bore level: 2 "B", 4 "2B", 8 "3B", 16 "4B"; nil for 1 (no
+    /// bore) or anything else.
+    static func boreLevel(_ mult: Int) -> String? {
+        [2: "B", 4: "2B", 8: "3B", 16: "4B"][mult]
+    }
+
+    /// The (left, right) sides' multipliers from the absolute teams' (team 1 = seats 1 and 3):
+    /// the viewer's team on the left (team 1 for a spectator).
+    static func sideMults(team1: Int, team2: Int, myTeam: Int) -> (mine: Int, theirs: Int) {
+        myTeam == 2 ? (team2, team1) : (team1, team2)
+    }
+
+    private var sideMults: (mine: Int, theirs: Int) {
+        Self.sideMults(team1: gameState.team1Mult, team2: gameState.team2Mult, myTeam: myTeam)
+    }
+
+    /// VoiceOver for a side's bore level: whose it is, as that side's names are read, then the
+    /// level ("ann and cat, bore B"); while the names are not known a spectator's "Seats 1 and
+    /// 3, bore B" (its sides are fixed seats), a seat's just "bore B" (never "Your team").
+    static func multiplierAccessibilityLabel(_ level: String, names: SideNames?, side: Side, spectator: Bool) -> String {
+        var who = namesAccessibilityLabel(names)
+        if who.isEmpty && spectator { who = side == .mine ? "Seats 1 and 3" : "Seats 2 and 4" }
+        return who.isEmpty ? "bore \(level)" : "\(who), bore \(level)"
+    }
+
     /// A side's names on one line (owner 2026-11-17: the players' names, never "Your Team" /
     /// "Opponents"): `ScoreBarNamesLabel`, which shrinks, then cuts each name at its end so
     /// both names and the "/" always show. The line is always one full-size caption2 line tall
     /// (a hidden " " sets it, the names sit over it), so neither an empty side (names not
     /// known yet) nor a shrunk long name changes the bar's height: no jump when the names
     /// come, and the bar stays inside its 84 pt cap (TableLayoutTests, SceneLayoutTests).
-    /// VoiceOver reads which side it is first (`namesAccessibilityLabel`). Identifiers:
+    /// VoiceOver reads the two names (`namesAccessibilityLabel`). Identifiers:
     /// `scoreBar.teamNames` / `scoreBar.oppNames`.
     private func namesLabel(_ names: SideNames?, side: Side) -> some View {
         Text(" ")
@@ -128,15 +173,15 @@ struct ScoreBarView: View {
             .overlay {
                 ScoreBarNamesLabel(
                     names: names,
-                    accessibilityLabel: Self.namesAccessibilityLabel(names, side: side, spectator: gameState.isSpectator),
+                    accessibilityLabel: Self.namesAccessibilityLabel(names),
                     identifier: side == .mine ? "scoreBar.teamNames" : "scoreBar.oppNames"
                 )
             }
     }
 
-    /// One side's two names and what goes between them: a seat's "ann" "/" "cat", a
-    /// spectator's initials "a" " & " "c". Kept apart (not one joined string) so the bar can
-    /// cut each name on its own and VoiceOver reads the two names whatever is in them.
+    /// One side's two names and what goes between them: "ann" "/" "cat". Kept apart (not one
+    /// joined string) so the bar can cut each name on its own and VoiceOver reads the two
+    /// names whatever is in them.
     struct SideNames: Equatable {
         let first: String
         let second: String
@@ -144,26 +189,22 @@ struct ScoreBarView: View {
         var joined: String { first + separator + second }
     }
 
-    /// The left side: a seat's "me/partner", a spectator's initials of seats 1 and 3.
-    private var team1Names: SideNames? {
-        if gameState.isSpectator { return spectatorInitials(1, 3) }
-        return seatTeams.team
-    }
+    /// The left side: a seat's "me/partner", a spectator's seats 1 and 3 ("ann/cat").
+    private var team1Names: SideNames? { seatTeams.team }
 
-    /// The right side: a seat's "opp1/opp2", a spectator's initials of seats 2 and 4.
-    private var team2Names: SideNames? {
-        if gameState.isSpectator { return spectatorInitials(2, 4) }
-        return seatTeams.opp
-    }
-
-    /// A spectator's side as before the names change: "a & c" ("?" for a seat not known).
-    private func spectatorInitials(_ a: Int, _ b: Int) -> SideNames {
-        let initial = { (p: Int) in gameState.players.seats[p]?.username?.prefix(1).description ?? "?" }
-        return SideNames(first: initial(a), second: initial(b), separator: " & ")
-    }
+    /// The right side: a seat's "opp1/opp2", a spectator's seats 2 and 4 ("bob/dan").
+    private var team2Names: SideNames? { seatTeams.opp }
 
     private var seatTeams: (team: SideNames?, opp: SideNames?) {
-        Self.seatTeams(position: gameState.position, usernames: gameState.players.seats.compactMapValues(\.username))
+        Self.viewerTeams(position: gameState.position, spectator: gameState.isSpectator,
+                         usernames: gameState.players.seats.compactMapValues(\.username))
+    }
+
+    /// The bar's two sides for the viewer: a seat's `seatTeams`; a spectator's as seat 1's
+    /// ("seat1/seat3", "seat2/seat4": the web's scoreHeaderNames for a spectator, which were
+    /// the initials "a & c" until 2026-11-17).
+    static func viewerTeams(position: Int?, spectator: Bool, usernames: [Int: String]) -> (team: SideNames?, opp: SideNames?) {
+        seatTeams(position: spectator ? 1 : position, usernames: usernames)
     }
 
     /// A seated player's two sides by name, as the web's score header (client
@@ -189,16 +230,12 @@ struct ScoreBarView: View {
     }
 
     /// What VoiceOver reads for a side's names, built from the two names (never by splitting
-    /// the shown text, so a "/" inside a username is read as part of it). The bar shows only
-    /// names, so a seat's label says which side it is first (sighted players get that from the
-    /// side and the team colour): "Your team, ann and cat" / "Opponents, bob and dan" (read
-    /// "and", not "slash"); just "Your team" / "Opponents" while the names are not known. A
-    /// spectator's initials are read as shown ("a & c": "a and c"), as before.
-    static func namesAccessibilityLabel(_ names: SideNames?, side: Side, spectator: Bool) -> String {
-        if spectator { return names?.joined ?? "" }
-        let title = side == .mine ? "Your team" : "Opponents"
-        guard let names else { return title }
-        return "\(title), \(names.first) and \(names.second)"
+    /// the shown text, so a "/" inside a username is read as part of it): "ann and cat" (read
+    /// "and", not "slash"), for a seat and a spectator alike; "" while the names are not known.
+    /// Never "Your team" / "Opponents" (owner 2026-11-17, as the web's announcer): a seat's
+    /// own side is the one with its own name, read first.
+    static func namesAccessibilityLabel(_ names: SideNames?) -> String {
+        names.map { "\($0.first) and \($0.second)" } ?? ""
     }
 
     /// The smallest the names shrink to before they are cut (the bids line's factor).
@@ -246,21 +283,6 @@ struct ScoreBarView: View {
     private var handNumber: String {
         // currentHand is the hand SIZE (12, 10, 8, ...), display it directly
         return "\(gameState.currentHand)"
-    }
-
-    private var multiplierText: String {
-        var parts: [String] = []
-        if gameState.team1Mult > 1 {
-            let level = ["", "B", "2B", "3B", "4B"]
-            let idx = [1: 0, 2: 1, 4: 2, 8: 3, 16: 4][gameState.team1Mult] ?? 0
-            parts.append("T1: \(level[idx])")
-        }
-        if gameState.team2Mult > 1 {
-            let level = ["", "B", "2B", "3B", "4B"]
-            let idx = [1: 0, 2: 1, 4: 2, 8: 3, 16: 4][gameState.team2Mult] ?? 0
-            parts.append("T2: \(level[idx])")
-        }
-        return parts.joined(separator: " | ")
     }
 
     private func trumpDisplay(_ trump: Card) -> String {

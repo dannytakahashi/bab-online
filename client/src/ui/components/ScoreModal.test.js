@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { showFinalScoreOverlay, removeFinalScoreOverlay, getTeamNames, placeholderTeamNames, scoreHeaderNames, formatGameEndMessages } from './ScoreModal.js';
+import { showFinalScoreOverlay, removeFinalScoreOverlay, getTeamNames, scoreHeaderNames, formatGameEndMessages, formatHandCompleteMessages } from './ScoreModal.js';
+
+const PLACEHOLDER = /Your Team|Opponents|Team 1|Team 2/;
 
 describe('showFinalScoreOverlay', () => {
   afterEach(() => {
@@ -24,43 +26,101 @@ describe('showFinalScoreOverlay', () => {
   });
 });
 
-// getTeamNames: the game-end lines' and the score modal's names. Before the
-// seats exist (the draw for deal: no playerData) a spectator has no team:
-// never "Your Team" / "Opponents" (owner nit 2026-11-16). The game log's
-// score header uses scoreHeaderNames (below), which has no placeholder.
+// getTeamNames: the game-end lines', the hand's lines' and the score
+// modal's names: player names only, never a placeholder or a team number
+// (owner 2026-11-17). Before the seats exist (the draw for deal: no
+// playerData) both are '' and the lines leave the names out.
 describe('getTeamNames', () => {
   const seated = {
     position: [1, 2, 3, 4],
     username: [{ username: 'dadv' }, { username: 'momv' }, { username: 'gramv' }, { username: 'popv' }],
   };
 
-  it('a spectator during the draw (no seats yet): "Team 1" / "Team 2"', () => {
-    expect(getTeamNames(1, null, { spectator: true })).toEqual({ teamName: 'Team 1', oppName: 'Team 2' });
-    expect(getTeamNames(1, { position: undefined, username: undefined }, { spectator: true })).toEqual({ teamName: 'Team 1', oppName: 'Team 2' });
+  it('before the seats exist (the draw): empty, for a spectator and a seat alike', () => {
+    for (const spectator of [true, false]) {
+      expect(getTeamNames(1, null, { spectator })).toEqual({ teamName: '', oppName: '' });
+      expect(getTeamNames(2, { position: undefined, username: undefined }, { spectator })).toEqual({ teamName: '', oppName: '' });
+    }
   });
 
   it('a spectator once the teams are seated: the teams by name, seats 1/3 then 2/4', () => {
     expect(getTeamNames(1, seated, { spectator: true })).toEqual({ teamName: 'dadv/gramv', oppName: 'momv/popv' });
+    expect(getTeamNames(null, seated, { spectator: true })).toEqual({ teamName: 'dadv/gramv', oppName: 'momv/popv' });
   });
 
-  it('a player during the draw: "Your Team" / "Opponents", as before', () => {
-    expect(getTeamNames(2, null)).toEqual({ teamName: 'Your Team', oppName: 'Opponents' });
-    expect(getTeamNames(2, null, { spectator: false })).toEqual({ teamName: 'Your Team', oppName: 'Opponents' });
-  });
-
-  it('a player once seated: mine/partner, then the opponents', () => {
+  it('a player once seated: me/partner, then the opponents', () => {
     expect(getTeamNames(2, seated)).toEqual({ teamName: 'momv/popv', oppName: 'gramv/dadv' });
   });
 
-  it('placeholderTeamNames: by viewer', () => {
-    expect(placeholderTeamNames(true)).toEqual({ teamName: 'Team 1', oppName: 'Team 2' });
-    expect(placeholderTeamNames(false)).toEqual({ teamName: 'Your Team', oppName: 'Opponents' });
-    expect(placeholderTeamNames()).toEqual({ teamName: 'Your Team', oppName: 'Opponents' });
+  it('never a placeholder, whatever it is given', () => {
+    for (const pd of [null, undefined, {}, seated, { position: [1], username: [{ username: 'ann' }] }]) {
+      for (const pos of [null, 1, 2, 3, 4]) {
+        for (const spectator of [false, true]) {
+          const { teamName, oppName } = getTeamNames(pos, pd, { spectator });
+          expect(`${teamName} ${oppName}`).not.toMatch(PLACEHOLDER);
+        }
+      }
+    }
+  });
+});
+
+describe('the game-over and hand lines', () => {
+  const seated = {
+    position: [1, 2, 3, 4],
+    username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+  };
+
+  it('a spectator\'s game-over lines name the teams, seats 1/3 then 2/4', () => {
+    const lines = formatGameEndMessages({ myPosition: 1, playerData: seated, teamScore: 120, oppScore: 80, isSpectator: true });
+    expect(lines).toEqual(['=== GAME OVER ===', 'ann/cat: 120', 'bob/dan: 80', 'ann/cat wins!']);
   });
 
-  it('a spectator\'s game-over lines name the teams neutrally without seats too', () => {
-    const lines = formatGameEndMessages({ myPosition: 1, playerData: null, teamScore: 120, oppScore: 80, isSpectator: true });
-    expect(lines).toEqual(['=== GAME OVER ===', 'Team 1: 120', 'Team 2: 80', 'Team 1 wins!']);
+  it('a seat\'s game-over lines: me/partner first', () => {
+    const lines = formatGameEndMessages({ myPosition: 2, playerData: seated, teamScore: 80, oppScore: 120 });
+    expect(lines).toEqual(['=== GAME OVER ===', 'bob/dan: 80', 'cat/ann: 120', 'DEFEAT']);
+  });
+
+  it('without the seats: only the score (no "Team 1" / "Your Team")', () => {
+    expect(formatGameEndMessages({ myPosition: 1, playerData: null, teamScore: 120, oppScore: 80, isSpectator: true }))
+      .toEqual(['=== GAME OVER ===', 'Final Score: 120 - 80']);
+    expect(formatGameEndMessages({ myPosition: 1, playerData: null, teamScore: 80, oppScore: 80, isSpectator: true }))
+      .toEqual(['=== GAME OVER ===', 'Final Score: 80 - 80', 'TIE GAME']);
+    expect(formatGameEndMessages({ myPosition: 3, playerData: null, teamScore: 120, oppScore: 80 }))
+      .toEqual(['=== GAME OVER ===', 'Final Score: 120 - 80', 'VICTORY']);
+  });
+
+  it('the hand\'s lines: me/partner first; without the seats, no names', () => {
+    const opts = { myPosition: 1, bids: { 1: 2, 2: 1, 3: 3, 4: 0 }, teamScore: 50, oppScore: -10, teamOldScore: 0, oppOldScore: 0, teamTricks: 5, oppTricks: 0 };
+    expect(formatHandCompleteMessages({ ...opts, playerData: seated })).toEqual([
+      '--- HAND COMPLETE ---',
+      'ann/cat: Bid 2/3, Won 5, +50 → 50',
+      'bob/dan: Bid 1/0, Won 0, -10 → -10',
+    ]);
+    const bare = formatHandCompleteMessages({ ...opts, playerData: null });
+    expect(bare).toEqual(['--- HAND COMPLETE ---', 'Bid 2/3, Won 5, +50 → 50', 'Bid 1/0, Won 0, -10 → -10']);
+    expect(bare.join(' ')).not.toMatch(PLACEHOLDER);
+  });
+});
+
+describe('the score modal\'s names', () => {
+  afterEach(() => removeFinalScoreOverlay());
+  const score = () => document.querySelector('#finalScoreOverlay .result-score').textContent;
+
+  it('a seat sees the teams by name, me/partner first', () => {
+    showFinalScoreOverlay({ teamScore: 300, oppScore: 120, teamName: 'bob/dan', oppName: 'cat/ann', onReturnToLobby: () => {} });
+    expect(score()).toBe('bob/dan: 300  —  cat/ann: 120');
+    expect(document.getElementById('finalScoreOverlay').textContent).not.toMatch(PLACEHOLDER);
+  });
+
+  it('a spectator sees seats 1/3 first', () => {
+    showFinalScoreOverlay({ teamScore: 300, oppScore: 120, isSpectator: true, teamName: 'ann/cat', oppName: 'bob/dan', onReturnToLobby: () => {} });
+    expect(score()).toBe('ann/cat: 300  —  bob/dan: 120');
+  });
+
+  it('without names: only the score', () => {
+    showFinalScoreOverlay({ teamScore: 300, oppScore: 120, isSpectator: true, teamName: '', oppName: '', onReturnToLobby: () => {} });
+    expect(score()).toBe('Final Score: 300 - 120');
+    expect(document.getElementById('finalScoreOverlay').textContent).not.toMatch(PLACEHOLDER);
   });
 });
 
@@ -113,7 +173,6 @@ describe('scoreHeaderNames', () => {
   });
 
   it('never returns a placeholder, whatever it is given', () => {
-    const PLACEHOLDER = /Your Team|Opponents|Team 1|Team 2/;
     for (const pd of [null, undefined, {}, seated, { position: [1], username: [{ username: 'ann' }] }]) {
       for (const pos of [null, 1, 2, 3, 4]) {
         for (const spectator of [false, true]) {
