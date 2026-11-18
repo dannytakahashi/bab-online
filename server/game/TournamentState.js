@@ -5,6 +5,8 @@
 
 const { v4: uuidv4 } = require('uuid');
 const { safeTimeout } = require('../utils/safeTimer');
+// The persist store's change hook (persist/hooks.js, through _changed)
+const persistHooks = require('./persist/hooks');
 
 class TournamentState {
     constructor(tournamentId, name, creatorSocketId, creatorUsername) {
@@ -78,6 +80,7 @@ class TournamentState {
             };
         }
         this.logAction('addPlayer', { socketId, username });
+        this._changed();
     }
 
     /**
@@ -107,6 +110,7 @@ class TournamentState {
                 if (oldSocketId === newSocketId) {
                     player.connected = true;
                     this.recoverCreatorIfDisconnected();
+                    this._changed();
                     return { oldSocketId };
                 }
                 this.players.delete(oldSocketId);
@@ -119,6 +123,7 @@ class TournamentState {
                 }
                 this.recoverCreatorIfDisconnected();
                 this.logAction('reattachPlayer', { username, oldSocketId, newSocketId });
+                this._changed();
                 return { oldSocketId };
             }
         }
@@ -153,6 +158,7 @@ class TournamentState {
         this.readyPlayers.delete(socketId);
 
         this.logAction('removePlayer', { socketId, username: player.username });
+        this._changed();
         return player;
     }
 
@@ -215,7 +221,13 @@ class TournamentState {
      *   (the idle-host hand-off: the new host can begin at once)
      * @returns {{ socketId: string, username: string } | null} New creator, or null if no humans remain
      */
-    transferCreator({ preferReady = false } = {}) {
+    transferCreator(opts = {}) {
+        const next = this._transferCreator(opts);
+        this._changed();
+        return next;
+    }
+
+    _transferCreator({ preferReady = false } = {}) {
         if (preferReady) {
             for (const [socketId, player] of this.players.entries()) {
                 if (socketId !== this.createdBy && player.connected !== false && this.readyPlayers.has(socketId)) {
@@ -263,6 +275,7 @@ class TournamentState {
         this.phase = 'starting';
         this.epoch++;
         this.clearTimers();
+        this._changed();
         return this.epoch;
     }
 
@@ -348,6 +361,7 @@ class TournamentState {
         this.rounds.push(roundData);
 
         this.logAction('startRound', { roundNumber });
+        this._changed();
         return roundData;
     }
 
@@ -366,6 +380,7 @@ class TournamentState {
             status: 'active'
         });
         this.logAction('addGameToRound', { gameId, humanCount: humanPlayers.length, botCount });
+        this._changed();
     }
 
     /**
@@ -402,6 +417,7 @@ class TournamentState {
         entry.totalScore += roundScore;
 
         this.logAction('recordPlayerRoundScore', { username, roundScore, totalScore: entry.totalScore });
+        this._changed();
     }
 
     /** The round a game was created in (null if it is not one of ours). */
@@ -427,6 +443,7 @@ class TournamentState {
             completedCount: round.completedGames.size,
             totalGames: round.games.size
         });
+        this._changed();
     }
 
     isRoundComplete() {
@@ -448,6 +465,7 @@ class TournamentState {
         this.readyDeadlineAt = null;
         this.handedOffThisWait = false;
         this.logAction('completeRound', { round: this.currentRound, phase: this.phase });
+        this._changed();
     }
 
     /**
@@ -539,7 +557,34 @@ class TournamentState {
         if (this.messages.length > this.maxMessages) {
             this.messages.shift();
         }
+        this._changed();
         return chatMessage;
+    }
+
+    /**
+     * An account was deleted: drop every chat line it sent here, as a
+     * player or a spectator (by username). System lines are never stored.
+     * @returns {number} lines removed
+     */
+    scrubChatFrom(username) {
+        const before = this.messages.length;
+        for (let i = this.messages.length - 1; i >= 0; i--) {
+            if (this.messages[i].username === username) this.messages.splice(i, 1);
+        }
+        const removed = before - this.messages.length;
+        if (removed > 0) this._changed();
+        return removed;
+    }
+
+    /**
+     * Tell the persist store this tournament changed (persist/hooks.js):
+     * every mutator here calls it, broadcast does, and so does code that
+     * writes a field directly (tournamentHandlers' phase rollbacks,
+     * tournamentLiveness' ready deadline and hand-off flag). Passive: it
+     * only marks the tournament dirty.
+     */
+    _changed() {
+        persistHooks.tournamentChanged(this);
     }
 
     // ========================================
@@ -548,6 +593,7 @@ class TournamentState {
 
     broadcast(io, event, data) {
         io.to(this.roomName).emit(event, data);
+        this._changed();
     }
 
     joinToRoom(io, socketId) {

@@ -7,9 +7,13 @@
  * pictures) and each game end (stats, clearActiveGameForAll) swallow the
  * error and continue about 5 s later, and the tournament finishes.
  * Real handlers, stub sockets, fake timers, the in-memory DB.
+ * With LIVE_PERSIST write (deploy survival) the live collections are down
+ * too: no game waits on a live write, only the terminal claim at a game's
+ * end, bounded (liveStore.CLAIM_MAX_MS), and the store's warnings are
+ * rate-limited and name ids only.
  */
 
-const { createMemoryDb } = require('../../testUtils/memoryDb');
+const { createMemoryDb, MemoryCollection } = require('../../testUtils/memoryDb');
 
 const mockDb = { current: null };
 jest.mock('../../database', () => ({
@@ -66,6 +70,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    require('../../game/persist/liveStore')._resetForTests();
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
     jest.clearAllTimers();
@@ -128,4 +133,59 @@ test('Mongo down for a whole tournament: every game is played, each DB wait cost
     for (let i = 0; i < 4; i++) {
         expect(results[i] - ends[i]).toBeLessThanOrEqual(SERVER_SELECTION_TIMEOUT_MS + 1000);
     }
+}, 120000);
+
+test('LIVE_PERSIST write with Mongo down, the live collections too: every game is played; each game end waits on its claim at most CLAIM_MAX_MS more', async () => {
+    const liveStore = require('../../game/persist/liveStore');
+    const calls = { n: 0 };
+    const liveCalls = { n: 0 };
+    const live = {
+        liveGames: down(new MemoryCollection(), liveCalls),
+        liveTournaments: down(new MemoryCollection(), liveCalls),
+        serverInstances: down(new MemoryCollection(), liveCalls),
+    };
+    const warns = [];
+    const store = liveStore.createLiveStore({
+        mode: 'write',
+        bootId: 'boot-outage',
+        getCollections: () => live,
+        logger: { info() {}, debug() {}, error: (msg, meta) => warns.push({ msg, meta }), warn: (msg, meta) => warns.push({ msg, meta }) },
+    });
+    liveStore._setForTests(store);
+    const unhandled = [];
+    const onUnhandled = (r) => unhandled.push(r);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+        const ctx = await setupTournament(1);
+        mockDb.current = {
+            users: down(mockDb.current.users, calls),
+            gameRecords: down(mockDb.current.gameRecords, calls),
+            reports: down(mockDb.current.reports, calls),
+        };
+
+        const { resolved } = await playTournament(ctx);
+        expect(resolved).toHaveLength(4);
+        expect(events(ctx.log, 'gameEnd')).toHaveLength(4);
+        expect(events(ctx.log, 'abortGame')).toHaveLength(0);
+        expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        expect(liveCalls.n).toBeGreaterThan(4);
+
+        const at = (event) => events(ctx.log, event).map((l) => l.at);
+        const ends = at('gameEnd');
+        const results = at('tournamentGameComplete');
+        for (let i = 0; i < 4; i++) {
+            // the claim (behind the write in flight: bounded), then the pointer clears
+            expect(results[i] - ends[i]).toBeLessThanOrEqual(liveStore.CLAIM_MAX_MS + SERVER_SELECTION_TIMEOUT_MS + 1000);
+        }
+        // Rate-limited (a line per kind of failure per minute), ids and codes only
+        expect(warns.length).toBeGreaterThan(0);
+        expect(warns.length).toBeLessThan(liveCalls.n);
+        for (const w of warns) {
+            for (const k of Object.keys(w.meta || {})) expect(['gameId', 'tournamentId', 'rev', 'error', 'code', 'skipped', 'why', 'timeoutMs']).toContain(k);
+        }
+    } finally {
+        process.off('unhandledRejection', onUnhandled);
+    }
+    await Promise.resolve();
+    expect(unhandled).toEqual([]);
 }, 120000);

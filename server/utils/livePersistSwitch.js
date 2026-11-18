@@ -13,8 +13,9 @@
  * The process reads it once, at boot (bootLivePersistMode): a change takes
  * effect with the next deploy, which Railway starts when a variable changes.
  *
- * Nothing reads it yet: the persist store and the handoff use it (deploy
- * survival plan, PRs 4-6).
+ * Read by the live persist store only (server/game/persist/liveStore.js,
+ * getLiveStore: deploy survival PR 4); everything else asks the store.
+ * Until handoff and adoption land (PR 5), 'on' runs as 'write'.
  */
 
 'use strict';

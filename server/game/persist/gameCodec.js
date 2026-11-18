@@ -2,9 +2,9 @@
  * Game codec (deploy survival; docs/claude/server-infra.md and the plan's
  * 2.2): a live GameState to a JSON document and back. Pure apart from two
  * lookups it can be handed instead (the game's tournament, its registered
- * bots): no I/O, no emits, no RNG. Nothing in production calls it yet; the
- * persist store (liveStore) writes what serialize returns and adoption
- * builds a game from hydrate.
+ * bots): no I/O, no emits, no RNG. The persist store (liveStore.js, PR 4)
+ * writes what serialize and serializeEnded return; adoption (PR 5) will
+ * build a game from hydrate, which nothing in production calls yet.
  *
  * serialize(game) is null (nothing to save) for the ambient demo game, a
  * terminal or frozen game, a stage outside the four restore stages

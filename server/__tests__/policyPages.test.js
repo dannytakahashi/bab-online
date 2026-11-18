@@ -37,7 +37,7 @@ describe('/privacy', () => {
     beforeAll(async () => { html = await page('/privacy'); });
 
     test('shows the effective date', () => {
-        expect(html).toContain('<strong>Last updated:</strong> November 16, 2026');
+        expect(html).toContain('<strong>Last updated:</strong> November 17, 2026');
     });
 
     test('names every processor that sees player data', () => {
@@ -59,13 +59,20 @@ describe('/privacy', () => {
         expect(html).toContain('we remove the username from block lists too');
     });
 
-    test('mentions the sign-in IP log and chat staying out of storage', () => {
+    test('mentions the sign-in IP log and chat staying out of the logs', () => {
         expect(html).toContain('A sign-in with your password also logs your IP address');
         // Railway's edge logs every connection's IP (its HTTP logs)
         expect(html).toContain('Railway, our host, also records the IP address of every connection');
         // safetyHandlers logs blocks and who reported whom, never the reason
         expect(html).toContain('reports (who reported whom, not the reason)');
-        expect(html).toContain('It is never saved to our database or written to our logs');
+        // Narrowed for deploy survival (owner, 2026-11-17): the database's own
+        // slow-operation log may record a saved game update, chat included
+        expect(html).toContain('It is never written to our application\'s logs.');
+        expect(html).not.toContain('It is never written to our logs.');
+        // Deploy survival (LIVE_PERSIST, server-infra.md Live game persistence):
+        // a game's and a tournament's chat is in its live document
+        expect(html).toContain('A game\'s or tournament\'s chat is saved to our database with the rest of the game while it is in progress (see "Games in progress" above), so it can continue after a server update, and is deleted with it.');
+        expect(html).not.toContain('never saved to our database');
         // client error reports (server/socket/clientErrorHandlers.js)
         expect(html).toContain('When the app hits an error it may send us a short technical report (the error message and where it happened), logged with your username if you are signed in. Reports are meant for code only: before a report is logged we remove email addresses, IP addresses, long numbers, the query part of links, and quoted text other than code names.');
     });
@@ -75,6 +82,28 @@ describe('/privacy', () => {
         expect(html).toContain('the people in that voice chat can see your IP address');
         expect(html).toContain('In casual games, people watching can listen and, if allowed, talk.');
         expect(html).not.toContain('the players you talk with can see your IP address');
+    });
+
+    test('says what a game in progress keeps, and for how long (deploy survival: liveGames / liveTournaments)', () => {
+        // What We Collect
+        expect(html).toContain('<li><strong>Games in progress:</strong> while a game or tournament is running, its state is saved to our database so it can continue after a server update: who is in each seat, each player\'s cards, bids, tricks and scores, the game log, and its chat (including spectators\' messages), and for a game started from a lobby, the lobby\'s name and the usernames of its members (including members who sat out and watched); for a tournament, from when it is created, also its name, players, scoreboard and chat. It is normally deleted when the game ends, or about 10 minutes after a tournament ends (while its final standings are shown), and always within a day.</li>');
+        // How Long We Keep It (the TTL: expireAt = createdAt + 24 h)
+        expect(html).toContain('<li><strong>Games in progress:</strong> until the game ends, or about 10 minutes after a tournament ends, and at most one day. Copies in backups expire as described below.</li>');
+        expect(html).toContain('reconnecting you to games in progress, including after a server update');
+        // Deletion: the chat scrub, and a tournament's standings (a member who
+        // left a running one can delete their account: their scoreboard row
+        // stays until the tournament is deleted). "saved
+        // state": the scrub runs only with LIVE_PERSIST write/on (liveStore.scrubChat),
+        // so off (nothing saved) keeps today's in-memory chat as it was
+        expect(html).toContain('replaces your username with "[deleted]" in game records, and removes your chat messages from the saved state of any game or tournament still in progress.');
+        expect(html).not.toContain('A tournament that has just finished');
+        expect(html).toContain('<strong>A tournament you played in</strong> keeps your username in its standings while it is running (also if you left it) and for about 10 minutes after it ends, then it is deleted.');
+        // A lobby member who sat out a casual game (an 'extra', watching) can
+        // delete their account mid-game (findLiveActivity: entrants, players,
+        // seat owners only); gameCodec saves lobbyOrigin (order, casualUsers,
+        // extras, ...) and casualVoice.lobbyExtras by username, which the
+        // chat scrub leaves
+        expect(html).toContain('<strong>A casual game whose lobby you were in</strong> but did not play in (for example, one you sat out and watched) keeps your username in its saved state, as one of the lobby\'s members, until the game ends, then it is deleted.');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {
@@ -92,7 +121,12 @@ describe('/support', () => {
     test('the data answers match the policy', async () => {
         const html = await page('/support');
         expect(html).toContain('Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection.');
-        expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username');
+        expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username, and so do a tournament you played in (in its standings, until about 10 minutes after it ends) and a casual game whose lobby you were in but did not play in (until it ends); your chat messages are removed from the saved state of any game or tournament still in progress. The <a href="/privacy">Privacy Policy</a> explains why.');
         expect(html).not.toMatch(/We only collect your username, a hashed password, and game statistics/);
+        // Harmonized with the policy's "Games in progress"
+        expect(html).toContain('While a game or tournament is in progress, its state and chat are saved so it can continue after a server update, and deleted when it ends (about 10 minutes after, for a tournament\'s final standings; within a day at most). Main room and game lobby chat is not saved (a tournament\'s chat is, from when it is created), and voice chat goes directly');
+        // A tournament is saved from creation, its lobby chat included
+        expect(html).not.toContain('Main room and lobby chat is not saved');
+        expect(html).not.toContain('Chat is not saved');
     });
 });
