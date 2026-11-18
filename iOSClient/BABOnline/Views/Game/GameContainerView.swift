@@ -128,6 +128,12 @@ private struct GameScreen: View {
 
     private var showsTable: Bool { gameState.table.phase.showsTable }
     private var inGame: Bool { gameState.phase == .draw || showsTable }
+    /// The table is under the draw, game-end or unreadable overlay, or the log drawer covers the
+    /// tip's spot: the voice panel tip waits (VoicePanelTip.cover).
+    private var tipCovered: Bool {
+        gameState.phase == .draw || (gameState.phase == .ended && gameState.gameEndData != nil)
+            || gameState.table.snapshotTrouble != .none || showGameLog
+    }
     private var showsPill: Bool { gameState.isSpectator || gameState.isLazy }
     /// The spectator pill's own Exit: only off the table (no corner / bar Leave) and with no game-end modal.
     private var pillShowsExit: Bool { !inGame && gameState.gameEndData == nil }
@@ -210,6 +216,9 @@ private struct GameScreen: View {
         }
         .animation(.easeInOut(duration: 0.3), value: showsBidOverlay)
         .animation(.easeInOut(duration: 0.3), value: gameState.phase)
+        // the voice panel tip waits while an overlay covers the table (the spectator pill's
+        // headphones are mounted under the draw and game-end scrims) or the log drawer its spot
+        .onChange(of: tipCovered, initial: true) { _, covered in VoicePanelTip.shared.cover(.table, covered) }
         // a refused bid or play: why, in the app's toast (non-blocking, read by VoiceOver)
         .onChange(of: gameState.notice) { _, notice in
             guard let notice else { return }
@@ -231,6 +240,7 @@ private struct GameScreen: View {
             // a SwiftUI alert went with the view; this UIKit one is dropped, and Leave starts over
             leaveAlert.discard()
             leaveFlow = LeaveAlertFlow()
+            VoicePanelTip.shared.cover(.table, false)
             if gameState.players.leaveCheck != .idle { gameState.apply(.local(.leaveClosed)) }
             scene.cleanupAll()
             // play again (1.2.2 (12)): off to the lobby this game's end returned me to, voice

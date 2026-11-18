@@ -33,9 +33,12 @@ final class VoicePanelTipUITests: XCTestCase {
         let mic = app.buttons["Mute microphone"]
         XCTAssertTrue(mic.exists)
         XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over the mic \(mic.frame)")
+        // the scene's cards reach the tree once it has rendered (as SeatRowUITests waits)
+        _ = Fixture.settledState(app)
         for card in ["Queen of Clubs", "High Joker", "10 of Clubs"] {
-            let f = app.descendants(matching: .any)[card].frame
-            XCTAssertFalse(t.frame.intersects(f), "tip \(t.frame) over \(card) \(f)")
+            let c = app.descendants(matching: .any)[card]
+            XCTAssertTrue(c.waitForExistence(timeout: 8), card)
+            XCTAssertFalse(t.frame.intersects(c.frame), "tip \(t.frame) over \(card) \(c.frame)")
         }
         XCTAssertLessThan(t.frame.maxY, window.midY, "at the top: \(t.frame)")
         keep("voice-tip-table")
@@ -86,6 +89,42 @@ final class VoicePanelTipUITests: XCTestCase {
         let mic = app.buttons["Tap to talk"]
         if mic.exists { XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over \(mic.frame)") }
         keep("voice-tip-spectator")
+        app.terminate()
+    }
+
+    /// A spectator's headphones under the draw or game-end scrim: no tip there, and it is not
+    /// used up (the table later shows it, on a launch that keeps the flag).
+    func testUnderTheDrawAndGameEndOverlaysItWaitsAndIsNotUsedUp() {
+        let draw = Fixture.launch("draw-spectator", extra: ["-uiSpectatorVoice", "listen"] + Self.fresh)
+        XCTAssertTrue(draw.staticTexts["Draw for Deal"].waitForExistence(timeout: 20))
+        XCTAssertTrue(draw.buttons["Tap to talk"].waitForExistence(timeout: 5), "the pill's headphones, under the scrim")
+        XCTAssertFalse(tip(draw).waitForExistence(timeout: 4), "no tip under the draw overlay")
+        draw.terminate()
+
+        let end = Fixture.launch("game-end-spectator", extra: ["-uiSpectatorVoice", "listen", "-uiVoiceTip", "YES"])
+        XCTAssertTrue(Fixture.readyElement(end, "game-end-spectator").waitForExistence(timeout: 20))
+        XCTAssertFalse(tip(end).waitForExistence(timeout: 4), "no tip under the game-end modal")
+        end.terminate()
+
+        let table = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen", "-uiVoiceTip", "YES"])
+        XCTAssertTrue(table.buttons["leave"].waitForExistence(timeout: 20))
+        XCTAssertTrue(tip(table).waitForExistence(timeout: 6), "still to come at the table")
+        table.terminate()
+    }
+
+    /// The info toast in the tip's spot (e.g. a listen-only tap's "tap to talk" reason): the tip
+    /// waits under no toast, and shows once the notice is gone.
+    func testANoticeInItsSpotHoldsItUntilTheNoticeGoes() {
+        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen",
+                                                                "-uiInfoToast", "The host turned off spectator talk"] + Self.fresh)
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        let notice = app.descendants(matching: .any)["infoToast"]
+        XCTAssertTrue(notice.waitForExistence(timeout: 6))
+        sleep(2)  // past the tip's 1 s delay (and a hide's 0.3 s fade)
+        XCTAssertFalse(tip(app).exists, "a tip under the notice")
+        notice.tap()
+        XCTAssertTrue(waitForGone(notice))
+        XCTAssertTrue(tip(app).waitForExistence(timeout: 5), "the tip once the notice is gone")
         app.terminate()
     }
 

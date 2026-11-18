@@ -37,14 +37,17 @@ final class VoicePanelTipTests: XCTestCase {
 
     // MARK: - The rule
 
-    func testTheRuleShowsOnlyAnUnseenTipWithVoiceOnAndTheMicOnScreen() {
+    func testTheRuleShowsOnlyAnUnseenUncoveredTipWithVoiceOnAndTheMicOnScreen() {
         for seen in [false, true] {
             for voice in [false, true] {
                 for mic in [false, true] {
-                    for suppressed in [false, true] {
-                        XCTAssertEqual(VoicePanelTipRule.shouldShow(seen: seen, voiceActive: voice, micVisible: mic, suppressed: suppressed),
-                                       !seen && voice && mic && !suppressed,
-                                       "seen \(seen) voice \(voice) mic \(mic) suppressed \(suppressed)")
+                    for covered in [false, true] {
+                        for suppressed in [false, true] {
+                            XCTAssertEqual(VoicePanelTipRule.shouldShow(seen: seen, voiceActive: voice, micVisible: mic,
+                                                                        covered: covered, suppressed: suppressed),
+                                           !seen && voice && mic && !covered && !suppressed,
+                                           "seen \(seen) voice \(voice) mic \(mic) covered \(covered) suppressed \(suppressed)")
+                        }
                     }
                 }
             }
@@ -178,9 +181,88 @@ final class VoicePanelTipTests: XCTestCase {
     }
 
     func testTheSharedTipIsSuppressedUnderXCTest() {
-        let mic = UUID()
-        VoicePanelTip.shared.mic(mic, visible: true, voiceActive: true, listenOnly: false)
-        VoicePanelTip.shared.mic(mic, visible: false, voiceActive: true, listenOnly: false)
-        XCTAssertNil(VoicePanelTip.shared.text)
+        XCTAssertTrue(VoicePanelTip.launchSuppressed, "a unit-test host")
+        XCTAssertTrue(VoicePanelTip.shared.suppressed)
+    }
+
+    // MARK: - Covers (the draw / game-end overlay, the log drawer, another toast)
+
+    func testACoveredTableWaitsAndTheTipIsNotUsedUp() {
+        let tip = makeTip()
+        tip.cover(.table, true)  // a spectator joining in the draw phase: the pill under the scrim
+        tip.mic(UUID(), visible: true, voiceActive: true, listenOnly: true)
+        runScheduled()
+        XCTAssertNil(tip.text)
+        XCTAssertFalse(tip.seen, "still to come")
+        XCTAssertTrue(scheduled.isEmpty)
+        tip.cover(.table, false)  // the deal: the table shows
+        XCTAssertEqual(scheduled.map(\.delay), [VoicePanelTip.showDelay])
+        runScheduled()
+        XCTAssertEqual(tip.text, VoicePanelTipRule.headphonesText)
+        XCTAssertTrue(tip.seen)
+    }
+
+    func testACoverInsideTheDelayHoldsItUntilEveryCoverIsGone() {
+        let tip = makeTip()
+        tip.mic(UUID(), visible: true, voiceActive: true, listenOnly: false)
+        tip.cover(.notice, true)
+        tip.cover(.connection, true)
+        runScheduled()
+        XCTAssertNil(tip.text)
+        XCTAssertFalse(tip.seen)
+        tip.cover(.notice, false)
+        runScheduled()
+        XCTAssertNil(tip.text, "the connection toast is still up")
+        tip.cover(.connection, false)
+        runScheduled()
+        XCTAssertEqual(tip.text, VoicePanelTipRule.micText)
+    }
+
+    func testANoticeWhileItShowsHidesItAndItComesBackForItsFullTimeAnnouncedOnce() {
+        let tip = makeTip()
+        tip.mic(UUID(), visible: true, voiceActive: true, listenOnly: true)
+        runScheduled()
+        XCTAssertNotNil(tip.text)
+        scheduled = []  // drop the first auto-dismiss: the stale one is tested below
+        tip.cover(.notice, true)  // a tap on the headphones: "tap to talk" in the same spot
+        XCTAssertNil(tip.text, "hidden under the notice")
+        XCTAssertTrue(scheduled.isEmpty)
+        tip.cover(.notice, false)
+        runScheduled()
+        XCTAssertEqual(tip.text, VoicePanelTipRule.headphonesText, "back once the notice goes")
+        XCTAssertEqual(scheduled.map(\.delay), [VoicePanelTip.visibleSeconds], "its full time again")
+        XCTAssertEqual(announced.count, 1, "VoiceOver heard it the first time")
+        runScheduled()
+        XCTAssertNil(tip.text)
+        // gone for good: no cover brings it back
+        tip.cover(.notice, true)
+        tip.cover(.notice, false)
+        runScheduled()
+        XCTAssertNil(tip.text)
+    }
+
+    func testTheFirstTimersAutoDismissLeavesTheReshownTipAlone() {
+        let tip = makeTip()
+        tip.mic(UUID(), visible: true, voiceActive: true, listenOnly: false)
+        runScheduled()
+        let firstTimer = scheduled
+        scheduled = []
+        tip.cover(.table, true)
+        tip.cover(.table, false)
+        runScheduled()
+        XCTAssertNotNil(tip.text)
+        for item in firstTimer { item.run() }
+        XCTAssertNotNil(tip.text, "the first showing's timer is stale")
+    }
+
+    func testAnInterruptedTipThatIsTappedOrOpenedStaysGone() {
+        let tip = makeTip()
+        tip.mic(UUID(), visible: true, voiceActive: true, listenOnly: false)
+        runScheduled()
+        tip.cover(.table, true)
+        tip.panelOpened()  // the person found the panel meanwhile
+        tip.cover(.table, false)
+        runScheduled()
+        XCTAssertNil(tip.text)
     }
 }
