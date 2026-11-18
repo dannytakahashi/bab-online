@@ -154,6 +154,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Game phase FSM | `server/CLAUDE.md`, Game phase FSM | `game.transition` / `terminate` / `setTimer`, abort and draw entry points, fsmGuard |
 | Pacing | `server/CLAUDE.md`, Pacing | `pacing.js` profiles, SOLO overlay, iOS floors, resume holds, rate limits, the manual pacing check |
 | Bots | `server/CLAUDE.md`, Bots | bot socket ids, strategy + personalities, `npm run sim` benchmark, lazy-bot timers |
+| /help explainer (assist) | `docs/claude/assist.md` | `server/game/assist`: `seatView` (the only game reader), `advise` (Mary's bid or card), `explain` (words from the decision trace), copy rules, owner-review fixtures, coverage and threshold sims |
 | Socket rooms, draw watchdog | `server/CLAUDE.md`, Socket rooms and draw watchdog | `game:` / `tournament:` rooms; the 30 s auto-draw |
 | Seats and presence | `server/CLAUDE.md`, Seats and presence | SeatState records, `playerGames`, /leave /lazy /active (incl. the iOS Leave alert: `LeaveAlertPresenter` UIAlertController, `LeaveOutcome`), grace / resign / abort, AFK, lazy rejoin |
 | Lobby seats | `server/CLAUDE.md`, Lobby seats | one lobby seat per username, takeover, 30 s reload grace, `reconnecting` |

@@ -5,6 +5,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const pacing = require('../pacing');
+const cardMemory = require('./cardMemory');
 const {
     calculateOptimalBid,
     selectOptimalCard
@@ -50,22 +51,12 @@ class BotPlayer {
     }
 
     /**
-     * Reset card memory at the start of each hand
+     * Reset card memory at the start of each hand (cardMemory.js)
      * @param {number} handSize - Cards per player this hand
      * @param {Object} trump - Trump card (also removed from deck)
      */
     resetCardMemory(handSize, trump) {
-        this.cardMemory = {
-            playedCards: [],
-            trumpPlayed: [],
-            acesPlayed: {
-                spades: false,
-                hearts: false,
-                diamonds: false,
-                clubs: false
-            },
-            trickIndex: 0
-        };
+        this.cardMemory = cardMemory.resetCardMemory();
     }
 
     /**
@@ -78,27 +69,7 @@ class BotPlayer {
      *   card led) keeps void inference correct for bots that join mid-trick.
      */
     recordCardPlayed(card, position, trump, leadPosition) {
-        if (!this.cardMemory) return;
-
-        this.cardMemory.playedCards.push({
-            suit: card.suit,
-            rank: card.rank,
-            position,
-            trickIndex: this.cardMemory.trickIndex,
-            isLead: leadPosition !== undefined ? position === leadPosition : undefined
-        });
-
-        // Track aces
-        if (card.rank === 'A' && card.suit !== 'joker') {
-            this.cardMemory.acesPlayed[card.suit] = true;
-        }
-
-        // Track trump cards played
-        const isTrump = card.suit === 'joker' ||
-            (trump.suit !== 'joker' && card.suit === trump.suit);
-        if (isTrump) {
-            this.cardMemory.trumpPlayed.push({ rank: card.rank, position });
-        }
+        cardMemory.recordCardPlayed(this.cardMemory, card, position, trump, leadPosition);
     }
 
     /**
@@ -113,25 +84,14 @@ class BotPlayer {
      *   the table, in play order (not yet counted: no advanceTrick)
      */
     replayCardMemory(trump, tricks, open = null) {
-        if (!this.cardMemory || !trump) return;
-        const play = ({ lead, cards }) => {
-            cards.forEach((card, k) => {
-                if (card) this.recordCardPlayed(card, ((lead - 1 + k) % 4) + 1, trump, lead);
-            });
-        };
-        for (const trick of tricks || []) {
-            play(trick);
-            this.advanceTrick();
-        }
-        if (open && open.cards.length > 0) play(open);
+        cardMemory.replayCardMemory(this.cardMemory, trump, tricks, open);
     }
 
     /**
      * Advance to next trick
      */
     advanceTrick() {
-        if (!this.cardMemory) return;
-        this.cardMemory.trickIndex++;
+        cardMemory.advanceTrick(this.cardMemory);
     }
 
     /**
@@ -139,14 +99,7 @@ class BotPlayer {
      * @returns {Object|null} - Copy of card memory, or null if not initialized
      */
     getMemorySnapshot() {
-        if (!this.cardMemory) return null;
-        return {
-            playedCards: [...this.cardMemory.playedCards],
-            trumpPlayed: [...this.cardMemory.trumpPlayed],
-            acesPlayed: { ...this.cardMemory.acesPlayed },
-            trickIndex: this.cardMemory.trickIndex,
-            totalCardsPlayed: this.cardMemory.playedCards.length
-        };
+        return cardMemory.getMemorySnapshot(this.cardMemory);
     }
 
     /**
