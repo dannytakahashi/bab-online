@@ -1727,9 +1727,14 @@ function initializeApp() {
       // A watcher (a family lobby's extra, at the table since CREATED) or a
       // spectate on its way never becomes a player from the room's startDraw
       if (!session.isAtTable && !session.pendingSpectate) session.enterTable(ROLE.PLAYER, null);
-      // Remove waiting screen and tournament lobby
+      // Remove waiting screen and tournament lobby (its clearUI also takes
+      // down a watcher's log from the CREATED join: the draw has none, as a
+      // seat's; createUI brings it back)
       uiManager.removeWaitingScreen();
       removeTournamentLobby();
+      // ...and the log's column goes with the log: never an empty dark
+      // column beside the draw
+      if (!gameLogInstance?.container?.isConnected) setTableChrome(false);
 
       // Use DrawManager via scene handler (the scene may be restarting)
       withScene((scene) => scene.handleStartDraw(data), 'draw');
