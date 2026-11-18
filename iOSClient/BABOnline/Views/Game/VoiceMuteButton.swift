@@ -4,7 +4,10 @@ import SwiftUI
 /// Listen-only (1.2.2 (12): a spectator who may not or has not chosen to talk, or a refused mic)
 /// it shows headphones: a tap is "Tap to talk" (asks for the mic) when talking is allowed,
 /// else a toast says why. It is never `.disabled`, which would also end the long press that
-/// opens the voice panel.
+/// opens the voice panel. That long press is the panel only: the Button's action that
+/// SwiftUI still fires when the finger lifts is skipped (`longPressFired`), so it never also
+/// mutes, unmutes or asks for the mic (owner 2026-11-18: a spectator's hold on the
+/// headphones turned the mic on).
 struct VoiceMuteButton: View {
     @ObservedObject var voiceManager = VoiceChatManager.shared
     let onLongPress: () -> Void
@@ -18,6 +21,9 @@ struct VoiceMuteButton: View {
 
     /// This button on screen for the voice panel tip (VoicePanelTip).
     @State private var tipID = UUID()
+    /// Set when this press became the panel's long press; cleared at every touch-down, so a
+    /// hold that slid off the button (no action) never swallows the next tap.
+    @State private var longPressFired = false
     /// Voice on, for the tip: a fixture's button (`-uiVoice YES`, `-uiSpectatorVoice listen`) counts.
     private var voiceOn: Bool {
         #if DEBUG
@@ -45,7 +51,9 @@ struct VoiceMuteButton: View {
         .accessibilityHint("Touch and hold for the voice panel")
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
+                .onChanged { _ in longPressFired = false }
                 .onEnded { _ in
+                    longPressFired = true
                     HapticManager.mediumImpact()
                     VoicePanelTip.shared.panelOpened()
                     onLongPress()
@@ -70,6 +78,10 @@ struct VoiceMuteButton: View {
     }
 
     private func tapped() {
+        if longPressFired {
+            longPressFired = false
+            return
+        }
         HapticManager.lightImpact()
         guard listenOnly else {
             voiceManager.toggleSelfMute()
