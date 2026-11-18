@@ -52,7 +52,9 @@ struct BidOverlayView: View {
     /// The chip row's model: the bids on the table against this deal's hand size.
     private var bidChips: BidChips {
         BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
-                 viewPosition: gameState.viewPosition)
+                 viewPosition: gameState.viewPosition,
+                 names: ScoreBarView.viewerTeams(position: gameState.position, spectator: gameState.isSpectator,
+                                                 usernames: gameState.players.seats.compactMapValues(\.username)))
     }
 
     private var hsiInHeader: Bool { gameState.myHSI != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
@@ -183,14 +185,22 @@ struct BidChips: Equatable {
     let mine: Int
     let theirs: Int
     let myTeam: Int
+    /// The two sides' names as VoiceOver reads them ("ann and cat"; "" while not known): my
+    /// team (a spectator's seats 1 and 3) and the other.
+    let mineSaid: String
+    let theirsSaid: String
 
-    init(bids: BidBook, handSize: Int, viewPosition: Int) {
+    /// `names`: the score bar's sides (`ScoreBarView.viewerTeams`), mine first.
+    init(bids: BidBook, handSize: Int, viewPosition: Int,
+         names: (team: ScoreBarView.SideNames?, opp: ScoreBarView.SideNames?) = (nil, nil)) {
         let totals = BidTotals.totals(bids, handSize: handSize)
         let rel = totals.relative(to: viewPosition)
         self.handSize = BidTotals.hand(handSize)
         mine = rel.mine
         theirs = rel.theirs
         myTeam = Positions.getTeamNumber(viewPosition)
+        mineSaid = ScoreBarView.namesAccessibilityLabel(names.team)
+        theirsSaid = ScoreBarView.namesAccessibilityLabel(names.opp)
     }
 
     var total: Int { mine + theirs }
@@ -208,9 +218,14 @@ struct BidChips: Equatable {
         }
     }
 
-    /// "Bids: your team 3, opponents 2, of 7 tricks. Over by 1."
+    /// "Bids: ann and cat 3, bob and dan 2, of 7 tricks. Over by 1": the sides by their
+    /// players' names, mine first, never "your team" / "opponents" (owner 2026-11-17, as the
+    /// web's announcer); while the names are not known only the total, "Bids: 5 of 7 tricks".
     var spoken: String {
-        var text = "Bids: your team \(mine), opponents \(theirs), of \(handSize) \(handSize == 1 ? "trick" : "tricks")"
+        let of = "of \(handSize) \(handSize == 1 ? "trick" : "tricks")"
+        var text = mineSaid.isEmpty || theirsSaid.isEmpty
+            ? "Bids: \(total) \(of)"
+            : "Bids: \(mineSaid) \(mine), \(theirsSaid) \(theirs), \(of)"
         if overbid > 0 { text += ". Over by \(overbid)" }
         return text
     }

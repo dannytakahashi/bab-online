@@ -16,10 +16,10 @@ final class GameEndStatsUITests: XCTestCase {
 
     /// The fixture's seats (hand-resolving: ivy, kim, hal, jon) and their UIFixture totals.
     static let expected = [
-        1: "ivy, team 1: 23 bids, 24 tricks, 1 fault, average HSI 120",
-        2: "kim, team 2: 19 bids, 17 tricks, 3 faults, average HSI 104",
-        3: "hal, team 1: 21 bids, 25 tricks, 0 faults, average HSI 131",
-        4: "jon, team 2: 18 bids, 18 tricks, 2 faults, average HSI 97",
+        1: "ivy: 23 bids, 24 tricks, 1 fault, average HSI 120",
+        2: "kim: 19 bids, 17 tricks, 3 faults, average HSI 104",
+        3: "hal: 21 bids, 25 tricks, 0 faults, average HSI 131",
+        4: "jon: 18 bids, 18 tricks, 2 faults, average HSI 97",
     ]
 
     private func launch(_ fixture: String, extra: [String] = []) -> XCUIApplication {
@@ -49,7 +49,8 @@ final class GameEndStatsUITests: XCTestCase {
             XCTAssertTrue(e.waitForExistence(timeout: 5), "\(tag): no stats row for seat \(pos)")
             guard e.exists else { continue }
             if let names {
-                XCTAssertTrue(e.label.hasPrefix("\(names[pos]!), team \(pos % 2 == 1 ? 1 : 2): "), "\(tag) seat \(pos): \(e.label)")
+                XCTAssertTrue(e.label.hasPrefix("\(names[pos]!): "), "\(tag) seat \(pos): \(e.label)")
+                XCTAssertFalse(e.label.contains("team"), "\(tag) seat \(pos): never a team number: \(e.label)")
                 XCTAssertTrue(e.label.range(of: #"\d+ bids?, \d+ tricks?, \d+ faults?, average HSI "#, options: .regularExpression) != nil, "\(tag): \(e.label)")
             } else {
                 XCTAssertEqual(e.label, Self.expected[pos], "\(tag) seat \(pos)")
@@ -73,7 +74,14 @@ final class GameEndStatsUITests: XCTestCase {
         checkRows(app, "game-end")
         // everything the screen showed before stays
         XCTAssertTrue(app.staticTexts["Defeat"].exists, "seat 4 is team 2: 287 to 312")
-        for t in ["Team 1", "Team 2", "312", "287", "vs"] { XCTAssertTrue(app.staticTexts[t].exists, t) }
+        for t in ["312", "287", "vs"] { XCTAssertTrue(app.staticTexts[t].exists, t) }
+        // each team by its names, no "Team 1" heading (owner 2026-11-17)
+        XCTAssertFalse(app.staticTexts["Team 1"].exists || app.staticTexts["Team 2"].exists, "a team number heading")
+        for id in ["gameEnd.team1Names", "gameEnd.team2Names"] {
+            let names = app.staticTexts[id]
+            XCTAssertTrue(names.exists, id)
+            XCTAssertTrue(names.label.contains(" and "), "\(id): \(names.label)")
+        }
         XCTAssertTrue(app.buttons["Return to Lobby"].isHittable)
         // and in landscape (the iPad and the open Duo turn; a phone stays portrait: AppDelegate.mask)
         XCUIDevice.shared.orientation = .landscapeLeft
@@ -106,7 +114,7 @@ final class GameEndStatsUITests: XCTestCase {
     func testNoTotalsShowDashes() {
         let app = launch("game-end", extra: ["-uiNoEndStats", "YES"])
         XCTAssertTrue(row(app, 1).waitForExistence(timeout: 5))
-        XCTAssertEqual(row(app, 1).label, "ivy, team 1: – bids, – tricks, – faults, average HSI –")
+        XCTAssertEqual(row(app, 1).label, "ivy: – bids, – tricks, – faults, average HSI –")
         XCTAssertTrue(app.staticTexts["312"].exists)
         XCTAssertTrue(app.buttons["Return to Lobby"].isHittable)
     }

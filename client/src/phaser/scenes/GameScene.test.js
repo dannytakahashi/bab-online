@@ -124,13 +124,14 @@ describe('GameScene handleCardPlayed (opponent)', () => {
 describe('GameScene handleHandComplete', () => {
   it('logs and scores the final 13-card hand (a view: GameState is not written)', () => {
     const scene = new GameScene();
-    scene.state = Object.freeze({ position: 2, playerData: {}, bids: {} });
+    const playerData = {
+      position: [1, 2, 3, 4],
+      username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+    };
+    scene.state = Object.freeze({ position: 2, playerData, bids: {} });
     scene.callbacks = {};
     const formatHandCompleteMessages = vi.fn(() => ['hand line 1', 'hand line 2']);
-    window.ModernUtils = {
-      formatHandCompleteMessages,
-      getTeamNames: vi.fn(() => ({ teamName: 'Us', oppName: 'Them' })),
-    };
+    window.ModernUtils = { formatHandCompleteMessages };
     window.addToGameFeedFromLegacy = vi.fn();
     window.updateGameLogScoreFromLegacy = vi.fn();
 
@@ -152,12 +153,35 @@ describe('GameScene handleHandComplete', () => {
       );
       expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 1');
       expect(window.addToGameFeedFromLegacy).toHaveBeenCalledWith('hand line 2');
-      expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('Us', 'Them', -40, 120);
+      // the header by name: me/partner (2/4), then opp1/opp2 (3/1)
+      expect(window.updateGameLogScoreFromLegacy).toHaveBeenCalledWith('bob/dan', 'cat/ann', -40, 120);
+      // the announcer names the sides too, mine first (owner 2026-11-17:
+      // never "your team" / "opponents")
+      const lines = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
+      expect(lines.at(-1)).toBe('Hand over. Score: bob and dan -40, cat and ann 120.');
+      expect(lines.join(' ')).not.toMatch(/your team|opponents|Team [12]/i);
     } finally {
       delete window.ModernUtils;
       delete window.addToGameFeedFromLegacy;
       delete window.updateGameLogScoreFromLegacy;
     }
+  });
+});
+
+describe('GameScene _teamsSaid', () => {
+  it('says each name whole: a legacy username with a "/" is one player, never split from the shown "a/b"', () => {
+    const scene = new GameScene();
+    const playerData = {
+      position: [1, 2, 3, 4],
+      username: [{ username: 'x/y' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+    };
+    scene.state = Object.freeze({ position: 1, playerData });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe(' Tricks: x/y and cat 3, bob and dan 2.');
+    scene.state = Object.freeze({ position: 2, playerData });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe(' Tricks: bob and dan 3, cat and x/y 2.');
+    // names not known yet: no tally
+    scene.state = Object.freeze({ position: 1, playerData: null });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe('');
   });
 });
 

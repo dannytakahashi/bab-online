@@ -407,31 +407,37 @@ final class BidChipsTests: XCTestCase {
 
     func testOneChipPerTrickMyTeamFirst() {
         // seat 1 views: team 1 = seats 1 and 3
-        let c = BidChips(bids: book(["2", "1", nil, nil]), handSize: 5, viewPosition: 1)
+        let c = BidChips(bids: book(["2", "1", nil, nil]), handSize: 5, viewPosition: 1, names: names(1))
         XCTAssertEqual(c.mine, 2)
         XCTAssertEqual(c.theirs, 1)
         XCTAssertEqual(c.chips, [.team(1), .team(1), .team(2), .empty, .empty])
         XCTAssertEqual(c.overbid, 0)
-        XCTAssertEqual(c.spoken, "Bids: your team 2, opponents 1, of 5 tricks")
+        XCTAssertEqual(c.spoken, "Bids: ann and cat 2, bob and dan 1, of 5 tricks")
     }
 
     func testFromTheOtherTeamsSeat() {
-        let c = BidChips(bids: book(["2", "1", nil, nil]), handSize: 5, viewPosition: 2)
+        let c = BidChips(bids: book(["2", "1", nil, nil]), handSize: 5, viewPosition: 2, names: names(2))
         XCTAssertEqual(c.chips, [.team(2), .team(1), .team(1), .empty, .empty], "my team's chips lead, in its own colour")
+        XCTAssertEqual(c.spoken, "Bids: bob and dan 1, cat and ann 2, of 5 tricks", "my side's names first")
+    }
+
+    /// The score bar's sides for seat `pos` (ann, bob, cat, dan in seats 1-4).
+    private func names(_ pos: Int) -> (team: ScoreBarView.SideNames?, opp: ScoreBarView.SideNames?) {
+        ScoreBarView.viewerTeams(position: pos, spectator: false, usernames: [1: "ann", 2: "bob", 3: "cat", 4: "dan"])
     }
 
     func testNoBidsYet() {
-        let c = BidChips(bids: book([nil, nil, nil, nil]), handSize: 3, viewPosition: 1)
+        let c = BidChips(bids: book([nil, nil, nil, nil]), handSize: 3, viewPosition: 1, names: names(1))
         XCTAssertEqual(c.chips, [.empty, .empty, .empty])
-        XCTAssertEqual(c.spoken, "Bids: your team 0, opponents 0, of 3 tricks")
+        XCTAssertEqual(c.spoken, "Bids: ann and cat 0, bob and dan 0, of 3 tricks")
     }
 
     func testAnOverbidAddsOutlinedChips() {
-        let c = BidChips(bids: book(["3", "2", "1", nil]), handSize: 4, viewPosition: 1)
+        let c = BidChips(bids: book(["3", "2", "1", nil]), handSize: 4, viewPosition: 1, names: names(1))
         XCTAssertEqual(c.total, 6)
         XCTAssertEqual(c.overbid, 2)
         XCTAssertEqual(c.chips, [.team(1), .team(1), .team(1), .team(1), .over(2), .over(2)])
-        XCTAssertEqual(c.spoken, "Bids: your team 4, opponents 2, of 4 tricks. Over by 2")
+        XCTAssertEqual(c.spoken, "Bids: ann and cat 4, bob and dan 2, of 4 tricks. Over by 2")
     }
 
     func testABoreIsTheWholeHandAndTheRowStopsAtSixteen() {
@@ -447,7 +453,7 @@ final class BidChipsTests: XCTestCase {
     func testOneTrickHand() {
         let c = BidChips(bids: book(["1", nil, nil, nil]), handSize: 1, viewPosition: 1)
         XCTAssertEqual(c.chips, [.team(1)])
-        XCTAssertEqual(c.spoken, "Bids: your team 1, opponents 0, of 1 trick")
+        XCTAssertEqual(c.spoken, "Bids: 1 of 1 trick", "names not known: only the total, never a side")
     }
 }
 

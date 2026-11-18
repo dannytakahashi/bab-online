@@ -750,7 +750,15 @@ body > .voice-btn {
 .log-score__team { color: var(--text-primary); }
 .log-score__team.is-team-a { color: var(--team-a); }
 .log-score__team.is-team-b { color: var(--team-b); }
-.log-score__names { color: var(--text-secondary); font-size: var(--type-xs); overflow-wrap: anywhere; }
+.log-score__names {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    overflow-wrap: anywhere;
+    /* one line's height even while empty (names not known yet: the header
+       shows no placeholder), so the scores below never jump */
+    min-height: 1.2em; /* (no lh unit) */
+    min-height: 1lh;
+}
 .log-score__value { font-size: var(--type-lg); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .log-score__detail { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 
@@ -853,7 +861,8 @@ body > .voice-btn {
 .result-modal .kit-modal__body { width: 100%; }
 .result-modal .kit-modal__actions { justify-content: center; }
 
-.result-score { margin-bottom: var(--space-6); color: var(--text-primary); font-size: var(--type-xl); font-variant-numeric: tabular-nums; }
+/* the team names wrap anywhere (a long name breaks inside, as the log's .log-score__names) */
+.result-score { margin-bottom: var(--space-6); color: var(--text-primary); font-size: var(--type-xl); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .result-winner { margin-bottom: var(--space-6); color: var(--success); font-size: var(--type-xl); }
 
 .result-stats {
@@ -1174,15 +1183,21 @@ body > .voice-btn {
     max-width: 100%;
 }
 
-.hud-teams__label {
-    margin: 0;
-    font-size: var(--teams-label-font);
-    font-weight: var(--weight-bold);
-    line-height: 1.2;
+/* no heading (the names are the team's label: owner 2026-11-17): a bar in
+   the team's colour tops the column, and the avatars wear the seat rings'
+   team colour (mine stays primary) */
+.hud-teams__team::before {
+    content: "";
+    display: block;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--team-a);
 }
 
-.hud-teams__team[data-team="a"] .hud-teams__label { color: var(--team-a); }
-.hud-teams__team[data-team="b"] .hud-teams__label { color: var(--team-b); }
+.hud-teams__team[data-team="b"]::before { background: var(--team-b); }
+.hud-teams__team[data-team="a"] .hud-teams__avatar { border-color: var(--team-a); }
+.hud-teams__team[data-team="b"] .hud-teams__avatar { border-color: var(--team-b); }
+.hud-teams__team .hud-teams__player.is-mine .hud-teams__avatar { border-color: var(--primary-base); }
 
 .hud-teams__players {
     display: flex;

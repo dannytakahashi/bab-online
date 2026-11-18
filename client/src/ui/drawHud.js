@@ -16,7 +16,11 @@
  *   .hud-teams           the teams: a scrim over the whole table and a
  *                        surface panel (e3) with each team's avatars and
  *                        names, side by side where they fit, else stacked,
- *                        and its own status line that says the teams
+ *                        each column topped by its team's colour (no
+ *                        "Team 1" heading: the names are the label, owner
+ *                        2026-11-17), and its own status line that says
+ *                        the teams by name ("Teams: ann and cat versus bob
+ *                        and dan")
  *
  * A long name shrinks (to NAME_MIN_SCALE) before it is cut with an
  * ellipsis, as iOS's minimumScaleFactor (and the old web fitNameLabel).
@@ -227,6 +231,24 @@ export function endMyDraw() {
   if (focused) layer.querySelector('.hud-draw__status')?.focus({ preventScroll: true });
 }
 
+/** A team's names that are known (a missing or empty one is left out). */
+function known(names) {
+  return (Array.isArray(names) ? names : []).filter((n) => typeof n === 'string' && n);
+}
+
+/**
+ * What the teams' status line says: the teams by name, seats 1 and 3 then
+ * 2 and 4 ("Teams: ann and cat versus bob and dan"), never a team number
+ * (owner 2026-11-17). A team with no known name is left out; '' when
+ * neither has one (nothing to say).
+ * @param {Object} teams - {team1: [name, name], team2: [name, name]}
+ * @returns {string}
+ */
+export function teamsWords(teams) {
+  const sides = [teams?.team1, teams?.team2].map((t) => known(t).join(' and ')).filter(Boolean);
+  return sides.length ? `Teams: ${sides.join(' versus ')}` : '';
+}
+
 /**
  * The teams panel over a scrim (replacing any).
  * @param {Object} teams - {team1: [name, name], team2: [name, name]}
@@ -243,9 +265,8 @@ export function showTeamsHud(teams, { me = null, picFor = () => null } = {}) {
   const column = (n, names) => {
     const col = el('div', 'hud-teams__team');
     col.dataset.team = n === 1 ? 'a' : 'b';
-    col.appendChild(el('h3', 'hud-teams__label', `Team ${n}`));
     const list = el('ul', 'hud-teams__players');
-    for (const name of names || []) {
+    for (const name of known(names)) {
       const row = el('li', 'hud-teams__player');
       row.classList.toggle('is-mine', !!me && name === me);
       row.appendChild(avatarNode('hud-teams__avatar', name, picFor(name)));
@@ -265,8 +286,7 @@ export function showTeamsHud(teams, { me = null, picFor = () => null } = {}) {
   // with its text already in it may not be announced)
   const status = statusNode('hud-teams__status');
   layer.appendChild(status);
-  const said = (names) => (names || []).join(' and ');
-  const words = `Teams: Team 1, ${said(teams?.team1)}; Team 2, ${said(teams?.team2)}`;
+  const words = teamsWords(teams);
   hudRoot().appendChild(layer);
   // the fade in starts on the next frame (from the CSS start state)
   requestAnimationFrame(() => {

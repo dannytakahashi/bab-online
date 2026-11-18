@@ -127,9 +127,11 @@ struct PlayerEndStats: Equatable, Identifiable {
 
     static func format(_ v: Int?) -> String { v.map(String.init) ?? "–" }
 
-    /// VoiceOver reads one sentence per row (the header row is hidden from it).
+    /// VoiceOver reads one sentence per row (the header row is hidden from it), led by the
+    /// player's name ("ivy: 23 bids, ..."), never a team number (owner 2026-11-17; the summary
+    /// above reads each team by its names).
     var accessibilityLabel: String {
-        "\(username.isEmpty ? "Seat \(position)" : username), team \(team): "
+        "\(username.isEmpty ? "Seat \(position)" : username): "
             + "\(Self.counted(totalBids, "bid", "bids")), \(Self.counted(totalTricks, "trick", "tricks")), "
             + "\(Self.counted(setsCaused, "fault", "faults")), average HSI \(Self.format(avgHSI))"
     }

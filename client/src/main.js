@@ -199,7 +199,7 @@ function withScene(fn, kind = 'table') {
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
-import { getTeamNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
+import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
 // Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
 // registers itself through setGameScene and reads the rest from here
@@ -208,7 +208,6 @@ window.ModernUtils = {
   RANK_VALUES,
   getPlayerName,
   isLegalMove,
-  getTeamNames,
   formatHandCompleteMessages,
 };
 
@@ -1582,7 +1581,12 @@ function initializeApp() {
     // Game callbacks - update GameState and trigger scene handlers
     onPositionUpdate: (data) => {
       console.log('📍 onPositionUpdate callback');
-      // GameState applied the seating (handlers/gameHandlers.js)
+      // GameState applied the seating (handlers/gameHandlers.js). A log
+      // already up (a spectator's draw) names the teams now, not at the deal
+      if (gameLogInstance?.container?.isConnected) {
+        const { teamName, oppName } = scoreHeaderNames(gameState.position, gameState.playerData, { spectator: !!gameState.isSpectator });
+        gameLogInstance.updateNames(teamName, oppName);
+      }
       // Player info box creation deferred to handleDisplayOpponentHands
       // so it appears at the same time as other players' avatars
     },
@@ -1867,9 +1871,12 @@ function initializeApp() {
       });
       messages.forEach(msg => window.addToGameFeedFromLegacy(msg));
 
-      // Update game log score display
+      // Update game log score display (player names only: the header
+      // never shows a placeholder; the score modal's getTeamNames gives the
+      // same names, never a placeholder either)
+      const header = scoreHeaderNames(position, playerData, { spectator: !!isSpectator });
+      window.updateGameLogScoreFromLegacy(header.teamName, header.oppName, teamScore, oppScore);
       const { teamName, oppName } = getTeamNames(position, playerData, { spectator: !!isSpectator });
-      window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
 
       // Determine return flow: tournament game returns to tournament, normal game to main room.
       // The server always includes tournamentId in gameEnd (null for casual

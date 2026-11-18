@@ -178,11 +178,15 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     const teams = hud().querySelector(':scope > .hud-teams');
     expect(teams.classList.contains('is-shown')).toBe(true);
     // a screen reader hears the teams (a status line filled after it is in the page)
-    expect(teams.querySelector('.hud-teams__status').textContent).toBe(`Teams: Team 1, ${ME} and 🤖 Sharon; Team 2, 🤖 Mary and 🤖 Mike`);
+    // by name, never a team number (owner 2026-11-17)
+    expect(teams.querySelector('.hud-teams__status').textContent).toBe(`Teams: ${ME} and 🤖 Sharon versus 🤖 Mary and 🤖 Mike`);
     expect(teams.querySelector('.hud-teams__panel').hasAttribute('aria-live')).toBe(false);
     expect(teams.querySelector('.hud-teams__scrim')).toBeTruthy();
     const cols = [...teams.querySelectorAll('.hud-teams__team')];
-    expect(cols.map((c) => c.querySelector('.hud-teams__label').textContent)).toEqual(['Team 1', 'Team 2']);
+    // no "Team 1" / "Team 2" heading: the names under it are the label; the
+    // columns keep their team colour (data-team: table.css's bar and rings)
+    expect(teams.querySelector('.hud-teams__label, h3')).toBeNull();
+    expect(teams.textContent).not.toMatch(/Team [12]|Your Team|Opponents/);
     expect(cols.map((c) => c.dataset.team)).toEqual(['a', 'b']);
     expect(cols.map((c) => [...c.querySelectorAll('.hud-teams__name')].map((n) => n.textContent))).toEqual([[ME, '🤖 Sharon'], ['🤖 Mary', '🤖 Mike']]);
     expect([...teams.querySelectorAll('.hud-teams__player.is-mine .hud-teams__name')].map((n) => n.textContent)).toEqual([ME]);

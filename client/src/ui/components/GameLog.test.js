@@ -19,22 +19,64 @@ describe('createGameLog', () => {
     expect(gameLog.container.id).toBe('gameFeed');
   });
 
-  // Its first labels (before any score header render): a spectator's name
-  // no team of theirs, a seat's are unchanged
-  it('first labels: a player\'s "Your Team" / "Opponents"', () => {
+  // Its first labels (before any score header render): the players' names
+  // when the seats are known, else empty; never a placeholder (owner
+  // 2026-11-17: "Your Team" / "Opponents" flashed before the names)
+  const names = () => [...gameLog.container.querySelectorAll('.log-score__names')].map((n) => n.textContent);
+  const seat = (state, position) => {
+    state.position = position;
+    state.setPlayerData({
+      positions: [1, 2, 3, 4],
+      usernames: ['ann', 'bob', 'cat', 'dan'].map((username) => ({ username })),
+    });
+  };
+
+  it('first labels, seats not known yet: empty for a player and a spectator', () => {
     resetGameState();
     gameLog = createGameLog();
-    const names = [...gameLog.container.querySelectorAll('.log-score__names')].map((n) => n.textContent);
-    expect(names).toEqual(['Your Team', 'Opponents']);
-  });
-
-  it('first labels: a spectator\'s "Team 1" / "Team 2"', () => {
-    resetGameState();
+    expect(names()).toEqual(['', '']);
+    gameLog.destroy();
     getGameState().isSpectator = true;
     gameLog = createGameLog();
-    const names = [...gameLog.container.querySelectorAll('.log-score__names')].map((n) => n.textContent);
-    expect(names).toEqual(['Team 1', 'Team 2']);
+    expect(names()).toEqual(['', '']);
     resetGameState();
+  });
+
+  it('first labels, seated (createUI comes after positionUpdate): a player\'s me/partner and opp1/opp2', () => {
+    resetGameState();
+    seat(getGameState(), 2);
+    gameLog = createGameLog();
+    expect(names()).toEqual(['bob/dan', 'cat/ann']);
+    resetGameState();
+  });
+
+  it('first labels, seated: a spectator\'s seats 1/3 then 2/4', () => {
+    resetGameState();
+    getGameState().isSpectator = true;
+    seat(getGameState(), null);
+    gameLog = createGameLog();
+    expect(names()).toEqual(['ann/cat', 'bob/dan']);
+    resetGameState();
+  });
+
+  it('the name lines keep their height while empty (table.css)', () => {
+    const css = readClientFile('styles/table.css');
+    const rule = css.match(/\.log-score__names\s*\{([^}]*)\}/)?.[1] || '';
+    expect(rule).toMatch(/min-height:\s*1lh/);
+    expect(rule).toMatch(/min-height:\s*1\.2em/);
+  });
+
+  it('updateNames: only the name lines change, the scores stay', () => {
+    resetGameState();
+    gameLog = createGameLog();
+    gameLog.updateFullScore('', '', 10, 20, '3/2', '1/1', 4, 2);
+    gameLog.updateNames('ann/cat', 'bob/dan');
+    expect(names()).toEqual(['ann/cat', 'bob/dan']);
+    expect(gameLog.container.querySelector('#teamScoreDisplay .log-score__value').textContent).toBe('10');
+    expect(gameLog.container.querySelector('#oppScoreDisplay .log-score__detail').textContent).toBe('Bids: 1/1 | Tricks: 2');
+    gameLog.updateNames('<b>x</b>/y', '');
+    expect(gameLog.container.querySelector('#teamScoreDisplay b')).toBeNull();
+    expect(names()).toEqual(['<b>x</b>/y', '']);
   });
 
   it('has score section', () => {

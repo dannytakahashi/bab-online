@@ -111,6 +111,32 @@ final class TableAccessibilityTests: XCTestCase {
         check(app, "spectator-mid-hand")
         XCTAssertEqual(app.buttons["leave"].label, "Exit game")
         XCTAssertEqual(app.otherElements["pips.1"].label, "ivy: 0 of 2 tricks")
+        // the score bar names both teams (seats 1/3, 2/4; no longer the initials "i & h")
+        XCTAssertEqual(app.staticTexts["scoreBar.teamNames"].label, "ivy and hal")
+        XCTAssertEqual(app.staticTexts["scoreBar.oppNames"].label, "kim and jon")
+        app.terminate()
+    }
+
+    /// A team's bore level sits by its own score (owner 2026-11-17: never "T1: B | T2: 2B"):
+    /// bidding-mid, seat 4 (ned, partner max) whose team bid B, so the left side's level,
+    /// read with that side's names; the other team has none.
+    func testABoreLevelSitsByItsTeamsScore() {
+        let app = Fixture.launch("bidding-mid")
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let mult = app.staticTexts["scoreBar.teamMult"]
+        XCTAssertTrue(mult.waitForExistence(timeout: 5), "my team's bore level")
+        XCTAssertEqual(mult.label, "ned and max, bore B")
+        XCTAssertFalse(app.staticTexts["scoreBar.oppMult"].exists, "the other team has not bored")
+        let names = app.staticTexts["scoreBar.teamNames"].frame, opp = app.staticTexts["scoreBar.oppNames"].frame
+        XCTAssertLessThan(mult.frame.maxX, opp.minX, "on my (left) side: \(mult.frame) \(opp)")
+        XCTAssertGreaterThan(mult.frame.minY, names.maxY - 1, "under the names, by the score: \(mult.frame) \(names)")
+        // after the score, never on it (an overlay drew the "B" over the "0")
+        let score = app.staticTexts["scoreBar.teamScore"].frame
+        XCTAssertGreaterThanOrEqual(mult.frame.minX, score.maxX, "after my score: \(mult.frame) \(score)")
+        XCTAssertLessThanOrEqual(abs(score.midX - names.midX), 1, "my score stays centred under the names: \(score) \(names)")
+        let teamNumbers = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'T1:' OR label CONTAINS 'T2:'"))
+        XCTAssertEqual(teamNumbers.count, 0, "the old centre line")
         app.terminate()
     }
 

@@ -10,7 +10,7 @@ import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
-import { placeholderTeamNames } from './ScoreModal.js';
+import { scoreHeaderNames } from './ScoreModal.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -32,7 +32,7 @@ export const MAX_LOG_ROWS = 500;
  *
  * @param {Object} options - Log options
  * @param {Function} options.onChatSubmit - Called with message when chat submitted; false keeps the draft
- * @returns {Object} { container, addMessage, addSystemMessage, updateScores, destroy }
+ * @returns {Object} { container, addMessage, addSystemMessage, updateScores, updateFullScore, updateNames, destroy }
  */
 export function createGameLog({ onChatSubmit } = {}) {
   const container = document.createElement('div');
@@ -50,9 +50,13 @@ export function createGameLog({ onChatSubmit } = {}) {
   scoreSection.id = 'gameLogScore';  // Legacy ID
   scoreSection.className = 'log-score';
 
-  // My team (team A or B by my seat: setTeams) and the opponents; before
-  // the teams exist a spectator's are "Team 1" / "Team 2" (they have no team)
-  const placeholder = placeholderTeamNames(!!getGameState().isSpectator);
+  // My team (team A or B by my seat: setTeams) and the opponents, by the
+  // players' names as soon as the seats are known (the log comes up at
+  // createUI, after positionUpdate), else an empty line of the same height
+  // until the score header is drawn: never a "Your Team" / "Opponents"
+  // placeholder (owner 2026-11-17)
+  const state = getGameState();
+  const placeholder = scoreHeaderNames(state.position, state.playerData, { spectator: !!state.isSpectator });
   const teamScoreDiv = document.createElement('div');
   teamScoreDiv.id = 'teamScoreDisplay';
   teamScoreDiv.className = 'log-score__team is-mine';
@@ -468,6 +472,21 @@ export function createGameLog({ onChatSubmit } = {}) {
     }
   };
 
+  /**
+   * Only the two name lines (the seats became known: positionUpdate while
+   * the log is already up, a spectator's draw); the scores stay.
+   * @param {string} teamNames - my side's names ('' while not known)
+   * @param {string} oppNames - the other side's
+   */
+  const updateNames = (teamNames, oppNames) => {
+    const set = (id, text) => {
+      const names = container.querySelector(`#${id} .log-score__names`);
+      if (names) names.textContent = String(text ?? '');
+    };
+    set('teamScoreDisplay', teamNames);
+    set('oppScoreDisplay', oppNames);
+  };
+
   return {
     container,
     addMessage,
@@ -477,6 +496,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     updateScores,
     updateTricks,
     updateFullScore,
+    updateNames,
     updateHandIndicator,
     showTrickIndicator,
     hideTrickIndicator,

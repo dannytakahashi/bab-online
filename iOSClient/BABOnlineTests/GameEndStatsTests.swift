@@ -75,7 +75,7 @@ final class GameEndStatsTests: XCTestCase {
         XCTAssertEqual(rows[2].totalTricks, 4, "a whole JSON double is a count")
         XCTAssertEqual(PlayerEndStats.format(rows[0].totalBids), "–")
         XCTAssertEqual(PlayerEndStats.format(rows[0].avgHSI), "–")
-        XCTAssertEqual(rows[0].accessibilityLabel, "ann, team 1: – bids, – tricks, – faults, average HSI –")
+        XCTAssertEqual(rows[0].accessibilityLabel, "ann: – bids, – tricks, – faults, average HSI –")
     }
 
     func testFormatsAsTheWeb() {
@@ -84,12 +84,12 @@ final class GameEndStatsTests: XCTestCase {
         XCTAssertEqual(PlayerEndStats.format(12.54), "12.5")
         XCTAssertEqual(PlayerEndStats.format(7), "7")
         let r = PlayerEndStats(position: 2, username: "kim", totalBids: 19, totalTricks: 17, setsCaused: 3, avgHSI: 104)
-        XCTAssertEqual(r.accessibilityLabel, "kim, team 2: 19 bids, 17 tricks, 3 faults, average HSI 104")
+        XCTAssertEqual(r.accessibilityLabel, "kim: 19 bids, 17 tricks, 3 faults, average HSI 104")
         let unnamed = PlayerEndStats(position: 3, username: "", totalBids: 1, totalTricks: 2, setsCaused: 0, avgHSI: 5)
-        XCTAssertTrue(unnamed.accessibilityLabel.hasPrefix("Seat 3, team 1:"))
+        XCTAssertTrue(unnamed.accessibilityLabel.hasPrefix("Seat 3:"))
         // a count of 1 reads with the singular noun
         let ones = PlayerEndStats(position: 1, username: "ivy", totalBids: 1, totalTricks: 1, setsCaused: 1, avgHSI: 98)
-        XCTAssertEqual(ones.accessibilityLabel, "ivy, team 1: 1 bid, 1 trick, 1 fault, average HSI 98")
+        XCTAssertEqual(ones.accessibilityLabel, "ivy: 1 bid, 1 trick, 1 fault, average HSI 98")
     }
 
     /// Equality (the replay tests compare the store's end with the wire's) includes the stats.

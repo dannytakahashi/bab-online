@@ -140,7 +140,7 @@ final class TableParityUITests: XCTestCase {
         let chips = element(app, "bidChips")
         XCTAssertTrue(chips.waitForExistence(timeout: 5))
         XCTAssertEqual(chips.value as? String, "12+1/12")
-        XCTAssertEqual(chips.label, "Bids: your team 12, opponents 1, of 12 tricks. Over by 1")
+        XCTAssertEqual(chips.label, "Bids: ned and max 12, ora and pat 1, of 12 tricks. Over by 1")
         XCTAssertTrue(panel.frame.insetBy(dx: -1, dy: -1).contains(chips.frame), "\(chips.frame) inside \(panel.frame)")
         XCTAssertGreaterThan(chips.frame.width, 120)
         // 13 chips of a set width (16 pt and a 2 pt gap, times the zoom), not a bar across the panel

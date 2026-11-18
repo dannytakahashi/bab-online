@@ -4,15 +4,18 @@
  * A spectator's game log score header during the draw for deal, before the
  * seats (and so the teams) exist: it names no team of theirs. It used to
  * read "Your Team" / "Opponents" (getTeamNames' no-seats fallback, and the
- * log's own first labels) until the deal; now "Team 1" / "Team 2", as the
- * teams panel names them, then the teams' names ("a/c" vs "b/d") once
- * they are seated, as before.
+ * log's own first labels) until the deal, then "Team 1" / "Team 2"; now
+ * (owner 2026-11-17: the header shows player names, never a placeholder)
+ * the name lines are empty until the seats are known, then the teams'
+ * names ("a/c" vs "b/d", seats 1/3 then 2/4) from positionUpdate on, not
+ * only from the deal.
  *
  * Two ways in: a main-room spectator who comes in mid-draw (the recorded
  * events-humans-s13 spectator socket, its spectatorJoined at DRAWING), and
  * a family lobby's extra (spectatorJoined at CREATED, then the room's
- * startDraw). A seat's header is unchanged (seatDisplay.test.js; the label
- * logic for both, ScoreModal.test.js and GameLog.test.js).
+ * startDraw). A seat's header: scoreHeaderNames*.test.js and
+ * seatDisplay.test.js; the label logic for both, ScoreModal.test.js and
+ * GameLog.test.js.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,6 +29,7 @@ vi.mock('../voice/VoiceChatManager.js', () => ({ getVoiceChatManager: () => glob
 let replay;
 
 const header = () => [...document.querySelectorAll('#gameLogScore .log-score__names')].map((n) => n.textContent);
+const PLACEHOLDER = /Your Team|Opponents|Team 1|Team 2/;
 
 beforeAll(async () => {
   replay = await import('../testing/replay.js');
@@ -42,16 +46,16 @@ describe('a family lobby\'s extra (spectatorJoined at CREATED, then startDraw)',
     page.socket.fire('mainRoomJoined', mainRoomPayload());
   });
 
-  it('the start and the draw: "Team 1" / "Team 2"', () => {
+  it('the start (CREATED, no seats yet): empty name lines (no placeholder)', () => {
     const fx = JSON.parse(readFileSync(resolve(REPO_ROOT, 'contract/fixtures/v2/created-countdown.json'), 'utf8'));
     const snapshot = { ...fx.snapshot, gameId: 'g9', viewer: { role: 'spectator', position: null, ownerView: null, canAct: false } };
     page.socket.fire('spectatorJoined', { gameId: 'g9', players: [], trump: null, snapshot });
     replay.advance(50);
     expect(page.session.role).toBe('spectator');
-    expect(header()).toEqual(['Team 1', 'Team 2']);
+    expect(header()).toEqual(['', '']);
   });
 
-  it('the room\'s startDraw (its clearUI takes the log down, as a seat\'s draw has none), then the teams and the table: the log comes back neutral', () => {
+  it('the room\'s startDraw (its clearUI takes the log down, as a seat\'s draw has none), then the teams and the table: the log comes back with the teams by name', () => {
     page.socket.fire('startDraw', { start: true });
     replay.advance(50);
     expect(page.session.role).toBe('spectator');
@@ -67,7 +71,8 @@ describe('a family lobby\'s extra (spectatorJoined at CREATED, then startDraw)',
     expect(header()).toEqual([]); // still down through the teams panel
     page.socket.fire('createUI', {});
     replay.advance(3000);
-    expect(header()).toEqual(['Team 1', 'Team 2']);
+    expect(header()).toEqual(['ann/cat', 'bob/dan']);
+    expect(header().join(' ')).not.toMatch(PLACEHOLDER);
   });
 
   it('seated (the deal): the teams by name, seats 1/3 then 2/4', () => {

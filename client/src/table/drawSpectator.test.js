@@ -8,6 +8,7 @@
  * slots; then the teams panel, nobody marked as me.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { scoreHeaderNames } from '../ui/components/ScoreModal.js';
 
 vi.mock('../vendor.js', () => ({}));
 vi.mock('../socket/createSocket.js', () => ({ createSocket: () => globalThis.__fakeSocket }));
@@ -79,6 +80,10 @@ describe('a spectator mid-draw', () => {
     expect(panel).toBeTruthy();
     expect(panel.querySelectorAll('.hud-teams__player')).toHaveLength(4);
     expect(panel.querySelectorAll('.hud-teams__player.is-mine')).toHaveLength(0);
+    // the teams by name, seats 1/3 then 2/4, never a team number (owner 2026-11-17)
+    const { team1, team2 } = log[teams].data;
+    expect(panel.querySelector('.hud-teams__status').textContent).toBe(`Teams: ${team1.join(' and ')} versus ${team2.join(' and ')}`);
+    expect(panel.textContent).not.toMatch(/Team [12]|Your Team|Opponents/);
   });
 
   it('…then watches the game as any spectator: every checkpoint matches to the game end, the draw\'s layers gone', () => {
@@ -89,5 +94,17 @@ describe('a spectator mid-draw', () => {
     expect(hud()?.querySelector(':scope > .hud-draw, :scope > .hud-teams') ?? null).toBeNull();
     expect(page.scene.drawManager.drawnCards()).toHaveLength(0);
     expect(page.session.screen).toBe('gameEnd');
+    // the game end's score modal names the teams (seats 1/3, then 2/4),
+    // never "Team 1" / "Your Team". A smoke check on the real scene only: a
+    // spectator's modal named the teams before 2026-11-17 too; the guards
+    // for the change (a seat's modal, the game-over and hand log lines) are
+    // in ui/components/ScoreModal.test.js
+    const modal = document.getElementById('finalScoreOverlay');
+    expect(modal).toBeTruthy();
+    const t1 = scoreHeaderNames(null, page.gameState.playerData, { spectator: true });
+    expect(t1.teamName).toMatch(/.+\/.+/);
+    expect(modal.querySelector('.result-score').textContent).toContain(`${t1.teamName}: `);
+    expect(modal.querySelector('.result-score').textContent).toContain(`${t1.oppName}: `);
+    expect(modal.textContent).not.toMatch(/Team [12]|Your Team|Opponents/);
   });
 });

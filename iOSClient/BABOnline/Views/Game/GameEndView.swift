@@ -59,18 +59,13 @@ struct GameEndView: View {
                         .accessibilityIdentifier("gameEnd.title")
                 }
 
-                // Score summary (the teams side by side; one above the other at accessibility text sizes)
+                // Score summary (team 1, seats 1 and 3, on the left; the teams side by side, one above the
+                // other at accessibility text sizes)
                 let summary = typeSize.isAccessibilitySize
                     ? AnyLayout(VStackLayout(spacing: Theme.Space.s4)) : AnyLayout(HStackLayout(spacing: Theme.Space.s10))
                 summary {
                     VStack(spacing: Theme.Space.s2) {
-                        Text("Team 1")
-                            .font(.caption.bold())
-                            .foregroundColor(Theme.teamA)
-                        Text(data.team1Players.joined(separator: "\n"))
-                            .font(.caption)
-                            .foregroundColor(Theme.textSecondary)
-                            .multilineTextAlignment(.center)
+                        teamNames(data.team1Players, color: Theme.teamA, identifier: "gameEnd.team1Names")
                         Text("\(data.team1Score)")
                             .font(.title.bold())
                             .foregroundColor(data.winningTeam == 1 ? Theme.success : Theme.textPrimary)
@@ -80,13 +75,7 @@ struct GameEndView: View {
                         .foregroundColor(Theme.textDim)
 
                     VStack(spacing: Theme.Space.s2) {
-                        Text("Team 2")
-                            .font(.caption.bold())
-                            .foregroundColor(Theme.teamB)
-                        Text(data.team2Players.joined(separator: "\n"))
-                            .font(.caption)
-                            .foregroundColor(Theme.textSecondary)
-                            .multilineTextAlignment(.center)
+                        teamNames(data.team2Players, color: Theme.teamB, identifier: "gameEnd.team2Names")
                         Text("\(data.team2Score)")
                             .font(.title.bold())
                             .foregroundColor(data.winningTeam == 2 ? Theme.success : Theme.textPrimary)
@@ -118,6 +107,18 @@ struct GameEndView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("gameEnd")
+    }
+
+    /// A team's players over its score, one name a line in the team's colour (no "Team 1"
+    /// heading: the names are the label, owner 2026-11-17). A team with no names (a gameEnd
+    /// without them) keeps the line's height. VoiceOver: "fay and gus".
+    private func teamNames(_ names: [String], color: Color, identifier: String) -> some View {
+        Text(names.isEmpty ? " " : names.joined(separator: "\n"))
+            .font(.caption.bold())
+            .foregroundColor(color)
+            .multilineTextAlignment(.center)
+            .accessibilityLabel(DrawPhaseView.teamWords(names))
+            .accessibilityIdentifier(identifier)
     }
 
     private func returnAction() {

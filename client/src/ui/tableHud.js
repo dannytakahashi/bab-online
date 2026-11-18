@@ -233,7 +233,6 @@ function applyRootVars(hud, L) {
     set('--teams-pad', t.pad);
     set('--teams-gap', t.gap);
     set('--teams-av', t.avatar);
-    set('--teams-label-font', t.fonts.label);
     set('--teams-name-font', t.fonts.names);
     set('--teams-vs-font', t.fonts.vs);
   }

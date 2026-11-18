@@ -309,7 +309,7 @@ enum Theme {
         ContrastPair(fg: "team.a", bg: ["surface.s1@0.9", "felt.light"], min: 4.5, use: "iOS: score bar, team A"),
         ContrastPair(fg: "team.b", bg: ["surface.s1@0.9", "felt.light"], min: 4.5, use: "iOS: score bar, team B"),
         ContrastPair(fg: "text.primary", bg: ["scrim", "felt.base"], min: 4.5, use: "iOS: draw phase, game end"),
-        ContrastPair(fg: "team.a", bg: ["scrim", "felt.light"], min: 4.5, use: "iOS: teams announced, Team 1"),
-        ContrastPair(fg: "team.b", bg: ["scrim", "felt.light"], min: 4.5, use: "iOS: teams announced, Team 2"),
+        ContrastPair(fg: "team.a", bg: ["scrim", "felt.light"], min: 4.5, use: "iOS: teams announced, team colour bar"),
+        ContrastPair(fg: "team.b", bg: ["scrim", "felt.light"], min: 4.5, use: "iOS: teams announced, team colour bar"),
     ]
 }

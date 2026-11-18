@@ -296,12 +296,11 @@ struct DrawPhaseView: View {
             .foregroundStyle(Theme.textDim)
     }
 
-    /// A team's label and players; `wraps`: a long name may take two lines (the stacked layout).
+    /// A team's players under a bar of the team's colour (no "Team 1" heading: the names are
+    /// the label, owner 2026-11-17, as the web's teams panel); `wraps`: a long name may take
+    /// two lines (the stacked layout). VoiceOver reads the names, "fay and gus" (`teamWords`).
     private func teamColumn(_ team: Int, _ names: [String], wraps: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: Theme.Space.s3) {
-            Text("Team \(team)")
-                .themeFont(Theme.TypeScale.lg, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title3)
-                .foregroundStyle(Theme.team(team))
             ForEach(names, id: \.self) { name in
                 HStack(spacing: Theme.Space.s2) {
                     DrawAvatar(name: name, pictureKey: pictureKey(for: name), isLocal: name == gameState.username)
@@ -314,7 +313,24 @@ struct DrawPhaseView: View {
             }
         }
         .fixedSize(horizontal: !wraps, vertical: true)
-        .accessibilityElement(children: .combine)
+        // the colour across the top of the column, as wide as its widest name
+        .padding(.top, Self.teamBarHeight + Theme.Space.s3)
+        .overlay(alignment: .top) {
+            Capsule()
+                .fill(Theme.team(team))
+                .frame(height: Self.teamBarHeight)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Self.teamWords(names))
+    }
+
+    /// The team colour bar over each team's names.
+    static let teamBarHeight: CGFloat = 4
+
+    /// What VoiceOver reads for a team: its players' names, "fay and gus" (never a team number).
+    static func teamWords(_ names: [String]) -> String {
+        names.filter { !$0.isEmpty }.joined(separator: " and ")
     }
 
     // MARK: - Actions

@@ -19,6 +19,7 @@ import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
+import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -624,9 +625,8 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const pos = state.position || 1;
-    const names = window.ModernUtils?.getTeamNames?.(pos, state.playerData, { spectator: !!state.isSpectator });
-    const teamName = names?.teamName ?? `${state.username}/${state.partnerName}`;
-    const oppName = names?.oppName ?? `${state.opp1Name}/${state.opp2Name}`;
+    // Player names only, '' until they are known (never a placeholder)
+    const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: !!state.isSpectator });
     const bid = (p) => state.bids?.[p] ?? '-';
     const anyBid = Object.keys(state.bids || {}).length > 0;
     const teamBids = anyBid ? `${bid(pos)}/${bid(team(pos))}` : '-/-';
@@ -1023,7 +1023,7 @@ export class GameScene extends Phaser.Scene {
     const isMyTeam = winner % 2 === myPosition % 2;
 
     // the announcer: who took it, and (for a seat) the hand's tricks so far
-    const tally = this.state.isSpectator ? '' : ` Tricks: your team ${this.state.teamTricks || 0}, opponents ${this.state.oppTricks || 0}.`;
+    const tally = this.state.isSpectator ? '' : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
     announce(`${this._seatName(winner)} won the trick.${tally}`);
 
     // Animate cards to winner's stack via TrickManager
@@ -1093,15 +1093,13 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
-    // Update game log score display
-    if (window.ModernUtils && window.ModernUtils.getTeamNames) {
-      const { teamName, oppName } = window.ModernUtils.getTeamNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
-      if (window.updateGameLogScoreFromLegacy) {
-        window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
-      }
+    // Update game log score display (player names only, as renderScoreHeader)
+    if (window.updateGameLogScoreFromLegacy) {
+      const { teamName, oppName } = scoreHeaderNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
+      window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
     }
 
-    announce(state.isSpectator ? 'Hand over.' : `Hand over. Score: your team ${teamScore}, opponents ${oppScore}.`);
+    announce(state.isSpectator ? 'Hand over.' : `Hand over.${this._teamsSaid(' Score:', teamScore, oppScore)}`);
 
     // Clear hand cards
     if (this.cardManager) {
@@ -1385,6 +1383,20 @@ export class GameScene extends Phaser.Scene {
     const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
     if (!r.legal && r.reason) return `${r.reason}.`;
     return 'Wait for the trick to clear.';
+  }
+
+  /**
+   * A count per side for the announcer, the sides by their players' names,
+   * mine first (" Tricks: ann and cat 3, bob and dan 2."), never "your
+   * team" / "opponents" (owner 2026-11-17); '' while the names are not known.
+   * Built from the seats' names, never by splitting the shown "a/b", so a
+   * legacy username with a "/" is said whole (as iOS).
+   */
+  _teamsSaid(lead, mine, theirs) {
+    const s = this.state;
+    const pairs = scoreHeaderPairs(s.position, s.playerData, { spectator: !!s.isSpectator });
+    if (!pairs.mine || !pairs.theirs) return '';
+    return `${lead} ${pairs.mine.join(' and ')} ${mine}, ${pairs.theirs.join(' and ')} ${theirs}.`;
   }
 
   /** Who a seat is, for the announcer: "You", or the seat's name. */
