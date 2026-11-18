@@ -45,6 +45,7 @@ extension TableReducer {
             gameStart(&s, p, &fx)
         case .updateTurn(let p):
             guard let turn = Position.valid(p.currentTurn ?? p.turn) else { break }
+            if let clock = s.table.bidClock, clock.position != turn { stopBidClock(&s, .fade, &fx) }
             switch s.table.phase {
             case .bidding(var b): b.turn = turn; s.table.phase = .bidding(b)
             case .playing(var pl): pl.turn = turn; s.table.phase = .playing(pl)
@@ -53,6 +54,7 @@ extension TableReducer {
         case .bidReceived(let p):
             bidReceived(&s, p, &fx)
         case .doneBidding(let p):
+            stopBidClock(&s, .fade, &fx)
             guard var bids = s.table.phase.bids else { break }
             if let arr = p.bids, arr.count == 4 { bids.byPosition = arr.map { $0?.value } }
             if let tb = p.teamBids { bids.teamBids = TeamPair(team1: tb.team1, team2: tb.team2) }
@@ -65,6 +67,7 @@ extension TableReducer {
             s.scores.rainbows[team: Positions.getTeamNumber(pos)] += 1
             fx.append(.animate(.rainbow(position: pos, dealSeq: s.table.deal?.dealSeq ?? 0)))
         case .destroyHands:
+            stopBidClock(&s, .fade, &fx)
             s.table.hand = []
             // every hand is gone, not only mine (the card backs; the redeal's gameStart refills them)
             for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
@@ -81,6 +84,7 @@ extension TableReducer {
         case .handComplete(let p):
             handComplete(&s, p, &fx)
         case .gameEnd(let p, let data):
+            stopBidClock(&s, .hard, &fx)
             fx.append(.sound(.gameEnd))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
@@ -190,6 +194,8 @@ extension TableReducer {
             // the whole list each time; another game's list (a late one after leaving) is dropped
             guard let gid = p.gameId, gid == s.table.gameId else { break }
             s.players.watching = WatchingList(spectators: p.spectators ?? [], count: p.count ?? p.spectators?.count ?? 0)
+        case .bidClock(let p):
+            bidClockEvent(&s, p, &fx)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -322,6 +328,7 @@ extension TableReducer {
     }
 
     static func gameStart(_ s: inout TableState, _ p: WirePayload.GameStart, _ fx: inout [TableEffect]) {
+        stopBidClock(&s, .fade, &fx)
         if s.table.phase.kind == .ended || s.table.phase.kind == .none { s.table.phase = .waiting }
         if let gid = p.gameId { s.table.gameId = gid }
         let previous = s.table.deal
@@ -385,6 +392,7 @@ extension TableReducer {
 
     static func bidReceived(_ s: inout TableState, _ p: WirePayload.BidReceived, _ fx: inout [TableEffect]) {
         guard let pos = Position.valid(p.position), case .bidding(var b) = s.table.phase else { return }
+        if s.table.bidClock?.position == pos { stopBidClock(&s, .fade, &fx) }
         let bid = p.bid.value
         if let arr = p.bidArray {
             for i in 0..<4 { b.bids.byPosition[i] = i < arr.count ? arr[i]?.value : nil }
@@ -519,5 +527,48 @@ extension TableReducer {
         addLog(&s, "--- HAND COMPLETE ---")
         addLog(&s, line(me, r.partner))
         addLog(&s, line(r.opp1, r.opp2))
+    }
+}
+
+// MARK: - Bid clock (contract/README.md "Bid clock"; docs/ios-table-store.md "Bid clock")
+
+extension TableReducer {
+    /// The timeout's notice to the bidder (`TableEffect.notice`, the web's toast words).
+    static let bidTimeoutNotice = "Time ran out: you bid 0"
+
+    /// bidClock (unsequenced): `running` sets the clock and starts or restates the tune;
+    /// `stopped` clears it (the timeout lets the tune's end cue ring). Another game's event, an
+    /// invalid position or a running one with no usable times is dropped.
+    static func bidClockEvent(_ s: inout TableState, _ p: WirePayload.BidClock, _ fx: inout [TableEffect]) {
+        guard let gid = p.gameId, gid == s.table.gameId, let pos = Position.valid(p.position) else { return }
+        if p.running {
+            // only while bidding: a running clock never outlives its deal (the pre-wait keeps a
+            // gap's replay from clearing a fresh one: critic C8; a lagging table gets it from its
+            // resync's snapshot)
+            guard let inMs = p.inMs, inMs >= 0, let dur = p.durationMs, dur >= 1, s.table.phase.isBidding else { return }
+            s.table.bidClock = BidClockState(position: pos, inMs: inMs, durationMs: dur)
+            s.table.bidTuneLive = true
+            fx.append(.bidClock(.sync))
+            return
+        }
+        let timeout = p.reason == .timeout
+        if s.table.bidClock?.position == pos { stopBidClock(&s, timeout ? .ring : .fade, &fx) }
+        // the bidder learns why the panel closed (the others read the log's "ran out of time")
+        if timeout, s.table.viewer.role == .seat, s.table.viewer.position == pos { fx.append(.infoNotice(bidTimeoutNotice)) }
+    }
+
+    /// The clock is over. `.fade` / `.ring` only for a clock that runs (a ringing tail is the
+    /// tune's business: BidClockTune keeps it); `.hard` also when only a tail may still ring.
+    static func stopBidClock(_ s: inout TableState, _ kind: BidTuneStop, _ fx: inout [TableEffect]) {
+        if kind == .hard {
+            let live = s.table.bidClock != nil || s.table.bidTuneLive
+            s.table.bidClock = nil
+            s.table.bidTuneLive = false
+            if live { fx.append(.bidClock(.stop(.hard))) }
+            return
+        }
+        guard s.table.bidClock != nil else { return }
+        s.table.bidClock = nil
+        fx.append(.bidClock(.stop(kind)))
     }
 }

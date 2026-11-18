@@ -303,6 +303,10 @@ enum UIFixture {
     /// `-uiHandNo <n>`: the deal is hand n (the snapshot's deal.handNo; its cards unchanged):
     /// the card backs take that hand's colour (CardBackColour; probe `table.extras` back=).
     /// `-uiToasts YES`: the toast layer is up and holds a toast 60 s (a tap on a dimmed card).
+    /// `-uiBidClock <seconds>`: the bid clock runs for the seat on turn (`-uiBidClockSeat <pos>`:
+    /// that seat instead), as the server's running event, with the countdown showing exactly
+    /// that many seconds and held there (the store's clock frozen; `-uiBidClockLive YES` lets it
+    /// run down). Fixture mode is silent, so no tune plays.
     @MainActor
     private static func seedTableExtras(_ store: GameState, _ snap: TableSnapshot, auth: AuthState) {
         let defaults = UserDefaults.standard
@@ -316,6 +320,18 @@ enum UIFixture {
                 seededSnapshot = dict
                 store.apply(.snapshot(edited, .rejoin, hints: nil))
             }
+        }
+        if let secs = Int(defaults.string(forKey: "uiBidClock") ?? ""), secs > 0 {
+            if !defaults.bool(forKey: "uiBidClockLive") {
+                let frozen = store.clockNow()
+                store.clockNow = { frozen }
+            }
+            let pos = Int(defaults.string(forKey: "uiBidClockSeat") ?? "").flatMap { (1...4).contains($0) ? $0 : nil } ?? snap.turn?.position ?? 1
+            // inMs - the countdown's margin = exactly `secs` on the pill
+            let inMs = secs * 1000 + Int(BidCountdownModel.uiMargin * 1000)
+            _ = store.apply(serverEvent: "bidClock", payload: [[
+                "gameId": snap.gameId, "position": pos, "running": true, "inMs": inMs, "durationMs": 30000,
+            ] as [String: Any]])
         }
         if let pos = Int(defaults.string(forKey: "uiIdleOffer") ?? ""), (1...4).contains(pos) {
             let name = snap.seats.first { $0.position == pos }?.username ?? "P\(pos)"
@@ -778,6 +794,23 @@ final class TableDebugProbe: ObservableObject {
     /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
     /// in a flight or a fade now, the deck up or not).
     @Published var tableDeal = "-"
+    /// The bidder's countdown (BidClockPill) against the table, in the pane's points:
+    /// "x y w h seats=ok|over:<what> fold=ok|over|-" ("-": no countdown shown).
+    @Published var bidClock = "-"
+    /// What the countdown must keep off (GameContainerView, the pane's points): each opponent's
+    /// seat (glow and name), its bid bubble and its card backs, and the fold.
+    var tableKeeps: [String: CGRect] = [:] { didSet { updateBidClock() } }
+    var tableFold: CGRect? { didSet { updateBidClock() } }
+    var bidClockFrame: CGRect? { didSet { updateBidClock() } }
+
+    private func updateBidClock() {
+        guard let f = bidClockFrame else { if bidClock != "-" { bidClock = "-" }; return }
+        let over = tableKeeps.filter { $0.value.intersects(f) }.keys.sorted()
+        let fold = tableFold.map { $0.intersects(f) ? "over" : "ok" } ?? "-"
+        let text = String(format: "%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+            + " seats=\(over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")) fold=\(fold)"
+        if text != bidClock { bidClock = text }
+    }
 
     var pose: String {
         let i = insets
@@ -857,6 +890,7 @@ struct FixtureProbes: View {
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)
             dot("table.deal", probe.tableDeal)
+            dot("table.bidClock", probe.bidClock)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

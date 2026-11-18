@@ -24,9 +24,16 @@ extension TableReducer {
         _ = resyncId  // any snapshot covers the gap (R3: always apply), whichever request it answers
         // Leave's check: any snapshot while it is on settles the seats (LeaveOutcome `verified`)
         if s.players.leaveCheck != .idle { next.players.leaveCheck = .verified }
+        // the bid clock: a snapshot is state, so it may start the tune (the documented exception
+        // to "a snapshot plays nothing"); one without the clock ends it; another game's ends
+        // whatever may still ring
+        let sameGame = s.table.gameId == next.table.gameId
+        if !sameGame && s.table.bidTuneLive { fx.append(.bidClock(.stop(.hard))) }
+        let hadClock = sameGame && s.table.bidClock != nil
         s = next
         s.table.myTurn = s.myTurn
         fx.append(.animate(.sceneReset))
+        if s.table.bidClock != nil { fx.append(.bidClock(.sync)) } else if hadClock { fx.append(.bidClock(.stop(.fade))) }
         catchUp(&fx) { fx in
             for ev in buffered.sorted(by: { ($0.seq ?? 0) < ($1.seq ?? 0) }) where (ev.seq ?? Int.max) > snap.seq {
                 gate(&s, ev, &fx)
@@ -131,6 +138,13 @@ extension TableReducer {
         case .ended, .aborted, .unknown:
             s.table.phase = prev.table.phase
         }
+
+        // the running bid clock (present only while it runs; inMs from the snapshot's serverTime,
+        // i.e. from receipt); an invalid one is dropped, never the snapshot
+        if let c = snap.bidClock, let pos = Position.valid(c.position), c.inMs >= 0, c.durationMs >= 1, s.table.phase.isBidding {
+            s.table.bidClock = BidClockState(position: pos, inMs: c.inMs, durationMs: c.durationMs)
+        }
+        s.table.bidTuneLive = s.table.bidClock != nil || (sameGame && prev.table.bidTuneLive)
 
         // A play still in flight survives a gap resync that shows it not yet taken
         if let p = prev.pending, case .requested(let id) = source, id.hasPrefix("gap-"), snap.viewer.canAct {

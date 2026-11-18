@@ -87,6 +87,8 @@ struct BABOnlineApp: App {
         ErrorReporter.shared.reportPendingCrash()
         socketService.authState = authState
         socketService.gameState = gameState
+        // a dropped socket ends the bid clock's tune and countdown (no `stopped` can reach it)
+        actions.watchConnection(socketService.$isConnected.receive(on: DispatchQueue.main))
         // what a serverShutdown would cost the player now (RestartNotice)
         let app = appState, store = gameState, tournament = tournamentState
         socketService.restartPlace = {

@@ -37,6 +37,9 @@ enum ServerEvent: Equatable {
     /// spectatorsUpdated: UNSEQUENCED (decoded with seq nil whatever the payload says), so it
     /// goes around the seq gate and never opens or fills a gap (V1_REMOVALS "iOS spectator badge")
     case spectators(WirePayload.SpectatorsUpdated)
+    /// bidClock: UNSEQUENCED too (decoded with seq nil): a human seat's bid clock started or
+    /// stopped (contract/README.md "Bid clock"); never opens or fills a gap
+    case bidClock(WirePayload.BidClock)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -176,6 +179,9 @@ extension ServerEvent {
             case "voicePeerLeft": event = .seqOnly
             case "spectatorsUpdated":
                 event = .spectators(try d(WirePayload.SpectatorsUpdated.self))
+                seq = nil
+            case "bidClock":
+                event = .bidClock(try d(WirePayload.BidClock.self))
                 seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else

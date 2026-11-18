@@ -860,8 +860,8 @@ build 9).
 ## Table sounds (next build, after 1.2.1 build 9)
 
 Owner 2026-11-15: tasteful sounds, on by default at a quiet volume, easy to
-mute; fewer and quieter is better than more and louder. The same 11 files as
-the web (`Resources/Sounds/*.m4a`, built by `npm run build:sounds`, copied to
+mute; fewer and quieter is better than more and louder. The same 12 files as
+the web (11 one-shot sounds and the bid clock's tune, section "Bid clock"; `Resources/Sounds/*.m4a`, built by `npm run build:sounds`, copied to
 the bundle root).
 
 `TableEffect.sound(SoundKind)`, emitted by the reducer, run by
@@ -873,6 +873,10 @@ ActionCoordinator through `TableSoundCues` (when) into `SoundPlaying` (default
   resync debounce and ack timers.
 - `.haptic(.error)`: a refused or unanswered action of mine.
 - `.sound(SoundKind)`: one per live event below.
+- `.bidClock(BidClockCue)`: the bid clock's tune (`BidClockTune`, section "Bid
+  clock" below); unlike `.sound`, a snapshot may emit it and catch-up keeps it.
+- `.notice` / `.infoNotice`: the toast over the table (a refusal; the bid
+  clock's "Time ran out: you bid 0" in the info look).
 - `.dropped` / `.gap`: DEBUG log and the tests.
 
 | Live delta event | Sound | Who |
@@ -964,6 +968,82 @@ Not verified: nobody has listened on a device (volume against voice chat, the
 silent switch, the 48 ms AAC lead-in); with voice on the session is
 playAndRecord / voiceChat, so sounds then ignore the silent switch and go
 through voice processing.
+
+## Bid clock (next build after 1.2.3 (14))
+
+Owner 2026-11-18: a human seat idle 10 s into its bid turn gets a 30 s clock
+with music; when it runs out the server bids 0 for it (contract/README.md "Bid
+clock", server/CLAUDE.md "Bid clock"). Shipped builds (<= 14) never register
+the event: they read "<name> ran out of time." and the ordinary bid 0.
+
+- Wire: `bidClock` (`WirePayload.BidClock`: running `{inMs, durationMs}` /
+  stopped `{reason}`, `Reason` open: an unknown one acts as `turn`) is
+  UNSEQUENCED: `ServerEvent.bidClock` is decoded with seq nil, so it goes around
+  the seq gate and never opens or fills a gap (as `spectators`);
+  `GameSocketHandler.events` registers it. Snapshot v2's optional `bidClock
+  {position, inMs, durationMs}` (generated `TableSnapshot.BidClock`) is present
+  only while the clock runs.
+- Reducer (pure, no clock): `TableSlice.bidClock: BidClockState?` keeps the
+  relative `inMs` as received; `bidTuneLive` says a tune may still be sounding.
+  Set by a running event of this game while bidding and by a snapshot carrying
+  one (`.bidClock(.sync)`). Cleared, with `.bidClock(.stop(...))`: a stopped
+  event (`timeout` -> `.ring`, any other -> `.fade`), bidReceived for that seat,
+  updateTurn to another seat, doneBidding, gameStart, destroyHands, a same-game
+  snapshot without it (`.fade`); gameEnd, abortGame, leftGame, a reset, another
+  game's context or snapshot, and `LocalAction.connectionLost` (my socket left
+  `.connected`: `ActionCoordinator.watchConnection`, critic C4) stop
+  everything (`.hard`, sent also when only a timeout's tail may ring). The
+  bidder's own timeout adds `.infoNotice("Time ran out: you bid 0")`.
+- Store: `GameState.bidCountdown` (`BidCountdown {position, deadline,
+  durationMs}`) turns the relative clock into a deadline on `clockNow`
+  (`BidClockTime`: ContinuousClock, monotonic, not a required-reason API) when
+  the reducer's `.sync` lands, i.e. receipt + inMs; nil whenever the reducer has
+  no clock. Tests and fixtures replace `clockNow`.
+- Tune (`State/Table/BidClockTune.swift`, owned by ActionCoordinator): END-aligned,
+  `SoundPlayer.startTune(endingIn:)` plays `bidclock.m4a` from its decoded
+  length minus the time left (C11), never with under 1 s left; a restated clock
+  within 750 ms of the playing tune keeps it, else it restarts at its place; a
+  stop fades 0.12 s; a timeout lets the last 1.5 s ring, detached, so the bid 0
+  and the next turn do not cut it (C3; a hard stop, a background or a new clock
+  do). Everyone at the table hears it (seat, lazy watcher, spectator), each with
+  their own "soundEnabled" / "soundVolume": SoundPlayer stops it when the sound
+  goes off or the volume to 0, follows the volume, and `tuneResync` restarts it
+  at its place when the sound comes back; `didEnterBackground` stops it,
+  `didBecomeActive` resyncs. Its own AVAudioPlayer (`AudioTuneOutput`), outside
+  the two-per-file pool, made on the first start after the session is ambient;
+  the same session rule as the other sounds. Silent under XCTest and UI fixtures.
+- Countdown (`BidClockPill` in BidOverlayView; `BidCountdownModel`): only for
+  my seat's clock while the bid choice is mine (`.seat`, not submitted). Whole
+  seconds to `deadline - 0.75 s` (C2's margin), capped at the clock's length,
+  the warning colour for the last 10, no motion, redrawn 4 times a second
+  (TimelineView). It sits on the panel's top edge at its trailing corner (a
+  zero-height strip at the panel's top holds it by its bottom, 1 pt into the
+  panel's 2 pt top margin), over the felt: the 340 x 140 band and every button,
+  cell, chip row and HSI frame are unchanged. At 0 the number goes and the grid
+  and bottom row dim and refuse (Submit too) until the server's bid 0 lands; if
+  nothing came within 5 s bidding opens again. VoiceOver: label "Time to bid: N
+  seconds", announcements "N seconds to bid" when it appears and at 10 s.
+- Fixtures: `-uiBidClock <s>` runs the clock for the seat on turn
+  (`-uiBidClockSeat <pos>`: another seat) with the countdown held at exactly
+  that many seconds (`-uiBidClockLive YES`: running down); the contract fixture
+  `bid-clock-running` is another seat's clock. Probe `table.bidClock`: the
+  pill's frame in the pane and `seats=ok|over:<seatN|bubbleN|fanN> fold=ok|over|-`.
+- Tests: `BidClockTests` (decode, routing around the gate, every set / clear
+  rule, snapshots, the store's deadline, the model, the tune controller with a
+  fake player, SoundPlayer's tune gating, the bundle, the coordinator's
+  background / active / connection drop, and the recording
+  `events-bidclock-s16`: seat1's timeout (tune, ring, toast, log), a bid
+  mid-tune, the rejoin snapshot resuming at 11.9 s, the spectator's three
+  tunes). The recording is also in `FixtureLoader.eventLogNames`, so every
+  replay test reads it; `TableProjection` compares the clock's seat at each
+  checkpoint. `BidClockUITests` (UI plan): the pill on the panel's edge with
+  nothing moved or covered (also `-uiFold book|tabletop`), the warning state at
+  8, none for another seat's clock, the expired wait and reopen; run on
+  375 pt (SE), 390 pt (16e), 402 pt (17), an iPad mini, and the Duo closed,
+  open and half open.
+
+Not verified: nobody has heard the tune on a device (level against the cues and
+voice; the end cue landing on the bid on a real network).
 
 ## The deal's fly-in (iOS 1.2.2, build 12)
 

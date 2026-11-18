@@ -7,6 +7,11 @@ import SwiftUI
 /// panel on my bid turn). It is an overlay of that gap, so it never moves or shrinks
 /// a button; where the gap is too narrow for it (none of today's sizes) it moves to
 /// a header line above the grid instead.
+///
+/// The bid clock (owner 2026-11-18): once my seat's clock runs, a small countdown
+/// (`BidClockPill`) sits on the panel's top edge at its trailing corner, over the felt, so no
+/// button, cell or chip moves; at 0 the buttons dim and refuse until the server's bid 0 lands
+/// (BidCountdownModel).
 struct BidOverlayView: View {
     @EnvironmentObject var gameState: GameState
     @EnvironmentObject var actions: ActionCoordinator
@@ -59,8 +64,26 @@ struct BidOverlayView: View {
 
     private var hsiInHeader: Bool { gameState.myHSI != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
 
+    /// My seat's running bid clock (a seat holder's, never a spectator's or a lazy watcher's).
+    private var myClock: BidCountdown? {
+        guard let c = gameState.bidCountdown, c.position == gameState.position, gameState.table.viewer.role == .seat else { return nil }
+        return c
+    }
+
     var body: some View {
-        VStack(spacing: 2) {
+        if let clock = myClock {
+            // redrawn 4 times a second while my clock runs (a number is at most 0.25 s late)
+            TimelineView(.periodic(from: Date(), by: BidCountdownModel.tick)) { _ in
+                panel(BidCountdownModel.display(clock, mine: gameState.myTurn == .choosing(.bid), now: gameState.clockNow()))
+            }
+        } else {
+            panel(.hidden)
+        }
+    }
+
+    private func panel(_ clock: BidCountdownModel.Display) -> some View {
+        let expired = clock == .expired
+        return VStack(spacing: 2) {
             // the web bid sheet's chip row: one chip per trick, the bids so far by team,
             // outlined chips past the hand size for an overbid
             BidChipRow(chips: bidChips, zoom: zoom)
@@ -73,6 +96,7 @@ struct BidOverlayView: View {
             // Fixed-width bid grid: at most 7 cells a row (7 x 44 + padding fits the 340 x 140 bid band)
             let columns = Array(repeating: GridItem(.fixed(cellSize), spacing: 0), count: min(maxBid + 1, 7))
 
+            Group {
             LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(0...maxBid, id: \.self) { bid in
                     let bidStr = String(bid)
@@ -144,6 +168,10 @@ struct BidOverlayView: View {
                 .accessibilityShowsLargeContentViewer()
             }
             .padding(.horizontal, Theme.Space.s2)
+            }
+            // the clock ran out: the server's bid 0 is on its way (dimmed, frames unchanged)
+            .opacity(expired ? 0.45 : 1)
+            .disabled(expired)
         }
         // 2 + 1 with the chip row's 5 + 2: the 8 pt the panel's padding had (the 340 x 140 bid band)
         .padding(.top, 2)
@@ -154,6 +182,23 @@ struct BidOverlayView: View {
                 .fill(Theme.surface.opacity(0.95))
                 .elevation(Theme.Elevation.e2)
         )
+        // on the panel's top edge (1 pt into its 2 pt top margin, clear of the chip row), over
+        // the felt: a zero-height strip at the panel's top holds it by its bottom
+        .overlay(alignment: .top) {
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 0)
+                .overlay(alignment: .bottomTrailing) {
+                    if case .seconds(let n, let low) = clock {
+                        BidClockPill(seconds: n, low: low, zoom: zoom)
+                            .padding(.trailing, Theme.Space.s3)
+                            .offset(y: 1)
+                    }
+                }
+        }
+        .onChange(of: Self.announcement(clock, deadline: myClock?.deadline), initial: true) { _, said in
+            if let said { AccessibilityNotification.Announcement(said.text).post() }
+        }
         .padding(.horizontal, Theme.Space.s2)
         // capped so the panel fits the layout's 340 x 140 bid band
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -164,8 +209,25 @@ struct BidOverlayView: View {
         #endif
     }
 
+    /// VoiceOver hears the countdown twice per clock: when it appears and when it reaches
+    /// `lowAt` (the number itself is not live). Equal by (clock, low) only, so the text of
+    /// each new second does not announce again.
+    struct Announcement: Equatable {
+        let deadline: TimeInterval
+        let low: Bool
+        let text: String
+        static func == (a: Self, b: Self) -> Bool { a.deadline == b.deadline && a.low == b.low }
+    }
+
+    static func announcement(_ clock: BidCountdownModel.Display, deadline: TimeInterval?) -> Announcement? {
+        guard let deadline, case .seconds(let n, let low) = clock else { return nil }
+        return Announcement(deadline: deadline, low: low, text: BidCountdownModel.announcement(n))
+    }
+
     private func submitBid() {
         guard let bid = selectedBid else { return }
+        // the countdown reached 0: the server is bidding 0 for me (C2's margin)
+        if let c = myClock, BidCountdownModel.display(c, mine: true, now: gameState.clockNow()) == .expired { return }
         if actions.bid(bid) {
             HapticManager.mediumImpact()
             selectedBid = nil
@@ -269,5 +331,50 @@ struct BidChipRow: View {
             // an overbid: outlined in the team's colour, not filled
             shape.fill(Theme.surface).overlay(shape.strokeBorder(Theme.team(team), lineWidth: 1.5 * zoom))
         }
+    }
+}
+
+/// The bidder's countdown on the bid panel's edge (owner 2026-11-18: "a small, unobtrusive
+/// countdown"): whole seconds in tabular digits, the warning colour for the last
+/// `BidCountdownModel.lowAt`, no blinking or motion. Not a button: touches pass through.
+struct BidClockPill: View {
+    /// The table pane's coordinate space (GameContainerView's layout overlays): the fixture probe
+    /// "table.bidClock" holds the pill's frame in it against the seats and the fold.
+    static let paneSpace = "tablePane"
+
+    let seconds: Int
+    let low: Bool
+    var zoom: CGFloat = 1
+
+    var body: some View {
+        HStack(spacing: 3 * zoom) {
+            Image(systemName: "timer")
+                .font(.caption2.weight(.semibold))
+                .accessibilityHidden(true)
+            Text("\(seconds)")
+                .font(.caption.bold())
+                .monospacedDigit()
+        }
+        .foregroundColor(low ? Theme.warning : Theme.textPrimary)
+        .padding(.horizontal, Theme.Space.s2)
+        .padding(.vertical, 3)
+        .background(
+            Capsule()
+                .fill(Theme.surface.opacity(0.95))
+                .overlay(Capsule().strokeBorder(low ? Theme.warning : Theme.divider, lineWidth: 1))
+        )
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        .fixedSize()
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(BidCountdownModel.label(seconds))
+        .accessibilityIdentifier("bidClock")
+        #if DEBUG
+        .accessibilityValue(low ? "\(seconds) low" : "\(seconds)")  // the fixture UI tests read it
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.paneSpace)) }) { f in
+            if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = f }
+        }
+        .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = nil } }
+        #endif
     }
 }

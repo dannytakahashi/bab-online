@@ -15,6 +15,11 @@ struct TableSlice: Equatable {
     var myTurn: MyTurnState = .waiting
     /// A snapshot this build cannot show (TableReducer.snapshotFailed); any applied snapshot clears it.
     var snapshotTrouble = SnapshotTrouble.none
+    /// The running bid clock (bidClock running, a snapshot's `bidClock`), nil otherwise.
+    var bidClock: BidClockState?
+    /// The tune may be sounding (a `.bidClock(.sync)` went out; a timeout's tail may still
+    /// ring after the clock itself is gone): the next hard stop is sent, then this is false.
+    var bidTuneLive = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).
