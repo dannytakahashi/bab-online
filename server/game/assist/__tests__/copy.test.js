@@ -42,6 +42,9 @@ describe('copy helpers', () => {
         expect(C.tricksText(1.94)).toBe('about 1.9');
         expect(C.tricksText(0.4)).toBe('about 0.4');
         expect(C.tricksText(4.6)).toBe('about 5');
+        // Rounded first: 2.96 is "about 3", never "about 3.0"
+        expect(C.tricksText(2.96)).toBe('about 3');
+        expect(C.tricksText(2.94)).toBe('about 2.9');
         expect(C.pointsText(58.4)).toBe('about +58');
         expect(C.pointsText(-10)).toBe('about −10');
         expect(C.pointsText(0.2)).toBe('about 0');
@@ -53,6 +56,8 @@ describe('copy helpers', () => {
         expect(C.clip(long, 60).length).toBeLessThanOrEqual(60);
         expect(C.clip(long, 60)).toMatch(/…$/);
         expect(C.fit(['x'.repeat(200), 'fits'], 140)).toBe('fits');
+        // No parenthesis left open by the cut
+        expect(C.clip(`${'word '.repeat(12)}against almost never (about 0%) with it.`, 90)).toBe(`${'word '.repeat(12)}against almost never…`);
     });
 
     test('render: rich card and the ≤ 200-character line with the use count', () => {
@@ -71,6 +76,21 @@ describe('copy helpers', () => {
         const l2 = C.render(big, { style: 'line', uses: 1, freeUses: 3 });
         expect(l2.length).toBeLessThanOrEqual(C.LINE_MAX);
         expect(l2).toMatch(/: Play 4♦\. Your partner Bob's x+/);
+    });
+
+    test('render: the moved partner tag goes on the name as a whole word, and no guess footer on a forced move', () => {
+        const line = (partner, main) => {
+            const e = { headline: 'Play 4♦', reasons: [`You and ${partner} (your partner) ${'need '.repeat(25)}tricks.`, main], details: [], confidence: 'clear', suggest: {}, codes: [] };
+            Object.defineProperty(e, 'partnerName', { value: partner });
+            return C.render(e, { style: 'line' });
+        };
+        expect(line('Al', 'All your cards could win later: Al plays after you.')).toBe('Suggested (only you see this): Play 4♦. All your cards could win later: Al (your partner) plays after you.');
+        expect(line('Ali', 'Alice, last to play, then Ali.')).toBe('Suggested (only you see this): Play 4♦. Alice, last to play, then Ali (your partner).');
+        expect(line('Ali', 'Alice is winning with the 9♦. Ali\'s 4♦ could still lose.')).toBe('Suggested (only you see this): Play 4♦. Alice is winning with the 9♦. Your partner Ali\'s 4♦ could still lose.');
+        expect(line('A.B', 'AxB plays, then A.B.')).toBe('Suggested (only you see this): Play 4♦. AxB plays, then A.B (your partner).');
+        const forced = { headline: 'Play K♥', reasons: ['Your only legal card.'], details: [], confidence: 'only', suggest: {}, codes: ['P.forced'] };
+        expect(C.render(forced).footer).toBeNull();
+        expect(C.render(forced).label).toBe('Only legal card');
     });
 
     test('the name lint (Q9)', () => {
@@ -116,7 +136,12 @@ describe('the lint bites', () => {
         ['an untagged partner', { reasons: ['Bob bid 2.'] }],
         ['a double tag', { reasons: ['Bob (your partner) bid 2.', 'Bob (your partner) again.'] }],
         ['a long reason', { reasons: ['x'.repeat(141)] }],
-        ['three reasons', { reasons: ['a', 'b', 'c'] }]
+        ['three reasons', { reasons: ['a', 'b', 'c'] }],
+        ['nested parentheses', { reasons: ['Not your turn yet (Bob (your partner) is bidding).'] }],
+        ['"60%, just under 60%"', { details: ['Not a bore: Bob (your partner) would win every trick more often than not (about 60%), just under what a bore needs (about 60%).'] }],
+        ['the trump suit as a side suit', { reasons: ['Bob (your partner) leads. You have no hearts and no trump, so you can\'t win this one.'] }],
+        ['one card credited with 1.8 tricks', { reasons: ['Your hand should win about 2.2 tricks: HI joker (about 1.8).'] }],
+        ['"save strong cards" before a winning play', { reasons: ['You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.', 'x'], codes: ['C.made', 'F.ruffLast'] }]
     ])('%s', (name, patch) => expect(lint(patch).length).toBeGreaterThan(0));
 
     test('card tokens', () => {
@@ -150,7 +175,8 @@ describe('every decision of seeded games passes the copy rules', () => {
                 for (let p = 1; p <= 4; p++) {
                     if (p === pos) continue;
                     const s = status(seatView(game, p));
-                    expect(s).toMatch(/^Not your turn yet \(/);
+                    expect(s).toMatch(/^Not your turn yet: /);
+                    expect(s).not.toMatch(/\([^)]*\(/);
                     expect(s.length).toBeLessThanOrEqual(C.LINE_MAX);
                     expect(C.NAME_LINT.test(s)).toBe(false);
                 }

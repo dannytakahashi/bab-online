@@ -7,6 +7,7 @@
 'use strict';
 
 const C = require('../copy');
+const { WIN_CODE } = require('../explain');
 
 const RATE_WORDS = ['almost always', 'usually', 'more often than not', 'about half the time', 'sometimes', 'rarely', 'almost never'];
 const CARD_TOKEN = /(10|[2-9JQKA])([♠♥♦♣])|\b(HI|LO) joker/g;
@@ -41,7 +42,7 @@ function namedCards(text) {
  */
 function lintExplanation(e, view, { line, rich } = {}) {
     const bad = [];
-    const texts = [e.headline, ...e.reasons, ...e.details, ...(line ? [line] : []), ...(rich ? [rich.footer, rich.label || ''] : [])];
+    const texts = [e.headline, ...e.reasons, ...e.details, ...(line ? [line] : []), ...(rich ? [rich.footer || '', rich.label || ''] : [])];
     if (!e.headline || e.headline.length > C.HEADLINE_MAX) bad.push(`headline length ${e.headline && e.headline.length}`);
     if (e.reasons.length < 1 || e.reasons.length > C.MAX_REASONS) bad.push(`${e.reasons.length} reasons`);
     for (const r of e.reasons) if (r.length > C.REASON_MAX) bad.push(`reason length ${r.length}: ${r}`);
@@ -66,6 +67,13 @@ function lintExplanation(e, view, { line, rich } = {}) {
             if (/\($/.test(before) && !RATE_WORDS.some((w) => before.endsWith(`${w} (`))) bad.push(`rate without a word: ${t}`);
         }
         if (/\b\d+\.\d{2,}/.test(t)) bad.push(`unrounded number: ${t}`);
+        // Texts that contradict themselves or the play (H1 review)
+        if (/\([^()]*\(/.test(t)) bad.push(`nested parentheses: ${t}`);
+        const nb = /\(about (\d+)%\), just under what a bore needs \(about (\d+)%\)/.exec(t);
+        if (nb && nb[1] === nb[2]) bad.push(`"N%, just under N%": ${t}`);
+        if (view.trump && C.SUIT_SYMBOL[view.trump.suit] && t.includes(`no ${view.trump.suit} and no trump`)) bad.push(`the trump suit as a side suit: ${t}`);
+        for (const m of t.matchAll(/(?:joker|[♠♥♦♣]) \(about (\d+\.\d)\)/g)) if (Number(m[1]) > 1) bad.push(`one card credited with ${m[1]} tricks: ${t}`);
+        if (/\b1 trumps? support\b/.test(t)) bad.push(`"1 trump support": ${t}`);
         // Q2: only cards the seat can see
         const vis = visibleCards(view);
         for (const k of namedCards(t)) if (!vis.has(k)) bad.push(`names an unseen card ${k}: ${t}`);
@@ -85,7 +93,12 @@ function lintExplanation(e, view, { line, rich } = {}) {
         const lf = line.indexOf(pname);
         if (lf >= 0 && !taggedAt(line, lf)) bad.push(`line: partner's first mention untagged: ${line}`);
     }
-    if (rich && e.confidence !== 'quick' && !/our strongest bot/.test(rich.footer)) bad.push('footer without "our strongest bot"');
+    // "save strong cards" opening a play that spends one
+    if (/save strong cards|Keep your good cards/.test(e.reasons.join(' ')) && (e.codes || []).some((c) => WIN_CODE.test(c))) {
+        bad.push(`"save strong cards" before a winning play: ${e.reasons.join(' ')}`);
+    }
+    if (rich && e.confidence === 'only' && rich.footer != null) bad.push('a "guess" footer on a forced move');
+    if (rich && e.confidence !== 'quick' && e.confidence !== 'only' && !/our strongest bot/.test(rich.footer || '')) bad.push('footer without "our strongest bot"');
     return bad;
 }
 

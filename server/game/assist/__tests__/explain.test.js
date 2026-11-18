@@ -52,7 +52,7 @@ describe('the plan\'s worked bid examples (§3.4)', () => {
         const v = seatView(tableAt({ handSize: 3, trump: '5h', hands: { 1: ['LO', 'Kh', '8s'] }, turn: 1 }), 1);
         const e = explain(advise(v), v);
         expect(e.headline).toBe('Bid 1');
-        expect(e.reasons[0]).toBe('Your hand should win about 1.9 tricks: LO joker (about 1.1), K♥ (about 0.9).');
+        expect(e.reasons[0]).toBe('Your hand should win about 1.9 tricks: LO joker (about 1.0), K♥ (about 0.9).');
         expect(e.reasons[1]).toMatch(/^Bob \(your partner\) bids after you and adds their own tricks\. Bid 1 is worth about \+1[78] on average/);
     });
 });
@@ -62,7 +62,7 @@ describe('decisions', () => {
         const g = tableAt({ handSize: 3, trump: '5h', hands: { 1: ['LO', 'Kh', '8s'], 2: ['2c', '3c', '4c'] }, turn: 1 });
         expect(advise(seatView(g, 2))).toBeNull();
         expect(advise(null)).toBeNull();
-        expect(status(seatView(g, 2))).toBe('Not your turn yet (Alice is bidding).');
+        expect(status(seatView(g, 2))).toBe('Not your turn yet: Alice is bidding.');
     });
 
     test('a forced move: one line, "Only legal card", P.forced', () => {
@@ -168,8 +168,9 @@ describe('the words follow the trace (Q1)', () => {
                 if (d.trace.bid.path !== 'ev') return;
                 const e = explain(d, v);
                 const evs = d.trace.bid.evs;
-                const curve = e.details.find((x) => x.startsWith('On average:'));
-                for (const m of curve.matchAll(/bid (\d+) about ([+−]?)(\d+)/g)) {
+                // The curve, or (the floor over a better average) the floor line
+                const curve = e.details.find((x) => x.startsWith('On average:') || x.startsWith('The averages lean'));
+                for (const m of curve.replace(/ against about /, ' bid ' + d.bid + ' about ').matchAll(/bid (\d+) \(?about ([+−]?)(\d+)/g)) {
                     const v2 = Math.round(evs[Number(m[1])]);
                     expect(`${v2 > 0 ? '+' : v2 < 0 ? '−' : ''}${Math.abs(v2)}`).toBe(`${m[2]}${m[3]}`);
                 }
@@ -216,5 +217,128 @@ describe('search errors go to onError, never to the bots\' counter', () => {
         A.advise(v);
         expect(SEARCH2.errors || 0).toBe(0);
         expect(warn).not.toHaveBeenCalled();
+    });
+});
+
+describe('H1 review fixes', () => {
+    const card = (s) => tableCard(s);
+    const tableCard = (s) => {
+        const m = /^(10|[2-9JQKA])([shdc])$/.exec(s);
+        return { suit: { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs' }[m[2]], rank: m[1] };
+    };
+    // A searched lead with the search's numbers given: Alice leads, clubs trump
+    const leadView = () => seatView(tableAt({
+        handSize: 4, trump: '2c', stage: 'play', hands: { 1: ['Jd', '9h', '3s', '6d'] },
+        bids: ['2', '1', '0', '1'], turn: 1, trumpBroken: true
+    }), 1);
+    const cands = ['Jd', '9h', '3s', '6d'].map(card);
+    const searched = (played, ruleCard, n) => ({
+        kind: 'card', bid: null, card: card(played), forced: false, source: 'search',
+        trace: {
+            ruleCard: card(ruleCard), contract: null, path: [{ code: 'L.fallback', card: card(ruleCard), facts: {} }],
+            search: { cands, ruleIdx: 0, samples: 64, contract: { myBid: 2, oppBid: 2, myTricks: 1, oppTricks: 1, myMult: 1, oppMult: 1 }, ...n }
+        }
+    });
+
+    test('a make (or set) rate is quoted only where the suggested card\'s is the higher one', () => {
+        const v = leadView();
+        // The rule card makes more often (90% vs 80%): the search went by points
+        const inv = explain(searched('3s', 'Jd', { totals: [-15, -72, 4, -15], makes: [58, 56, 51, 58], sets: [5, 5, 5, 5] }), v);
+        expect(inv.codes).toContain('S.overrides');
+        expect(inv.reasons.join(' ')).not.toMatch(/bid makes|make your bid/);
+        expect(inv.reasons[0]).toBe('Usually you\'d lead the J♦, but here the 3♠ comes out slightly better on average (by less than a point a hand).');
+        expect(inv.confidence).toBe('close');
+        // A set rate in the played card's favour is still quoted
+        const set = explain(searched('3s', 'Jd', { totals: [-15, -72, 4, -15], makes: [58, 56, 51, 58], sets: [5, 6, 13, 5] }), v);
+        expect(set.reasons[0]).toMatch(/the 3♠ does better: you set Carol and Dan sometimes \(about 20%\) with it, against rarely \(about 10%\)/);
+        // The rule card kept: no comparison on a rate the runner-up wins
+        const agree = explain(searched('Jd', 'Jd', { totals: [10, 5, -40, -40], makes: [40, 60, 10, 10], sets: [5, 5, 5, 5] }), v);
+        expect(agree.codes).toContain('S.agrees');
+        expect(agree.details.join(' ')).not.toMatch(/make your bid/);
+        expect(agree.details).toContain('Checked over 64 likely ways the hidden cards could be split: the J♦ and the 9♥ come out within a fraction of a point of each other on average.');
+    });
+
+    test('the points margin is never clamped to 1 and the label follows the shown value', () => {
+        const v = leadView();
+        const same = explain(searched('Jd', 'Jd', { totals: [10, 10, -40, -40], makes: [40, 40, 10, 10], sets: [5, 5, 5, 5] }), v);
+        expect(same.details.join(' ')).toMatch(/the J♦ and the 9♥ come out the same on average/);
+        expect(same.details.join(' ')).not.toMatch(/1 point a hand better/);
+        // 2.6 points shows as "about 3": a clear choice, as 3 is
+        const three = explain(searched('3s', 'Jd', { totals: [0, -72, 166.4, -15], makes: [40, 40, 40, 40], sets: [5, 5, 5, 5] }), v);
+        expect(three.reasons[0]).toMatch(/about 3 points a hand better/);
+        expect(three.confidence).toBe('clear');
+        const two = explain(searched('3s', 'Jd', { totals: [0, -72, 140, -15], makes: [40, 40, 40, 40], sets: [5, 5, 5, 5] }), v);
+        expect(two.reasons[0]).toMatch(/about 2 points a hand better/);
+        expect(two.confidence).toBe('close');
+    });
+
+    test('last to play: "Any card works" never stands for the winning cards only', () => {
+        const v = seatView(tableAt({
+            handSize: 3, trump: 'Js', stage: 'play', hands: { 2: ['As', '5d', 'Ks'] },
+            bids: ['2', '2', '0', '1'], turn: 2, open: { lead: 3, cards: ['10c', '6c', '4s'] }, trumpBroken: true
+        }), 2);
+        const d = advise(v);
+        expect(d.trace.search.cands.length).toBeLessThan(v.legal.length);
+        const e = explain(d, v);
+        expect(e.codes).toEqual(['C.max', 'F.ruffLast', 'S.anyWinner']);
+        expect(e.confidence).toBe('certain');
+        expect(e.details).toEqual(['Any card that wins this trick does as well in all 64 likely deals checked.']);
+        // The search's own pick among tied winners (not the rule card): the cheapest, said so
+        const s = d.trace.search;
+        const other = explain({ ...d, card: s.cands[1], trace: { ...d.trace, ruleCard: card('5d'), search: { ...s, ruleIdx: -1 } } }, v);
+        expect(other.codes).toContain('S.anyWinner');
+        expect(other.confidence).toBe('certain');
+        expect(other.reasons[1]).toMatch(/every card that wins this trick does as well: the [AK]♠ is the cheapest/);
+    });
+
+    test('bids: the floor, a one-card low trump, an opponent\'s bore with a winner, small-hand trump count', () => {
+        // The floor over a better average: the numbers explain the floor, not argue against it
+        const fv = seatView(tableAt({ handSize: 3, trump: '6c', hands: { 1: ['HI', '9s', 'LO'] }, turn: 1 }), 1);
+        const f = explain(advise(fv), fv);
+        expect(f.codes).toContain('B.floor');
+        expect(f.details).toEqual(['The averages lean to bid 1 (about +19 against about +13), but they undercount cards that can\'t lose: never bid below your sure tricks.']);
+        // No trick estimate credits one card with more than a trick
+        expect(f.reasons[1]).toBe('Your hand should win about 2.2 tricks: HI joker (about 1.0), LO joker (about 1.0).');
+        // One low trump: no "rarely", no "60%, just under 60%"
+        const lv = seatView(tableAt({ handSize: 1, trump: '2d', hands: { 4: ['4d'] }, turn: 4 }), 4);
+        const l = explain(advise(lv), lv);
+        expect(l.reasons).toEqual(['Any higher trump or a joker beats your 4♦: too risky to bid.']);
+        expect(l.codes).not.toContain('B.noBore');
+        // An opponent bored and the hand bids 1
+        const bv = seatView(tableAt({ handSize: 1, trump: '9h', hands: { 1: ['Ah'] }, bids: [null, null, null, 'B'], turn: 1 }), 1);
+        const b = explain(advise(bv), bv);
+        expect(b.headline).toBe('Bid 1');
+        expect(b.reasons[0]).toBe('Dan bored. One trick sets the bore, and your hand should take one: bid 1.');
+        // "1 trump supports"
+        const sv = seatView(tableAt({ handSize: 3, trump: '6c', hands: { 1: ['Kc', 'As', 'Ad'] }, turn: 1 }), 1);
+        const sd = { kind: 'bid', bid: '1', card: null, forced: false, source: 'rules', trace: { bid: { path: 'rule', rule: ['smallCap'], trumpBidCap: 1 } } };
+        expect(explain(sd, sv).reasons).toEqual(['On a small hand trump decides it: 1 trump supports about 1 trick.']);
+    });
+
+    test('plays: trump led, a trump fight, save-strong-cards only when the card is not spent', () => {
+        // Clubs (trump) led and no trump: "no trump", not "no clubs and no trump"
+        const nv = seatView(tableAt({
+            handSize: 3, trump: '2c', stage: 'play', hands: { 1: ['Kh', '9d', '4s'] },
+            bids: ['1', '1', '0', '0'], turn: 1, open: { lead: 2, cards: ['5c', '8c', 'Jc'] }, trumpBroken: true
+        }), 1);
+        const n = explain(advise(nv), nv);
+        expect(n.reasons[1]).toMatch(/^You have no trump, so you can't win this one\./);
+        // Alice trumped; Carol's LO joker beats it and only the HI joker is out
+        const rv = seatView(tableAt({
+            handSize: 3, trump: 'Ad', stage: 'play', hands: { 2: ['6s', '10s', 'LO'] },
+            bids: ['1', '0', '0', '2'], turn: 2, open: { lead: 4, cards: ['5c', '10d'] }, trumpBroken: true
+        }), 2);
+        const r = explain(advise(rv), rv);
+        expect(r.codes).toContain('F.ruffFight');
+        expect(r.reasons[1]).toBe('Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen.');
+        // Bid made and a trump spent: no "save strong cards"
+        const fx = FIXTURES.find((x) => x.name === 'F.ruffLast').expect.explanation;
+        expect(fx.codes).toContain('C.made');
+        expect(fx.reasons[0]).not.toMatch(/save strong cards/);
+    });
+
+    test('status: no nested parentheses', () => {
+        const g = tableAt({ handSize: 3, trump: '5h', hands: { 1: ['LO', 'Kh', '8s'] }, bids: [null], turn: 3 });
+        expect(status(seatView(g, 1))).toBe('Not your turn yet: Bob (your partner) is bidding.');
     });
 });

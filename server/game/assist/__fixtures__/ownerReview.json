@@ -126,7 +126,7 @@
    "explanation": {
     "headline": "Bid 4",
     "reasons": [
-     "Your hand should win about 5 tricks: HI joker (about 1.8), A♥ (about 1.2), 9♥ (about 0.8).",
+     "Your hand should win about 5 tricks: HI joker (about 1.0), A♥ (about 1.0), 9♥ (about 0.8).",
      "Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52."
     ],
     "details": [
@@ -146,7 +146,7 @@
     "headline": "Bid 4",
     "label": "Clear choice",
     "reasons": [
-     "Your hand should win about 5 tricks: HI joker (about 1.8), A♥ (about 1.2), 9♥ (about 0.8).",
+     "Your hand should win about 5 tricks: HI joker (about 1.0), A♥ (about 1.0), 9♥ (about 0.8).",
      "Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52."
     ],
     "details": [
@@ -249,7 +249,7 @@
    "explanation": {
     "headline": "Bid 1",
     "reasons": [
-     "Your hand should win about 1.9 tricks: LO joker (about 1.1), K♥ (about 0.9).",
+     "Your hand should win about 1.9 tricks: LO joker (about 1.0), K♥ (about 0.9).",
      "Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11."
     ],
     "details": [
@@ -268,7 +268,7 @@
     "headline": "Bid 1",
     "label": "Clear choice",
     "reasons": [
-     "Your hand should win about 1.9 tricks: LO joker (about 1.1), K♥ (about 0.9).",
+     "Your hand should win about 1.9 tricks: LO joker (about 1.0), K♥ (about 0.9).",
      "Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11."
     ],
     "details": [
@@ -661,7 +661,7 @@
    "explanation": {
     "headline": "Bid 4",
     "reasons": [
-     "Your hand should win about 4 tricks: LO joker (about 1.5), 7♥ (about 0.9), 10♥ (about 0.9).",
+     "Your hand should win about 4 tricks: LO joker (about 1.0), 7♥ (about 0.9), 10♥ (about 0.9).",
      "Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51."
     ],
     "details": [
@@ -681,7 +681,7 @@
     "headline": "Bid 4",
     "label": "Clear choice",
     "reasons": [
-     "Your hand should win about 4 tricks: LO joker (about 1.5), 7♥ (about 0.9), 10♥ (about 0.9).",
+     "Your hand should win about 4 tricks: LO joker (about 1.0), 7♥ (about 0.9), 10♥ (about 0.9).",
      "Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51."
     ],
     "details": [
@@ -839,7 +839,7 @@
    "explanation": {
     "headline": "Bid 3",
     "reasons": [
-     "Your hand should win about 4 tricks: HI joker (about 1.5), A♣ (about 0.9), K♥ (about 0.7).",
+     "Your hand should win about 4 tricks: HI joker (about 1.0), A♣ (about 0.9), K♥ (about 0.7).",
      "Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32."
     ],
     "details": [
@@ -859,7 +859,7 @@
     "headline": "Bid 3",
     "label": "Clear choice",
     "reasons": [
-     "Your hand should win about 4 tricks: HI joker (about 1.5), A♣ (about 0.9), K♥ (about 0.7).",
+     "Your hand should win about 4 tricks: HI joker (about 1.0), A♣ (about 0.9), K♥ (about 0.7).",
      "Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32."
     ],
     "details": [
@@ -1007,7 +1007,7 @@
    "explanation": {
     "headline": "Bid 2",
     "reasons": [
-     "Your hand should win about 3.0 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6).",
+     "Your hand should win about 3 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6).",
      "Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36."
     ],
     "details": [
@@ -1026,7 +1026,7 @@
     "headline": "Bid 2",
     "label": "Clear choice",
     "reasons": [
-     "Your hand should win about 3.0 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6).",
+     "Your hand should win about 3 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6).",
      "Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36."
     ],
     "details": [
@@ -1301,11 +1301,10 @@
     "headline": "Bid 2",
     "reasons": [
      "Your HI and LO jokers are sure tricks, so bid at least 2.",
-     "Your hand should win about 2.2 tricks: HI joker (about 1.2), LO joker (about 1.0)."
+     "Your hand should win about 2.2 tricks: HI joker (about 1.0), LO joker (about 1.0)."
     ],
     "details": [
-     "Bob (your partner) bids after you and adds their own tricks. Bid 2 is worth about +13 on average, bid 1 about +19.",
-     "On average: bid 1 about +19, bid 2 about +13, bid 0 about +12."
+     "The averages lean to bid 1 (about +19 against about +13), but they undercount cards that can't lose: never bid below your sure tricks."
     ],
     "confidence": "clear",
     "suggest": {
@@ -1316,17 +1315,16 @@
      "B.evFirst"
     ]
    },
-   "line": "Suggested (only you see this): Bid 2. Your HI and LO jokers are sure tricks, so bid at least 2. Your hand should win about 2.2 tricks: HI joker (about 1.2), LO joker (about 1.0). (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 2. Your HI and LO jokers are sure tricks, so bid at least 2. Your hand should win about 2.2 tricks: HI joker (about 1.0), LO joker (about 1.0). (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 2",
     "label": "Clear choice",
     "reasons": [
      "Your HI and LO jokers are sure tricks, so bid at least 2.",
-     "Your hand should win about 2.2 tricks: HI joker (about 1.2), LO joker (about 1.0)."
+     "Your hand should win about 2.2 tricks: HI joker (about 1.0), LO joker (about 1.0)."
     ],
     "details": [
-     "Bob (your partner) bids after you and adds their own tricks. Bid 2 is worth about +13 on average, bid 1 about +19.",
-     "On average: bid 1 about +19, bid 2 about +13, bid 0 about +12."
+     "The averages lean to bid 1 (about +19 against about +13), but they undercount cards that can't lose: never bid below your sure tricks."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -1414,7 +1412,7 @@
    "explanation": {
     "headline": "Bore (B)",
     "reasons": [
-     "Every card you hold is a top trump, so you and Carol (your partner) win every trick whatever happens. A bore pays double."
+     "Your only card, the HI joker, can't be beaten, so you and Carol (your partner) win the trick whatever happens. A bore pays double."
     ],
     "details": [],
     "confidence": "certain",
@@ -1425,12 +1423,12 @@
      "B.lock"
     ]
    },
-   "line": "Suggested (only you see this): Bore (B). Every card you hold is a top trump, so you and Carol (your partner) win every trick whatever happens. A bore pays double. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bore (B). Your only card, the HI joker, can't be beaten, so you and Carol (your partner) win the trick whatever happens. A bore pays double. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bore (B)",
     "label": "Sure thing",
     "reasons": [
-     "Every card you hold is a top trump, so you and Carol (your partner) win every trick whatever happens. A bore pays double."
+     "Your only card, the HI joker, can't be beaten, so you and Carol (your partner) win the trick whatever happens. A bore pays double."
     ],
     "details": [],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
@@ -1519,30 +1517,25 @@
    "explanation": {
     "headline": "Bid 0",
     "reasons": [
-     "A low trump like your 4♦ rarely wins a one-card hand."
+     "Any higher trump or a joker beats your 4♦: too risky to bid."
     ],
-    "details": [
-     "Not a bore: you and Carol (your partner) would win every trick more often than not (about 60%), just under what a bore needs (about 60%)."
-    ],
+    "details": [],
     "confidence": "clear",
     "suggest": {
      "bid": "0"
     },
     "codes": [
-     "B.oneCard.low",
-     "B.noBore"
+     "B.oneCard.low"
     ]
    },
-   "line": "Suggested (only you see this): Bid 0. A low trump like your 4♦ rarely wins a one-card hand. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 0. Any higher trump or a joker beats your 4♦: too risky to bid. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 0",
     "label": "Clear choice",
     "reasons": [
-     "A low trump like your 4♦ rarely wins a one-card hand."
+     "Any higher trump or a joker beats your 4♦: too risky to bid."
     ],
-    "details": [
-     "Not a bore: you and Carol (your partner) would win every trick more often than not (about 60%), just under what a bore needs (about 60%)."
-    ],
+    "details": [],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
   }
@@ -1640,7 +1633,7 @@
     "headline": "Bid 0",
     "reasons": [
      "Dan bored. Your job is to win one trick and set the bore, not to score a bid.",
-     "An off-suit 9♠ rarely wins a one-card hand."
+     "Any trump or a higher spade beats your 9♠: too risky to bid."
     ],
     "details": [],
     "confidence": "clear",
@@ -1652,13 +1645,13 @@
      "B.oneCard.low"
     ]
    },
-   "line": "Suggested (only you see this): Bid 0. Dan bored. Your job is to win one trick and set the bore, not to score a bid. An off-suit 9♠ rarely wins a one-card hand. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 0. Dan bored. Your job is to win one trick and set the bore, not to score a bid. Any trump or a higher spade beats your 9♠: too risky to bid. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 0",
     "label": "Clear choice",
     "reasons": [
      "Dan bored. Your job is to win one trick and set the bore, not to score a bid.",
-     "An off-suit 9♠ rarely wins a one-card hand."
+     "Any trump or a higher spade beats your 9♠: too risky to bid."
     ],
     "details": [],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
@@ -2543,7 +2536,7 @@
     "headline": "Throw 8♠",
     "reasons": [
      "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
-     "You have no clubs and no trump, so you can't win this one. All your cards could win later: throw the lowest."
+     "You have no trump, so you can't win this one. All your cards could win later: throw the lowest."
     ],
     "details": [
      "Every card you can play here does as well in all 64 likely deals checked."
@@ -2562,13 +2555,13 @@
      "S.any"
     ]
    },
-   "line": "Suggested (only you see this): Throw 8♠. You have no clubs and no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw 8♠. You have no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 8♠",
     "label": "Any card works",
     "reasons": [
      "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
-     "You have no clubs and no trump, so you can't win this one. All your cards could win later: throw the lowest."
+     "You have no trump, so you can't win this one. All your cards could win later: throw the lowest."
     ],
     "details": [
      "Every card you can play here does as well in all 64 likely deals checked."
@@ -3393,7 +3386,7 @@
      "Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card."
     ],
     "details": [
-     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ comes out about 1 point a hand better than the Q♠ on average."
+     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -3418,7 +3411,7 @@
      "Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card."
     ],
     "details": [
-     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ comes out about 1 point a hand better than the Q♠ on average."
+     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -4833,7 +4826,7 @@
    "explanation": {
     "headline": "Play J♠",
     "reasons": [
-     "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade."
     ],
     "details": [
@@ -4857,7 +4850,7 @@
     "headline": "Play J♠",
     "label": "Close call",
     "reasons": [
-     "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade."
     ],
     "details": [
@@ -5679,7 +5672,7 @@
     "headline": "Trump with the LO joker",
     "reasons": [
      "You and Dan (your partner) need 2 more of the last 3 tricks.",
-     "Bob could still beat a low trump: your LO joker gives the best chance."
+     "Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen."
     ],
     "details": [
      "Checked over 64 likely ways the hidden cards could be split: with the LO joker you and Dan make your bid more often than not (about 75%); with the 6♠, about half the time (about 45%)."
@@ -5697,13 +5690,13 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Trump with the LO joker. Bob could still beat a low trump: your LO joker gives the best chance. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with the LO joker. Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with the LO joker",
     "label": "Clear choice",
     "reasons": [
      "You and Dan (your partner) need 2 more of the last 3 tricks.",
-     "Bob could still beat a low trump: your LO joker gives the best chance."
+     "Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen."
     ],
     "details": [
      "Checked over 64 likely ways the hidden cards could be split: with the LO joker you and Dan make your bid more often than not (about 75%); with the 6♠, about half the time (about 45%)."
@@ -6299,13 +6292,13 @@
    "explanation": {
     "headline": "Trump with K♠",
     "reasons": [
-     "You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "You play last: the lowest trump that wins is enough."
     ],
     "details": [
-     "Every card you can play here does as well in all 64 likely deals checked."
+     "Any card that wins this trick does as well in all 64 likely deals checked."
     ],
-    "confidence": "any",
+    "confidence": "certain",
     "suggest": {
      "card": {
       "suit": "spades",
@@ -6315,19 +6308,19 @@
     "codes": [
      "C.made",
      "F.ruffLast",
-     "S.any"
+     "S.anyWinner"
     ]
    },
    "line": "Suggested (only you see this): Trump with K♠. You play last: the lowest trump that wins is enough. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with K♠",
-    "label": "Any card works",
+    "label": "Sure thing",
     "reasons": [
-     "You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "You play last: the lowest trump that wins is enough."
     ],
     "details": [
-     "Every card you can play here does as well in all 64 likely deals checked."
+     "Any card that wins this trick does as well in all 64 likely deals checked."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -6707,7 +6700,7 @@
      "You're out of clubs and Carol plays after you, so a low trump is enough."
     ],
     "details": [
-     "Close call: the 9♥ and the 10♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 9♥ comes out about 1 point a hand better than the 10♥ on average."
+     "Close call: the 9♥ and the 10♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 9♥ and the 10♥ come out the same on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -6731,7 +6724,7 @@
      "You're out of clubs and Carol plays after you, so a low trump is enough."
     ],
     "details": [
-     "Close call: the 9♥ and the 10♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 9♥ comes out about 1 point a hand better than the 10♥ on average."
+     "Close call: the 9♥ and the 10♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 9♥ and the 10♥ come out the same on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -7077,7 +7070,7 @@
      "You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough."
     ],
     "details": [
-     "Close call: the 8♥ and the 10♥ do about equally well. Checked over 17 likely ways the hidden cards could be split: the 8♥ comes out about 1 point a hand better than the 10♥ on average."
+     "Close call: the 8♥ and the 10♥ do about equally well. Checked over 17 likely ways the hidden cards could be split: the 8♥ and the 10♥ come out the same on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -7101,7 +7094,7 @@
      "You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough."
     ],
     "details": [
-     "Close call: the 8♥ and the 10♥ do about equally well. Checked over 17 likely ways the hidden cards could be split: the 8♥ comes out about 1 point a hand better than the 10♥ on average."
+     "Close call: the 8♥ and the 10♥ do about equally well. Checked over 17 likely ways the hidden cards could be split: the 8♥ and the 10♥ come out the same on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -7564,7 +7557,7 @@
      "You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump."
     ],
     "details": [
-     "Close call: the Q♥ and the 4♣ do about equally well. Checked over 64 likely ways the hidden cards could be split: the Q♥ comes out about 1 point a hand better than the 4♣ on average."
+     "Close call: the Q♥ and the 4♣ do about equally well. Checked over 64 likely ways the hidden cards could be split: the Q♥ and the 4♣ come out within a fraction of a point of each other on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -7588,7 +7581,7 @@
      "You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump."
     ],
     "details": [
-     "Close call: the Q♥ and the 4♣ do about equally well. Checked over 64 likely ways the hidden cards could be split: the Q♥ comes out about 1 point a hand better than the 4♣ on average."
+     "Close call: the Q♥ and the 4♣ do about equally well. Checked over 64 likely ways the hidden cards could be split: the Q♥ and the 4♣ come out within a fraction of a point of each other on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -8334,7 +8327,7 @@
      "You can't beat the LO joker, and you only have trumps left: play the lowest."
     ],
     "details": [
-     "Close call: the 5♥ and the 7♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 5♥ comes out about 1 point a hand better than the 7♥ on average."
+     "Close call: the 5♥ and the 7♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 5♥ and the 7♥ come out the same on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -8358,7 +8351,7 @@
      "You can't beat the LO joker, and you only have trumps left: play the lowest."
     ],
     "details": [
-     "Close call: the 5♥ and the 7♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 5♥ comes out about 1 point a hand better than the 7♥ on average."
+     "Close call: the 5♥ and the 7♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 5♥ and the 7♥ come out the same on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -12268,13 +12261,12 @@
     "headline": "Lead K♣",
     "reasons": [
      "Bob and Alice need 2 of the last 3. Two more for you or Dan (your partner) sets them.",
-     "Clubs is your shortest suit: once it's gone you can trump club leads."
+     "On a small hand the ace may not even have been dealt, so your K♣ has a good chance."
     ],
     "details": [
-     "On a small hand the ace may not even have been dealt, so your K♣ has a good chance.",
      "Checked over 64 likely ways the hidden cards could be split: with the K♣ you set Bob and Alice more often than not (about 70%); with the 6♣, more often than not (about 65%)."
     ],
-    "confidence": "close",
+    "confidence": "clear",
     "suggest": {
      "card": {
       "suit": "clubs",
@@ -12283,21 +12275,19 @@
     },
     "codes": [
      "C.setThem",
-     "L.suit",
      "L.suitKing",
      "S.setThem"
     ]
    },
-   "line": "Suggested (only you see this): Lead K♣. Clubs is your shortest suit: once it's gone you can trump club leads. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead K♣. On a small hand the ace may not even have been dealt, so your K♣ has a good chance. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead K♣",
-    "label": "Close call",
+    "label": "Clear choice",
     "reasons": [
      "Bob and Alice need 2 of the last 3. Two more for you or Dan (your partner) sets them.",
-     "Clubs is your shortest suit: once it's gone you can trump club leads."
+     "On a small hand the ace may not even have been dealt, so your K♣ has a good chance."
     ],
     "details": [
-     "On a small hand the ace may not even have been dealt, so your K♣ has a good chance.",
      "Checked over 64 likely ways the hidden cards could be split: with the K♣ you set Bob and Alice more often than not (about 70%); with the 6♣, more often than not (about 65%)."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
@@ -12796,7 +12786,7 @@
      "Your only legal card: you must follow diamonds."
     ],
     "details": [],
-    "footer": "What our strongest bot would play. A strong guess, not a guarantee."
+    "footer": null
    }
   }
  },
@@ -13173,7 +13163,7 @@
      "Your only legal card: you must follow spades."
     ],
     "details": [],
-    "footer": "What our strongest bot would play. A strong guess, not a guarantee."
+    "footer": null
    }
   }
  },
@@ -13493,7 +13483,7 @@
      "Close call: the 5♣ and the 4♦ do about equally well."
     ],
     "details": [
-     "Checked over 12 likely ways the hidden cards could be split: the 5♣ comes out about 1 point a hand better than the 4♦ on average."
+     "Checked over 12 likely ways the hidden cards could be split: the 5♣ and the 4♦ come out within a fraction of a point of each other on average."
     ],
     "confidence": "close",
     "suggest": {
@@ -13516,7 +13506,7 @@
      "Close call: the 5♣ and the 4♦ do about equally well."
     ],
     "details": [
-     "Checked over 12 likely ways the hidden cards could be split: the 5♣ comes out about 1 point a hand better than the 4♦ on average."
+     "Checked over 12 likely ways the hidden cards could be split: the 5♣ and the 4♦ come out within a fraction of a point of each other on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -14248,7 +14238,7 @@
    "explanation": {
     "headline": "Lead the LO joker",
     "reasons": [
-     "You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%)."
     ],
     "details": [
@@ -14271,7 +14261,7 @@
     "headline": "Lead the LO joker",
     "label": "Clear choice",
     "reasons": [
-     "You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
+     "You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each.",
      "Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%)."
     ],
     "details": [
@@ -14493,7 +14483,7 @@
     "details": [
      "Checked over 64 likely ways the hidden cards could be split."
     ],
-    "confidence": "close",
+    "confidence": "clear",
     "suggest": {
      "card": {
       "suit": "clubs",
@@ -14508,7 +14498,7 @@
    "line": "Suggested (only you see this): Throw 4♣. Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 4♣",
-    "label": "Close call",
+    "label": "Clear choice",
     "reasons": [
      "You and Alice (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards.",
      "Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average."
@@ -15063,7 +15053,7 @@
     "headline": "Lead 3♠",
     "reasons": [
      "Dan and Carol need 6 of the last 11. Six more for you or Alice (your partner) sets them.",
-     "Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your higher spades."
+     "Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠."
     ],
     "details": [],
     "confidence": "close",
@@ -15093,13 +15083,13 @@
      }
     ]
    },
-   "line": "Suggested (only you see this): Lead 3♠. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your higher spades. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 3♠. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 3♠",
     "label": "Close call",
     "reasons": [
      "Dan and Carol need 6 of the last 11. Six more for you or Alice (your partner) sets them.",
-     "Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your higher spades."
+     "Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠."
     ],
     "details": [],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
@@ -15312,7 +15302,7 @@
    ]
   },
   "expect": {
-   "status": "Not your turn yet (Carol is playing). You and Alice (your partner) bid 4 and have 1 trick so far."
+   "status": "Not your turn yet: Carol is playing. You and Alice (your partner) bid 4 and have 1 trick so far."
   }
  }
 ]

@@ -105,10 +105,10 @@ function rateShort(p) {
     return `${rateWord(p)} (${pct5(p)}%)`;
 }
 
-/** Trick estimate: "about 1.9" under 3, else "about 5". */
+/** Trick estimate: "about 1.9" under 3, else "about 5" (2.96 is "about 3"). */
 function tricksText(x) {
-    const v = Math.max(0, x);
-    if (v < 3) return `about ${(Math.round(v * 10) / 10).toFixed(1)}`;
+    const v = Math.round(Math.max(0, x) * 10) / 10;
+    if (v < 3) return `about ${v.toFixed(1)}`;
     return `about ${Math.round(v)}`;
 }
 
@@ -137,12 +137,18 @@ function bidHeadline(bid) {
     return `Bid ${b}`;
 }
 
-/** Cut `s` to `max` characters at a word boundary, with an ellipsis. */
+/**
+ * Cut `s` to `max` characters at a word boundary, with an ellipsis. A
+ * parenthesis the cut would leave open ("almost never (about…") goes too.
+ */
 function clip(s, max) {
     if (s.length <= max) return s;
     const cut = s.slice(0, max - 1);
     const sp = cut.lastIndexOf(' ');
-    return `${(sp > max * 0.6 ? cut.slice(0, sp) : cut).replace(/[\s,;:.]+$/, '')}…`;
+    let out = sp > max * 0.6 ? cut.slice(0, sp) : cut;
+    const open = out.lastIndexOf('(');
+    if (open > out.lastIndexOf(')') && open > max * 0.5) out = out.slice(0, open);
+    return `${out.replace(/[\s,;:.]+$/, '')}…`;
 }
 
 /** The first variant that fits `max`, else the last one clipped. */
@@ -176,9 +182,17 @@ function glossFor(texts, skip = []) {
     return out;
 }
 
+/** Index of `name` as a whole word in `s` ("Al" not in "All", "Ali" not in "Alice"), or -1. */
+function nameAt(s, name) {
+    const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = new RegExp(`(?<![\\p{L}\\p{N}_])${esc}(?![\\p{L}\\p{N}_])`, 'u').exec(s);
+    return m ? m.index : -1;
+}
+
 /**
  * Render an explanation.
  *  - 'rich' (the assistHint card): {headline, label, reasons, details, footer}
+ *    (footer null on a forced move: there is nothing to guess)
  *  - 'line' (a private game-log line for clients without the card, ≤ 200
  *    characters): "Suggested (only you see this): Play 4♦. <reasons>
  *    (Help 2 of 3 free)"
@@ -196,7 +210,7 @@ function render(e, { style = 'rich', uses = null, freeUses = null, counted = tru
             label: CONFIDENCE_LABEL[e.confidence] || null,
             reasons: e.reasons.slice(),
             details: e.details.slice(),
-            footer: e.confidence === 'quick' ? QUICK_NOTE : FOOTER
+            footer: e.confidence === 'quick' ? QUICK_NOTE : e.confidence === 'only' ? null : FOOTER
         };
     }
     let tail = '';
@@ -218,7 +232,7 @@ function render(e, { style = 'rich', uses = null, freeUses = null, counted = tru
         let m = main;
         const tagged = (t) => t.includes(`${p} (your partner)`) || t.includes(`partner ${p}'s`);
         if (p && tagged(e.reasons[0]) && !tagged(m)) {
-            const i = m.indexOf(p);
+            const i = nameAt(m, p);
             if (i >= 0 && m.startsWith(`${p}'s`, i)) {
                 const start = i === 0 || /[.:!?]\s$/.test(m.slice(0, i));
                 m = `${m.slice(0, i)}${start ? 'Your' : 'your'} partner ${m.slice(i)}`;

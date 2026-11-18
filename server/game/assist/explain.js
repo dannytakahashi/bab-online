@@ -254,7 +254,8 @@ function suitChoiceText(facts, x) {
     }
     if (facts.hasAce) return null; // the ace says it (L.suitAce)
     const offLengths = Object.values(scores).map((s) => s.length);
-    if (x.hasTrump() && facts.length === Math.min(...offLengths)) {
+    // "shortest" needs a second side suit to compare with
+    if (x.hasTrump() && offLengths.length >= 2 && facts.length === Math.min(...offLengths)) {
         return `${capital(suitWord(S))} is your shortest suit: once it's gone you can trump ${suitWord(S, 1)} leads.`;
     }
     return null;
@@ -310,7 +311,20 @@ function searchReason(decision, view, x) {
     const totals = s.totals;
     const min = Math.min(...totals), max = Math.max(...totals);
     const checked = `Checked over ${n} likely ways the hidden cards could be split.`;
+    const ruleIs = same(card, t.ruleCard);
     if (max - min <= 1e-9) {
+        if (s.cands.length < view.legal.length) {
+            // Last to play: the search only looked at the cards that win the
+            // trick, so "any card" would include the ones that give it up.
+            // Ties keep the rule card, else the cheapest winner is played.
+            return {
+                code: 'S.anyWinner',
+                main: `You play last, and every card that wins this trick does as well: the ${cardText(card)} is the cheapest.`,
+                detail: `Any card that wins this trick does as well in all ${n} likely deals checked.`,
+                // The rule code says how sure (F.lastLowestWin, F.ruffLast: certain)
+                confidence: ruleIs ? null : 'certain'
+            };
+        }
         return {
             code: 'S.any',
             main: null,
@@ -319,7 +333,6 @@ function searchReason(decision, view, x) {
         };
     }
 
-    const ruleIs = same(card, t.ruleCard);
     // The card compared against: the rule card when the search overrode it,
     // else the runner-up
     let o = -1;
@@ -336,21 +349,29 @@ function searchReason(decision, view, x) {
     const mk = s.makes[k] / n, mo = s.makes[o] / n;
     const sk = s.sets[k] / n, so = s.sets[o] / n;
     const dp = (totals[k] - totals[o]) / n;
+    // The search picks by average points, so the played card can make (or
+    // set) less often than the other one: quote a rate only where it is the
+    // played card's that is higher, else the points (dp >= 0 always holds)
     let metric = 'points';
-    if (myLive && pct5(mk) !== pct5(mo)) metric = 'make';
-    else if (theirLive && pct5(sk) !== pct5(so)) metric = 'set';
+    if (myLive && mk > mo && pct5(mk) !== pct5(mo)) metric = 'make';
+    else if (theirLive && sk > so && pct5(sk) !== pct5(so)) metric = 'set';
 
+    // The margin as it is shown (whole points), so the label agrees with it
+    const pts = Math.round(Math.abs(dp));
     let confidence = 'close';
-    if (dp >= 3 || Math.abs(mk - mo) >= 0.10 || Math.abs(sk - so) >= 0.10) confidence = 'clear';
+    if (pts >= 3 || mk - mo >= 0.10 || sk - so >= 0.10) confidence = 'clear';
     const tight = dp < 1 && Math.abs(mk - mo) < 0.05 && Math.abs(sk - so) < 0.05;
 
     const us = x.us();
     const them = x.them();
-    const pts = Math.max(1, Math.round(Math.abs(dp)));
+    const by = pts === 0 ? null : `about ${pts} point${pts === 1 ? '' : 's'} a hand`;
+    const split = `Checked over ${n} likely ways the hidden cards could be split`;
     let detail;
-    if (metric === 'make') detail = `Checked over ${n} likely ways the hidden cards could be split: with the ${X} ${us} make your bid ${rate(mk)}; with the ${Y}, ${rate(mo)}.`;
-    else if (metric === 'set') detail = `Checked over ${n} likely ways the hidden cards could be split: with the ${X} you set ${them} ${rate(sk)}; with the ${Y}, ${rate(so)}.`;
-    else detail = `Checked over ${n} likely ways the hidden cards could be split: the ${X} comes out about ${pts} point${pts === 1 ? '' : 's'} a hand better than the ${Y} on average.`;
+    if (metric === 'make') detail = `${split}: with the ${X} ${us} make your bid ${rate(mk)}; with the ${Y}, ${rate(mo)}.`;
+    else if (metric === 'set') detail = `${split}: with the ${X} you set ${them} ${rate(sk)}; with the ${Y}, ${rate(so)}.`;
+    else if (by) detail = `${split}: the ${X} comes out ${by} better than the ${Y} on average.`;
+    else if (dp <= 1e-9) detail = `${split}: the ${X} and the ${Y} come out the same on average.`;
+    else detail = `${split}: the ${X} and the ${Y} come out within a fraction of a point of each other on average.`;
 
     if (tight) {
         const a = metric === 'make' ? [mk, mo] : metric === 'set' ? [sk, so] : null;
@@ -381,12 +402,27 @@ function searchReason(decision, view, x) {
             `Usually you'd ${verb} the ${R0}, but the ${X} sets them more often here (about ${pct5(sk)}% vs ${pct5(so)}%).`
         ];
     } else {
-        main = `Usually you'd ${verb} the ${R0}, but here the ${X} comes out about ${pts} point${pts === 1 ? '' : 's'} a hand better on average.`;
+        main = by
+            ? `Usually you'd ${verb} the ${R0}, but here the ${X} comes out ${by} better on average.`
+            : `Usually you'd ${verb} the ${R0}, but here the ${X} comes out slightly better on average (by less than a point a hand).`;
     }
     return { code: s.ruleIdx < 0 ? 'S.best' : 'S.overrides', main: x.fit(main, C.REASON_MAX), detail: s.ruleIdx < 0 ? detail : checked, confidence };
 }
 
 // ------------------------------------------------------------ plays
+
+/** Rule codes whose card is played to win the trick (or to cash a winner). */
+const WIN_CODE = /^(F\.(overtake|erraticOvertake|flashyWin|win|lastLowestWin|ruff|flashyRuff)|L\.(max|hiJoker|bossTrump|cashBoss|suitAce|suitKing))/;
+
+/**
+ * Does the suggested play spend a strong card? The rule card: when its code
+ * plays to win. A search override: when it is a trump or a J or higher.
+ */
+function spendsStrong(card, rule, ruleIs, x) {
+    if (rule) return WIN_CODE.test(rule.code);
+    if (ruleIs) return false;
+    return x.trumpCard(card) || RANK[card.rank] >= RANK.J;
+}
 
 function explainCard(decision, view, mode, glossed) {
     const card = decision.card;
@@ -402,16 +438,18 @@ function explainCard(decision, view, mode, glossed) {
     const codes = [];
     const reasons = [];
     const details = [];
-    const cl = contractLine(view, t.contract);
-    if (cl) {
-        codes.push(cl.code);
-        reasons.push(say(cl.code, cl.facts, x));
-    }
-
     const ruleIs = same(card, t.ruleCard);
     const rule = ruleIs ? rulePlayReason(t.path || [], x) : null;
     const sr = decision.source === 'quick' ? null : searchReason(decision, view, x);
     let confidence;
+
+    const cl = contractLine(view, t.contract);
+    if (cl) {
+        // "save strong cards" must not open a play that spends one
+        cl.facts.spends = spendsStrong(card, rule, ruleIs, x);
+        codes.push(cl.code);
+        reasons.push(say(cl.code, cl.facts, x));
+    }
 
     if (sr && !ruleIs) {
         // The search chose a card the rules would not: say so with its numbers
@@ -434,7 +472,7 @@ function explainCard(decision, view, mode, glossed) {
             // The search checked the rule card: its numbers set the confidence
             codes.push(sr.code);
             if (sr.detail) details.push(sr.detail);
-            confidence = sr.confidence;
+            confidence = sr.confidence || ruleConfidence(rule.code);
         } else {
             confidence = ruleConfidence(rule.code);
         }
@@ -509,7 +547,9 @@ function explainBid(decision, view, mode, glossed) {
     const stakes = bid === 'B' ? 'A bore pays double.' : `${bid} doubles the stakes again.`;
 
     const noBore = () => {
-        if (tb.sweepP != null && tb.sweepP < tb.sweepThreshold && tb.sweepP >= tb.sweepThreshold - 0.15) {
+        // Only when the rounded rates differ ("60%, just under 60%" reads wrong)
+        if (tb.sweepP != null && tb.sweepP < tb.sweepThreshold && tb.sweepP >= tb.sweepThreshold - 0.15 &&
+            pct5(tb.sweepP) < pct5(tb.sweepThreshold)) {
             codes.push('B.noBore');
             details.push(`Not a bore: ${x.us()} would win every trick ${rate(tb.sweepP)}, just under what a bore needs (about ${pct5(tb.sweepThreshold)}%).`);
         }
@@ -518,7 +558,9 @@ function explainBid(decision, view, mode, glossed) {
     switch (tb.path) {
         case 'bore:lock':
             codes.push('B.lock');
-            reasons.push(`Every card you hold is a top trump, so ${x.us()} win every trick whatever happens. ${stakes}`);
+            reasons.push(n === 1
+                ? `Your only card, the ${cardText(view.hand[0])}, can't be beaten, so ${x.us()} win the trick whatever happens. ${stakes}`
+                : `Every card you hold is a top trump, so ${x.us()} win every trick whatever happens. ${stakes}`);
             confidence = 'certain';
             break;
         case 'bore:sweep': {
@@ -575,7 +617,9 @@ function explainEvBid(tb, bid, view, x, reasons, details, codes) {
 
     const parts = bidParts(view);
     const strength = parts.length
-        ? `Your hand should win ${tricksText(tb.ownMean)} tricks: ${parts.map((q) => `${cardText(q.card)} (${tricksText(q.v)})`).join(', ')}.`
+        // One card wins at most one trick: what it adds to the estimate can be
+        // more (a joker also guards the other trumps), but is shown as 1
+        ? `Your hand should win ${tricksText(tb.ownMean)} tricks: ${parts.map((q) => `${cardText(q.card)} (${tricksText(Math.min(1, q.v))})`).join(', ')}.`
         : `Your hand should win ${tricksText(tb.ownMean)} tricks.`;
 
     let confidence = gap >= 2 ? 'clear' : 'close';
@@ -595,6 +639,13 @@ function explainEvBid(tb, bid, view, x, reasons, details, codes) {
     }
 
     const evLine = (b) => `bid ${b} ${pointsText(evs[b])}`;
+    // The floor raised the bid over one the averages score higher: quoting
+    // those numbers as the case for it would argue against it, so say why
+    // the floor wins instead (the fitted per-card values undercount locks)
+    let top = 0;
+    for (let b = 1; b < evs.length; b++) if (evs[b] > evs[top]) top = b;
+    const floorOverEv = tb.floored && top !== final && Math.round(evs[top]) > Math.round(evs[final]);
+    const floorLine = `The averages lean to bid ${top} (${pointsText(evs[top])} against ${pointsText(evs[final])}), but they undercount cards that can't lose: never bid below your sure tricks.`;
     if (partnerBid !== null) {
         const sd = view.trump.suit === 'joker' ? TEAM_SD_NO_TRUMP[n] : TEAM_SD[n].second;
         const pmf = teamTrickDistribution(tb.ownMean + partnerBid + tb.partnerOver, sd, n);
@@ -615,7 +666,9 @@ function explainEvBid(tb, bid, view, x, reasons, details, codes) {
             ];
         if (main) reasons.push(main, strength);
         else reasons.push(strength, x.fit(pLine, C.REASON_MAX));
-        if (main) details.push(x.fit(pLine, C.DETAIL_MAX));
+        if (floorOverEv) {
+            if (m.comb > 0) details.push(`${p()} bid ${partnerBid}. Bid ${final} makes your combined ${m.comb} ${rate(m.pr)}.`);
+        } else if (main) details.push(x.fit(pLine, C.DETAIL_MAX));
         if (tb.partnerOver >= 0.05) details.push(`Partners usually take a little more than they bid (${tricksText(tb.partnerOver)} tricks on average).`);
     } else {
         codes.push(final === 0 && tb.best === 0 ? 'B.zero' : 'B.evFirst');
@@ -624,14 +677,14 @@ function explainEvBid(tb, bid, view, x, reasons, details, codes) {
             reasons.push(main || `You should win ${tricksText(tb.ownMean)} tricks. Any bid risks −10 a trick for little gain.`, x.fit(first, C.REASON_MAX));
         } else if (main) {
             reasons.push(main, strength);
-            details.push(first);
+            if (!floorOverEv) details.push(first);
         } else {
             reasons.push(strength, x.fit(first, C.REASON_MAX));
         }
     }
     // The curve, best first
     const order = evs.map((v, b) => b).sort((a, b) => evs[b] - evs[a]).slice(0, 3);
-    details.push(`On average: ${order.map(evLine).join(', ')}.`);
+    details.push(floorOverEv ? floorLine : `On average: ${order.map(evLine).join(', ')}.`);
     if (tb.riskAdjustment && tb.picked !== tb.best) {
         // The score moved the pick: that is the main reason now
         codes.push('B.risk');
@@ -662,7 +715,9 @@ function explainRuleBid(tb, bid, view, x, reasons, details, codes) {
     const add = (code, text) => { codes.push(code); texts.push(text); };
 
     if (tags.includes('oppBored')) {
-        add('B.oppBored', `${x.borer()} bored. Your job is to win one trick and set the bore, not to score a bid.`);
+        add('B.oppBored', Number(bid) >= 1
+            ? `${x.borer()} bored. One trick sets the bore, and your hand should take one: bid 1.`
+            : `${x.borer()} bored. Your job is to win one trick and set the bore, not to score a bid.`);
     }
     if (tags.includes('partnerCap')) {
         if (BORES.includes(String(partnerBidRaw))) add('B.cap', `${p()} bid ${partnerBidRaw}, so ${x.us()} already bid every trick.`);
@@ -682,8 +737,8 @@ function explainRuleBid(tb, bid, view, x, reasons, details, codes) {
     if (tags.includes('oneCard.highTrump')) add('B.oneCard.highTrump', `A high trump like your ${cardText(card)} usually wins a one-card hand.`);
     if (tags.includes('oneCard.low')) {
         add('B.oneCard.low', x.trumpCard(card)
-            ? `A low trump like your ${cardText(card)} rarely wins a one-card hand.`
-            : `An off-suit ${cardText(card)} rarely wins a one-card hand.`);
+            ? `Any higher trump or a joker beats your ${cardText(card)}: too risky to bid.`
+            : `${x.noTrump ? 'A joker' : 'Any trump'} or a higher ${suitWord(card.suit, 1)} beats your ${cardText(card)}: too risky to bid.`);
     }
     if (tags.includes('twoCard')) {
         const w = tb.winners || 0;
@@ -693,7 +748,10 @@ function explainRuleBid(tb, bid, view, x, reasons, details, codes) {
         else if (w === 1) add('B.rule.twoCard', 'Two trumps: the higher one usually takes a trick.');
         else add('B.rule.twoCard', 'Two cards and neither is a likely winner.');
     }
-    if (tags.includes('smallCap')) add('B.rule.smallCap', `On a small hand trump decides it: ${trumpCount(view, x)} trump${trumpCount(view, x) === 1 ? '' : 's'} support about ${tb.trumpBidCap} trick${tb.trumpBidCap === 1 ? '' : 's'}.`);
+    if (tags.includes('smallCap')) {
+        const tc = trumpCount(view, x);
+        add('B.rule.smallCap', `On a small hand trump decides it: ${tc} trump${tc === 1 ? ' supports' : 's support'} about ${tb.trumpBidCap} trick${tb.trumpBidCap === 1 ? '' : 's'}.`);
+    }
     if (tags.includes('late')) {
         const d = Math.abs(view.score.mine - view.score.theirs);
         add('B.rule.late', tb.riskAdjustment > 0
@@ -732,12 +790,12 @@ function explain(decision, view, { mode = 'help', glossed = [] } = {}) {
 
 /**
  * P.status: the line for a seat that asks off its turn (not counted).
- * "Not your turn yet (Carol is bidding). You and Bob bid 4 and have 1 trick so far."
+ * "Not your turn yet: Carol is bidding. You and Bob bid 4 and have 1 trick so far."
  */
 function status(view) {
     const x = makeContext(view, null);
     const who = x.nameOf(view.currentTurn);
-    const first = `Not your turn yet (${who} is ${view.stage === 'bid' ? 'bidding' : 'playing'}).`;
+    const first = `Not your turn yet: ${who} is ${view.stage === 'bid' ? 'bidding' : 'playing'}.`;
     let second = '';
     if (view.stage === 'play' && view.playContext && view.playContext.bids) {
         const team1 = view.position % 2 === 1;
@@ -750,4 +808,4 @@ function status(view) {
     return clip(spellNames([`${first}${second}`], cleanName(view.names[view.partner]))[0], C.LINE_MAX);
 }
 
-module.exports = { explain, status, contractLine, bidParts, verbFor };
+module.exports = { explain, status, contractLine, bidParts, verbFor, WIN_CODE };

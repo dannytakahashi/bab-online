@@ -140,7 +140,8 @@ function markdown(fixtures) {
         for (const r of e.reasons) lines.push(`> ${r}`);
         for (const d of e.details) lines.push(`> - Why: ${d}`);
         if (e.gloss) for (const g of e.gloss) lines.push(`> - *${g.term}*: ${g.text}`);
-        lines.push(`> *${f.expect.rich.footer}*`, '', `Line: ${f.expect.line}`, '', `Codes: ${e.codes.join(', ')}`, '');
+        if (f.expect.rich.footer) lines.push(`> *${f.expect.rich.footer}*`);
+        lines.push('', `Line: ${f.expect.line}`, '', `Codes: ${e.codes.join(', ')}`, '');
     }
     return lines.join('\n');
 }

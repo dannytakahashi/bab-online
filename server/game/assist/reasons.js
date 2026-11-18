@@ -16,6 +16,9 @@
 'use strict';
 
 const { cardText, suitWord, capital, listText, numWord } = require('./copy');
+const { RANK_VALUES } = require('../rules');
+
+const rankOf = (c) => RANK_VALUES[c.rank];
 
 // ---------------------------------------------------------------- contract
 
@@ -34,11 +37,21 @@ const CONTRACT = {
     // "You and Bob need 2 more of the last 5 tricks."
     'C.normal': (f, x) => `${capital(x.us())} need ${f.needed} more of the last ${f.left} tricks.`,
     // "You and Bob have made your bid. Extra tricks are worth 1 point each, so save strong cards."
-    'C.made': (f, x) => (f.myBid === 0
-        ? `${capital(x.us())} bid 0, so each trick is worth 1 point: no need to spend strong cards.`
-        : `${capital(x.us())} have made your bid. Extra tricks are worth 1 point each, so save strong cards.`),
+    // (f.spends: the suggested card is played to win, so no advice to save them)
+    'C.made': (f, x) => {
+        if (f.myBid === 0) {
+            return f.spends
+                ? `${capital(x.us())} bid 0, so each trick is worth 1 point.`
+                : `${capital(x.us())} bid 0, so each trick is worth 1 point: no need to spend strong cards.`;
+        }
+        return f.spends
+            ? `${capital(x.us())} have made your bid. Extra tricks are worth 1 point each.`
+            : `${capital(x.us())} have made your bid. Extra tricks are worth 1 point each, so save strong cards.`;
+    },
     // "You and Bob can't make your bid now. Keep your good cards rather than spend them."
-    'C.dead': (f, x) => `${capital(x.us())} can't make your bid now. Keep your good cards rather than spend them.`
+    'C.dead': (f, x) => (f.spends
+        ? `${capital(x.us())} can't make your bid now.`
+        : `${capital(x.us())} can't make your bid now. Keep your good cards rather than spend them.`)
 };
 
 // ---------------------------------------------------------------- leads
@@ -86,9 +99,15 @@ const LEAD = {
     'L.suitKing': (f, x) => (f && f.acePlayed
         ? `The ${cardText({ suit: x.card.suit, rank: 'A' })} is played, so your ${cardText(x.card)} is the highest ${suitWord(x.card.suit, 1)} left.`
         : `On a small hand the ace may not even have been dealt, so your ${cardText(x.card)} has a good chance.`),
-    'L.suitLow': (f, x) => (x.ownInSuit(x.card.suit) > 1
-        ? `Lead low and save your higher ${suitWord(x.card.suit)}.`
-        : `It's your only ${suitWord(x.card.suit, 1)}.`),
+    'L.suitLow': (f, x) => {
+        const n = x.ownInSuit(x.card.suit);
+        if (n <= 1) return `It's your only ${suitWord(x.card.suit, 1)}.`;
+        if (n === 2) {
+            const other = x.view.hand.find((h) => h.suit === x.card.suit && h.rank !== x.card.rank);
+            return `Lead low and save your ${cardText(other)}.`;
+        }
+        return `Lead low and save your higher ${suitWord(x.card.suit)}.`;
+    },
     'L.onlyTrump': () => 'You only have trump left: lead your lowest.',
     'L.fallback': () => 'Lead your lowest card.'
 };
@@ -160,7 +179,32 @@ const FOLLOW = {
     'F.flashyRuff': () => 'Trump high to make sure of the trick.',
     // Trump with J♥. "Nothing left can beat the J♥."
     'F.ruffSecure': (f, x) => `Nothing left can beat your ${cardText(x.card)}, so the trick is yours.`,
-    'F.ruffFight': (f, x) => `${capital(x.behindText())} could still beat a low trump: your ${cardText(x.card)} gives the best chance.`,
+    // Trump with the LO joker (Alice trumped with the 10♦): "Alice trumped
+    // with the 10♦. Your LO joker beats it, but Bob could still hold the one
+    // higher trump not yet seen."
+    'F.ruffFight': (f, x) => {
+        const n = f && f.higherUnseen > 0 ? f.higherUnseen : 0;
+        const higher = n === 1 ? 'the one higher trump not yet seen' : n > 1 ? `one of the ${n} higher trumps not yet seen` : 'a higher trump';
+        const X = cardText(x.card);
+        if (x.winner && x.trumpCard(x.winner.card)) {
+            return [
+                `${x.nameOf(x.winner.position)} trumped with the ${cardText(x.winner.card)}. Your ${X} beats it, but ${x.behindText()} could still hold ${higher}.`,
+                `${x.nameOf(x.winner.position)} trumped with the ${cardText(x.winner.card)}. Your ${X} beats it and gives the best chance.`
+            ];
+        }
+        // "a low trump" only when the seat holds one below the card played
+        const lower = x.view.hand.some((h) => x.trumpCard(h) && rankOf(h) < rankOf(x.card));
+        if (lower) {
+            return [
+                `You're out of ${suitWord(x.leadSuit)}, and ${x.behindText()} could still beat a low trump: your ${X} gives the trick the best chance.`,
+                `${capital(x.behindText())} could still beat a low trump: your ${X} gives the best chance.`
+            ];
+        }
+        return [
+            `You're out of ${suitWord(x.leadSuit)}: your ${X} takes the trick unless ${x.behindText()} holds ${higher}.`,
+            `You're out of ${suitWord(x.leadSuit)}: your ${X} gives the trick the best chance.`
+        ];
+    },
     'F.ruffLast': () => 'You play last: the lowest trump that wins is enough.',
     'F.underTrump': (f, x) => `You can't beat the ${cardText(f.winningCard)}, and you only have trumps left: play the lowest.`
 };
@@ -174,7 +218,10 @@ const THROW_CONTEXT = {
         ? `${x.partnerName()} is winning with the ${cardText(f.partnerCard)}, so keep your trumps for later.`
         : `${x.partnerName()} is winning with the ${cardText(f.partnerCard)}, so throw a card.`),
     'D.cantOvertrump': (f, x) => `You can't beat ${x.nameOf(f.winnerPosition)}'s ${cardText(f.winningCard)}, so throw a card instead of wasting a trump.`,
-    'D.noTrump': (f, x) => `You have no ${suitWord(x.leadSuit)} and no trump, so you can't win this one.`
+    // Trump led (or no trump suit and a joker led): "no trump" alone
+    'D.noTrump': (f, x) => (x.leadSuit === x.view.trump.suit
+        ? 'You have no trump, so you can\'t win this one.'
+        : `You have no ${suitWord(x.leadSuit)} and no trump, so you can't win this one.`)
 };
 
 const THROW = {
