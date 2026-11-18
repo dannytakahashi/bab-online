@@ -231,8 +231,8 @@ final class AdminFixtureBackend {
             if players.contains(where: { ($0["username"] as? String)?.lowercased() == newName.lowercased() }) {
                 return fail("refused", "That name is taken.")
             }
-            if newName.count < 3 || newName.count > 20 {
-                return fail("refused", "Username must be 3-20 characters.")
+            if newName.count < 2 || newName.count > 20 {
+                return fail("refused", "Username must be 2-20 characters.")
             }
             players[i]["username"] = newName
             players[i]["online"] = false
