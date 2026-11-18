@@ -880,7 +880,7 @@ describe('real mongod', () => {
         // A per-seat bucket (statsDeltas.bucketByPosition; nothing writes it
         // yet): the stored keys come back as strings, the marked seat goes to
         // its own bucket, the others to the whole game's
-        const alanNow = (await mockHolder.users.findOne({ username: 'Alan' }));
+        const alanNow = await mockHolder.users.findOne({ username: 'Alan' });
         const dotBefore = (await mockHolder.users.findOne({ username: 'Dot' })).stats.gamesPlayed;
         await mockHolder.gameRecords.insertOne({
             gameId: 'p-real-3',
