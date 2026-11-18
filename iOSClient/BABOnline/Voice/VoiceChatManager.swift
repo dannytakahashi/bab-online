@@ -85,21 +85,18 @@ final class VoiceChatManager: ObservableObject {
     struct Hooks {
         var requestRecordPermission: @MainActor () async -> Bool
         var configureAudioSession: @MainActor () throws -> Void
-        /// shutdown(): drop the session (removes the mic indicator; the category is kept).
+        /// shutdown(): drop our activation (WebRTC drops its own when its audio unit stops; the
+        /// mic indicator goes; the category is kept).
         var deactivateAudioSession: @MainActor () -> Void
         var sendOffer: @MainActor (_ target: String, _ offer: RTCSessionDescription, _ username: String?) -> Void
         var sendAnswer: @MainActor (_ target: String, _ answer: RTCSessionDescription) -> Void
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
-            configureAudioSession: {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
-                try session.setActive(true)
-            },
-            deactivateAudioSession: {
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            },
+            // VoiceAudioSession: through RTCAudioSession, loudspeaker by default (WebRTC's own
+            // configuration carries the same options), with a route safety net while active
+            configureAudioSession: { try VoiceAudioSession.shared.activate() },
+            deactivateAudioSession: { VoiceAudioSession.shared.deactivate() },
             sendOffer: { VoiceEmitter.sendOffer(targetSocketId: $0, offer: $1, username: $2) },
             sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) })
     }
@@ -144,6 +141,9 @@ final class VoiceChatManager: ObservableObject {
         let encoderFactory = RTCDefaultVideoEncoderFactory()
         let decoderFactory = RTCDefaultVideoDecoderFactory()
         guard let audioDevice else {
+            // Before the default module exists: its audio unit applies WebRTC's configuration
+            // when a call starts playout (without this: no .defaultToSpeaker, the earpiece)
+            VoiceAudioSession.installWebRTCConfiguration()
             return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory)
         }
         return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory, audioDevice: audioDevice)
