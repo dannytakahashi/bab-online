@@ -26,7 +26,7 @@ const NOTICE_MS = 1000;
 // Then this long for remaining operations to finish
 const SETTLE_MS = 500;
 // Upper bound on the whole shutdown: whatever wedges, the process exits
-// (under the drainingSeconds of 15 in .railway/railway.ts, so it is never
+// (under the drainingSeconds of 20 in .railway/railway.ts, so it is never
 // SIGKILLed first)
 const HARD_EXIT_MS = 10000;
 // Kept free of the in-flight wait so the graceful path, not the hard
