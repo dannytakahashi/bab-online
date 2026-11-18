@@ -16,6 +16,17 @@ struct VoiceMuteButton: View {
 
     private var listenOnly: Bool { forceListenOnly || voiceManager.isListenOnly }
 
+    /// This button on screen for the voice panel tip (VoicePanelTip).
+    @State private var tipID = UUID()
+    /// Voice on, for the tip: a fixture's button (`-uiVoice YES`, `-uiSpectatorVoice listen`) counts.
+    private var voiceOn: Bool {
+        #if DEBUG
+        return voiceManager.isActive || forceListenOnly || UIFixture.showsVoiceButton
+        #else
+        return voiceManager.isActive || forceListenOnly
+        #endif
+    }
+
     var body: some View {
         Button(action: tapped) {
             Image(systemName: listenOnly ? "headphones" : voiceManager.isSelfMuted ? "mic.slash.fill" : "mic.fill")
@@ -36,9 +47,17 @@ struct VoiceMuteButton: View {
             LongPressGesture(minimumDuration: 0.5)
                 .onEnded { _ in
                     HapticManager.mediumImpact()
+                    VoicePanelTip.shared.panelOpened()
                     onLongPress()
                 }
         )
+        .onAppear { reportToTip(visible: true) }
+        .onChange(of: [voiceOn, listenOnly]) { _, _ in reportToTip(visible: true) }
+        .onDisappear { reportToTip(visible: false) }
+    }
+
+    private func reportToTip(visible: Bool) {
+        VoicePanelTip.shared.mic(tipID, visible: visible, voiceActive: voiceOn, listenOnly: listenOnly)
     }
 
     private var speaking: Bool { !listenOnly && voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted }

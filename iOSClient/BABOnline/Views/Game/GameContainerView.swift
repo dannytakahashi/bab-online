@@ -331,6 +331,14 @@ private struct GameScreen: View {
             tableLayer
                 .ignoresSafeArea(.keyboard)
 
+            // the voice panel tip, once (VoicePanelTip): at the top as the other toasts, clear
+            // of my seat's row (the mic), my hand and the bid panel
+            VStack(spacing: 0) {
+                VoicePanelTipToast()
+                    .padding(.top, Theme.Space.s2)
+                Spacer(minLength: 0)
+            }
+
             // Game log panel
             if showGameLog {
                 GameLogView(isShowing: $showGameLog)

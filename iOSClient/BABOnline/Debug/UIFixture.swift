@@ -69,6 +69,13 @@ enum UIFixture {
     /// can talk" switch (voiceSettings canChange, as a seated host gets it).
     static let showsVoiceSwitch: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceSwitch")
 
+    /// `-uiVoiceTip YES` with a voice button (`-uiVoice YES`, `-uiSpectatorVoice listen`): the
+    /// voice panel tip may show (VoicePanelTip; fixture mode never shows it otherwise), and stays
+    /// 60 s. `-uiVoiceTipFresh YES` clears its seen flag first (a fresh install); without it a
+    /// second launch finds the flag the first one set.
+    static let showsVoiceTip: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceTip")
+    static let voiceTipFresh: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceTipFresh")
+
     /// `-uiSplash YES`: a fixture launch shows the boot splash first, as a real launch does
     /// (fixture mode skips it otherwise). `-uiSplashFrame <seconds>` holds the splash at that
     /// moment of its animation (it never hands off: screenshots of the frames).
