@@ -150,7 +150,7 @@ describe('sign-ups per client IP (rateLimiter.buckets.signUpIp)', () => {
 
     test('name refusals (rules, taken) never spend it; only an attempt that hashes does', async () => {
         const s = connect('203.0.113.10');
-        for (const name of ['ab', 'alan', 'ALAN', '🤖 Mary']) expect((await signUp(s, name)).success).toBe(false);
+        for (const name of ['J', 'alan', 'ALAN', '🤖 Mary']) expect((await signUp(s, name)).success).toBe(false);
         for (let i = 0; i < 5; i++) expect(await signUp(connect('203.0.113.10'))).toMatchObject({ success: true });
     });
 

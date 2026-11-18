@@ -491,7 +491,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     let stoppedPartway = false;
     const res = await openRenameDialog({
       oldName: p.username,
-      rules: '3 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count).',
+      rules: '2 to 20 letters (A-Z), numbers, spaces and _ - . ; it starts with a letter or number. It must not be taken, ignoring capital letters (old merged or renamed names count).',
       lines: [
         `${p.username} is signed out everywhere (refused while they are in a game or tournament) and any open reset link is cancelled. They sign in again with the new name and the same password.`,
         'Their games, stats, reports and block lists move to the new name.',

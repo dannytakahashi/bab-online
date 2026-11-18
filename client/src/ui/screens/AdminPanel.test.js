@@ -398,7 +398,7 @@ describe('the panel', () => {
     expect(dialog.textContent).toMatch(/Bea stays as a reserved old name\. Signing in with it and the account's password tells them the new name; nobody else is told it/);
     expect($('label[for="adminRenameNew"]').textContent).toBe('New name');
     expect($('#adminRenameNew').getAttribute('aria-describedby')).toBe('adminRenameRules');
-    expect($('#adminRenameRules').textContent).toMatch(/3 to 20 letters/);
+    expect($('#adminRenameRules').textContent).toMatch(/2 to 20 letters/);
     expect(document.activeElement).toBe($('#adminRenameNew'));
     const yes = $('#adminConfirmDialog [data-confirm="yes"]');
     expect(yes.textContent).toBe('Rename');
