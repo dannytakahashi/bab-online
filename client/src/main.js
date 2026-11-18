@@ -1003,6 +1003,12 @@ function initializeApp() {
           clearAuthScreens();
           removeMainRoom();
           removeGameLobby();
+          // Who is watching, from the state: a family lobby's extras are
+          // listed (spectatorsUpdated) while the seats are still on the
+          // lobby screen, ~1.75 s before startDraw, and nothing re-sends
+          // it; a seat's live entry never runs a full render, so without
+          // this the eye stayed away until a reload (owner, 2026-11-17)
+          renderSpectatorBadge(gameState.renderModel().watching, { me: gameState.username });
         },
       },
       [SCREEN.GAME_END]: {

@@ -1328,3 +1328,109 @@ describe('members[].onResults: "Still on the results"', () => {
         for (const x of w.received(socks[2], mark)) expect(x.json).not.toMatch(/"(onResults|members|returning|expected)"/);
     });
 });
+
+/**
+ * Who is watching at the next game (owner play test 2026-11-17: after a
+ * play-again return the seats saw no spectator eye until a reload). The
+ * extras' list reaches the seats once, while they are still on the lobby
+ * screen: startExtras (allPlayersReady's tick) adds them, the roster's
+ * coalesced spectatorsUpdated follows 250 ms later, startDraw comes at
+ * PREDRAW_COUNTDOWN_MS. Nothing re-sends it, so a client must keep it and
+ * draw it when it reaches the table (web: the TABLE screen's enter hook).
+ *
+ * Two of the sockets' streams (B: a player in both games; E: the extra of
+ * game 1, a player in game 2), with a RETURN marker where the score modal's
+ * Return to Lobby is clicked, are recorded in
+ * contract/fixtures/web/play-again-eye.json, which the web replays through
+ * the real page (client/src/table/spectatorBadgePlayAgain.test.js). The
+ * cards and ids differ per run, so the test compares the recording's
+ * skeleton (the start, list, return and end events, the list as A-E): it
+ * fails when the recording is stale, and UPDATE_WEB_FIXTURES=1 rewrites it.
+ */
+const EYE_FIXTURE = require('path').resolve(__dirname, '../../../contract/fixtures/web/play-again-eye.json');
+const EYE_KEY = new Set(['allPlayersReady', 'spectatorJoined', 'spectatorsUpdated', 'startDraw', 'createUI', 'gameStart', 'gameEnd', 'lobbyReturn', 'RETURN']);
+function eyeSkeleton(rec) {
+    const letter = new Map(Object.entries(rec.ids).map(([k, v]) => [v.username, k]));
+    const game = (g) => (g === rec.g1 ? 'g1' : (g === rec.g2 ? 'g2' : g ? 'other' : ''));
+    return Object.fromEntries(Object.entries(rec.logs).map(([who, log]) => [who, log.filter((e) => EYE_KEY.has(e.event)).map((e) => {
+        const g = game(e.data?.gameId || e.data?.snapshot?.gameId);
+        const list = e.event === 'spectatorsUpdated' ? ` [${e.data.spectators.map((x) => letter.get(x.username)).join(',')}] ${e.data.count}` : '';
+        return `${e.event}${g ? ` ${g}` : ''}${list}`;
+    })]));
+}
+describe('who is watching at the next game', () => {
+    const toSock = (w, s) => (l) => l.to === s.id || l.to === `self:${s.id}` || l.to === '*' ||
+        (l.except !== s.id && Array.isArray(l.members) && l.members.includes(s.id));
+
+    test('a family of 5, each game\'s extra a different member: every seat gets one spectatorsUpdated of its own game before startDraw', async () => {
+        const w = world();
+        const socks = names(5).map((n) => w.user(n));
+        const [A, B, C, D, E] = socks;
+        lobbyOf(w, socks);
+        const marks = [];
+        const watched = (from, gameId) => (s) => {
+            const mine = w.log.slice(from).filter(toSock(w, s));
+            const draw = mine.findIndex((l) => l.event === 'startDraw');
+            const lists = mine.map((l, i) => ({ l, i })).filter(({ l }) => l.event === 'spectatorsUpdated');
+            return {
+                beforeDraw: lists.filter(({ i }) => i < draw).map(({ l }) => JSON.parse(l.json)),
+                afterDraw: lists.filter(({ i }) => i > draw).length,
+                drew: draw >= 0,
+                gameId,
+            };
+        };
+        const listOf = (u) => ({ spectators: [{ username: u.data.username, pic: 3 }], count: 1 });
+
+        // Game 1: A-D play, E watches
+        const m1 = w.log.length;
+        const g1 = await playLobbyGame(w.io, [A, B, C, D], { keep: B });
+        for (const s of [A, B, C, D]) {
+            const seen = watched(m1, g1.gameId)(s);
+            expect(seen.drew).toBe(true);
+            expect(seen.beforeDraw).toEqual([{ gameId: g1.gameId, ...listOf(E) }]);
+        }
+        // Everyone clicks Return to Lobby and is in the reopened lobby
+        const lobbyId = returnedLobby(w, A).id;
+        marks.push(w.log.length);
+        for (const s of socks) {
+            playAgain.lobbyReturnSeen(s, w.io);
+            mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        }
+        // Game 2: E, B, C, D play, A watches
+        const m2 = w.log.length;
+        const { game: g2 } = await startLobbyGame(w.io, [E, B, C, D]);
+        await toBidding(w.io, g2, [E, B, C, D]);
+        await jest.advanceTimersByTimeAsync(3000);
+        expect(g2.gameId).not.toBe(g1.gameId);
+        for (const s of [E, B, C, D]) {
+            const seen = watched(m2, g2.gameId)(s);
+            expect(seen.drew).toBe(true);
+            expect(seen.beforeDraw).toEqual([{ gameId: g2.gameId, ...listOf(A) }]);
+            // the one copy: nothing changed, nothing re-sent
+            expect(seen.afterDraw).toBe(0);
+        }
+        // The extra itself is told it watches (the full state) before the list
+        const aStream = w.log.slice(m2).filter(toSock(w, A)).map((l) => l.event);
+        expect(aStream.indexOf('spectatorJoined')).toBeGreaterThanOrEqual(0);
+        expect(aStream.indexOf('spectatorJoined')).toBeLessThan(aStream.indexOf('spectatorsUpdated'));
+
+        const recording = (s) => {
+            const out = [];
+            w.log.forEach((l, idx) => {
+                if (marks.includes(idx)) out.push({ i: out.length, dir: 'c2s', event: 'RETURN', t: l.at, data: {} });
+                if (!toSock(w, s)(l)) return;
+                out.push({ i: out.length, dir: 's2c', event: l.event, t: l.at, data: l.json === 'u' ? undefined : JSON.parse(l.json) });
+            });
+            return out;
+        };
+        const rec = {
+            note: 'server/socket/__tests__/playAgain.test.js "who is watching at the next game" (UPDATE_WEB_FIXTURES=1 rewrites it)',
+            g1: g1.gameId, g2: g2.gameId,
+            ids: Object.fromEntries(socks.map((s, k) => ['ABCDE'[k], { id: s.id, username: s.data.username }])),
+            logs: { B: recording(B), E: recording(E) },
+        };
+        if (process.env.UPDATE_WEB_FIXTURES === '1') require('fs').writeFileSync(EYE_FIXTURE, `${JSON.stringify(rec)}\n`);
+        const kept = JSON.parse(require('fs').readFileSync(EYE_FIXTURE, 'utf8'));
+        expect(eyeSkeleton(kept)).toEqual(eyeSkeleton(rec));
+    });
+});
