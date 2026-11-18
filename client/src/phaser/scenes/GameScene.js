@@ -1500,8 +1500,11 @@ export class GameScene extends Phaser.Scene {
     if (this.layoutManager) {
       this.layoutManager.update();
       this.layoutManager.cleanupDomBackgrounds();
-      // (the draw for deal is on the bare felt, as when it opens: no play zone or hand box yet)
-      if (m.live || !m.draw) this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
+      // The draw for deal is on the bare felt, as when it opens: no play
+      // zone or hand box yet. So is the countdown before it (CREATED: a
+      // family lobby's extra is put at the table then, before the startDraw)
+      const preDraw = !!m.draw || m.stage === 'CREATED';
+      if (m.live || !preDraw) this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
     }
     if (spectator) this.clearPlayerInfo();
     if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);

@@ -78,6 +78,9 @@ export class DrawManager {
    */
   showDrawUI() {
     this.cleanup();
+    // The draw opens on the bare felt, whatever was drawn before it (the
+    // play zone and hand box come with the deal)
+    this.scene.layoutManager?.cleanupDomBackgrounds();
     this.state.setHasDrawn(false);
     this._spectator = !!this.state.isSpectator;
 
