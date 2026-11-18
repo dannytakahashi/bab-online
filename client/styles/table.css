@@ -294,11 +294,38 @@ body > .bid-sheet {
 }
 
 .bid-sheet__title {
+    position: relative;
+    align-self: stretch;
     margin-bottom: var(--space-1);
     color: var(--gold);
     font-size: var(--type-lg);
     font-weight: var(--weight-bold);
     letter-spacing: 0.02em;
+    text-align: center;
+}
+
+/* The bid clock's countdown (BidManager.syncClock): on the right of "Bid!",
+   out of the flow so the sheet's box (BID_SHEET) never changes; quiet, no
+   motion, the warning colour for the last 10 s */
+.bid-sheet__clock {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
+.bid-sheet__clock--low { color: var(--warning); }
+
+/* the clock ran out: the server bids 0 for me next, so no bid is offered */
+.bid-sheet--expired .bid-button {
+    opacity: 0.5;
+    pointer-events: none;
+    cursor: default;
 }
 
 .bid-chips {

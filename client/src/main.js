@@ -81,7 +81,7 @@ import { renderSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSp
 
 // Sound effects
 import { getSoundManager } from './audio/SoundManager.js';
-import { getTableSounds } from './audio/tableSounds.js';
+import { getTableSounds, installTableSoundSync } from './audio/tableSounds.js';
 
 // ============================================
 // Game Scene Access
@@ -631,6 +631,14 @@ function initializeApp() {
   socketMgr.onStateChange((event, data) => {
     if (event === 'stateChanged' && data?.newState === 'connected' && session.isParked) {
       setSupersededNoticeVariant(NOTICE_VARIANT.RECONNECTED);
+    }
+    // My socket dropped: the bid clock's tune and countdown stop at once
+    // (the server may bid for me unheard); the rejoin snapshot restarts
+    // them if the clock still runs (critic C4)
+    if (event === 'disconnect') {
+      getGameState().clearBidClock();
+      getTableSounds().disconnected();
+      getGameScene()?.bidManager?.syncClock?.();
     }
   });
 
@@ -2085,6 +2093,15 @@ function initializeApp() {
       // who counts as a watcher changed: the forced mute follows
       applyForcedMute();
     },
+    // The bid clock changed (GameState and the tune have it): the bidder's
+    // countdown on the bid sheet (BidManager reads the state's clock)
+    onBidClock: () => {
+      getGameScene()?.bidManager?.syncClock?.();
+    },
+    // My own seat ran out of time: the server bid 0 for me
+    onBidTimedOut: () => {
+      if (session.isAtTable) showInfo('Time ran out: you bid 0');
+    },
     // A casual game's voice settings (spectator voice)
     onVoiceSettings: (data) => onVoiceSettings(data),
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
@@ -2570,6 +2587,8 @@ export function startApp() {
   // Sound effects start on the first click or key (browsers allow audio
   // only after a gesture)
   getSoundManager().installUnlock(window);
+  // the bid clock's tune follows sound coming back (unmute, files decoded, the tab visible)
+  installTableSoundSync();
 
   // Initialize the app
   initializeApp();

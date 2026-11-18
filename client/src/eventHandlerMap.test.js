@@ -127,6 +127,15 @@ describe('server event -> handler map', () => {
     expect(schema.c2s.setSpectatorsCanTalk.sentBy.web).toBe(true);
   });
 
+  it('bidClock (the bid clock, 2026-11-18) has one handler, in the game module, outside the seq gate (unsequenced room event)', () => {
+    expect(managed.get('bidClock')).toBe(1);
+    expect((listeners.get('bidClock') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.bidClock.seq).toBeFalsy();
+    expect(schema.s2c.bidClock.clientReads.web).toContain('client/src/handlers/gameHandlers.js:registerGameHandlers');
+  });
+
   it('lobbyReturn (play again, 2026-11-16) has one handler, in the lobby module (private, unsequenced); releaseLobbyHold is sent by web', () => {
     expect(managed.get('lobbyReturn')).toBe(1);
     expect((listeners.get('lobbyReturn') || []).length).toBe(1);

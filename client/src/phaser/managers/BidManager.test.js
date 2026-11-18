@@ -9,11 +9,13 @@
  * rules that read them.) Item 18a: the look is classes (kit / table.css),
  * hover and disabled are CSS, and no style is set inline but the box model.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { BidManager } from './BidManager.js';
 import { resetGameState, getGameState } from '../../state/GameState.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_CHROME, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 import { readClientFile } from '../../testing/files.js';
+import { resetMyAction, getMyAction } from '../../state/MyAction.js';
+import { setBidClockNow, BID_CLOCK_UI_MARGIN_MS, BID_CLOCK_EXPIRED_GRACE_MS } from '../../state/bidClock.js';
 
 const css = readClientFile('styles/table.css');
 const chipsWidth = (n) => n * BID_CHIP.w + (n - 1) * BID_CHIP.gap;
@@ -151,5 +153,171 @@ describe('the bid sheet\'s width (the layout\'s BID_SHEET)', () => {
     bm.boreButtons.B.click();
     expect(bm.boreButtons.B.getAttribute('aria-pressed')).toBe('true');
     expect(bm.selectedBid).toBe('B');
+  });
+});
+
+describe('the bid clock\'s countdown (owner 2026-11-18)', () => {
+  let bm;
+  let state;
+  let sent;
+  const sheet = () => document.getElementById('bidContainer');
+  const clockEl = () => sheet()?.querySelector('.bid-sheet__clock') || null;
+  const said = () => Array.from(document.querySelectorAll('.hud-announcer p')).map((p) => p.textContent);
+  /** The server's clock for seat `pos`, `inMs` from now (as GameState.applyBidClock does). */
+  const run = (pos, inMs, durationMs = 30000) => {
+    state.applyBidClock({ gameId: 'g1', position: pos, running: true, inMs, durationMs });
+    bm.syncClock();
+  };
+  const tick = (ms) => vi.advanceTimersByTime(ms);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'requestAnimationFrame'] });
+    vi.setSystemTime(1_000_000);
+    setBidClockNow(() => Date.now());
+    document.querySelectorAll('.hud-announcer').forEach((el) => el.remove());
+    state = resetGameState();
+    state.applyDeal({ gameId: 'g1', position: 1, currentHand: 5, hand: [], trump: { suit: 'spades', rank: '5' } });
+    state.applyTurn({ currentTurn: 1 });
+    sent = [];
+    resetMyAction({ emit: (event, data) => sent.push({ event, data }), setTimer: () => 0, clearTimer: () => {} });
+    bm = new BidManager({});
+    bm.showBidUI(5, (bid) => getMyAction().submitBid(bid, state.position));
+  });
+  afterEach(() => {
+    bm.hideBidUI(false);
+    document.getElementById('bidContainer')?.remove();
+    setBidClockNow(null);
+    vi.useRealTimers();
+  });
+
+  it('nothing before the clock runs; then the whole seconds left on the title row, to deadline - margin', () => {
+    expect(clockEl()).toBe(null);
+    run(1, 30000);
+    const el = clockEl();
+    expect(el).toBeTruthy();
+    expect(el.parentElement.classList.contains('bid-sheet__title')).toBe(true);
+    expect(el.getAttribute('role')).toBe('timer');
+    // 30000 - 750 = 29250 ms: ceil = 30
+    expect(el.textContent).toBe('30');
+    expect(el.getAttribute('aria-label')).toBe('30 seconds to bid');
+    tick(250);
+    expect(el.textContent).toBe('29');
+    tick(1000);
+    expect(el.textContent).toBe('28');
+    expect(el.classList.contains('bid-sheet__clock--low')).toBe(false);
+    // the sheet's box model is unchanged: no inline style on the countdown
+    expect(el.style.length).toBe(0);
+  });
+
+  it('the warning colour for the last 10 s; at 0 it goes and no bid is offered; the grace offers it again', () => {
+    run(1, 12000);
+    expect(clockEl().textContent).toBe('12');
+    tick(2250);
+    expect(clockEl().textContent).toBe('9');
+    expect(clockEl().classList.contains('bid-sheet__clock--low')).toBe(true);
+    tick(12000 - BID_CLOCK_UI_MARGIN_MS - 2250);
+    expect(clockEl()).toBe(null);
+    expect(sheet().classList.contains('bid-sheet--expired')).toBe(true);
+    expect(bm.expired).toBe(true);
+    const btn = sheet().querySelector('.bid-numbers .bid-button');
+    expect(btn.getAttribute('aria-disabled')).toBe('true');
+    // a click (or a key) at 0 sends nothing
+    btn.click();
+    expect(sent).toEqual([]);
+    expect(rule('.bid-sheet--expired .bid-button')).toContain('pointer-events: none');
+    // no word from the server: offered again after the grace
+    tick(BID_CLOCK_EXPIRED_GRACE_MS + 10);
+    expect(bm.expired).toBe(false);
+    expect(btn.hasAttribute('aria-disabled')).toBe(false);
+    btn.click();
+    expect(sent.map((x) => x.event)).toEqual(['playerBid']);
+  });
+
+  it('a new clock (a resume) after 0 offers the bid again and counts afresh', () => {
+    run(1, 2000);
+    tick(1500);
+    expect(bm.expired).toBe(true);
+    run(1, 10000);
+    expect(bm.expired).toBe(false);
+    expect(clockEl().textContent).toBe('10');
+  });
+
+  it('only for the bidder: another seat\'s clock, a spectator, a lazy seat show nothing', () => {
+    run(2, 30000);
+    expect(clockEl()).toBe(null);
+    state.applyBidClock({ gameId: 'g1', position: 2, running: false, reason: 'bid' });
+    state.isSpectator = true;
+    run(1, 30000);
+    expect(clockEl()).toBe(null);
+    state.isSpectator = false;
+    state.applyMyLazy(true);
+    bm.syncClock();
+    expect(clockEl()).toBe(null);
+    state.applyMyLazy(false);
+    bm.syncClock();
+    expect(clockEl()).toBeTruthy();
+  });
+
+  it('hidden while my bid is on its way; back if it is rolled back', () => {
+    run(1, 30000);
+    sheet().querySelector('.bid-numbers .bid-button').click();
+    expect(sent).toHaveLength(1);
+    expect(clockEl()).toBe(null);
+    // the rollback (actionRejected): the render rebuilds the sheet
+    getMyAction().reject({ action: 'bid' });
+    bm.showBidUI(5, () => true);
+    expect(clockEl()).toBeTruthy();
+  });
+
+  it('removed with the sheet, by my bid, by the turn moving on and by the clock stopping; its timer goes too', () => {
+    run(1, 30000);
+    state.applyBidClock({ gameId: 'g1', position: 1, running: false, reason: 'controller' });
+    bm.syncClock();
+    expect(clockEl()).toBe(null);
+    run(1, 30000);
+    state.applyBid({ position: 1, bid: '2' });
+    bm.updateBoreButtonStates();
+    expect(clockEl()).toBe(null);
+    state.bids = {};
+    run(1, 30000);
+    state.applyTurn({ currentTurn: 2 });
+    bm.updateVisibility();
+    expect(clockEl()).toBe(null);
+    state.applyTurn({ currentTurn: 1 });
+    run(1, 30000);
+    expect(clockEl()).toBeTruthy();
+    tick(100); // the sheet's pop-in timers
+    const before = vi.getTimerCount();
+    bm.hideBidUI(false);
+    expect(bm._clockTimer).toBe(null);
+    expect(vi.getTimerCount()).toBe(before - 1);
+  });
+
+  it('screen readers hear it once when it appears and once at 10 s; a rebuilt sheet for the same clock says nothing new', () => {
+    run(1, 15000);
+    expect(said()).toEqual(['15 seconds to bid']);
+    tick(4000);
+    expect(said()).toEqual(['15 seconds to bid']);
+    tick(1000);
+    expect(said()).toEqual(['15 seconds to bid', '10 seconds to bid']);
+    tick(3000);
+    bm.showBidUI(5, () => true);
+    expect(clockEl()).toBeTruthy();
+    expect(said()).toHaveLength(2);
+  });
+
+  it('one that appears under 10 s (a rejoin) is announced once', () => {
+    run(1, 6000);
+    tick(3000);
+    expect(said()).toEqual(['6 seconds to bid']);
+  });
+
+  it('table.css: a quiet number out of the flow (the sheet\'s box does not change), the warning token for the low state', () => {
+    const c = rule('.bid-sheet__clock');
+    expect(c).toContain('position: absolute');
+    expect(c).toContain('tabular-nums');
+    expect(c).toContain('var(--type-sm)');
+    expect(rule('.bid-sheet__clock--low')).toContain('var(--warning)');
+    expect(rule('.bid-sheet__title')).toContain('position: relative');
   });
 });

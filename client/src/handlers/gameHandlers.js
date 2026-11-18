@@ -5,7 +5,7 @@
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
- *          actionRejected, stateSnapshot, spectatorsUpdated
+ *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock
  *
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
@@ -71,6 +71,9 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onStateSnapshot,
     // Who is watching
     onSpectatorsUpdated,
+    // The bid clock (unsequenced): the clock changed; my own seat timed out
+    onBidClock,
+    onBidTimedOut,
   } = callbacks;
 
   const state = getGameState();
@@ -168,6 +171,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     console.log('🎯 Done bidding:', data);
     state.applyDoneBidding(data);
     touched();
+    // bidding is over: no clock, no tune
+    sounds.syncTune();
     onDoneBidding?.(data);
   });
 
@@ -258,6 +263,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     myAction.reset();
     state.applyDestroyHands();
     touched();
+    sounds.syncTune();
     onDestroyHands?.(data);
   });
 
@@ -269,6 +275,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // per-game state reset and the route out; the gameId goes first
     myAction.reset();
     socketManager.clearGameId();
+    sounds.abort();
 
     onAbortGame?.(data);
   });
@@ -325,6 +332,19 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     if (state.applySpectators(data)) onSpectatorsUpdated?.(state.renderModel().watching);
   });
 
+  // The bid clock (contract/README.md "Bid clock"): unsequenced, applied on
+  // arrival; the tune for everyone at the table, the countdown for the
+  // bidder (onBidClock), and a notice when my own seat timed out
+  socketManager.on(SERVER_EVENTS.BID_CLOCK, (data) => {
+    const sameGame = !data?.gameId || !state.gameId || data.gameId === state.gameId;
+    state.applyBidClock(data);
+    sounds.bidClock(data);
+    if (sameGame && data?.running === false && data.reason === 'timeout' && mine(data.position) && !state.isLazy) {
+      onBidTimedOut?.(data);
+    }
+    onBidClock?.(state.renderModel().bidClock);
+  });
+
   // ==================== RESIGNATION & LAZY MODE ====================
 
   // Resignation available (disconnected player's grace period expired)
@@ -374,6 +394,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // next reconnect would rejoin the left game
     myAction.reset();
     socketManager.clearGameId();
+    sounds.left();
     onLeftGame?.(data);
   });
 

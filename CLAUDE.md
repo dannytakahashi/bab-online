@@ -180,7 +180,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Web client architecture | `docs/claude/web-client.md`, Architecture | ClientSession screen FSM, SocketManager ping, reconnect order |
 | Web stay signed in, delivery, screens, phone gate | `docs/claude/web-client.md` | session storage, `staticAssets.js` + CSP + restart notice, `.screen--full`, phone gate |
 | Web table, layout, design system | `docs/claude/web-table.md` | GameState one writer, SeqGate, TableDirector, MyAction; `computeTableLayout`, `GameScene.relayout()` and its tests (`computeTableLayout.test.js`, `relayout.test.js` mid-deal / mid-trick); tokens + kit; keyboard card play (`ui/handA11y.js`: hand toolbar, announcer) |
-| Web table sound effects | `docs/claude/web-table.md`, Web table sound | `audio/SoundManager.js` (own AudioContext, gesture unlock, `bab.sound` mute, throttle), `audio/tableSounds.js` event map, silent on snapshot / SeqGate replay, `SoundToggle` in the voice row + main room |
+| Web table sound effects | `docs/claude/web-table.md`, Web table sound | `audio/SoundManager.js` (own AudioContext, gesture unlock, `bab.sound` mute, throttle), `audio/tableSounds.js` event map, silent on snapshot / SeqGate replay (the bid clock's tune excepted: `_syncTune`, end-aligned, rings out on a timeout), `SoundToggle` in the voice row + main room; the bidder's countdown is `BidManager.syncClock` (`state/bidClock.js`) |
 
 ## Common Files to Check
 
