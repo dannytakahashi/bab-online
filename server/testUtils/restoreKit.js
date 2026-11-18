@@ -82,6 +82,7 @@ function adoptForTest(doc, { io = null, gameManager = require('../game/GameManag
     botController = require('../game/bot').botController, now } = {}) {
     const { hydrate } = require('../game/persist/gameCodec');
     const seatLifecycle = require('../socket/seatLifecycle');
+    const { openTrick } = require('../game/tableView');
     const { game, bots, tournamentId } = hydrate(doc, {
         now,
         onGraceExpire: io ? (g, pos) => seatLifecycle.onGraceExpired(io, g, pos) : null
@@ -96,7 +97,7 @@ function adoptForTest(doc, { io = null, gameManager = require('../game/GameManag
         bot.partnerHistory = (b.partnerHistory || []).map((h) => ({ ...h }));
         botController.registerBot(game.gameId, bot);
         bot.resetCardMemory(game.currentHand, game.trump);
-        bot.replayCardMemory(game.trump, game.trickHistory, seatLifecycle.openTrick(game));
+        bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game));
         gameManager.playerGames.set(bot.socketId, game.gameId);
     }
     return game;

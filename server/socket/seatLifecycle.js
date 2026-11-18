@@ -28,6 +28,7 @@ const { carrierFor, wireIsLazy } = require('./snapshotHandlers');
 const avatarWire = require('../avatar/avatarWire');
 const { randomStockPic } = require('../avatar/stockAvatars');
 const gameVoice = require('../voice/gameVoice');
+const { openTrick } = require('../game/tableView');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -92,22 +93,6 @@ function createSeatBot(game, pos, preferred = null) {
     bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game));
     gameManager.playerGames.set(bot.socketId, game.gameId);
     return bot;
-}
-
-/**
- * The cards on the table in play order from the lead, as the bots were told
- * them (cardPlayed), or null. Through TRICK_RESOLVING the 4th card is still
- * here: resumeTrick moves the trick to trickHistory and advances the bots.
- */
-function openTrick(game) {
-    if (!game.playedCardsIndex || !game.leadPosition) return null;
-    const cards = [];
-    for (let k = 0; k < 4; k++) {
-        const c = game.playedCards[((game.leadPosition - 1 + k) % 4)];
-        if (!c) break;
-        cards.push(c);
-    }
-    return { lead: game.leadPosition, cards };
 }
 
 /** Undo createSeatBot for a bot that never got its seat. */
@@ -845,7 +830,7 @@ module.exports = {
     withdrawIdleOffer,
     pickBotPersonality,
     createSeatBot,
-    openTrick,
+    openTrick, // re-exported from game/tableView.js (its home)
     reattachTournament,
     disconnectOwner,
     onGraceExpired,

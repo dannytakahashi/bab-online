@@ -45,7 +45,7 @@
  * a snapshot's seq as the baseline). It registers nothing (GameManager,
  * BotController, rooms) and arms no timer but the grace timers: the
  * adopter does that, then the restore kick (gameHandlers.resumeTrick /
- * handleHandComplete, seatLifecycle.openTrick for the bots' card memory).
+ * handleHandComplete, tableView.openTrick for the bots' card memory).
  *
  * Field guard (gameCodec.fieldGuard.test.js): every key of a live game,
  * seat record, seat bot record and BotPlayer is in SAVED or DERIVED, every
