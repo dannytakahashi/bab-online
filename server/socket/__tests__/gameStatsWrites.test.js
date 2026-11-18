@@ -482,3 +482,160 @@ describe('graceful shutdown waits for writes in flight', () => {
         expect(secondDone).toBe(true);
     });
 });
+
+/**
+ * The per-seat bucket reader (statsDeltas.bucketByPosition, plan H2a): a
+ * record may route single seats to another bucket than the whole game's
+ * (a player whose own /help use made the game bot-assisted for them). It
+ * ships before anything writes it, so an older process never meets a
+ * record it would credit to the wrong bucket.
+ */
+describe('per-seat buckets (statsDeltas.bucketByPosition)', () => {
+    const DELTAS = () => profile.buildGameEndRecord(finishedGame()).statsDeltas.byPosition;
+    const ALL_PENDING = [
+        { position: 1, username: 'Ann' }, { position: 2, username: 'Ben' },
+        { position: 3, username: 'Cat' }, { position: 4, username: 'Dan' }
+    ];
+    /** A record a previous process left pending (as the boot sweep finds it). */
+    async function pendingRecord(statsDeltas, { gameId = 'g-mix', pending = ALL_PENDING } = {}) {
+        await records().insertOne({
+            gameId,
+            completedAt: new Date(),
+            statsDeltas,
+            statsPending: pending.map(e => ({ ...e }))
+        });
+    }
+    const bucketsOf = (name) => {
+        const doc = users().docs.find(d => d.username === name);
+        return { stats: doc.stats?.gamesPlayed || 0, botStats: doc.botStats?.gamesPlayed || 0 };
+    };
+
+    test('nothing writes it yet: a finished game\'s record carries only bucket and byPosition', async () => {
+        await profile.recordGameStats(finishedGame());
+        await profile.recordGameStats(finishedGame({ gameId: 'g-2', bots: [2, 4] }));
+        for (const rec of records().docs) expect(Object.keys(rec.statsDeltas).sort()).toEqual(['bucket', 'byPosition']);
+    });
+
+    test('the boot sweep routes a mixed-bucket record per seat: the marked seat to its bucket, every other seat to the whole game\'s; once', async () => {
+        const infos = [];
+        authLogger.info.mockImplementation((msg, meta) => infos.push({ msg, meta }));
+        await pendingRecord({ bucket: 'stats', bucketByPosition: { 2: 'botStats' }, byPosition: DELTAS() });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(bucketsOf('Ann')).toEqual({ stats: 1, botStats: 0 });
+        expect(bucketsOf('Ben')).toEqual({ stats: 0, botStats: 1 });
+        expect(bucketsOf('Cat')).toEqual({ stats: 1, botStats: 0 });
+        expect(bucketsOf('Dan')).toEqual({ stats: 1, botStats: 0 });
+        // Ben's whole delta lands in botStats, nothing of it in stats
+        expect(statsOf('Ben', 'botStats')).toMatchObject({ gamesPlayed: 1, losses: 1, totalPoints: 150, totalFaults: 2, totalHSI: 250 });
+        expect(users().docs.find(d => d.username === 'Ben').stats).toBeUndefined();
+        // The log line carries each seat's own bucket
+        const recorded = Object.fromEntries(infos.filter(i => i.msg === 'Game stats recorded').map(i => [i.meta.username, i.meta.bucket]));
+        expect(recorded).toEqual({ Ann: 'stats', Ben: 'botStats', Cat: 'stats', Dan: 'stats' });
+        expect(records().docs[0].statsPending).toBeUndefined();
+        // A second sweep, and a re-marked pending list, add nothing
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 0, failed: 0 });
+        records().docs[0].statsPending = ALL_PENDING.map(e => ({ ...e }));
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(bucketsOf('Ben')).toEqual({ stats: 0, botStats: 1 });
+        expect(bucketsOf('Ann')).toEqual({ stats: 1, botStats: 0 });
+        expect(warns).toEqual([]);
+        expect(errors).toEqual([]);
+    });
+
+    test('the other way round: a whole-game botStats record can route a seat to stats', async () => {
+        await pendingRecord({ bucket: 'botStats', bucketByPosition: { 3: 'stats' }, byPosition: DELTAS() });
+        await profile.resumePendingGameStats();
+        expect(bucketsOf('Ann')).toEqual({ stats: 0, botStats: 1 });
+        expect(bucketsOf('Cat')).toEqual({ stats: 1, botStats: 0 });
+    });
+
+    test('the live chain (a prebuilt record, as the ENDED tombstone hands it over) routes per seat, and a replay counts once', async () => {
+        const record = profile.buildGameEndRecord(finishedGame());
+        record.statsDeltas.bucketByPosition = { 1: 'botStats' };
+        await profile.recordGameStats(finishedGame(), { record });
+        await profile.recordGameStats(finishedGame(), { record });
+        expect(records().docs).toHaveLength(1);
+        expect(records().docs[0].statsDeltas.bucketByPosition).toEqual({ 1: 'botStats' });
+        expect(statsOf('Ann', 'botStats')).toEqual(EXPECTED_ANN);
+        expect(statsOf('Ann')).toEqual({});
+        expect(bucketsOf('Ben')).toEqual({ stats: 1, botStats: 0 });
+    });
+
+    test('a record that could not be written still routes per seat (the in-memory copy)', async () => {
+        failFirst(records(), 'findOne', 99);
+        const record = profile.buildGameEndRecord(finishedGame());
+        record.statsDeltas.bucketByPosition = { 4: 'botStats' };
+        await profile.recordGameStats(finishedGame(), { record });
+        expect(records().docs).toHaveLength(0);
+        expect(bucketsOf('Dan')).toEqual({ stats: 0, botStats: 1 });
+        expect(bucketsOf('Cat')).toEqual({ stats: 1, botStats: 0 });
+    });
+
+    test('an unknown per-seat value, or none for a seat, falls back to the whole-game bucket', async () => {
+        await pendingRecord({
+            bucket: 'stats',
+            bucketByPosition: { 1: 'users', 2: null, 3: 'botStats.wins', 5: 'botStats' },
+            byPosition: DELTAS()
+        });
+        await profile.resumePendingGameStats();
+        for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(bucketsOf(name)).toEqual({ stats: 1, botStats: 0 });
+        // A value that is not a bucket never becomes a field path
+        const ann = users().docs.find(d => d.username === 'Ann');
+        expect(ann.users).toBeUndefined();
+        expect(users().docs.find(d => d.username === 'Cat').botStats).toBeUndefined();
+    });
+
+    test.each([
+        ['a non-object', 'botStats'],
+        ['an array', ['botStats', 'botStats', 'botStats', 'botStats', 'botStats']],
+        ['null', null]
+    ])('a malformed bucketByPosition (%s) is ignored', async (_label, bucketByPosition) => {
+        await pendingRecord({ bucket: 'stats', bucketByPosition, byPosition: DELTAS() });
+        await profile.resumePendingGameStats();
+        for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(bucketsOf(name)).toEqual({ stats: 1, botStats: 0 });
+    });
+
+    test.each([
+        ['stats', { stats: 1, botStats: 0 }],
+        ['botStats', { stats: 0, botStats: 1 }],
+        [undefined, { stats: 1, botStats: 0 }],
+        ['something-else', { stats: 1, botStats: 0 }]
+    ])('old records (no bucketByPosition, bucket %s) replay exactly as before', async (bucket, expected) => {
+        const statsDeltas = { byPosition: DELTAS() };
+        if (bucket !== undefined) statsDeltas.bucket = bucket;
+        await pendingRecord(statsDeltas);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(bucketsOf(name)).toEqual(expected);
+        const target = expected.botStats ? 'botStats' : 'stats';
+        expect(statsOf('Ann', target)).toEqual(EXPECTED_ANN);
+    });
+
+    test('a record from before statsDeltas (no deltas at all) credits nobody and clears its list, as before', async () => {
+        await pendingRecord(undefined);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(bucketsOf(name)).toEqual({ stats: 0, botStats: 0 });
+        expect(records().docs[0].statsPending).toBeUndefined();
+    });
+
+    test('a not-credited warning and a failed write name the seat\'s own bucket', async () => {
+        fillWindow('Ben', profile.STATS_GAMES_KEPT, 1000);
+        const real = users().updateOne.bind(users());
+        jest.spyOn(users(), 'updateOne').mockImplementation(async (filter, update) => {
+            if (filter.username === 'Cat') throw new Error('timed out');
+            return real(filter, update);
+        });
+        await records().insertOne({
+            gameId: 'g-old',
+            completedAt: new Date(Date.now() - 2 * profile.STATS_GUARD_SKEW_MS),
+            statsDeltas: { bucket: 'stats', bucketByPosition: { 2: 'botStats', 3: 'botStats' }, byPosition: DELTAS() },
+            statsPending: ALL_PENDING.map(e => ({ ...e }))
+        });
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 1 });
+        expect(warns.find(w => w.msg === 'Game stats not credited: the guard window no longer reaches this game').meta)
+            .toMatchObject({ username: 'Ben', gameId: 'g-old', bucket: 'botStats' });
+        expect(errors.find(e => e.msg === 'Error recording game stats').meta).toMatchObject({ username: 'Cat', bucket: 'botStats' });
+        expect(records().docs[0].statsPending).toEqual([{ position: 3, username: 'Cat' }]);
+        expect(bucketsOf('Ann')).toEqual({ stats: 1, botStats: 0 });
+        expect(bucketsOf('Ben')).toEqual({ stats: 0, botStats: 0 });
+    });
+});
