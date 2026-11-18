@@ -148,6 +148,28 @@ final class ReducerUnitTests: XCTestCase {
         }
     }
 
+    /// The hand's lines list the teams as the bidding's line does: "me/partner" first, then
+    /// "opp1/opp2" (a spectator's seats 1/3 then 2/4), each with its own bids, tricks, change
+    /// and annotation, as the web's formatHandCompleteMessages.
+    func testHandCompleteNamesMyTeamFirst() {
+        func hand(_ viewer: ViewerState) -> [String] {
+            var s = T.dealtState(hand: [T.card("spades", "A")], size: 1, dealer: 4, trump: T.card("hearts", "Q"))  // 1 me, 2 L, 3 P, 4 R
+            bid(&s, 1, 1, array: ["1"], seq: 3)
+            bid(&s, 2, "B", array: ["1", "B"], seq: 4)
+            bid(&s, 3, "0", array: ["1", "B", "0"], seq: 5)
+            bid(&s, 4, "0", array: ["1", "B", "0", "0"], seq: 6)
+            TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "B", "0", "0"], "lead": 1, "seq": 7]))
+            s.table.viewer = viewer
+            TableReducer.reduce(&s, T.ev("handComplete", ["score": ["team1": 21, "team2": 0], "team1Tricks": 1, "team2Tricks": 0,
+                                                           "team1OldScore": 0, "team2OldScore": 20, "seq": 8]))
+            return Array(s.log.entries.suffix(2).map(\.message))
+        }
+        XCTAssertEqual(hand(ViewerState(role: .seat, position: 4)), ["R/L: Bid 0/B, Won 0, -20 → 0 (2x)", "me/P: Bid 1/0, Won 1, +21 → 21"])
+        XCTAssertEqual(hand(ViewerState(role: .seat, position: 3)), ["P/me: Bid 0/1, Won 1, +21 → 21", "R/L: Bid 0/B, Won 0, -20 → 0 (2x)"])
+        XCTAssertEqual(hand(ViewerState(role: .spectator, position: nil)),
+                       ["me/P: Bid 1/0, Won 1, +21 → 21", "L/R: Bid B/0, Won 0, -20 → 0 (2x)"])
+    }
+
     func testGoldenLogStrings() {
         var s = T.dealtState(hand: [T.card("spades", "A")], size: 1, dealer: 4, trump: T.card("hearts", "Q"))
         XCTAssertEqual(s.log.entries.last?.message, "Hand 1 — Trump: Q\u{2665}")

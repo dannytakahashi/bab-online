@@ -507,8 +507,17 @@ extension TableReducer {
         }
         let a1 = annotation(mult: bids.mults.team1, rainbows: s.scores.rainbows.team1)
         let a2 = annotation(mult: bids.mults.team2, rainbows: s.scores.rainbows.team2)
+        // each team by name, mine first as "me/partner" then "opp1/opp2" (opp1 the next seat
+        // clockwise; a spectator's seats 1/3 then 2/4), as logBiddingComplete and the web
+        let me = s.table.viewer.role == .spectator ? 1 : (Position.valid(s.table.viewer.position) ?? 1)
+        let r = Positions.getRelativePositions(myPos: me)
+        let line = { (a: Int, b2: Int) -> String in
+            let team1 = Positions.getTeamNumber(a) == 1
+            let (won, now, was, note) = team1 ? (t1Tricks, t1, old1, a1) : (t2Tricks, t2, old2, a2)
+            return "\(name(a))/\(name(b2)): Bid \(b(a))/\(b(b2)), Won \(won), \(change(now - was)) → \(now)\(note)"
+        }
         addLog(&s, "--- HAND COMPLETE ---")
-        addLog(&s, "\(name(1))/\(name(3)): Bid \(b(1))/\(b(3)), Won \(t1Tricks), \(change(t1 - old1)) → \(t1)\(a1)")
-        addLog(&s, "\(name(2))/\(name(4)): Bid \(b(2))/\(b(4)), Won \(t2Tricks), \(change(t2 - old2)) → \(t2)\(a2)")
+        addLog(&s, line(me, r.partner))
+        addLog(&s, line(r.opp1, r.opp2))
     }
 }

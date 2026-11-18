@@ -104,31 +104,66 @@ struct ScoreBarView: View {
 
     /// A side's score in its team's colour and, while that team has bored, its bore level
     /// ("B", "2B", "3B", "4B": the bid's own word, as the web's header shows it in the team's
-    /// "Bids: B/1") just after the score on its baseline, caption2 bold in the warning colour.
-    /// A hidden copy of the level before the score keeps the score centred in its column; the
-    /// score never shrinks, and caption2 on title3's baseline adds no height (the 84 pt cap:
-    /// `ScoreBarNamesTests.testBoreLevelsKeepTheBarsSize`). It was one "T1: B | T2: 2B" line
-    /// in the centre column (owner 2026-11-17: never a team number). VoiceOver:
-    /// `multiplierAccessibilityLabel`. Identifiers `scoreBar.teamMult` / `scoreBar.oppMult`
-    /// (the scores `scoreBar.teamScore` / `scoreBar.oppScore`).
+    /// "Bids: B/1") just after the score on its baseline, caption2 bold in the warning colour
+    /// (`BoreScoreLine`). The score never shrinks, and caption2 on title3's baseline adds no
+    /// height (the 84 pt cap: `ScoreBarNamesTests.testBoreLevelsKeepTheBarsSize`). It was one
+    /// "T1: B | T2: 2B" line in the centre column (owner 2026-11-17: never a team number).
+    /// VoiceOver: `multiplierAccessibilityLabel`. Identifiers `scoreBar.teamMult` /
+    /// `scoreBar.oppMult` (the scores `scoreBar.teamScore` / `scoreBar.oppScore`).
     @ViewBuilder
     private func scoreLine(_ score: Int, team: Int, mult: Int, names: SideNames?, side: Side) -> some View {
-        let scoreText = Text("\(score)")
-            .font(.title3.bold())
-            .foregroundColor(Theme.team(team))
-            .accessibilityIdentifier(side == .mine ? "scoreBar.teamScore" : "scoreBar.oppScore")
         if let level = Self.boreLevel(mult) {
-            let levelText = Text(level).font(.caption2.bold()).lineLimit(1)
+            BoreScoreLine(
+                score: score,
+                color: Theme.team(team),
+                level: level,
+                levelAccessibilityLabel: Self.multiplierAccessibilityLabel(level, names: names),
+                scoreIdentifier: side == .mine ? "scoreBar.teamScore" : "scoreBar.oppScore",
+                levelIdentifier: side == .mine ? "scoreBar.teamMult" : "scoreBar.oppMult"
+            )
+        } else {
+            Text("\(score)")
+                .font(.title3.bold())
+                .foregroundColor(Theme.team(team))
+                .accessibilityIdentifier(side == .mine ? "scoreBar.teamScore" : "scoreBar.oppScore")
+        }
+    }
+
+    /// A bored team's score and its level. Where the column has room, a hidden copy of the
+    /// level before the score keeps the score centred; where it has not (a 320 pt bar at
+    /// xLarge gives each side 98 pt, and "-2080" with "4B" needs 110 with the copy), the copy
+    /// goes and the score and its level sit side by side, centred together: neither is ever
+    /// cut (`ScoreBarNamesTests.testABoreLevelIsNeverCutInANarrowColumn`).
+    struct BoreScoreLine: View {
+        let score: Int
+        let color: Color
+        let level: String
+        var levelAccessibilityLabel = ""
+        var scoreIdentifier = ""
+        var levelIdentifier = ""
+
+        var body: some View {
+            ViewThatFits(in: .horizontal) {
+                line(centred: true)
+                line(centred: false)
+            }
+        }
+
+        private var levelText: Text { Text(level).font(.caption2.bold()) }
+
+        private func line(centred: Bool) -> some View {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {
-                levelText.hidden().accessibilityHidden(true)
-                scoreText.fixedSize().layoutPriority(1)
+                if centred { levelText.hidden().accessibilityHidden(true) }
+                Text("\(score)")
+                    .font(.title3.bold())
+                    .foregroundColor(color)
+                    .accessibilityIdentifier(scoreIdentifier)
                 levelText
                     .foregroundColor(Theme.warning)
-                    .accessibilityLabel(Self.multiplierAccessibilityLabel(level, names: names, side: side, spectator: gameState.isSpectator))
-                    .accessibilityIdentifier(side == .mine ? "scoreBar.teamMult" : "scoreBar.oppMult")
+                    .accessibilityLabel(levelAccessibilityLabel)
+                    .accessibilityIdentifier(levelIdentifier)
             }
-        } else {
-            scoreText
+            .fixedSize()
         }
     }
 
@@ -149,11 +184,10 @@ struct ScoreBarView: View {
     }
 
     /// VoiceOver for a side's bore level: whose it is, as that side's names are read, then the
-    /// level ("ann and cat, bore B"); while the names are not known a spectator's "Seats 1 and
-    /// 3, bore B" (its sides are fixed seats), a seat's just "bore B" (never "Your team").
-    static func multiplierAccessibilityLabel(_ level: String, names: SideNames?, side: Side, spectator: Bool) -> String {
-        var who = namesAccessibilityLabel(names)
-        if who.isEmpty && spectator { who = side == .mine ? "Seats 1 and 3" : "Seats 2 and 4" }
+    /// level ("ann and cat, bore B"); while the names are not known just "bore B", for a seat
+    /// and a spectator alike (never "Your team" or a seat-number stand-in for the team).
+    static func multiplierAccessibilityLabel(_ level: String, names: SideNames?) -> String {
+        let who = namesAccessibilityLabel(names)
         return who.isEmpty ? "bore \(level)" : "\(who), bore \(level)"
     }
 

@@ -72,15 +72,15 @@ final class ScoreBarNamesTests: XCTestCase {
         XCTAssertTrue(ScoreBarView.sideMults(team1: 1, team2: 2, myTeam: 2) == (2, 1))
         XCTAssertTrue(ScoreBarView.sideMults(team1: 4, team2: 1, myTeam: 2) == (1, 4))
         typealias N = ScoreBarView.SideNames
-        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: N(first: "ann", second: "cat"), side: .mine, spectator: false),
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: N(first: "ann", second: "cat")),
                        "ann and cat, bore B")
-        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("2B", names: N(first: "bob", second: "dan"), side: .theirs, spectator: true),
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("2B", names: N(first: "bob", second: "dan")),
                        "bob and dan, bore 2B")
-        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: nil, side: .theirs, spectator: false), "bore B")
-        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: nil, side: .mine, spectator: true), "Seats 1 and 3, bore B")
-        for label in [ScoreBarView.multiplierAccessibilityLabel("4B", names: nil, side: .theirs, spectator: true),
-                      ScoreBarView.multiplierAccessibilityLabel("4B", names: nil, side: .mine, spectator: false)] {
-            XCTAssertFalse(label.contains("T1") || label.contains("T2") || label.contains("Team") || label.contains("Opponents"), label)
+        // names not known: just the level, for a seat and a spectator alike (no "Seats 1 and 3")
+        XCTAssertEqual(ScoreBarView.multiplierAccessibilityLabel("B", names: nil), "bore B")
+        for label in [ScoreBarView.multiplierAccessibilityLabel("4B", names: nil),
+                      ScoreBarView.multiplierAccessibilityLabel("4B", names: N(first: "", second: ""))] {
+            XCTAssertFalse(label.contains("T1") || label.contains("T2") || label.contains("Team") || label.contains("Opponents") || label.contains("Seats"), label)
         }
     }
 
@@ -226,6 +226,30 @@ final class ScoreBarNamesTests: XCTestCase {
                     XCTAssertLessThanOrEqual(b.height, 84, "\(width) \(type)")
                     XCTAssertLessThanOrEqual(b.width, width + 0.5, "\(width) \(type)")
                 }
+            }
+        }
+    }
+
+    /// A bored team's level is never cut, even where its score is long and the column narrow:
+    /// a 320 pt bar at xLarge (the bar's cap) gives each side (320 - 2 x 12 - 100) / 2 = 98 pt,
+    /// and a 2B-4B team on 13 cards reaches four-digit negative scores. Without room for the
+    /// centring copy, the line is the score and its level side by side at their full widths;
+    /// with room, the copy is there and the score is centred.
+    func testABoreLevelIsNeverCutInANarrowColumn() {
+        let column = (320 - 2 * Theme.Space.s3 - 100) / 2
+        let big = CGFloat(10_000)
+        for type in [DynamicTypeSize.large, .xLarge] {
+            for (score, level) in [(-2080, "4B"), (-1250, "2B"), (-2080, "3B"), (-1250, "B"), (-40, "B")] {
+                let scoreW = fit(Text("\(score)").font(.title3.bold()).environment(\.dynamicTypeSize, type), width: big).width
+                let levelW = fit(Text(level).font(.caption2.bold()).environment(\.dynamicTypeSize, type), width: big).width
+                let line = ScoreBarView.BoreScoreLine(score: score, color: .primary, level: level)
+                    .environment(\.dynamicTypeSize, type)
+                let got = fit(line, width: column).width
+                let centred = scoreW + 2 * levelW + 2 * Theme.Space.s1
+                let whole = centred <= column + 0.5 ? centred : scoreW + levelW + Theme.Space.s1
+                XCTAssertEqual(got, whole, accuracy: 0.5, "\(score) \(level) \(type): the level was cut")
+                XCTAssertLessThanOrEqual(got, column + 0.5, "\(score) \(level) \(type)")
+                XCTAssertEqual(fit(line, width: 300).width, centred, accuracy: 0.5, "\(score) \(level) \(type): not centred with room")
             }
         }
     }

@@ -168,6 +168,23 @@ describe('GameScene handleHandComplete', () => {
   });
 });
 
+describe('GameScene _teamsSaid', () => {
+  it('says each name whole: a legacy username with a "/" is one player, never split from the shown "a/b"', () => {
+    const scene = new GameScene();
+    const playerData = {
+      position: [1, 2, 3, 4],
+      username: [{ username: 'x/y' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+    };
+    scene.state = Object.freeze({ position: 1, playerData });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe(' Tricks: x/y and cat 3, bob and dan 2.');
+    scene.state = Object.freeze({ position: 2, playerData });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe(' Tricks: bob and dan 3, cat and x/y 2.');
+    // names not known yet: no tally
+    scene.state = Object.freeze({ position: 1, playerData: null });
+    expect(scene._teamsSaid(' Tricks:', 3, 2)).toBe('');
+  });
+});
+
 describe('GameScene handleUpdateTurn legality gate (collect before the next card is legal)', () => {
   function sceneFor({ collecting }) {
     const scene = new GameScene();

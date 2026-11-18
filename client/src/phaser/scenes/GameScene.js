@@ -19,7 +19,7 @@ import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
-import { scoreHeaderNames } from '../../ui/components/ScoreModal.js';
+import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -1389,13 +1389,14 @@ export class GameScene extends Phaser.Scene {
    * A count per side for the announcer, the sides by their players' names,
    * mine first (" Tricks: ann and cat 3, bob and dan 2."), never "your
    * team" / "opponents" (owner 2026-11-17); '' while the names are not known.
+   * Built from the seats' names, never by splitting the shown "a/b", so a
+   * legacy username with a "/" is said whole (as iOS).
    */
   _teamsSaid(lead, mine, theirs) {
     const s = this.state;
-    const { teamName, oppName } = scoreHeaderNames(s.position, s.playerData, { spectator: !!s.isSpectator });
-    if (!teamName || !oppName) return '';
-    const said = (names) => names.split('/').join(' and ');
-    return `${lead} ${said(teamName)} ${mine}, ${said(oppName)} ${theirs}.`;
+    const pairs = scoreHeaderPairs(s.position, s.playerData, { spectator: !!s.isSpectator });
+    if (!pairs.mine || !pairs.theirs) return '';
+    return `${lead} ${pairs.mine.join(' and ')} ${mine}, ${pairs.theirs.join(' and ')} ${theirs}.`;
   }
 
   /** Who a seat is, for the announcer: "You", or the seat's name. */

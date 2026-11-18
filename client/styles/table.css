@@ -861,7 +861,8 @@ body > .voice-btn {
 .result-modal .kit-modal__body { width: 100%; }
 .result-modal .kit-modal__actions { justify-content: center; }
 
-.result-score { margin-bottom: var(--space-6); color: var(--text-primary); font-size: var(--type-xl); font-variant-numeric: tabular-nums; }
+/* the team names wrap anywhere (a long name breaks inside, as the log's .log-score__names) */
+.result-score { margin-bottom: var(--space-6); color: var(--text-primary); font-size: var(--type-xl); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .result-winner { margin-bottom: var(--space-6); color: var(--success); font-size: var(--type-xl); }
 
 .result-stats {

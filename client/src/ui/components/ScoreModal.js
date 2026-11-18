@@ -31,16 +31,30 @@ function seatUsername(playerData, pos) {
  * @returns {{teamName: string, oppName: string}}
  */
 export function scoreHeaderNames(myPosition, playerData, { spectator = false } = {}) {
+  const { mine, theirs } = scoreHeaderPairs(myPosition, playerData, { spectator });
+  return { teamName: mine ? mine.join('/') : '', oppName: theirs ? theirs.join('/') : '' };
+}
+
+/**
+ * scoreHeaderNames' two sides as name pairs, [me, partner] and [opp1, opp2]
+ * (a spectator's [1, 3] and [2, 4]), or null for a side whose two names are
+ * not both known. For words built from the names (the announcer), so a
+ * legacy username with a "/" stays one name, never split from the shown
+ * "a/b" text.
+ *
+ * @returns {{mine: string[]|null, theirs: string[]|null}}
+ */
+export function scoreHeaderPairs(myPosition, playerData, { spectator = false } = {}) {
   const me = spectator ? 1 : Number(myPosition);
-  if (![1, 2, 3, 4].includes(me)) return { teamName: '', oppName: '' };
+  if (![1, 2, 3, 4].includes(me)) return { mine: null, theirs: null };
   const pair = (a, b) => {
     const first = seatUsername(playerData, a);
     const second = seatUsername(playerData, b);
-    return first && second ? `${first}/${second}` : '';
+    return first && second ? [first, second] : null;
   };
   return {
-    teamName: pair(me, team(me)),
-    oppName: pair(rotate(me), rotate(rotate(rotate(me)))),
+    mine: pair(me, team(me)),
+    theirs: pair(rotate(me), rotate(rotate(rotate(me)))),
   };
 }
 
