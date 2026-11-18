@@ -66,7 +66,8 @@ final class VoiceAudioSession {
 
     /// One activation of ours is held (balanced by `deactivate`).
     private var activated = false
-    private var routeObserver: NSObjectProtocol?
+    /// Route changes and media services resets, watched while active.
+    private var observers: [NSObjectProtocol] = []
 
     /// Category, mode and options, then active; the route safety net watches while it runs.
     func activate() throws {
@@ -79,14 +80,18 @@ final class VoiceAudioSession {
             try rtc.setActive(true)
             activated = true
         }
-        if routeObserver == nil {
+        if observers.isEmpty {
             // Posted on AVAudioSession's own thread, possibly while WebRTC holds the session
-            // lock; the check runs later on main, never inside a lock.
-            routeObserver = NotificationCenter.default.addObserver(
-                forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil
-            ) { _ in
-                DispatchQueue.main.async { VoiceAudioSession.shared.keepSpeaker() }
-            }
+            // lock; handled later on main, never inside a lock.
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: nil) { _ in
+                    DispatchQueue.main.async { VoiceAudioSession.shared.keepSpeaker() }
+                },
+                center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { _ in
+                    DispatchQueue.main.async { VoiceAudioSession.shared.restoreAfterMediaServicesReset() }
+                },
+            ]
         }
         forceSpeakerIfNeeded(rtc)
     }
@@ -94,8 +99,8 @@ final class VoiceAudioSession {
     /// Drops our activation (WebRTC deactivates with `.notifyOthersOnDeactivation` once its
     /// audio unit has stopped too); the category is kept.
     func deactivate() {
-        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
-        routeObserver = nil
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers = []
         guard activated else { return }
         activated = false
         let rtc = RTCAudioSession.sharedInstance()
@@ -104,21 +109,45 @@ final class VoiceAudioSession {
         try? rtc.setActive(false)
     }
 
+    /// Every route change: checked without the session lock (WebRTC's worker holds it through
+    /// its whole audio unit set-up, when route changes cluster), locked only to force.
     private func keepSpeaker() {
-        guard activated else { return }
+        guard activated, Self.receiverAlone(RTCAudioSession.sharedInstance().session) else { return }
         let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         forceSpeakerIfNeeded(rtc)
     }
 
-    /// Call with the lock held.
-    private func forceSpeakerIfNeeded(_ rtc: RTCAudioSession) {
-        let session = rtc.session
-        guard session.category == VoiceAudioPolicy.category else { return }
+    /// A media services reset puts the session back to iOS's default category and WebRTC only
+    /// re-activates it (`updateAudioSessionAfterEvent`, no `configureWebRTCSession`), so the
+    /// category, mode and options go back on.
+    private func restoreAfterMediaServicesReset() {
+        guard activated else { return }
+        let rtc = RTCAudioSession.sharedInstance()
+        rtc.lockForConfiguration()
+        defer { rtc.unlockForConfiguration() }
+        do {
+            try rtc.setCategory(VoiceAudioPolicy.category, mode: VoiceAudioPolicy.mode, options: VoiceAudioPolicy.options)
+            print("[Voice] media services were reset, voice's category set again")
+        } catch {
+            print("[Voice] could not set voice's category after a media services reset: \(error)")
+        }
+        forceSpeakerIfNeeded(rtc)
+    }
+
+    /// Voice's category on the receiver alone with nothing plugged in or paired (reads only:
+    /// AVAudioSession's getters need no RTCAudioSession lock).
+    private static func receiverAlone(_ session: AVAudioSession) -> Bool {
+        guard session.category == VoiceAudioPolicy.category else { return false }
         let outputs = session.currentRoute.outputs.map(\.portType)
         let inputs = (session.availableInputs ?? []).map(\.portType)
-        guard VoiceAudioPolicy.shouldForceSpeaker(outputs: outputs, availableInputs: inputs) else { return }
+        return VoiceAudioPolicy.shouldForceSpeaker(outputs: outputs, availableInputs: inputs)
+    }
+
+    /// Call with the lock held (checks again under it).
+    private func forceSpeakerIfNeeded(_ rtc: RTCAudioSession) {
+        guard Self.receiverAlone(rtc.session) else { return }
         do {
             try rtc.overrideOutputAudioPort(.speaker)
             print("[Voice] route was the receiver, forced the speaker")
