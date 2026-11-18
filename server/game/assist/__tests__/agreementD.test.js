@@ -3,13 +3,17 @@
  * 50 seeded Mary-vs-Mary games on a real GameState, advise(seatView(game,
  * pos)) equals the bot's own bid or card, and the seat view's memory equals
  * the bot's. 200 games over agreementA-D.test.js (one Jest worker each).
+ * Parts B-D run only with ASSIST_AGREEMENT_FULL=1 (about 2 min of CPU each, run
+ * locally after any bot or assist change); part A runs everywhere, CI included.
  */
 
 const { runAgreement } = require('../../../testUtils/assistAgreement');
 
 const SEEDS = Array.from({ length: 50 }, (_, i) => 151 + i);
 
-test('advise agrees with the Mary bot at every decision (seeds 151-200)', () => {
+const full = process.env.ASSIST_AGREEMENT_FULL === '1';
+
+(full ? test : test.skip)('advise agrees with the Mary bot at every decision (seeds 151-200)', () => {
     const r = runAgreement(SEEDS);
     expect(r.games).toBe(50);
     expect(r.mismatches).toEqual([]);
