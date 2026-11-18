@@ -62,6 +62,9 @@ struct ConnectionStatusToast: View {
         .overlay(alignment: .top) {
             ServerErrorToast()
         }
+        // the voice panel tip shows where this pill does: it waits while the pill is up
+        .onChange(of: shown.visible, initial: true) { _, visible in VoicePanelTip.shared.cover(.connection, visible) }
+        .onDisappear { VoicePanelTip.shared.cover(.connection, false) }
         // the notice comes ~1 s before the server closes the socket: show it at once
         .onChange(of: restart.isRestarting) { _, restarting in
             if restarting {
@@ -137,6 +140,10 @@ struct ServerErrorToast: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+        // the voice panel tip shows in this spot: it waits while a notice is up (and comes back
+        // after one that arrived while it showed)
+        .onChange(of: notice == nil) { _, none in VoicePanelTip.shared.cover(.notice, !none) }
+        .onDisappear { VoicePanelTip.shared.cover(.notice, false) }
         .onChange(of: socketService.serverError) { _, newNotice in
             guard let newNotice else { return }
             withAnimation(.easeInOut(duration: 0.3)) {

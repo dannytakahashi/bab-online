@@ -197,6 +197,12 @@ private struct GameLobbyScreen: View {
                                 openVoicePanel: { showVoicePanel = true })
                 .padding()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
+                // the voice panel tip, once (VoicePanelTip): just under the header, off its mic
+                .overlay(alignment: .bottom) {
+                    VoicePanelTipToast()
+                        .alignmentGuide(.bottom) { $0[.top] }
+                }
+                .zIndex(1)  // over the player list it hangs across
 
                 Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
