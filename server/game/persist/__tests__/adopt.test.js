@@ -311,6 +311,60 @@ describe('discarded (deleted, pointers cleared)', () => {
         await jest.advanceTimersByTimeAsync(adopt.STALE_MS + 2000);
         await expect(B.resolve(id, { waitMs: 100 })).resolves.toEqual({ state: 'gone' });
     });
+
+    test('adoptGame throws and the cleanup delete fails too: a later sweep retries it (doc and pointers gone); resolve answers gone, never pending for good', async () => {
+        const { A, id } = await savedByA();
+        await release(id);
+        dies(A);
+        // The cleanup and its retry in the same boot pass both fail
+        db().faults.fail({ collections: 'liveGames', ops: 'deleteOne', times: 2 });
+        const B = await startB({ adoption: { adoptGame: () => { throw Object.assign(new Error('gameCodec: invalid'), { name: 'CodecError', reason: 'invalid' }); } } });
+        expect(db().faults.calls.filter((c) => c.collection === 'liveGames' && c.op === 'deleteOne' && c.outcome === 'failed')).toHaveLength(2);
+        // Left ours, live, unreleased, in no memory; Hal's pointer still names it
+        expect(doc(id)).toMatchObject({ owner: 'boot-B', kind: 'live', released: false });
+        expect(gameManager.games.has(id)).toBe(false);
+        expect(pointer('Hal')).toBe(id);
+        // The next sweep (every second) removes it, then the pointer
+        await jest.advanceTimersByTimeAsync(adopt.SWEEP_FAST_MS + 10);
+        await h.flushStore(B);
+        expect(doc(id)).toBeNull();
+        expect(pointer('Hal')).toBeNull();
+        await jest.advanceTimersByTimeAsync(adopt.STALE_MS + 2000);
+        await expect(B.resolve(id, { waitMs: 100 })).resolves.toEqual({ state: 'gone' });
+    });
+
+    test('the same orphan asked for by a rejoin before any sweep retried it: resolve removes it and answers gone', async () => {
+        const { A, id } = await savedByA();
+        await release(id);
+        dies(A);
+        db().faults.fail({ collections: 'liveGames', ops: 'deleteOne', times: 2 });
+        const B = await startB({ adoption: { adoptGame: () => { throw Object.assign(new Error('gameCodec: invalid'), { name: 'CodecError', reason: 'invalid' }); } }, sweepFastMs: 60000 });
+        expect(doc(id)).toMatchObject({ owner: 'boot-B', kind: 'live' });
+        await expect(B.resolve(id, { waitMs: 100 })).resolves.toEqual({ state: 'gone' });
+        expect(doc(id)).toBeNull();
+        expect(pointer('Hal')).toBeNull();
+    });
+
+    test('an own live doc nothing here holds (an abort whose delete failed): resolve answers gone and removes it; while the abort is still pending: pending', async () => {
+        const gameLifecycle = require('../../../socket/gameLifecycle');
+        const { A, id, game } = await savedByA();
+        await jest.advanceTimersByTimeAsync(1000);
+        // The abort's delete stalls: still held here (its claim pending)
+        db().faults.stall({ collections: 'liveGames', ops: 'deleteOne' });
+        const aborting = gameLifecycle.abortGame(io, game, 'test');
+        await jest.advanceTimersByTimeAsync(5);
+        await expect(A.resolve(id, { waitMs: 100 })).resolves.toEqual({ state: 'pending' });
+        // It fails: the doc is left, and nothing here holds it any more
+        db().faults.clear();
+        db().faults.fail({ collections: 'liveGames', ops: 'deleteOne', times: 1 });
+        db().faults.release();
+        await jest.advanceTimersByTimeAsync(10);
+        await aborting;
+        expect(doc(id)).toMatchObject({ owner: 'boot-A', kind: 'live' });
+        await expect(A.resolve(id, { waitMs: 100 })).resolves.toEqual({ state: 'gone' });
+        await h.flushStore(A);
+        expect(doc(id)).toBeNull();
+    });
 });
 
 describe('accounts at adoption', () => {

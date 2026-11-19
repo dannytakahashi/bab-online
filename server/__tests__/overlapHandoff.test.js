@@ -117,6 +117,9 @@ async function overlap({ bStart = true, bOpts = {} } = {}) {
         ...bOpts,
         adoption: {
             adoptGame: (io, doc) => { B.claims.push(doc.gameId); return null; },
+            // The game side is not modelled: what B claimed counts as held
+            // by B (resolve never takes its doc for an orphan)
+            holdsLocally: (gameId) => B.claims.includes(gameId),
             users: () => B.db.users,
             gameRecords: () => B.db.gameRecords,
             clearPointer: (u, id) => B.db.users.updateOne({ username: u, activeGameId: id }, { $set: { activeGameId: null } }),
@@ -256,7 +259,7 @@ describe('DB-level overlap (twoInstances)', () => {
         C.store = kit.createOnStore({
             getCollections: () => C.db, bootId: C.bootId, deploymentId: C.deploymentId, monoNow: C.clock.now,
             isShuttingDown: () => false, listGames: () => [], listTournaments: () => [], findGame: () => undefined,
-            adoption: { adoptGame: (io, doc) => { C.claims.push(doc.gameId); return null; }, users: () => C.db.users, gameRecords: () => C.db.gameRecords }
+            adoption: { adoptGame: (io, doc) => { C.claims.push(doc.gameId); return null; }, holdsLocally: (gameId) => C.claims.includes(gameId), users: () => C.db.users, gameRecords: () => C.db.gameRecords }
         });
         await C.store.start({ io: C.io });
         await Promise.all([B.store.sweep(), C.store.sweep(), B.store.resolve(id, { waitMs: 100 }), C.store.resolve(id, { waitMs: 100 })]);

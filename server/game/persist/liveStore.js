@@ -1468,6 +1468,10 @@ function createLiveStore({
                 trackAdopted,
                 isOn,
                 isClosed: () => closed,
+                holdsLocally: (gameId) => {
+                    const st = byId.get(`game:${gameId}`);
+                    return (!!st && !st.done) || tombstones.has(gameId);
+                },
                 ...adoption
             });
         }

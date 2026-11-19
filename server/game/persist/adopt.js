@@ -45,7 +45,10 @@
  *                (hydrate, register, bots, the resumed line, the restore
  *                gate and the restored-abandon timer: the GAME side) and
  *                the store tracks it as an update-only doc. A doc that
- *                fails to hydrate is deleted and its pointers cleared.
+ *                fails to hydrate is deleted and its pointers cleared (a
+ *                delete that fails is retried by every sweep, and resolve()
+ *                removes such an orphan and answers 'gone': an own live doc
+ *                nothing here holds is never 'pending' for good)
  * adoptAttempts: an adopter that dies (killed, or a crash release) within
  * QUICK_DEATH_MS of its adoptedAt counts once; a doc whose adopters died
  * quickly MAX_QUICK_DEATHS times in a row is discarded (a crash loop under
@@ -266,6 +269,9 @@ function createAdopter(ctx) {
         trackAdopted,
         isOn = () => true,
         isClosed = () => false,
+        // gameId -> true while this process's store still holds the game
+        // (tracked and not done, or a tombstone): its own doc is not an orphan
+        holdsLocally = () => true,
         adoptGame = (io, doc, opts) => require('./restoreGame').adoptGame(io, doc, opts),
         isGated = (game) => {
             try {
@@ -302,6 +308,7 @@ function createAdopter(ctx) {
     const adopting = new Map();       // gameId -> promise of the adopt / discard / tombstone op
     const waiters = new Map();        // gameId -> Set of (game|null) => void
     const heldTombstones = new Map(); // gameId -> doc: adopted tombstones whose record has not landed yet
+    const orphans = new Map();        // gameId -> seat owners: own live docs nothing here holds (a failed cleanup), retried each sweep
     let sweeping = null;
     let timer = null;
     let stopped = true;
@@ -491,13 +498,9 @@ function createAdopter(ctx) {
             game = adoptGame(getIo(), doc, { now: now(), abandonMs, ownerPics });
         } catch (err) {
             logFailure('adopt', null, err, { gameId: env._id, why: err?.reason || err?.name || 'error' });
-            // Not restorable: the doc goes, and so do its pointers
-            try {
-                const res = await coll.deleteOne({ _id: env._id, owner: me });
-                if (res?.deletedCount) await clearPointers(seatOwners(full), env._id);
-            } catch (delErr) {
-                logFailure('adopt discard', null, delErr, { gameId: env._id });
-            }
+            // Not restorable: the doc goes, and so do its pointers (a
+            // delete that fails is retried by every sweep: removeOrphan)
+            await removeOrphan(env._id, seatOwners(full));
             notify(env._id, null);
             return { state: 'gone' };
         }
@@ -510,6 +513,27 @@ function createAdopter(ctx) {
         logger.info('Live game adopted', { gameId: env._id, rev: claimed.rev, from: String(env.owner).slice(0, 8), attempts, released: env.released === true });
         notify(env._id, game);
         return { state: 'adopted', game };
+    }
+
+    /**
+     * Delete an own live doc nothing here runs (a claimed doc that failed
+     * to hydrate, a doc a failed terminal claim left), then clear its
+     * players' pointers. A delete that fails keeps it in `orphans` for the
+     * next sweep. True when it is gone (or no longer ours).
+     */
+    async function removeOrphan(gameId, owners) {
+        const coll = collections().liveGames;
+        orphans.set(gameId, owners);
+        if (!coll) return false;
+        try {
+            const res = await coll.deleteOne({ _id: gameId, owner: me, kind: 'live' });
+            orphans.delete(gameId);
+            if (res?.deletedCount) await clearPointers(owners, gameId);
+            return true;
+        } catch (err) {
+            logFailure('adopt discard', null, err, { gameId });
+            return false;
+        }
     }
 
     /** Record an adopted tombstone's game (once), clear its pointers, delete it. True when finished. */
@@ -592,6 +616,10 @@ function createAdopter(ctx) {
                 logFailure('tombstone retry', null, err, { gameId: doc._id });
             }
         }
+        for (const [gameId, owners] of [...orphans]) {
+            if (stopping()) break;
+            await removeOrphan(gameId, owners);
+        }
         lastSweepAt = now();
         if (!bootSwept && !stopping()) {
             bootSwept = true;
@@ -665,9 +693,18 @@ function createAdopter(ctx) {
         const instances = await readInstances();
         if (env) {
             if (env.owner === me) {
-                // Ours but not live here: a tombstone being finished, or a
-                // table this process just fenced or froze
-                return env.kind === 'ended' ? { state: 'gone' } : { state: 'pending' };
+                // Ours but not live here: a tombstone being finished
+                if (env.kind === 'ended') return { state: 'gone' };
+                // ... or a game the store still holds (a terminal claim
+                // pending: it ends the doc itself), or one being adopted
+                // right now (its claim landed, the hydrate not run yet)
+                if (adopting.has(gameId)) return { state: 'pending' };
+                if (!orphans.has(gameId) && holdsLocally(gameId)) return { state: 'pending' };
+                // ... or nothing here holds it (a claimed doc that failed to
+                // hydrate, a doc a failed claim left): an orphan nobody will
+                // ever run. It goes; never 'pending' for good
+                await removeOrphan(gameId, seatOwners(env));
+                return { state: 'gone' };
             }
             const r = await handle(env, instances);
             if (r.state === 'adopted' && r.game) return { state: 'adopted', game: r.game };
@@ -711,7 +748,8 @@ function createAdopter(ctx) {
         get bootSwept() { return bootSwept; },
         get lastSweepAt() { return lastSweepAt; },
         get adoptedCount() { return adoptedCount; },
-        _heldTombstones: heldTombstones
+        _heldTombstones: heldTombstones,
+        _orphans: orphans
     };
 }
 
