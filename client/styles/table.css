@@ -828,6 +828,9 @@ body > .voice-btn {
 .log-row__text.is-system { color: var(--text-dim); }
 /* a /help reply only this page shows: dim, in the suggestion's gold */
 .log-row.is-private .log-row__text.is-system { color: rgb(var(--gold-rgb) / 0.75); }
+/* a set hand's fault line ("Fault: ann (bid 3, took 1)"): red, upright */
+.log-row.is-fault { font-style: normal; }
+.log-row.is-fault .log-row__text.is-system { color: var(--danger-text); }
 .log-row__name { font-weight: var(--weight-bold); }
 .log-trick { margin-bottom: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: rgb(var(--success-rgb) / 0.12); color: var(--success); }
 

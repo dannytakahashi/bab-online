@@ -260,6 +260,12 @@ window.addPrivateToGameFeed = function(message) {
   if (message) gameLogInstance?.addPrivateMessage?.(message);
 };
 
+// A set hand's red fault row (GameScene.handleHandComplete; computed here,
+// never sent or stored)
+window.addFaultToGameFeed = function(message) {
+  if (message) gameLogInstance?.addFaultMessage?.(message);
+};
+
 // Bridge for updating game log score display
 window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) {
   if (gameLogInstance && gameLogInstance.updateFullScore) {
@@ -1839,11 +1845,14 @@ function initializeApp() {
     },
     // Hand & game end - call GameScene handlers
     onHandComplete: (data) => {
-      // The hand's bids, for its log lines (GameState resets them next)
+      // The hand's bids, each seat's tricks and its size, for its log
+      // lines and fault lines (GameState resets them next)
       const bids = { ...gameState.bids };
+      const tricksByPosition = { ...gameState.tricksByPosition };
+      const handSize = gameState.currentHand;
       withScene((scene) => {
         director.settleDeal();
-        scene.handleHandComplete(data, { bids });
+        scene.handleHandComplete(data, { bids, tricksByPosition, handSize });
       });
       // Hide game log trick indicator at end of hand
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {

@@ -19,7 +19,7 @@ import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
-import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
+import { scoreHeaderNames, scoreHeaderPairs, formatFaultMessages } from '../../ui/components/ScoreModal.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -1060,9 +1060,10 @@ export class GameScene extends Phaser.Scene {
   /**
    * Handle handComplete event.
    * @param {Object} data - Scoring and hand completion data
-   * @param {Object} [hand] - the hand's bids, captured when the event applied
+   * @param {Object} [hand] - the hand's bids, each seat's tricks and its
+   *   size, captured when the event applied (GameState resets them next)
    */
-  handleHandComplete(data, { bids } = {}) {
+  handleHandComplete(data, { bids, tricksByPosition, handSize } = {}) {
     console.log('🎮 GameScene.handleHandComplete()', data);
 
     // Start trick animation immediately (before score processing)
@@ -1111,6 +1112,18 @@ export class GameScene extends Phaser.Scene {
         }
       });
     }
+
+    // Then a red line per player who left a set team short (rules/faults.js;
+    // spectators see them too)
+    formatFaultMessages({
+      myPosition,
+      playerData: state.playerData,
+      bids: bids || state.bids,
+      tricksByPosition: tricksByPosition || state.tricksByPosition,
+      team1Tricks: data.team1Tricks,
+      team2Tricks: data.team2Tricks,
+      handSize: handSize ?? state.currentHand,
+    }).forEach((msg) => window.addFaultToGameFeed?.(msg));
 
     // Update game log score display (player names only, as renderScoreHeader)
     if (window.updateGameLogScoreFromLegacy) {

@@ -359,6 +359,16 @@ describe('/help in the autocomplete (plan H3)', () => {
     expect(row.classList.contains('is-system')).toBe(true);
     expect(row.querySelector('.log-row__text').textContent).toBe('Help: Play 9♦ (only you see this)');
   });
+
+  it('a fault row: a system row marked is-fault (table.css draws it red); a replay drops it', () => {
+    gameLog = createGameLog();
+    gameLog.addFaultMessage('Fault: ann (bid 3, took 1)');
+    const row = gameLog.container.querySelector('.log-row.is-fault');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.querySelector('.log-row__text').textContent).toBe('Fault: ann (bid 3, took 1)');
+    gameLog.replaceMessages([{ message: '--- HAND COMPLETE ---' }]);
+    expect(gameLog.container.querySelector('.log-row.is-fault')).toBeNull();
+  });
 });
 
 describe('showGameLog', () => {

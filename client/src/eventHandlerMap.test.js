@@ -255,3 +255,43 @@ describe('server event -> handler map', () => {
     });
   });
 });
+
+describe('fault lines: the hand reaches the scene before GameState resets it (owner 2026-11-19)', () => {
+  it('handComplete passes the bids, each seat\'s tricks (from the trickComplete winners) and the hand size', async () => {
+    const spies = ['handleTrickComplete', 'handleHandComplete'].map((n) => vi.spyOn(GameScene.prototype, n).mockImplementation(() => {}));
+    try {
+      const { getGameState } = await import('./state/GameState.js');
+      const state = getGameState();
+      state.position = 1;
+      state.currentHand = 2;
+      state.bids = { 1: '2', 2: '0', 3: '0', 4: '1' };
+      state.tricksByPosition = { 1: 0, 2: 0, 3: 0, 4: 0 };
+      const scene = new GameScene();
+      scene.scene = { restart: vi.fn() };
+      scene.children = { removeAll: vi.fn() };
+      scene.cardManager = { clearAll: vi.fn() };
+      window.ModernUtils.setGameScene(scene);
+
+      fire('trickComplete', { winner: 4 });
+      fire('trickComplete', { winner: 1, resumeInMs: 1000 });
+      fire('handComplete', { score: { team1: -20, team2: 10 }, team1Tricks: 1, team2Tricks: 1, team1OldScore: 0, team2OldScore: 0 });
+
+      const [, hand] = spies[1].mock.calls.at(-1);
+      expect(hand).toEqual({ bids: { 1: '2', 2: '0', 3: '0', 4: '1' }, tricksByPosition: { 1: 1, 2: 0, 3: 0, 4: 1 }, handSize: 2 });
+      // copies: the reset for the next hand does not reach them
+      expect(state.tricksByPosition).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0 });
+      const { formatFaultMessages } = await import('./ui/components/ScoreModal.js');
+      expect(formatFaultMessages({ myPosition: 1, playerData: null, ...hand, team1Tricks: 1, team2Tricks: 1 }))
+        .toEqual(['Fault: P1 (bid 2, took 1)']);
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+
+  it('window.addFaultToGameFeed writes a red is-fault row into the game log', () => {
+    window.createGameFeedFromLegacy(true);
+    window.addFaultToGameFeed('Fault: ann (bid 3, took 1)');
+    const rows = [...document.querySelectorAll('#gameFeed .log-row.is-fault')];
+    expect(rows.at(-1)?.textContent).toContain('Fault: ann (bid 3, took 1)');
+  });
+});

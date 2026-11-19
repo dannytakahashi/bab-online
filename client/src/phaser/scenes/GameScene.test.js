@@ -168,6 +168,62 @@ describe('GameScene handleHandComplete', () => {
   });
 });
 
+describe('GameScene handleHandComplete fault lines (owner 2026-11-19)', () => {
+  const playerData = {
+    position: [1, 2, 3, 4],
+    username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+  };
+  const feed = [];
+  beforeEach(() => {
+    feed.length = 0;
+    window.ModernUtils = { formatHandCompleteMessages: () => ['--- HAND COMPLETE ---', 'line a', 'line b'] };
+    window.addToGameFeedFromLegacy = (m) => feed.push(['plain', m]);
+    window.addFaultToGameFeed = (m) => feed.push(['fault', m]);
+    window.updateGameLogScoreFromLegacy = () => {};
+  });
+  afterEach(() => {
+    delete window.ModernUtils;
+    delete window.addToGameFeedFromLegacy;
+    delete window.addFaultToGameFeed;
+    delete window.updateGameLogScoreFromLegacy;
+  });
+  const hand = {
+    bids: { 1: '3', 2: '1', 3: '2', 4: '0' },
+    // ann/cat bid 5, took 1+2: set, ann short; bob/dan bid 1, took 2: made
+    tricksByPosition: { 1: 1, 2: 1, 3: 2, 4: 1 },
+    handSize: 5,
+  };
+  const data = { team1Tricks: 3, team2Tricks: 2, score: { team1: -50, team2: 20 }, team1OldScore: 0, team2OldScore: 0 };
+
+  it('the red lines come right after the hand lines, from the captured seat tricks', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    // GameState already reset for the next hand: the captured values count
+    scene.state = Object.freeze({ position: 2, playerData, bids: {}, tricksByPosition: { 1: 0, 2: 0, 3: 0, 4: 0 }, currentHand: 4 });
+    scene.handleHandComplete(data, hand);
+    expect(feed).toEqual([
+      ['plain', '--- HAND COMPLETE ---'], ['plain', 'line a'], ['plain', 'line b'],
+      ['fault', 'Fault: ann (bid 3, took 1)'],
+    ]);
+  });
+
+  it('a spectator sees them too', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    scene.state = Object.freeze({ position: null, isSpectator: true, playerData, bids: {} });
+    scene.handleHandComplete(data, hand);
+    expect(feed.filter(([k]) => k === 'fault')).toEqual([['fault', 'Fault: ann (bid 3, took 1)']]);
+  });
+
+  it('nothing when both teams made their bids', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    scene.state = Object.freeze({ position: 1, playerData, bids: {} });
+    scene.handleHandComplete(data, { ...hand, bids: { 1: '1', 2: '1', 3: '2', 4: '0' } });
+    expect(feed.filter(([k]) => k === 'fault')).toEqual([]);
+  });
+});
+
 describe('GameScene _teamsSaid', () => {
   it('says each name whole: a legacy username with a "/" is one player, never split from the shown "a/b"', () => {
     const scene = new GameScene();

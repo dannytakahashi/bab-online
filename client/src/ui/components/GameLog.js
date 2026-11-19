@@ -377,6 +377,17 @@ export function createGameLog({ onChatSubmit } = {}) {
     append(row);
   };
 
+  /**
+   * A red fault row after a set hand's lines ("Fault: ann (bid 3, took 1)";
+   * ScoreModal.formatFaultMessages): computed here from the tricks this page
+   * saw, never stored, so a replay of the server's log drops it.
+   */
+  const addFaultMessage = (message) => {
+    const row = buildRow(message, null);
+    row.classList.add('is-fault');
+    append(row);
+  };
+
   const addTrickResult = (winner, teamTricks, oppTricks) => {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'log-trick';
@@ -508,6 +519,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     addMessage,
     addSystemMessage,
     addPrivateMessage,
+    addFaultMessage,
     addGameMessage,
     addTrickResult,
     updateScores,
