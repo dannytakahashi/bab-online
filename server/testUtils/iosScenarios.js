@@ -34,6 +34,19 @@
  *                                 drops at T0+20 s and rejoins at T0+28 s
  *                                 (rejoinSuccess.snapshot.bidClock), then
  *                                 bids at once and plays on to the end
+ *   scenarioRestart(w, rec, seed) 1 human + 3 lobby bots, LIVE_PERSIST=on
+ *                                 (deploy survival PR 5; the caller's database
+ *                                 mock has the live collections): in hand 2,
+ *                                 on the human's open turn, a deploy. The
+ *                                 old process's real SIGTERM handoff
+ *                                 (shutdown.js with persist/handoff.js) sends
+ *                                 the "continue" line; the human's play sent
+ *                                 during the flush is recorded and dropped
+ *                                 (shutdown.js's socket.use gate); the process
+ *                                 dies, the next one adopts the table (seq
+ *                                 +1000, the "resumed" line), the human's new
+ *                                 socket rejoins (the gate opens, the kick
+ *                                 re-sends the turn) and plays on to the end
  *
  * Every scenario but scenarioBidClock runs with the bid clock off
  * (BID_CLOCK=off, iosEventLogs.test.js): their long waits on human bid
@@ -542,5 +555,100 @@ async function scenarioBidClock(w, rec, seed) {
     return { game, usernames };
 }
 
-module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, iosActions };
+/** An 'on' store over the test's live collections, as server/index.js makes and starts it. */
+async function startOnStore(w, bootId) {
+    const kit = require('./liveStoreKit');
+    const store = kit.installOnStore({ get current() { return require('../database').getLiveDbForTests(); } }, {
+        bootId, deploymentId: `dep-${bootId}`, getIo: () => w.io
+    });
+    await store.start({ io: w.io });
+    await store.whenBootSwept();
+    return store;
+}
+
+async function scenarioRestart(w, rec, seed) {
+    const shutdown = require('../utils/shutdown');
+    const handoffMod = require('../game/persist/handoff');
+    const liveStore = require('../game/persist/liveStore');
+    const { botController } = require('../game/bot');
+    const profileHandlers = require('../socket/profileHandlers');
+    const pick = mulberry32(seed * 7919 + 1);
+    const a = iosActions(w, rec);
+    let store = await startOnStore(w, 'ios-boot-a');
+    const human = w.user('ios-h1', 'ios_ann', { pic: 11 });
+    rec.watch('seat1', human.id, 'seat');
+    let game = await lobbyStart(w, rec, [human], { bots: 3 });
+    await playDraw(a, rec, game, [human]);
+
+    const done = {};
+    let me = human;
+    let guard = 0;
+    while (!game.isTerminal() && guard++ < 20000) {
+        const hands = game.handStats.totalHands;
+        const myTurn = turnOpen(game, rec) && game.seat(game.currentTurn).ownerSocketId === me.id && humanAt(game, game.currentTurn);
+        if (hands === 1 && game.stage === Phase.PLAYING && game.playedCardsIndex >= 1 && myTurn && !done.restart) {
+            done.restart = true;
+            dense(rec, game);
+            await require('./persistHarness').flushStore(store);
+            // SIGTERM: the real handoff to an announced 'on' successor
+            const db = require('../database');
+            const at = new Date();
+            await db.getServerInstancesCollection().insertOne({
+                _id: 'ios-boot-b', deploymentId: 'dep-ios-boot-b', mode: 'on', startedAt: at, beatAt: at,
+                beatSeq: 1, shuttingDown: false, gameIds: [], tournamentIds: []
+            });
+            const exits = [];
+            const exit = jest.spyOn(process, 'exit').mockImplementation((code) => { exits.push(code); });
+            const listeners = Object.fromEntries(['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'].map((n) => [n, process.listeners(n)]));
+            w.io.close = (cb) => { if (cb) cb(); };
+            const api = shutdown.setupGracefulShutdown({ close: (cb) => { if (cb) cb(); } }, w.io, {
+                games: () => gameManager.games.values(), persist: store, handoff: handoffMod.createHandoff({ store })
+            });
+            api.shutdown('SIGTERM', 0);
+            // The iOS app plays its card during the flush: the gate drops it
+            // (shutdown.js socket.use: nothing reaches a handler while handing off)
+            const legal = legalCards(game, me.id);
+            rec.recordC2S(me.id, 'playCard', { card: { suit: legal[0].suit, rank: legal[0].rank }, position: game.currentTurn });
+            for (let t = 0; t < 20000 && exits.length === 0; t += 100) await jest.advanceTimersByTimeAsync(100);
+            exit.mockRestore();
+            for (const [n, before] of Object.entries(listeners)) {
+                for (const fn of process.listeners(n)) if (!before.includes(fn)) process.removeListener(n, fn);
+            }
+            if (exits[0] !== 0 || !game.frozen) throw new Error('restart scenario: the handoff did not complete ' + JSON.stringify({ exits, frozen: game.frozen }));
+            // The process is gone: its sockets close (no disconnect handler runs), its memory resets
+            rec.close('seat1');
+            w.io.sockets.sockets.delete(me.id);
+            for (const members of w.io.rooms.values()) members.delete(me.id);
+            liveStore._resetForTests();
+            shutdown._resetShutdownStateForTests({ abandonRetries: true });
+            profileHandlers._resetStatsWritesForTests();
+            gameManager._resetForTests();
+            botController._resetForTests();
+            await db.getServerInstancesCollection().deleteOne({ _id: 'ios-boot-b' });
+            // The successor: its boot sweep adopts the released table
+            const id = game.gameId;
+            store = await startOnStore(w, 'ios-boot-b');
+            game = gameManager.getGameById(id);
+            if (!game) throw new Error('restart scenario: the table was not adopted');
+            me = w.user('ios-h1-r1', 'ios_ann', { db: false });
+            rec.watch('seat1-rejoin', me.id, 'rejoin');
+            await reconnectHandlers.rejoinGame(me, w.io, { gameId: id, username: 'ios_ann' });
+            dense(rec, game);
+            continue;
+        }
+        loopCheckpoint(rec, game, me.id, hands === 1);
+        if (myTurn) {
+            act(w, a, game, pick);
+            await tick();
+            continue;
+        }
+        await jest.advanceTimersByTimeAsync(250);
+    }
+    if (!done.restart) throw new Error('restart scenario: scripted steps missing ' + JSON.stringify(done));
+    await finish(w, rec, game);
+    store.close();
+    return { game, usernames: { [human.id]: 'ios_ann', 'ios-h1-r1': 'ios_ann' } };
+}
+
+module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart, iosActions };
 

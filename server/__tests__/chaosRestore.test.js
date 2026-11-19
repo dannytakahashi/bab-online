@@ -173,7 +173,11 @@ async function runSeed(seed) {
             pointerWatch();
             const saved = kit.savedGame(db, id);
             if (!saved || saved.owner !== old.bootId || saved.kind !== 'live') return;
-            const kind = ctx.pick(KINDS);
+            // Another quick death of an adopter that has not reset adoptAttempts
+            // yet (its gate still closed) would be a crash loop, which the
+            // adopter discards by design (adopt.test.js): only a handoff then
+            const quick = Number(saved.adoptAttempts) >= 1;
+            const kind = quick ? 'handoff' : ctx.pick(KINDS);
             ctx.setNote(kind);
             stats.restarts++;
             stats.kinds.push(kind);
