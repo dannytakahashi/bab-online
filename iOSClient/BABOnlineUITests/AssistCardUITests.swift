@@ -6,7 +6,8 @@ import XCTest
 /// bid panel or the hand, the suggested bid's ring ("Suggested"), the suggested card's ring
 /// (probe "table.assist" card=, from the scene: SceneDump's suggested=true), Why?, the close
 /// button, the warning on the 3rd use, no lightbulb for a spectator, /help in the chat list, and a
-/// game with a native bot seat (`-uiAssistFree YES`, or filler bots alone): no count anywhere.
+/// game with a native bot seat (`-uiAssistFree YES`, or filler bots alone): no count anywhere; a
+/// short hand's lightbulb off my seat's row (`-uiAssistHandSize`).
 /// `TEST_RUNNER_BAB_SHOTS=<folder>` saves PNGs.
 final class AssistCardUITests: XCTestCase {
     override func setUp() {
@@ -246,6 +247,52 @@ final class AssistCardUITests: XCTestCase {
             XCTAssertTrue(mic.isHittable, "\(tag): the voice button takes a tap")
             shot(app, "play-seat-row-\(tag)")
             app.terminate()
+        }
+    }
+
+    // MARK: - The lightbulb on a short hand (owner 2026-11-19, build 19: it sat on HSI)
+
+    /// With 2 cards left, and with 1, the lightbulb at my hand's right end would land on my seat's
+    /// row: it takes the nearest clear spot, off HSI, my pips and the voice button, still a 44 pt
+    /// button that asks (`-uiAssistHandSize`, the probe "table.assistAsk": AssistLayout.askFrame).
+    /// From 2 cards to 1 it does not jump: never right, never to another height, at most a card's
+    /// step left (AssistLayout.askLane: one spot while the row is in the way).
+    func testOnAShortHandTheLightbulbClearsMySeatRow() {
+        var frames: [Int: CGRect] = [:]
+        for (n, voice) in [(2, false), (1, false), (2, true)] {
+            let tag = "\(n) card\(n == 1 ? "" : "s")\(voice ? " voice" : "")"
+            let app = launch("trick-mid-lead3", ["-uiAssistHandSize", "\(n)"] + (voice ? ["-uiVoice", "YES"] : []))
+            let ask = app.buttons["assist.ask"]
+            XCTAssertTrue(ask.waitForExistence(timeout: 5), tag)
+            XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "clear=ok"), "\(tag): \(Fixture.probe(app, "table.assistAsk"))")
+            let probe = Fixture.probe(app, "table.assistAsk")
+            print("[AssistCardUITests] \(tag) \(probe) [\(Fixture.probe(app, "ui.pose"))]")
+            XCTAssertTrue(probe.contains("hsi") && probe.contains("pips"), "\(tag): it knows HSI and my pips: \(probe)")
+            let hsi = element(app, "hsi")
+            XCTAssertTrue(hsi.waitForExistence(timeout: 5), tag)
+            // a shared edge is not a cover (half a point of rounding)
+            XCTAssertFalse(ask.frame.insetBy(dx: 0.5, dy: 0.5).intersects(hsi.frame), "\(tag): lightbulb \(ask.frame) over HSI \(hsi.frame)")
+            if voice {
+                XCTAssertTrue(probe.contains("voice"), probe)
+                let mic = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "microphone")).firstMatch
+                XCTAssertTrue(mic.waitForExistence(timeout: 5), tag)
+                XCTAssertFalse(ask.frame.insetBy(dx: 0.5, dy: 0.5).intersects(mic.frame), "\(tag): lightbulb \(ask.frame) over the voice button \(mic.frame)")
+            }
+            XCTAssertEqual(ask.frame.width, 44, accuracy: 0.5, "\(tag): the 44 pt tap target")
+            if !voice { frames[n] = ask.frame }
+            XCTAssertTrue(app.windows.firstMatch.frame.contains(ask.frame), "\(tag): on screen")
+            XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", tag)
+            shot(app, "short-hand-\(n)\(voice ? "-voice" : "")")
+            XCTAssertTrue(ask.isHittable, tag)
+            ask.tap()
+            XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/help"), "\(tag): \(Fixture.probe(app, "fixture.sent"))")
+            XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5), tag)
+            app.terminate()
+        }
+        if let two = frames[2], let one = frames[1] {
+            XCTAssertLessThanOrEqual(one.minX, two.minX + 0.5, "1 card \(one) right of 2 cards' \(two)")
+            XCTAssertEqual(one.minY, two.minY, accuracy: 0.5, "1 card \(one) at another height than 2 cards' \(two)")
+            XCTAssertLessThanOrEqual(two.minX - one.minX, 30, "1 card \(one) jumped from 2 cards' \(two)")
         }
     }
 

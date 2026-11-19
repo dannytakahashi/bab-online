@@ -17,6 +17,26 @@ extension UIFixture {
     static let assistUses: Int = max(1, UserDefaults.standard.integer(forKey: "uiAssistUses"))
     static let assistFree: Bool = isActive && UserDefaults.standard.bool(forKey: "uiAssistFree")
 
+    /// `-uiAssistHandSize <n>` (1...13): my hand in the seeded snapshot is cut to n cards (a short
+    /// hand: the lightbulb's home lands in my seat's row; AssistLayout.askFrame).
+    static let assistHandSize: Int? = isActive
+        ? Int(UserDefaults.standard.string(forKey: "uiAssistHandSize") ?? "").flatMap { (1...13).contains($0) ? $0 : nil } : nil
+
+    /// `-uiAssistHandSize`: the snapshot's hand cut to n cards, a card of the trick's led suit
+    /// first when I hold one (so the hand still has a legal play), my seat's cardsInHand with it.
+    static func editAssistHand(_ snap: inout [String: Any]) {
+        guard let n = assistHandSize, let hand = snap["hand"] as? [[String: Any]], hand.count > n else { return }
+        let lead = ((snap["trick"] as? [String: Any])?["cards"] as? [[String: Any]])?.first.flatMap { ($0["card"] as? [String: Any])?["suit"] as? String }
+        let follows = hand.filter { $0["suit"] as? String == lead }
+        let kept = Array((follows + hand.filter { $0["suit"] as? String != lead }).prefix(n))
+        snap["hand"] = kept
+        let me = (snap["viewer"] as? [String: Any])?["position"] as? Int
+        if var seats = snap["seats"] as? [[String: Any]], let i = seats.firstIndex(where: { $0["position"] as? Int == me }) {
+            seats[i]["cardsInHand"] = kept.count
+            snap["seats"] = seats
+        }
+    }
+
     /// The table store the answers go to (set by `seedAssist`).
     @MainActor private static weak var assistStore: GameState?
 
