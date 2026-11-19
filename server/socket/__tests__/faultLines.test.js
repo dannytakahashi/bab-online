@@ -35,7 +35,8 @@ const rules = require('../../game/rules');
 const BotPlayer = require('../../game/bot/BotPlayer');
 const { Phase } = require('../../game/GamePhase');
 const { hashToken } = require('../../utils/sessionTokens');
-const { makeIo, makeSocket, events, legalCards, resignedSeat } = require('../../testUtils/gameDriver');
+const { makeIo, makeSocket, events, legalCards, resignedSeat, lazySeat } = require('../../testUtils/gameDriver');
+const schema = require('../../../contract/events.schema.json');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 
 const C = (rank, suit) => ({ rank, suit });
@@ -321,6 +322,34 @@ describe('handleHandComplete writes the fault lines', () => {
         await gameHandlers.handleHandComplete(game, io);
         expect(faultMessages(t, from)).toEqual([`Fault: ${t.names[1]} (bid 2, took 0)`, 'Fault: 🤖 Mary (bid 1, took 0)']);
         expect(lastHandBlock(game)[2].message).toContain(`${t.names[1]}/🤖 Mary:`);
+    });
+
+    test('a lazy seat is named as the other log lines name it (the bot); the stat stays on the seat', async () => {
+        // Deliberate (S1: bots get the same naming as in other log lines):
+        // the HAND COMPLETE team line names the lazy seat's bot, so the fault
+        // line does too; setsCaused is per seat, as before. Naming the owner
+        // instead is an open owner question (review 2026-11-19).
+        const t = await setup();
+        lazySeat(t.game, 2, new BotPlayer('🤖 Sharon', 'sharon'));
+        const { game, io } = t;
+        game.playerBids = ['1', '2', '1', '1'];
+        game.bids = { team1: 2, team2: 3 };
+        game.team1Mult = 1;
+        game.team2Mult = 1;
+        game.tricks = { team1: 4, team2: 0 };
+        game.handTricks = { 1: 4, 2: 0, 3: 0, 4: 0 };
+        game.forcePhase('HAND_RESOLVING');
+        const from = t.log.length;
+        await gameHandlers.handleHandComplete(game, io);
+        const name2 = game.getPlayerByPosition(2).username;
+        expect(name2).toBe('🤖 Sharon');
+        expect(faultMessages(t, from)).toEqual([`Fault: ${name2} (bid 2, took 0)`, `Fault: ${t.names[3]} (bid 1, took 0)`]);
+        expect(lastHandBlock(game)[2].message).toContain(`${name2}/${t.names[3]}:`);
+        expect(game.playerStats[2].setsCaused).toBe(1);
+    });
+
+    test('the contract lists handleHandComplete among the gameLogEntry senders', () => {
+        expect(schema.s2c.gameLogEntry.emittedFrom).toContain('server/socket/gameHandlers.js:handleHandComplete');
     });
 });
 
