@@ -38,12 +38,13 @@ function liveCounts(io = ioRef, gameManager = require('../game/GameManager')) {
 
 /**
  * Deploy survival (server/game/persist/liveStore.js): {mode (LIVE_PERSIST
- * as read at boot), effectiveMode (what runs: 'on' runs as 'write' until
- * handoff and adoption land), uniqueGameIdIndex (gameRecords' unique
+ * as read at boot), effectiveMode (what runs: 'on' only with the unique
+ * gameId index, else 'write'), uniqueGameIdIndex (gameRecords' unique
  * gameId index: true / false / null before it is probed; check it is true
  * before setting write), docsOwned (live docs this process holds),
- * adopted, lastSweepAt, bootSwept (adoption: 0 / null / false until it
- * exists)}. Counts and flags only. null if unreadable.
+ * adopted (games this process adopted), lastSweepAt (ISO time of the last
+ * adoption sweep, null before one), bootSwept (the first sweep finished;
+ * /ready waits for it in 'on')}. Counts and flags only. null if unreadable.
  */
 function persistHealth() {
     try {

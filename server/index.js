@@ -125,10 +125,15 @@ function start() {
 
     // Setup graceful shutdown
     // Live tables hear about the update in their game log before serverShutdown
-    // (write mode: then this process deletes its saved games and tournaments)
+    // (write mode: then this process deletes its saved games and tournaments).
+    // LIVE_PERSIST=on: the handoff (persist/handoff.js) instead, once the
+    // store runs as 'on' (the unique gameId index): serverShutdown at once,
+    // the tables released to an 'on' successor (or deleted), then a line
+    // per table saying which
     setupGracefulShutdown(server, io, {
         games: () => require('./game/GameManager').games.values(),
-        ...(persisting && { persist: liveStore })
+        ...(persisting && { persist: liveStore }),
+        ...(liveStore.mode === 'on' && { handoff: require('./game/persist/handoff').createHandoff({ store: liveStore }) })
     });
 
     // Connect to database in background (fire and forget like original)
@@ -136,8 +141,10 @@ function start() {
         .then(() => {
             logger.info('Database connected');
             logger.info('Instance DB ready', { ...bootLog, at: new Date().toISOString() });
-            // Write mode: this process's serverInstances doc and heartbeat
-            // (no sweep, no adoption), in parallel with the stats sweep
+            // This process's serverInstances doc and heartbeat, in parallel
+            // with the stats sweep; in effective 'on' also the self-fence
+            // and the adoption sweep (GET /ready answers 503 until its
+            // first pass, 20 s at most)
             if (persisting) {
                 liveStore.start({ io }).catch(err => logger.error('Live persist start failed', { error: err.message }));
             }

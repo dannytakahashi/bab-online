@@ -112,6 +112,13 @@ async function rejoinGame(socket, io, data) {
     // audience, AMBIENT_CHAT_USERS: no hint that it exists)
     const game = gameManager.getGameVisibleTo(gameId, username);
     if (!game) {
+        // LIVE_PERSIST=on, shutting down: the table was handed off (or is
+        // being), so the pointer stays and no failure is sent (the socket
+        // closes in a moment and the client retries on the successor)
+        if (require('../game/persist/liveStore').getLiveStore().holdsPointers?.()) {
+            socketLogger.info('Rejoin held: shutting down', { gameId, socketId: socket.id });
+            return;
+        }
         socketLogger.debug('Rejoin failed: game not found', { gameId });
         // Clear the stale activeGameId from the database, scoped to this
         // game id: a pointer to another (live) game must stay

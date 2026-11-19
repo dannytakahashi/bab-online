@@ -758,6 +758,40 @@ async function resumePendingGameStats() {
     return out;
 }
 
+/**
+ * Deploy survival (LIVE_PERSIST=on; server/game/persist/adopt.js): the
+ * gameRecords document of a game another process ended, read from its
+ * ENDED tombstone (that process was killed before its insert was
+ * acknowledged). Steps 1 and 2 of writeGameStats on that same document:
+ * insertGameRecord (read first, E11000 means it raced in: either way the
+ * stored entry wins, so the game is recorded once) then applyPendingStats
+ * (the per-user statsGames guard keeps each player's stats single). Never
+ * rejects.
+ * @param {Object} record - buildGameEndRecord's document, as the tombstone holds it
+ * @returns {Promise<boolean>} true once the record is in gameRecords (inserted or found)
+ */
+async function recordEndedGame(record) {
+    const users = getUsersCollection();
+    const gameRecords = getGameRecordsCollection();
+    if (!gameRecords || !record || typeof record.gameId !== 'string') return false;
+    let stored;
+    try {
+        stored = await insertGameRecord(gameRecords, record);
+    } catch (error) {
+        authLogger.error('Error recording an ended game from its tombstone', { gameId: record.gameId, error: error.message });
+        return false;
+    }
+    try {
+        if (users) await applyPendingStats(stored, { users, gameRecords, fresh: stored === record });
+    } catch (error) {
+        authLogger.error('Error applying an ended game\'s stats from its tombstone', { gameId: record.gameId, error: error.message });
+    } finally {
+        invalidateLeaderboard();
+        invalidateRecords();
+    }
+    return true;
+}
+
 /** Tests only: retry delays (default 1, 2, 4, 8, 16 s); no argument restores them. */
 function _setStatsRetryDelaysForTests(delays = DEFAULT_RETRY_DELAYS_MS) {
     retryDelaysMs = delays;
@@ -1371,6 +1405,7 @@ module.exports = {
     buildGameRecord,
     buildGameEndRecord,
     resumePendingGameStats,
+    recordEndedGame,
     _setStatsRetryDelaysForTests,
     _resetStatsWritesForTests,
     STATS_GAMES_KEPT,
