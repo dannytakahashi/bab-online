@@ -652,6 +652,21 @@ final class SoundEffectsTests: XCTestCase {
         XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, category: .ambient), .leave)
     }
 
+    /// Owner 2026-11-18 (build 15, iPhone Air, voice on): every sound froze the table. While voice
+    /// runs a sound never even reads the session (a getter is a synchronous audio-server call).
+    func testASoundDuringVoiceNeverReadsTheSession() {
+        let session = FakeSession(category: .playAndRecord)
+        let clock = SoundClock()
+        let player = SoundPlayer(output: RecordingOutput(), session: session, defaults: defaults,
+                                 isAppActive: { true }, isVoiceActive: { true }, now: { clock.t })
+        for kind in [SoundKind.deal, .card, .trick] {
+            XCTAssertNotNil(player.playIfAllowed(kind))
+            clock.t += 1
+        }
+        XCTAssertEqual(session.categoryReads, 0, "no AVAudioSession read while voice runs")
+        XCTAssertEqual(session.ambientCalls, 0)
+    }
+
     func testAmbientWithoutVoiceAndUntouchedDuringVoice() {
         let session = FakeSession(category: .soloAmbient)
         let out = RecordingOutput()
@@ -773,10 +788,16 @@ final class RecordingOutput: SoundOutput {
 
 @MainActor
 final class FakeSession: SoundSession {
-    var category: AVAudioSession.Category
+    private var stored: AVAudioSession.Category
+    /// Reads of the category (a synchronous call into the audio server on a device).
+    var categoryReads = 0
+    var category: AVAudioSession.Category {
+        get { categoryReads += 1; return stored }
+        set { stored = newValue }
+    }
     var ambientCalls = 0
     var fails = false
-    init(category: AVAudioSession.Category = .soloAmbient) { self.category = category }
+    init(category: AVAudioSession.Category = .soloAmbient) { self.stored = category }
     func useAmbient() throws {
         ambientCalls += 1
         if fails { throw NSError(domain: "FakeSession", code: 1) }
