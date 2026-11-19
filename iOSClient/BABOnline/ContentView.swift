@@ -76,6 +76,13 @@ struct ContentView: View {
                             // comes in with the sign-in's card at the hand-off, never in one frame
                             .opacity(showSplash ? 0 : 1)
                             .animation(.easeOut(duration: SplashTimeline.handOff), value: showSplash)
+                    } else {
+                        // signed out (the sign-in, register): the toasts alone, no connection pill
+                        // (those screens say "Connecting to server..." themselves), so a
+                        // forceLogout's "You were signed out..." shows there
+                        ServerErrorToast()
+                            .opacity(showSplash ? 0 : 1)
+                            .animation(.easeOut(duration: SplashTimeline.handOff), value: showSplash)
                     }
                 }
                 // nothing under the splash reaches VoiceOver or the UI tests: transparent until the
@@ -133,6 +140,9 @@ struct ContentView: View {
             if UIFixture.isActive {
                 FixtureWindowProbe().ignoresSafeArea(.keyboard)
                 FixtureProbes()
+            }
+            if UIFixture.isActive || UIFixture.logProbe {
+                LogFaultsProbe(rows: gameState.gameLog)
             }
         }
         #endif

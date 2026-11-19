@@ -30,7 +30,7 @@ extension UIFixture {
         admin.username = { [weak auth] in auth?.username ?? "" }
         admin.accessLost = { [weak auth] message in
             auth?.isAdmin = false
-            SocketService.shared.serverError = ServerErrorNotice(message: message)
+            SocketService.shared.serverError = ServerErrorNotice(message: message, kind: AdminCopy.toastKind(message))
         }
         admin.isAdmin = { [weak auth] in auth?.isAdmin ?? false }
         admin.requester = { action, args in await backend.answer(action, args) }

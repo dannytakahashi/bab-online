@@ -191,6 +191,8 @@ extension Theme {
         static let label = Palette.Text.primary.uiColor
         /// The turn ring (gold, as the web's) and the speaking ring (success).
         static let turnGlow = Palette.gold.opacity(0.5).uiColor
+        /// My /help answer's card: a gold ring round it (the web's .is-suggested, the lightbulb's colour).
+        static let suggestedRing = Palette.gold.uiColor
         static let speakingFill = Palette.success.opacity(0.4).uiColor
         static let speakingStroke = Palette.success.opacity(0.7).uiColor
         /// The bid bubble: the seat plate glass (surface.s2@0.86) with a team-neutral edge.

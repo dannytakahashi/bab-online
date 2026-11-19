@@ -18,7 +18,8 @@
       "assist": {
         "uses": 0,
         "freeUses": 3,
-        "assisted": false
+        "assisted": false,
+        "unlimited": true
       }
     },
     "hand": [

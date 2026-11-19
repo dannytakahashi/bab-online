@@ -175,7 +175,7 @@ final class AuthSocketHandler {
         }
     }
 
-    private func handleForceLogout(_ data: [String: Any]?) {
+    func handleForceLogout(_ data: [String: Any]?) {
         DispatchQueue.main.async {
             let reason = data?["reason"] as? String ?? "Logged out"
             print("[Auth] Force logout: \(reason)")
@@ -184,6 +184,11 @@ final class AuthSocketHandler {
             self.gameState.reset()
             self.safetyState.reset()
             self.appState.screen = .signIn
+            // why the sign-in is back (iOS's own words: the web shows only its sign-in screen),
+            // on the sign-in's own toast layer; VoiceOver hears it once the sign-in is up, at high
+            // priority, so the new screen's speech does not cut it off
+            self.socket.serverError = ServerErrorNotice(message: NoticeText.signedOut, kind: .info, urgent: true,
+                                                        announceDelay: ServerErrorNotice.screenChangeDelay)
         }
     }
 

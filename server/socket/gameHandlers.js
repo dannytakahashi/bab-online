@@ -488,12 +488,18 @@ async function handleDrawComplete(io, game) {
     // build 5 reads it only as fallbacks (the prefix when isBot is absent, my
     // seat before the username, the voice glow after the username), but the
     // TestFlight builds 3-4 tell a bot only by the prefix. usernames[] lost
-    // its socketId (#14: read by neither client).
+    // its socketId (#14: read by neither client). nativeBot (additive,
+    // 2026-11-19): true only for a seat whose controller is a native bot
+    // ('bot': lobby Add Bot, tournament filler, solo), never a draw-phase
+    // leaver's resign bot, whose seat socket is a bot: socket too (isBot is
+    // true there). Clients read it for "/help has no limit here"
+    // (assistState.isFreeHelpGame), never isBot alone.
     const orderedPositions = [];
     const orderedSockets = [];
     const orderedUsernames = [];
     const orderedPics = [];
     const orderedIsBot = [];
+    const orderedNativeBot = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (player) {
@@ -502,6 +508,7 @@ async function handleDrawComplete(io, game) {
             orderedUsernames.push({ username: player.username });
             orderedPics.push(player.pic);
             orderedIsBot.push(game.isBot(player.socketId));
+            orderedNativeBot.push(game.seat(pos)?.controller === Controller.BOT);
         }
     }
 
@@ -522,7 +529,8 @@ async function handleDrawComplete(io, game) {
         sockets: orderedSockets,
         usernames: orderedUsernames,
         pics: wirePics,
-        isBot: orderedIsBot
+        isBot: orderedIsBot,
+        nativeBot: orderedNativeBot
     };
     if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
     game.broadcast(io, 'positionUpdate', positionUpdate);

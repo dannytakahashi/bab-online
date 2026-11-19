@@ -28,22 +28,24 @@ enum LobbyReturn {
     /// How long a return waits for its game's gameEnd to apply.
     static var gameEndWait: TimeInterval = 5
 
-    /// Said to VoiceOver when the lobby comes up (the web's toast words).
-    static func backInText(_ name: String) -> String {
-        "Back in \u{201C}\(name)\u{201D}. Tap Ready when you want to play again."
+    /// The info toast when the lobby comes up (the web's words; toast audit 2026-11-18: it was
+    /// spoken only): "Back in “X”. Tap Ready to play again.", or, when the others filled the
+    /// table meanwhile (a family lobby: my Ready says "Table full — you'll watch"), "Back in
+    /// “X”. The table is full; you'll watch this one."
+    static func backInText(_ name: String, tableFull: Bool = false) -> String {
+        let back = name.isEmpty ? "Back in your lobby." : "Back in \u{201C}\(name)\u{201D}."
+        return tableFull ? "\(back) The table is full; you'll watch this one." : "\(back) Tap Ready to play again."
     }
 
-    /// The announcement, high priority: VoiceOver's own speech for the new screen (the
+    /// The toast, read at high priority: VoiceOver's own speech for the new screen (the
     /// Return to Lobby the person activated is gone, so focus moves into the lobby) would
     /// otherwise cut a default one off.
-    static func backInAnnouncement(_ name: String) -> AttributedString {
-        var text = AttributedString(backInText(name))
-        text.accessibilitySpeechAnnouncementPriority = .high
-        return text
+    static func backInNotice(_ name: String, tableFull: Bool = false) -> ServerErrorNotice {
+        ServerErrorNotice(message: backInText(name, tableFull: tableFull), kind: .info, urgent: true)
     }
 
-    /// The announcement waits for the screen change (ContentView animates it over 0.3 s);
-    /// posted in the same tick, the lobby did not exist yet.
+    /// The toast waits for the screen change (ContentView animates it over 0.3 s); posted in
+    /// the same tick, the lobby did not exist yet.
     static let announceDelay: TimeInterval = 0.6
 
     /// Tells the server this socket left the results for the lobby (tests replace it).
@@ -52,7 +54,7 @@ enum LobbyReturn {
     static var announceLater: (TimeInterval, @escaping @MainActor () -> Void) -> Void = { delay, work in
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { work() } }
     }
-    static var post: @MainActor (AttributedString) -> Void = { AccessibilityNotification.Announcement($0).post() }
+    static var post: @MainActor (ServerErrorNotice) -> Void = { SocketService.shared.serverError = $0 }
 
     /// `lobbyReturn`. `schedule` runs the fallback (tests replace it).
     static func receive(_ dict: [String: Any], lobbyState: LobbyState, appState: AppState, gameState: GameState,
@@ -126,9 +128,10 @@ enum LobbyReturn {
         // person is looking at it (playAgain.settle)
         sendSeen()
         let lobbyId = lobbyState.lobbyId, name = lobbyState.lobbyName
+        let me = SocketService.shared.authState?.username ?? gameState.username
         announceLater(announceDelay) { [weak appState, weak lobbyState] in
-            guard appState?.screen == .gameLobby, lobbyState?.lobbyId == lobbyId else { return }
-            post(backInAnnouncement(name))
+            guard appState?.screen == .gameLobby, let lobbyState, lobbyState.lobbyId == lobbyId else { return }
+            post(backInNotice(name, tableFull: lobbyState.tableFullWithout(me)))
         }
         print("[Lobby] Entered lobby \(lobbyId) after the game")
     }

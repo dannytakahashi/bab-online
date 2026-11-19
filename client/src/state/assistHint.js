@@ -21,6 +21,18 @@
  *    so after a reload or a rejoin they are exact again. Unknown only before
  *    either arrives (or from a server without viewer.assist). The chat
  *    autocomplete describes /help from them (helpDescription).
+ *  - A game with a native bot seat (owner 2026-11-19, "Unlimited, keep
+ *    notice"; server assistState.isFreeHelpGame: a lobby's Add Bot, a
+ *    tournament filler, a solo game; never a lazy or resign bot) has no
+ *    /help limit, and players see nothing about free uses or limits (no
+ *    count, never "free", "unlimited" or "bot-assisted"): the footer is just
+ *    FOOTER_BOT and the chat line just HELP_LABEL. Known from the hint's
+ *    `unlimited`, the snapshot's viewer.assist.unlimited, and before either
+ *    from GameState.nativeBotSeat (positionUpdate.nativeBot, the snapshot's
+ *    seats[].controller; never positionUpdate.isBot alone, which a
+ *    draw-phase leaver's resign bot has too). Once the server has said (a
+ *    hint, a snapshot's viewer.assist) its word wins over the table, as on
+ *    iOS (helpIsUnlimited). The flag name is internal: never shown.
  *
  * Names only in every text (never team numbers, "your team", "opponents");
  * the hint's own texts come from the server, which lints them.
@@ -49,32 +61,48 @@ export const FOOTER_QUICK = 'Quick suggestion: rules only, the server is busy.';
 
 /** The plain words of the chat command (GameLog's autocomplete). */
 export const HELP_COMMAND = '/help';
+/**
+ * What asking is called everywhere (the "?" button, the chat line; owner
+ * 2026-11-19: the old label read as the player suggesting a move).
+ */
+export const HELP_LABEL = 'Ask a bot for advice';
 
 // ------------------------------------------------------------ this game's uses
 
-let uses = { gameId: null, known: false, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false };
+// told: the server sent these (a hint, a snapshot's viewer.assist), so their
+// `unlimited` is its verdict; false for createUI's zero count
+const blank = (gameId, known) => ({ gameId: gameId || null, known, told: false, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false, unlimited: false });
+let uses = blank(null, false);
 
 const count = (v, d = 0) => (Number.isSafeInteger(v) && v >= 0 ? v : d);
 
 /** A new game started (createUI): no /help used yet. */
 export function resetAssistUses(gameId = null) {
-  uses = { gameId: gameId || null, known: true, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false };
+  uses = blank(gameId, true);
 }
 
 /** Forget the counts (left the table, tests): unknown until the next hint. */
 export function forgetAssistUses() {
-  uses = { gameId: null, known: false, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false };
+  uses = blank(null, false);
 }
 
-/** A hint (or a snapshot's viewer.assist) arrived: its counts are this game's. */
+/**
+ * A hint (or a snapshot's viewer.assist) arrived: its counts are this
+ * game's. `unlimited` (a game with a native bot seat) stays once seen in
+ * the same game (native bots never leave).
+ */
 export function noteAssistUses(hint, gameId = null) {
   if (!hint || typeof hint !== 'object') return;
+  const id = gameId || uses.gameId || null;
+  const sameGame = uses.known && (!id || !uses.gameId || id === uses.gameId);
   uses = {
-    gameId: gameId || uses.gameId || null,
+    gameId: id,
     known: true,
+    told: true,
     uses: count(hint.uses),
     freeUses: count(hint.freeUses, DEFAULT_FREE_USES),
     assisted: hint.assisted === true,
+    unlimited: hint.unlimited === true || (sameGame && uses.unlimited),
   };
 }
 
@@ -85,24 +113,47 @@ export function noteAssistUses(hint, gameId = null) {
 export function assistUses(gameId = null) {
   if (!uses.known) return null;
   if (gameId && uses.gameId && gameId !== uses.gameId) return null;
-  return { uses: uses.uses, freeUses: uses.freeUses, assisted: uses.assisted };
+  return { uses: uses.uses, freeUses: uses.freeUses, assisted: uses.assisted, unlimited: uses.unlimited };
+}
+
+/**
+ * Does this game have no /help limit to show (a native bot seat)? The
+ * server's word wins, as on iOS (AssistRules.isFreeHelpGame / inFreeHelpGame):
+ * a hint's own `unlimited` decides for that hint (its footer); else this
+ * game's uses once the server has sent them (a hint's or a snapshot's
+ * viewer.assist.unlimited); before that, the table itself
+ * (GameState.nativeBotSeat: positionUpdate.nativeBot, snapshot
+ * seats[].controller 'bot'; a lazy or resign bot never counts).
+ * @param {Object} [state] - GameState
+ * @param {Object} [hint] - an assistHint
+ */
+export function helpIsUnlimited(state = null, hint = null) {
+  if (hint && typeof hint === 'object') return hint.unlimited === true;
+  if (assistUses(state?.gameId || null) && uses.told) return uses.unlimited === true;
+  return state?.nativeBotSeat === true;
 }
 
 /**
  * The /help line in the chat autocomplete, from this game's uses:
- *   "Suggest a move (1 of 3 free used)"
- *   "Suggest a move (the next one makes this game bot-assisted)"
- *   "Suggest a move (this game is bot-assisted for you)"
- *   "Suggest a move (after 3 free, this game counts as bot-assisted)"
+ *   "Ask a bot for advice (1 of 3 free used)"
+ *   "Ask a bot for advice (the next one makes this game bot-assisted)"
+ *   "Ask a bot for advice (this game is bot-assisted for you)"
+ *   "Ask a bot for advice (after 3 free, this game counts as bot-assisted)"
  *        (unknown: no hint or snapshot with viewer.assist yet; the warning
  *        stays, since the uses so far may be spent)
+ *   "Ask a bot for advice"   (a game with a native bot seat: `unlimited`,
+ *        helpIsUnlimited, or this game's uses say so)
+ * @param {string} [gameId]
+ * @param {Object} [o]
+ * @param {boolean} [o.unlimited] - the table has a native bot seat
  */
-export function helpDescription(gameId = null) {
+export function helpDescription(gameId = null, { unlimited = false } = {}) {
   const u = assistUses(gameId);
-  if (!u) return `Suggest a move (after ${DEFAULT_FREE_USES} free, this game counts as bot-assisted)`;
-  if (u.assisted || u.uses > u.freeUses) return 'Suggest a move (this game is bot-assisted for you)';
-  if (u.uses >= u.freeUses) return 'Suggest a move (the next one makes this game bot-assisted)';
-  return `Suggest a move (${u.uses} of ${u.freeUses} free used)`;
+  if (unlimited || u?.unlimited) return HELP_LABEL;
+  if (!u) return `${HELP_LABEL} (after ${DEFAULT_FREE_USES} free, this game counts as bot-assisted)`;
+  if (u.assisted || u.uses > u.freeUses) return `${HELP_LABEL} (this game is bot-assisted for you)`;
+  if (u.uses >= u.freeUses) return `${HELP_LABEL} (the next one makes this game bot-assisted)`;
+  return `${HELP_LABEL} (${u.uses} of ${u.freeUses} free used)`;
 }
 
 // ------------------------------------------------------------ the hint
@@ -206,17 +257,24 @@ export function confidenceLabel(hint) {
  * The card's footer: what the suggestion is and the use count.
  *   "What our strongest bot would play · Help 2 of 3 free"
  *   "What our strongest bot would play · Help 4: this game counts as bot-assisted for you"
- *   "Only legal card · Not counted"            (forced: nothing to guess)
+ *   "Not counted"                              (forced: nothing to guess)
  *   "What our strongest bot would play · Asked again this turn: not counted"
  *   "Quick suggestion: rules only, the server is busy. · Help 1 of 3 free"
+ * In a game with a native bot seat (hint.unlimited, or `o.unlimited` from
+ * helpIsUnlimited) no count and no "not counted": just "What our strongest
+ * bot would play" (a forced move and a re-ask too), or the Quick note alone.
  * null for a status reply.
+ * @param {Object} hint
+ * @param {Object} [o]
+ * @param {boolean} [o.unlimited]
  */
-export function assistFooter(hint) {
+export function assistFooter(hint, { unlimited = false } = {}) {
   if (!isAssistHint(hint) || hint.kind === 'status') return null;
+  const lead = hint.confidence === 'quick' ? FOOTER_QUICK : FOOTER_BOT;
+  if (unlimited || hint.unlimited === true) return lead;
   const free = count(hint.freeUses, DEFAULT_FREE_USES);
   const n = count(hint.uses);
   if (hint.confidence === 'only') return 'Not counted';
-  const lead = hint.confidence === 'quick' ? FOOTER_QUICK : FOOTER_BOT;
   let tail;
   if (!hint.counted) tail = 'Asked again this turn: not counted';
   else if (n <= free) tail = `Help ${n} of ${free} free`;

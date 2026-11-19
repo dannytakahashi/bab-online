@@ -15,15 +15,17 @@
  *                          now counts as bot-assisted for you." (amber)
  *     .assist-card__why    "Why?" (aria-expanded) and up to 4 details
  *     .assist-card__foot   "What our strongest bot would play · Help 2 of 3 free"
+ *                          (just "What our strongest bot would play" in a
+ *                          game with a native bot seat: `unlimited`)
  *
  * A status reply (kind status: off-turn, a refusal) is the same card with
  * the headline only. The card never takes focus.
  *
  *   .hud-assist-ask        the "?" button by my hand on my own turn at my
- *                          seat ("Suggest a move", which sends /help)
+ *                          seat ("Ask a bot for advice", which sends /help)
  */
 import { hudRoot } from '../tableHud.js';
-import { confidenceLabel, assistFooter, isAssistHint } from '../../state/assistHint.js';
+import { confidenceLabel, assistFooter, isAssistHint, HELP_LABEL } from '../../state/assistHint.js';
 
 let card = null;
 let current = null;
@@ -71,7 +73,7 @@ function dismiss() {
  * @param {Function} [o.onClose] - the player dismissed it (✕, Escape)
  * @returns {HTMLElement|null} the card
  */
-export function showAssistCard(hint, { onClose = null } = {}) {
+export function showAssistCard(hint, { onClose = null, unlimited = false } = {}) {
   if (!isAssistHint(hint)) return null;
   const root = slot();
   if (!root) return null;
@@ -123,7 +125,7 @@ export function showAssistCard(hint, { onClose = null } = {}) {
     why.append(toggle, list);
     parts.push(why);
   }
-  const footer = assistFooter(hint);
+  const footer = assistFooter(hint, { unlimited });
   if (footer) parts.push(el('p', 'assist-card__foot', footer));
 
   root.replaceChildren(...parts);
@@ -164,8 +166,8 @@ export function syncAssistButton({ visible = false, onAsk = null } = {}) {
     if (!visible) return null;
     ask = el('button', 'hud-assist-ask', '?');
     ask.type = 'button';
-    ask.setAttribute('aria-label', 'Suggest a move');
-    ask.title = 'Suggest a move (/help)';
+    ask.setAttribute('aria-label', HELP_LABEL);
+    ask.title = `${HELP_LABEL} (/help)`;
     ask.addEventListener('click', () => ask?._onAsk?.());
     hudRoot().appendChild(ask);
   }

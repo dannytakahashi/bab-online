@@ -18,7 +18,7 @@ const { calculateMultiplier, determineDrawPosition, HAND_PROGRESSION } = require
 const { Phase } = require('./GamePhase');
 const { Controller, isBotSocket, seatDisplay } = require('./SeatState');
 const { spectatorsWire } = require('./spectatorWire');
-const { assistTally } = require('./assistState');
+const { assistTally, isFreeHelpGame } = require('./assistState');
 
 const SNAPSHOT_VERSION = 2;
 const HAND_SEQUENCE = HAND_PROGRESSION;
@@ -217,7 +217,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             // additive (2026-11-19): the viewer's own /help count this game
             // (assistState; the assistHint's uses / freeUses / assisted), only
             // for a seat owner, so a reload shows the exact count
-            ...(ownSeat && { assist: assistTally(game.assist?.[ownPos], ownSeat.ownerUsername ?? null) }),
+            // (+ unlimited: true in a game with a native bot seat, isFreeHelpGame)
+            ...(ownSeat && { assist: assistTally(game.assist?.[ownPos], ownSeat.ownerUsername ?? null, isFreeHelpGame(game)) }),
         },
         hand,
         deal,

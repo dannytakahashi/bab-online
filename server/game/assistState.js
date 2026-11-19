@@ -34,6 +34,8 @@ const POSITIONS = [1, 2, 3, 4];
  * Free counted /help uses per player per game (plan D10, owner
  * 2026-11-18): the next one makes the game bot-assisted for that player
  * (their stats go to the bot-game bucket; profileHandlers.buildGameEndRecord).
+ * In a game with a native bot seat (isFreeHelpGame) players see no limit,
+ * but the record still marks a player past it (owner 2026-11-19).
  * Change it only with the owner.
  */
 const ASSIST_FREE_HELP = 3;
@@ -102,17 +104,45 @@ function helpUses(a, owner) {
 }
 
 /**
- * What `owner`'s record says, as the wire sends it: assistHint's uses /
- * freeUses / assisted and snapshot v2's viewer.assist (2026-11-19).
- * @returns {{uses: number, freeUses: number, assisted: boolean}}
+ * Is /help free and unlimited in `game` (owner 2026-11-19, "Unlimited, keep
+ * notice")? True when a NATIVE bot holds a seat (controller 'bot': a lobby's
+ * Add Bot, a tournament filler, a solo game): such a game already goes to
+ * the bot-game stats bucket (profileHandlers.buildGameEndRecord, withBots),
+ * so /help cannot move anyone's stats there. A lazy or resign bot never
+ * counts (lazyBot is reversible; both are a human's seat). Native bot seats
+ * are seated at the start and never leave, so this never turns false later
+ * in a game. There: no free count on the wire or in any line, no warning,
+ * no crossing, no end-of-game line, never assisted on the wire; the counter
+ * and the room notice "<name> used /help." stay, and the game-end record
+ * still marks more than ASSIST_FREE_HELP uses (profileHandlers, unchanged).
+ * @param {Object|null|undefined} game - a GameState (or anything with seatList())
  */
-function assistTally(a, owner) {
+function isFreeHelpGame(game) {
+    if (!game || typeof game.seatList !== 'function') return false;
+    // 'bot' is SeatState's Controller.BOT (not required: this file stays dependency-free)
+    return game.seatList().some((s) => s && s.controller === 'bot');
+}
+
+/**
+ * What `owner`'s record says, as the wire sends it: assistHint's uses /
+ * freeUses / assisted and snapshot v2's viewer.assist (2026-11-19). In a
+ * free-help game (`unlimited`, isFreeHelpGame) `assisted` is always false
+ * and the additive `unlimited: true` is added; otherwise there is no
+ * `unlimited` key, so the payload is the one it was before.
+ * @param {Object|null|undefined} a - one game.assist record
+ * @param {string|null|undefined} owner - the seat's ownerUsername
+ * @param {boolean} [unlimited] - isFreeHelpGame(game)
+ * @returns {{uses: number, freeUses: number, assisted: boolean, unlimited?: true}}
+ */
+function assistTally(a, owner, unlimited = false) {
+    if (unlimited) return { uses: helpUses(a, owner), freeUses: ASSIST_FREE_HELP, assisted: false, unlimited: true };
     return { uses: helpUses(a, owner), freeUses: ASSIST_FREE_HELP, assisted: isAssistedSeat(a, owner) };
 }
 
 module.exports = {
     ASSIST_FREE_HELP,
     isAssistedSeat,
+    isFreeHelpGame,
     helpUses,
     assistTally,
     ASSIST_SEAT_KEYS,

@@ -28,7 +28,11 @@ enum SceneDump {
         var parts = [path]
         if let sprite = node as? SKSpriteNode, let card = (node as? CardSpriteNode)?.card ?? cardFromName(node.name) {
             parts.append("card=\(card.id) size=\(r(sprite.frame.width))x\(r(sprite.frame.height))")
-            if inHand, let c = node as? CardSpriteNode { parts.append("legal=\(c.isLegal) lifted=\(c.isLifted)") }
+            if inHand, let c = node as? CardSpriteNode {
+                parts.append("legal=\(c.isLegal) lifted=\(c.isLifted)")
+                // my /help answer's card (only when it is: older dumps read the same)
+                if c.isSuggested { parts.append("suggested=true") }
+            }
         } else {
             parts.append(String(describing: type(of: node)))
             if let sprite = node as? SKSpriteNode { parts.append("size=\(r(sprite.frame.width))x\(r(sprite.frame.height))") }

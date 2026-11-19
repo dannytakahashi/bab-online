@@ -231,6 +231,7 @@ struct TableSnapshot: Codable, Equatable {
         var uses: Int
         var freeUses: Int
         var assisted: Bool
+        var unlimited: Bool?
     }
 
     struct Deal: Codable, Equatable {

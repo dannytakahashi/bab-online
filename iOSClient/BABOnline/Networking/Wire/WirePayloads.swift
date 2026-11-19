@@ -22,6 +22,9 @@ enum WirePayload {
         /// positions order, true for a bot seat (additive, contract/V1_REMOVALS #14). Read first;
         /// the bot: prefix of `sockets` is the fallback for a server that does not send it yet.
         var isBot: [Bool]?
+        /// positions order, true only for a native bot seat (controller `bot`), never a draw-phase
+        /// leaver's resign bot, whose isBot is true too (additive 2026-11-19; nil from an older server).
+        var nativeBot: [Bool]?
         var usernames: [Name]?
         var pics: [PicWire]?
         var avatarUrls: [String: String]?
@@ -108,7 +111,14 @@ enum WirePayload {
         var position: Int?; var username: String?; var pic: PicWire?; var avatarUrl: String?; var seq: Int?
     }
 
-    struct GameLogEntry: Decodable, Equatable { var message: String?; var type: String?; var playerPosition: Int?; var seq: Int? }
+    /// gameLogEntry. `fault` (additive 2026-11-19, the room variant): a set hand's fault line
+    /// "Fault: <name> (bid N, took M)" from server rules.handFaults, drawn red in the log.
+    struct GameLogEntry: Decodable, Equatable {
+        /// The seat that fell short, its own bid (a bore as the server counts it) and its tricks.
+        struct Fault: Decodable, Equatable { var position: Int?; var bid: Int?; var took: Int? }
+        var message: String?; var type: String?; var playerPosition: Int?; var seq: Int?
+        var fault: Fault?
+    }
 
     struct Chat: Decodable, Equatable {
         var username: String?; var message: String?; var position: Int?; var type: String?; var isSpectator: Bool?; var seq: Int?
@@ -156,6 +166,66 @@ enum WirePayload {
         var inMs: Int?
         var durationMs: Int?
         var reason: Reason?
+    }
+
+    /// assistHint (s2c, private, UNSEQUENCED: decoded with seq nil): my own /help answer, sent
+    /// only because this build's clientHello carries the cap `assist` (contract/src/s2c.js
+    /// assistHint; docs/claude/assist.md). Every field optional, so a newer server's shape never
+    /// fails the decode; one this build cannot show (v not 1, an unknown kind, no headline) is
+    /// dropped by AssistRules.
+    struct AssistHint: Decodable, Equatable {
+        /// `suggest`: {bid} or {card}.
+        struct Suggest: Decodable, Equatable { var bid: String?; var card: Card? }
+        var v: Int?
+        var source: String?
+        var kind: String?
+        var turnKey: String?
+        var headline: String?
+        var reasons: [String]?
+        var uses: Int?
+        var freeUses: Int?
+        var assisted: Bool?
+        var counted: Bool?
+        var details: [String]?
+        var confidence: String?
+        var suggest: Suggest?
+        var note: String?
+        /// Additive (owner 2026-11-19): true only in a game with a native bot seat (server
+        /// assistState.isFreeHelpGame), where /help has no limit and no count is shown.
+        var unlimited: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note, unlimited
+        }
+
+        init(v: Int? = 1, source: String? = "help", kind: String?, turnKey: String? = nil, headline: String?, reasons: [String]? = nil,
+             uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil, counted: Bool? = nil, details: [String]? = nil,
+             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil, unlimited: Bool? = nil) {
+            self.v = v; self.source = source; self.kind = kind; self.turnKey = turnKey; self.headline = headline
+            self.reasons = reasons; self.uses = uses; self.freeUses = freeUses; self.assisted = assisted; self.counted = counted
+            self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note; self.unlimited = unlimited
+        }
+
+        /// Lenient: a field of the wrong type is absent (a card this build cannot read is no card).
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+            v = opt(Int.self, .v)
+            source = opt(String.self, .source)
+            kind = opt(String.self, .kind)
+            turnKey = opt(String.self, .turnKey)
+            headline = opt(String.self, .headline)
+            reasons = opt([String].self, .reasons)
+            uses = opt(Int.self, .uses)
+            freeUses = opt(Int.self, .freeUses)
+            assisted = opt(Bool.self, .assisted)
+            counted = opt(Bool.self, .counted)
+            details = opt([String].self, .details)
+            confidence = opt(String.self, .confidence)
+            suggest = opt(Suggest.self, .suggest)
+            note = opt(String.self, .note)
+            unlimited = opt(Bool.self, .unlimited)
+        }
     }
 
     struct SpectatorNotice: Decodable, Equatable { var username: String?; var spectatorCount: Int?; var seq: Int? }
@@ -228,5 +298,21 @@ enum Position {
     static func valid(_ v: Int?) -> Int? {
         guard let v, (1...4).contains(v) else { return nil }
         return v
+    }
+}
+
+extension WirePayload.GameLogEntry {
+    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault }
+
+    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault` this
+    /// build cannot read leaves a plain system row, never a dropped line).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+        message = opt(String.self, .message)
+        type = opt(String.self, .type)
+        playerPosition = opt(Int.self, .playerPosition)
+        seq = opt(Int.self, .seq)
+        fault = opt(Fault.self, .fault)
     }
 }

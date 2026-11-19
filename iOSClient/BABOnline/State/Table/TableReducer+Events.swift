@@ -39,6 +39,8 @@ extension TableReducer {
             }
         case .createUI:
             mutateDraw(&s) { $0.stage = .dealing }
+            // a new game: no /help used yet (the command list's count)
+            s.table.assistUses = AssistUses()
 
         // MARK: deal / bidding
         case .gameStart(let p):
@@ -51,10 +53,15 @@ extension TableReducer {
             case .playing(var pl): pl.turn = turn; s.table.phase = .playing(pl)
             default: break
             }
+            // a turn change ends a /help answer, unless still live by its turnKey (a repeat of
+            // this turn); one held while the table lagged behind shows now if it is live
+            s.table.assistAsking = false
+            settleAssist(&s, abandon: true, &fx)
         case .bidReceived(let p):
             bidReceived(&s, p, &fx)
         case .doneBidding(let p):
             stopBidClock(&s, .fade, &fx)
+            clearAssist(&s)
             guard var bids = s.table.phase.bids else { break }
             if let arr = p.bids, arr.count == 4 { bids.byPosition = arr.map { $0?.value } }
             if let tb = p.teamBids { bids.teamBids = TeamPair(team1: tb.team1, team2: tb.team2) }
@@ -68,6 +75,7 @@ extension TableReducer {
             fx.append(.animate(.rainbow(position: pos, dealSeq: s.table.deal?.dealSeq ?? 0)))
         case .destroyHands:
             stopBidClock(&s, .fade, &fx)
+            clearAssist(&s)
             s.table.hand = []
             // every hand is gone, not only mine (the card backs; the redeal's gameStart refills them)
             for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
@@ -85,6 +93,7 @@ extension TableReducer {
             handComplete(&s, p, &fx)
         case .gameEnd(let p, let data):
             stopBidClock(&s, .hard, &fx)
+            dropAssist(&s)
             fx.append(.sound(.gameEnd))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
@@ -147,6 +156,9 @@ extension TableReducer {
                 s.table.viewer.role = .lazyWatcher
                 s.table.viewer.ownerView = "seat"
                 s.pending = nil
+                // a bot plays my seat now: my /help answer is moot
+                clearAssist(&s)
+                s.table.assistAsking = false
             } else if s.players.leaveCheck != .idle {
                 // another owner's /lazy or /leave while my Leave is up (whatever it opened
                 // with, settled included): check again (a /leave shows here only as this
@@ -175,7 +187,9 @@ extension TableReducer {
         // MARK: log / chat / spectators
         case .gameLogEntry(let p):
             let type = ChatMessage.MessageType(rawValue: p.type ?? "system") ?? .system
-            s.log.entries.append(ChatMessage(username: "System", message: p.message ?? "", type: type))
+            var row = ChatMessage(username: "System", message: p.message ?? "", type: type)
+            row.isFault = p.fault != nil
+            s.log.entries.append(row)
         case .chatMessage(let p, let blocked, let mine):
             guard !blocked else { break }
             // 21.8: `isSpectator` routes (the server drops `type` with V1_REMOVALS #12); `type` only for an older server
@@ -198,6 +212,8 @@ extension TableReducer {
             bidClockEvent(&s, p, &fx)
         case .seatLeft(let p):
             seatLeft(&s, p)
+        case .assistHint(let p):
+            assistHint(&s, p, &fx)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -306,12 +322,16 @@ extension TableReducer {
             // positionUpdate.isBot (V1_REMOVALS #14) wins; the bot: socket prefix is the fallback, so a
             // later server can drop sockets without this build losing its bots
             let isBot = (i < (p.isBot?.count ?? 0) ? p.isBot![i] : nil) ?? (sid?.hasPrefix("bot:") ?? false)
+            // nativeBot (additive 2026-11-19) tells a native bot from a draw-phase leaver's resign
+            // bot (isBot is true for both): only a native bot is `.bot` (AssistRules.isFreeHelpGame).
+            // From an older server (no nativeBot) every bot seat is `.bot`, as before.
+            let native = (i < (p.nativeBot?.count ?? 0) ? p.nativeBot![i] : nil) ?? isBot
             var seat = s.players.seats[pos] ?? SeatState(position: pos)
             seat.username = name ?? seat.username
             seat.pic = pic
             seat.avatarUrl = p.avatarUrls?[String(pos)]
             seat.isBot = isBot
-            seat.controller = isBot ? .bot : .human
+            seat.controller = !isBot ? .human : native ? .bot : .resignBot
             seat.presence = isBot ? .none : (seat.presence == .none ? .connected : seat.presence)
             seat.ownerUsername = isBot ? nil : name
             seat.lazy = false
@@ -332,6 +352,7 @@ extension TableReducer {
 
     static func gameStart(_ s: inout TableState, _ p: WirePayload.GameStart, _ fx: inout [TableEffect]) {
         stopBidClock(&s, .fade, &fx)
+        clearAssist(&s)
         if s.table.phase.kind == .ended || s.table.phase.kind == .none { s.table.phase = .waiting }
         if let gid = p.gameId { s.table.gameId = gid }
         let previous = s.table.deal
@@ -403,6 +424,8 @@ extension TableReducer {
         b.bids.byPosition[pos - 1] = bid  // bidArray is authoritative; the bid itself is always in it
         b.bids.recomputeMults()
         s.table.phase = .bidding(b)
+        // my own bid: the /help card is done
+        if pos == s.table.viewer.position && s.table.viewer.holdsSeat { clearAssist(&s) }
         addLog(&s, "\(s.players.name(pos)) bid \(bid)")
         if pos == s.table.viewer.position, let pending = s.pending, case .bid = pending.submission {
             s.pending = nil
@@ -439,6 +462,8 @@ extension TableReducer {
         s.table.phase = .playing(pl)
         mutateSeat(&s, pos) { $0.cardsInHand = max(0, $0.cardsInHand - 1) }
         let mine = pos == s.table.viewer.position && s.table.viewer.holdsSeat
+        // my own card: the /help card is done
+        if mine { clearAssist(&s) }
         if mine, let i = s.table.hand.firstIndex(of: p.card) { s.table.hand.remove(at: i) }  // also a lazy bot's play for me
         var confirmsMine = false
         if mine, let pending = s.pending, case .play(let c) = pending.submission {
@@ -491,6 +516,7 @@ extension TableReducer {
         let old2 = p.team2OldScore ?? 0
         let t1Tricks = p.team1Tricks ?? 0
         let t2Tricks = p.team2Tricks ?? 0
+        clearAssist(&s)
         s.scores.score = TeamPair(team1: t1, team2: t2)
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))

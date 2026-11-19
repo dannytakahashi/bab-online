@@ -15,7 +15,7 @@ final class PlayAgainTests: XCTestCase {
     /// lobbyReturnSeen sends and the VoiceOver announcement, recorded instead of sent / spoken.
     private var seen = 0
     private var later: [(delay: TimeInterval, work: @MainActor () -> Void)] = []
-    private var spoken: [AttributedString] = []
+    private var spoken: [ServerErrorNotice] = []
     private var managers: [VoiceChatManager] = []
     private var restoreHooks: (() -> Void)?
 
@@ -189,9 +189,9 @@ final class PlayAgainTests: XCTestCase {
         XCTAssertGreaterThan(LobbyReturn.announceDelay, 0.3, "after ContentView's 0.3 s screen animation")
         later[0].work()
         XCTAssertEqual(spoken.count, 1)
-        XCTAssertEqual(String(spoken[0].characters), LobbyReturn.backInText("Family night"))
-        XCTAssertEqual(spoken[0].accessibilitySpeechAnnouncementPriority, .high,
-                       "VoiceOver's speech for the new screen must not cut it off")
+        XCTAssertEqual(spoken[0].message, LobbyReturn.backInText("Family night"))
+        XCTAssertEqual(spoken[0].kind, .info, "a visible info toast (toast audit: it was spoken only)")
+        XCTAssertTrue(spoken[0].urgent, "VoiceOver's speech for the new screen must not cut it off")
     }
 
     func testNoAnnouncementOnceTheLobbyWentAgain() throws {
@@ -478,7 +478,10 @@ final class PlayAgainTests: XCTestCase {
 
     func testTheWords() {
         XCTAssertEqual(LobbyReturn.backInText("Family night"),
-                       "Back in \u{201C}Family night\u{201D}. Tap Ready when you want to play again.")
+                       "Back in \u{201C}Family night\u{201D}. Tap Ready to play again.")
+        XCTAssertEqual(LobbyReturn.backInText("Family night", tableFull: true),
+                       "Back in \u{201C}Family night\u{201D}. The table is full; you'll watch this one.")
+        XCTAssertEqual(LobbyReturn.backInText(""), "Back in your lobby. Tap Ready to play again.")
         XCTAssertEqual(PlayAgainCopy.dontWaitFor("kim"), "Don't wait for kim")
         XCTAssertEqual(LobbyReturn.gameEndWait, 5)
         XCTAssertTrue(ClientHello.caps.contains("playAgain"))

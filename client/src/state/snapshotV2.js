@@ -243,7 +243,11 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
 }
 
 const countOk = (n) => Number.isSafeInteger(n) && n >= 0;
-/** A snapshot's viewer.assist: {uses, freeUses, assisted} (contract $defs.viewerAssist). */
+/**
+ * A snapshot's viewer.assist: {uses, freeUses, assisted, unlimited?}
+ * (contract $defs.viewerAssist; unlimited, additive 2026-11-19, only in a
+ * game with a native bot seat: read as `=== true`, so it is not checked here).
+ */
 export function validViewerAssist(a) {
   return !!a && typeof a === 'object' && countOk(a.uses) && countOk(a.freeUses) && typeof a.assisted === 'boolean';
 }

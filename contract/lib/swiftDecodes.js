@@ -136,6 +136,7 @@ const INIT_RE = /^(?:(?:public|internal|private|fileprivate)\s+)*init\s*\(\s*fro
 /** Every struct / enum (qualified 'Outer.Inner') declared in the files. */
 function collectDecls(files) {
     const decls = {};
+    const extInits = []; // `extension X { init(from:) }`: X may be declared later, or in another file
     const visit = (node, scope, file) => {
         for (const child of node.children) {
             const m = DECL_RE.exec(child.header);
@@ -153,10 +154,17 @@ function collectDecls(files) {
             } else if (scope && INIT_RE.test(child.header)) {
                 const host = Object.values(decls).find((d) => d.node === node);
                 if (host) host.customInit = child.text;
+                else if (DECL_RE.exec(node.header)?.[1] === 'extension') extInits.push({ name: scope, text: child.text, file });
             }
         }
     };
     for (const [file, src] of Object.entries(files)) visit(blockTree(src), '', file);
+    for (const { name, text, file } of extInits) {
+        const host = decls[name];
+        if (!host) continue; // an extension of a type outside these sources
+        if (host.customInit) throw new Error(`swiftDecodes: ${name} has two init(from:) (one in an extension, ${file})`);
+        host.customInit = text;
+    }
     return decls;
 }
 
@@ -226,6 +234,22 @@ function describe(decl, decls) {
             }
             const optional = how === 'decodeIfPresent' || tryQ === '?';
             fields[rawKey[key] || key] = { type: formatType(t), optional };
+        }
+        // a lenient init's local helper, read only in exactly this shape (every call is optional):
+        //   func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+        //   v = opt(Int.self, .v)
+        const helpers = init.match(/\bfunc\s+\w+\s*</g) || [];
+        const helper = /func\s+(\w+)\s*<\s*T\s*:\s*Decodable\s*>\s*\(\s*_\s+(\w+)\s*:\s*T\.Type\s*,\s*_\s+(\w+)\s*:\s*CodingKeys\s*\)\s*->\s*T\?\s*\{\s*\(\s*try\?\s*\w+\.decodeIfPresent\(\s*\2\s*,\s*forKey:\s*\3\s*\)\s*\)\s*\?\?\s*nil\s*\}/.exec(init);
+        // any other generic helper (a strict decode, a second helper) is not read: fail, never guess
+        if (helpers.length > (helper ? 1 : 0)) throw new Error(`swiftDecodes: ${decl.name}: custom init(from:) with a decode helper it cannot read`);
+        if (helper) {
+            const call = new RegExp(`\\b${helper[1]}\\(\\s*(.+?)\\.self\\s*,\\s*\\.(\\w+)\\s*\\)`, 'g');
+            for (const [, typeText, key] of init.matchAll(call)) {
+                const t = resolveType(parseType(typeText), decl.name, decls);
+                const k = rawKey[key] || key;
+                // a key also decoded strictly keeps the strict (required) reading
+                if (!fields[k]) fields[k] = { type: formatType(t), optional: true };
+            }
         }
         if (!Object.keys(fields).length) throw new Error(`swiftDecodes: ${decl.name}: custom init(from:) with no keyed decode it can read`);
     } else {

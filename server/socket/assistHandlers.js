@@ -52,6 +52,19 @@
  * that tell a player to wait never name /help: shipped iOS builds can only
  * ask with ?help. At the end of a finished game each player the game counted as
  * bot-assisted for gets one private line (gameEndLines).
+ *
+ * A game with a native bot seat (assistState.isFreeHelpGame: lobby Add Bot,
+ * tournament filler, solo; never a lazy or resign bot), owner 2026-11-19
+ * "Unlimited, keep notice": /help has no limit there, since the game is in
+ * the bot-game stats anyway, and players see nothing about free uses or
+ * limits (owner wording rule: "say nothing"). The counter and the notice
+ * "<name> used /help." stay (same counting, re-ask and forced rules); the
+ * plain-text answer has no count tail ("(Not counted.)" only for an answer
+ * not counted), there is no warning, no crossing note or notice, no
+ * end-of-game line, assisted is never true on the wire, and the hint and
+ * snapshot carry the additive `unlimited: true`. Recording is unchanged:
+ * profileHandlers.buildGameEndRecord still marks a player with more than 3
+ * counted uses as bot-assisted (assistedTeams, statsDeltas.assist).
  */
 
 'use strict';
@@ -61,7 +74,7 @@ const { seatView } = require('../game/assist/seatView');
 const { advise, searchEligible } = require('../game/assist/advise');
 const { explain, status } = require('../game/assist/explain');
 const { render, clip, TEXT_MAX } = require('../game/assist/copy');
-const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, assistTally } = require('../game/assistState');
+const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, isFreeHelpGame, assistTally } = require('../game/assistState');
 const rateLimiter = require('./rateLimiter');
 const { socketHasCap } = require('./clientInfo');
 const { gameLogger } = require('../utils/logger');
@@ -145,11 +158,14 @@ function sendLine(io, game, sid, message) {
     game.sendToPlayer(io, sid, 'gameLogEntry', { message: clip(message, TEXT_MAX), type: 'system' });
 }
 
-/** What the asking seat's counters say, for the hint and the line tail. */
+/**
+ * What the asking seat's counters say, for the hint and the line tail
+ * (+ unlimited: true in a game with a native bot seat, isFreeHelpGame).
+ */
 function tally(game, pos) {
     const owner = pos ? game.seat(pos)?.ownerUsername : null;
     const a = pos ? game.assist?.[pos] : null;
-    return assistTally(a, owner);
+    return assistTally(a, owner, isFreeHelpGame(game));
 }
 
 /** A reply with no suggestion (a refusal, the status line): never counted. */
@@ -294,15 +310,16 @@ function help(socket, io, game, pos) {
         }
     }
     const t = tally(game, pos);
-    const warn = counted && t.uses === ASSIST_FREE_HELP;
-    const crossed = counted && t.uses === ASSIST_FREE_HELP + 1;
+    // A game with a native bot seat: no limit shown (no warning, no crossing)
+    const warn = counted && !t.unlimited && t.uses === ASSIST_FREE_HELP;
+    const crossed = counted && !t.unlimited && t.uses === ASSIST_FREE_HELP + 1;
 
     // Reply
     if (hasCap(io, sid)) {
         const note = warn ? TEXT.warning : crossed ? TEXT.crossedNote : null;
         game.sendToPlayer(io, sid, 'assistHint', hintPayload(game, key, answer, t, counted, note));
     } else {
-        sendLine(io, game, sid, render(answer.e, { style: 'line', uses: t.uses, freeUses: t.freeUses, counted: !forced }));
+        sendLine(io, game, sid, render(answer.e, { style: 'line', uses: t.uses, freeUses: t.freeUses, counted: !forced, unlimited: !!t.unlimited }));
         if (warn) sendLine(io, game, sid, TEXT.warning);
     }
 
@@ -320,6 +337,8 @@ function help(socket, io, game, pos) {
  * player the game counted as bot-assisted for, at their owner socket.
  */
 function gameEndLines(io, game) {
+    // A game with a native bot seat: say nothing (the record still marks it)
+    if (isFreeHelpGame(game)) return;
     for (let pos = 1; pos <= 4; pos++) {
         const seat = game.seat(pos);
         const owner = seat?.ownerUsername;

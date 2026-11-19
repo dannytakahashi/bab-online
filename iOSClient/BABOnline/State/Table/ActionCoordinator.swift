@@ -11,6 +11,12 @@ protocol GameActionEmitting {
     func playCard(_ c: Card, position: Int)
     func playerBid(_ b: String, position: Int)
     func requestSnapshot(requestId: String, log: Bool)
+    /// A chat line (the lightbulb's /help).
+    func chat(_ message: String)
+}
+
+extension GameActionEmitting {
+    func chat(_ message: String) { ChatEmitter.sendMessage(message) }
 }
 
 struct LiveGameEmitter: GameActionEmitting {
@@ -70,12 +76,16 @@ final class ActionCoordinator: ObservableObject {
     private var deferred: (id: String, log: Bool)?
     /// The pending retry after a snapshot this build could not show (SnapshotRetryPolicy).
     private var retryTimer: AckCancellable?
+    /// The lightbulb's wait for its /help answer (AssistRules.askWait), on its own clock.
+    private let askClock: AckClock
+    private var askTimer: AckCancellable?
 
     /// `soundClock` is not `clock`: the ack tests count that clock's timers.
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock(),
          sounds: SoundPlaying? = nil, soundClock: AckClock = DispatchAckClock(), tunePlayer: TunePlaying? = nil,
-         notifications: NotificationCenter = .default) {
+         notifications: NotificationCenter = .default, askClock: AckClock = DispatchAckClock()) {
         self.store = store
+        self.askClock = askClock
         self.emitter = emitter
         self.clock = clock
         cues = TableSoundCues(clock: soundClock, sounds: sounds ?? SoundPlayer.shared,
@@ -145,6 +155,27 @@ final class ActionCoordinator: ObservableObject {
         guard store.state.pending?.reqId == id else { return false }
         emitter.playerBid(b, position: me)
         arm(id, attempt: 0)
+        return true
+    }
+
+    /// The lightbulb by my hand: send /help as the chat would (the server answers with my private
+    /// assistHint). It hides until the answer, or for AssistRules.askWait at most. Offline: the
+    /// reconnecting notice instead. false when nothing was sent.
+    @discardableResult
+    func askHelp(connected: Bool) -> Bool {
+        guard AssistRules.showsAsk(store.state) else { return false }
+        guard connected else {
+            store.postNotice(AssistRules.reconnecting)
+            return false
+        }
+        emitter.chat(AssistRules.command)
+        store.apply(.local(.assistAsked))
+        askTimer?.cancel()
+        askTimer = askClock.after(AssistRules.askWait) { [weak self] in
+            guard let self else { return }
+            self.askTimer = nil
+            if self.store.state.table.assistAsking { self.store.apply(.local(.assistAskLapsed)) }
+        }
         return true
     }
 

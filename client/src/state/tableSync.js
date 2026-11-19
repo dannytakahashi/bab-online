@@ -7,7 +7,8 @@
  *      payload carries one, else snapshotFromLegacy of the v1 fields), and
  *      the viewer's own /help count when the snapshot has it
  *      (viewer.assist: the chat autocomplete's exact "(n of 3 free used)"
- *      after a reload or rejoin; state/assistHint.js)
+ *      after a reload or rejoin, and its `unlimited` in a game with a
+ *      native bot seat: no count at all; state/assistHint.js)
  *   2. MyAction.reconcile (a pending bid/play is confirmed or rolled back);
  *      the table's sounds take it as their baseline (no sound plays)
  *   3. the caller's render (queued behind the scene if it is not ready)

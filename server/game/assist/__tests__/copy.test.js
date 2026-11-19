@@ -68,6 +68,10 @@ describe('copy helpers', () => {
         expect(line).toBe('Suggested (only you see this): Play 4♦. You and Bob (your partner) need 2 more of the last 4 tricks. Bob is winning. (Help 2 of 3 free)');
         expect(C.render(e, { style: 'line', uses: 4, freeUses: 3 })).toMatch(/\(Help 4: this game counts as bot-assisted for you\)$/);
         expect(C.render(e, { style: 'line', counted: false })).toMatch(/\(Not counted\.\)$/);
+        // a game with a native bot seat (owner 2026-11-19, "say nothing"): no count tail; only a forced move's "(Not counted.)"
+        expect(C.render(e, { style: 'line', uses: 5, freeUses: 3, unlimited: true })).toBe('Suggested (only you see this): Play 4♦. You and Bob (your partner) need 2 more of the last 4 tricks. Bob is winning.');
+        expect(C.render(e, { style: 'line', uses: 2, freeUses: 3, counted: false, unlimited: true })).toMatch(/ \(Not counted\.\)$/);
+        expect(C.render(e, { unlimited: true })).toEqual(C.render(e));
         expect(C.render({ ...e, confidence: 'quick' }).footer).toBe(C.QUICK_NOTE);
         expect(C.render({ ...e, confidence: 'quick' }, { style: 'line' })).toMatch(/^Quick suggestion, rules only/);
         // Too long for both: the main reason alone, the partner tag moved onto it

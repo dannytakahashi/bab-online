@@ -20,6 +20,18 @@ struct TableSlice: Equatable {
     /// The tune may be sounding (a `.bidClock(.sync)` went out; a timeout's tail may still
     /// ring after the clock itself is gone): the next hard stop is sent, then this is false.
     var bidTuneLive = false
+    /// My /help answer on screen (AssistCardView, the suggested card's glow, the suggested bid's
+    /// ring): TableReducer+Assist sets and clears it; nil when none is up.
+    var assist: AssistHint?
+    /// A bid or card answer that came while it was not (yet) my turn's by the table I hold (a
+    /// seq gap, a held updateTurn): shown if the next turn change or snapshot makes it live, else
+    /// given up with `AssistRules.lateLine`.
+    var parkedAssist: AssistHint?
+    /// This game's /help uses (the latest hint's; 0 from the game's createUI); nil: unknown.
+    var assistUses: AssistUses?
+    /// The lightbulb sent /help and waits for the answer (hidden meanwhile; `assistAskLapsed`
+    /// after AssistRules.askWait shows it again).
+    var assistAsking = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).

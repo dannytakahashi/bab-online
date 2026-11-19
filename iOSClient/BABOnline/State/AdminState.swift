@@ -126,7 +126,7 @@ final class AdminState: ObservableObject {
         isAdmin = { [weak auth] in auth?.isAdmin ?? false }
         accessLost = { [weak auth, weak socket] message in
             auth?.isAdmin = false
-            socket?.serverError = ServerErrorNotice(message: message)
+            socket?.serverError = ServerErrorNotice(message: message, kind: AdminCopy.toastKind(message))
         }
         socket.claimAdminServerError = { dict in api.handleServerError(dict) }
         subscriptions.removeAll()

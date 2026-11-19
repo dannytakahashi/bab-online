@@ -146,15 +146,27 @@ struct ServerErrorToast: View {
         .onDisappear { VoicePanelTip.shared.cover(.notice, false) }
         .onChange(of: socketService.serverError) { _, newNotice in
             guard let newNotice else { return }
+            show(newNotice)
+        }
+        // mounted just after a notice was posted (the sign-in's layer after forceLogout replaces
+        // the signed-in one in the same update): it still shows
+        .onAppear {
+            if notice == nil, let n = socketService.serverError, Self.fresh(n) { show(n) }
+        }
+    }
+
+    /// A notice this recent still shows in a toast layer that has just mounted.
+    static func fresh(_ n: ServerErrorNotice, now: Date = Date()) -> Bool { now.timeIntervalSince(n.at) < 1.5 }
+
+    private func show(_ newNotice: ServerErrorNotice) {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            notice = newNotice
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.visibleSeconds) {
+            // Only hide if a newer error hasn't replaced this one
+            guard notice?.id == newNotice.id else { return }
             withAnimation(.easeInOut(duration: 0.3)) {
-                notice = newNotice
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.visibleSeconds) {
-                // Only hide if a newer error hasn't replaced this one
-                guard notice?.id == newNotice.id else { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    notice = nil
-                }
+                notice = nil
             }
         }
     }

@@ -941,8 +941,32 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
     expect(rows).toEqual(['Help: Lead A♣ (only you see this)']);
     const said = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
     expect(said).toEqual(['Suggestion: Lead A♣. The A♣ is the highest club left.']);
-    expect(assist.helpDescription()).toBe('Suggest a move (1 of 3 free used)');
+    expect(assist.helpDescription()).toBe('Ask a bot for advice (1 of 3 free used)');
     expect(scene.assistHint()).toEqual(cardHint());
+  });
+
+  it('a game with a native bot seat: the footer and the chat line name no count (the hint or the table says)', () => {
+    const { scene, state } = mySeat();
+    const foot = () => document.querySelector('.hud-assist .assist-card__foot')?.textContent;
+    // the table knows first (a native bot seat), before the server has said
+    state.nativeBotSeat = true;
+    assist.resetAssistUses(state.gameId);
+    expect(assist.helpDescription(state.gameId, { unlimited: assist.helpIsUnlimited(state) })).toBe('Ask a bot for advice');
+    // a hint without the flag is the server's word (the limit; as on iOS), whatever the table
+    scene.handleAssistHint(cardHint({ uses: 3, note: 'That\'s your 3rd free /help.' }));
+    expect(foot()).toBe('What our strongest bot would play · Help 3 of 3 free');
+    expect(assist.helpDescription(state.gameId, { unlimited: assist.helpIsUnlimited(state) }))
+      .toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+    // the hint's own flag, the table not knowing (yet)
+    state.nativeBotSeat = false;
+    scene.handleAssistHint(cardHint({ uses: 5, unlimited: true }));
+    expect(foot()).toBe('What our strongest bot would play');
+    expect(assist.helpDescription()).toBe('Ask a bot for advice');
+    // the unlimited hint's announcement (the last one) names no count
+    const said = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent).at(-1);
+    expect(said).toMatch(/^Suggestion: /);
+    expect(said).not.toMatch(/free|unlimited|bot-assisted|\b[0-9] of\b/i);
+    state.nativeBotSeat = false;
   });
 
   it('a bid answer rings the bid; my own bid clears it', () => {
@@ -1118,7 +1142,7 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
     scene.handleAssistHint(cardHint({ turnKey: '2|PLAYING|2|4|0', uses: 2 }));
     expect(shown()).toBeNull();
     expect(rows).toEqual([]);
-    expect(assist.helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+    expect(assist.helpDescription()).toBe('Ask a bot for advice (2 of 3 free used)');
     state.currentTurn = 3;
     scene.handleAssistHint(cardHint());
     expect(shown()).toBeNull();
@@ -1143,7 +1167,7 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
     scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: '/help is for players only.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false });
     expect(shown()).toBe('/help is for players only.');
     expect(rows).toEqual(['Help: /help is for players only. (only you see this)']);
-    expect(assist.helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+    expect(assist.helpDescription()).toBe('Ask a bot for advice (2 of 3 free used)');
   });
 
   it('the "?" shows on my own turn at my seat, hides while the answer is up, and sends /help', () => {

@@ -2,8 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   ASSIST_CAP, CONFIDENCE_LABEL, resetAssistUses, forgetAssistUses, noteAssistUses, assistUses, helpDescription,
   parseTurnKey, isAssistHint, hintIsLive, suggestedBid, suggestedCard, confidenceLabel, assistFooter, assistLogLine,
-  assistAnnouncement, clientCardIndex, assistHintRoute,
+  assistAnnouncement, clientCardIndex, assistHintRoute, helpIsUnlimited, HELP_LABEL, FOOTER_BOT,
 } from './assistHint.js';
+
+/** What a game with a native bot seat must never show (owner 2026-11-19: "say nothing"). */
+const LIMIT_WORDS = /free|unlimited|bot-assisted|counted|\d/i;
 
 const NAME_LINT = /\bteam ?[12]\b|\bT[12]\b|your team|other team|opponents?/i;
 
@@ -51,41 +54,41 @@ describe('the cap and the words', () => {
 describe('/help in the autocomplete: this game\'s uses', () => {
   it('counts up to the free uses, then warns, then says the game is assisted', () => {
     resetAssistUses();
-    expect(helpDescription()).toBe('Suggest a move (0 of 3 free used)');
+    expect(helpDescription()).toBe('Ask a bot for advice (0 of 3 free used)');
     noteAssistUses(cardHint({ uses: 1 }));
-    expect(helpDescription()).toBe('Suggest a move (1 of 3 free used)');
+    expect(helpDescription()).toBe('Ask a bot for advice (1 of 3 free used)');
     noteAssistUses(cardHint({ uses: 2 }));
-    expect(helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+    expect(helpDescription()).toBe('Ask a bot for advice (2 of 3 free used)');
     noteAssistUses(cardHint({ uses: 3 }));
-    expect(helpDescription()).toBe('Suggest a move (the next one makes this game bot-assisted)');
+    expect(helpDescription()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
     noteAssistUses(cardHint({ uses: 4, assisted: true }));
-    expect(helpDescription()).toBe('Suggest a move (this game is bot-assisted for you)');
+    expect(helpDescription()).toBe('Ask a bot for advice (this game is bot-assisted for you)');
   });
 
   it('a status reply carries the counts too (off-turn asks are not counted)', () => {
     resetAssistUses();
     noteAssistUses(statusHint({ uses: 2 }));
-    expect(helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+    expect(helpDescription()).toBe('Ask a bot for advice (2 of 3 free used)');
   });
 
   it('unknown after a reload or a rejoin (no createUI seen, no hint yet)', () => {
     expect(assistUses()).toBeNull();
-    expect(helpDescription()).toBe('Suggest a move (after 3 free, this game counts as bot-assisted)');
+    expect(helpDescription()).toBe('Ask a bot for advice (after 3 free, this game counts as bot-assisted)');
   });
 
   it('a new game starts at 0; counts of another game are not this one\'s', () => {
     noteAssistUses(cardHint({ uses: 3 }), 'game-a');
-    expect(assistUses('game-a')).toEqual({ uses: 3, freeUses: 3, assisted: false });
+    expect(assistUses('game-a')).toEqual({ uses: 3, freeUses: 3, assisted: false, unlimited: false });
     expect(assistUses('game-b')).toBeNull();
-    expect(helpDescription('game-b')).toBe('Suggest a move (after 3 free, this game counts as bot-assisted)');
+    expect(helpDescription('game-b')).toBe('Ask a bot for advice (after 3 free, this game counts as bot-assisted)');
     resetAssistUses();
-    expect(helpDescription('game-b')).toBe('Suggest a move (0 of 3 free used)');
+    expect(helpDescription('game-b')).toBe('Ask a bot for advice (0 of 3 free used)');
   });
 
   it('the server\'s freeUses wins over the default', () => {
     resetAssistUses();
     noteAssistUses(cardHint({ uses: 1, freeUses: 2 }));
-    expect(helpDescription()).toBe('Suggest a move (1 of 2 free used)');
+    expect(helpDescription()).toBe('Ask a bot for advice (1 of 2 free used)');
   });
 
   it('names no team, no "opponents"', () => {
@@ -93,6 +96,93 @@ describe('/help in the autocomplete: this game\'s uses', () => {
       if (u === null) forgetAssistUses();
       else noteAssistUses(cardHint({ uses: u, assisted: u > 3 }));
       expect(helpDescription()).not.toMatch(NAME_LINT);
+    }
+  });
+});
+
+describe('a game with a native bot seat: no limit, and nothing said about one', () => {
+  it('the ask is called "Ask a bot for advice"', () => {
+    expect(HELP_LABEL).toBe('Ask a bot for advice');
+  });
+
+  it('from the hint: the chat line is just the label, whatever the count', () => {
+    resetAssistUses('g');
+    for (const n of [1, 3, 4, 9]) {
+      noteAssistUses(cardHint({ uses: n, unlimited: true }), 'g');
+      expect(helpDescription('g')).toBe('Ask a bot for advice');
+      expect(assistUses('g').unlimited).toBe(true);
+    }
+    // a hint without the flag in the same game (a status reply) keeps it
+    noteAssistUses(statusHint({ uses: 9 }), 'g');
+    expect(helpDescription('g')).toBe('Ask a bot for advice');
+    // another game does not inherit it
+    noteAssistUses(cardHint({ uses: 1 }), 'h');
+    expect(helpDescription('h')).toBe('Ask a bot for advice (1 of 3 free used)');
+    resetAssistUses('g');
+    expect(helpDescription('g')).toBe('Ask a bot for advice (0 of 3 free used)');
+  });
+
+  it('from a snapshot\'s viewer.assist (after a reload)', () => {
+    noteAssistUses({ uses: 5, freeUses: 3, assisted: false, unlimited: true }, 'g');
+    expect(helpDescription('g')).toBe('Ask a bot for advice');
+    expect(helpIsUnlimited({ gameId: 'g' })).toBe(true);
+    expect(helpIsUnlimited({ gameId: 'other' })).toBe(false);
+  });
+
+  it('from the table before any hint or snapshot: a native bot seat, never a lazy one', () => {
+    expect(assistUses()).toBeNull();
+    const botTable = { gameId: 'g', nativeBotSeat: true };
+    expect(helpIsUnlimited(botTable)).toBe(true);
+    expect(helpDescription('g', { unlimited: helpIsUnlimited(botTable) })).toBe('Ask a bot for advice');
+    // a lazy seat is the GameState's isLazy, not nativeBotSeat: the limit stays
+    const lazyTable = { gameId: 'g', nativeBotSeat: false, isLazy: true };
+    expect(helpIsUnlimited(lazyTable)).toBe(false);
+    expect(helpDescription('g', { unlimited: helpIsUnlimited(lazyTable) }))
+      .toBe('Ask a bot for advice (after 3 free, this game counts as bot-assisted)');
+    expect(helpIsUnlimited(null, cardHint({ unlimited: true }))).toBe(true);
+    expect(helpIsUnlimited(null, cardHint())).toBe(false);
+  });
+
+  it('once the server has said, its word wins over the table (as on iOS)', () => {
+    const botTable = { gameId: 'g', nativeBotSeat: true };
+    // createUI's zero count: the table decides
+    resetAssistUses('g');
+    expect(helpIsUnlimited(botTable)).toBe(true);
+    // a hint without unlimited (the server's verdict: the limit) wins over the table
+    noteAssistUses(cardHint({ uses: 3 }), 'g');
+    expect(helpIsUnlimited(botTable)).toBe(false);
+    expect(helpDescription('g', { unlimited: helpIsUnlimited(botTable) }))
+      .toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+    // and for that hint's own footer
+    expect(helpIsUnlimited(botTable, cardHint({ uses: 3 }))).toBe(false);
+    expect(assistFooter(cardHint({ uses: 3 }), { unlimited: helpIsUnlimited(botTable, cardHint({ uses: 3 })) }))
+      .toBe('What our strongest bot would play · Help 3 of 3 free');
+    // a hint with it: no limit, whatever the table
+    expect(helpIsUnlimited({ gameId: 'g', nativeBotSeat: false }, cardHint({ unlimited: true }))).toBe(true);
+  });
+
+  it('the footer is just our strongest bot: a count, a re-ask and a forced move alike', () => {
+    for (const h of [
+      cardHint({ uses: 2, unlimited: true }), cardHint({ uses: 7, unlimited: true }),
+      cardHint({ counted: false, unlimited: true }), cardHint({ confidence: 'only', counted: false, unlimited: true }),
+      bidHint({ uses: 4, unlimited: true }),
+    ]) {
+      expect(assistFooter(h)).toBe(FOOTER_BOT);
+      expect(assistFooter(h)).toBe('What our strongest bot would play');
+    }
+    // the table says so before the hint does
+    expect(assistFooter(cardHint({ uses: 4 }), { unlimited: true })).toBe('What our strongest bot would play');
+    expect(assistFooter(cardHint({ confidence: 'only' }), { unlimited: true })).toBe('What our strongest bot would play');
+    // the Quick note names no count either
+    expect(assistFooter(cardHint({ confidence: 'quick', unlimited: true }))).toBe('Quick suggestion: rules only, the server is busy.');
+  });
+
+  it('no count, "free" or "bot-assisted" in any text it makes there', () => {
+    noteAssistUses(cardHint({ uses: 6, unlimited: true }), 'g');
+    expect(helpDescription('g')).not.toMatch(LIMIT_WORDS);
+    for (const h of [cardHint({ uses: 4, unlimited: true }), bidHint({ uses: 9, unlimited: true }), cardHint({ confidence: 'only', unlimited: true })]) {
+      expect(assistFooter(h)).not.toMatch(LIMIT_WORDS);
+      expect(assistAnnouncement(h)).not.toMatch(/free|unlimited|bot-assisted/i);
     }
   });
 });
