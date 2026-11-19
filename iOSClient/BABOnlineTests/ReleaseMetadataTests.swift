@@ -28,7 +28,7 @@ final class ReleaseMetadataTests: XCTestCase {
     /// on, every sound froze the table on the owner's iPhone Air; build 16 went to TestFlight, so
     /// build 17 (still 1.2.3) brings the voice defaults: the mic starts muted, spectators may
     /// always talk, no voice when you are the only human, and the lobby header shows Ready n/4;
-    /// build 17 went to TestFlight, so build 18 (still 1.2.3) brings /help at the table, the
+    /// the TestFlight "17" was build 16 renumbered by Organizer, so build 18 (still 1.2.3) brings /help at the table, the
     /// game log's fault rows and the toast follow-ups).
     static let minimumBuild = 18
 
