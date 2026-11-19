@@ -356,6 +356,13 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
             if (what === '/active' && pos && game.isBotControlled(pos) && game.seatPresence(pos) === 'away' &&
                 game.isSpectator(sid)) {
                 chatHandlers.chatMessage(s, io, { message: what });
+                // A suspended table (deploy survival) holds it to the thaw
+                // (seatLifecycle.holdForThaw), re-validated then: queued
+                // behind it, promote the socket if it did take the seat
+                if (game.isSuspended) {
+                    game.deferWhileSuspended(() => { if (game.seat(pos).ownerSocketId === sid) promote(h, sid); });
+                    return;
+                }
                 if (game.seat(pos).ownerSocketId !== sid) outsiderBroke = outsiderBroke || { label: note + ' did not reclaim' };
                 else promote(h, sid);
                 return;

@@ -525,9 +525,9 @@ class GameState {
      * is emitted (broadcast, sendToPlayer, ... are no-ops: no seq is used;
      * the one exception is the store's pause / resume line, unsavedNotice),
      * no turn input is accepted (applyBid / checkPlay refuse as
-     * not_your_turn) nor any seat command (/lazy, /active, /leave,
-     * forceResign: seatLifecycle.PAUSED_LINE), a timer, pause or bot action started meanwhile is
-     * only remembered, an abort waits (gameLifecycle.abortGame defers it to
+     * not_your_turn), a seat command (/lazy, /active, /leave, forceResign)
+     * waits for the thaw (seatLifecycle.holdForThaw, deferWhileSuspended),
+     * a timer, pause or bot action started meanwhile is only remembered, an abort waits (gameLifecycle.abortGame defers it to
      * the thaw) and the codec refuses to save the game. Not terminal, not
      * frozen. unsuspend(io) puts it all back.
      * @returns {boolean} false if already suspended, frozen or terminal
@@ -634,8 +634,10 @@ class GameState {
      * clock anew (after a `stopped`: the clients' countdown ran on). The
      * human seats' presence that changed meanwhile, and the resign offer if
      * it moved, are announced again (seatLifecycle.afterSuspend: the room
-     * heard nothing while suspended). Aborts asked for meanwhile run last.
-     * A game frozen or ended meanwhile just drops it all.
+     * heard nothing while suspended). What was deferred meanwhile (aborts,
+     * held seat commands: deferWhileSuspended) runs last, in arrival order,
+     * each in its own microtask after this returns (so after the store's
+     * resume line). A game frozen or ended meanwhile just drops it all.
      * @param {Object} io
      * @returns {boolean} false if it was not suspended
      */

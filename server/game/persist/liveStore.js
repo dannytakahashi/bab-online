@@ -1302,8 +1302,9 @@ function createLiveStore({
                     // Later writes carry a rev past the one this re-take wrote
                     if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
                     st.suspended = false;
-                    // An abort asked for while suspended (the last human
-                    // left) runs straight after the thaw: no resume line
+                    // An abort asked for while suspended runs straight
+                    // after the thaw: no resume line (a held /leave that
+                    // ends the table runs after it: seatLifecycle.holdForThaw)
                     const ending = st.entity.abortOnThaw === true;
                     let resumed = false;
                     try {

@@ -1102,16 +1102,19 @@ async function forceResign(socket, io, data) {
         return;
     }
 
-    // A suspended table (the holder self-fence) takes no seat command: the
-    // room could not be told (seatLifecycle.PAUSED_LINE)
-    if (game.isSuspended) {
-        emitError(socket, { message: seatLifecycle.PAUSED_LINE }, 'forceResign');
-        return;
-    }
+    // A suspended table (the holder self-fence) holds the replacement to its
+    // thaw, then runs it from here again, re-validated then
+    // (seatLifecycle.holdForThaw); refusals go out now as always (emitError
+    // is the socket's own)
+    const held = () => seatLifecycle.holdForThaw(game, socket, 'forceResign', () => {
+        if (gameManager.getPlayerGame(socket.id) !== game) return undefined;
+        return forceResign(socket, io, data);
+    });
 
     // An idle seat at a tournament table whose offer stands (owner,
     // 2026-11-15): any other present owner may replace it
     if (position !== requestingPosition && seatLifecycle.idleOfferStands(game, position)) {
+        if (held()) return;
         const idleUsername = game.seat(position).ownerUsername;
         if (!seatLifecycle.replaceIdleSeat(io, game, position)) return;
         gameLogger.info('Idle player replaced with a bot', {
@@ -1133,6 +1136,7 @@ async function forceResign(socket, io, data) {
         return;
     }
 
+    if (held()) return;
     const oldUsername = game.seat(position).ownerUsername;
     if (!seatLifecycle.resignSeat(io, game, position)) return;
 

@@ -458,7 +458,7 @@ describe('presence across a suspension', () => {
         t.done();
     });
 
-    test('an absent owner back and gone again while suspended: playerDisconnected at the thaw (its new grace)', async () => {
+    test('an absent owner back and gone again while suspended: playerReconnected then playerDisconnected at the thaw (its new grace)', async () => {
         const t = await seatedHumans(45, 2);
         const { game, io, socks, room } = t;
         const pos = t.posOf(socks[1]);
@@ -475,18 +475,26 @@ describe('presence across a suspension', () => {
         const mark = t.log.length;
         game.unsuspend(io);
         const told = room(mark).filter((l) => ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event));
-        expect(told.map((l) => [l.event, l.data.position])).toEqual([['playerDisconnected', pos]]);
+        // The live order: back, then gone again (the room held it as absent)
+        expect(told.map((l) => [l.event, l.data.position])).toEqual([['playerReconnected', pos], ['playerDisconnected', pos]]);
         t.done();
     });
 
-    // Chaos seeds 350 and 1136 (Node 26): a /lazy or a forceResign while
+    // Chaos seeds 350 and 1136 (Node 26): a /lazy or a forceResign run while
     // suspended changed who plays the seat, but playerLazyMode /
     // playerResigned, the clock's `stopped` (350: 'bid clock wire') and the
-    // moved offer (1136: an owner held a stale offer) were all dropped, so
-    // the room kept a human at a seat a bot now plays. A seat command
-    // changes the table for everyone, like turn input: refused while paused
-    // (the sender is told on its own socket)
-    test('seat commands (/lazy, /active, /leave, forceResign) are refused while suspended, and work after the thaw', async () => {
+    // moved offer (1136: an owner held a stale offer) were all dropped. A
+    // refusal instead lost the web player's Replace with Bot (its dialog
+    // closes on the tap) and let iOS's unreadable-table Leave exit locally
+    // with the seat kept. Seat commands are HELD to the thaw (lead,
+    // 2026-11-19): each runs then through its own handler, in arrival order,
+    // re-validated, with its normal events; the sender is told privately
+    const presenceEvents = ['playerDisconnected', 'playerReconnected', 'resignationAvailable'];
+    const seatEvents = ['playerLazyMode', 'playerActiveMode', 'playerResigned', 'seatLeft'];
+    const helds = (t, from) => t.log.slice(from).filter((l) => l.event === 'serverError')
+        .map((l) => [l.to.replace(/^self:/, ''), l.data.handler, l.data.message]);
+
+    test('seat commands (/lazy, /active, forceResign) held while suspended run at the thaw, in arrival order, with their normal events', async () => {
         const t = await seatedHumans(46, 3);
         const { game, io, socks, room, play } = t;
         const chat = require('../../../socket/chatHandlers');
@@ -494,6 +502,7 @@ describe('presence across a suspension', () => {
         await queueHandlers().handleDisconnect(socks[2], io);
         await play(61000, [socks[0], socks[1]]);
         expect(game.resignablePositions()).toEqual([p2]);
+        expect(game.offerPos).toBe(p2);
         chat.chatMessage(socks[1], io, { message: '/lazy' });
         await jest.advanceTimersByTimeAsync(0);
         expect(game.seat(p1).controller).toBe('lazyBot');
@@ -502,25 +511,143 @@ describe('presence across a suspension', () => {
         const before = seats();
         const mark = t.log.length;
         chat.chatMessage(socks[0], io, { message: '/lazy' });
-        chat.chatMessage(socks[0], io, { message: '/leave' });
         chat.chatMessage(socks[1], io, { message: '/active' });
-        chat.chatMessage(socks[1], io, { message: '/leave' });
+        // The web player's Replace with Bot (its dialog is gone after the tap)
         await gameHandlers.forceResign(socks[0], io, { position: p2 });
-        await jest.advanceTimersByTimeAsync(0);
+        // Refused if run now ("Not in lazy mode."): told nothing now, and at
+        // the thaw it runs after the /lazy above, so it acts
+        chat.chatMessage(socks[0], io, { message: '/active' });
+        await jest.advanceTimersByTimeAsync(2000);
         expect(seats()).toBe(before);
         expect(room(mark)).toEqual([]);
-        const refusals = t.log.slice(mark).filter((l) => l.event === 'serverError');
-        expect(refusals.map((l) => [l.to.replace(/^self:/, ''), l.data.handler, l.data.message])).toEqual([
-            ...[0, 0, 1, 1].map((i) => [socks[i].id, 'chatMessage', SeatLifecycle.PAUSED_LINE]),
-            [socks[0].id, 'forceResign', SeatLifecycle.PAUSED_LINE],
+        expect(helds(t, mark)).toEqual([
+            [socks[0].id, 'chatMessage', SeatLifecycle.HELD_LINE],
+            [socks[1].id, 'chatMessage', SeatLifecycle.HELD_LINE],
+            [socks[0].id, 'forceResign', SeatLifecycle.HELD_LINE],
         ]);
+        const thaw = t.log.length;
         game.unsuspend(io);
-        await gameHandlers.forceResign(socks[0], io, { position: p2 });
-        expect(game.seat(p2).controller).toBe('resignBot');
-        chat.chatMessage(socks[1], io, { message: '/active' });
+        expect(room(thaw).filter((l) => seatEvents.includes(l.event))).toEqual([]); // not before the thaw returns
         await jest.advanceTimersByTimeAsync(0);
-        expect(game.seat(p1).controller).toBe('human');
-        expect(game.seat(p0).controller).toBe('human');
+        expect(room(thaw).filter((l) => seatEvents.includes(l.event)).map((l) => [l.event, l.data.position])).toEqual([
+            ['playerLazyMode', p0], ['playerActiveMode', p1], ['playerResigned', p2], ['playerActiveMode', p0],
+        ]);
+        expect(helds(t, thaw)).toEqual([]);
+        expect(game.seatList().map((st) => [st.position, st.controller])).toEqual(
+            expect.arrayContaining([[p0, 'human'], [p1, 'human'], [p2, 'resignBot']]));
+        t.done();
+    });
+
+    test('/leave held while suspended takes effect at the thaw (seat gone, room told), from a human and from a lazy owner', async () => {
+        const t = await seatedHumans(47, 3);
+        const { game, io, socks, room } = t;
+        const chat = require('../../../socket/chatHandlers');
+        const [p0, p1] = [t.posOf(socks[0]), t.posOf(socks[1])];
+        chat.chatMessage(socks[1], io, { message: '/lazy' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(game.seat(p1).controller).toBe('lazyBot');
+        expect(game.suspend()).toBe(true);
+        const mark = t.log.length;
+        // (iOS's unreadable-table Leave: it exits locally after 3 s anyway)
+        chat.chatMessage(socks[0], io, { message: '/leave' });
+        chat.chatMessage(socks[1], io, { message: '/leave' });
+        await jest.advanceTimersByTimeAsync(3000);
+        expect(helds(t, mark)).toEqual([
+            [socks[0].id, 'chatMessage', SeatLifecycle.HELD_LINE],
+            [socks[1].id, 'chatMessage', SeatLifecycle.HELD_LINE],
+        ]);
+        expect(t.log.slice(mark).filter((l) => l.event === 'leftGame')).toEqual([]);
+        expect([game.seat(p0).presence, game.seat(p1).presence]).toEqual(['connected', 'connected']);
+        const thaw = t.log.length;
+        game.unsuspend(io);
+        await jest.advanceTimersByTimeAsync(0);
+        expect([game.seat(p0).presence, game.seat(p1).presence]).toEqual(['gone', 'gone']);
+        expect(room(thaw).filter((l) => seatEvents.includes(l.event)).map((l) => [l.event, l.data.position])).toEqual([
+            ['playerLazyMode', p0], ['seatLeft', p0], ['seatLeft', p1],
+        ]);
+        expect(room(thaw).filter((l) => l.event === 'gameLogEntry').map((l) => l.data.message))
+            .toContain(`${game.seat(p0).ownerUsername} left the game. ${game.seat(p0).bot.username} is playing for them.`);
+        expect(t.log.slice(thaw).filter((l) => l.event === 'leftGame').map((l) => l.to)).toEqual([`self:${socks[0].id}`, `self:${socks[1].id}`]);
+        expect(gameManager.playerGames.has(socks[0].id)).toBe(false);
+        expect(gameManager.playerGames.has(socks[1].id)).toBe(false);
+        t.done();
+    });
+
+    test('a held command stale by the thaw: forceResign on a seat whose owner came back gets its normal refusal; a socket gone meanwhile is dropped', async () => {
+        const t = await seatedHumans(48, 3);
+        const { game, io, socks, room, play } = t;
+        const chat = require('../../../socket/chatHandlers');
+        const [p1, p2] = [t.posOf(socks[1]), t.posOf(socks[2])];
+        await queueHandlers().handleDisconnect(socks[2], io);
+        await play(61000, [socks[0], socks[1]]);
+        expect(game.resignablePositions()).toEqual([p2]);
+        expect(game.suspend()).toBe(true);
+        const mark = t.log.length;
+        await gameHandlers.forceResign(socks[0], io, { position: p2 });
+        chat.chatMessage(socks[1], io, { message: '/lazy' });
+        expect(helds(t, mark).map((h) => h[1])).toEqual(['forceResign', 'chatMessage']);
+        // p2's owner comes back; p1's socket drops
+        const username = game.seat(p2).ownerUsername;
+        const back = makeSocket('sp48-h2-back', t.log, io);
+        gameManager.registerUser(back.id, username);
+        await reconnectHandlers().rejoinGame(back, io, { gameId: game.gameId, username });
+        io.sockets.sockets.delete(socks[1].id);
+        await queueHandlers().handleDisconnect(socks[1], io);
+        const thaw = t.log.length;
+        game.unsuspend(io);
+        await jest.advanceTimersByTimeAsync(0);
+        expect(helds(t, thaw)).toEqual([[socks[0].id, 'forceResign', 'Player is not disconnected']]);
+        expect(room(thaw).filter((l) => seatEvents.includes(l.event))).toEqual([]);
+        expect(room(thaw).filter((l) => presenceEvents.includes(l.event)).map((l) => [l.event, l.data.position]))
+            .toEqual([['playerReconnected', p2], ['playerDisconnected', p1]]);
+        expect([game.seat(p1).controller, game.seat(p2).controller]).toEqual(['human', 'human']);
+        t.done();
+    });
+
+    test('suspended then fenced: the held commands are dropped (the /leave is lost, the seat kept)', async () => {
+        const t = await seatedHumans(49, 2);
+        const { game, io, socks } = t;
+        const chat = require('../../../socket/chatHandlers');
+        const p0 = t.posOf(socks[0]);
+        expect(game.suspend()).toBe(true);
+        const mark = t.log.length;
+        chat.chatMessage(socks[0], io, { message: '/leave' });
+        expect(helds(t, mark)).toEqual([[socks[0].id, 'chatMessage', SeatLifecycle.HELD_LINE]]);
+        expect(game.freeze()).toBe(true);
+        expect(game.unsuspend(io)).toBe(false);
+        await jest.advanceTimersByTimeAsync(5000);
+        expect(t.log.length).toBe(mark + 1);
+        expect(game.seat(p0)).toMatchObject({ controller: 'human', presence: 'connected', ownerSocketId: socks[0].id });
+        expect(gameManager.playerGames.get(socks[0].id)).toBe(game.gameId);
+        gameManager.games.delete(game.gameId);
+        t.done();
+    });
+
+    // The offered seat's owner back and gone again while suspended: a
+    // playerDisconnected alone kept the stale Replace with Bot on both
+    // clients (web clears it on playerReconnected only; iOS's reducer keeps
+    // a resignable seat's offer through playerDisconnected), and its tap got
+    // "Player is still reconnecting" for the whole new grace
+    test('the offered owner back and gone again while suspended: playerReconnected, then playerDisconnected, at the thaw', async () => {
+        const t = await seatedHumans(44, 2);
+        const { game, io, socks, room, play } = t;
+        const pos = t.posOf(socks[1]);
+        const username = game.seat(pos).ownerUsername;
+        await queueHandlers().handleDisconnect(socks[1], io);
+        await play(61000, [socks[0]]);
+        expect(game.resignablePositions()).toEqual([pos]);
+        expect(game.offerPos).toBe(pos);
+        expect(game.suspend()).toBe(true);
+        const back = makeSocket('sp44-h1-back', t.log, io);
+        gameManager.registerUser(back.id, username);
+        await reconnectHandlers().rejoinGame(back, io, { gameId: game.gameId, username });
+        io.sockets.sockets.delete(back.id);
+        await queueHandlers().handleDisconnect(back, io);
+        expect(game.seat(pos).presence).toBe('grace');
+        const mark = t.log.length;
+        game.unsuspend(io);
+        expect(room(mark).filter((l) => presenceEvents.includes(l.event)).map((l) => [l.event, l.data.position]))
+            .toEqual([['playerReconnected', pos], ['playerDisconnected', pos]]);
         t.done();
     });
 
