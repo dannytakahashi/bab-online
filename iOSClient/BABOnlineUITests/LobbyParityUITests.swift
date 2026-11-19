@@ -306,6 +306,11 @@ final class LobbyParityUITests: XCTestCase {
         // (XCUITest's drag can land one 5% step short of the end on the iPad's long slider;
         // the exact ends of the range are LobbyParityTests')
         func percent() -> Int { Int((kim.value as? String ?? "").dropLast()) ?? -1 }
+        // everyone joins muted, so the muted note sits under my row and pushes kim's row below
+        // the iPad's medium sheet: scroll the list (on the note, never on a slider) until it shows
+        let note = app.staticTexts["voice.panel.note"]
+        for _ in 0..<3 where !kim.isHittable && note.exists { note.swipeUp() }
+        XCTAssertTrue(kim.isHittable, "kim's slider can be reached")
         kim.adjust(toNormalizedSliderPosition: 0)
         XCTAssertTrue((0...5).contains(percent()), "\(percent())%")
         kim.adjust(toNormalizedSliderPosition: 1)
