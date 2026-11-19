@@ -199,7 +199,8 @@ function withScene(fn, kind = 'table') {
 
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
-import { resetAssistUses, forgetAssistUses } from './state/assistHint.js';
+import { resetAssistUses, forgetAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
+import { rememberFault, rememberedFaults, withFaultRows } from './rules/faults.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -261,9 +262,12 @@ window.addPrivateToGameFeed = function(message) {
 };
 
 // A set hand's red fault row (GameScene.handleHandComplete; computed here,
-// never sent or stored)
-window.addFaultToGameFeed = function(message) {
-  if (message) gameLogInstance?.addFaultMessage?.(message);
+// never sent or stored): remembered by its hand's totals, so a replay of
+// the server's log puts it back (renderTable, rules/faults.js withFaultRows)
+window.addFaultToGameFeed = function(message, { score = null } = {}) {
+  if (!message) return;
+  gameLogInstance?.addFaultMessage?.(message);
+  rememberFault(getGameState().gameId, score, message);
 };
 
 // Bridge for updating game log score display
@@ -1265,7 +1269,8 @@ function initializeApp() {
     scene.render(model);
     const feed = ensureGameLog();
     if (log && feed?.replaceMessages) {
-      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null })));
+      const entries = log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null }));
+      feed.replaceMessages(withFaultRows(entries, rememberedFaults(gameState.gameId)));
     }
     if (suffix) window.addToGameFeedFromLegacy(suffix);
     if (model.live && model.handSize) {
@@ -2102,8 +2107,10 @@ function initializeApp() {
     },
     // My /help answer (private): the card above my hand, in table order
     onAssistHint: (data) => {
-      if (!session.isAtTable) return;
-      withScene((scene) => scene.handleAssistHint(data));
+      const route = assistHintRoute(session, data);
+      if (route === 'scene') withScene((scene) => scene.handleAssistHint(data));
+      // the game-end screen: a status reply is its private row (the log is up)
+      else if (route === 'row') window.addPrivateToGameFeed(assistLogLine(data));
     },
     // My own seat ran out of time: the server bid 0 for me
     onBidTimedOut: () => {

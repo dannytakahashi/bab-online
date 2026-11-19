@@ -288,10 +288,15 @@ describe('fault lines: the hand reaches the scene before GameState resets it (ow
     }
   });
 
-  it('window.addFaultToGameFeed writes a red is-fault row into the game log', () => {
+  it('window.addFaultToGameFeed writes a red is-fault row into the game log and remembers it by the hand\'s totals (a replay puts it back)', async () => {
+    const { rememberedFaults, forgetFaults } = await import('./rules/faults.js');
+    forgetFaults();
     window.createGameFeedFromLegacy(true);
-    window.addFaultToGameFeed('Fault: ann (bid 3, took 1)');
+    window.addFaultToGameFeed('Fault: ann (bid 3, took 1)', { score: { team1: -40, team2: 13 } });
     const rows = [...document.querySelectorAll('#gameFeed .log-row.is-fault')];
     expect(rows.at(-1)?.textContent).toContain('Fault: ann (bid 3, took 1)');
+    const { getGameState } = await import('./state/GameState.js');
+    expect(rememberedFaults(getGameState().gameId)).toEqual([{ team1: -40, team2: 13, lines: ['Fault: ann (bid 3, took 1)'] }]);
+    forgetFaults();
   });
 });

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   ASSIST_CAP, CONFIDENCE_LABEL, resetAssistUses, forgetAssistUses, noteAssistUses, assistUses, helpDescription,
   parseTurnKey, isAssistHint, hintIsLive, suggestedBid, suggestedCard, confidenceLabel, assistFooter, assistLogLine,
-  assistAnnouncement,
+  assistAnnouncement, clientCardIndex, assistHintRoute,
 } from './assistHint.js';
 
 const NAME_LINT = /\bteam ?[12]\b|\bT[12]\b|your team|other team|opponents?/i;
@@ -70,14 +70,14 @@ describe('/help in the autocomplete: this game\'s uses', () => {
 
   it('unknown after a reload or a rejoin (no createUI seen, no hint yet)', () => {
     expect(assistUses()).toBeNull();
-    expect(helpDescription()).toBe('Suggest a move (3 free per game)');
+    expect(helpDescription()).toBe('Suggest a move (after 3 free, this game counts as bot-assisted)');
   });
 
   it('a new game starts at 0; counts of another game are not this one\'s', () => {
     noteAssistUses(cardHint({ uses: 3 }), 'game-a');
     expect(assistUses('game-a')).toEqual({ uses: 3, freeUses: 3, assisted: false });
     expect(assistUses('game-b')).toBeNull();
-    expect(helpDescription('game-b')).toBe('Suggest a move (3 free per game)');
+    expect(helpDescription('game-b')).toBe('Suggest a move (after 3 free, this game counts as bot-assisted)');
     resetAssistUses();
     expect(helpDescription('game-b')).toBe('Suggest a move (0 of 3 free used)');
   });
@@ -139,6 +139,31 @@ describe('a hint is my turn\'s', () => {
     expect(hintIsLive(cardHint(), seat({ isLazy: true }))).toBe(false);
     expect(hintIsLive(statusHint(), seat({ isLazy: true, isSpectator: true }))).toBe(true);
     expect(hintIsLive(statusHint(), seat({ isSpectator: true, position: 1 }))).toBe(true);
+  });
+
+  it('a card hint for an earlier trick of mine (the scene lagging behind the state) is stale: cardIndex from the trick number and the cards in it', () => {
+    // turnKey cardIndex 5: trick 2, one card down
+    const trick2 = seat({ trickNo: 2, playedCards: [{ position: 4, card: { suit: 'clubs', rank: '2' } }] });
+    expect(clientCardIndex(trick2)).toBe(5);
+    expect(hintIsLive(cardHint(), trick2)).toBe(true);
+    // my turn again on trick 3 (one card down): 9, not 5
+    const trick3 = { ...trick2, trickNo: 3 };
+    expect(clientCardIndex(trick3)).toBe(9);
+    expect(hintIsLive(cardHint(), trick3)).toBe(false);
+    // the trick is full and not yet cleared (I won it, I lead next): still 4 * t
+    expect(clientCardIndex(seat({ trickNo: 1, playedCards: [1, 2, 3, 4] }))).toBe(4);
+    expect(clientCardIndex(seat({ trickNo: 2, playedCards: [] }))).toBe(4);
+    // no trick number yet: not compared
+    expect(clientCardIndex(seat({ trickNo: 0 }))).toBeNull();
+    expect(hintIsLive(cardHint(), seat({ trickNo: 0 }))).toBe(true);
+  });
+
+  it('where a hint goes: the scene at the table; on the game-end screen a status reply is a row; else nowhere', () => {
+    expect(assistHintRoute({ isAtTable: true, hasTable: true }, cardHint())).toBe('scene');
+    expect(assistHintRoute({ isAtTable: false, hasTable: true }, statusHint({ headline: 'Nothing to suggest right now.' }))).toBe('row');
+    expect(assistHintRoute({ isAtTable: false, hasTable: true }, cardHint())).toBeNull();
+    expect(assistHintRoute({ isAtTable: false, hasTable: false }, statusHint())).toBeNull();
+    expect(assistHintRoute({ isAtTable: true, hasTable: true }, { v: 2 })).toBeNull();
   });
 
   it('a hint without a turnKey it can read still needs my turn', () => {

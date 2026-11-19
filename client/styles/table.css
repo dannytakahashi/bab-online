@@ -1509,14 +1509,9 @@ body > .voice-btn {
 .hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); }
 .hud-assist-ask[hidden] { display: none; }
 
-/* the suggested card (CardManager -> handA11y): a gold ring round its visible strip */
-.hud-hand__card.is-suggested::after {
-    content: '';
-    position: absolute;
-    inset: -2px;
-    border-radius: calc(var(--card-w) * 24 / 300);
-    box-shadow: 0 0 0 3px var(--gold), 0 0 14px 3px rgb(var(--gold-rgb) / 0.6);
-}
+/* the suggested card's gold halo is drawn on the table by CardManager
+   (behind its sprite, so it rises with the card on hover and focus); the
+   keyboard hand's .is-suggested only names it "(suggested)" */
 
 @keyframes assist-in {
     from { opacity: 0; transform: translate(-50%, calc(-100% + 6px)); }

@@ -337,7 +337,7 @@ describe('/help in the autocomplete (plan H3)', () => {
 
   it('unknown counts (a reload) say the free uses per game', () => {
     gameLog = createGameLog();
-    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (3 free per game)' }]);
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (after 3 free, this game counts as bot-assisted)' }]);
   });
 
   it('a partial /he sends /help; a spectator\'s list has no /help', () => {
@@ -360,7 +360,7 @@ describe('/help in the autocomplete (plan H3)', () => {
     expect(row.querySelector('.log-row__text').textContent).toBe('Help: Play 9♦ (only you see this)');
   });
 
-  it('a fault row: a system row marked is-fault (table.css draws it red); a replay drops it', () => {
+  it('a fault row: a system row marked is-fault (table.css draws it red); a replay draws only the ones it is given (entry.fault)', () => {
     gameLog = createGameLog();
     gameLog.addFaultMessage('Fault: ann (bid 3, took 1)');
     const row = gameLog.container.querySelector('.log-row.is-fault');
@@ -368,6 +368,9 @@ describe('/help in the autocomplete (plan H3)', () => {
     expect(row.querySelector('.log-row__text').textContent).toBe('Fault: ann (bid 3, took 1)');
     gameLog.replaceMessages([{ message: '--- HAND COMPLETE ---' }]);
     expect(gameLog.container.querySelector('.log-row.is-fault')).toBeNull();
+    gameLog.replaceMessages([{ message: '--- HAND COMPLETE ---' }, { message: 'Fault: ann (bid 3, took 1)', fault: true }]);
+    const again = [...gameLog.container.querySelectorAll('.log-row.is-fault')];
+    expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['Fault: ann (bid 3, took 1)']);
   });
 });
 

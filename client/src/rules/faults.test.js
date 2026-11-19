@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { handFaults, personalBid } from './faults.js';
+import { handFaults, personalBid, rememberFault, rememberedFaults, forgetFaults, withFaultRows, HAND_COMPLETE_LINE } from './faults.js';
 import { formatFaultMessages } from '../ui/components/ScoreModal.js';
 import { GameState } from '../state/GameState.js';
 
@@ -167,5 +167,71 @@ describe('fault lines from the tricks GameState counted', () => {
     state.applyTrickComplete({ winner: 2 });
     state.applyTrickComplete({ winner: 4, resumeInMs: 1000 });
     expect(finish(state)).toEqual([]);
+  });
+});
+
+describe('the hand size unknown (0 before any deal is seen)', () => {
+  it('a bore team that took every trick of a 5-card hand is not set: the size is the two counts\' sum', () => {
+    const hand = {
+      bids: { 1: '1', 2: '0', 3: 'B', 4: '0' },
+      tricksByPosition: { 1: 0, 2: 0, 3: 5, 4: 0 },
+      team1Tricks: 5, team2Tricks: 0,
+    };
+    expect(handFaults({ ...hand, handSize: 0 })).toEqual([]);
+    expect(handFaults({ ...hand, handSize: undefined })).toEqual([]);
+    // with the size known, the same answer
+    expect(handFaults({ ...hand, handSize: 5 })).toEqual([]);
+    // a real set with the size unknown still blames: bid 3+1 of 5, took 1+1
+    expect(handFaults({
+      bids: { 1: '3', 2: '1', 3: '1', 4: '0' },
+      tricksByPosition: { 1: 1, 2: 2, 3: 1, 4: 1 },
+      team1Tricks: 2, team2Tricks: 3, handSize: 0,
+    })).toEqual([{ position: 1, bid: 3, took: 1 }]);
+  });
+});
+
+describe('fault rows kept through a replay of the server log (rejoin, /active)', () => {
+  // the server's stored lines (gameHandlers handleHandComplete)
+  const hand = (t1, t2) => [
+    { message: HAND_COMPLETE_LINE },
+    { message: `ann/cat: Bid 3/1, Won 2, -40 → ${t1}` },
+    { message: `bob/dan: Bid 1/0, Won 3, +13 → ${t2}` },
+  ];
+
+  it('remembers rows per game by the hand\'s totals; another game starts empty', () => {
+    forgetFaults();
+    rememberFault('g1', { team1: -40, team2: 13 }, 'Fault: ann (bid 3, took 1)');
+    rememberFault('g1', { team1: -40, team2: 13 }, 'Fault: cat (bid 1, took 0)');
+    rememberFault('g1', { team1: 10, team2: 40 }, 'Fault: bob (bid 2, took 1)');
+    rememberFault('g1', null, 'ignored');
+    expect(rememberedFaults('g1')).toEqual([
+      { team1: -40, team2: 13, lines: ['Fault: ann (bid 3, took 1)', 'Fault: cat (bid 1, took 0)'] },
+      { team1: 10, team2: 40, lines: ['Fault: bob (bid 2, took 1)'] },
+    ]);
+    expect(rememberedFaults('g2')).toEqual([]);
+    rememberFault('g2', { team1: 0, team2: 0 }, 'x');
+    expect(rememberedFaults('g1')).toEqual([]);
+    forgetFaults();
+  });
+
+  it('puts each hand\'s rows back after its team lines, in order; a hand cut from the replay is skipped; nothing else moves', () => {
+    const log = [{ message: 'Game started!' }, ...hand(-40, 13), { message: 'ann: gg' }, ...hand(10, 40), ...hand(50, 40)];
+    const out = withFaultRows(log, [
+      { team1: -99, team2: -99, lines: ['Fault: gone (bid 1, took 0)'] }, // not in this replay
+      { team1: -40, team2: 13, lines: ['Fault: ann (bid 3, took 1)'] },
+      { team1: 50, team2: 40, lines: ['Fault: dan (bid 2, took 0)'] },
+    ]);
+    expect(out.map((e) => (e.fault ? `F ${e.message}` : e.message))).toEqual([
+      'Game started!',
+      HAND_COMPLETE_LINE, 'ann/cat: Bid 3/1, Won 2, -40 → -40', 'bob/dan: Bid 1/0, Won 3, +13 → 13',
+      'F Fault: ann (bid 3, took 1)',
+      'ann: gg',
+      HAND_COMPLETE_LINE, 'ann/cat: Bid 3/1, Won 2, -40 → 10', 'bob/dan: Bid 1/0, Won 3, +13 → 40',
+      HAND_COMPLETE_LINE, 'ann/cat: Bid 3/1, Won 2, -40 → 50', 'bob/dan: Bid 1/0, Won 3, +13 → 40',
+      'F Fault: dan (bid 2, took 0)',
+    ]);
+    expect(out.filter((e) => e.fault).every((e) => e.position === null)).toBe(true);
+    // nothing remembered: the log as it came
+    expect(withFaultRows(log, [])).toBe(log);
   });
 });

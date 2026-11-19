@@ -142,6 +142,39 @@ describe('CardManager', () => {
       expect(marked()).toEqual([]);
       expect(manager.suggestedCardKey()).toBeNull();
     });
+
+    it('the halo is drawn on the table behind the sprite and follows it every frame (a hover lift moves it too); gone with the suggestion', () => {
+      const listeners = new Map();
+      mockScene.events = {
+        on: vi.fn((ev, fn) => listeners.set(ev, fn)),
+        off: vi.fn((ev, fn) => { if (listeners.get(ev) === fn) listeners.delete(ev); }),
+      };
+      const glow = {
+        active: true,
+        clear: vi.fn(), lineStyle: vi.fn(), strokeRoundedRect: vi.fn(),
+        setPosition: vi.fn(function (x, y) { this.x = x; this.y = y; return this; }),
+        setRotation: vi.fn(), setDepth: vi.fn(function (d) { this.depth = d; return this; }),
+        setVisible: vi.fn(function (v) { this.visible = v; return this; }),
+        destroy: vi.fn(),
+      };
+      mockScene.add.graphics = vi.fn(() => glow);
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      const sprite = mockScene._sprites.find((sp) => sp.getData('card').rank === '9');
+      manager.setSuggestedCard({ suit: 'diamonds', rank: '9' });
+      expect(mockScene.add.graphics).toHaveBeenCalledTimes(1);
+      expect(glow.strokeRoundedRect).toHaveBeenCalled();
+      expect([glow.x, glow.y]).toEqual([sprite.x, sprite.y]);
+      expect(glow.depth).toBe(sprite.depth - 0.25); // under the card, over the one to its left
+      // the hover lift (a tween moves the sprite): the next frame's postupdate follows
+      sprite.y -= 20;
+      listeners.get('postupdate')();
+      expect(glow.y).toBe(sprite.y);
+      // drawn once per size, not every frame
+      expect(glow.clear).toHaveBeenCalledTimes(1);
+      manager.setSuggestedCard(null);
+      expect(glow.destroy).toHaveBeenCalled();
+      expect(listeners.has('postupdate')).toBe(false);
+    });
   });
 
   describe('displayHand', () => {

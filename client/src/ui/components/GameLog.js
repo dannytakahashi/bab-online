@@ -380,7 +380,8 @@ export function createGameLog({ onChatSubmit } = {}) {
   /**
    * A red fault row after a set hand's lines ("Fault: ann (bid 3, took 1)";
    * ScoreModal.formatFaultMessages): computed here from the tricks this page
-   * saw, never stored, so a replay of the server's log drops it.
+   * saw, never stored by the server; main.js remembers it, and a replay
+   * (replaceMessages, an entry's `fault`) draws it again.
    */
   const addFaultMessage = (message) => {
     const row = buildRow(message, null);
@@ -442,7 +443,10 @@ export function createGameLog({ onChatSubmit } = {}) {
     const frag = document.createDocumentFragment();
     const rows = entries.slice(-MAX_LOG_ROWS);
     for (const e of rows) {
-      frag.appendChild(buildRow(e.message, e.position ?? null, e.at ?? null));
+      const row = buildRow(e.message, e.position ?? null, e.at ?? null);
+      // a fault row this page remembered (rules/faults.js withFaultRows)
+      if (e.fault) row.classList.add('is-fault');
+      frag.appendChild(row);
     }
     // A replay (rejoin, resync) shows the same story: the reader keeps
     // their place unless they were at the end

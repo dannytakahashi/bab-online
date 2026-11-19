@@ -8,9 +8,12 @@
  *    game-log lines.
  *  - A hint is live while it is still my turn as it was answered:
  *    hintIsLive() checks the parts of its turnKey the client knows (stage,
- *    seat on turn, bids so far; `${dealSeq}|${stage}|${currentTurn}|
- *    ${bidCount}|${cardIndex}`, server GameState.turnKey) against GameState.
- *    The scene also clears the card on every updateTurn, on my own bid or
+ *    seat on turn, bids so far, cards played this hand; `${dealSeq}|
+ *    ${stage}|${currentTurn}|${bidCount}|${cardIndex}`, server
+ *    GameState.turnKey) against GameState. dealSeq is not compared: the
+ *    client's count is its own (+1 per gameStart, null after a v1 rejoin),
+ *    and a mismatch would drop every hint for the rest of the game. The
+ *    scene clears the card on an updateTurn that ends it, on my own bid or
  *    card, at hand end, a redeal, game end and when a bot takes my seat.
  *  - The /help uses of this game (uses / freeUses / assisted) come from the
  *    latest hint and reset when a game starts (createUI); after a reload
@@ -88,11 +91,13 @@ export function assistUses(gameId = null) {
  *   "Suggest a move (1 of 3 free used)"
  *   "Suggest a move (the next one makes this game bot-assisted)"
  *   "Suggest a move (this game is bot-assisted for you)"
- *   "Suggest a move (3 free per game)"   (unknown: a reload, a rejoin)
+ *   "Suggest a move (after 3 free, this game counts as bot-assisted)"
+ *        (unknown: a reload, a rejoin; the warning stays, since the uses
+ *        so far may be spent)
  */
 export function helpDescription(gameId = null) {
   const u = assistUses(gameId);
-  if (!u) return `Suggest a move (${DEFAULT_FREE_USES} free per game)`;
+  if (!u) return `Suggest a move (after ${DEFAULT_FREE_USES} free, this game counts as bot-assisted)`;
   if (u.assisted || u.uses > u.freeUses) return 'Suggest a move (this game is bot-assisted for you)';
   if (u.uses >= u.freeUses) return 'Suggest a move (the next one makes this game bot-assisted)';
   return `Suggest a move (${u.uses} of ${u.freeUses} free used)`;
@@ -112,6 +117,17 @@ export function parseTurnKey(key) {
 export function isAssistHint(hint) {
   return !!hint && typeof hint === 'object' && hint.v === 1 &&
     ['bid', 'card', 'status'].includes(hint.kind) && typeof hint.headline === 'string' && hint.headline.length > 0;
+}
+
+/**
+ * Cards played so far this hand as the server counts them (turnKey's
+ * cardIndex), or null when the client cannot tell (no trick number yet).
+ */
+export function clientCardIndex(state) {
+  const t = state?.trickNo;
+  if (!Number.isSafeInteger(t) || t < 1) return null;
+  const inTrick = Array.isArray(state.playedCards) ? state.playedCards.length : 0;
+  return (t - 1) * 4 + inTrick;
 }
 
 /** Does my seat act now (a player at the table, not a bot playing it)? */
@@ -145,7 +161,26 @@ export function hintIsLive(hint, state, { pending = false } = {}) {
   // a card
   if (state.isBidding || state.hasPlayedCard) return false;
   if (k && k.stage !== 'PLAYING') return false;
+  // a later trick's turn of mine (the scene lagging behind the state)
+  const at = clientCardIndex(state);
+  if (k && at !== null && Number.isSafeInteger(k.cardIndex) && k.cardIndex !== at) return false;
   return true;
+}
+
+/** The private row for a bid or card answer that came after its turn had passed. */
+export const ASSIST_LATE_LINE = 'Help: that turn had passed before the answer came (only you see this)';
+
+/**
+ * Where an assistHint goes (main.js): 'scene' at the table (the card, in
+ * table order); 'row' on the game-end screen for a status reply ("Nothing
+ * to suggest right now.": the log is still up); else null.
+ * @param {{isAtTable: boolean, hasTable: boolean}} session
+ */
+export function assistHintRoute(session, hint) {
+  if (!isAssistHint(hint) || !session) return null;
+  if (session.isAtTable) return 'scene';
+  if (session.hasTable && hint.kind === 'status') return 'row';
+  return null;
 }
 
 /** The suggested bid ('4', 'B'), or null. */

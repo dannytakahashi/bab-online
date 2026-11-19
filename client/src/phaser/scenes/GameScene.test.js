@@ -982,12 +982,118 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
   });
 
   it('another seat\'s bid leaves it (still my turn until updateTurn), the next updateTurn clears it', () => {
-    const { scene } = mySeat({ bidding: true });
+    const { scene, state } = mySeat({ bidding: true });
     scene.handleAssistHint(bidHint());
+    state.bids[2] = '1';
     scene.handleBidReceived({ position: 2, bid: '1' });
     expect(shown()).toBe('Bid 3');
     scene.handleUpdateTurn({ currentTurn: 1 });
     expect(shown()).toBeNull();
+  });
+
+  it('an updateTurn that repeats this turn (a resync) leaves a live answer; a status reply goes at any updateTurn', () => {
+    const { scene } = mySeat({ bidding: true });
+    scene.handleAssistHint(bidHint());
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBe('Bid 3');
+    expect(lastBid(scene)).toBe('3');
+    scene.clearAssist();
+    scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: 'Nothing to suggest right now.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false });
+    expect(shown()).toBe('Nothing to suggest right now.');
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBeNull();
+  });
+
+  it('a status reply while my live suggestion is up (the rate limit after repeated asks): the suggestion and its ring stay, the status is a notice, no extra row', () => {
+    const { scene } = mySeat();
+    scene.handleAssistHint(cardHint());
+    expect(rows).toHaveLength(1);
+    scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: '2|PLAYING|1|4|0', headline: 'One moment: try again in a few seconds.', reasons: [], uses: 1, freeUses: 3, assisted: false, counted: false });
+    expect(shown()).toBe('Lead A♣');
+    expect(lastCard(scene)).toEqual({ suit: 'clubs', rank: 'A' });
+    expect(document.querySelector('.kit-toast')?.textContent).toBe('One moment: try again in a few seconds.');
+    expect(rows).toHaveLength(1);
+  });
+
+  it('an answer that came ahead of my held updateTurn (a seq gap) shows once the state reaches my turn', () => {
+    const { scene, state } = mySeat();
+    state.currentTurn = 4; // the gap: my updateTurn is held
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBeNull();
+    expect(rows).toEqual([]);
+    state.currentTurn = 1; // the gap fills
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBe('Lead A♣');
+    expect(rows).toEqual(['Help: Lead A♣ (only you see this)']);
+    // or by the resync's render
+    scene.clearAssist();
+    state.currentTurn = 4;
+    scene.handleAssistHint(cardHint());
+    state.currentTurn = 1;
+    scene.syncAssist();
+    expect(shown()).toBe('Lead A♣');
+  });
+
+  it('an answer whose turn had passed leaves a row saying so (at the next updateTurn), never a stale card', () => {
+    const { scene, state } = mySeat();
+    state.trickNo = 2; // my trick-2 turn; the answer was for trick 1 (cardIndex 0)
+    state.playedCards = [];
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBeNull();
+    state.currentTurn = 2;
+    scene.handleUpdateTurn({ currentTurn: 2 });
+    expect(shown()).toBeNull();
+    expect(rows).toEqual(['Help: that turn had passed before the answer came (only you see this)']);
+    // given up once: the next updateTurn adds nothing
+    scene.handleUpdateTurn({ currentTurn: 3 });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('one "?" click, one ask: the "?" waits for the answer (or the next turn, or 10 s)', () => {
+    vi.useFakeTimers();
+    try {
+      const { scene } = mySeat();
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      ask().click();
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(ask().hidden).toBe(true);
+      // no answer yet: it comes back after the wait
+      vi.advanceTimersByTime(10000);
+      expect(ask().hidden).toBe(false);
+      ask().click();
+      expect(ask().hidden).toBe(true);
+      // a turn change (a repeat of mine here) lets it show again
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      expect(ask().hidden).toBe(false);
+      ask().click();
+      scene.handleAssistHint(cardHint());
+      scene.clearAssist();
+      expect(ask().hidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the "?" while the session is being restored: one reconnecting notice, nothing emitted (no notice about a message)', async () => {
+    const { getSocketManager } = await import('../../socket/SocketManager.js');
+    const mgr = getSocketManager();
+    const spy = vi.spyOn(mgr, 'canSend').mockReturnValue(false);
+    try {
+      const { scene } = mySeat();
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      ask().click();
+      expect(window.socket.emit).not.toHaveBeenCalled();
+      const toasts = [...document.querySelectorAll('.kit-toast')].map((t) => t.textContent);
+      expect(toasts).toEqual(['Reconnecting. Try again in a moment.']);
+      // the gate refused an emit itself (it showed its own notice): none more
+      spy.mockReturnValue(true);
+      clearToasts();
+      window.socket.emit = vi.fn(() => false);
+      ask().click();
+      expect(document.querySelector('.kit-toast')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('my card played (the echo), hand end, a redeal, a bot taking my seat and cleanup clear it', () => {

@@ -19,6 +19,8 @@ import { syncHand, offerTurnFocus, focusedHandKey } from '../../ui/handA11y.js';
  * 60 % brightness; a translucent card would show the pips beneath it).
  */
 const DIM_TINT = hex(COLOR.card.dimTint);
+/** The /help suggested card's halo (the gold of the bid sheet's ring). */
+const SUGGEST_GOLD = hex(COLOR.gold);
 
 /** The deal's wait at the trump, then each card's flight (cosmetic: motion tokens; instant under reduced motion). */
 const DEAL_DELAY_MS = 200;
@@ -57,15 +59,71 @@ export class CardManager {
   }
 
   /**
-   * The /help suggested card ({suit, rank}, or null for none): a gold ring
-   * round its visible strip and "(suggested)" after its name (the keyboard
-   * hand, ui/handA11y.js). Kept across a redraw of the same hand.
+   * The /help suggested card ({suit, rank}, or null for none): a gold halo
+   * drawn on the table just behind its sprite (so it rises with the card on
+   * hover or keyboard focus, and the cards on top of it cover it as they
+   * cover the card), and "(suggested)" after its name (the keyboard hand,
+   * ui/handA11y.js). Kept across a redraw of the same hand.
    */
   setSuggestedCard(card) {
     const key = card ? getCardImageKey(card) : null;
     if (key === (this._suggestedKey ?? null)) return;
     this._suggestedKey = key;
+    this._syncSuggestGlow();
     this._syncA11y();
+  }
+
+  /** Start or stop the halo's per-frame follow of the suggested sprite. */
+  _syncSuggestGlow() {
+    const scene = this._scene;
+    const on = !!this._suggestedKey && typeof scene?.add?.graphics === 'function' && !!scene.events?.on;
+    if (on && !this._suggestFollow) {
+      this._suggestFollow = () => this._placeSuggestGlow();
+      scene.events.on('postupdate', this._suggestFollow);
+    } else if (!on && this._suggestFollow) {
+      scene.events?.off?.('postupdate', this._suggestFollow);
+      this._suggestFollow = null;
+    }
+    this._placeSuggestGlow();
+  }
+
+  /**
+   * Each frame while a card is suggested (after the tweens moved it): the
+   * halo where the suggested sprite is now, one step under it in depth.
+   * Hidden while that card is not in the hand (a redraw, played).
+   */
+  _placeSuggestGlow() {
+    const sprite = this._suggestedKey ? this._spriteForKey(this._suggestedKey) : null;
+    let g = this._suggestGlow;
+    if (!sprite || !this._suggestFollow) {
+      if (g && !this._suggestedKey) {
+        g.destroy?.();
+        this._suggestGlow = null;
+      } else if (g) g.setVisible?.(false);
+      return;
+    }
+    if (!g || g.active === false) {
+      g = this._scene.add.graphics();
+      this._suggestGlow = g;
+      g._drawnFor = null;
+    }
+    const w = sprite.displayWidth ?? sprite.width ?? 0;
+    const h = sprite.displayHeight ?? sprite.height ?? 0;
+    const size = `${Math.round(w)}x${Math.round(h)}`;
+    if (g._drawnFor !== size) {
+      g._drawnFor = size;
+      g.clear?.();
+      const r = w * 24 / 300; // the card face's corner (the focus ring's)
+      // a soft outer glow, then the ring itself
+      for (const [pad, width, a] of [[9, 6, 0.18], [6, 4, 0.32], [3, 3, 1]]) {
+        g.lineStyle(width, SUGGEST_GOLD, a);
+        g.strokeRoundedRect(-w / 2 - pad, -h / 2 - pad, w + 2 * pad, h + 2 * pad, r + pad);
+      }
+    }
+    g.setPosition(sprite.x, sprite.y);
+    g.setRotation?.(sprite.rotation ?? 0);
+    g.setDepth((sprite.depth ?? 0) - 0.25);
+    g.setVisible?.(sprite.visible !== false);
   }
 
   /** The suggested card's key (getCardImageKey), or null. */

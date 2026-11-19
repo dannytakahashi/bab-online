@@ -13,8 +13,8 @@
  *                    own client legality); a click on a playable one is the
  *                    pointer's click (CardManager's handler, MyAction).
  *                    The /help suggested card (CardManager's) carries
- *                    .is-suggested (a gold ring round its strip) and says
- *                    "(suggested)" after its name.
+ *                    .is-suggested and says "(suggested)" after its name
+ *                    (its gold halo is drawn on the table, by its sprite).
  *   .hud-announcer   role log, polite, visually hidden: the turn, the trump,
  *                    each card played and each trick's winner.
  *

@@ -55,11 +55,15 @@ import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
 import {
   isAssistHint, hintIsLive, noteAssistUses, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
+  parseTurnKey, ASSIST_LATE_LINE,
 } from '../../state/assistHint.js';
+import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton } from '../../ui/components/AssistCard.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
+/** After a "?" click the "?" waits this long at most for the answer before it shows again. */
+export const ASSIST_ASK_WAIT_MS = 10000;
 
 /**
  * Main game scene class.
@@ -730,8 +734,11 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
 
-    // every turn change ends a /help answer (plan 4.4)
-    this.clearAssist();
+    // a turn change ends a /help answer (plan 4.4): one still live by its
+    // turnKey stays (a repeat of this turn, a resync); an answer that came
+    // while the state lagged behind (a seq gap) shows now if it is live
+    this._endAsking();
+    this._settleAssist({ abandon: true });
 
     // the announcer: my turn, with the trick so far (before the hand takes focus)
     if (currentTurn === myPosition && !this.state.isSpectator && !this.state.isLazy) {
@@ -1126,7 +1133,7 @@ export class GameScene extends Phaser.Scene {
       team1Tricks: data.team1Tricks,
       team2Tricks: data.team2Tricks,
       handSize: handSize ?? state.currentHand,
-    }).forEach((msg) => window.addFaultToGameFeed?.(msg));
+    }).forEach((msg) => window.addFaultToGameFeed?.(msg, { score: data.score }));
 
     // Update game log score display (player names only, as renderScoreHeader)
     if (window.updateGameLogScoreFromLegacy) {
@@ -1487,20 +1494,43 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * assistHint (main.js, in table order through the director): my /help
-   * answer. Every reply leaves a dim local log row ("Help: Play 9♦ (only
-   * you see this)"); one for this turn shows the card above my hand, the
-   * suggested card or bid ringed, and the announcer says the headline and
-   * the main reason. A bid or card answer for a turn that is gone is
-   * dropped (its counts are still this game's).
+   * answer. One for this turn shows the card above my hand, the suggested
+   * card or bid ringed, a dim local log row ("Help: Play 9♦ (only you see
+   * this)"), and the announcer says the headline and the main reason.
+   *  - A status reply while a live suggestion is up (a rate limit after
+   *    repeated asks) leaves the suggestion and shows as a notice.
+   *  - A bid or card answer that is not live is held: an updateTurn or a
+   *    render shows it if it turns out live (it came ahead of a held
+   *    updateTurn, a seq gap), else it leaves the row ASSIST_LATE_LINE.
+   * Its counts are this game's either way.
    * @param {Object} hint - s2c assistHint
    */
   handleAssistHint(hint) {
     const s = this.state || getGameState();
     if (!isAssistHint(hint)) return;
+    this._endAsking();
     const watching = s.isSpectator && !s.isLazy;
     // a spectator's reply ("players only") says nothing about my uses
     if (!watching) noteAssistUses(hint, s.gameId);
-    if (!hintIsLive(hint, s, { pending: getMyAction().isPending() })) return;
+    const pending = getMyAction().isPending();
+    const up = this._assistHint;
+    if (hint.kind === 'status' && up && up.kind !== 'status' && hintIsLive(up, s, { pending })) {
+      showNotice(hint.headline);
+      this.syncAssistButton();
+      return;
+    }
+    if (!hintIsLive(hint, s, { pending })) {
+      this._abandonParked();
+      this._parkedAssist = hint;
+      this.syncAssistButton();
+      return;
+    }
+    this._abandonParked();
+    this._showAssist(hint);
+  }
+
+  /** Put a live answer up (the card, the rings, the row, the announcement). */
+  _showAssist(hint) {
     window.addPrivateToGameFeed?.(assistLogLine(hint));
     this._assistHint = hint;
     showAssistCard(hint, { onClose: () => this.clearAssist() });
@@ -1510,8 +1540,49 @@ export class GameScene extends Phaser.Scene {
     this.syncAssistButton();
   }
 
+  /** A held (not yet live) answer is given up: its row says the turn had passed. */
+  _abandonParked() {
+    if (!this._parkedAssist) return;
+    this._parkedAssist = null;
+    window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
+  }
+
+  /**
+   * Is a bid or card answer still this turn's by its turnKey (a status
+   * reply, or one without a turnKey, ends at a turn change)?
+   */
+  _assistStillLive(hint) {
+    return !!hint && hint.kind !== 'status' && !!parseTurnKey(hint.turnKey) &&
+      hintIsLive(hint, this.state, { pending: getMyAction().isPending() });
+  }
+
+  /**
+   * After a turn change (or a render): a held answer that is live now
+   * shows; with `abandon`, one that is not is given up. The answer up goes
+   * unless it is still live.
+   */
+  _settleAssist({ abandon = false } = {}) {
+    const held = this._parkedAssist;
+    if (held && this._assistStillLive(held)) {
+      this._parkedAssist = null;
+      this._showAssist(held);
+    } else if (held && abandon) {
+      this._abandonParked();
+    }
+    if (this._assistHint && !this._assistStillLive(this._assistHint)) this.clearAssist();
+  }
+
+  /** The "?" was clicked and its answer came (or the turn moved): it may show again. */
+  _endAsking() {
+    this._assistAsking = false;
+    clearTimeout(this._assistAskTimer);
+    this._assistAskTimer = null;
+  }
+
   /** Take my /help answer down (the card, the ring on a card or bid). */
   clearAssist() {
+    // a held answer of a turn that is over now
+    this._abandonParked();
     const had = !!this._assistHint;
     // focus in the card (its ✕, Escape, Why?) goes to the "?" when it comes back
     const focused = had && typeof document !== 'undefined' && !!document.activeElement?.closest?.('.hud-assist');
@@ -1533,6 +1604,12 @@ export class GameScene extends Phaser.Scene {
    * turn's (its rings drawn again), else it goes.
    */
   syncAssist() {
+    // an answer held while the state lagged (a seq gap's snapshot): live now?
+    const held = this._parkedAssist;
+    if (held && this._assistStillLive(held)) {
+      this._parkedAssist = null;
+      this._showAssist(held);
+    }
     const hint = this._assistHint;
     if (hint && !hintIsLive(hint, this.state, { pending: getMyAction().isPending() })) {
       this.clearAssist();
@@ -1557,16 +1634,40 @@ export class GameScene extends Phaser.Scene {
     return s.phase === 'playing' && !s.hasPlayedCard && s.stage === 'PLAYING';
   }
 
-  /** The "?" by my hand: on my turn at my seat while no answer is up. */
+  /**
+   * The "?" by my hand: on my turn at my seat while no answer is up, and
+   * not while one asked for is on its way (one click, one ask).
+   */
   syncAssistButton() {
-    return syncAssistButton({ visible: this.canAskHelp() && !this._assistHint, onAsk: () => this.requestHelp() });
+    return syncAssistButton({
+      visible: this.canAskHelp() && !this._assistHint && !this._assistAsking,
+      onAsk: () => this.requestHelp(),
+    });
   }
 
-  /** The "?": send /help as the chat would (offline: the reconnecting notice). */
+  /**
+   * The "?": send /help as the chat would. Offline, or while the session
+   * is being restored (the emit gate would hold or refuse it, with a notice
+   * about a "message"), the one reconnecting notice instead.
+   */
   requestHelp() {
     const socket = window.socket;
-    const sent = socket && socket.connected !== false ? socket.emit('chatMessage', { message: HELP_COMMAND }) : false;
-    if (sent === false) showNotice(NOTICE.RECONNECTING);
+    let canSend = true;
+    try { canSend = getSocketManager().canSend('chatMessage') !== false; } catch { canSend = true; }
+    if (!socket || socket.connected === false || !canSend) {
+      showNotice(NOTICE.RECONNECTING);
+      return;
+    }
+    // (a false here: the gate refused it and said so itself)
+    if (socket.emit('chatMessage', { message: HELP_COMMAND }) === false) return;
+    this._assistAsking = true;
+    clearTimeout(this._assistAskTimer);
+    this._assistAskTimer = setTimeout(() => {
+      this._assistAskTimer = null;
+      this._assistAsking = false;
+      this.syncAssistButton();
+    }, ASSIST_ASK_WAIT_MS);
+    this.syncAssistButton();
   }
 
   /**
@@ -1859,6 +1960,9 @@ export class GameScene extends Phaser.Scene {
    * flight runs its onCollected callbacks, which must find no hand.
    */
   cleanup() {
+    // a held answer means nothing once the table goes (no row)
+    this._parkedAssist = null;
+    this._endAsking();
     this.clearAssist();
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
