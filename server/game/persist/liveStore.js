@@ -95,7 +95,11 @@
  * re-taken with a compare-and-set write (owner me, live, not released ->
  * rev + 1, which also defeats an adopter's claim still in flight): matched
  * -> unsuspend; anything else -> fenced (as above: frozen, retired with no
- * emit, sockets engine-closed).
+ * emit, sockets engine-closed). The room is told (owner 2026-11-19, "pause
+ * with a notice"): PAUSE_NOTICE once when a table is suspended,
+ * RESUME_NOTICE once when that table is unsuspended, nothing when it is
+ * fenced (its players reconnect to the adopter). Each is an unsaved
+ * sequenced system line (game.unsavedNotice).
  *
  * remove(): a game's doc is left to the claim (GameManager._retire runs
  * before it); a tournament's is deleted (GameManager.deleteTournament:
@@ -125,6 +129,10 @@ const CLAIM_MAX_MS = 5000;
 const LOG_EVERY_MS = 60 * 1000;
 /** 'on': this long without an acknowledged heartbeat (monotonic) suspends this process's tables. */
 const SELF_FENCE_MS = 8000;
+/** 'on': the system line a self-fence suspension sends to the table's room (never saved). */
+const PAUSE_NOTICE = 'Game paused: the server is reconnecting. It will resume on its own.';
+/** 'on': the system line when that table is unsuspended (never after a fence; never saved). */
+const RESUME_NOTICE = 'Game resumed.';
 /** 'on': how often the self-fence is checked (between heartbeats). */
 const FENCE_CHECK_MS = 1000;
 /** 'on': a heartbeat that has not answered after this long no longer blocks the next one. */
@@ -270,6 +278,8 @@ function bounded(p, ms, onTimeout) {
  * @param {Function} [opts.isShuttingDown] - () => boolean (utils/shutdown)
  * @param {Function} [opts.suspendGame] / [opts.unsuspendGame] - the
  *   reversible holder self-fence (game.suspend() / game.unsuspend(io))
+ * @param {Function} [opts.noticeGame] - (game, io, line) => boolean: the
+ *   self-fence's unsaved room line (game.unsavedNotice(io, line))
  * @param {Function} [opts.whenDbReady] - (ms) => Promise<boolean> (database.whenReady)
  */
 function createLiveStore({
@@ -300,6 +310,7 @@ function createLiveStore({
     isShuttingDown = () => require('../../utils/shutdown').isShuttingDown(),
     suspendGame = (game) => game.suspend(),
     unsuspendGame = (game, io) => game.unsuspend(io),
+    noticeGame = (game, io, line) => (typeof game.unsavedNotice === 'function' ? game.unsavedNotice(io, line) : false),
     whenDbReady = (ms) => {
         const database = require('../../database');
         return typeof database.whenReady === 'function' ? database.whenReady(ms) : Promise.resolve(true);
@@ -428,6 +439,7 @@ function createLiveStore({
             retired: false,        // left GameManager (no live writes)
             done: false,           // stopped, fenced, removed: no more writes at all
             suspended: false,      // 'on': the holder self-fence holds its writes
+            pauseNoticed: false,   // 'on': this suspension's PAUSE_NOTICE was sent (RESUME_NOTICE owed)
             resetAttempts: false,  // 'on', adopted: the first write after the restore gate opens $sets adoptAttempts 0
             ownerMode: null        // the ownerMode of the last doc sent ('on': adoptable elsewhere, so a loss fences)
         };
@@ -456,7 +468,7 @@ function createLiveStore({
             tail: Promise.resolve(), rev: Number.isInteger(doc.rev) ? doc.rev : 0,
             lastLogTotal: Number.isInteger(doc.logTotal) ? doc.logTotal : null,
             fullLog: true, fullLogSeq: 0, lastJson: null, completed: new Set(), rereads: 0,
-            retired: false, done: false, suspended: false, resetAttempts: true,
+            retired: false, done: false, suspended: false, pauseNoticed: false, resetAttempts: true,
             // The adopt compare-and-set wrote ownerMode 'on'
             ownerMode: doc.ownerMode ?? 'on',
             // The adoption fields a whole-doc write (the handoff's final write) keeps
@@ -1182,6 +1194,20 @@ function createLiveStore({
     }
 
     /**
+     * The self-fence's line to a table's room (PAUSE_NOTICE, RESUME_NOTICE):
+     * unsaved, the next seq (game.unsavedNotice). Never throws.
+     * @returns {boolean} true if sent
+     */
+    function tellRoom(st, line) {
+        try {
+            return noticeGame(st.entity, ioRef || safeCall(getIo), line) === true;
+        } catch (err) {
+            logFailure('self-fence notice', st, err);
+            return false;
+        }
+    }
+
+    /**
      * SELF_FENCE_MS without an acknowledged heartbeat: another instance may
      * judge this one dead and adopt its tables, so they stop here (no
      * emit, no timer, no save) until ownership is read back.
@@ -1199,7 +1225,9 @@ function createLiveStore({
                 n++;
             } catch (err) {
                 logFailure('suspend', st, err);
+                continue;
             }
+            if (!st.pauseNoticed) st.pauseNoticed = tellRoom(st, PAUSE_NOTICE);
         }
         logger.warn('Live persist self-fence: no heartbeat acknowledged; tables suspended', { tables: n, ms: SELF_FENCE_MS });
     }
@@ -1236,18 +1264,26 @@ function createLiveStore({
                     return;
                 }
                 if (st.done) return;
+                const noticed = st.pauseNoticed;
+                st.pauseNoticed = false;
                 if (doc) {
                     // Later writes carry a rev past the one this re-take wrote
                     if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
                     st.suspended = false;
+                    let resumed = false;
                     try {
                         unsuspendGame(st.entity, ioRef || safeCall(getIo));
+                        resumed = true;
                     } catch (err) {
                         logFailure('unsuspend', st, err);
                     }
+                    // Only after a pause line, and only if it really plays on
+                    if (noticed && resumed && !st.entity.frozen && !st.entity.isSuspended) tellRoom(st, RESUME_NOTICE);
                     if (st.dirty) schedule(st);
                     return;
                 }
+                // Fenced: no resume line (the fence closes its sockets; the
+                // players reconnect to the adopter)
                 st.suspended = false;
                 fence(st, 'not ours');
             }));
@@ -1720,6 +1756,8 @@ module.exports = {
     SHUTDOWN_DELETE_MS,
     CLAIM_MAX_MS,
     SELF_FENCE_MS,
+    PAUSE_NOTICE,
+    RESUME_NOTICE,
     BOOT_SWEEP_CAP_MS,
     RESOLVE_WAIT_MS
 };

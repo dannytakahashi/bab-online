@@ -401,7 +401,8 @@ describe('over a recording io (fake timers)', () => {
         await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
         expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff', rev: revBefore });
         expect(kit.comparable(doc(id))).toEqual(saved);
-        expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+        // The suspension's pause line (never saved), then the outcome line
+        expect(lineOf(id)).toEqual([liveStore.PAUSE_NOTICE, shutdown.UNKNOWN_NOTICE]);
         expect(db().faults.calls.filter((c) => c.op === 'replaceOne')).toEqual([]);
         expect(rec.infos).toEqual([['Handoff: live docs released', { tables: 1, released: 1, asIs: 1, continued: 0, unknown: 1 }]]);
         // The settle step waited out its bound (the stalled shutting-down mark)
@@ -421,7 +422,7 @@ describe('over a recording io (fake timers)', () => {
         signal('SIGTERM');
         await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
         expect(doc(id)).toMatchObject({ owner: 'boot-C', released: false });
-        expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+        expect(lineOf(id)).toEqual([liveStore.PAUSE_NOTICE, shutdown.UNKNOWN_NOTICE]);
         db().faults.release();
     });
 

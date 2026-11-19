@@ -521,7 +521,8 @@ class GameState {
      * captured continuation stays valid: each game timer and pause is
      * cancelled and remembered with what was left of it, the bots' pending
      * actions likewise (BotController.suspendGame), and from now on nothing
-     * is emitted (broadcast, sendToPlayer, ... are no-ops: no seq is used),
+     * is emitted (broadcast, sendToPlayer, ... are no-ops: no seq is used;
+     * the one exception is the store's pause / resume line, unsavedNotice),
      * no turn input is accepted (applyBid / checkPlay refuse as
      * not_your_turn), a timer, pause or bot action started meanwhile is
      * only remembered, an abort waits (gameLifecycle.abortGame defers it to
@@ -557,6 +558,27 @@ class GameState {
         };
         require('./bot').botController.suspendGame(this.gameId);
         gameLogger.info('Game suspended', { gameId: this.gameId, stage: this._stage });
+        return true;
+    }
+
+    /**
+     * A system game-log line to the room (players, lazy watchers,
+     * spectators) that is NOT kept: never added to gameLog, so it is in no
+     * snapshot, no saved doc and no logTotal, and no persist hook runs. It
+     * carries the next seq (++eventSeq, R1), exactly like the shutdown
+     * notice to a frozen table (utils/shutdown.js noticeGames): every
+     * client's gate applies it as the next event, and any later snapshot's
+     * seq already counts it (a seq reused by the next broadcast would be
+     * dropped as a duplicate, R2). Unlike broadcast it is sent while the
+     * game is suspended (the self-fence notices are its only callers
+     * there); never from a terminal game. Draws no RNG.
+     * @param {Object} io
+     * @param {string} message
+     * @returns {boolean} true if sent
+     */
+    unsavedNotice(io, message) {
+        if (!io || this.isTerminal()) return false;
+        io.to(this.roomName).emit('gameLogEntry', { message, type: 'system', seq: ++this.eventSeq });
         return true;
     }
 

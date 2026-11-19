@@ -212,7 +212,8 @@ describe('a frozen holder thaws: timers that came due before the 1 s self-fence 
         expect(store.selfFenced).toBe(true);
         expect(store.suspendCalls).toEqual([['suspend', id]]);
         expect(fired).toEqual([]);
-        expect(log.length).toBe(emitted);
+        // Only the room's pause line (selfFenceNotice.test.js)
+        expect(log.slice(emitted).map((e) => e.data?.message)).toEqual([liveStore.PAUSE_NOTICE]);
         db().faults.release();
         await jest.advanceTimersByTimeAsync(liveStore.HEARTBEAT_MS + 10);
         await h.flushStore(store);
