@@ -164,22 +164,25 @@ const HELD_LINE = 'The game is paused. This will happen when it resumes.';
  * events go out normally. It must re-enter the command's handler, which
  * re-validates it then (same sender, seat still in the state it needs) and
  * answers a stale one with its normal refusal, or drops it. A socket gone
- * by then is dropped here. A table fenced instead (freeze) or ended
- * meanwhile drops the queue: such a /leave is lost and the seat kept (its
- * players reconnect to the adopter). `ack`: the sender is told it will
- * happen at the resume (HELD_LINE); a command the handler would refuse
- * gets its refusal at the thaw instead.
+ * by then is dropped here, unless `whenGone` is given: it runs instead (a
+ * held /leave, which was acknowledged and so outlives its socket:
+ * leaveSeatOf). A table fenced instead (freeze) or ended meanwhile drops
+ * the queue: such a /leave is lost and the seat kept (its players
+ * reconnect to the adopter). `ack`: the sender is told it will happen at
+ * the resume (HELD_LINE); a command the handler would refuse gets its
+ * refusal at the thaw instead.
  * @param {GameState} game
  * @param {Socket} socket - the sender
  * @param {string} handler - the c2s event (the serverError's handler)
  * @param {Function} run
- * @param {{ack?: boolean}} [opts]
+ * @param {{ack?: boolean, whenGone?: Function}} [opts]
  * @returns {boolean} true if held (the caller stops), false if not suspended
  */
-function holdForThaw(game, socket, handler, run, { ack = true } = {}) {
+function holdForThaw(game, socket, handler, run, { ack = true, whenGone = null } = {}) {
     if (!game.isSuspended) return false;
     game.deferWhileSuspended(() => {
-        if (socket.connected === false || game.isTerminal() || game.frozen) return undefined;
+        if (game.isTerminal() || game.frozen) return undefined;
+        if (socket.connected === false) return whenGone ? whenGone() : undefined;
         return run();
     });
     if (ack) socket.emit('serverError', serverErrorOf({ message: HELD_LINE }, handler));
@@ -899,6 +902,50 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     return true;
 }
 
+/**
+ * A /leave held by a suspended table (holdForThaw) whose socket dropped
+ * before the thaw: the sender was told it would happen at the resume, and
+ * the live /leave (it came first) would have left the seat before that
+ * drop. So it takes effect now, by seat, if the seat is still `username`'s
+ * and absent with no newer socket on it (the owner back on another socket
+ * cancels it, as it does any held command). A human seat in grace or
+ * resignable has no owner socket to go lazy from: a bot takes it as a
+ * resign does (playerResigned, which also clears a resign offer the
+ * clients hold for it), with the leave line; then, as leaveSeat, the seat
+ * is gone (seatLeft) and the account's activeGameId cleared. Nothing goes
+ * to the dead socket (no leaveRoom, no leftGame).
+ * @returns {boolean} true if the seat is gone
+ */
+function leaveSeatOf(io, game, pos, username, sid) {
+    const seat = game.seat(pos);
+    if (!seat || seat.ownerUsername !== username || (seat.ownerSocketId != null && seat.ownerSocketId !== sid)) return false;
+    if (seat.controller === Controller.HUMAN) {
+        if (seat.presence === Presence.GRACE && !game.seatGraceExpired(pos)) return false;
+        if (seat.presence !== Presence.RESIGNABLE) return false;
+        const bot = createSeatBot(game, pos, seat.lastPersonality);
+        const oldSid = game.seatResign(pos, bot);
+        if (oldSid == null) {
+            discardSeatBot(game, bot);
+            return false;
+        }
+        unmap(game, oldSid);
+        game.broadcast(io, 'playerResigned', { position: pos, oldUsername: username, botUsername: bot.username, botPic: bot.pic });
+        logEntry(io, game, `${username} left the game. ${bot.username} is playing for them.`);
+        reofferAfter(io, game, pos, 'resign');
+        triggerIfOnTurn(io, game, pos);
+    } else if (seat.presence !== Presence.AWAY) {
+        return false;
+    }
+    if (!game.seatLeave(pos)) return false;
+    game.emitUnsequenced(io, 'seatLeft', { gameId: game.gameId, position: pos, username });
+    unmap(game, sid);
+    gameVoice.refreshVoice(io, game);
+    gameManager.clearActiveGame(username, game.gameId);
+    socketLogger.info('Player left game (permanent, held through a suspension)', { gameId: game.gameId, position: pos });
+    maybeAbort(io, game);
+    return true;
+}
+
 // ==================== draw watchdog ====================
 
 /**
@@ -962,6 +1009,7 @@ module.exports = {
     replayPresenceTo,
     afterSuspend,
     holdForThaw,
+    leaveSeatOf,
     HELD_LINE,
     startDrawWatchdog
 };

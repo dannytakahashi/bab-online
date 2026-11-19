@@ -51,19 +51,27 @@ const SEAT_COMMANDS = new Set(['/lazy', '/active', '/leave']);
  * A suspended table: the seat command waits for the thaw
  * (seatLifecycle.holdForThaw), then runs through this handler again if the
  * socket is still the same sender (this game, role and seat); a socket that
- * is not (it left, dropped or was demoted meanwhile) has it dropped.
+ * is not (it left, dropped or was demoted meanwhile) has it dropped, except
+ * an owner's /leave from a socket that dropped: it still leaves the seat
+ * (seatLifecycle.leaveSeatOf).
  * `acts`: it would change the seat now, so the sender is told it will
  * happen at the resume; one the handler would refuse ("Not in lazy mode.")
  * gets that refusal at the thaw instead.
  * @returns {boolean} true if held
  */
 function heldWhilePaused(socket, io, game, role, pos, message, acts) {
+    // An owner's /leave outlives its socket (seatLifecycle.leaveSeatOf): it
+    // was acknowledged, so the seat still goes at the thaw if the sender
+    // closed the tab meanwhile
+    const leave = role === 'owner' && message.trim().toLowerCase() === '/leave';
+    const username = leave ? game.seat(pos).ownerUsername : null;
+    const sid = socket.id;
     return seatLifecycle.holdForThaw(game, socket, 'chatMessage', () => {
         const now = resolveSender(socket.id);
         if (!now || now.game !== game || now.role !== role || now.pos !== pos) return;
         if (role === 'owner') ownerCommand(socket, io, game, pos, message);
         else spectatorCommand(socket, io, game, message);
-    }, { ack: acts });
+    }, { ack: acts, whenGone: leave ? () => { seatLifecycle.leaveSeatOf(io, game, pos, username, sid); } : null });
 }
 
 /** Slash commands from a seat owner. */
