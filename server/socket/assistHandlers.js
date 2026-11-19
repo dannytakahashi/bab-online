@@ -61,7 +61,7 @@ const { seatView } = require('../game/assist/seatView');
 const { advise, searchEligible } = require('../game/assist/advise');
 const { explain, status } = require('../game/assist/explain');
 const { render, clip, TEXT_MAX } = require('../game/assist/copy');
-const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, helpUses } = require('../game/assistState');
+const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, assistTally } = require('../game/assistState');
 const rateLimiter = require('./rateLimiter');
 const { socketHasCap } = require('./clientInfo');
 const { gameLogger } = require('../utils/logger');
@@ -149,8 +149,7 @@ function sendLine(io, game, sid, message) {
 function tally(game, pos) {
     const owner = pos ? game.seat(pos)?.ownerUsername : null;
     const a = pos ? game.assist?.[pos] : null;
-    const uses = helpUses(a, owner);
-    return { uses, freeUses: ASSIST_FREE_HELP, assisted: isAssistedSeat(a, owner) };
+    return assistTally(a, owner);
 }
 
 /** A reply with no suggestion (a refusal, the status line): never counted. */

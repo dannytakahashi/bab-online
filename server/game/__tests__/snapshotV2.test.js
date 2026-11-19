@@ -83,7 +83,7 @@ describe('every stage (forcePhase fixtures)', () => {
         expectValid(snap);
         expect(snap.stage).toBe(stage);
         expect(snap.v).toBe(2);
-        expect(snap.viewer).toEqual({ role: 'seat', position: 1, ownerView: 'seat', canAct: stage === Phase.BIDDING || stage === Phase.PLAYING });
+        expect(snap.viewer).toEqual({ role: 'seat', position: 1, ownerView: 'seat', canAct: stage === Phase.BIDDING || stage === Phase.PLAYING, assist: { uses: 0, freeUses: 3, assisted: false } });
         expect(snap.turn === null).toBe(stage !== Phase.BIDDING && stage !== Phase.PLAYING);
         expectNoSocketIds(snap, ids);
     });
@@ -254,7 +254,7 @@ describe('viewer roles', () => {
         game.currentTurn = 2;
         game.setHand(ids[0], [C('2', 'hearts')]);
         game.hsiValues = { 1: 3.5, 2: 1, 3: 0, 4: 2 };
-        expect(game.getSnapshotV2(ids[0]).viewer).toEqual({ role: 'seat', position: 1, ownerView: 'seat', canAct: false });
+        expect(game.getSnapshotV2(ids[0]).viewer).toEqual({ role: 'seat', position: 1, ownerView: 'seat', canAct: false, assist: { uses: 0, freeUses: 3, assisted: false } });
         expect(game.getSnapshotV2(ids[1]).viewer.canAct).toBe(true);
         expect(game.getSnapshotV2(ids[0]).hand).toEqual([C('2', 'hearts')]);
         expect(game.getSnapshotV2(ids[0]).hsi).toEqual([3.5, 1, 0, 2]);
@@ -262,7 +262,7 @@ describe('viewer roles', () => {
         const bot = botController.createBot('🤖 Lazy', 'mary');
         lazySeat(game, 1, bot, { view: 'watch', ownerSocketId: ids[0] });
         const lw = game.getSnapshotV2(ids[0]);
-        expect(lw.viewer).toEqual({ role: 'lazyWatcher', position: 1, ownerView: 'watch', canAct: false });
+        expect(lw.viewer).toEqual({ role: 'lazyWatcher', position: 1, ownerView: 'watch', canAct: false, assist: { uses: 0, freeUses: 3, assisted: false } });
         expect(lw.hand).toEqual([C('2', 'hearts')]); // the seat's hand (keyed by the bot now)
         expect(lw.seats[0]).toMatchObject({ controller: 'lazyBot', isBot: true, lazy: true, ownerUsername: `user_${ids[0]}`, username: '🤖 Lazy' });
 
@@ -406,10 +406,11 @@ describe('purity and options', () => {
             'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'watching', 'tournament', 'log', 'resume']);
     });
 
-    test('the builder requires only rules, GamePhase, SeatState and spectatorWire (itself requiring only the stock avatar count)', () => {
+    test('the builder requires only rules, GamePhase, SeatState, assistState (none) and spectatorWire (itself requiring only the stock avatar count)', () => {
         const fs = require('fs');
         const reqsOf = (file) => [...fs.readFileSync(require.resolve(file), 'utf8').matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]).sort();
-        expect(reqsOf('../snapshotV2')).toEqual(['./GamePhase', './SeatState', './rules', './spectatorWire']);
+        expect(reqsOf('../snapshotV2')).toEqual(['./GamePhase', './SeatState', './assistState', './rules', './spectatorWire']);
+        expect(reqsOf('../assistState')).toEqual([]);
         expect(reqsOf('../spectatorWire')).toEqual(['../avatar/stockAvatars']);
         expect(reqsOf('../../avatar/stockAvatars')).toEqual([]);
         expect(reqsOf('../rules')).toEqual([]);

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { showToast, showError, showSuccess, showWarning, showInfo } from './Toast.js';
+import { showToast, showError, showSuccess, showWarning, showInfo, showNotice, TOAST_SHORT, TOAST_DURATION } from './Toast.js';
 import { clearToasts } from '../kit/toast.js';
 
 // Toast.js is the page's one toast queue (ui/kit/toast.js); kit.test.js
@@ -102,5 +102,27 @@ describe('showInfo', () => {
     showInfo('Info!');
 
     expect(document.querySelector('.toast-info')).toBeTruthy();
+  });
+});
+
+describe('showNotice (a table refusal: amber, 3 s, as iOS)', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    clearToasts();
+    vi.useRealTimers();
+  });
+
+  it('TOAST_SHORT is iOS\'s 3 s; the default stays 5 s', () => {
+    expect(TOAST_SHORT).toBe(3000);
+    expect(TOAST_DURATION).toBe(5000);
+  });
+
+  it('is a warning that leaves after 3 s', () => {
+    showNotice('Not your turn.');
+    expect(document.querySelector('.kit-toast.toast-warning').textContent).toBe('Not your turn.');
+    vi.advanceTimersByTime(2900);
+    expect(document.querySelector('.kit-toast')).toBeTruthy();
+    vi.advanceTimersByTime(300);
+    expect(document.querySelector('.kit-toast')).toBeNull();
   });
 });

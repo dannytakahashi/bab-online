@@ -231,7 +231,21 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
       c.warnings.push(`$.bidClock: malformed ${JSON.stringify(raw.bidClock)}, dropped`);
     }
   }
+  // viewer.assist (2026-11-19): the viewer's own /help count {uses,
+  // freeUses, assisted}, a seat owner's only; malformed: dropped with a warning
+  if (copy.viewer && copy.viewer.assist !== undefined) {
+    if (!validViewerAssist(copy.viewer.assist)) {
+      c.warnings.push(`$.viewer.assist: malformed ${JSON.stringify(copy.viewer.assist)}, dropped`);
+      delete copy.viewer.assist;
+    }
+  }
   return { ok: true, snapshot: deepFreeze(copy), warnings: c.warnings };
+}
+
+const countOk = (n) => Number.isSafeInteger(n) && n >= 0;
+/** A snapshot's viewer.assist: {uses, freeUses, assisted} (contract $defs.viewerAssist). */
+export function validViewerAssist(a) {
+  return !!a && typeof a === 'object' && countOk(a.uses) && countOk(a.freeUses) && typeof a.assisted === 'boolean';
 }
 
 /** The server's list cap (server/game/spectatorWire.js SPECTATOR_LIST_MAX). */

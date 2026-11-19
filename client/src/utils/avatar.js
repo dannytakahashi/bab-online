@@ -206,14 +206,17 @@ export function foldAvatarPayload(event, data) {
  * "Client capabilities") and playAgain (2026-11-16: at the end of a casual
  * game a lobby started, the server moves this socket back into that lobby
  * and sends lobbyReturn; main.js keeps the score modal up until its Return
- * to Lobby) have nothing to do with the fold: always sent.
+ * to Lobby) have nothing to do with the fold: always sent. So is assist
+ * (2026-11-19, /help plan H3): the server answers this socket's /help with
+ * the private s2c assistHint (ui/components/AssistCard.js) instead of
+ * plain-text game-log lines.
  */
 export function clientHello(version, build, capable = true) {
   return {
     client: 'web',
     version: String(version || '0.0.0').slice(0, 32),
     build: String(build || '').slice(0, 64),
-    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain'] : ['casualSpectators', 'playAgain'],
+    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain', 'assist'] : ['casualSpectators', 'playAgain', 'assist'],
   };
 }
 

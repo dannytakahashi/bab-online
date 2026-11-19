@@ -343,7 +343,9 @@ const defs = {
         // additive (2026-11-11): who is watching, as spectatorsUpdated sends it
         watching: ref('spectatorList'),
         tournament: orNull(ref('tournamentV2')),
-        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int() })),
+        // fault (additive 2026-11-19): only on a hand's fault line
+        // ("Fault: <name> (bid N, took M)"; s2c gameLogEntry room)
+        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int(), fault: ref('logFault') }, { optional: ['fault'] })),
         resume: orNull(obj({
             kind: enm('countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'),
             inMs: int({ minimum: 0, description: 'ms the server still holds the table, from serverTime (relative: never compare with a client clock)' }),
@@ -362,6 +364,24 @@ const defs = {
         position: orNull(ref('position')),
         ownerView: orNull(enm('seat', 'watch')),
         canAct: bool(),
+        // additive (2026-11-19): the viewer's own /help count this game,
+        // as s2c assistHint sends it; present only for a seat owner (role
+        // seat or lazyWatcher), absent for everyone else
+        assist: ref('viewerAssist'),
+    }, { optional: ['assist'] }),
+    viewerAssist: obj({
+        uses: int({ minimum: 0, description: 'counted /help uses of this player this game' }),
+        freeUses: int({ minimum: 0, description: 'free uses per game (3); more makes the game bot-assisted for the player' }),
+        assisted: bool({ description: 'this game counts as bot-assisted for the player' }),
+    }),
+    // A hand's fault line (2026-11-19, owner): a player on a SET team (fewer
+    // tricks than its combined bid) who took fewer tricks than they bid (a
+    // bore counts as 0). Rule: server/game/rules.js handFaults (the
+    // setsCaused stat). Clients draw the line red
+    logFault: obj({
+        position: ref('position'),
+        bid: int({ minimum: 1, maximum: 13, description: 'the player\'s own bid (a bore never faults: it counts as 0)' }),
+        took: int({ minimum: 0, maximum: 12, description: 'tricks the player took this hand (fewer than bid)' }),
     }),
     seatV2: obj({
         position: ref('position'),

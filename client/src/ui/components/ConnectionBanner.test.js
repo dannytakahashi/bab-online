@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readClientFile } from '../../testing/files.js';
 import { SocketManager } from '../../socket/SocketManager.js';
-import { installConnectionBanner, BANNER_ID, BANNER_TEXT, SHOW_DELAY_MS, RESTART_STALE_MS } from './ConnectionBanner.js';
+import { installConnectionBanner, BANNER_ID, BANNER_TEXT, SHOW_DELAY_MS, RESTART_STALE_MS, BANNER_BODY_CLASS } from './ConnectionBanner.js';
 
 // Socket + Manager emitters with the surface SocketManager uses. Socket.IO
 // v4 emits reconnect_* on the Manager (socket.io), connect/disconnect on the
@@ -73,6 +74,41 @@ describe('ConnectionBanner', () => {
     socket.fire('connect');
     expect(shown()).toBe(false);
     expect(el().textContent).toBe('');
+  });
+
+  it('while it shows, the body says so (toasts step below it at the top centre); gone with it', () => {
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    socket.fire('disconnect', 'transport close');
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    vi.advanceTimersByTime(SHOW_DELAY_MS);
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(true);
+    socket.fire('connect');
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    expect(document.documentElement.style.getPropertyValue('--connection-banner-h')).toBe('');
+  });
+
+  it('the toast step follows the banner\'s height while it shows (a rotation rewraps it), and stops listening once it is gone', () => {
+    let h = 35;
+    Object.defineProperty(el(), 'offsetHeight', { configurable: true, get: () => h });
+    const step = () => document.documentElement.style.getPropertyValue('--connection-banner-h');
+    socket.fire('disconnect', 'transport close');
+    vi.advanceTimersByTime(SHOW_DELAY_MS);
+    expect(step()).toBe('35px');
+    h = 51; // landscape to portrait: two lines now
+    window.dispatchEvent(new Event('resize'));
+    expect(step()).toBe('51px');
+    socket.fire('connect');
+    expect(step()).toBe('');
+    window.dispatchEvent(new Event('resize'));
+    expect(step()).toBe('');
+    delete el().offsetHeight;
+  });
+
+  it('the pill is its own width (max-content, capped by the gutter): left 50% no longer wraps it at half the page', () => {
+    const css = readClientFile('styles/components.css');
+    const rule = css.slice(css.indexOf('.connection-banner {'), css.indexOf('}', css.indexOf('.connection-banner {')));
+    expect(rule).toContain('width: max-content');
+    expect(rule).toContain('max-width: calc(100vw - 32px)');
   });
 
   it('never flashes for a drop shorter than the delay (iOS Safari forced reconnect)', () => {

@@ -66,18 +66,33 @@ describe('recorded game: live play, a rejoin onto the live scene, play on', () =
     const r = rec.logs['seat1-rejoin'];
     const rejoin = r[0];
     expect(rejoin.event).toBe('rejoinSuccess');
-    const snap = rejoin.data.snapshot;
+    const data = JSON.parse(JSON.stringify(rejoin.data));
+    const snap = data.snapshot;
     // The table is mid-trick and animated; the socket dies and comes back
     replay.advance(150);
+    // the red rows live play drew: the server's gameLogEntry lines with
+    // fault (2026-11-19), one per short player of a set hand
+    const faultRows = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault .log-row__text')].map((r) => r.textContent);
+    const faultsBefore = faultRows();
+    expect(faultsBefore.length).toBeGreaterThan(0);
     page.socket.reconnect('ios-h1-r1');
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
     expect(page.socket.emitted('rejoinGame').at(-1)).toMatchObject({ gameId: rec.gameId });
-    page.socket.fire('rejoinSuccess', JSON.parse(JSON.stringify(rejoin.data)));
+    page.socket.fire('rejoinSuccess', data);
     replay.advance(50);
 
     const scene = page.scene;
     expect(replay.liveCounts(scene)).toEqual(replay.expectedCounts(snap));
-    // the log is the server's (73 lines) plus one 'Reconnected to game!'
+    // the log is the server's plus one 'Reconnected to game!'; its fault
+    // lines (the snapshot's log items with fault) red, each once, the same
+    // rows live play drew, each after its hand's team lines
+    expect(faultRows()).toEqual(snap.log.filter((e) => e.fault).map((e) => e.message));
+    expect(faultRows()).toEqual(faultsBefore);
+    for (const row of document.querySelectorAll('#gameFeed .log-row.is-fault')) {
+      let prev = row.previousElementSibling;
+      while (prev?.classList.contains('is-fault')) prev = prev.previousElementSibling;
+      expect(prev?.previousElementSibling?.previousElementSibling?.textContent).toContain('--- HAND COMPLETE ---');
+    }
     expect(replay.logRows()).toBe(snap.log.length + 1);
     // the trump is face up, no flip pending
     expect(scene.tableCardSprite.texture.key).toBe('cards');
@@ -102,6 +117,7 @@ describe('recorded game: live play, a rejoin onto the live scene, play on', () =
     page.socket.fire('rejoinSuccess', JSON.parse(JSON.stringify(rejoin.data)));
     replay.advance(50);
     const scene = page.scene;
+    expect([...document.querySelectorAll('#gameFeed .log-row.is-fault')]).toHaveLength(rejoin.data.snapshot.log.filter((e) => e.fault).length);
     expect({
       counts: scene.tableCounts(),
       census: scene.census(),

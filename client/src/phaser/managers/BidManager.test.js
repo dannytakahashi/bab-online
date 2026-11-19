@@ -14,6 +14,7 @@ import { BidManager } from './BidManager.js';
 import { resetGameState, getGameState } from '../../state/GameState.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_CHROME, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 import { readClientFile } from '../../testing/files.js';
+import { clearToasts } from '../../ui/kit/toast.js';
 import { resetMyAction, getMyAction } from '../../state/MyAction.js';
 import { setBidClockNow, BID_CLOCK_UI_MARGIN_MS, BID_CLOCK_EXPIRED_GRACE_MS } from '../../state/bidClock.js';
 
@@ -351,5 +352,110 @@ describe('the bid clock\'s countdown (owner 2026-11-18)', () => {
     expect(c).toContain('var(--type-sm)');
     expect(rule('.bid-sheet__clock--low')).toContain('var(--warning)');
     expect(rule('.bid-sheet__title')).toContain('position: relative');
+  });
+});
+
+describe('a bid tap off my turn says so (iOS\'s words), on my turn it bids', () => {
+  let bm;
+  beforeEach(() => {
+    resetGameState();
+    resetMyAction();
+    clearToasts();
+    bm = new BidManager({});
+  });
+  afterEach(() => {
+    bm.hideBidUI(false);
+    document.getElementById('bidContainer')?.remove();
+    clearToasts();
+  });
+
+  const button = (label) => [...document.querySelectorAll('#bidContainer .bid-button')].find((b) => b.textContent === label);
+
+  it('a number or a bore off my turn on a sheet still open (out of sync): the "Not your turn." notice (amber), nothing sent', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 2;
+    state.isBidding = true;
+    const onBid = vi.fn();
+    bm.showBidUI(13, onBid);
+    bm.bidContainer.classList.add('is-open'); // the turn moved, the sheet did not
+    button('3').click();
+    expect(onBid).not.toHaveBeenCalled();
+    expect(document.querySelector('.kit-toast.toast-warning').textContent).toBe('Not your turn.');
+    clearToasts();
+    const bore = button('B');
+    if (!bore.disabled) {
+      bore.click();
+      expect(document.querySelector('.kit-toast.toast-warning').textContent).toBe('Not your turn.');
+    }
+    expect(onBid).not.toHaveBeenCalled();
+  });
+
+  it('a tap on the closing sheet (a double-click after my bid\'s echo moved the turn): silent, nothing sent', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isBidding = true;
+    const onBid = vi.fn(() => true);
+    bm.showBidUI(13, onBid);
+    bm.bidContainer.classList.add('is-open');
+    button('3').click();
+    expect(onBid).toHaveBeenCalledTimes(1);
+    state.currentTurn = 2; // the echo
+    bm.updateVisibility(); // the sheet starts its fade (visibility lingers --dur-fast)
+    expect(bm.bidContainer.classList.contains('is-open')).toBe(false);
+    button('4').click();
+    button('B').click();
+    expect(onBid).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.kit-toast')).toBeNull();
+  });
+
+  it('on my turn: the bid goes out, no toast', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isBidding = true;
+    const onBid = vi.fn(() => true);
+    bm.showBidUI(13, onBid);
+    button('3').click();
+    expect(onBid).toHaveBeenCalledWith('3');
+    expect(document.querySelector('.kit-toast')).toBeNull();
+  });
+});
+
+describe('the /help suggested bid', () => {
+  let bm;
+  beforeEach(() => {
+    resetGameState();
+    bm = new BidManager({});
+  });
+  afterEach(() => {
+    bm.hideBidUI(false);
+    document.getElementById('bidContainer')?.remove();
+  });
+
+  const suggested = () => [...document.querySelectorAll('#bidContainer .bid-button.is-suggested')];
+
+  it('rings the suggested button (numbers and bores) and names it; null clears it', () => {
+    bm.showBidUI(5, () => true);
+    bm.setSuggestedBid('3');
+    expect(suggested().map((b) => b.textContent)).toEqual(['3']);
+    expect(suggested()[0].getAttribute('aria-label')).toBe('3 (suggested)');
+    bm.setSuggestedBid('b');
+    expect(suggested().map((b) => b.textContent)).toEqual(['B']);
+    bm.setSuggestedBid(null);
+    expect(suggested()).toEqual([]);
+    expect(document.querySelector('#bidContainer .bid-button[aria-label]')).toBeNull();
+  });
+
+  it('survives a rebuild of the sheet (a render)', () => {
+    bm.showBidUI(5, () => true);
+    bm.setSuggestedBid('2');
+    bm.showBidUI(5, () => true);
+    expect(suggested().map((b) => b.textContent)).toEqual(['2']);
+  });
+
+  it('the ring is CSS: a gold ring on .is-suggested', () => {
+    expect(rule('.bid-button.is-suggested')).toMatch(/var\(--gold\)/);
   });
 });

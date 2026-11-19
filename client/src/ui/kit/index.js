@@ -4,4 +4,4 @@
  */
 export { el, createButton, createIconButton, createSwitch, setSwitch, createInput, createPanel, createChip, createAvatar, setAvatarTurn, BUTTON_VARIANTS } from './elements.js';
 export { openModal, focusables, openModalCount } from './modal.js';
-export { toast, clearToasts, toastQueueLength, TOAST_DURATION, TOAST_TYPES } from './toast.js';
+export { toast, clearToasts, toastQueueLength, toastAnnouncers, TOAST_DURATION, TOAST_SHORT, TOAST_TYPES } from './toast.js';

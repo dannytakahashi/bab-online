@@ -93,7 +93,7 @@ bab-online/
 2. **Lobby**: `createLobby` / `joinLobby` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
 4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal). A human bid turn idle for 10 s gets the bid clock (`bidClock`, unsequenced; the table plays a 30 s tune) and at 40 s the server bids 0 for the seat ("<name> ran out of time."; `server/CLAUDE.md`, Bid clock)
-5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
+5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete` (then, for a set team, one stored room `gameLogEntry` with `fault {position, bid, took}` per player short of their own bid: the red "Fault: <name> (bid N, took M)" lines; `server/CLAUDE.md`, Hand-end log lines)
 6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
 7. **Resync (snapshot v2)**: `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot {snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game'}` (any seat owner, entrant or spectator; custom pictures only with `customPics: true`; `snapshot.partial` lists what was left out and the client keeps it — `mergeSnapshot`; `seq` on room broadcasts tells a v2 client when it missed something)
 

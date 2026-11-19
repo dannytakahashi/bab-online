@@ -32,6 +32,7 @@ import { hudVoiceSlot, hudLayout } from '../tableHud.js';
 import { getClientSession, SCREEN } from '../../state/ClientSession.js';
 import { el, createButton, createIconButton, openModal } from '../kit/index.js';
 import { LOBBY_VOICE_SLOT_ID } from '../screens/GameLobby.js';
+import { showWarning } from './Toast.js';
 
 /*
  * The buttons are kit icon buttons (.kit-icon-btn.voice-btn, table.css):
@@ -316,6 +317,7 @@ async function toggleDevicePopover() {
           await voiceManager.switchAudioDevice(device.deviceId);
         } catch (err) {
           console.warn('[Voice] switchAudioDevice failed:', err.message);
+          showWarning("Couldn't switch to that microphone.");
         }
       }
       removeDevicePopover();

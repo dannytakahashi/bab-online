@@ -124,6 +124,59 @@ describe('CardManager', () => {
     });
   });
 
+  describe('the /help suggested card (setSuggestedCard)', () => {
+    const buttons = () => [...document.querySelectorAll('.hud-hand__card')];
+    beforeEach(() => document.body.replaceChildren());
+
+    it('marks it in the keyboard hand (ring and "(suggested)"), kept across a redraw, cleared by null', () => {
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      manager.setSuggestedCard({ suit: 'diamonds', rank: '9' });
+      expect(manager.suggestedCardKey()).toBe('9_diamonds');
+      const marked = () => buttons().filter((b) => b.classList.contains('is-suggested')).map((b) => b.dataset.key);
+      expect(marked()).toEqual(['9_diamonds']);
+      expect(buttons().find((b) => b.dataset.key === '9_diamonds').getAttribute('aria-label')).toMatch(/\(suggested\)$/);
+      // a redraw of the same hand (a render) keeps it
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      expect(marked()).toEqual(['9_diamonds']);
+      manager.setSuggestedCard(null);
+      expect(marked()).toEqual([]);
+      expect(manager.suggestedCardKey()).toBeNull();
+    });
+
+    it('the halo is drawn on the table behind the sprite and follows it every frame (a hover lift moves it too); gone with the suggestion', () => {
+      const listeners = new Map();
+      mockScene.events = {
+        on: vi.fn((ev, fn) => listeners.set(ev, fn)),
+        off: vi.fn((ev, fn) => { if (listeners.get(ev) === fn) listeners.delete(ev); }),
+      };
+      const glow = {
+        active: true,
+        clear: vi.fn(), lineStyle: vi.fn(), strokeRoundedRect: vi.fn(),
+        setPosition: vi.fn(function (x, y) { this.x = x; this.y = y; return this; }),
+        setRotation: vi.fn(), setDepth: vi.fn(function (d) { this.depth = d; return this; }),
+        setVisible: vi.fn(function (v) { this.visible = v; return this; }),
+        destroy: vi.fn(),
+      };
+      mockScene.add.graphics = vi.fn(() => glow);
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      const sprite = mockScene._sprites.find((sp) => sp.getData('card').rank === '9');
+      manager.setSuggestedCard({ suit: 'diamonds', rank: '9' });
+      expect(mockScene.add.graphics).toHaveBeenCalledTimes(1);
+      expect(glow.strokeRoundedRect).toHaveBeenCalled();
+      expect([glow.x, glow.y]).toEqual([sprite.x, sprite.y]);
+      expect(glow.depth).toBe(sprite.depth - 0.25); // under the card, over the one to its left
+      // the hover lift (a tween moves the sprite): the next frame's postupdate follows
+      sprite.y -= 20;
+      listeners.get('postupdate')();
+      expect(glow.y).toBe(sprite.y);
+      // drawn once per size, not every frame
+      expect(glow.clear).toHaveBeenCalledTimes(1);
+      manager.setSuggestedCard(null);
+      expect(glow.destroy).toHaveBeenCalled();
+      expect(listeners.has('postupdate')).toBe(false);
+    });
+  });
+
   describe('displayHand', () => {
     it('creates sprites for each card', () => {
       const cards = [
@@ -170,6 +223,19 @@ describe('CardManager', () => {
       manager.setCardClickHandler(handler);
 
       expect(manager._onCardClick).toBe(handler);
+    });
+
+    it('a pointer press says it came from the pointer (a double-click\'s second press is quiet); the keyboard\'s does not', () => {
+      const handler = vi.fn();
+      manager.setCardClickHandler(handler);
+      const card = { rank: 'A', suit: 'spades' };
+      manager.displayHand([card], { animate: false });
+      const sprite = mockScene._sprites[0];
+      const down = sprite.on.mock.calls.find(([ev]) => ev === 'pointerdown')[1];
+      down();
+      expect(handler).toHaveBeenLastCalledWith(card, sprite, 'pointer');
+      manager._activate(sprite);
+      expect(handler).toHaveBeenLastCalledWith(card, sprite, 'keyboard');
     });
   });
 

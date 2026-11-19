@@ -11,6 +11,7 @@ import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
+import { helpDescription, HELP_COMMAND } from '../../state/assistHint.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -187,7 +188,12 @@ export function createGameLog({ onChatSubmit } = {}) {
   // player is at the table (or may come back); when no one is, the server
   // ends the game (seatLifecycle.maybeAbort: "All players left"). The web
   // does not track the other seats' presence, so the text names both.
+  // /help (a suggested bid or card, private; state/assistHint.js): its line
+  // says this game's uses, read when the list is drawn ("Suggest a move
+  // (1 of 3 free used)"; after the free ones "the next one makes this game
+  // bot-assisted")
   const ALL_SLASH_COMMANDS = [
+    { command: HELP_COMMAND, description: () => helpDescription(getGameState().gameId) },
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },
@@ -232,7 +238,7 @@ export function createGameLog({ onChatSubmit } = {}) {
       name.textContent = cmd.command;
       const desc = document.createElement('span');
       desc.className = 'slash-item__desc';
-      desc.textContent = cmd.description;
+      desc.textContent = typeof cmd.description === 'function' ? cmd.description() : cmd.description;
       item.append(name, desc);
       item.addEventListener('mousedown', (e) => {
         e.preventDefault(); // Prevent blur from firing
@@ -270,12 +276,22 @@ export function createGameLog({ onChatSubmit } = {}) {
   chatInput.onkeypress = (e) => {
     if (e.key === 'Enter') submitChat();
   };
+  // The blur's hide waits so a click on an autocomplete item fires first; focus or typing
+  // within that wait cancels it, or the list would vanish under a fast click-away-and-back
+  let blurHideTimer = null;
+  const cancelBlurHide = () => {
+    if (blurHideTimer !== null) clearTimeout(blurHideTimer);
+    blurHideTimer = null;
+  };
   chatInput.addEventListener('input', () => {
+    cancelBlurHide();
     updateAutocomplete(chatInput.value);
   });
+  chatInput.addEventListener('focus', cancelBlurHide);
   chatInput.addEventListener('blur', () => {
-    // Small delay so click events on autocomplete items fire first
-    setTimeout(() => {
+    cancelBlurHide();
+    blurHideTimer = setTimeout(() => {
+      blurHideTimer = null;
       autocompleteDropdown.hidden = true;
     }, 150);
   });
@@ -361,6 +377,28 @@ export function createGameLog({ onChatSubmit } = {}) {
     append(buildRow(message, null, at));
   };
 
+  /**
+   * A dim row only this page shows (never sent, never stored: a replay of
+   * the server's log drops it), e.g. "Help: Play 9♦ (only you see this)".
+   */
+  const addPrivateMessage = (message) => {
+    const row = buildRow(message, null);
+    row.classList.add('is-private');
+    append(row);
+  };
+
+  /**
+   * A red fault row after a set hand's lines ("Fault: ann (bid 3, took 1)"):
+   * the server's stored gameLogEntry that carries `fault` (main.js
+   * onGameLogEntry); a replay of the snapshot log (replaceMessages, an
+   * entry's `fault`) draws it again, in place.
+   */
+  const addFaultMessage = (message) => {
+    const row = buildRow(message, null);
+    row.classList.add('is-fault');
+    append(row);
+  };
+
   const addTrickResult = (winner, teamTricks, oppTricks) => {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'log-trick';
@@ -415,7 +453,10 @@ export function createGameLog({ onChatSubmit } = {}) {
     const frag = document.createDocumentFragment();
     const rows = entries.slice(-MAX_LOG_ROWS);
     for (const e of rows) {
-      frag.appendChild(buildRow(e.message, e.position ?? null, e.at ?? null));
+      const row = buildRow(e.message, e.position ?? null, e.at ?? null);
+      // a hand's fault line (the server's log item carries `fault`)
+      if (e.fault) row.classList.add('is-fault');
+      frag.appendChild(row);
     }
     // A replay (rejoin, resync) shows the same story: the reader keeps
     // their place unless they were at the end
@@ -491,6 +532,8 @@ export function createGameLog({ onChatSubmit } = {}) {
     container,
     addMessage,
     addSystemMessage,
+    addPrivateMessage,
+    addFaultMessage,
     addGameMessage,
     addTrickResult,
     updateScores,

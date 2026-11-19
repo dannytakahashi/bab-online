@@ -293,6 +293,49 @@ function calculateScore(bid, tricks, multiplier, rainbows) {
 }
 
 /**
+ * A player's own bid as the tricks a set blames them for: a bore counts as
+ * 0 (its team total is the hand, game.bids.teamN), else its number.
+ * @param {string|number|null|undefined} bid
+ * @returns {number}
+ */
+function personalBidValue(bid) {
+    const s = String(bid ?? '');
+    return s.includes('B') ? 0 : parseInt(s, 10) || 0;
+}
+
+/** Team seats in the order the hand's log lines name them (team1, then team2). */
+const FAULT_TEAM_SEATS = Object.freeze([['team1', [1, 3]], ['team2', [2, 4]]]);
+
+/**
+ * The hand's faults (owner 2026-11-19; the one source of the setsCaused
+ * stat and the "Fault: <name> (bid N, took M)" log lines): for each team
+ * that was SET (took fewer tricks than its combined bid, teamBids.teamN:
+ * a bore is the whole hand, capped at it), every player on it who took
+ * fewer tricks than they personally bid (personalBidValue: a bore is 0).
+ * A team that made its bid has none. Seats 1, 3, then 2, 4.
+ *
+ * @param {Object} hand
+ * @param {{team1: number, team2: number}} hand.teamBids - game.bids at hand end
+ * @param {{team1: number, team2: number}} hand.teamTricks - game.tricks
+ * @param {Array} hand.playerBids - game.playerBids (index = position - 1)
+ * @param {Object} hand.handTricks - game.handTricks ({1..4: tricks won this hand})
+ * @returns {{position: number, bid: number, took: number}[]}
+ */
+function handFaults({ teamBids, teamTricks, playerBids, handTricks } = {}) {
+    if (!teamBids || !teamTricks || !Array.isArray(playerBids) || !handTricks) return [];
+    const out = [];
+    for (const [team, seats] of FAULT_TEAM_SEATS) {
+        if (!(teamTricks[team] < teamBids[team])) continue; // made (or unknown)
+        for (const position of seats) {
+            const bid = personalBidValue(playerBids[position - 1]);
+            const took = handTricks[position] || 0;
+            if (bid > took) out.push({ position, bid, took });
+        }
+    }
+    return out;
+}
+
+/**
  * Find the index of the highest bidder starting from a position
  * @param {number} startPosition - Position to start checking from (1-4)
  * @param {Array} bids - Array of bid strings
@@ -461,6 +504,8 @@ module.exports = {
     safeBid,
     determineWinner,
     calculateScore,
+    personalBidValue,
+    handFaults,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,

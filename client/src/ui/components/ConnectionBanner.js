@@ -3,8 +3,9 @@
  * (driven by SocketManager.onStateChange). It appears only after the drop
  * has lasted SHOW_DELAY_MS, so the iOS Safari background workaround (a
  * forced disconnect/connect ~100 ms apart) never flashes it, and it goes
- * away as soon as the socket is connected again. Toasts live at the bottom
- * of the page, so the two never overlap.
+ * away as soon as the socket is connected again. Toasts share the top
+ * centre (as on iOS): while the banner shows, body.has-connection-banner
+ * steps them below it, so the two never overlap.
  *
  * The element is a polite live region (role=status) that stays in the DOM
  * while empty, so screen readers announce the text when it appears.
@@ -20,6 +21,8 @@ import { CONNECTION_STATE } from '../../socket/SocketManager.js';
 
 export const BANNER_ID = 'connection-banner';
 export const SHOW_DELAY_MS = 1000;
+/** On <body> while the banner shows: the toast region steps below it. */
+export const BANNER_BODY_CLASS = 'has-connection-banner';
 
 export const BANNER_TEXT = {
   lost: 'Connection lost. Reconnecting…',
@@ -70,11 +73,41 @@ export function installConnectionBanner(socketManager, { doc = document, showDel
   let restarting = false;
   let staleTimer = null;
 
+  // Toasts sit under the banner while it shows (kit.css
+  // body.has-connection-banner): its height, which wraps at phone width,
+  // measured again while it shows (a rotation or resize rewraps it)
+  const view = doc.defaultView;
+  let listening = false;
+  let observer = null;
+  const measure = () => {
+    const h = isVisible() ? element.offsetHeight : 0;
+    if (h > 0) doc.documentElement.style.setProperty('--connection-banner-h', `${h}px`);
+    else doc.documentElement.style.removeProperty('--connection-banner-h');
+  };
+  const placeToasts = (on) => {
+    doc.body.classList.toggle(BANNER_BODY_CLASS, on);
+    measure();
+    if (on === listening) return;
+    listening = on;
+    if (on) {
+      view?.addEventListener('resize', measure);
+      if (typeof view?.ResizeObserver === 'function') {
+        observer = new view.ResizeObserver(measure);
+        observer.observe(element);
+      }
+    } else {
+      view?.removeEventListener('resize', measure);
+      observer?.disconnect();
+      observer = null;
+    }
+  };
+
   const show = (text) => {
     // The same text again (every reconnect attempt) is not re-announced
     if (element.textContent !== text) element.textContent = text;
     element.classList.toggle(RESTART_CLASS, text === BANNER_TEXT.restarting);
     element.classList.add('visible');
+    placeToasts(true);
   };
 
   const endRestart = () => {
@@ -89,6 +122,7 @@ export function installConnectionBanner(socketManager, { doc = document, showDel
     pendingText = null;
     element.classList.remove('visible', RESTART_CLASS);
     element.textContent = '';
+    placeToasts(false);
   };
 
   const isVisible = () => element.classList.contains('visible');

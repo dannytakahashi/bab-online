@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import { loadPage, tick, mainRoomPayload, clientState, seatDeal, spectatorState, tournamentPayload, tableLeftovers, CLEAN } from '../testing/fakePage.js';
 import { BANNER_ID, BANNER_TEXT } from '../ui/components/ConnectionBanner.js';
 import { RESTART_LOSS_TEXT, LOSS, getRestartNotice, RESTART_NOTICE_KEY } from '../state/restartNotice.js';
-import { clearToasts, toastQueueLength } from '../ui/kit/toast.js';
+import { clearToasts, toastQueueLength, toastAnnouncers, ANNOUNCE_DELAY_MS } from '../ui/kit/toast.js';
 import { NOTICE_ID } from '../ui/components/SupersededNotice.js';
 
 vi.mock('../vendor.js', () => ({}));
@@ -53,9 +53,10 @@ beforeEach(() => {
   observer = new MutationObserver((records) => {
     for (const r of records) {
       for (const node of r.addedNodes) {
-        if (node.classList?.contains('kit-toast')) record(node.firstChild);
-        else if (node.nodeType === 3 && r.target.classList?.contains('kit-toast')) record(node);
-        else node.querySelectorAll?.('.kit-toast').forEach((t) => record(t.firstChild));
+        // the message is the toast's .kit-toast__text (after its icon)
+        if (node.classList?.contains('kit-toast')) record(node.querySelector('.kit-toast__text')?.firstChild);
+        else if (node.nodeType === 3 && r.target.classList?.contains('kit-toast__text')) record(node);
+        else node.querySelectorAll?.('.kit-toast__text').forEach((t) => record(t.firstChild));
       }
     }
   });
@@ -126,8 +127,10 @@ describe('the server restarts for an update', () => {
     expect(tableLeftovers(page)).toEqual(CLEAN);
     expect(restartToasts()).toEqual([RESTART_LOSS_TEXT[LOSS.SEAT]]);
     const toast = [...document.querySelectorAll('.kit-toast')].find((t) => t.textContent === RESTART_LOSS_TEXT[LOSS.SEAT]);
-    expect(toast.getAttribute('role')).toBe('status');
-    expect(toast.getAttribute('aria-live')).toBe('polite');
+    // read once, politely, by the region's persistent announcer (the card has no live role)
+    expect(toast.getAttribute('role')).toBeNull();
+    await new Promise((r) => setTimeout(r, ANNOUNCE_DELAY_MS + 10));
+    expect(toastAnnouncers().polite.textContent).toBe(RESTART_LOSS_TEXT[LOSS.SEAT]);
 
     // another path firing (a repeated refusal, another not_in_game): still one message
     socket.fire('rejoinFailed', { reason: 'Game no longer exists' });

@@ -403,56 +403,121 @@
     to { opacity: 1; transform: scale(1); }
 }
 
-/* ---------- Toast: one queue, bottom centre ---------- */
+/* ---------- Toast: one queue, a pill at the top centre (iOS ServerErrorToast) ----------
+   Under the connection banner while it shows (body.has-connection-banner,
+   set by ConnectionBanner.js; its height in --connection-banner-h). The
+   bottom of the table is the hand and the bid sheet: a toast there would
+   sit over the card just clicked. */
 
 .kit-toast-region {
     position: fixed;
     left: 50%;
-    bottom: var(--space-5);
+    top: calc(env(safe-area-inset-top, 0px) + var(--space-3));
+    bottom: auto;
     transform: translateX(-50%);
     display: flex;
     flex-direction: column;
     align-items: center;
+    width: max-content;
     max-width: calc(100vw - 2 * var(--space-4));
     pointer-events: none;
     z-index: var(--z-toast);
 }
 
+body.has-connection-banner .kit-toast-region {
+    top: calc(env(safe-area-inset-top, 0px) + 10px + var(--connection-banner-h, 38px) + var(--space-2));
+}
+
+/* The screen readers' copy (polite and assertive): never seen */
+.kit-toast-announcer {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
 .kit-toast {
     --toast-accent: var(--team-a);
     box-sizing: border-box;
-    max-width: 420px;
-    padding: var(--space-3) var(--space-5);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    max-width: 520px;
+    padding: 10px var(--space-4);
     border: 1px solid var(--line-subtle);
-    border-left: 4px solid var(--toast-accent);
-    border-radius: var(--radius-md);
+    /* a capsule on one line; two lines keep rounded corners, not half-circles */
+    border-radius: 22px;
     background: var(--surface-1);
     color: var(--text-primary);
-    box-shadow: var(--elev-3);
+    box-shadow: var(--elev-2);
     font-family: var(--font-ui);
     font-size: var(--type-sm);
-    font-weight: var(--weight-medium);
+    font-weight: var(--weight-bold);
     line-height: 1.35;
-    text-align: center;
+    text-align: start;
+    cursor: pointer;
     pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
     animation: kit-toast-in var(--dur-base) var(--ease-emphasized);
     transition: opacity var(--dur-fast) var(--ease-standard);
 }
 
+.kit-toast__icon {
+    flex: none;
+    display: inline-flex;
+    width: 20px;
+    height: 20px;
+    color: var(--toast-accent);
+}
+
+.kit-toast__icon svg {
+    display: block;
+    width: 20px;
+    height: 20px;
+}
+
+.kit-toast__disc { fill: currentColor; }
+
+.kit-toast__glyph {
+    fill: none;
+    stroke: var(--surface-1);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.kit-toast__text { min-width: 0; overflow-wrap: anywhere; }
+
+/* teal "i" info (default), amber "!" refusal / warning, red "!" a real error */
 .kit-toast.toast-success { --toast-accent: var(--success); }
 .kit-toast.toast-warning { --toast-accent: var(--warning); }
 .kit-toast.toast-error { --toast-accent: var(--danger-text); }
 .kit-toast.is-leaving { opacity: 0; }
+/* the same words again (a repeated illegal click): a short shake */
+.kit-toast.is-nudged { animation: kit-toast-nudge 150ms var(--ease-standard); }
 
 @keyframes kit-toast-in {
-    from { opacity: 0; transform: translateY(8px); }
+    from { opacity: 0; transform: translateY(-8px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes kit-toast-nudge {
+    0%, 100% { transform: translateX(0); }
+    33% { transform: translateX(-3px); }
+    66% { transform: translateX(3px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .kit-modal-backdrop,
     .kit-modal,
-    .kit-toast {
+    .kit-toast,
+    .kit-toast.is-nudged {
         animation: none;
     }
 }

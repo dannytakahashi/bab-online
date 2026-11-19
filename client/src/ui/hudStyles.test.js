@@ -14,7 +14,7 @@ const HUD_FILES = [
   'src/phaser/scenes/GameScene.js', 'src/phaser/managers/DrawManager.js', 'src/ui/components/Toast.js',
   'src/ui/components/ConnectionBanner.js', 'src/ui/components/ChatBubble.js', 'src/ui/tableHud.js', 'src/ui/transitionOverlay.js',
   'src/ui/components/SpectatorBadge.js', 'src/ui/drawHud.js', 'src/ui/components/SoundToggle.js', 'src/ui/handA11y.js',
-  'src/phaser/managers/CardManager.js',
+  'src/phaser/managers/CardManager.js', 'src/ui/components/AssistCard.js',
 ];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;

@@ -14,7 +14,12 @@
       "role": "seat",
       "position": 4,
       "ownerView": "seat",
-      "canAct": false
+      "canAct": false,
+      "assist": {
+        "uses": 0,
+        "freeUses": 3,
+        "assisted": false
+      }
     },
     "hand": [],
     "deal": {

@@ -141,6 +141,18 @@ describe('server event -> handler map', () => {
     expect(schema.s2c.bidClock.clientReads.web).toContain('client/src/handlers/gameHandlers.js:registerGameHandlers');
   });
 
+  it('assistHint (/help, 2026-11-19) has one handler, in the game module, outside the seq gate (private, unsequenced); web says the cap assist', async () => {
+    expect(managed.get('assistHint')).toBe(1);
+    expect((listeners.get('assistHint') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.assistHint.seq).toBeFalsy();
+    expect(schema.s2c.assistHint.clientReads.web).toEqual(['client/src/handlers/gameHandlers.js:registerGameHandlers']);
+    const { clientHello } = await import('./utils/avatar.js');
+    expect(clientHello('1.0.0', 'b').caps).toContain('assist');
+    expect(clientHello('1.0.0', 'b', false).caps).toContain('assist');
+  });
+
   it('lobbyReturn (play again, 2026-11-16) has one handler, in the lobby module (private, unsequenced); releaseLobbyHold is sent by web', () => {
     expect(managed.get('lobbyReturn')).toBe(1);
     expect((listeners.get('lobbyReturn') || []).length).toBe(1);
@@ -206,6 +218,8 @@ describe('server event -> handler map', () => {
       ['playerActiveMode', 'handlePlayerActiveMode', { position: 2, username: 'a' }],
       ['chatMessage', 'handleShowChatBubble', { username: 'a', position: 2, message: 'hi' }],
       ['abortGame', 'handleAbortGame', { reason: 'test' }],
+      // /help: the private answer reaches the scene (handlers/index.js passes onAssistHint)
+      ['assistHint', 'handleAssistHint', { v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: 'Nothing to suggest right now.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false }],
     ];
     const handlerNames = [...new Set(table.map(([, h]) => h).concat('handleAddToGameFeed'))];
     let spies;
@@ -229,8 +243,14 @@ describe('server event -> handler map', () => {
       const { getGameState } = await import('./state/GameState.js');
       getGameState().position = 1;
       mountScene();
+      // the /help answer is shown only at the table
+      const { getClientSession, SCREEN } = await import('./state/ClientSession.js');
+      const session = getClientSession();
+      const screen = session._screen;
+      if (event === 'assistHint') session._screen = SCREEN.TABLE;
 
       fire(event, data);
+      session._screen = screen;
 
       const calls = Object.fromEntries(handlerNames.map((n, i) => [n, spies[i].mock.calls.length]));
       const expected = Object.fromEntries(handlerNames.map((n) => [n, n === handler ? 1 : 0]));
@@ -238,5 +258,49 @@ describe('server event -> handler map', () => {
       if (event === 'chatMessage') expected.handleAddToGameFeed = 1;
       expect(calls).toEqual(expected);
     });
+  });
+});
+
+describe('fault lines are the server\'s (owner 2026-11-19; gameLogEntry with fault)', () => {
+  it('handComplete passes the hand\'s bids (copied before GameState resets them); no seat tricks or size are needed any more', async () => {
+    const spies = ['handleTrickComplete', 'handleHandComplete'].map((n) => vi.spyOn(GameScene.prototype, n).mockImplementation(() => {}));
+    try {
+      const { getGameState } = await import('./state/GameState.js');
+      const state = getGameState();
+      state.position = 1;
+      state.currentHand = 2;
+      state.bids = { 1: '2', 2: '0', 3: '0', 4: '1' };
+      const scene = new GameScene();
+      scene.scene = { restart: vi.fn() };
+      scene.children = { removeAll: vi.fn() };
+      scene.cardManager = { clearAll: vi.fn() };
+      window.ModernUtils.setGameScene(scene);
+
+      fire('trickComplete', { winner: 4 });
+      fire('trickComplete', { winner: 1, resumeInMs: 1000 });
+      fire('handComplete', { score: { team1: -20, team2: 10 }, team1Tricks: 1, team2Tricks: 1, team1OldScore: 0, team2OldScore: 0 });
+
+      const [, hand] = spies[1].mock.calls.at(-1);
+      expect(hand).toEqual({ bids: { 1: '2', 2: '0', 3: '0', 4: '1' } });
+    } finally {
+      spies.forEach((s) => s.mockRestore());
+    }
+  });
+
+  it('a gameLogEntry with fault is one red is-fault row; a plain system line is not red; the page computes none itself', async () => {
+    window.createGameFeedFromLegacy(true);
+    const red = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault')].map((r) => r.textContent);
+    const before = red().length;
+    fire('gameLogEntry', { message: 'Fault: ann (bid 3, took 1)', type: 'system', fault: { position: 1, bid: 3, took: 1 } });
+    fire('gameLogEntry', { message: 'bob used /help.', type: 'system' });
+    const rows = red();
+    expect(rows.length - before).toBe(1);
+    expect(rows.at(-1)).toContain('Fault: ann (bid 3, took 1)');
+    const last = [...document.querySelectorAll('#gameFeed .log-row')].at(-1);
+    expect(last.textContent).toContain('bob used /help.');
+    expect(last.classList.contains('is-fault')).toBe(false);
+    // the client-side rule and its replay bookkeeping are gone
+    expect(existsSync(resolve(__dirname, 'rules/faults.js'))).toBe(false);
+    expect(mainSource).not.toMatch(/rememberFault|withFaultRows|formatFaultMessages/);
   });
 });

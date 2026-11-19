@@ -101,10 +101,20 @@ function helpUses(a, owner) {
     return a && owner && a.user === owner ? a.help : 0;
 }
 
+/**
+ * What `owner`'s record says, as the wire sends it: assistHint's uses /
+ * freeUses / assisted and snapshot v2's viewer.assist (2026-11-19).
+ * @returns {{uses: number, freeUses: number, assisted: boolean}}
+ */
+function assistTally(a, owner) {
+    return { uses: helpUses(a, owner), freeUses: ASSIST_FREE_HELP, assisted: isAssistedSeat(a, owner) };
+}
+
 module.exports = {
     ASSIST_FREE_HELP,
     isAssistedSeat,
     helpUses,
+    assistTally,
     ASSIST_SEAT_KEYS,
     defaultAssistSeat,
     defaultAssist,
