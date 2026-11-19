@@ -3,7 +3,9 @@
  * look is .kit-toast in styles/kit.css). main.js's error toasts go
  * through here too, so two toasts never stack on top of each other.
  */
-import { toast, TOAST_DURATION } from '../kit/toast.js';
+import { toast, TOAST_DURATION, TOAST_SHORT } from '../kit/toast.js';
+
+export { TOAST_DURATION, TOAST_SHORT };
 
 /**
  * Show a toast notification (queued behind the one on screen; a toast of
@@ -37,4 +39,12 @@ export function showWarning(message, duration = TOAST_DURATION) {
 /** Show an info toast. */
 export function showInfo(message, duration = TOAST_DURATION) {
   return showToast(message, { type: 'info', duration });
+}
+
+/**
+ * "You can't do that right now" at the table (an illegal card, not your
+ * turn, bid first...): an amber warning for 3 s, as iOS's table notices.
+ */
+export function showNotice(message) {
+  return showToast(message, { type: 'warning', duration: TOAST_SHORT });
 }

@@ -12,6 +12,9 @@
  *                    is aria-disabled (CardManager's isLegal: the pointer's
  *                    own client legality); a click on a playable one is the
  *                    pointer's click (CardManager's handler, MyAction).
+ *                    The /help suggested card (CardManager's) carries
+ *                    .is-suggested and says "(suggested)" after its name
+ *                    (its gold halo is drawn on the table, by its sprite).
  *   .hud-announcer   role log, polite, visually hidden: the turn, the trump,
  *                    each card played and each trick's winner.
  *
@@ -33,7 +36,7 @@ import { hudRoot } from './tableHud.js';
 export const ANNOUNCE_KEEP = 6;
 
 /** Where focus may be taken from on my turn (the table's own controls). */
-const HANDOFF = '.hud-hand, .hud-announcer, #bidContainer, .hud-draw, .hud-teams';
+const HANDOFF = '.hud-hand, .hud-announcer, #bidContainer, .hud-draw, .hud-teams, .hud-assist, .hud-assist-ask';
 
 let handlers = {};
 let restoreKey = null;
@@ -137,7 +140,9 @@ function makeButton(key) {
   btn.tabIndex = -1;
   btn.addEventListener('click', () => {
     if (isPlayable(btn)) handlers.onActivate?.(key);
-    else announce(handlers.reasonFor?.(key) || 'You can\'t play that card now.');
+    // a dimmed card: the pointer's refusal (the table's toast, spoken once
+    // by the toast announcer), else said here
+    else if (!handlers.onRefuse?.(key)) announce(handlers.reasonFor?.(key) || 'You can\'t play that card now.');
   });
   btn.addEventListener('focus', () => {
     for (const b of buttons(btn.parentElement)) b.tabIndex = b === btn ? 0 : -1;
@@ -151,7 +156,7 @@ function makeButton(key) {
  * Mirror the hand (CardManager calls it whenever the hand or its legality
  * changes). Buttons are kept by card, so focus survives a re-render.
  * @param {Object} o
- * @param {Array<{key: string, label: string, legal: boolean, rect: {x, y, w, h}}>} o.cards - hand order; rect in CSS px (the visible strip)
+ * @param {Array<{key: string, label: string, legal: boolean, suggested?: boolean, rect: {x, y, w, h}}>} o.cards - hand order; rect in CSS px (the visible strip); suggested: the /help card
  * @param {number} [o.cardW] - a whole card's width (the focus ring)
  * @param {number} [o.cardH]
  * @param {number} [o.lift] - how far a playable card rises when focused
@@ -159,6 +164,9 @@ function makeButton(key) {
  * @param {Function} [o.onFocusCard] - (key)
  * @param {Function} [o.onBlurCard] - (key)
  * @param {Function} [o.reasonFor] - (key) why a dimmed card can't be played
+ * @param {Function} [o.onRefuse] - (key) => true when it handled a click on a
+ *   dimmed card (the pointer's refusal: GameScene's toast); else the
+ *   announcer says reasonFor
  * @param {boolean} [o.redraw] - an empty hand a render redraws in the same task
  */
 export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, redraw = false, ...rest } = {}) {
@@ -180,7 +188,8 @@ export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, redraw = 
     // only out-of-place nodes move (moving a focused node would blur it)
     if (bar.children[i] !== b) bar.insertBefore(b, bar.children[i] || null);
     const c = cards[i];
-    b.setAttribute('aria-label', c.label);
+    b.setAttribute('aria-label', c.suggested ? `${c.label} (suggested)` : c.label);
+    b.classList.toggle('is-suggested', !!c.suggested);
     b.setAttribute('aria-disabled', c.legal ? 'false' : 'true');
     const st = b.style;
     st.setProperty('--x', px(c.rect.x));

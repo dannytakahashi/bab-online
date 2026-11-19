@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createGameLog, showGameLog } from './GameLog.js';
 import { getGameState, resetGameState } from '../../state/GameState.js';
 import { readClientFile } from '../../testing/files.js';
+import { resetAssistUses, forgetAssistUses, noteAssistUses } from '../../state/assistHint.js';
 
 describe('createGameLog', () => {
   let gameLog;
@@ -296,6 +297,122 @@ describe('slash command help for /leave', () => {
     getGameState().isSpectator = true;
     gameLog = createGameLog();
     expect(helpFor('/')).toEqual([{ cmd: '/leave', desc: 'Exit spectating' }]);
+  });
+});
+
+describe('autocomplete after a quick blur and refocus', () => {
+  let gameLog;
+  afterEach(() => {
+    vi.useRealTimers();
+    gameLog?.destroy();
+    gameLog = null;
+    resetGameState();
+  });
+
+  it('a focus within the blur wait keeps the list open for the next typing', () => {
+    vi.useFakeTimers();
+    resetGameState();
+    gameLog = createGameLog();
+    const input = gameLog.chatInput;
+    input.value = '/';
+    input.dispatchEvent(new Event('input'));
+    const dropdown = gameLog.container.querySelector('.slash-item').parentElement;
+    // click away and back within the 150 ms wait, without typing yet
+    input.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(50);
+    input.dispatchEvent(new Event('focus'));
+    vi.advanceTimersByTime(500);
+    expect(dropdown.hidden).toBe(false);
+  });
+
+  it('a plain blur still hides it after the wait', () => {
+    vi.useFakeTimers();
+    resetGameState();
+    gameLog = createGameLog();
+    const input = gameLog.chatInput;
+    input.value = '/';
+    input.dispatchEvent(new Event('input'));
+    const dropdown = gameLog.container.querySelector('.slash-item').parentElement;
+    expect(dropdown.hidden).toBe(false);
+    input.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(149);
+    expect(dropdown.hidden).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(dropdown.hidden).toBe(true);
+  });
+});
+
+describe('/help in the autocomplete (plan H3)', () => {
+  let gameLog;
+  const helpFor = (text) => {
+    gameLog.chatInput.value = text;
+    gameLog.chatInput.dispatchEvent(new Event('input'));
+    return [...gameLog.container.querySelectorAll('.slash-item')].map((item) => ({
+      cmd: item.querySelector('.slash-item__cmd').textContent,
+      desc: item.querySelector('.slash-item__desc').textContent,
+    }));
+  };
+  const hint = (uses, assisted = false) => ({ v: 1, kind: 'card', headline: 'Play 9♦', uses, freeUses: 3, assisted });
+
+  beforeEach(() => {
+    resetGameState();
+    forgetAssistUses();
+  });
+  afterEach(() => {
+    gameLog?.destroy();
+    gameLog = null;
+    forgetAssistUses();
+    resetGameState();
+  });
+
+  it('is first in a seat\'s list, with this game\'s uses read each time the list is drawn', () => {
+    gameLog = createGameLog();
+    resetAssistUses();
+    expect(helpFor('/')[0]).toEqual({ cmd: '/help', desc: 'Suggest a move (0 of 3 free used)' });
+    noteAssistUses(hint(1));
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (1 of 3 free used)' }]);
+    noteAssistUses(hint(3));
+    expect(helpFor('/h')).toEqual([{ cmd: '/help', desc: 'Suggest a move (the next one makes this game bot-assisted)' }]);
+    noteAssistUses(hint(4, true));
+    expect(helpFor('/help')).toEqual([{ cmd: '/help', desc: 'Suggest a move (this game is bot-assisted for you)' }]);
+  });
+
+  it('unknown counts (a reload) say the free uses per game', () => {
+    gameLog = createGameLog();
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (after 3 free, this game counts as bot-assisted)' }]);
+  });
+
+  it('a partial /he sends /help; a spectator\'s list has no /help', () => {
+    const sent = [];
+    gameLog = createGameLog({ onChatSubmit: (m) => { sent.push(m); } });
+    gameLog.chatInput.value = '/he';
+    gameLog.chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+    expect(sent).toEqual(['/help']);
+    gameLog.destroy();
+    getGameState().isSpectator = true;
+    gameLog = createGameLog();
+    expect(helpFor('/h')).toEqual([]);
+  });
+
+  it('a private row: dim, the system style, marked is-private', () => {
+    gameLog = createGameLog();
+    gameLog.addPrivateMessage('Help: Play 9♦ (only you see this)');
+    const row = gameLog.container.querySelector('.log-row.is-private');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.querySelector('.log-row__text').textContent).toBe('Help: Play 9♦ (only you see this)');
+  });
+
+  it('a fault row: a system row marked is-fault (table.css draws it red); a replay draws only the ones it is given (entry.fault)', () => {
+    gameLog = createGameLog();
+    gameLog.addFaultMessage('Fault: ann (bid 3, took 1)');
+    const row = gameLog.container.querySelector('.log-row.is-fault');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.querySelector('.log-row__text').textContent).toBe('Fault: ann (bid 3, took 1)');
+    gameLog.replaceMessages([{ message: '--- HAND COMPLETE ---' }]);
+    expect(gameLog.container.querySelector('.log-row.is-fault')).toBeNull();
+    gameLog.replaceMessages([{ message: '--- HAND COMPLETE ---' }, { message: 'Fault: ann (bid 3, took 1)', fault: true }]);
+    const again = [...gameLog.container.querySelectorAll('.log-row.is-fault')];
+    expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['Fault: ann (bid 3, took 1)']);
   });
 });
 

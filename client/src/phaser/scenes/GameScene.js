@@ -19,7 +19,7 @@ import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
-import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
+import { scoreHeaderNames, scoreHeaderPairs, formatFaultMessages } from '../../ui/components/ScoreModal.js';
 import { team, rotate } from '../../utils/positions.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
@@ -36,6 +36,8 @@ import { flyInMs, FLIP } from '../pacing.js';
 import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { getTableDirector, sceneDelay, sceneTween, UI_READY_DELAY_MS, FLIP_AFTER_DEAL_MS, FLIP_AFTER_FADE_MS } from '../TableDirector.js';
 import { getMyAction } from '../../state/MyAction.js';
+import { NOTICE } from '../../state/noticeText.js';
+import { showNotice } from '../../ui/components/Toast.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
@@ -51,6 +53,17 @@ import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
+import {
+  isAssistHint, hintIsLive, noteAssistUses, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
+  parseTurnKey, ASSIST_LATE_LINE,
+} from '../../state/assistHint.js';
+import { getSocketManager } from '../../socket/SocketManager.js';
+import { showAssistCard, hideAssistCard, syncAssistButton } from '../../ui/components/AssistCard.js';
+
+/** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
+export const DOUBLE_CLICK_QUIET_MS = 400;
+/** After a "?" click the "?" waits this long at most for the answer before it shows again. */
+export const ASSIST_ASK_WAIT_MS = 10000;
 
 /**
  * Main game scene class.
@@ -585,6 +598,9 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.updateBoreButtonStates();
     }
 
+    // my own bid: the /help card is done
+    if (data.position === this.state.position && !this.state.isSpectator) this.clearAssist();
+
     // Show bid bubble at the appropriate position
     const positionKey = this.getPositionKey(data.position);
     if (positionKey && this.bidManager) {
@@ -658,6 +674,8 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager) {
       this.bidManager.hideBidUI();
     }
+    // a bid suggestion is over with the bidding
+    this.clearAssist();
 
     // Update card legality now that bidding is over
     // The lead player can play any card, others are dimmed
@@ -716,6 +734,12 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
 
+    // a turn change ends a /help answer (plan 4.4): one still live by its
+    // turnKey stays (a repeat of this turn, a resync); an answer that came
+    // while the state lagged behind (a seq gap) shows now if it is live
+    this._endAsking();
+    this._settleAssist({ abandon: true });
+
     // the announcer: my turn, with the trick so far (before the hand takes focus)
     if (currentTurn === myPosition && !this.state.isSpectator && !this.state.isLazy) {
       announce(this.turnAnnouncement());
@@ -762,6 +786,7 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager && this.state.isBidding) {
       this.bidManager.updateVisibility();
     }
+    this.syncAssistButton();
   }
 
   /**
@@ -802,6 +827,9 @@ export class GameScene extends Phaser.Scene {
     const card = data.card;
 
     announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
+
+    // my own card: the /help card is done
+    if (playedPosition === myPosition && !this.state.isSpectator) this.clearAssist();
 
     // Update card legality when lead card is first played
     if (this.state.currentTrick.length === 1) {
@@ -1042,13 +1070,15 @@ export class GameScene extends Phaser.Scene {
   /**
    * Handle handComplete event.
    * @param {Object} data - Scoring and hand completion data
-   * @param {Object} [hand] - the hand's bids, captured when the event applied
+   * @param {Object} [hand] - the hand's bids, each seat's tricks and its
+   *   size, captured when the event applied (GameState resets them next)
    */
-  handleHandComplete(data, { bids } = {}) {
+  handleHandComplete(data, { bids, tricksByPosition, handSize } = {}) {
     console.log('🎮 GameScene.handleHandComplete()', data);
 
     // Start trick animation immediately (before score processing)
     this._animateTricksAndTrumpAway();
+    this.clearAssist();
 
     const state = this.state;
     const myPosition = state.position || 1;
@@ -1092,6 +1122,18 @@ export class GameScene extends Phaser.Scene {
         }
       });
     }
+
+    // Then a red line per player who left a set team short (rules/faults.js;
+    // spectators see them too)
+    formatFaultMessages({
+      myPosition,
+      playerData: state.playerData,
+      bids: bids || state.bids,
+      tricksByPosition: tricksByPosition || state.tricksByPosition,
+      team1Tricks: data.team1Tricks,
+      team2Tricks: data.team2Tricks,
+      handSize: handSize ?? state.currentHand,
+    }).forEach((msg) => window.addFaultToGameFeed?.(msg, { score: data.score }));
 
     // Update game log score display (player names only, as renderScoreHeader)
     if (window.updateGameLogScoreFromLegacy) {
@@ -1180,6 +1222,7 @@ export class GameScene extends Phaser.Scene {
 
     // Clear hand and trick displays (the redeal's gameStart, sent in the
     // same server tick, deals the new hand)
+    this.clearAssist();
     this.cardManager?.clearHand();
     if (this.trickManager) {
       this.trickManager.clearAll();
@@ -1208,6 +1251,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   handlePlayerLazyMode(data) {
+    if (data.position === this.state?.position) this.clearAssist();
     this.showSeatDisplay(data.position);
   }
 
@@ -1269,23 +1313,39 @@ export class GameScene extends Phaser.Scene {
 
     // Set up click handler for playing cards
     const scene = this;
-    this.cardManager.setCardClickHandler((card, clickedSprite) => {
+    this.cardManager.setCardClickHandler((card, clickedSprite, via) => {
       console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
 
-      // Only allow playing if the card is marked as legal
+      // A double-click's second press lands on the neighbour that slid
+      // under the pointer after my play (the hand closes up and dims): no
+      // refusal toast for a pointer press just after my own play. The
+      // keyboard, and a later press, still say why.
+      const justPlayed = via === 'pointer' &&
+        Date.now() - (scene._myPlayAt ?? -Infinity) < DOUBLE_CLICK_QUIET_MS;
+
+      // Only allow playing if the card is marked as legal; a dimmed card
+      // says why (iOS's table notice: "Must follow suit.", "Not your turn."...)
       if (!clickedSprite.getData('isLegal')) {
-        console.log('Illegal move - card is disabled!');
+        const why = justPlayed ? null : scene.illegalReason(card);
+        if (why) showNotice(why);
         return;
       }
       // A dead socket would buffer the play and flush it ahead of the
       // rejoin, where the server drops it (cli-18): wait for the reconnect
       if (window.socket && window.socket.connected === false) {
-        console.log('Not connected: play ignored');
+        showNotice(NOTICE.RECONNECTING);
         return;
       }
 
-      // One outstanding action at a time (MyAction: pending until the echo)
-      if (!getMyAction().submitPlay(card, gameState.position)) return;
+      // One outstanding action at a time (MyAction: pending until the echo).
+      // A send it refused (reconnecting) told the player itself (onRefused)
+      if (!getMyAction().submitPlay(card, gameState.position)) {
+        if (getMyAction().isPending() && !justPlayed) showNotice(NOTICE.CARD_ON_ITS_WAY);
+        return;
+      }
+      scene._myPlayAt = Date.now();
+      // my card is on its way: the /help card (and its "?") is done
+      scene.clearAssist();
 
       // Capture the current (hovered) position before any operations that might reset it
       const startX = clickedSprite.x;
@@ -1373,16 +1433,21 @@ export class GameScene extends Phaser.Scene {
     this.cardManager.updateCardLegality(legalityChecker, canPlay);
   }
 
-  /** Why `card` can't be played right now, in words (the keyboard hand). */
+  /**
+   * Why `card` can't be played right now, in words (the toast of a click on
+   * a dimmed card, pointer or keyboard; iOS's words), or null for a
+   * spectator (no hand of their own to play).
+   */
   illegalReason(card) {
-    const s = this.state;
-    if (s.isLazy) return 'A bot is playing your seat.';
-    if (s.isBidding) return 'Bid first.';
-    if (s.currentTurn !== s.position) return 'Not your turn.';
-    if (s.hasPlayedCard || getMyAction().isPending()) return 'Your card is on its way.';
+    const s = this.state || getGameState();
+    if (s.isSpectator) return null;
+    if (s.isLazy) return NOTICE.BOT_PLAYING;
+    if (s.isBidding) return NOTICE.BID_FIRST;
+    if (s.currentTurn !== s.position) return NOTICE.NOT_YOUR_TURN;
+    if (s.hasPlayedCard || getMyAction().isPending()) return NOTICE.CARD_ON_ITS_WAY;
     const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
     if (!r.legal && r.reason) return `${r.reason}.`;
-    return 'Wait for the trick to clear.';
+    return NOTICE.TRICK_CLEARING;
   }
 
   /**
@@ -1418,7 +1483,191 @@ export class GameScene extends Phaser.Scene {
 
   /** The bid panel's choice: MyAction sends it (one outstanding at a time). */
   submitBid(bid) {
-    return getMyAction().submitBid(bid, this.state.position);
+    const sent = getMyAction().submitBid(bid, this.state.position);
+    if (sent) this.clearAssist();
+    return sent;
+  }
+
+  // ============================================
+  // /help (plan H3): my private suggestion
+  // ============================================
+
+  /**
+   * assistHint (main.js, in table order through the director): my /help
+   * answer. One for this turn shows the card above my hand, the suggested
+   * card or bid ringed, a dim local log row ("Help: Play 9♦ (only you see
+   * this)"), and the announcer says the headline and the main reason.
+   *  - A status reply while a live suggestion is up (a rate limit after
+   *    repeated asks) leaves the suggestion and shows as a notice.
+   *  - A bid or card answer that is not live is held: an updateTurn or a
+   *    render shows it if it turns out live (it came ahead of a held
+   *    updateTurn, a seq gap), else it leaves the row ASSIST_LATE_LINE.
+   * Its counts are this game's either way.
+   * @param {Object} hint - s2c assistHint
+   */
+  handleAssistHint(hint) {
+    const s = this.state || getGameState();
+    if (!isAssistHint(hint)) return;
+    this._endAsking();
+    const watching = s.isSpectator && !s.isLazy;
+    // a spectator's reply ("players only") says nothing about my uses
+    if (!watching) noteAssistUses(hint, s.gameId);
+    const pending = getMyAction().isPending();
+    const up = this._assistHint;
+    if (hint.kind === 'status' && up && up.kind !== 'status' && hintIsLive(up, s, { pending })) {
+      showNotice(hint.headline);
+      this.syncAssistButton();
+      return;
+    }
+    if (!hintIsLive(hint, s, { pending })) {
+      this._abandonParked();
+      this._parkedAssist = hint;
+      this.syncAssistButton();
+      return;
+    }
+    this._abandonParked();
+    this._showAssist(hint);
+  }
+
+  /** Put a live answer up (the card, the rings, the row, the announcement). */
+  _showAssist(hint) {
+    window.addPrivateToGameFeed?.(assistLogLine(hint));
+    this._assistHint = hint;
+    showAssistCard(hint, { onClose: () => this.clearAssist() });
+    this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
+    this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
+    announce(assistAnnouncement(hint));
+    this.syncAssistButton();
+  }
+
+  /** A held (not yet live) answer is given up: its row says the turn had passed. */
+  _abandonParked() {
+    if (!this._parkedAssist) return;
+    this._parkedAssist = null;
+    window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
+  }
+
+  /**
+   * Is a bid or card answer still this turn's by its turnKey (a status
+   * reply, or one without a turnKey, ends at a turn change)?
+   */
+  _assistStillLive(hint) {
+    return !!hint && hint.kind !== 'status' && !!parseTurnKey(hint.turnKey) &&
+      hintIsLive(hint, this.state, { pending: getMyAction().isPending() });
+  }
+
+  /**
+   * After a turn change (or a render): a held answer that is live now
+   * shows; with `abandon`, one that is not is given up. The answer up goes
+   * unless it is still live.
+   */
+  _settleAssist({ abandon = false } = {}) {
+    const held = this._parkedAssist;
+    if (held && this._assistStillLive(held)) {
+      this._parkedAssist = null;
+      this._showAssist(held);
+    } else if (held && abandon) {
+      this._abandonParked();
+    }
+    if (this._assistHint && !this._assistStillLive(this._assistHint)) this.clearAssist();
+  }
+
+  /** The "?" was clicked and its answer came (or the turn moved): it may show again. */
+  _endAsking() {
+    this._assistAsking = false;
+    clearTimeout(this._assistAskTimer);
+    this._assistAskTimer = null;
+  }
+
+  /** Take my /help answer down (the card, the ring on a card or bid). */
+  clearAssist() {
+    // a held answer of a turn that is over now
+    this._abandonParked();
+    const had = !!this._assistHint;
+    // focus in the card (its ✕, Escape, Why?) goes to the "?" when it comes back
+    const focused = had && typeof document !== 'undefined' && !!document.activeElement?.closest?.('.hud-assist');
+    this._assistHint = null;
+    if (had) hideAssistCard();
+    this.cardManager?.setSuggestedCard?.(null);
+    this.bidManager?.setSuggestedBid?.(null);
+    const ask = this.syncAssistButton();
+    if (focused && ask && !ask.hidden) ask.focus({ preventScroll: true });
+  }
+
+  /** The /help answer up now, or null. */
+  assistHint() {
+    return this._assistHint || null;
+  }
+
+  /**
+   * After a redraw (render): the answer up stays if it is still this
+   * turn's (its rings drawn again), else it goes.
+   */
+  syncAssist() {
+    // an answer held while the state lagged (a seq gap's snapshot): live now?
+    const held = this._parkedAssist;
+    if (held && this._assistStillLive(held)) {
+      this._parkedAssist = null;
+      this._showAssist(held);
+    }
+    const hint = this._assistHint;
+    if (hint && !hintIsLive(hint, this.state, { pending: getMyAction().isPending() })) {
+      this.clearAssist();
+      return;
+    }
+    if (hint) {
+      this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
+      this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
+    }
+    this.syncAssistButton();
+  }
+
+  /**
+   * Is it my own bid or play turn at my seat, with nothing of mine on its
+   * way (where the "?" shows)?
+   */
+  canAskHelp() {
+    const s = this.state;
+    if (!s || !s.position || s.isSpectator || s.isLazy) return false;
+    if (s.currentTurn !== s.position || !s.myCards?.length || getMyAction().isPending()) return false;
+    if (s.isBidding) return s.phase === 'bidding' && s.bids?.[s.position] === undefined;
+    return s.phase === 'playing' && !s.hasPlayedCard && s.stage === 'PLAYING';
+  }
+
+  /**
+   * The "?" by my hand: on my turn at my seat while no answer is up, and
+   * not while one asked for is on its way (one click, one ask).
+   */
+  syncAssistButton() {
+    return syncAssistButton({
+      visible: this.canAskHelp() && !this._assistHint && !this._assistAsking,
+      onAsk: () => this.requestHelp(),
+    });
+  }
+
+  /**
+   * The "?": send /help as the chat would. Offline, or while the session
+   * is being restored (the emit gate would hold or refuse it, with a notice
+   * about a "message"), the one reconnecting notice instead.
+   */
+  requestHelp() {
+    const socket = window.socket;
+    let canSend = true;
+    try { canSend = getSocketManager().canSend('chatMessage') !== false; } catch { canSend = true; }
+    if (!socket || socket.connected === false || !canSend) {
+      showNotice(NOTICE.RECONNECTING);
+      return;
+    }
+    // (a false here: the gate refused it and said so itself)
+    if (socket.emit('chatMessage', { message: HELP_COMMAND }) === false) return;
+    this._assistAsking = true;
+    clearTimeout(this._assistAskTimer);
+    this._assistAskTimer = setTimeout(() => {
+      this._assistAskTimer = null;
+      this._assistAsking = false;
+      this.syncAssistButton();
+    }, ASSIST_ASK_WAIT_MS);
+    this.syncAssistButton();
   }
 
   /**
@@ -1524,6 +1773,7 @@ export class GameScene extends Phaser.Scene {
       this.opponentManager?.clearDealerButton();
       // the draw for deal so far (a rejoin, or a spectator who comes in mid-draw)
       if (m.draw) this.drawManager?.renderDraw(m);
+      this.syncAssist();
       this.renderScoreHeader();
       return m;
     }
@@ -1559,6 +1809,7 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.showBidUI(m.hand.length, (bid) => this.submitBid(bid));
     }
 
+    this.syncAssist();
     this.renderScoreHeader();
     return m;
   }
@@ -1709,6 +1960,10 @@ export class GameScene extends Phaser.Scene {
    * flight runs its onCollected callbacks, which must find no hand.
    */
   cleanup() {
+    // a held answer means nothing once the table goes (no row)
+    this._parkedAssist = null;
+    this._endAsking();
+    this.clearAssist();
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
     this.trickManager?.clearAll();

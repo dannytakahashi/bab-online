@@ -168,6 +168,62 @@ describe('GameScene handleHandComplete', () => {
   });
 });
 
+describe('GameScene handleHandComplete fault lines (owner 2026-11-19)', () => {
+  const playerData = {
+    position: [1, 2, 3, 4],
+    username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+  };
+  const feed = [];
+  beforeEach(() => {
+    feed.length = 0;
+    window.ModernUtils = { formatHandCompleteMessages: () => ['--- HAND COMPLETE ---', 'line a', 'line b'] };
+    window.addToGameFeedFromLegacy = (m) => feed.push(['plain', m]);
+    window.addFaultToGameFeed = (m) => feed.push(['fault', m]);
+    window.updateGameLogScoreFromLegacy = () => {};
+  });
+  afterEach(() => {
+    delete window.ModernUtils;
+    delete window.addToGameFeedFromLegacy;
+    delete window.addFaultToGameFeed;
+    delete window.updateGameLogScoreFromLegacy;
+  });
+  const hand = {
+    bids: { 1: '3', 2: '1', 3: '2', 4: '0' },
+    // ann/cat bid 5, took 1+2: set, ann short; bob/dan bid 1, took 2: made
+    tricksByPosition: { 1: 1, 2: 1, 3: 2, 4: 1 },
+    handSize: 5,
+  };
+  const data = { team1Tricks: 3, team2Tricks: 2, score: { team1: -50, team2: 20 }, team1OldScore: 0, team2OldScore: 0 };
+
+  it('the red lines come right after the hand lines, from the captured seat tricks', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    // GameState already reset for the next hand: the captured values count
+    scene.state = Object.freeze({ position: 2, playerData, bids: {}, tricksByPosition: { 1: 0, 2: 0, 3: 0, 4: 0 }, currentHand: 4 });
+    scene.handleHandComplete(data, hand);
+    expect(feed).toEqual([
+      ['plain', '--- HAND COMPLETE ---'], ['plain', 'line a'], ['plain', 'line b'],
+      ['fault', 'Fault: ann (bid 3, took 1)'],
+    ]);
+  });
+
+  it('a spectator sees them too', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    scene.state = Object.freeze({ position: null, isSpectator: true, playerData, bids: {} });
+    scene.handleHandComplete(data, hand);
+    expect(feed.filter(([k]) => k === 'fault')).toEqual([['fault', 'Fault: ann (bid 3, took 1)']]);
+  });
+
+  it('nothing when both teams made their bids', () => {
+    const scene = new GameScene();
+    scene.callbacks = {};
+    scene.state = Object.freeze({ position: 1, playerData, bids: {} });
+    scene.handleHandComplete(data, { ...hand, bids: { 1: '1', 2: '1', 3: '2', 4: '0' } });
+    expect(feed.filter(([k]) => k === 'fault')).toEqual([]);
+  });
+});
+
 describe('GameScene _teamsSaid', () => {
   it('says each name whole: a legacy username with a "/" is one player, never split from the shown "a/b"', () => {
     const scene = new GameScene();
@@ -670,5 +726,480 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
       delete window.socket;
       myAction.reset();
     }
+  });
+
+  describe('a refused click says why (iOS\'s table notice: an amber toast for 3 s)', () => {
+    let clearToasts;
+    let myAction;
+    beforeAll(async () => {
+      ({ clearToasts } = await import('../../ui/kit/toast.js'));
+    });
+    beforeEach(async () => {
+      const { resetMyAction } = await import('../../state/MyAction.js');
+      myAction = resetMyAction();
+      clearToasts();
+      window.socket = { emit: vi.fn(), connected: true };
+    });
+    afterEach(() => {
+      delete window.socket;
+      myAction.reset();
+      clearToasts();
+      vi.useRealTimers();
+    });
+
+    const notice = () => {
+      const all = [...document.querySelectorAll('.kit-toast')];
+      expect(all.length).toBeLessThanOrEqual(1);
+      const t = all[0];
+      return t ? { text: t.textContent, warning: t.classList.contains('toast-warning') } : null;
+    };
+    const dimmed = { getData: () => false, x: 0, y: 0 };
+    const legal = { getData: () => true, x: 0, y: 0 };
+
+    /** My turn to follow (seat 2), with `hand`; trump spades. */
+    function following(hand, lead, { leadPosition = 1 } = {}) {
+      const state = getGameState();
+      state.position = 2;
+      state.currentTurn = 2;
+      state.isBidding = false;
+      state.trump = { suit: 'spades', rank: '5' };
+      state.trumpBroken = true;
+      state.playedCardIndex = 1;
+      state.leadCard = lead;
+      state.leadPosition = leadPosition;
+      state.setCards(hand);
+      const h = handScene();
+      h.scene.handleDisplayHand(hand, true);
+      return h;
+    }
+
+    it('the three rule reasons, word for word', () => {
+      let h = following([{ suit: 'hearts', rank: 'A' }, { suit: 'clubs', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      h.click({ suit: 'clubs', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Must follow suit.', warning: true });
+
+      clearToasts();
+      const state = getGameState();
+      h = following([{ suit: 'spades', rank: 'K' }, { suit: 'clubs', rank: 'A' }], null);
+      state.playedCardIndex = 0;
+      state.trumpBroken = false;
+      h.click({ suit: 'spades', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Cannot lead trump until trump is broken.', warning: true });
+
+      clearToasts();
+      h = following([{ suit: 'spades', rank: 'A' }, { suit: 'spades', rank: 'K' }], { suit: 'joker', rank: 'HI' });
+      h.click({ suit: 'spades', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Must play highest trump when HI joker leads.', warning: true });
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('the turn states: bid first, not your turn, the card on its way, the trick clearing; a bot playing the seat', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      const state = getGameState();
+      const says = (text) => {
+        clearToasts();
+        h.click(card, dimmed);
+        expect(notice()).toEqual({ text, warning: true });
+      };
+      state.isBidding = true;
+      says('Bid first.');
+      state.isBidding = false;
+      state.currentTurn = 3;
+      says('Not your turn.');
+      state.currentTurn = 2;
+      state.hasPlayedCard = true;
+      says('Your card is on its way.');
+      state.hasPlayedCard = false;
+      // my turn, the card is legal by the rules, yet dimmed: the trick is clearing
+      says('Wait for the trick to clear.');
+      state.isLazy = true;
+      says('A bot is playing your seat.');
+      state.isLazy = false;
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('a spectator\'s click says nothing', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      getGameState().isSpectator = true;
+      h.click(card, dimmed);
+      expect(notice()).toBeNull();
+      getGameState().isSpectator = false;
+    });
+
+    it('five quick clicks on a dimmed card leave one toast (restarted, nudged)', () => {
+      vi.useFakeTimers();
+      const h = following([{ suit: 'hearts', rank: 'A' }, { suit: 'clubs', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      for (let i = 0; i < 5; i++) h.click({ suit: 'clubs', rank: 'K' }, dimmed);
+      expect(document.querySelectorAll('.kit-toast')).toHaveLength(1);
+      expect(document.querySelector('.kit-toast').classList.contains('is-nudged')).toBe(true);
+      vi.advanceTimersByTime(3200);
+      expect(document.querySelector('.kit-toast')).toBeNull();
+    });
+
+    it('a click while disconnected: "Reconnecting. Try again in a moment.", nothing sent', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      window.socket.connected = false;
+      h.click(card, legal);
+      expect(notice()).toEqual({ text: 'Reconnecting. Try again in a moment.', warning: true });
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('a double-click\'s second press (the pointer, within 400 ms of my play) on the neighbour that slid under it: silent; a later press, or the keyboard, says why', () => {
+      vi.useFakeTimers();
+      const card = { suit: 'hearts', rank: 'A' };
+      const next = { suit: 'hearts', rank: 'K' };
+      const h = following([card, next], { suit: 'hearts', rank: '9' });
+      h.click(card, legal, 'pointer');
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      // the neighbour is dimmed now (and the play pending)
+      h.click(next, dimmed, 'pointer');
+      h.click(next, legal, 'pointer');
+      expect(notice()).toBeNull();
+      // the keyboard in that window still says why
+      h.click(next, dimmed, 'keyboard');
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+      clearToasts();
+      // a press after the window says why too
+      vi.advanceTimersByTime(450);
+      h.click(next, dimmed, 'pointer');
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+    });
+
+    it('a second click while my card is pending: "Your card is on its way."', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card, { suit: 'hearts', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      h.click(card, legal);
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(notice()).toBeNull();
+      h.click({ suit: 'hearts', rank: 'K' }, legal);
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+    });
+  });
+});
+
+describe('GameScene /help (plan H3: the private suggestion)', () => {
+  let getGameState;
+  let resetMyAction;
+  let assist;
+  let card;
+  let clearToasts;
+  beforeAll(async () => {
+    ({ getGameState } = await import('../../state/GameState.js'));
+    ({ resetMyAction } = await import('../../state/MyAction.js'));
+    assist = await import('../../state/assistHint.js');
+    card = await import('../../ui/components/AssistCard.js');
+    ({ clearToasts } = await import('../../ui/kit/toast.js'));
+  });
+  let rows;
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="game-container"><div id="table-hud"></div></div>';
+    card.resetAssistCard();
+    assist.resetAssistUses();
+    resetMyAction();
+    clearToasts();
+    rows = [];
+    window.addPrivateToGameFeed = (m) => rows.push(m);
+    window.socket = { emit: vi.fn(() => true), connected: true };
+  });
+  afterEach(() => {
+    getGameState().reset();
+    resetMyAction();
+    delete window.addPrivateToGameFeed;
+    delete window.socket;
+    clearToasts();
+  });
+
+  const cardHint = (over = {}) => ({
+    v: 1, source: 'help', kind: 'card', turnKey: '2|PLAYING|1|4|0', headline: 'Lead A♣',
+    reasons: ['You and Bob bid 4.', 'The A♣ is the highest club left.'], uses: 1, freeUses: 3, assisted: false,
+    counted: true, details: ['Carol and Dan bid 3.'], confidence: 'clear', suggest: { card: { suit: 'clubs', rank: 'A' } }, codes: ['L.top'],
+    ...over,
+  });
+  const bidHint = (over = {}) => ({
+    v: 1, source: 'help', kind: 'bid', turnKey: '2|BIDDING|1|1|0', headline: 'Bid 3', reasons: ['Your hand is worth about 3 tricks.'],
+    uses: 2, freeUses: 3, assisted: false, counted: true, details: [], confidence: 'close', suggest: { bid: '3' }, codes: [],
+    ...over,
+  });
+
+  /** My seat 1 on my play turn (or bid turn), managers faked. */
+  function mySeat({ bidding = false } = {}) {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isSpectator = false;
+    state.isLazy = false;
+    state.isBidding = bidding;
+    state.phase = bidding ? 'bidding' : 'playing';
+    state.stage = bidding ? 'BIDDING' : 'PLAYING';
+    state.bids = bidding ? { 4: '2' } : { 1: '2', 2: '1', 3: '2', 4: '2' };
+    state.myCards = [{ suit: 'clubs', rank: 'A' }, { suit: 'hearts', rank: '4' }];
+    state.hasPlayedCard = false;
+    const scene = new GameScene();
+    scene.state = state;
+    scene.callbacks = {};
+    scene.cardManager = {
+      setSuggestedCard: vi.fn(), updatePlayerTurnGlow: vi.fn(), updateCardLegality: vi.fn(), clearHand: vi.fn(), clearAll: vi.fn(),
+    };
+    scene.bidManager = { setSuggestedBid: vi.fn(), updateVisibility: vi.fn(), updateBoreButtonStates: vi.fn(), showBidBubble: vi.fn(), hideBidUI: vi.fn() };
+    scene.opponentManager = { updateTurnGlow: vi.fn() };
+    return { scene, state };
+  }
+  const shown = () => {
+    const el = document.querySelector('.hud-assist');
+    return el && !el.hidden ? el.querySelector('.assist-card__head').textContent : null;
+  };
+  const lastCard = (scene) => scene.cardManager.setSuggestedCard.mock.calls.at(-1)?.[0];
+  const lastBid = (scene) => scene.bidManager.setSuggestedBid.mock.calls.at(-1)?.[0];
+  const ask = () => document.querySelector('.hud-assist-ask');
+
+  it('a card answer: the card, the ring on the card, the local row, spoken once, the uses noted', () => {
+    const { scene } = mySeat();
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBe('Lead A♣');
+    expect(lastCard(scene)).toEqual({ suit: 'clubs', rank: 'A' });
+    expect(lastBid(scene)).toBeNull();
+    expect(rows).toEqual(['Help: Lead A♣ (only you see this)']);
+    const said = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
+    expect(said).toEqual(['Suggestion: Lead A♣. The A♣ is the highest club left.']);
+    expect(assist.helpDescription()).toBe('Suggest a move (1 of 3 free used)');
+    expect(scene.assistHint()).toEqual(cardHint());
+  });
+
+  it('a bid answer rings the bid; my own bid clears it', () => {
+    const { scene, state } = mySeat({ bidding: true });
+    scene.handleAssistHint(bidHint());
+    expect(shown()).toBe('Bid 3');
+    expect(lastBid(scene)).toBe('3');
+    state.bids[1] = '3';
+    scene.handleBidReceived({ position: 1, bid: '3' });
+    expect(shown()).toBeNull();
+    expect(lastBid(scene)).toBeNull();
+  });
+
+  it('another seat\'s bid leaves it (still my turn until updateTurn), the next updateTurn clears it', () => {
+    const { scene, state } = mySeat({ bidding: true });
+    scene.handleAssistHint(bidHint());
+    state.bids[2] = '1';
+    scene.handleBidReceived({ position: 2, bid: '1' });
+    expect(shown()).toBe('Bid 3');
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBeNull();
+  });
+
+  it('an updateTurn that repeats this turn (a resync) leaves a live answer; a status reply goes at any updateTurn', () => {
+    const { scene } = mySeat({ bidding: true });
+    scene.handleAssistHint(bidHint());
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBe('Bid 3');
+    expect(lastBid(scene)).toBe('3');
+    scene.clearAssist();
+    scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: 'Nothing to suggest right now.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false });
+    expect(shown()).toBe('Nothing to suggest right now.');
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBeNull();
+  });
+
+  it('a status reply while my live suggestion is up (the rate limit after repeated asks): the suggestion and its ring stay, the status is a notice, no extra row', () => {
+    const { scene } = mySeat();
+    scene.handleAssistHint(cardHint());
+    expect(rows).toHaveLength(1);
+    scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: '2|PLAYING|1|4|0', headline: 'One moment: try again in a few seconds.', reasons: [], uses: 1, freeUses: 3, assisted: false, counted: false });
+    expect(shown()).toBe('Lead A♣');
+    expect(lastCard(scene)).toEqual({ suit: 'clubs', rank: 'A' });
+    expect(document.querySelector('.kit-toast')?.textContent).toBe('One moment: try again in a few seconds.');
+    expect(rows).toHaveLength(1);
+  });
+
+  it('an answer that came ahead of my held updateTurn (a seq gap) shows once the state reaches my turn', () => {
+    const { scene, state } = mySeat();
+    state.currentTurn = 4; // the gap: my updateTurn is held
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBeNull();
+    expect(rows).toEqual([]);
+    state.currentTurn = 1; // the gap fills
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(shown()).toBe('Lead A♣');
+    expect(rows).toEqual(['Help: Lead A♣ (only you see this)']);
+    // or by the resync's render
+    scene.clearAssist();
+    state.currentTurn = 4;
+    scene.handleAssistHint(cardHint());
+    state.currentTurn = 1;
+    scene.syncAssist();
+    expect(shown()).toBe('Lead A♣');
+  });
+
+  it('an answer whose turn had passed leaves a row saying so (at the next updateTurn), never a stale card', () => {
+    const { scene, state } = mySeat();
+    state.trickNo = 2; // my trick-2 turn; the answer was for trick 1 (cardIndex 0)
+    state.playedCards = [];
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBeNull();
+    state.currentTurn = 2;
+    scene.handleUpdateTurn({ currentTurn: 2 });
+    expect(shown()).toBeNull();
+    expect(rows).toEqual(['Help: that turn had passed before the answer came (only you see this)']);
+    // given up once: the next updateTurn adds nothing
+    scene.handleUpdateTurn({ currentTurn: 3 });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('one "?" click, one ask: the "?" waits for the answer (or the next turn, or 10 s)', () => {
+    vi.useFakeTimers();
+    try {
+      const { scene } = mySeat();
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      ask().click();
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(ask().hidden).toBe(true);
+      // no answer yet: it comes back after the wait
+      vi.advanceTimersByTime(10000);
+      expect(ask().hidden).toBe(false);
+      ask().click();
+      expect(ask().hidden).toBe(true);
+      // a turn change (a repeat of mine here) lets it show again
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      expect(ask().hidden).toBe(false);
+      ask().click();
+      scene.handleAssistHint(cardHint());
+      scene.clearAssist();
+      expect(ask().hidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('the "?" while the session is being restored: one reconnecting notice, nothing emitted (no notice about a message)', async () => {
+    const { getSocketManager } = await import('../../socket/SocketManager.js');
+    const mgr = getSocketManager();
+    const spy = vi.spyOn(mgr, 'canSend').mockReturnValue(false);
+    try {
+      const { scene } = mySeat();
+      scene.handleUpdateTurn({ currentTurn: 1 });
+      ask().click();
+      expect(window.socket.emit).not.toHaveBeenCalled();
+      const toasts = [...document.querySelectorAll('.kit-toast')].map((t) => t.textContent);
+      expect(toasts).toEqual(['Reconnecting. Try again in a moment.']);
+      // the gate refused an emit itself (it showed its own notice): none more
+      spy.mockReturnValue(true);
+      clearToasts();
+      window.socket.emit = vi.fn(() => false);
+      ask().click();
+      expect(document.querySelector('.kit-toast')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('my card played (the echo), hand end, a redeal, a bot taking my seat and cleanup clear it', () => {
+    const { scene } = mySeat();
+    const again = () => { scene.handleAssistHint(cardHint()); expect(shown()).toBe('Lead A♣'); };
+    scene.trickManager = { setPlayerPosition: vi.fn(), updatePlayPositions: vi.fn(), _currentTrick: [{ getData: () => ({ suit: 'clubs', rank: 'A' }) }], clearAll: vi.fn() };
+    scene._flyMyCard = vi.fn();
+    scene.state.currentTrick = [];
+    again();
+    scene.handleCardPlayed({ card: { suit: 'clubs', rank: 'A' }, position: 1 });
+    expect(shown()).toBeNull();
+    scene.state.hasPlayedCard = false;
+    again();
+    scene._animateTricksAndTrumpAway = vi.fn();
+    scene.handleHandComplete({ score: { team1: 0, team2: 0 } });
+    expect(shown()).toBeNull();
+    again();
+    scene.handleDestroyHands({});
+    expect(shown()).toBeNull();
+    again();
+    scene.handlePlayerLazyMode({ position: 1 });
+    expect(shown()).toBeNull();
+    again();
+    // the table's teardown (the other managers' parts are their own tests)
+    scene.opponentManager = null;
+    scene.trickManager = null;
+    scene.cleanup();
+    expect(shown()).toBeNull();
+    expect(lastCard(scene)).toBeNull();
+  });
+
+  it('the ✕ dismisses it and takes the rings down; focus in the card goes to the "?"', () => {
+    const { scene } = mySeat();
+    scene.handleAssistHint(cardHint());
+    const close = document.querySelector('.assist-card__close');
+    close.focus();
+    close.click();
+    expect(shown()).toBeNull();
+    expect(lastCard(scene)).toBeNull();
+    expect(scene.assistHint()).toBeNull();
+    expect(ask().hidden).toBe(false);
+    expect(document.activeElement).toBe(ask());
+  });
+
+  it('a stale answer (the turn moved, another seat in its turnKey, my card on its way) is dropped, its uses kept', () => {
+    const { scene, state } = mySeat();
+    scene.handleAssistHint(cardHint({ turnKey: '2|PLAYING|2|4|0', uses: 2 }));
+    expect(shown()).toBeNull();
+    expect(rows).toEqual([]);
+    expect(assist.helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+    state.currentTurn = 3;
+    scene.handleAssistHint(cardHint());
+    expect(shown()).toBeNull();
+  });
+
+  it('a render keeps a live answer (rings again) and drops a stale one', () => {
+    const { scene, state } = mySeat();
+    scene.handleAssistHint(cardHint());
+    scene.cardManager.setSuggestedCard.mockClear();
+    scene.syncAssist();
+    expect(shown()).toBe('Lead A♣');
+    expect(lastCard(scene)).toEqual({ suit: 'clubs', rank: 'A' });
+    state.hasPlayedCard = true;
+    scene.syncAssist();
+    expect(shown()).toBeNull();
+  });
+
+  it('a status reply shows for a spectator too, without touching my uses', () => {
+    const { scene, state } = mySeat();
+    state.isSpectator = true;
+    assist.noteAssistUses({ uses: 2, freeUses: 3 });
+    scene.handleAssistHint({ v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: '/help is for players only.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false });
+    expect(shown()).toBe('/help is for players only.');
+    expect(rows).toEqual(['Help: /help is for players only. (only you see this)']);
+    expect(assist.helpDescription()).toBe('Suggest a move (2 of 3 free used)');
+  });
+
+  it('the "?" shows on my own turn at my seat, hides while the answer is up, and sends /help', () => {
+    const { scene, state } = mySeat();
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(ask().hidden).toBe(false);
+    ask().click();
+    expect(window.socket.emit).toHaveBeenCalledWith('chatMessage', { message: '/help' });
+    scene.handleAssistHint(cardHint());
+    expect(ask().hidden).toBe(true);
+    // not my turn: no "?"
+    state.currentTurn = 2;
+    scene.handleUpdateTurn({ currentTurn: 2 });
+    expect(ask().hidden).toBe(true);
+    // a bot plays my seat: no "?"
+    state.currentTurn = 1;
+    state.isLazy = true;
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    expect(ask().hidden).toBe(true);
+  });
+
+  it('the "?" during bidding, not once my bid is in; offline it says reconnecting', () => {
+    const { scene, state } = mySeat({ bidding: true });
+    scene.syncAssistButton();
+    expect(ask().hidden).toBe(false);
+    window.socket.connected = false;
+    ask().click();
+    expect(window.socket.emit).not.toHaveBeenCalled();
+    expect(document.querySelector('.kit-toast')?.textContent).toMatch(/Reconnecting\. Try again in a moment\./);
+    state.bids[1] = '2';
+    scene.syncAssistButton();
+    expect(ask().hidden).toBe(true);
   });
 });

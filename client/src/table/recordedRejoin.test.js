@@ -69,6 +69,10 @@ describe('recorded game: live play, a rejoin onto the live scene, play on', () =
     const snap = rejoin.data.snapshot;
     // The table is mid-trick and animated; the socket dies and comes back
     replay.advance(150);
+    // the red fault rows this page wrote for set hands (rules/faults.js)
+    // (their words: a replayed row carries its hand's time, not the live one)
+    const faultRows = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault .log-row__text')].map((r) => r.textContent);
+    const faultsBefore = faultRows();
     page.socket.reconnect('ios-h1-r1');
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
     expect(page.socket.emitted('rejoinGame').at(-1)).toMatchObject({ gameId: rec.gameId });
@@ -77,8 +81,17 @@ describe('recorded game: live play, a rejoin onto the live scene, play on', () =
 
     const scene = page.scene;
     expect(replay.liveCounts(scene)).toEqual(replay.expectedCounts(snap));
-    // the log is the server's (73 lines) plus one 'Reconnected to game!'
-    expect(replay.logRows()).toBe(snap.log.length + 1);
+    // the log is the server's (73 lines) plus one 'Reconnected to game!',
+    // and this page's fault rows put back after their hands (withFaultRows)
+    expect(faultsBefore.length).toBeGreaterThan(0);
+    expect(faultRows()).toEqual(faultsBefore);
+    // each right after its hand's two stored team lines
+    for (const row of document.querySelectorAll('#gameFeed .log-row.is-fault')) {
+      let prev = row.previousElementSibling;
+      while (prev?.classList.contains('is-fault')) prev = prev.previousElementSibling;
+      expect(prev?.previousElementSibling?.previousElementSibling?.textContent).toContain('--- HAND COMPLETE ---');
+    }
+    expect(replay.logRows()).toBe(snap.log.length + 1 + faultsBefore.length);
     // the trump is face up, no flip pending
     expect(scene.tableCardSprite.texture.key).toBe('cards');
     rejoinLive = {

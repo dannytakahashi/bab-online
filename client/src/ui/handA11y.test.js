@@ -24,6 +24,22 @@ beforeEach(() => {
   resetHandA11y();
 });
 
+describe('the /help suggested card', () => {
+  it('rings the suggested card and says "(suggested)" after its name', () => {
+    const cards = hand([['a', true], ['b', true]]);
+    cards[1].suggested = true;
+    syncHand({ cards });
+    expect(key('b').classList.contains('is-suggested')).toBe(true);
+    expect(key('b').getAttribute('aria-label')).toBe('b (suggested)');
+    expect(key('a').classList.contains('is-suggested')).toBe(false);
+    expect(key('a').getAttribute('aria-label')).toBe('a');
+    // the suggestion goes: plain again
+    syncHand({ cards: hand([['a', true], ['b', true]]) });
+    expect(key('b').classList.contains('is-suggested')).toBe(false);
+    expect(key('b').getAttribute('aria-label')).toBe('b');
+  });
+});
+
 describe('the toolbar', () => {
   it('one button per card, in order, labelled; dimmed cards aria-disabled; one tab stop on the first playable', () => {
     syncHand({ cards: hand([['a', false], ['b', true], ['c', true]]), cardW: 60, cardH: 90, lift: 20 });

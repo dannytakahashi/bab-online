@@ -147,7 +147,7 @@
 
 /* ==========================================================================
    Connection banner (ui/components/ConnectionBanner.js): top of the page,
-   above the teams fade overlay (99999); toasts stay at the bottom
+   above the teams fade overlay (99999); toasts step below it (body.has-connection-banner)
    ========================================================================== */
 
 .connection-banner {
@@ -155,6 +155,9 @@
     top: 10px;
     left: 50%;
     transform: translate(-50%, -8px);
+    /* its own width (left: 50% would shrink it to half the page and wrap
+       the text needlessly), up to the page less a 16px gutter each side */
+    width: max-content;
     max-width: calc(100vw - 32px);
     box-sizing: border-box;
     padding: 8px 18px;

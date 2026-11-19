@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createSignInScreen, showSignInScreen } from './SignIn.js';
-import { clearToasts } from '../kit/index.js';
+import { clearToasts, toastAnnouncers } from '../kit/index.js';
+import { ANNOUNCE_DELAY_MS } from '../kit/toast.js';
 import { readClientFile } from '../../testing/files.js';
 
 describe('createSignInScreen', () => {
@@ -73,7 +74,7 @@ describe('createSignInScreen', () => {
     });
   });
 
-  it('does not call onSignIn if fields are empty (an error toast, never window.alert)', () => {
+  it('does not call onSignIn if fields are empty (an error toast, never window.alert)', async () => {
     const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
 
     screen = createSignInScreen({
@@ -91,7 +92,9 @@ describe('createSignInScreen', () => {
     expect(alertSpy).not.toHaveBeenCalled();
     const toast = document.querySelector('.kit-toast.toast-error');
     expect(toast?.textContent).toBe('Please enter both a username and a password.');
-    expect(toast.getAttribute('role')).toBe('alert');
+    // said assertively by the toast region's announcer (the card itself has no live role)
+    await new Promise((r) => setTimeout(r, ANNOUNCE_DELAY_MS + 10));
+    expect(toastAnnouncers().assertive.textContent).toBe('Please enter both a username and a password.');
 
     clearToasts();
     alertSpy.mockRestore();

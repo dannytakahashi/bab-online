@@ -152,15 +152,19 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     expect(document.querySelectorAll('#spectating-indicator')).toHaveLength(1);
   });
 
-  it('a re-spectate of a game that ended meanwhile lands in the main room', async () => {
+  it('a re-spectate of a game that ended meanwhile lands in the main room and says why (info, iOS\'s words)', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
     socket.fire('spectatorJoined', spectatorState({ gameId: 'g2' }));
     socket.reconnect(nextSocketId());
     socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
     socket.clearEmits();
+    clearToasts();
     socket.fire('serverError', { code: 'rejected', message: 'Game not found', handler: null });
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
     expect(tableLeftovers(page)).toEqual(CLEAN);
+    expect(document.querySelector('.kit-toast.toast-info').textContent).toBe('The game ended while you were offline');
+    clearToasts();
   });
 
   it('a reconnect in a lobby re-enters it, or lands in the main room when it closed', () => {
@@ -181,6 +185,9 @@ describe('reconnect order: restoreSession first, then rejoin / re-spectate / re-
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
     expect(page.session.screen).toBe(SCREEN.MAIN_ROOM);
     expect(document.getElementById('gameLobbyContainer')).toBeNull();
+    // a refusal, amber (not red)
+    const closed = [...document.querySelectorAll('.kit-toast')].find((t) => t.textContent === 'The lobby closed while you were offline');
+    expect(closed.classList.contains('toast-warning')).toBe(true);
   });
 
   it('a reconnect in the tournament lobby rejoins the tournament', () => {
@@ -485,11 +492,89 @@ describe('identity and errors', () => {
     expect(getUIManager().isScreen(SCREENS.GAME_LOBBY)).toBe(true);
   });
 
-  it('a specific server error message reaches the player', () => {
+  it('a specific server error message reaches the player, as a refusal (amber, not red)', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
+    clearToasts();
     socket.fire('serverError', { code: 'rejected', message: 'Not all players are ready', handler: null });
     // (the page's one toast queue, ui/kit/toast.js)
-    const toast = document.querySelector('.kit-toast.toast-error');
+    const toast = document.querySelector('.kit-toast.toast-warning');
     expect(toast.textContent).toBe('Not all players are ready');
+    clearToasts();
+  });
+
+  describe('severity routing of serverError (owner 2026-11-19: amber refusals, red real errors)', () => {
+    let clearToasts;
+    beforeAll(async () => {
+      ({ clearToasts } = await import('./ui/kit/toast.js'));
+    });
+    const shown = () => {
+      const t = document.querySelector('.kit-toast');
+      return t && { text: t.textContent, type: ['info', 'success', 'warning', 'error'].find((k) => t.classList.contains(`toast-${k}`)) };
+    };
+    const fire = (payload) => {
+      clearToasts();
+      socket.fire('serverError', payload);
+      const out = shown();
+      clearToasts();
+      return out;
+    };
+
+    it('the table is full in a bigger lobby: information (you watch this game)', () => {
+      expect(fire({ code: 'rejected', message: "The table is full — you'll watch this game", handler: 'playerReady' }))
+        .toEqual({ text: "The table is full — you'll watch this game", type: 'info' });
+      expect(fire({ code: 'rejected', message: 'Lobby is full', handler: 'joinLobby' })).toEqual({ text: 'Lobby is full', type: 'warning' });
+    });
+
+    it('validation: never Joi\'s text; chat says the limit, anything else "That wasn\'t accepted"', () => {
+      const joi = 'Validation failed: "message" length must be less than or equal to 500 characters long';
+      for (const handler of ['chatMessage', 'lobbyChat', 'mainRoomChat', 'tournamentChat']) {
+        expect(fire({ code: 'validation', message: joi, handler })).toEqual({ text: 'That message is too long (500 characters max).', type: 'warning' });
+      }
+      expect(fire({ code: 'validation', message: 'Validation failed: "lobbyId" is required', handler: 'joinLobby' }))
+        .toEqual({ text: "That wasn't accepted. Try again.", type: 'warning' });
+    });
+
+    it('a rate limit is a nudge (amber); a server failure is red', () => {
+      expect(fire({ code: 'rateLimit', message: 'Too many requests, please slow down', handler: 'chatMessage' }))
+        .toEqual({ text: 'Too many requests. Please slow down.', type: 'warning' });
+      expect(fire({ code: 'server', message: 'An error occurred processing your request', handler: 'createLobby' }))
+        .toEqual({ text: 'Something went wrong. Try again.', type: 'error' });
+      expect(fire({ code: 'rejected', handler: null })).toEqual({ text: 'Something went wrong. Try again.', type: 'error' });
+    });
+
+    it('a refused tournament re-entry says which (iOS\'s words)', async () => {
+      const cases = [
+        ['Tournament not found', 'The tournament closed while you were offline'],
+        ['Tournament is not accepting players', 'The tournament started without you'],
+        ['Already in a lobby', "Couldn't get back into the tournament"],
+      ];
+      for (const [refusal, text] of cases) {
+        await signIn();
+        socket.fire('tournamentJoined', tournamentPayload());
+        socket.reconnect(nextSocketId());
+        socket.fire('restoreSessionResponse', { success: true, username: 'me', blockedUsers: [] });
+        expect(socket.emitted('joinTournament')).toEqual([{ tournamentId: 't1' }]);
+        clearToasts();
+        socket.fire('serverError', { code: 'rejected', message: refusal, handler: 'joinTournament' });
+        expect(shown()).toEqual({ text, type: 'warning' });
+        clearToasts();
+      }
+    });
+
+    it('my refused bid or play at the table: iOS\'s words, amber, for 3 s', async () => {
+      await playGame();
+      clearToasts();
+      vi.useFakeTimers();
+      try {
+        socket.fire('actionRejected', { action: 'play', reason: 'not_your_turn' });
+        expect(shown()).toEqual({ text: 'Not your turn', type: 'warning' });
+        vi.advanceTimersByTime(3200);
+        expect(shown()).toBeNull();
+      } finally {
+        vi.useRealTimers();
+        clearToasts();
+      }
+    });
   });
 
   it('a block list the server pushes after an admin rename (silent) updates without a toast; a player\'s own block still toasts', async () => {

@@ -160,16 +160,22 @@ describe('the hand toolbar mirrors the canvas hand', () => {
     expect(press(document.activeElement, '`').defaultPrevented).toBe(false);
   });
 
-  it('a dimmed card: Enter says why and sends nothing', () => {
+  it('a dimmed card: Enter says why (the pointer\'s toast, said once) and sends nothing', () => {
     page.socket.clearEmits();
     const dim = btns().find((b) => b.getAttribute('aria-disabled') === 'true');
     dim.focus();
     const before = page.scene.tableCounts();
+    collect();
+    const lines = said.length;
     enter(dim);
     expect(page.socket.emitted('playCard')).toEqual([]);
     expect(page.scene.tableCounts()).toEqual(before);
+    const why = /^(Must follow suit|Cannot lead trump until trump is broken|Must play highest trump when HI joker leads)\.$/;
+    const toast = document.querySelector('.kit-toast.toast-warning');
+    expect(toast.textContent).toMatch(why);
+    // the toast's announcer says it; the table's log does not say it again
     collect();
-    expect(said.at(-1)).toMatch(/^(Must follow suit|Cannot lead trump until trump is broken|Must play highest trump when HI joker leads)\.$/);
+    expect(said.slice(lines).filter((t) => why.test(t))).toEqual([]);
   });
 
   it('a render keeps focus on the same card', () => {

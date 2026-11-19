@@ -28,6 +28,8 @@ import { motionMs } from '../../ui/motion.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 import { BORES, bidTotalsFor } from '../../rules/bids.js';
 import { getMyAction } from '../../state/MyAction.js';
+import { NOTICE } from '../../state/noticeText.js';
+import { showNotice } from '../../ui/components/Toast.js';
 import { announce } from '../../ui/handA11y.js';
 import {
   bidClockNow, countdownMs, secondsToBid, sameClock, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
@@ -58,6 +60,8 @@ export class BidManager {
 
     // Currently selected bid
     this.selectedBid = null;
+    // The /help suggestion (setSuggestedBid)
+    this.suggestedBid = null;
 
     // Trick indicator
     this.trickIndicators = [];
@@ -142,10 +146,7 @@ export class BidManager {
     numericRow.className = 'bid-numbers';
     for (let i = 0; i <= handSize; i++) {
       const btn = this.createBidButton(i.toString(), () => {
-        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          console.warn('Not your turn to bid.');
-          return;
-        }
+        if (this._refuseOffTurn()) return;
         this.chooseBid(btn, i.toString(), onBidSelect);
       });
       this.allBidButtons.push(btn);
@@ -161,10 +162,7 @@ export class BidManager {
     BORES.forEach((bid) => {
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
-        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          console.warn('Not your turn to bid.');
-          return;
-        }
+        if (this._refuseOffTurn()) return;
         this.chooseBid(btn, bid, onBidSelect);
       }, true);
       btn.dataset.bid = bid;
@@ -177,10 +175,25 @@ export class BidManager {
     // Update bore button states
     this.updateBoreButtonStates();
 
+    // the /help suggestion survives a rebuild of the sheet (a render)
+    this._markSuggested();
+
     // A clock already running for my turn (a rejoin, a rebuild, /active)
     this.syncClock();
 
     console.log('✅ BidManager: Bid UI created');
+  }
+
+  /**
+   * A bid tap off my turn: true (nothing is sent). The "Not your turn."
+   * notice only for a sheet still open (out of sync with the turn); a tap
+   * on a closing sheet (the fade after my own bid's echo, or after the
+   * clock's bid 0) is the second click of a double-click: silent.
+   */
+  _refuseOffTurn() {
+    if (this.state.currentTurn === this.state.position && this.state.isBidding) return false;
+    if (this.bidContainer?.classList.contains('is-open')) showNotice(NOTICE.NOT_YOUR_TURN);
+    return true;
   }
 
   /**
@@ -207,6 +220,24 @@ export class BidManager {
     if (onBidSelect(bidValue) === false) this.clearSelection();
     // a bid on its way: no countdown (a rollback's render shows it again)
     this.syncClock();
+  }
+
+  /**
+   * The /help suggested bid ('4', 'B'; null for none): a gold ring on its
+   * button and "(suggested)" in its name. Kept across a rebuild.
+   */
+  setSuggestedBid(bid) {
+    this.suggestedBid = bid ? String(bid).toUpperCase() : null;
+    this._markSuggested();
+  }
+
+  _markSuggested() {
+    for (const b of this.allBidButtons || []) {
+      const on = !!this.suggestedBid && b.textContent === this.suggestedBid;
+      b.classList.toggle('is-suggested', on);
+      if (on) b.setAttribute('aria-label', `${b.textContent} (suggested)`);
+      else b.removeAttribute('aria-label');
+    }
   }
 
   /** No bid marked. */
