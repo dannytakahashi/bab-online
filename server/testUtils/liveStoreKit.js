@@ -139,13 +139,27 @@ function recordingAdoptGame(calls = []) {
  * opts go to createLiveStore (opts.adoption merges over these).
  */
 function installOnStore(holder, opts = {}) {
+    const store = createOnStore({ getCollections: () => holder.current, ...opts });
+    require('../game/persist/liveStore')._setForTests(store);
+    return store;
+}
+
+/**
+ * The same 'on' store, NOT made the process's store (a successor that is
+ * up before it owns the singletons: deployKit's announce). opts go to
+ * createLiveStore (getCollections required).
+ */
+function createOnStore(opts = {}) {
     const calls = [];
     const open = new Set();
     const suspendCalls = [];
     const { adoption = {}, ...rest } = opts;
     const restoreGame = require('../game/persist/restoreGame');
-    const store = installStore(holder, {
+    const { logs, logger } = recordingLogger();
+    const store = require('../game/persist/liveStore').createLiveStore({
         mode: 'on',
+        bootId: 'boot-A',
+        logger,
         gameIdIndexUnique: () => true,
         suspendGame: (g) => {
             suspendCalls.push(['suspend', g.gameId]);
@@ -162,10 +176,11 @@ function installOnStore(holder, opts = {}) {
             ...adoption
         }
     });
+    store.logs = logs;
     store.adoptCalls = calls;
     store.openGates = open;
     store.suspendCalls = suspendCalls;
     return store;
 }
 
-module.exports = { recordingLogger, installStore, installOnStore, recordingAdoptGame, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };
+module.exports = { recordingLogger, installStore, installOnStore, createOnStore, recordingAdoptGame, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };

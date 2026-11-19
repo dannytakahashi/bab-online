@@ -249,6 +249,8 @@ function bounded(p, ms, onTimeout) {
  * @param {Function} [opts.serializeGame] / [opts.serializeTournament] / [opts.serializeEnded] - the codecs
  * @param {Function} [opts.onGameFenced] / [opts.onTournamentFenced] - (entity, {io, why}) the retire
  * @param {Function} [opts.listGames] / [opts.listTournaments] - () => iterable of live ids (heartbeat)
+ * @param {Function} [opts.findGame] - (gameId) => the live GameState here, or
+ *   undefined (resolve / whenAdopted's "in memory"; GameManager.games)
  * @param {Function} [opts.tournamentOfGame] - gameId -> the live TournamentState it belongs to, or null
  * @param {Function} [opts.gameIdIndexUnique] - () => true | false | null (/health)
  * @param {boolean|null} [opts.fenceOnLoss=null] - a lost doc (gone early, another
@@ -280,6 +282,7 @@ function createLiveStore({
     onTournamentFenced = defaultTournamentFence,
     listGames = () => gameManagerOf().games.keys(),
     listTournaments = () => gameManagerOf().tournaments.keys(),
+    findGame = (gameId) => gameManagerOf().games.get(gameId),
     tournamentOfGame = (gameId) => {
         const gm = gameManagerOf();
         const tid = gm.tournamentGames.get(gameId);
@@ -1450,7 +1453,7 @@ function createLiveStore({
      */
     async function resolve(gameId, { waitMs = RESOLVE_WAIT_MS } = {}) {
         const inMemory = () => {
-            const g = safeCall(() => gameManagerOf().games.get(gameId));
+            const g = safeCall(() => findGame(gameId));
             return g && !g.isTerminal?.() && !g.frozen ? g : null;
         };
         const live = inMemory();
@@ -1481,7 +1484,7 @@ function createLiveStore({
      * resolve() answered 'pending'.
      */
     function whenAdopted(gameId, ms) {
-        const g = safeCall(() => gameManagerOf().games.get(gameId));
+        const g = safeCall(() => findGame(gameId));
         if (g && !g.isTerminal?.() && !g.frozen) return Promise.resolve(g);
         if (!isOn() || !adopter) return Promise.resolve(null);
         return adopter.whenAdopted(gameId, ms);
