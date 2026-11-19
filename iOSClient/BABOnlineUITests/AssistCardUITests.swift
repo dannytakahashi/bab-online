@@ -111,8 +111,9 @@ final class AssistCardUITests: XCTestCase {
         XCTAssertEqual(element(app, "assist.footer").label, "What our strongest bot would play \u{00B7} Help 3 of 3 free")
         shot(app, "bid-warning")
         // the chat's command list says what the next one does
-        app.buttons["log"].tap()
-        let field = app.textFields.firstMatch
+        // the log is a drawer, except where it is docked open (open-Duo landscape, book pose)
+        let field = app.textFields["Chat..."]
+        if !field.exists { app.buttons["log"].tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("/h")

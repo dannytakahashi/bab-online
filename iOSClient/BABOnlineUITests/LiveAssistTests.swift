@@ -82,8 +82,13 @@ final class LiveAssistTests: XCTestCase {
         if notNow.waitForExistence(timeout: 4) { notNow.tap(); _ = notNow.waitForNonExistence(timeout: 5) }
         if !app.buttons["Add Bot"].exists {  // (a lobby left by an earlier run is reused)
             XCTAssertTrue(newGame.waitForExistence(timeout: 20), "not in the main room after registering")
-            XCTAssertTrue(wait(15) { newGame.isEnabled })
-            newGame.tap()
+            // a tap under a late "Save Password?" sheet misses: dismiss it and tap again
+            for _ in 0..<4 where !app.buttons["Add Bot"].exists {
+                if notNow.exists { notNow.tap(); _ = notNow.waitForNonExistence(timeout: 5) }
+                XCTAssertTrue(wait(15) { newGame.isEnabled && newGame.isHittable })
+                newGame.tap()
+                _ = app.buttons["Add Bot"].waitForExistence(timeout: 6)
+            }
         }
 
         // three bots, ready, the draw
