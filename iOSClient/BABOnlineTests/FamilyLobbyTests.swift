@@ -92,7 +92,7 @@ final class FamilyLobbyTests: XCTestCase {
         XCTAssertEqual(status("jon"), .playing)
         XCTAssertTrue(state.tableFullWithout("ivy"))
         XCTAssertFalse(state.tableFullWithout("jon"))
-        XCTAssertFalse(state.spectatorsCanTalk, "the host's switch")
+        XCTAssertFalse(state.spectatorsCanTalk, "decoded as sent (an older server's switch; never shown)")
 
         // the host left: the role passed on (lobbyPlayerLeft carries members and host)
         state.applyPlayers(from: ["lobbyId": "l1", "players": [], "members": Array(full.dropFirst()), "host": "kim",
@@ -247,7 +247,7 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         VoiceChatManager.silent()
     }
 
-    private func settings(_ role: String, canTalk: Bool, on: Bool = true, canChange: Bool = false, game: String = "g1") -> [String: Any] {
+    private func settings(_ role: String, canTalk: Bool = true, on: Bool = true, canChange: Bool = false, game: String = "g1") -> [String: Any] {
         ["gameId": game, "host": "ivy", "spectatorsCanTalk": on, "role": role, "canTalk": canTalk, "canChange": canChange]
     }
 
@@ -259,73 +259,39 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         XCTAssertNil(VoiceSettings.from(["role": "player"]))
     }
 
-    func testAMainRoomSpectatorStartsListenOnlyWithNoPrompt() {
+    /// Spectate starts voice, muted like every start (no prompt: the prompt is the first unmute's).
+    func testASpectatorStartsVoiceMuted() {
         let m = manager(), store = GameState()
         var started = 0
-        VoiceSocketHandler.applyVoiceSettings(settings("spectator", canTalk: true), manager: m, gameState: store,
-                                              start: { _ in started += 1 }, notify: { _ in XCTFail("no toast") })
+        VoiceSocketHandler.applyVoiceSettings(settings("spectator"), manager: m, gameState: store, start: { _ in started += 1 })
         XCTAssertEqual(started, 1, "voice starts for the spectator")
-        XCTAssertTrue(m.talkAllowed)
-        XCTAssertFalse(m.wantsMic, "listen-only until Tap to talk")
+        XCTAssertTrue(m.isSelfMuted)
+        XCTAssertFalse(m.isListenOnly, "muted is not listen-only: a tap unmutes")
         XCTAssertEqual(m.settings?.role, .spectator)
     }
 
-    func testTalkTurnedOffTellsTheSpectatorOnce() {
+    /// Only the role is read: an older server's switch off (canTalk false, spectatorsCanTalk
+    /// false, canChange true) changes nothing here; a player's voice is the table's to start.
+    func testOnlyTheRoleIsRead() {
         let m = manager(), store = GameState()
-        var notes: [String] = []
-        let apply = { (d: [String: Any]) in
-            VoiceSocketHandler.applyVoiceSettings(d, manager: m, gameState: store, start: { _ in }, notify: { notes.append($0) })
-        }
-        apply(settings("spectator", canTalk: true))
-        apply(settings("spectator", canTalk: false, on: false))
-        XCTAssertFalse(m.talkAllowed)
-        XCTAssertEqual(notes, [VoiceCopy.talkOff])
-        apply(settings("spectator", canTalk: false, on: false))
-        XCTAssertEqual(notes.count, 1, "an unchanged value says nothing")
-        XCTAssertEqual(m.tapToTalk(), VoiceCopy.talkOff, "Tap to talk explains why not")
-    }
-
-    /// The switch is ON but this game lets spectators only listen (a stranger at a table of
-    /// legacy players: server mayTalk has no capable controller): the toast does not blame the host.
-    func testTapToTalkBlamesTheHostOnlyWhenTheSwitchIsOff() {
-        let m = manager(), store = GameState()
-        VoiceSocketHandler.applyVoiceSettings(settings("spectator", canTalk: false, on: true), manager: m, gameState: store,
-                                              start: { _ in }, notify: { _ in XCTFail("nothing was turned off") })
-        XCTAssertFalse(m.talkAllowed)
-        XCTAssertEqual(m.tapToTalk(), VoiceCopy.listenOnlyHere)
-        XCTAssertNotEqual(VoiceCopy.listenOnlyHere, VoiceCopy.talkOff)
-    }
-
-    func testAPlayerMutesTheSpectatorsWhileTalkIsOff() {
-        let m = manager(), store = GameState()
-        store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
-        _ = store.apply(serverEvent: "spectatorsUpdated", payload: [["gameId": "g1", "spectators": [["username": "lou"]], "count": 1]])
-        XCTAssertEqual(store.watching.spectators.map(\.username), ["lou"])
-        m.peerInfos = ["s-lou": .init(username: "lou"), "s-kim": .init(username: "kim")]
-        defer { m.peerInfos = [:] }
-        VoiceSocketHandler.applyVoiceSettings(settings("player", canTalk: true, on: false, canChange: true), manager: m,
-                                              gameState: store, start: { _ in XCTFail("a player's voice is started by the table") },
-                                              notify: { _ in })
-        XCTAssertEqual(m.forcedMuted, ["lou"])
-        XCTAssertTrue(m.isEffectivelyMuted("s-lou"))
-        XCTAssertFalse(m.isEffectivelyMuted("s-kim"))
-        XCTAssertEqual(m.settings?.canChange, true, "the panel shows the switch")
-        m.unmutePeer("s-lou")
-        XCTAssertTrue(m.isEffectivelyMuted("s-lou"), "my unmute does not lift the forced one")
-        VoiceSocketHandler.applyVoiceSettings(settings("player", canTalk: true, on: true), manager: m, gameState: store,
-                                              start: { _ in }, notify: { _ in })
-        XCTAssertEqual(m.forcedMuted, [])
-        XCTAssertFalse(m.isEffectivelyMuted("s-lou"))
+        var started = 0
+        VoiceSocketHandler.applyVoiceSettings(settings("spectator", canTalk: false, on: false, canChange: true), manager: m,
+                                              gameState: store, start: { _ in started += 1 })
+        XCTAssertEqual(started, 1)
+        XCTAssertFalse(m.isListenOnly)
+        VoiceSocketHandler.applyVoiceSettings(settings("player", on: false, canChange: true), manager: m, gameState: store,
+                                              start: { _ in XCTFail("a player's voice is started by the table") })
+        XCTAssertEqual(m.settings?.role, .player)
     }
 
     func testVoiceFullAndAnotherGamesCopy() {
         let m = manager(), store = GameState()
         store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
         VoiceSocketHandler.applyVoiceSettings(settings("none", canTalk: false), manager: m, gameState: store,
-                                              start: { _ in XCTFail("no slot, no voice") }, notify: { _ in })
+                                              start: { _ in XCTFail("no slot, no voice") })
         XCTAssertEqual(m.settings?.role, VoiceSettings.Role.none)
-        VoiceSocketHandler.applyVoiceSettings(settings("spectator", canTalk: true, game: "g9"), manager: m, gameState: store,
-                                              start: { _ in XCTFail("another game's settings") }, notify: { _ in })
+        VoiceSocketHandler.applyVoiceSettings(settings("spectator", game: "g9"), manager: m, gameState: store,
+                                              start: { _ in XCTFail("another game's settings") })
         XCTAssertEqual(m.settings?.gameId, "g1")
     }
 
@@ -334,26 +300,53 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         m.connectToPeer("s1", username: "kim")  // voice is not up: buffered
         m.handleOffer(fromSocketId: "s2", offer: RTCSessionDescription(type: .offer, sdp: "v=0"), username: "hal")
         XCTAssertEqual(m.bufferedCount, 2)
-        m.settings = VoiceSettings(gameId: "g1", host: nil, spectatorsCanTalk: false, role: .spectator, canTalk: false, canChange: false)
-        m.setDesiredMode(canTalk: false, wantsMic: false)
+        m.settings = VoiceSettings(gameId: "g1", host: nil, spectatorsCanTalk: true, role: .spectator, canTalk: true, canChange: false)
         m.shutdown()
         XCTAssertEqual(m.bufferedCount, 0, "an inactive shutdown clears the buffers too (they grew forever)")
         XCTAssertNil(m.settings)
-        XCTAssertTrue(m.talkAllowed)
-        XCTAssertTrue(m.wantsMic)
+        XCTAssertTrue(m.isSelfMuted)
+    }
+
+    /// The words this build shows; the switch's are gone (owner 2026-11-18).
+    func testTheWords() {
+        XCTAssertEqual(VoiceCopy.lobbyHint, "The first 4 to tap Ready play; everyone else watches and can talk")
+        XCTAssertEqual(VoiceCopy.micDenied, "Microphone access denied. You can still listen.")
+        XCTAssertEqual(VoiceCopy.noMic, "Listening only (no mic access)")
+        XCTAssertEqual(VoiceCopy.voiceFull, "Voice is full (8 people)")
+    }
+
+    /// No source in the app sends the old switch, nor shows "can only listen".
+    func testNothingSendsTheOldSwitch() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("BABOnline")
+        let files = FileManager.default.enumerator(at: app, includingPropertiesForKeys: nil)?
+            .compactMap { $0 as? URL }.filter { $0.pathExtension == "swift" } ?? []
+        XCTAssertGreaterThan(files.count, 50, "read the app sources from the checkout")
+        var offenders: [String] = []
+        for file in files where !["SocketEvents.swift", "UIFixture.swift"].contains(file.lastPathComponent) {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            if text.contains("Client.setSpectatorsCanTalk") || text.contains("can only listen") {
+                offenders.append(file.lastPathComponent)
+            }
+        }
+        XCTAssertEqual(offenders, [])
     }
 }
 
-// MARK: - Listen-only on real WebRTC connections
+// MARK: - Muted start on real WebRTC connections
 
 /// Two managers negotiate in-process with real RTCPeerConnections (the hooks capture the SDP
-/// instead of a socket; no audio session, no network beyond ICE gathering).
+/// instead of a socket; no audio session, the silent audio device, no network beyond ICE
+/// gathering). Owner 2026-11-18: "by default the mic should be muted and you can click to
+/// unmute / activate mic".
 @MainActor
-final class SpectatorVoiceManagerTests: XCTestCase {
+final class MutedStartVoiceTests: XCTestCase {
     final class Wire {
         var offers: [(to: String, sdp: RTCSessionDescription)] = []
         var answers: [(to: String, sdp: RTCSessionDescription)] = []
         var prompts = 0
+        var notes: [String] = []
+        let device = SilentAudioDevice()
     }
 
     private var managers: [VoiceChatManager] = []
@@ -366,7 +359,9 @@ final class SpectatorVoiceManagerTests: XCTestCase {
     private func make(_ wire: Wire, permission: @escaping @MainActor () async -> Bool = { true }) -> VoiceChatManager {
         let m = VoiceChatManager.silent(requestRecordPermission: { wire.prompts += 1; return await permission() },
                                         sendOffer: { to, sdp, _ in wire.offers.append((to, sdp)) },
-                                        sendAnswer: { to, sdp in wire.answers.append((to, sdp)) })
+                                        sendAnswer: { to, sdp in wire.answers.append((to, sdp)) },
+                                        notify: { wire.notes.append($0) },
+                                        audioDevice: wire.device)
         managers.append(m)
         return m
     }
@@ -390,158 +385,249 @@ final class SpectatorVoiceManagerTests: XCTestCase {
         return nil
     }
 
-    func testAnActiveSessionReoffersListenOnlyAndBackKeepingThePeersMute() async throws {
+    /// A and B in a call, both just started (muted, no mic).
+    private func call(_ wa: Wire, _ wb: Wire) async throws -> (VoiceChatManager, VoiceChatManager) {
+        let a = make(wa), b = make(wb)
+        try await a.initialize()
+        try await b.initialize()
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("A's offer") { wa.offers.count == 1 }
+        b.handleOffer(fromSocketId: "A", offer: wa.offers[0].sdp, username: "amy")
+        try await waitUntil("B's answer") { wb.answers.count == 1 }
+        a.handleAnswer(fromSocketId: "B", answer: wb.answers[0].sdp)
+        try await waitUntil("A stable") { a.signalingState(of: "B") == .stable }
+        return (a, b)
+    }
+
+    /// Joining asks for nothing; every call is an ordinary sendrecv one carrying the local track
+    /// DISABLED (never a sender without a track: WebRTC feeds such a send stream the capture
+    /// unmuted, seen live on the simulator 2026-11-18), each side has the other's track, and
+    /// playout starts.
+    func testVoiceStartsMutedWithNoPromptAndStillHears() async throws {
+        let wa = Wire(), wb = Wire()
+        let (a, b) = try await call(wa, wb)
+        XCTAssertEqual(wa.prompts + wb.prompts, 0, "joining voice never prompts")
+        XCTAssertTrue(a.isActive && b.isActive)
+        XCTAssertTrue(a.isSelfMuted && b.isSelfMuted, "muted at the start")
+        XCTAssertFalse(a.isListenOnly)
+        XCTAssertEqual(a.localTrackEnabled, false, "the track is there, disabled, before the first unmute")
+        XCTAssertEqual(b.localTrackEnabled, false)
+        XCTAssertTrue(a.sendsMic(to: "B") && b.sendsMic(to: "A"), "each call carries the (disabled) track")
+        XCTAssertEqual(a.trackLessAudioSenders("B") + b.trackLessAudioSenders("A"), 0, "no sender without a track")
+        XCTAssertEqual(audioDirection(wa.offers[0].sdp), "sendrecv", "an ordinary offer for every peer, shipped builds too")
+        XCTAssertEqual(audioDirection(wb.answers[0].sdp), "sendrecv")
+        XCTAssertTrue(wa.offers[0].sdp.sdp.contains("a=msid:stream0"), "a stream, so a peer's didAdd / ontrack fires")
+        try await waitUntil("B has A's track") { b.hasRemoteTrack("A") }
+        try await waitUntil("A has B's track") { a.hasRemoteTrack("B") }
+        try await waitUntil("B plays out") { wb.device.playoutStarts > 0 }
+        try await waitUntil("A plays out") { wa.device.playoutStarts > 0 }
+    }
+
+    /// The first unmute asks once and puts the mic on the call it already has: no new offer or
+    /// answer, the call stays stable. Mute and unmute again ask nothing.
+    func testTheFirstUnmuteAsksOnceAndSendsOnTheSameCall() async throws {
+        let wa = Wire(), wb = Wire()
+        let (a, b) = try await call(wa, wb)
+        a.toggleSelfMute()
+        try await waitUntil("A unmuted") { !a.isSelfMuted }
+        XCTAssertEqual(wa.prompts, 1)
+        XCTAssertEqual(a.localTrackEnabled, true)
+        XCTAssertTrue(a.sendsMic(to: "B"), "the same track on the existing call's sender, now enabled")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(wa.offers.count, 1, "no re-offer")
+        XCTAssertEqual(wb.answers.count, 1)
+        XCTAssertEqual(a.signalingState(of: "B"), .stable)
+        XCTAssertEqual(b.signalingState(of: "A"), .stable)
+
+        a.toggleSelfMute()
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false, "a mute keeps the mic, disabled")
+        a.toggleSelfMute()
+        XCTAssertFalse(a.isSelfMuted, "the mic is there: unmuted at once")
+        XCTAssertEqual(a.localTrackEnabled, true)
+        XCTAssertEqual(wa.prompts, 1, "asked only once")
+
+        // the answering side too
+        b.toggleSelfMute()
+        try await waitUntil("B unmuted") { !b.isSelfMuted }
+        XCTAssertTrue(b.sendsMic(to: "A"))
+        try await Task.sleep(nanoseconds: 300_000_000)
+        XCTAssertEqual(wb.offers.count, 0, "the answerer re-offers nothing either")
+        XCTAssertEqual(wb.answers.count, 1)
+    }
+
+    /// A call made once the mic is there carries it from its offer and its answer.
+    func testACallAfterTheUnmuteCarriesTheMic() async throws {
         let wa = Wire(), wb = Wire()
         let a = make(wa), b = make(wb)
         try await a.initialize()
         try await b.initialize()
-        XCTAssertTrue(a.isActive)
-        XCTAssertFalse(a.isListenOnly)
-
+        a.toggleSelfMute()
+        b.toggleSelfMute()
+        try await waitUntil("both unmuted") { !a.isSelfMuted && !b.isSelfMuted }
         a.connectToPeer("B", username: "bob")
-        try await waitUntil("A's first offer") { wa.offers.count == 1 }
+        try await waitUntil("A's offer") { wa.offers.count == 1 }
         XCTAssertEqual(audioDirection(wa.offers[0].sdp), "sendrecv")
+        XCTAssertTrue(a.sendsMic(to: "B"))
         b.handleOffer(fromSocketId: "A", offer: wa.offers[0].sdp, username: "amy")
         try await waitUntil("B's answer") { wb.answers.count == 1 }
-        b.mutePeer("A")
-        b.setPeerVolume("A", 1.5)
-        a.handleAnswer(fromSocketId: "B", answer: wb.answers[0].sdp)
-        try await waitUntil("A stable") { a.signalingState(of: "B") == .stable }
-
-        // the host turned spectator talk off: the next offer receives only
-        a.setDesiredMode(canTalk: false, wantsMic: true)
-        XCTAssertTrue(a.isListenOnly)
-        try await waitUntil("A's listen-only re-offer") { wa.offers.count == 2 }
-        XCTAssertEqual(audioDirection(wa.offers[1].sdp), "recvonly")
-        b.handleOffer(fromSocketId: "A", offer: wa.offers[1].sdp, username: "amy")
-        try await waitUntil("B's answer to the re-offer") { wb.answers.count == 2 }
-        XCTAssertEqual(audioDirection(wb.answers[1].sdp), "sendonly", "the player keeps sending; nothing comes back")
-        XCTAssertEqual(b.peerInfos["A"]?.isMuted, true, "the replacement call keeps B's mute")
-        XCTAssertEqual(b.peerInfos["A"]?.volume, 1.5)
-
-        // back on while that offer waits for its answer: the re-offer waits (no stale answer)
-        a.setDesiredMode(canTalk: true, wantsMic: true)
-        try await waitUntil("the mic back") { !a.isListenOnly }
-        XCTAssertTrue(a.isReofferPending("B"))
-        try await Task.sleep(nanoseconds: 300_000_000)
-        XCTAssertEqual(wa.offers.count, 2, "no offer over one in flight")
-        a.handleAnswer(fromSocketId: "B", answer: wb.answers[1].sdp)
-        try await waitUntil("A's talking re-offer after the answer") { wa.offers.count == 3 }
-        XCTAssertEqual(audioDirection(wa.offers[2].sdp), "sendrecv")
-        XCTAssertFalse(a.isReofferPending("B"))
+        XCTAssertEqual(audioDirection(wb.answers[0].sdp), "sendrecv")
+        XCTAssertTrue(b.sendsMic(to: "A"))
+        XCTAssertEqual(b.audioDirections(of: "A").count, 1, "one audio transceiver per call")
+        XCTAssertEqual(a.trackLessAudioSenders("B") + b.trackLessAudioSenders("A"), 0)
     }
 
-    /// The host turns spectator talk OFF then ON: a spectator who had muted themselves stays
-    /// muted (the new track is made disabled); only "Tap to talk" or their own unmute turns it on.
-    func testASelfMuteSurvivesTalkOffAndOn() async throws {
+    /// A refused mic: muted, listen-only, the toast; the calls keep playing; a tap asks again,
+    /// and a later grant puts the mic on the same calls.
+    func testARefusedMicListensAndATapAsksAgain() async throws {
+        let wa = Wire(), wb = Wire()
+        var allow = false
+        let a = make(wa, permission: { allow }), b = make(wb)
+        try await a.initialize()
+        try await b.initialize()
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("A's offer") { wa.offers.count == 1 }
+        b.handleOffer(fromSocketId: "A", offer: wa.offers[0].sdp, username: "amy")
+        try await waitUntil("B's answer") { wb.answers.count == 1 }
+        a.handleAnswer(fromSocketId: "B", answer: wb.answers[0].sdp)
+
+        a.toggleSelfMute()
+        try await waitUntil("refused") { a.micPermissionDenied }
+        XCTAssertTrue(a.isListenOnly)
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false, "the track stays disabled")
+        XCTAssertEqual(wa.notes, [VoiceCopy.micDenied])
+        XCTAssertTrue(a.isActive, "voice runs on, listening")
+
+        allow = true
+        a.toggleSelfMute()
+        try await waitUntil("granted on the second tap") { !a.isSelfMuted }
+        XCTAssertEqual(wa.prompts, 2)
+        XCTAssertFalse(a.isListenOnly)
+        XCTAssertTrue(a.sendsMic(to: "B"))
+        XCTAssertEqual(wa.offers.count, 1, "still no re-offer")
+    }
+
+    /// A tap while the prompt is up is a mute, and it wins: the granted mic comes muted.
+    func testAMuteDuringThePromptWins() async throws {
         let w = Wire()
-        let a = make(w)
+        var release: CheckedContinuation<Bool, Never>?
+        let a = make(w, permission: { await withCheckedContinuation { release = $0 } })
         try await a.initialize()
         a.connectToPeer("P", username: "pat")
         try await waitUntil("the offer") { w.offers.count == 1 }
         a.toggleSelfMute()
-        XCTAssertTrue(a.isSelfMuted)
-        XCTAssertEqual(a.localTrackEnabled, false)
-
-        a.setDesiredMode(canTalk: false, wantsMic: true)
-        XCTAssertTrue(a.isListenOnly)
-        XCTAssertNil(a.localTrackEnabled, "listen-only: no track")
-        XCTAssertTrue(a.isSelfMuted, "the mute is kept while listening")
-
-        a.setDesiredMode(canTalk: true, wantsMic: true)
-        try await waitUntil("the mic back") { !a.isListenOnly }
-        XCTAssertEqual(a.localTrackEnabled, false, "the new track respects the self-mute")
-        XCTAssertTrue(a.isSelfMuted)
+        try await waitUntil("the prompt") { release != nil }
+        XCTAssertTrue(a.micRequestInFlight)
+        a.toggleSelfMute()  // changed their mind while the prompt is up
+        a.toggleSelfMute()  // still a mute: no second prompt
+        release?.resume(returning: true)
+        try await waitUntil("the prompt answered") { !a.micRequestInFlight }
+        XCTAssertEqual(w.prompts, 1)
+        XCTAssertTrue(a.isSelfMuted, "the mute won")
+        XCTAssertEqual(a.localTrackEnabled, false, "the granted mic comes muted")
+        XCTAssertTrue(a.sendsMic(to: "P"))
         a.toggleSelfMute()
-        XCTAssertEqual(a.localTrackEnabled, true, "their own unmute turns it on")
+        XCTAssertEqual(a.localTrackEnabled, true, "the next unmute needs no prompt")
+        XCTAssertEqual(w.prompts, 1)
     }
 
-    /// A voiceSettings ON during the background keep-alive makes the track disabled; the
-    /// foreground turns it on (unless self-muted).
-    func testATrackMadeInTheBackgroundStaysOffUntilTheForeground() async throws {
+    /// Leaving while the prompt is up: no mic for the session that is gone.
+    func testAShutdownDuringThePromptMakesNoMic() async throws {
+        let w = Wire()
+        var release: CheckedContinuation<Bool, Never>?
+        let a = make(w, permission: { await withCheckedContinuation { release = $0 } })
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("the prompt") { release != nil }
+        a.shutdown()
+        release?.resume(returning: true)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertNil(a.localTrackEnabled, "the session and its track are gone")
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertFalse(a.isActive)
+    }
+
+    /// Every voice session starts muted; an unmuted state never carries into a new one.
+    func testANewSessionStartsMutedAgain() async throws {
         let w = Wire()
         let a = make(w)
-        a.setDesiredMode(canTalk: false, wantsMic: true)
         try await a.initialize()
-        XCTAssertTrue(a.isListenOnly)
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        a.shutdown()
+        try await a.initialize()
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false, "a new, disabled track")
+        a.toggleSelfMute()
+        try await waitUntil("unmuted again") { !a.isSelfMuted }
+        XCTAssertEqual(w.prompts, 2, "each session's first unmute asks (iOS answers at once once answered)")
+    }
+
+    /// An unmute while the app is in the background (a voiceSettings-free path, but the same
+    /// rule): the mic stays off until the foreground.
+    func testAnUnmuteInTheBackgroundWaitsForTheForeground() async throws {
+        let w = Wire()
+        let a = make(w)
+        try await a.initialize()
         a.handleBackground()
         defer { a.handleForeground() }
-        a.setDesiredMode(canTalk: true, wantsMic: true)
-        try await waitUntil("the mic back") { !a.isListenOnly }
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
         XCTAssertEqual(a.localTrackEnabled, false, "no live mic while the app is in the background")
-        XCTAssertFalse(a.isSelfMuted)
         a.handleForeground()
         XCTAssertEqual(a.localTrackEnabled, true)
     }
 
-    /// "Tap to talk" is the person asking to talk: it starts unmuted even after a mute.
-    func testTapToTalkStartsUnmuted() async throws {
+    /// iOS 1.2.2 (12) to 1.2.3 (15) offer recvonly while listen-only: answered sendonly with no
+    /// track, and an unmute here then sends on that call with no renegotiation.
+    func testAnOlderBuildsListenOnlyOfferIsAnsweredSendOnly() async throws {
         let w = Wire()
-        let a = make(w)
-        try await a.initialize()
-        a.toggleSelfMute()
-        a.setDesiredMode(canTalk: true, wantsMic: false)  // e.g. back to listening by choice
-        XCTAssertTrue(a.isListenOnly)
-        XCTAssertNil(a.tapToTalk())
-        try await waitUntil("the mic") { !a.isListenOnly }
-        XCTAssertFalse(a.isSelfMuted)
-        XCTAssertEqual(a.localTrackEnabled, true)
+        let b = make(w)
+        try await b.initialize()
+        let factory = RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(),
+                                               decoderFactory: RTCDefaultVideoDecoderFactory(),
+                                               audioDevice: SilentAudioDevice())
+        let config = RTCConfiguration()
+        config.sdpSemantics = .unifiedPlan
+        let old = try XCTUnwrap(factory.peerConnection(with: config, constraints: RTCMediaConstraints(mandatoryConstraints: nil,
+                                                                                                    optionalConstraints: nil), delegate: nil))
+        defer { old.close() }
+        let recv = RTCRtpTransceiverInit()
+        recv.direction = .recvOnly
+        old.addTransceiver(of: .audio, init: recv)
+        var offer: RTCSessionDescription?
+        old.offer(for: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)) { sdp, _ in
+            guard let sdp else { return }
+            old.setLocalDescription(sdp) { _ in DispatchQueue.main.async { offer = sdp } }
+        }
+        try await waitUntil("the old build's offer") { offer != nil }
+        XCTAssertEqual(audioDirection(offer!), "recvonly")
+        b.handleOffer(fromSocketId: "OLD", offer: offer!, username: "lou")
+        try await waitUntil("the answer") { w.answers.count == 1 }
+        XCTAssertEqual(audioDirection(w.answers[0].sdp), "sendonly")
+        XCTAssertEqual(b.trackLessAudioSenders("OLD"), 0)
+        XCTAssertEqual(b.localTrackEnabled, false)
+        b.toggleSelfMute()
+        try await waitUntil("unmuted") { !b.isSelfMuted }
+        XCTAssertTrue(b.sendsMic(to: "OLD"))
+        XCTAssertEqual(w.offers.count, 0)
     }
 
-    func testAModeChangeDuringThePermissionPromptIsApplied() async throws {
-        let w = Wire()
-        var release: CheckedContinuation<Bool, Never>?
-        let a = make(w, permission: { await withCheckedContinuation { release = $0 } })
-        let start = Task { @MainActor in try await a.initialize() }
-        try await waitUntil("the prompt") { release != nil }
-        a.setDesiredMode(canTalk: false, wantsMic: true)  // voiceSettings while the prompt is up
-        release?.resume(returning: true)
-        try await start.value
-        XCTAssertTrue(a.isActive)
-        XCTAssertTrue(a.isListenOnly, "the start read the latest mode before making its track")
-        XCTAssertEqual(w.prompts, 1, "no second prompt or start")
-        a.connectToPeer("P", username: "pat")
-        try await waitUntil("the offer") { w.offers.count == 1 }
-        XCTAssertEqual(audioDirection(w.offers[0].sdp), "recvonly")
-    }
-
-    func testARefusedMicListensAndFlushesWhatWaited() async throws {
-        let w = Wire()
-        let a = make(w, permission: { false })
-        a.connectToPeer("P", username: "pat")  // a peer list during the prompt: buffered
-        XCTAssertEqual(a.bufferedCount, 1)
-        try await a.initialize()
-        XCTAssertTrue(a.isActive, "voice runs without the mic (it used to stay off and buffer forever)")
-        XCTAssertTrue(a.micPermissionDenied)
-        XCTAssertTrue(a.isListenOnly)
-        try await waitUntil("the flushed offer") { w.offers.count == 1 }
-        XCTAssertEqual(audioDirection(w.offers[0].sdp), "recvonly")
-        XCTAssertEqual(a.bufferedCount, 0)
-
-        // a listen-only answer carries no track
-        let w2 = Wire()
-        let talker = make(w2)
-        try await talker.initialize()
-        talker.connectToPeer("A", username: "amy")
-        try await waitUntil("a talking offer") { w2.offers.count == 1 }
-        a.handleOffer(fromSocketId: "T", offer: w2.offers[0].sdp, username: "tim")
-        try await waitUntil("the listen-only answer") { w.answers.count == 1 }
-        XCTAssertEqual(audioDirection(w.answers[0].sdp), "recvonly")
-    }
-
-    func testAMainRoomSpectatorAsksForTheMicOnlyOnTap() async throws {
-        let w = Wire()
-        let a = make(w)
-        a.setDesiredMode(canTalk: true, wantsMic: false)
-        try await a.initialize()
-        XCTAssertEqual(w.prompts, 0, "Spectate never prompts for the mic")
-        XCTAssertTrue(a.isListenOnly)
-        XCTAssertNil(a.tapToTalk())
-        try await waitUntil("the mic") { !a.isListenOnly }
-        XCTAssertEqual(w.prompts, 1)
-        a.connectToPeer("P", username: "pat")
-        try await waitUntil("the offer") { w.offers.count == 1 }
-        XCTAssertEqual(audioDirection(w.offers[0].sdp), "sendrecv")
+    /// A replaced call (a restart, an older build's re-offer) keeps my mute and volume of that
+    /// player; mutes are also kept by username across a new socket.
+    func testAReplacedCallKeepsThePeersMuteAndVolume() async throws {
+        let wa = Wire(), wb = Wire()
+        let (a, b) = try await call(wa, wb)
+        b.mutePeer("A")
+        b.setPeerVolume("A", 1.5)
+        a.removePeer("B")
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("A's new offer") { wa.offers.count == 2 }
+        b.handleOffer(fromSocketId: "A", offer: wa.offers[1].sdp, username: "amy")
+        try await waitUntil("B's answer") { wb.answers.count == 2 }
+        XCTAssertEqual(b.peerInfos["A"]?.isMuted, true, "the replacement call keeps B's mute")
+        XCTAssertEqual(b.peerInfos["A"]?.volume, 1.5)
     }
 
     func testAMuteIsKeptByUsernameAcrossANewCall() async throws {

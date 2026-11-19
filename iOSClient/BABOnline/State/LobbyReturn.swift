@@ -133,14 +133,10 @@ enum LobbyReturn {
         print("[Lobby] Entered lobby \(lobbyId) after the game")
     }
 
-    /// In the lobby everyone may talk: the game's settings and forced mutes go, the mic the
-    /// person had stays theirs (a listen-only spectator who never tapped to talk keeps
-    /// listening until a tap; one the host's switch held back talks again).
+    /// Into the lobby: the game's voice settings go; the session, its calls and the person's
+    /// own mute carry on (the same session: muted stays muted, unmuted stays unmuted).
     static func toLobbyVoice(_ voice: VoiceChatManager) {
         voice.settings = nil
-        voice.switchPending = nil
-        voice.setForcedMuted([])
-        voice.setDesiredMode(canTalk: true, wantsMic: voice.isActive ? voice.wantsMic : true)
     }
 
     /// GameContainerView's onDisappear: the table went away. Voice carries on into the lobby

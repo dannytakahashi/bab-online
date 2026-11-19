@@ -24,7 +24,7 @@ enum VoicePanelTipRule {
     static let micText = "Tip: touch and hold the mic for the voice panel"
     static let headphonesText = "Tip: touch and hold the headphones for the voice panel"
 
-    /// The button shows headphones while listen-only (a spectator who has not chosen to talk).
+    /// The button shows headphones while listen-only (the microphone was refused).
     static func text(listenOnly: Bool) -> String {
         listenOnly ? headphonesText : micText
     }

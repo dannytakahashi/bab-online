@@ -240,16 +240,19 @@ final class PlayAgainTests: XCTestCase {
     }
 
     /// A running session with a call (real RTCPeerConnection): Return to Lobby, then the table's
-    /// onDisappear (`LobbyReturn.tableGone`, what GameScreen runs) keeps the session and the call,
-    /// in talk mode. The next way off a table (the flag is spent) shuts it down as before.
+    /// onDisappear (`LobbyReturn.tableGone`, what GameScreen runs) keeps the session, the call and
+    /// the person's unmute (the same session). The next way off a table (the flag is spent)
+    /// shuts it down as before, and the next session starts muted.
     func testVoiceAndItsCallsCarryIntoTheLobby() async throws {
         let (store, app, gameId) = try table(ended: true)
         let lobby = LobbyState()
         let voice = manager()
         try await voice.initialize()
-        voice.settings = VoiceSettings(gameId: gameId, host: "ivy", spectatorsCanTalk: false, role: .player, canTalk: true, canChange: false)
+        voice.settings = VoiceSettings(gameId: gameId, host: "ivy", spectatorsCanTalk: true, role: .player, canTalk: true, canChange: false)
         voice.connectToPeer("sid-ivy", username: "ivy")
         try await waitUntil("the call to ivy") { voice.signalingState(of: "sid-ivy") != nil }
+        voice.toggleSelfMute()
+        try await waitUntil("unmuted at the table") { !voice.isSelfMuted }
         receive(lobbyReturn(gameId: gameId), lobby, app, store)
         XCTAssertTrue(voice.isActive, "the results keep voice running")
 
@@ -257,14 +260,16 @@ final class PlayAgainTests: XCTestCase {
         LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
         XCTAssertTrue(voice.isActive, "not shut down on the way into the lobby")
         XCTAssertNotNil(voice.signalingState(of: "sid-ivy"), "the call to ivy is kept (the server sends no new peer list)")
-        XCTAssertNil(voice.settings, "lobby talk mode")
-        XCTAssertTrue(voice.talkAllowed)
+        XCTAssertNil(voice.settings, "the game's voice settings went with it")
+        XCTAssertFalse(voice.isSelfMuted, "unmuted stays unmuted: the same session")
+        XCTAssertTrue(voice.sendsMic(to: "sid-ivy"))
 
         // later, off a table some other way: shut down
         app.screen = .mainRoom
         LobbyReturn.tableGone(lobbyState: lobby, appState: app, voice: voice)
         XCTAssertFalse(voice.isActive)
         XCTAssertNil(voice.signalingState(of: "sid-ivy"))
+        XCTAssertTrue(voice.isSelfMuted, "the next session starts muted")
     }
 
     /// Signals buffered while the session was not up yet stay buffered into the lobby; a stray
@@ -448,17 +453,13 @@ final class PlayAgainTests: XCTestCase {
         XCTAssertTrue(lobby.canAddBot)
     }
 
-    func testTheLobbyIsInTalkModeForEveryone() {
+    /// Into the lobby the game's voice settings go and the person's own mute stays as it was.
+    func testTheLobbyDropsTheGamesSettingsAndKeepsTheMute() {
         let m = VoiceChatManager.silent()
-        // a lobby extra the host's switch held to listening
-        m.settings = VoiceSettings(gameId: "g1", host: "ivy", spectatorsCanTalk: false, role: .spectator, canTalk: false, canChange: false)
-        m.setDesiredMode(canTalk: false, wantsMic: true)
-        m.setForcedMuted(["kim"])
+        m.settings = VoiceSettings(gameId: "g1", host: "ivy", spectatorsCanTalk: true, role: .spectator, canTalk: true, canChange: false)
         LobbyReturn.toLobbyVoice(m)
         XCTAssertNil(m.settings, "the game's voice settings went with the game")
-        XCTAssertTrue(m.talkAllowed)
-        XCTAssertTrue(m.wantsMic)
-        XCTAssertEqual(m.forcedMuted, [])
+        XCTAssertTrue(m.isSelfMuted, "muted stays muted")
     }
 
     func testTheWords() {

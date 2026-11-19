@@ -42,9 +42,6 @@ private struct GameLobbyScreen: View {
         socketService.canSendMainRoomActions && lobbyState.rejoiningLobbyId == nil
     }
 
-    /// "Spectators can talk" sent by the host, until the server's playerReadyUpdate echoes it.
-    @State private var talkPending: Bool?
-
     /// The header's mic button: voice is on (fixture mode: `-uiVoice YES`).
     private var showsMic: Bool {
         #if DEBUG
@@ -57,43 +54,21 @@ private struct GameLobbyScreen: View {
     /// The table filled without me: Ready would be refused, I will watch the game.
     private var watchesOnly: Bool { !isReady && lobbyState.tableFullWithout(authState.username) }
 
-    /// Family lobbies (1.2.2 (12)): the host's "Spectators can talk" switch, a read-only line for
-    /// everyone else, and what it means for those who do not get a seat.
+    /// Family lobbies (1.2.2 (12)): what it means for those who do not get a seat. Spectators
+    /// always may talk (owner 2026-11-18: no host switch), so it is one line.
     private var voiceSection: some View {
-        let isHost = lobbyState.isHost(authState.username)
-        let on = talkPending ?? lobbyState.spectatorsCanTalk
-        return VStack(alignment: .leading, spacing: Theme.Space.s2) {
-            Text("Voice")
-                .font(.caption.bold())
-                .foregroundColor(Theme.textSecondary)
-                .accessibilityAddTraits(.isHeader)
-            if isHost {
-                Toggle(isOn: Binding(get: { on }, set: setSpectatorsCanTalk)) {
-                    Text(VoiceCopy.switchLabel)
-                        .foregroundColor(Theme.textPrimary)
-                }
-                .tint(Theme.success)
-                .disabled(talkPending != nil || !canSendLobbyActions)
-                .accessibilityIdentifier("lobby.spectatorsCanTalk")
-            } else {
-                Text("\(VoiceCopy.switchLabel): \(on ? "On" : "Off")")
-                    .foregroundColor(Theme.textPrimary)
-                    .accessibilityIdentifier("lobby.spectatorsCanTalk.readOnly")
-            }
-            Text(on ? VoiceCopy.lobbyHintOn : VoiceCopy.lobbyHintOff)
-                .font(.caption)
-                .foregroundColor(Theme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier("lobby.voiceHint")
-        }
-        .padding(.horizontal, Theme.Space.s4)
-        .padding(.vertical, Theme.Space.s3)
-        .background(Theme.surface)
-        .cornerRadius(Theme.Radius.md)
-        .padding(.horizontal)
-        .padding(.bottom, Theme.Space.s2)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("lobby.voice")
+        Text(VoiceCopy.lobbyHint)
+            .font(.caption)
+            .foregroundColor(Theme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Theme.Space.s4)
+            .padding(.vertical, Theme.Space.s3)
+            .background(Theme.surface)
+            .cornerRadius(Theme.Radius.md)
+            .padding(.horizontal)
+            .padding(.bottom, Theme.Space.s2)
+            .accessibilityIdentifier("lobby.voiceHint")
     }
 
     /// Play again (1.2.2 (12)): "Don't wait for <name>" sent, until the server's list answers (or 5 s).
@@ -149,15 +124,6 @@ private struct GameLobbyScreen: View {
         HapticManager.lightImpact()
         // a refusal changes no list: let the control work again
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { releasing.remove(username) }
-    }
-
-    private func setSpectatorsCanTalk(_ value: Bool) {
-        guard value != lobbyState.spectatorsCanTalk || talkPending != nil else { return }
-        talkPending = value
-        LobbyEmitter.setSpectatorsCanTalk(value)
-        HapticManager.lightImpact()
-        // a refusal changes nothing: let the switch work again
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { if talkPending == value { talkPending = nil } }
     }
 
     var body: some View {
@@ -308,7 +274,6 @@ private struct GameLobbyScreen: View {
             if UIFixture.showsVoicePanel { showVoicePanel = true }
             #endif
         }
-        .onChange(of: lobbyState.spectatorsCanTalk) { _, _ in talkPending = nil }  // the echo
         .onChange(of: lobbyState.players) { _, _ in
             // every list the server sends answers the removals sent before it
             removing = []
