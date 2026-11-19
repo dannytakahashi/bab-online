@@ -1,18 +1,36 @@
 /**
  * What a server restart took away (owner decision 2026-11-11, V1_REMOVALS
  * #17 kept). On `serverShutdown` (every deploy: SIGTERM, gracefulShutdown
- * broadcasts it and closes every socket about 1 s later) the page records
- * where the player was: a seat, watching a game, a game lobby, a
- * tournament (playing or watching). Games, lobbies and tournaments live in
- * the server's memory, so after the restart the restore finds them gone;
- * the first restore path that finds it gone (rejoinFailed, the re-spectate
- * refusal, the lobby or tournament re-entry refusal, a tournamentLeft) takes
- * the record and shows ONE plain message for it. A restore that finds the
- * place still there (rejoinSuccess, the lobby, the tournament, the watched
- * table) forgets it, and nothing is recorded for the main room, the
- * game-end screen or a paused (parked) tab, where nothing is lost (a
- * casual game's score screen whose lobby reopened, play again, records the
- * lobby: main.js restartLossKind).
+ * broadcasts it at once and closes every socket within about 6.5 s; a
+ * crash sends it too) the page records where the player was: a seat,
+ * watching a game, a game lobby, a tournament (playing or watching). It
+ * only records: it cannot know yet whether the place survives.
+ *
+ * Without deploy survival (LIVE_PERSIST off or write, and every deploy
+ * with no 'on' successor) games, lobbies and tournaments live in the
+ * server's memory, so the restore finds them gone; the first restore path
+ * that finds it gone (rejoinFailed, the re-spectate refusal, the lobby or
+ * tournament re-entry refusal, a tournamentLeft) takes the record and
+ * shows ONE plain message for it.
+ *
+ * With LIVE_PERSIST on (deploy survival PR 5: dealt casual games; PR 6:
+ * tournaments) the new instance adopts the game a few seconds later and
+ * the restore lands on it: rejoinSuccess (its snapshot's seq is the saved
+ * seq + 1000, a new baseline for the seq gate) or the re-spectate's
+ * spectatorJoined. Until the game is adopted the server never answers
+ * "gone": it parks the restore for up to 8 s, then engine-closes the
+ * socket (a plain transport close), and the page restores again on the
+ * new socket. The record stays through those retries (RESTART_NOTICE_TTL_MS
+ * is well past the 12 s stale-owner wait) and is cleared by the landing,
+ * so nothing is said. A game the old instance told "won't count" was
+ * deleted before that line, so it never comes back and the message stays
+ * true.
+ *
+ * A restore that finds the place still there (rejoinSuccess, the lobby,
+ * the tournament, the watched table) forgets the record, and nothing is
+ * recorded for the main room, the game-end screen or a paused (parked)
+ * tab, where nothing is lost (a casual game's score screen whose lobby
+ * reopened, play again, records the lobby: main.js restartLossKind).
  *
  * The record lives in sessionStorage with a timestamp, so a reload while
  * the server restarts still knows, and is forgotten after
@@ -34,7 +52,10 @@ export const LOSS = Object.freeze({
 // An unfinished game writes no gameRecords entry and no stats: the only
 // writer is the end path's recordGameStats (server/socket/gameHandlers.js,
 // after gameEnd), and a game that dies with the process never gets there.
-// Tournament round scores live in memory only.
+// A game adopted after a deploy (LIVE_PERSIST on) does not die: it counts
+// once, at its real end, and its restore cleared the record before any of
+// these could show. Tournament round scores live in memory only until
+// tournaments survive deploys too (deploy survival PR 6).
 export const RESTART_LOSS_TEXT = Object.freeze({
   [LOSS.SEAT]: "Your game ended because the server restarted for an update. It won't count toward your stats.",
   [LOSS.SPECTATOR]: 'The game you were watching ended because the server restarted for an update.',
