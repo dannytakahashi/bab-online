@@ -45,6 +45,19 @@ const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn'
 const RESTORING = new WeakSet();
 const RESTORED = new WeakSet();
 
+// Each game timer's callback and due time ({fn, at}, by key), so the
+// reversible self-fence (suspend / unsuspend) can re-arm what it stopped.
+// Module state, not a field: setTimer adds no key to the game.
+const TIMER_META = new WeakMap();
+const timerMeta = (game) => {
+    let m = TIMER_META.get(game);
+    if (!m) {
+        m = new Map();
+        TIMER_META.set(game, m);
+    }
+    return m;
+};
+
 // The stages a game is saved and restored in (persist/gameCodec.js): a
 // dealt hand with a turn, a trick or a hand result on the table
 const RESTORE_STAGES = new Set([Phase.BIDDING, Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING]);
@@ -316,6 +329,8 @@ class GameState {
         if (this._history) this._history.push(to);
         this.epoch++;
         this._cancelAllTimers();
+        // Ended while suspended: nothing remembered or deferred runs
+        if (this._suspended) this._suspended = null;
         this.resume = null;
         if (this.bidClock) this.bidClock.running = false;  // its timer is gone; nothing emitted
         gameLogger.info('Game terminated', { gameId: this.gameId, from, to, event });
@@ -343,11 +358,14 @@ class GameState {
         if (this.isTerminal() || this.frozen) return Promise.resolve(false);
         const e = this.epoch;
         return new Promise((resolve) => {
-            const entry = { timer: null, resolve };
-            entry.timer = setTimeout(() => {
+            const entry = { timer: null, resolve, at: Date.now() + ms, left: null, fire: null };
+            entry.fire = () => {
                 this._pauses.delete(entry);
                 resolve(this.epoch === e);
-            }, ms);
+            };
+            // Suspended (self-fence): the wait starts when the game thaws
+            if (this._suspended) entry.left = ms;
+            else entry.timer = setTimeout(entry.fire, ms);
             this._pauses.add(entry);
         });
     }
@@ -365,6 +383,7 @@ class GameState {
         if (this.isTerminal() || this.frozen) return Promise.resolve(false);
         pacing.trace(traceKind, ms, this);
         this.resume = { kind, at: Date.now() + ms };
+        if (this._suspended) this._suspended.resumeLeft = ms;
         return this.pause(ms).then((ok) => {
             if (this.resume && this.resume.kind === kind) this.resume = null;
             return ok;
@@ -383,6 +402,7 @@ class GameState {
         if (this.isTerminal() || this.frozen) return false;
         pacing.trace(traceKind, ms, this);
         this.resume = { kind, at: Date.now() + ms };
+        if (this._suspended) this._suspended.resumeLeft = ms;
         return this.setTimer('resume', ms, () => {
             this.resume = null;
             return fn();
@@ -430,9 +450,16 @@ class GameState {
     setTimer(key, ms, fn) {
         this.clearTimer(key);
         if (this.isTerminal() || this.frozen) return false;
+        // Suspended (self-fence): remembered, armed with its full time on thaw
+        if (this._suspended) {
+            this._suspended.timers.set(key, { fn, ms });
+            return true;
+        }
         const e = this.epoch;
+        const meta = timerMeta(this);
         const timer = setTimeout(() => {
             this._timers.delete(key);
+            meta.delete(key);
             if (this.epoch !== e || this.isTerminal()) return;
             Promise.resolve().then(fn).then(() => this.markTainted(false), (err) => {
                 this.markTainted(true);
@@ -440,6 +467,7 @@ class GameState {
             });
         }, ms);
         this._timers.set(key, timer);
+        meta.set(key, { fn, at: Date.now() + ms });
         return true;
     }
 
@@ -449,24 +477,159 @@ class GameState {
             clearTimeout(timer);
             this._timers.delete(key);
         }
+        TIMER_META.get(this)?.delete(key);
+        if (this._suspended) this._suspended.timers.delete(key);
     }
 
+    /** A timer is pending under `key` (one remembered by a suspension counts). */
     hasTimer(key) {
-        return this._timers.has(key);
+        return this._timers.has(key) || !!this._suspended?.timers.has(key);
     }
 
     get pendingTimerCount() {
-        return this._timers.size + this._pauses.size;
+        return this._timers.size + this._pauses.size + (this._suspended ? this._suspended.timers.size : 0);
     }
 
     _cancelAllTimers() {
         for (const timer of this._timers.values()) clearTimeout(timer);
         this._timers.clear();
+        TIMER_META.get(this)?.clear();
+        if (this._suspended) this._suspended.timers.clear();
         for (const entry of this._pauses) {
             clearTimeout(entry.timer);
             entry.resolve(false);
         }
         this._pauses.clear();
+    }
+
+    /**
+     * The holder self-fence (deploy survival, plan 2.1; the persist store
+     * calls it when its heartbeats stop being acknowledged): the game stops
+     * in place, REVERSIBLY. Unlike freeze() the epoch stays, so every
+     * captured continuation stays valid: each game timer and pause is
+     * cancelled and remembered with what was left of it, the bots' pending
+     * actions likewise (BotController.suspendGame), and from now on nothing
+     * is emitted (broadcast, sendToPlayer, ... are no-ops: no seq is used),
+     * no turn input is accepted (applyBid / checkPlay refuse as
+     * not_your_turn), a timer, pause or bot action started meanwhile is
+     * only remembered, an abort waits (gameLifecycle.abortGame defers it to
+     * the thaw) and the codec refuses to save the game. Not terminal, not
+     * frozen. unsuspend(io) puts it all back.
+     * @returns {boolean} false if already suspended, frozen or terminal
+     */
+    suspend() {
+        if (this._suspended || this.frozen || this.isTerminal()) return false;
+        const now = Date.now();
+        const timers = new Map();
+        const meta = TIMER_META.get(this);
+        for (const [key, timer] of this._timers) {
+            clearTimeout(timer);
+            const m = meta?.get(key);
+            if (m) timers.set(key, { fn: m.fn, ms: Math.max(0, m.at - now) });
+        }
+        this._timers.clear();
+        meta?.clear();
+        for (const entry of this._pauses) {
+            if (entry.timer === null) continue;
+            clearTimeout(entry.timer);
+            entry.timer = null;
+            entry.left = Math.max(0, entry.at - now);
+        }
+        this._suspended = {
+            at: now,
+            timers,
+            deferred: [],
+            resumeLeft: this.resume ? Math.max(0, this.resume.at - now) : null,
+            bidClock: this.bidClock,
+            afkClock: this.afkClock
+        };
+        require('./bot').botController.suspendGame(this.gameId);
+        gameLogger.info('Game suspended', { gameId: this.gameId, stage: this._stage });
+        return true;
+    }
+
+    /** True between suspend() and unsuspend() (the holder self-fence). */
+    get isSuspended() {
+        return !!this._suspended;
+    }
+
+    /**
+     * Run `fn` when the game thaws (unsuspend) instead of now. Only while
+     * suspended: returns false (and does nothing) otherwise.
+     */
+    deferWhileSuspended(fn) {
+        if (!this._suspended) return false;
+        this._suspended.deferred.push(fn);
+        return true;
+    }
+
+    /**
+     * Undo suspend(): the game goes on as if the suspension had not lasted.
+     * Every remembered timer, pause and bot action is armed again with
+     * what was left of it (a timer started meanwhile with its full time),
+     * in due order; the open hold's deadline (resume), the AFK clock and
+     * the seats' grace deadlines move by the suspended time. The bid clock
+     * is never re-armed from its raw timer: bidClock.afterSuspend runs
+     * bidClock.onTurn (its same-turn resume, the clock's own deadline moved
+     * by the suspended time), which arms it again and announces a running
+     * clock anew (after a `stopped`: the clients' countdown ran on). Aborts asked for
+     * meanwhile run last. A game frozen or ended meanwhile just drops it all.
+     * @param {Object} io
+     * @returns {boolean} false if it was not suspended
+     */
+    unsuspend(io) {
+        const s = this._suspended;
+        if (!s) return false;
+        this._suspended = null;
+        const botController = require('./bot').botController;
+        if (this.frozen || this.isTerminal()) {
+            botController.resumeGame(this.gameId, { drop: true });
+            return true;
+        }
+        const now = Date.now();
+        const dt = Math.max(0, now - s.at);
+        if (this.resume && s.resumeLeft != null) this.resume.at = now + s.resumeLeft;
+        if (this.bidClock && this.bidClock === s.bidClock) {
+            this.bidClock.startAt += dt;
+            this.bidClock.endAt += dt;
+        }
+        if (this.afkClock && this.afkClock === s.afkClock) this.afkClock.deadline += dt;
+        // A seat's grace is RECONNECT_GRACE_MS of unsuspended time: its
+        // deadline and the absence it counts from move together
+        for (const seat of this.seatList()) {
+            if (seat.graceDeadline == null || !s.timers.has('grace:' + seat.position)) continue;
+            seat.graceDeadline += dt;
+            if (seat.absentSince != null) seat.absentSince += dt;
+        }
+        // Everything stopped, back in due order (ties: timers, pauses, bots)
+        const due = [];
+        for (const [key, t] of s.timers) {
+            if (key !== 'bidClock') due.push({ ms: t.ms, arm: () => this.setTimer(key, t.ms, t.fn) });
+        }
+        for (const entry of this._pauses) {
+            if (entry.timer !== null) continue;
+            const ms = entry.left ?? 0;
+            due.push({
+                ms,
+                arm: () => {
+                    entry.at = Date.now() + ms;
+                    entry.left = null;
+                    entry.timer = setTimeout(entry.fire, ms);
+                }
+            });
+        }
+        for (const b of botController.resumeGame(this.gameId)) due.push(b);
+        due.sort((a, b) => a.ms - b.ms);
+        for (const d of due) d.arm();
+        if (s.timers.has('bidClock')) require('../socket/bidClock').afterSuspend(io, this);
+        gameLogger.info('Game unsuspended', { gameId: this.gameId, stage: this._stage, ms: dt });
+        // Changes made while suspended were not saved
+        persistHooks.gameChanged(this);
+        for (const fn of s.deferred) {
+            Promise.resolve().then(fn).catch((err) =>
+                gameLogger.error('Deferred action failed', { gameId: this.gameId, error: err.message, stack: err.stack }));
+        }
+        return true;
     }
 
     /**
@@ -484,11 +647,9 @@ class GameState {
      * continuation (draw / seating / firstTurn holds resolve false) and the
      * resume, afk, grace and stall timers, so a frozen game cannot simply
      * run on. Never use it for the holder self-fence (plan 2.1: freeze while
-     * heartbeats fail, thaw once ownership re-reads as ours): that needs a
-     * separate reversible fence (PR 5) which keeps the epoch, suspends
-     * emits and side effects, remembers each timer's remaining time and on
-     * thaw re-arms them (or runs the restore kick), and leaves the game
-     * saveable.
+     * heartbeats fail, thaw once ownership re-reads as ours): that is
+     * suspend() / unsuspend(io) below, which keep the epoch. Freezing a
+     * suspended game (suspended, then fenced) drops what it remembered.
      * @returns {boolean} false if already frozen or terminal
      */
     freeze() {
@@ -496,6 +657,11 @@ class GameState {
         this.frozen = true;
         this.epoch++;
         this._cancelAllTimers();
+        if (this._suspended) {
+            // Suspended, then fenced: nothing remembered ever runs
+            this._suspended = null;
+            require('./bot').botController.resumeGame(this.gameId, { drop: true });
+        }
         this.resume = null;
         if (this.bidClock) this.bidClock.running = false;
         gameLogger.info('Game frozen', { gameId: this.gameId, stage: this._stage });
@@ -682,7 +848,9 @@ class GameState {
     }
 
     timerKeys() {
-        return Array.from(this._timers.keys());
+        const keys = Array.from(this._timers.keys());
+        if (this._suspended) for (const k of this._suspended.timers.keys()) keys.push(k);
+        return keys;
     }
 
     // ---------- seat transitions: the only writers of seats/positions/players ----------
@@ -1624,7 +1792,8 @@ class GameState {
 
     /**
      * True (and logged at debug) when nothing may be emitted from this game:
-     * it is terminal, or frozen for a handoff (freeze()).
+     * it is terminal, frozen for a handoff (freeze()) or suspended (the
+     * holder self-fence: suspend()).
      */
     _emitsDropped(event) {
         if (this.isTerminal()) {
@@ -1633,6 +1802,10 @@ class GameState {
         }
         if (this.frozen) {
             gameLogger.debug('emit dropped: frozen', { gameId: this.gameId, event });
+            return true;
+        }
+        if (this._suspended) {
+            gameLogger.debug('emit dropped: suspended', { gameId: this.gameId, event });
             return true;
         }
         return false;
@@ -1832,7 +2005,7 @@ class GameState {
      */
     applyBid(position, bid) {
         // Before the deal currentTurn holds the constructor default
-        if (this._stage !== Phase.BIDDING || position !== this.currentTurn) return { ok: false, reason: 'not_your_turn' };
+        if (this._stage !== Phase.BIDDING || position !== this.currentTurn || this._suspended) return { ok: false, reason: 'not_your_turn' };
         if (this.playerBids[position - 1] != null) return { ok: false, reason: 'already_bid' };
         const bidStr = String(bid).toUpperCase();
         if (!isValidBid(bidStr, this.playerBids, this.currentHand)) return { ok: false, reason: 'invalid_bid', bid: bidStr };
@@ -1861,7 +2034,7 @@ class GameState {
     checkPlay(position, card, socketId = this.positions[position]) {
         // Only in PLAYING: during TRICK_RESOLVING currentTurn has already
         // rotated to the leader while the trick is still on the table
-        if (this._stage !== Phase.PLAYING || position !== this.currentTurn) return { ok: false, reason: 'not_your_turn' };
+        if (this._stage !== Phase.PLAYING || position !== this.currentTurn || this._suspended) return { ok: false, reason: 'not_your_turn' };
         const check = this.validateCardPlay(socketId, card);
         if (!check.valid) return { ok: false, reason: 'invalid_play', error: check.error };
         if (this.playedCards[position - 1]) return { ok: false, reason: 'already_played' };

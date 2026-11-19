@@ -29,6 +29,9 @@ const avatarWire = require('../avatar/avatarWire');
 const { randomStockPic } = require('../avatar/stockAvatars');
 const gameVoice = require('../voice/gameVoice');
 const { openTrick } = require('../game/tableView');
+// Deploy survival (LIVE_PERSIST on): the restored-table gate. Every hook is
+// false / a no-op for a game that was not adopted
+const restoreGame = require('../game/persist/restoreGame');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -223,6 +226,9 @@ function maybeAbort(io, game) {
         abortGame(io, game, 'All players left').catch(logError('abortGame', game));
         return true;
     }
+    // A restored table nobody came back to yet: its restored abandon
+    // (restoreGame, 10 min) is the only window
+    if (restoreGame.holdsAbandon(game)) return false;
     if (!game.hasTimer('abandon')) {
         const ms = abandonMs(game, owned);
         if (ms !== ABANDON_MS) socketLogger.info('Solo game: waiting for its players', { gameId: game.gameId, ms });
@@ -305,6 +311,9 @@ function onGraceExpired(io, game, pos) {
         offer(io, game, pos);
         logEntry(io, game, `${seat.ownerUsername} failed to reconnect. You may replace them with a bot.`);
     }
+    // A restored table no longer waits for this seat: with someone here the
+    // gate may open now (after the offer)
+    restoreGame.openGateIfReady(io, game);
     // Nobody here: a returning player gets the offer through replayPresenceTo
     maybeAbort(io, game);
 }
@@ -370,6 +379,9 @@ function reconnectOwner(io, game, pos, socket, username) {
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
     const tournament = reattachTournament(io, socket, game.gameId, username);
+    // A restored table: the gate may open here, and its kick runs before the
+    // carrier is built (the snapshot's seq and resume count the kick)
+    restoreGame.openGateIfReady(io, game);
 
     socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
     socket.emit('rejoinSuccess', carrierFor(game, socket, {
@@ -450,6 +462,8 @@ function watchSeat(io, game, pos, socket, username, { via }) {
         const tournament = reattachTournament(io, socket, game.gameId, username);
         extra.tournamentId = tournament ? tournament.tournamentId : null;
     }
+    // A restored table: the gate may open here, before the carrier
+    restoreGame.openGateIfReady(io, game);
     const state = carrierFor(game, socket, extra);
     socketLogger.info('Owner watching bot-controlled seat', { username, gameId: game.gameId, position: pos, via });
     socket.emit('rejoinSuccess', state);
@@ -483,6 +497,8 @@ function reclaimSeat(io, game, pos, socket, username) {
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
     socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
+    // A restored table: the gate may open here, before goActive's carrier
+    restoreGame.openGateIfReady(io, game);
     // ownerView is 'watch' now: goActive re-sends the seat's full state
     // (restorePlayerState) and the presence replay to this socket
     if (!goActive(io, game, pos, socket, { voice: false })) return false;
@@ -500,7 +516,9 @@ const afkKey = (pos) => `afk:${pos}`;
 function afkEligible(game, pos) {
     const seat = game.seat(pos);
     return !!seat && seat.controller === Controller.HUMAN && seat.presence === Presence.CONNECTED &&
-        game.acceptsTurnInput() && game.currentTurn === pos && !afkExempt(game);
+        game.acceptsTurnInput() && game.currentTurn === pos && !afkExempt(game) &&
+        // A restored table's gate: no AFK clock until everyone is back (the kick arms it)
+        !restoreGame.isGated(game);
 }
 
 /**

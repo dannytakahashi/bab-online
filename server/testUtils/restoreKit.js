@@ -19,9 +19,14 @@
  *       trickHistory and the open trick), map them.
  *
  *   kickRestored(io, game)
- *       The restore kick (plan 2.5 step 8): TRICK_RESOLVING and
+ *       The restore kick (plan 2.5 step 8): persist/restoreGame.kick, the
+ *       one the production gate runs when it opens (TRICK_RESOLVING and
  *       HAND_RESOLVING re-schedule their hold, BIDDING / PLAYING broadcast
- *       updateTurn and trigger the seat on turn.
+ *       updateTurn and trigger the seat on turn).
+ *
+ *   adoptForTest stays the gate-less form of restoreGame.adoptGame (no
+ *   gate, no restored abandon, no "resumed" line), so the codec tests
+ *   drive the kick themselves.
  *
  * Server modules are required lazily (tests mock ../database first).
  */
@@ -103,28 +108,13 @@ function adoptForTest(doc, { io = null, gameManager = require('../game/GameManag
     return game;
 }
 
-/** The restore kick for an adopted game whose first owner is back. */
+/**
+ * The restore kick for an adopted game whose owners are back: the
+ * production one (persist/restoreGame.kick, which the gate runs when it
+ * opens), for tests that adopt with adoptForTest (no gate).
+ */
 function kickRestored(io, game) {
-    const { Phase } = require('../game/GamePhase');
-    const gameHandlers = require('../socket/gameHandlers');
-    const progressWatchdog = require('../socket/progressWatchdog');
-    const pacing = require('../game/pacing');
-    if (game.stage === Phase.TRICK_RESOLVING) {
-        game.scheduleResume('trick', pacing(game).TRICK_VIEW_MS, () => gameHandlers.resumeTrick(io, game), 'trickView');
-        progressWatchdog.arm(io, game);
-        return;
-    }
-    if (game.stage === Phase.HAND_RESOLVING) {
-        const lastHand = game.currentHand === 13;
-        const ms = lastHand ? pacing(game).GAME_END_MS : pacing(game).HAND_END_MS;
-        game.scheduleResume('hand', ms, () => gameHandlers.handleHandComplete(game, io), lastHand ? 'gameEnd' : 'handEnd');
-        progressWatchdog.arm(io, game);
-        return;
-    }
-    const actionType = game.actionTypeForTurn();
-    if (!actionType) return;
-    game.broadcast(io, 'updateTurn', { currentTurn: game.currentTurn });
-    gameHandlers.triggerBotIfNeeded(io, game, actionType);
+    return require('../game/persist/restoreGame').kick(io, game);
 }
 
 module.exports = { watchSafePoints, adoptForTest, kickRestored };

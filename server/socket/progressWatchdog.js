@@ -24,6 +24,7 @@
 const SeatState = require('../game/SeatState');
 const { Phase } = require('../game/GamePhase');
 const { gameLogger } = require('../utils/logger');
+const restoreGame = require('../game/persist/restoreGame');
 
 const KEY = 'stall';
 const STALL_MS = 90000;
@@ -51,7 +52,9 @@ function timeouts(env = process.env) {
 
 /** 'bot' | 'resolving' while the game must progress without a human, else null. */
 function watched(game) {
-    if (game.isTerminal()) return null;
+    // A restored table's gate (persist/restoreGame.js): nothing to watch
+    // until its humans are back (the kick arms it)
+    if (game.isTerminal() || restoreGame.isGated(game)) return null;
     if (RESOLVING.has(game.stage)) return 'resolving';
     if (game.acceptsTurnInput()) {
         const seat = game.seat(game.currentTurn);

@@ -78,6 +78,12 @@ class BotController {
 
         // Track pending timeouts for cleanup
         this.pendingActions = new Map();
+        // key -> {gameId, at, arm(ms)} of each pending timeout (what
+        // suspendGame needs to put it back), and gameId -> Map(key -> {ms,
+        // arm}) of the actions held while that game is suspended (the
+        // holder self-fence: GameState.suspend / unsuspend)
+        this.pendingMeta = new Map();
+        this.suspended = new Map();
 
         // Bot bids/plays replaced by the fallback since startup (noteFallback)
         this.fallbacks = { bid: 0, play: 0 };
@@ -220,14 +226,9 @@ class BotController {
         pacing.trace(`${actionType === 'bid' ? 'botBid' : 'botPlay'}:${kind}`, delay, game);
         const actionKey = `${game.gameId}:${player.socketId}:${actionType}`;
 
-        // Clear any existing pending action
-        if (this.pendingActions.has(actionKey)) {
-            clearTimeout(this.pendingActions.get(actionKey));
-        }
-
         const epoch = game.epoch;
-        const timeoutId = setTimeout(() => {
-            this.pendingActions.delete(actionKey);
+        // (replaces any pending action under the same key)
+        this._arm(game, actionKey, delay, () => {
             // Never act into a game that ended/aborted after scheduling
             if (game.epoch !== epoch || game.isTerminal()) return;
             // ...or for a seat this bot no longer controls (/active, a new
@@ -244,9 +245,69 @@ class BotController {
                 game.markTainted?.(true);
                 gameLogger.error('Bot action failed', { gameId: game.gameId, actionType, error: err.message, stack: err.stack });
             }
-        }, delay);
+        });
+    }
 
-        this.pendingActions.set(actionKey, timeoutId);
+    /**
+     * Arm the pending timeout `actionKey` of `game`'s bots (replacing one
+     * under the same key): `run` after `delay` ms. While the game is
+     * suspended it is only held (suspendGame), armed when the game thaws.
+     * @param {string|null} [label] - a safeTimeout label (null: plain setTimeout)
+     */
+    _arm(game, actionKey, delay, run, label = null) {
+        const prev = this.pendingActions.get(actionKey);
+        if (prev !== undefined) clearTimeout(prev);
+        this.pendingMeta.delete(actionKey);
+        const gameId = game.gameId;
+        const arm = (ms) => {
+            const fire = () => {
+                this.pendingActions.delete(actionKey);
+                this.pendingMeta.delete(actionKey);
+                return run();
+            };
+            this.pendingActions.set(actionKey, label ? safeTimeout(fire, ms, label) : setTimeout(fire, ms));
+            this.pendingMeta.set(actionKey, { gameId, at: Date.now() + ms, arm });
+        };
+        const held = this.suspended.get(gameId);
+        if (held) {
+            held.set(actionKey, { ms: delay, arm });
+            return;
+        }
+        arm(delay);
+    }
+
+    /**
+     * The game is suspended (GameState.suspend): its bots' pending timeouts
+     * stop and are held with what was left of each; new ones are held too
+     * until resumeGame.
+     */
+    suspendGame(gameId) {
+        if (this.suspended.has(gameId)) return;
+        const held = new Map();
+        const now = Date.now();
+        const prefix = `${gameId}:`;
+        for (const [key, timeoutId] of this.pendingActions) {
+            if (!key.startsWith(prefix)) continue;
+            clearTimeout(timeoutId);
+            const m = this.pendingMeta.get(key);
+            if (m) held.set(key, { ms: Math.max(0, m.at - now), arm: m.arm });
+            this.pendingActions.delete(key);
+            this.pendingMeta.delete(key);
+        }
+        this.suspended.set(gameId, held);
+    }
+
+    /**
+     * The game thaws (GameState.unsuspend): the held timeouts, as
+     * [{ms, arm()}] for the caller to arm in due order. `drop`: discard
+     * them (the game was frozen or ended meanwhile).
+     * @returns {Array<{ms: number, arm: Function}>}
+     */
+    resumeGame(gameId, { drop = false } = {}) {
+        const held = this.suspended.get(gameId);
+        this.suspended.delete(gameId);
+        if (!held || drop) return [];
+        return Array.from(held.values(), (h) => ({ ms: h.ms, arm: () => h.arm(h.ms) }));
     }
 
     /**
@@ -267,23 +328,16 @@ class BotController {
 
         const actionKey = `${game.gameId}:${botSocketId}:draw`;
 
-        // Clear any previously scheduled draw for this bot
-        if (this.pendingActions.has(actionKey)) {
-            clearTimeout(this.pendingActions.get(actionKey));
-        }
-
+        // (replaces any previously scheduled draw for this bot)
         const epoch = game.epoch;
-        const timeoutId = setTimeout(() => {
-            this.pendingActions.delete(actionKey);
+        this._arm(game, actionKey, delay, () => {
             if (game.epoch !== epoch || game.isTerminal()) return;
             try {
                 this.processBotDraw(io, game, bot);
             } catch (err) {
                 gameLogger.error('Bot draw failed', { gameId: game.gameId, error: err.message, stack: err.stack });
             }
-        }, delay);
-
-        this.pendingActions.set(actionKey, timeoutId);
+        });
     }
 
     /**
@@ -563,8 +617,7 @@ class BotController {
         const actionKey = `${game.gameId}:${bot.socketId}:chat:${this.chatSeq}`;
 
         const epoch = game.epoch;
-        const timeoutId = safeTimeout(() => {
-            this.pendingActions.delete(actionKey);
+        this._arm(game, actionKey, delay, () => {
             if (game.epoch !== epoch || game.isTerminal()) return;
             // A bot released meanwhile (/active) says nothing more
             if (!this.getBot(game.gameId, bot.socketId)) return;
@@ -578,9 +631,7 @@ class BotController {
                 // same shape as human chat
                 isSpectator: false
             });
-        }, delay, 'botChat');
-
-        this.pendingActions.set(actionKey, timeoutId);
+        }, 'botChat');
     }
 
     /**
@@ -765,8 +816,11 @@ class BotController {
             if (key.startsWith(prefix)) {
                 clearTimeout(timeoutId);
                 this.pendingActions.delete(key);
+                this.pendingMeta.delete(key);
             }
         }
+        const held = this.suspended.get(gameId);
+        if (held) for (const key of Array.from(held.keys())) if (key.startsWith(prefix)) held.delete(key);
     }
 
     /**
@@ -791,8 +845,10 @@ class BotController {
             if (key.startsWith(`${gameId}:`)) {
                 clearTimeout(timeoutId);
                 this.pendingActions.delete(key);
+                this.pendingMeta.delete(key);
             }
         }
+        this.suspended.delete(gameId);
         this.sentABoyTricks.delete(gameId);
         this.notBeStupidGames.delete(gameId);
         const gameBots = this.gamesBots.get(gameId);
@@ -816,6 +872,8 @@ class BotController {
             clearTimeout(timeoutId);
         }
         this.pendingActions.clear();
+        this.pendingMeta.clear();
+        this.suspended.clear();
     }
 
     /**

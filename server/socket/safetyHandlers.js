@@ -154,6 +154,7 @@ async function checkBlockTarget(usersCollection, username, target) {
 
 module.exports = {
     BLOCK_LIST_MAX,
+    isBotName,
     reportUser,
     blockUser,
     unblockUser

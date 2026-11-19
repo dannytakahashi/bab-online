@@ -95,13 +95,24 @@ function emitLobbiesUpdatedWide(io, { capable, demoSplit, lobbies, tournaments, 
 
 /**
  * Abort a live game.
+ *
+ * Deploy survival: a frozen game (GameState.freeze: handed off, or
+ * suspended and then fenced) is not this process's any more, so this is a
+ * no-op (false) and nothing is emitted, retired or cleared. A suspended
+ * one (the holder self-fence, GameState.suspend) aborts when it thaws
+ * (deferWhileSuspended), never while ownership is in doubt.
  * @param {Object} io
  * @param {GameState} game
  * @param {string} reason - sent to clients as abortGame { reason }
  * @returns {Promise<boolean>} false if the game was already ended/aborted
+ *   (or frozen, or suspended: then the abort runs on unsuspend)
  */
 async function abortGame(io, game, reason) {
-    if (!game || game.isTerminal()) return false;
+    if (!game || game.isTerminal() || game.frozen) return false;
+    if (game.isSuspended) {
+        game.deferWhileSuspended(() => abortGame(io, game, reason));
+        return false;
+    }
     const gameId = game.gameId;
     // The tournament the table still counts for (a cancel unmaps its tables
     // before aborting them: those end like a casual game)

@@ -108,8 +108,8 @@ describe('the server timers that use it', () => {
 const BARE_TIMERS = {
     'database.js': 2, // backoff sleep, whenReady timeout: resolve only
     'demo/ambientBots.js': 2, // both call safeTick (its own try/catch)
-    'game/GameState.js': 2, // pause() resolve; setTimer, which guards fn
-    'game/bot/BotController.js': 2, // bot bid/play and draw: own try/catch with game context
+    'game/GameState.js': 3, // pause() resolve and its re-arm after a suspension (unsuspend); setTimer, which guards fn
+    'game/bot/BotController.js': 1, // _arm: bot bid/play and draw run their own try/catch with game context (chat goes through safeTimeout)
     'routes/avatar.js': 1, // lookup wait: resolve(false)
     'utils/safeTimer.js': 3, // the wrappers themselves
     'utils/shutdown.js': 3, // notice / settle waits, the hard-exit deadline
