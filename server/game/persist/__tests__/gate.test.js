@@ -254,6 +254,53 @@ describe('two humans: bots wait for both (owner answer c)', () => {
     });
 });
 
+describe('two humans, BIDDING: a turn that moves while gated arms no bid clock (bidClock.eligible)', () => {
+    test('the returned human bids; the next seat, a human still in grace, gets no clock until its grace passes and the kick runs', async () => {
+        const gameHandlers = require('../../../socket/gameHandlers');
+        // The returned human (a) on turn, the other (b) next
+        const fixture = await playUntil({
+            mockDb, seed: 11, humans: 2,
+            until: (g) => {
+                if (g.stage !== Phase.BIDDING || g.dealSeq < 2 || g.resume) return false;
+                const on = g.seat(g.currentTurn);
+                const next = g.seat((g.currentTurn % 4) + 1);
+                return on.controller === 'human' && next.controller === 'human' && g.playerBids[next.position - 1] == null;
+            },
+        });
+        const { io, log, game } = adopt(fixture);
+        const posA = game.currentTurn;
+        const posB = (posA % 4) + 1;
+        const ownerOf = (pos) => game.seat(pos).ownerUsername;
+        const sockA = await rejoin(io, log, game, ownerOf(posA), 'back-a3');
+        expect(game.seatByOwnerSocket(sockA.id)).toBe(posA);
+        expect(restoreGame.isGated(game)).toBe(true);
+        expect(restoreGame.waitingFor(game)).toEqual([posB]);
+        const mark = log.length;
+        await gameHandlers.playerBid(sockA, io, { bid: '1' });
+        expect(game.playerBids[posA - 1]).toBe('1');
+        expect(game.currentTurn).toBe(posB);
+        // Well inside b's reconnect grace
+        await jest.advanceTimersByTimeAsync(45000);
+        expect(after(log, mark).filter((e) => e.event === 'bidClock')).toEqual([]);
+        expect(game.hasTimer('bidClock')).toBe(false);
+        expect(game.bidClock).toBeNull();
+        expect(game.playerBids[posB - 1]).toBeUndefined();
+        expect(restoreGame.isGated(game)).toBe(true);
+        expect(game.seat(posB).presence).toBe(SeatState.Presence.GRACE);
+        // b's grace passes: the offer, the gate opens, the kick arms a fresh clock for b
+        await jest.advanceTimersByTimeAsync(SeatState.RECONNECT_GRACE_MS - 45000 + 500);
+        expect(restoreGame.isGated(game)).toBe(false);
+        expect(after(log, mark).some((e) => e.event === 'resignationAvailable' && e.data.position === posB)).toBe(true);
+        expect(game.bidClock).toMatchObject({ pos: posB, running: false });
+        expect(game.hasTimer('bidClock')).toBe(true);
+        expect(game.playerBids[posB - 1]).toBeUndefined();
+        // ...and it runs as a live clock would: announced after its pre-wait, '0' at its end
+        await jest.advanceTimersByTimeAsync(SeatState.bidClockDelayMs() + SeatState.bidClockMs() + 10);
+        expect(after(log, mark).filter((e) => e.event === 'bidClock' && e.data.running).map((e) => e.data.position)).toEqual([posB]);
+        expect(game.playerBids[posB - 1]).toBe('0');
+    });
+});
+
 describe('not a restored game', () => {
     test('isGated / openGateIfReady / holdsAbandon are inert', async () => {
         const fixture = await playUntil({ mockDb, seed: 2, until: (g) => g.stage === Phase.PLAYING && g.dealSeq >= 2 });
