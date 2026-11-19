@@ -53,7 +53,8 @@
  *      outcome 'unknown' (it may be a move behind, or another instance's).
  *      After a failed successor read every table with a saved doc is
  *      released the same way (its final state where that write lands,
- *      else as saved; only tainted docs are deleted), and every one is
+ *      else as saved; only a table serialize refuses, tainted or
+ *      invalid, is deleted), and every one is
  *      'unknown' whatever was acknowledged: an 'on' successor may adopt
  *      it, or nobody until a later boot (a release that never lands leaves
  *      it to the stale-owner wait). releaseKind stays 'handoff' (a SIGTERM, not a crash: it
@@ -286,7 +287,8 @@ function createHandoff({
         // or another instance may own it already (then the release, on
         // owner: me, leaves it alone)
         // After a failed successor read, likewise every saved doc whose final
-        // write did not land (a tainted table's is still deleted)
+        // write did not land (a table serialize refuses, tainted or invalid,
+        // is still deleted)
         const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
         const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
         // An adoption claim still settling (past the settle bound): adopt.js
@@ -319,9 +321,14 @@ function createHandoff({
         }
         for (const game of others) out.tables.push({ game, outcome: 'ended' });
         s.stopHeartbeat();
-        logger.info(successorUnknown ? 'Handoff: successor read failed; live docs released' : 'Handoff: live docs released', {
+        // released counts every id sent for release (final write acknowledged,
+        // or as saved); asIs those released as saved. The message follows
+        // whether the release was acknowledged
+        const head = successorUnknown ? 'Handoff: successor read failed; ' : 'Handoff: ';
+        logger.info(head + (releasedOk ? 'live docs released' : 'release not acknowledged'), {
             tables: entries.length,
-            released: releasedOk ? acked.length : 0,
+            released: releasedOk ? releaseIds.length : 0,
+            asIs: releasedOk ? asIs.length : 0,
             continued: out.tables.filter((t) => t.outcome === 'continue').length,
             unknown: out.tables.filter((t) => t.outcome === 'unknown').length
         });

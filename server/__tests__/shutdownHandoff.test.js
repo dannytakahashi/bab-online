@@ -100,6 +100,12 @@ function successor({ mode = 'on', beatAgoMs = 0, shuttingDown = false } = {}) {
     });
 }
 
+/** A logger that records the handoff's summary line (its info calls). */
+function recordingLogger() {
+    const infos = [];
+    return { infos, info: (msg, meta) => infos.push([msg, meta]), warn: () => {}, error: () => {}, debug: () => {} };
+}
+
 describe('over a recording io (fake timers)', () => {
     let io;
     let log;
@@ -238,7 +244,8 @@ describe('over a recording io (fake timers)', () => {
         });
 
         test('the read fails and the final write fails too: the saved doc is released as it is, UNKNOWN', async () => {
-            const { store } = await bootA();
+            const rec = recordingLogger();
+            const { store } = await bootA({ handoffDeps: { logger: rec } });
             const { id } = await table(store);
             const saved = kit.comparable(doc(id));
             const revBefore = doc(id).rev;
@@ -249,11 +256,14 @@ describe('over a recording io (fake timers)', () => {
             expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff', rev: revBefore });
             expect(kit.comparable(doc(id))).toEqual(saved);
             expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+            // The summary counts the doc released as saved (none acknowledged)
+            expect(rec.infos).toEqual([['Handoff: successor read failed; live docs released', { tables: 1, released: 1, asIs: 1, continued: 0, unknown: 1 }]]);
             expect(exit).toHaveBeenCalledWith(0);
         });
 
         test('the read fails and the release is not acknowledged: still UNKNOWN, the doc left for the stale-owner wait (never deleted)', async () => {
-            const { store } = await bootA();
+            const rec = recordingLogger();
+            const { store } = await bootA({ handoffDeps: { logger: rec } });
             const { id } = await table(store);
             db().faults.fail({ collections: 'serverInstances', ops: 'find' });
             db().faults.fail({ collections: 'liveGames', ops: 'updateMany' });
@@ -261,6 +271,7 @@ describe('over a recording io (fake timers)', () => {
             await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
             expect(doc(id)).toMatchObject({ owner: 'boot-A', kind: 'live', released: false });
             expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+            expect(rec.infos).toEqual([['Handoff: successor read failed; release not acknowledged', { tables: 1, released: 0, asIs: 0, continued: 0, unknown: 1 }]]);
             expect(exit).toHaveBeenCalledWith(0);
         });
 
@@ -340,6 +351,24 @@ describe('over a recording io (fake timers)', () => {
         }
     });
 
+    // The summary line counts what the release carried, and says so only
+    // when the release was acknowledged
+    test.each([
+        ['acknowledged', false, 'Handoff: live docs released', { tables: 1, released: 1, asIs: 0, continued: 1, unknown: 0 }, shutdown.CONTINUE_NOTICE],
+        ['not acknowledged', true, 'Handoff: release not acknowledged', { tables: 1, released: 0, asIs: 0, continued: 0, unknown: 1 }, shutdown.UNKNOWN_NOTICE],
+    ])('successor, the release %s: the summary line says so', async (_why, releaseFails, msg, meta, line) => {
+        const rec = recordingLogger();
+        const { store } = await bootA({ handoffDeps: { logger: rec } });
+        const { id } = await table(store);
+        successor();
+        if (releaseFails) db().faults.fail({ collections: 'liveGames', ops: 'updateMany' });
+        signal('SIGTERM');
+        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+        expect(lineOf(id)).toEqual([line]);
+        expect(rec.infos).toEqual([[msg, meta]]);
+        expect(exit).toHaveBeenCalledWith(0);
+    });
+
     test('a tainted table (serialize null) is deleted, never released; a pre-deal table gets today\'s line', async () => {
         const { store } = await bootA();
         const { game, id } = await table(store);
@@ -356,7 +385,8 @@ describe('over a recording io (fake timers)', () => {
     });
 
     test('a table the holder self-fence suspended (a Mongo blip at SIGTERM) keeps its saved doc: released as it is, never deleted, UNKNOWN', async () => {
-        const { store } = await bootA();
+        const rec = recordingLogger();
+        const { store } = await bootA({ handoffDeps: { logger: rec } });
         const { game, id } = await table(store);
         // No heartbeat acknowledged for 8 s: the table is suspended (not saveable)
         db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
@@ -373,6 +403,7 @@ describe('over a recording io (fake timers)', () => {
         expect(kit.comparable(doc(id))).toEqual(saved);
         expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
         expect(db().faults.calls.filter((c) => c.op === 'replaceOne')).toEqual([]);
+        expect(rec.infos).toEqual([['Handoff: live docs released', { tables: 1, released: 1, asIs: 1, continued: 0, unknown: 1 }]]);
         // The settle step waited out its bound (the stalled shutting-down mark)
         await jest.advanceTimersByTimeAsync(handoffMod.HANDOFF_SETTLE_MS);
         expect(exit).toHaveBeenCalledWith(0);
