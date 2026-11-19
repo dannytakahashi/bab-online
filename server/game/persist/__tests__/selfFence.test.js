@@ -5,11 +5,15 @@
  *     heartbeat suspends every casual table with a saved doc (game.suspend,
  *     STUBBED here: the GAME builder's reversible fence), and nothing of it
  *     is written meanwhile;
- *   - the next good beat re-reads each doc: still ours and live ->
- *     unsuspend and the held change is written; adopted elsewhere ->
- *     fenced (frozen, retired from GameManager with no emit, its sockets
- *     engine-closed, a later terminal claim answers 'fenced'); a read that
- *     fails keeps it suspended until the next beat;
+ *   - the next good beat re-takes each doc with a compare-and-set write
+ *     (owner me, live, not released -> rev + 1): matched -> unsuspend and
+ *     the held change is written; adopted elsewhere -> fenced (frozen,
+ *     retired from GameManager with no emit, its sockets engine-closed, a
+ *     later terminal claim answers 'fenced'); a re-take that fails keeps
+ *     it suspended until the next beat; an adopter's claim landing right
+ *     after the re-take fails (the rev moved), so only one owner acts;
+ *   - a frozen holder that thaws runs the self-fence check before any
+ *     overdue game timer, pause or bot action (persist/hooks.beforeRun);
  *   - a fenced copy that reaches gameEnd records no stats, clears no
  *     pointer and writes no tombstone (the adopter owns the end);
  *   - a late heartbeat never moves beatSeq back.
@@ -121,14 +125,14 @@ test('adopted elsewhere meanwhile: fenced at recovery: frozen, retired with no e
     expect(kit.savedGame(db(), id).owner).toBe('boot-B');
 });
 
-test('a read-back that fails keeps the table suspended; the next beat retries it', async () => {
+test('a re-take that fails keeps the table suspended; the next beat retries it', async () => {
     const { store, id } = await onTable();
     db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
     await jest.advanceTimersByTimeAsync(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
-    db().faults.fail({ collections: 'liveGames', ops: 'findOne' });
+    db().faults.fail({ collections: 'liveGames', ops: 'findOneAndUpdate' });
     db().faults.release();
     await jest.advanceTimersByTimeAsync(liveStore.HEARTBEAT_MS + 10);
-    expect(db().faults.calls.some((c) => c.collection === 'liveGames' && c.op === 'findOne' && c.outcome === 'failed')).toBe(true);
+    expect(db().faults.calls.some((c) => c.collection === 'liveGames' && c.op === 'findOneAndUpdate' && c.outcome === 'failed')).toBe(true);
     expect(store.selfFenced).toBe(true);
     expect(store.suspendCalls).toEqual([['suspend', id]]);
     db().faults.clear();
@@ -224,5 +228,59 @@ describe('a frozen holder thaws: timers that came due before the 1 s self-fence 
         game.setTimer('probe', 300, () => fired.push(game.isSuspended));
         await jest.advanceTimersByTimeAsync(301);
         expect(fired).toEqual([false]);
+    });
+});
+
+describe("recovery re-takes ownership with a write, so an adopter's compare-and-set in flight cannot also win", () => {
+    /**
+     * B judged A dead and read A's doc at rev R; its claim (the adopt
+     * compare-and-set {_id, owner: A, rev: R}) lands right after A's
+     * recovery op for the doc is answered, before A acts on the answer.
+     * Exactly one of them may run the table.
+     */
+    async function raceRecovery() {
+        const t = await onTable();
+        db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+        await jest.advanceTimersByTimeAsync(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
+        expect(t.store.suspendCalls).toEqual([['suspend', t.id]]);
+        const seen = kit.savedGame(db(), t.id);
+        const r = seen.rev;
+        const coll = db().liveGames;
+        const bClaim = coll.findOneAndUpdate.bind(coll);
+        let armed = true;
+        let bWon = null;
+        for (const op of ['findOne', 'updateOne', 'findOneAndUpdate']) {
+            const orig = coll[op].bind(coll);
+            coll[op] = async (filter, ...rest) => {
+                const res = await orig(filter, ...rest);
+                if (armed && filter && filter._id === t.id) {
+                    armed = false;
+                    // B's adopt claim (adopt.js adoptLive) lands now
+                    const claimed = await bClaim({ _id: t.id, owner: 'boot-A', rev: r }, { $set: { owner: 'boot-B', adoptedBy: 'boot-B', rev: r + 1 } }, { returnDocument: 'after' });
+                    bWon = !!claimed;
+                }
+                return res;
+            };
+        }
+        db().serverInstances._insert({ _id: 'boot-B', mode: 'on', startedAt: new Date(), beatAt: new Date(), beatSeq: 1, shuttingDown: false });
+        db().faults.release();
+        await jest.advanceTimersByTimeAsync(liveStore.HEARTBEAT_MS + 10);
+        await h.flushStore(t.store);
+        expect(armed).toBe(false);
+        return { ...t, bWon: () => bWon };
+    }
+
+    test('at most one owner: A unsuspends only if the doc is still its own afterwards', async () => {
+        const { store, game, id, bWon } = await raceRecovery();
+        const owner = kit.savedGame(db(), id).owner;
+        const unsuspended = store.suspendCalls.some(([k]) => k === 'unsuspend');
+        if (unsuspended) {
+            expect(owner).toBe('boot-A');
+            expect(bWon()).toBe(false);
+            expect(gameManager.games.get(id)).toBe(game);
+        } else {
+            expect(owner).toBe('boot-B');
+            expect(game.frozen).toBe(true);
+        }
     });
 });

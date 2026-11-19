@@ -91,8 +91,10 @@
  * for SELF_FENCE_MS on this process's monotonic clock, every casual table
  * with a saved doc is suspended (game.suspend(): timers remembered, no
  * emit, never saved meanwhile); after the next good beat each doc is
- * re-read: still ours and live -> unsuspend; anything else -> fenced (as
- * above: frozen, retired with no emit, sockets engine-closed).
+ * re-taken with a compare-and-set write (owner me, live, not released ->
+ * rev + 1, which also defeats an adopter's claim still in flight): matched
+ * -> unsuspend; anything else -> fenced (as above: frozen, retired with no
+ * emit, sockets engine-closed).
  *
  * remove(): a game's doc is left to the claim (GameManager._retire runs
  * before it); a tournament's is deleted (GameManager.deleteTournament:
@@ -1188,10 +1190,13 @@ function createLiveStore({
     }
 
     /**
-     * A heartbeat landed again: each suspended table's doc is read back.
-     * Still ours and live: it plays on (unsuspend re-arms its timers).
-     * Anything else (adopted, released, gone): fenced, with no emit. A
-     * read that fails keeps it suspended until the next beat.
+     * A heartbeat landed again: each suspended table re-takes its doc with
+     * a write, never a plain read: {_id, owner: me, released: false, kind:
+     * 'live'} -> rev + 1. Matched: still ours, and any adopter's
+     * compare-and-set still in flight on the old rev now fails, so it
+     * plays on (unsuspend re-arms its timers). Not matched (adopted,
+     * released, gone, ended): fenced, with no emit. A write that fails or
+     * times out keeps it suspended until the next beat.
      */
     async function recoverFromSelfFence() {
         if (recovering) return;
@@ -1204,14 +1209,21 @@ function createLiveStore({
                 let doc;
                 try {
                     if (!coll) throw Object.assign(new Error('no collection'), { name: 'NoCollection' });
-                    doc = await bounded(coll.findOne({ _id: st.id }, { projection: { owner: 1, released: 1, kind: 1 } }), BEAT_WAIT_MS, undefined);
+                    doc = await bounded(coll.findOneAndUpdate(
+                        { _id: st.id, owner: bootId, released: false, kind: 'live' },
+                        { $inc: { rev: 1 } },
+                        { returnDocument: 'after', projection: { rev: 1 } }
+                    ), BEAT_WAIT_MS, undefined);
                     if (doc === undefined) throw Object.assign(new Error('timed out'), { name: 'Timeout' });
                 } catch (err) {
                     pendingReads++;
-                    logFailure('self-fence read-back', st, err);
+                    logFailure('self-fence re-take', st, err);
                     return;
                 }
-                if (doc && doc.owner === bootId && !doc.released && doc.kind === 'live') {
+                if (st.done) return;
+                if (doc) {
+                    // Later writes carry a rev past the one this re-take wrote
+                    if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
                     st.suspended = false;
                     try {
                         unsuspendGame(st.entity, ioRef || safeCall(getIo));
@@ -1222,7 +1234,7 @@ function createLiveStore({
                     return;
                 }
                 st.suspended = false;
-                fence(st, !doc ? 'gone' : doc.owner !== bootId ? 'owner' : doc.released ? 'released' : 'ended');
+                fence(st, 'not ours');
             }));
             if (pendingReads === 0) {
                 selfFenced = false;
