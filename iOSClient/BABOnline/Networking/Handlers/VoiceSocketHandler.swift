@@ -54,8 +54,8 @@ final class VoiceSocketHandler {
             }
         }
 
-        // A casual game's voice settings for this socket (1.2.2 (12): spectator voice, the in-game
-        // switch; only sent to a client with the casualSpectators cap)
+        // A casual game's voice settings for this socket (1.2.2 (12): spectator voice; only sent
+        // to a client with the casualSpectators cap; the role is what this build reads)
         socket.on(SocketEvents.Server.voiceSettings) { [gameState] data, _ in
             guard let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {

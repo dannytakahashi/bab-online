@@ -124,7 +124,12 @@ describe('server event -> handler map', () => {
     const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
     expect(schema.s2c.voiceSettings.seq).toBeFalsy();
     expect(schema.s2c.voiceSettings.clientReads.web).toEqual(['client/src/handlers/voiceHandlers.js:registerVoiceHandlers']);
-    expect(schema.c2s.setSpectatorsCanTalk.sentBy.web).toBe(true);
+    // no switch on the web since 2026-11-18 (spectators always may talk):
+    // only shipped iOS builds 12-15 still send it, and the server ignores it
+    expect(schema.c2s.setSpectatorsCanTalk.sentBy).toEqual({ web: false, ios: true });
+    for (const file of ['main.js', 'ui/components/VoiceChatUI.js', 'ui/screens/GameLobby.js']) {
+      expect(readFileSync(resolve(root, 'client/src', file), 'utf8'), file).not.toMatch(/setSpectatorsCanTalk|SET_SPECTATORS_CAN_TALK/);
+    }
   });
 
   it('bidClock (the bid clock, 2026-11-18) has one handler, in the game module, outside the seq gate (unsequenced room event)', () => {

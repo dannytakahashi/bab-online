@@ -336,9 +336,8 @@ describe('createPersistHarness: restarts', () => {
         expect(second.log.length).toBeGreaterThan(0);
     }, 60000);
 
-    test('a kill ends play-again holds and reservations, bot quip cooldowns and voice counters', async () => {
+    test('a kill ends play-again holds and reservations and bot quip cooldowns', async () => {
         const { safeTimeout } = require('../../utils/safeTimer');
-        const gameVoice = require('../../voice/gameVoice');
         const harness = h.createPersistHarness({ db: mockDb.current, holder: mockDb });
         await harness.boot();
         // A play-again lobby as playAgain.openLobby leaves it: a hold (a
@@ -354,26 +353,12 @@ describe('createPersistHarness: restarts', () => {
         gameManager.startedLobbies.set('L0', { gameId: 'g0', extras: new Set(['cat']) });
         botController.sentABoyTricks.set('g0', 1);
         botController.chatRoll = () => 0;
-        // One SDP gate drop: a voice spectator who may not talk offers to send
-        const GameState = require('../../game/GameState');
-        const casual = new GameState('gv');
-        gameVoice.initCasualVoice(casual, { spectatorsCanTalk: false });
-        casual.voiceSpectators.set('spec-sid', { username: 'cat', fromLobby: false, gateSince: null });
-        gameManager.games.set('gv', casual);
-        gameManager.spectatorGames.set('spec-sid', 'gv');
-        const sendSdp = ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'c=IN IP4 0.0.0.0', 'a=sendrecv', 'a=mid:0', ''].join('\r\n');
-        expect(gameVoice.gateSignal(null, 'spec-sid', 'seat-sid', sendSdp)).toBe(false);
-        expect(gameVoice._gateDrops()).toBeGreaterThan(0);
-        const voiceReset = jest.spyOn(gameVoice, '_resetForTests');
-
         await harness.restart({ kind: 'kill' });
         expect(gameManager.lobbies.size).toBe(0);
         expect(gameManager.lobbyGrace.size).toBe(0);
         expect(gameManager.startedLobbies.size).toBe(0);
         expect(botController.sentABoyTricks.size).toBe(0);
         expect(botController.chatRoll(new (require('../../game/GameState'))('g1'), 'x')).toBeGreaterThan(0);
-        expect(voiceReset).toHaveBeenCalledTimes(1);
-        expect(gameVoice._gateDrops()).toBe(0);
         await jest.advanceTimersByTimeAsync(10 * 60 * 1000);
         expect(holdExpired).not.toHaveBeenCalled();
         expect(reservationExpired).not.toHaveBeenCalled();

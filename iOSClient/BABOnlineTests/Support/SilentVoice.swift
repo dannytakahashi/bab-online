@@ -63,13 +63,17 @@ extension VoiceChatManager {
     static func silent(requestRecordPermission: @escaping @MainActor () async -> Bool = { true },
                        sendOffer: @escaping @MainActor (String, RTCSessionDescription, String?) -> Void = { _, _, _ in },
                        sendAnswer: @escaping @MainActor (String, RTCSessionDescription) -> Void = { _, _ in },
-                       audioDevice: SilentAudioDevice = SilentAudioDevice()) -> VoiceChatManager {
+                       notify: @escaping @MainActor (String) -> Void = { _ in },
+                       audioDevice: SilentAudioDevice = SilentAudioDevice(),
+                       after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
         VoiceChatManager(hooks: .init(requestRecordPermission: requestRecordPermission,
                                       configureAudioSession: {},
                                       deactivateAudioSession: {},
                                       sendOffer: sendOffer,
-                                      sendAnswer: sendAnswer),
+                                      sendAnswer: sendAnswer,
+                                      notify: notify),
                          iceStore: IceServerStore(timeout: 0.05, emit: { _ in }),
-                         audioDevice: audioDevice)
+                         audioDevice: audioDevice,
+                         after: after)
     }
 }

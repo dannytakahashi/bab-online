@@ -1,36 +1,25 @@
 import SwiftUI
 
-/// The game lobby header's count, in the web's words (GameLobby.js: "Players 7/8 · Ready 2/4").
+/// The game lobby header's count, in the web's words (GameLobby.js): the ready count only,
+/// "Ready 2/4" (owner 2026-11-19: the rows show who is here, so "Players 7/8 ·" went), from a
+/// server with or without the family keys.
 struct LobbyCount: Equatable {
-    let players: Int
-    let capacity: Int
-    /// nil from a server without the family keys (1.2.2 and older): the count alone.
-    let ready: Int?
+    /// Ready seats at the table, out of 4.
+    let ready: Int
 
-    init(players: Int, capacity: Int, ready: Int?) {
-        self.players = players
-        self.capacity = capacity
+    init(ready: Int) {
         self.ready = ready
     }
 
     init(_ lobby: LobbyState) {
-        self.init(players: lobby.playerCount,
-                  capacity: lobby.hasSettings ? lobby.capacity : 4,
-                  ready: lobby.hasSettings ? lobby.readyAtTable : nil)
+        self.init(ready: lobby.readyAtTable)
     }
 
-    /// The pieces that never break inside: "Players 7/8", "Ready 2/4".
-    var parts: [String] {
-        ["Players \(players)/\(capacity)"] + (ready.map { ["Ready \($0)/4"] } ?? [])
-    }
+    /// One line, never broken: "Ready 2/4".
+    var text: String { "Ready \(ready)/4" }
 
-    /// One line: "Players 7/8 · Ready 2/4" ("Players 3/4" without the family keys).
-    var text: String { parts.joined(separator: " \u{00B7} ") }
-
-    /// VoiceOver, whatever the layout: "7 of 8 players, 2 of 4 ready".
-    var spoken: String {
-        "\(players) of \(capacity) players" + (ready.map { ", \($0) of 4 ready" } ?? "")
-    }
+    /// VoiceOver, whatever the layout: "2 of 4 ready".
+    var spoken: String { "\(ready) of 4 ready" }
 }
 
 /// The game lobby's header: Leave (unless the vertical bar holds it), the lobby's title, the
@@ -38,8 +27,7 @@ struct LobbyCount: Equatable {
 /// on an iPhone 17: "4/8 · Rea..."): one row where everything fits (the iPad, the open Duo's
 /// column); else the count on a line under the title, as the tournament lobby's round line
 /// (phones, the closed Duo); else (large Dynamic Type on a narrow screen) Leave and the mic on a
-/// row of their own, the title wrapping under them, then the count, on two lines if it must
-/// ("Players 7/8" / "Ready 2/4", never broken inside a piece).
+/// row of their own, the title wrapping under them, then the count on its own line.
 struct LobbyHeaderView: View {
     let title: String
     let count: LobbyCount
@@ -50,13 +38,12 @@ struct LobbyHeaderView: View {
 
     enum Form: String { case row, stacked, wrapped }
 
-    /// The header's width, and the ideal (one-line) widths of the row, the stacked form and the
-    /// count on one caption line, from hidden copies: the first form whose ideal width fits is
-    /// shown (the ViewThatFits rule, decided here so the probe knows which form is up).
+    /// The header's width, and the ideal (one-line) widths of the row and the stacked form, from
+    /// hidden copies: the first form whose ideal width fits is shown (the ViewThatFits rule,
+    /// decided here so the probe knows which form is up).
     @State private var width: CGFloat = 0
     @State private var rowWidth: CGFloat = .infinity
     @State private var stackedWidth: CGFloat = .infinity
-    @State private var countWidth: CGFloat = .infinity
 
     /// LobbyHeaderProbe's frames (fixture mode only records any).
     @StateObject private var probe = LobbyHeaderFrames()
@@ -87,8 +74,6 @@ struct LobbyHeaderView: View {
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { rowWidth = $0 }
                 stacked(nil).fixedSize()
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { stackedWidth = $0 }
-                Text(count.text).font(.caption).lineLimit(1).fixedSize()
-                    .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { countWidth = $0 }
             }
             .hidden()
             .accessibilityHidden(true)
@@ -142,7 +127,7 @@ struct LobbyHeaderView: View {
         .headerProbe("form.stacked", shown, probe)
     }
 
-    /// Leave and mic, then the title (wrapping), then the count (one line, or one piece a line).
+    /// Leave and mic, then the title (wrapping), then the count (one line: "Ready 2/4").
     private func wrapped(_ shown: Form?) -> some View {
         let alignment: HorizontalAlignment = showsLeave ? .center : .leading
         return VStack(alignment: alignment, spacing: Theme.Space.s2) {
@@ -154,16 +139,7 @@ struct LobbyHeaderView: View {
                 }
             }
             titleText(wraps: true, shown)
-            if countWidth <= width + 0.5 {
-                countLine(.caption, shown)
-            } else {
-                VStack(alignment: alignment, spacing: 2) {
-                    ForEach(Array(count.parts.enumerated()), id: \.offset) { i, part in
-                        piece(part, .caption, key: "split.\(i)", shown)
-                    }
-                }
-                .countElement(count)
-            }
+            countLine(.caption, shown)
         }
         .frame(maxWidth: .infinity, alignment: Alignment(horizontal: alignment, vertical: .center))
         .headerProbe("form.wrapped", shown, probe)
@@ -208,14 +184,13 @@ struct LobbyHeaderView: View {
             .background(idealProbe(title, .headline, key: "titleIdeal", shown))
     }
 
-    /// The whole count on one line, one accessibility element.
+    /// The count on one line at its full width, one accessibility element: it never truncates
+    /// (a form it does not fit is never chosen).
     private func countLine(_ font: Font, _ shown: Form?) -> some View {
         piece(count.text, font, key: "0", shown)
             .countElement(count)
     }
 
-    /// A piece of the count at its full width: it never truncates (a form it does not fit is
-    /// never chosen).
     private func piece(_ text: String, _ font: Font, key: String, _ shown: Form?) -> some View {
         Text(text)
             .font(font)
@@ -283,7 +258,7 @@ private extension View {
 
 /// The "lobby.headerCheck" probe's rules: "<form> ok", or what is wrong ("stacked: count.0 cut
 /// off (150 of 182 pt)"). One form shows; every part is inside the header and overlaps no other;
-/// the count's pieces (and a one-line title) are at their full width.
+/// the count (and a one-line title) is at its full width.
 enum LobbyHeaderProbe {
     static let space = "lobbyHeader"
 

@@ -137,9 +137,8 @@ class RateLimiter {
             // IPv6, iOS cellular and several Cloudflare relay URLs
             // (turnCredentials.js) add a few srflx/host/relay each, so
             // 600 / 10 s leaves room for a 7-peer burst plus a restart.
-            // Offers/answers: one per peer plus renegotiation and the
-            // spectators' listen-only re-offers on a talk change (estimates:
-            // not yet measured with TURN).
+            // Offers/answers: one per peer plus renegotiation and restarts
+            // (estimates: not yet measured with TURN).
             // (The old web PCM relay and its voiceRelayAudio key are gone:
             // V1_REMOVALS #20.)
             voiceOffer: { max: 60, windowMs: 10000 },

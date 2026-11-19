@@ -349,10 +349,10 @@ function joinAsSpectator(socket, io, data, { fromLobby = false } = {}) {
 
     sendSpectatorJoin(game, socket, user.username);
 
-    // A casual game's voice room, for a capable client: listen-only at
-    // first for a main-room spectator (voiceSettings; it asks for the mic
-    // only when its player taps to talk). Nothing for a legacy client, a
-    // tournament table or the ambient demo
+    // A casual game's voice room, for a capable client (voiceSettings; it
+    // joins muted and asks for the mic only when its player taps to
+    // unmute). Nothing for a legacy client, a tournament table or the
+    // ambient demo
     gameVoice.admitVoiceSpectator(io, game, socket.id, { fromLobby, announce: true });
 
     socketLogger.info('Player joined as spectator', {

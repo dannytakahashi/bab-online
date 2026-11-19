@@ -27,8 +27,7 @@ struct VoicePanelSheet: View {
                         .fontWeight(.medium)
 
                     if listenOnly {
-                        Text(VoiceCopy.listenOnlyLabel(talkAllowed: voiceManager.talkAllowed, micDenied: voiceManager.micPermissionDenied)
-                                .lowercased())
+                        Text(VoiceCopy.noMic.lowercased())
                             .font(.caption)
                             .foregroundColor(Theme.textSecondary)
                             .accessibilityIdentifier("voice.panel.listenOnly")
@@ -37,19 +36,18 @@ struct VoicePanelSheet: View {
                     Spacer()
 
                     if listenOnly {
+                        // the mic was refused: a tap asks again
                         Button(action: {
                             HapticManager.lightImpact()
                             guard !forceListenOnly else { return }
-                            if let why = voiceManager.tapToTalk() {
-                                SocketService.shared.serverError = ServerErrorNotice(message: why, kind: .info)
-                            }
+                            voiceManager.toggleSelfMute()
                         }) {
                             Image(systemName: "headphones")
                                 .foregroundColor(Theme.textSecondary)
                                 .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                         }
-                        .accessibilityLabel(VoiceCopy.listenOnlyLabel(talkAllowed: voiceManager.talkAllowed,
-                                                                      micDenied: voiceManager.micPermissionDenied))
+                        .accessibilityLabel(VoiceCopy.noMic)
+                        .accessibilityHint(VoiceCopy.noMicHint)
                     } else {
                         Button(action: {
                             voiceManager.toggleSelfMute()
@@ -64,32 +62,13 @@ struct VoicePanelSheet: View {
                 }
                 .listRowBackground(Theme.surface)
 
-                if listenOnly {
-                    Text(VoiceCopy.micDotNote)
+                if listenOnly || voiceManager.isSelfMuted {
+                    Text(listenOnly ? VoiceCopy.deniedNote : VoiceCopy.mutedNote)
                         .font(.caption)
                         .foregroundColor(Theme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("voice.panel.note")
                         .listRowBackground(Theme.surface)
-                }
-
-                // The in-game "Spectators can talk" (voiceSettings.canChange: the host while
-                // seated, else a capable player); the toggle waits for the server's answer
-                if let settings = voiceManager.settings, settings.canChange {
-                    Toggle(isOn: Binding(get: { voiceManager.switchPending ?? settings.spectatorsCanTalk },
-                                         set: { value in
-                                             voiceManager.switchPending = value
-                                             LobbyEmitter.setSpectatorsCanTalk(value)
-                                             let asked = value
-                                             DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                                                 if voiceManager.switchPending == asked { voiceManager.switchPending = nil }
-                                             }
-                                         })) {
-                        Text(VoiceCopy.switchLabel)
-                            .foregroundColor(Theme.textPrimary)
-                    }
-                    .tint(Theme.success)
-                    .disabled(voiceManager.switchPending != nil)
-                    .accessibilityIdentifier("voice.spectatorsCanTalk")
-                    .listRowBackground(Theme.surface)
                 }
 
                 // Peer rows: the players, then "Watching"

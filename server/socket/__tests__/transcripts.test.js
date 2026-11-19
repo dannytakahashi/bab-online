@@ -54,16 +54,24 @@ afterEach(() => {
     Math.random = realRandom;
 });
 
+// Room events sent through GameState.emitUnsequenced (no seq, no bump)
+const UNSEQUENCED_ROOM = new Set(['spectatorsUpdated', 'bidClock', 'seatLeft']);
+
 /**
- * Every room line and every gameStart carries an integer seq; per game it
- * strictly increases over room lines, and each deal's gameStarts share one
- * value above the room line before them.
+ * Every room line (but the unsequenced ones, which carry no seq) and every
+ * gameStart carries an integer seq; per game it strictly increases over
+ * room lines, and each deal's gameStarts share one value above the room
+ * line before them.
  */
 function expectSeqStamped(log) {
     const last = new Map();
     for (const l of log) {
         const room = String(l.to).startsWith('game:');
         if (!room && l.event !== 'gameStart') continue;
+        if (room && UNSEQUENCED_ROOM.has(l.event)) {
+            expect('seq' in (l.data || {})).toBe(false);
+            continue;
+        }
         const gid = room ? l.to.slice(5) : l.data.gameId;
         expect({ event: l.event, seq: Number.isInteger(l.data?.seq) }).toEqual({ event: l.event, seq: true });
         const prev = last.get(gid);
@@ -229,6 +237,8 @@ describe('seat transcripts (wire characterization)', () => {
         expect(t.rec.take()).toEqual([
             'room:playerLazyMode{botPic,botUsername,originalUsername,position}@1',
             'room:gameLogEntry{message,type}',
+            // unsequenced, additive 2026-11-19: the owner is gone for good
+            'room:seatLeft{gameId,position,username}@1',
             'self(h1):leftGame{}',
         ]);
         expect(gameManager.playerGames.has(t.ids[0])).toBe(false);
@@ -241,6 +251,7 @@ describe('seat transcripts (wire characterization)', () => {
         const mark = t.log.length;
         chat(t, s, '/leave');
         expect(t.rec.take(mark)).toEqual([
+            'room:seatLeft{gameId,position,username}@1', // unsequenced, additive 2026-11-19
             'self(r1):leftGame{}', // no s2c joinMainRoom after it any more (V1_REMOVALS #4)
         ]);
     });

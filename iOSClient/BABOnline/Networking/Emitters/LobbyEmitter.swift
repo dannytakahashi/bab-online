@@ -45,13 +45,6 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.removeBot, ["botSocketId": botSocketId])
     }
 
-    /// "Spectators can talk" (1.2.2 (12)): the lobby's host (echoed to every member by
-    /// playerReadyUpdate with `settings`), or in a casual game whoever `voiceSettings.canChange`
-    /// names (echoed by voiceSettings). Anyone else is refused (serverError 'rejected').
-    static func setSpectatorsCanTalk(_ value: Bool) {
-        socket.emit(SocketEvents.Client.setSpectatorsCanTalk, ["spectatorsCanTalk": value])
-    }
-
     /// "Don't wait for <name>" (play again, 1.2.2 (12)): gives up a returning row's hold or an
     /// expected player's reservation at once. The host only, or anyone present while the host
     /// is held; the server answers with the lobby's list (a refusal: serverError 'rejected').

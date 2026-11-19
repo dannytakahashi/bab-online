@@ -237,6 +237,7 @@ private struct GameScreen: View {
             if !gameState.isSpectator { VoiceChatManager.shared.ensureStarted() }
         }
         .onDisappear {
+            VoiceChatManager.shared.clearCompany(from: .table)
             // a SwiftUI alert went with the view; this UIKit one is dropped, and Leave starts over
             leaveAlert.discard()
             leaveFlow = LeaveAlertFlow()
@@ -247,14 +248,19 @@ private struct GameScreen: View {
             // carries on (the server kept those calls); any other way off the table ends it
             LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
         }
+        // no voice alone (owner 2026-11-19): who is here, for the voice gate (a child of its own,
+        // so the lobby kept behind the results is observed without rebuilding the table)
+        .background {
+            if let lobby = lobbyLink.state {
+                TableVoiceCompany(lobby: lobby)
+            } else {
+                TableVoiceCompany(lobby: nil)
+            }
+        }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet(watching: Set(gameState.watching.spectators.map(\.username)),
-                            forceListenOnly: fixtureSpectatorVoice == "listen")
+                            forceListenOnly: fixtureSpectatorVoice == "denied")
                 .presentationDetents([.medium])
-        }
-        // spectator talk off: a player hears none of the spectators (backstop; 1.2.2 (12))
-        .onChange(of: gameState.watching) { _, watching in
-            voiceManager.applyForcedMutes(watching: watching.spectators.map(\.username))
         }
         // a tapped seat avatar opens that player's profile (GameSKScene+SeatTap; iOS 1.2.2)
         .playerProfileHost(seatTaps: true)
@@ -773,7 +779,7 @@ private struct GameScreen: View {
 
     // MARK: - Spectator / lazy pill (bottom)
 
-    /// `-uiSpectatorVoice listen|full` (fixture mode never starts voice).
+    /// `-uiSpectatorVoice muted|denied|full` (fixture mode never starts voice).
     private var fixtureSpectatorVoice: String? {
         #if DEBUG
         return UIFixture.spectatorVoice
@@ -784,15 +790,17 @@ private struct GameScreen: View {
 
     /// A pure spectator in the game's voice room (voiceSettings role spectator, voice on).
     private var showsSpectatorVoice: Bool {
-        fixtureSpectatorVoice == "listen" || (voiceManager.isActive && voiceManager.settings?.role == .spectator)
+        fixtureSpectatorVoice == "muted" || fixtureSpectatorVoice == "denied"
+            || (voiceManager.isActive && voiceManager.settings?.role == .spectator)
     }
 
-    /// "Spectating", "Spectating (listening only)", or why there is no voice: full.
+    /// "Spectating", "Spectating (listening only)" once the mic was refused, or why there is
+    /// no voice: full.
     private var spectatingText: String {
         if fixtureSpectatorVoice == "full" || voiceManager.settings?.role == VoiceSettings.Role.none {
             return "Spectating \u{2022} \(VoiceCopy.voiceFull)"
         }
-        if showsSpectatorVoice && (fixtureSpectatorVoice == "listen" || voiceManager.isListenOnly) {
+        if showsSpectatorVoice && (fixtureSpectatorVoice == "denied" || voiceManager.isListenOnly) {
             return "Spectating (listening only)"
         }
         return "Spectating"
@@ -805,10 +813,11 @@ private struct GameScreen: View {
                 Spacer()
                 HStack(spacing: 10) {
                     // a casual game's spectator voice (1.2.2 (12)): the mic button beside the pill
-                    // (listen-only: headphones, "Tap to talk"; a long press opens the panel)
+                    // (muted at the start, a tap unmutes; headphones once the mic was refused; a
+                    // long press opens the panel)
                     if showsSpectatorVoice {
                         VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,
-                                        forceListenOnly: fixtureSpectatorVoice == "listen")
+                                        forceListenOnly: fixtureSpectatorVoice == "denied")
                     }
                     // the web's spectating indicator: team.a on the panel surface
                     Text(spectatingText)
@@ -964,5 +973,50 @@ struct HSIBadge: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.spoken(value))
             .accessibilityIdentifier(style == .table ? "hsi" : "bidOverlay.hsi")
+    }
+}
+
+/// Tells the voice gate who is at the table (VoiceCompany.tableScreen): seat owners not gone,
+/// spectators (only at a casual game this socket got voiceSettings for: a tournament table's
+/// watchers never join voice), and on a play-again score screen the reopened lobby's members.
+/// Draws nothing.
+private struct TableVoiceCompany: View {
+    @EnvironmentObject var gameState: GameState
+    @ObservedObject private var voice = VoiceChatManager.shared
+    let lobby: LobbyState?
+
+    var body: some View {
+        let spectators = VoiceCompany.spectatorsInVoice(gameId: gameState.gameId, casualVoiceGameId: voice.casualVoiceGameId)
+        if let lobby {
+            Observed(lobby: lobby, gameState: gameState, spectators: spectators)
+        } else {
+            report(VoiceCompany.table(gameState.players, me: me, spectators: spectators))
+        }
+    }
+
+    private var me: String? { gameState.username ?? SocketService.shared.authState?.username }
+
+    private func report(_ company: Bool?) -> some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: company, initial: true) { _, c in VoiceChatManager.shared.setCompany(c, from: .table) }
+    }
+
+    private struct Observed: View {
+        @ObservedObject var lobby: LobbyState
+        @ObservedObject var gameState: GameState
+        let spectators: Bool
+
+        var body: some View {
+            let me = gameState.username ?? SocketService.shared.authState?.username
+            let company = VoiceCompany.tableScreen(gameState.players, gameId: gameState.gameId,
+                                                   returnFromGameId: lobby.returnFromGameId, lobbyId: lobby.lobbyId,
+                                                   lobbyPlayers: lobby.players, me: me, spectators: spectators)
+            Color.clear
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+                .onChange(of: company, initial: true) { _, c in VoiceChatManager.shared.setCompany(c, from: .table) }
+        }
     }
 }

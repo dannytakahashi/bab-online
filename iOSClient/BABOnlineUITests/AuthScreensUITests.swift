@@ -66,7 +66,10 @@ final class AuthScreensUITests: XCTestCase {
         XCTAssertTrue(signIn.isEnabled)
         // the keyboard's return goes from Username to Password
         name.tap()
-        app.keyboards.buttons.matching(NSPredicate(format: "label ==[c] %@", "next")).firstMatch.tap()
+        // a simulator with a hardware keyboard connected (an iPad's, often) shows no
+        // on-screen keyboard, so its return key is typed instead
+        let nextKey = app.keyboards.buttons.matching(NSPredicate(format: "label ==[c] %@", "next")).firstMatch
+        if nextKey.waitForExistence(timeout: 2) { nextKey.tap() } else { name.typeText("\n") }
         XCTAssertTrue((pass.value(forKey: "hasKeyboardFocus") as? Bool) ?? false, "Next moves to Password")
 
         // iOS AutoFill: leaving a filled password field asks "Save Password?" over the next

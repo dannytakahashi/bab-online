@@ -210,7 +210,8 @@ describe('at gameEnd: the capable players are back in the same lobby', () => {
         const socks = names(4).map((n) => w.user(n));
         const lobby = lobbyOf(w, socks, { name: 'The Smiths' });
         lobbyHandlers.lobbyChat(socks[1], w.io, { message: 'ready?' });
-        lobbyHandlers.setLobbySpectatorsCanTalk(socks[0], w.io, false);
+        // the old host switch (iOS 12-15) sent OFF: ignored, always on
+        voice.setSpectatorsCanTalk(socks[0], w.io, { spectatorsCanTalk: false });
         const oldId = lobby.id;
         const game = await playLobbyGame(w.io, socks);
         // The ordinary end: one seat still played by its human (it bid and
@@ -226,7 +227,7 @@ describe('at gameEnd: the capable players are back in the same lobby', () => {
         expect(back.id).not.toBe(oldId);
         expect(back.name).toBe('The Smiths');
         expect(gameManager.lobbyHost(back)).toBe(socks[0].data.username);
-        expect(back.settings).toEqual({ spectatorsCanTalk: false });
+        expect(back.settings).toEqual({ spectatorsCanTalk: true });
         expect(back.messages.map((m) => m.message)).toEqual(['ready?']);
         expect(back.players.map((p) => p.socketId)).toEqual(socks.map((s) => s.id));
         expect(back.players.every((p) => !p.ready)).toBe(true);
@@ -239,7 +240,7 @@ describe('at gameEnd: the capable players are back in the same lobby', () => {
             expect(w.log.indexOf(ret[0])).toBeGreaterThan(end);
             expect(ret[0].data).toMatchObject({
                 lobbyId: back.id, name: 'The Smiths', host: socks[0].data.username,
-                settings: { spectatorsCanTalk: false }, capacity: 8,
+                settings: { spectatorsCanTalk: true }, capacity: 8,
                 lastGame: { gameId: game.gameId, position: game.seatByUsername(s.data.username) },
             });
             expect(ret[0].data.lastGame.playerStats).toEqual(w.log[end].data.playerStats);
@@ -1173,13 +1174,14 @@ describe('members[].onResults: "Still on the results"', () => {
         lobbyHandlers.playerUnready(socks[2], w.io);
         expect(w.to(socks[0], 'playerReadyUpdate', mark)).toHaveLength(1);
 
-        // socks[3]: a refused talk-setting change (not the host) sends no list of its own
+        // socks[3]: the old talk switch (ignored, no error) answers it alone
+        // with the unchanged list and announces it settled to the others
         mark = w.log.length;
-        lobbyHandlers.setLobbySpectatorsCanTalk(socks[3], w.io, false);
-        expect(w.errors(socks[3])).toEqual(['Only the host can change this']);
+        lobbyHandlers.setLobbySpectatorsCanTalk(socks[3], w.io);
+        expect(w.errors(socks[3])).toEqual([]);
         expect(plainUpdates(w, socks[0], mark)).toHaveLength(1);
         expect(flagged(w.last(socks[0], 'playerReadyUpdate'))).toEqual([socks[0].id]);
-        expect(w.to(socks[3], 'playerReadyUpdate', mark)).toEqual([]);
+        expect(w.to(socks[3], 'playerReadyUpdate', mark).map((l) => l.data.settings)).toEqual([{ spectatorsCanTalk: true }]);
         // an act from a settled member announces nothing
         mark = w.log.length;
         lobbyHandlers.lobbyChat(socks[3], w.io, { message: 'hi' });

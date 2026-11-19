@@ -109,7 +109,7 @@ enum LobbyReturn {
     }
 
     /// The lobby screen for the lobby in `lobbyState`. From the table, voice carries on (the
-    /// calls with the others who came back are kept by the server) in talk mode.
+    /// calls with the others who came back are kept by the server), muted again (toLobbyVoice).
     static func enter(lobbyState: LobbyState, appState: AppState, gameState: GameState,
                       voice: VoiceChatManager? = nil) {
         let voice = voice ?? .shared
@@ -133,14 +133,13 @@ enum LobbyReturn {
         print("[Lobby] Entered lobby \(lobbyId) after the game")
     }
 
-    /// In the lobby everyone may talk: the game's settings and forced mutes go, the mic the
-    /// person had stays theirs (a listen-only spectator who never tapped to talk keeps
-    /// listening until a tap; one the host's switch held back talks again).
+    /// Into the lobby: the game's voice settings go; the session and its calls carry on, muted
+    /// again (a game's end is where an unmuted mic stops, so the next game starts muted; within
+    /// one lobby and its game the person's choice holds, as on the web). The allowed mic and its
+    /// track are kept, so the next unmute asks nothing.
     static func toLobbyVoice(_ voice: VoiceChatManager) {
         voice.settings = nil
-        voice.switchPending = nil
-        voice.setForcedMuted([])
-        voice.setDesiredMode(canTalk: true, wantsMic: voice.isActive ? voice.wantsMic : true)
+        voice.mute()
     }
 
     /// GameContainerView's onDisappear: the table went away. Voice carries on into the lobby

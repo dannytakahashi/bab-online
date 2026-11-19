@@ -106,18 +106,14 @@ describe('voice across the microphone prompt (later #17)', () => {
     expect(manager.active).toBe(true);
   });
 
-  it('a start names its talk mode; a second start during the prompt hands its mode to the manager', async () => {
+  it('a second start while one is in flight returns that one (one connect)', async () => {
     const manager = { active: false };
     const connect = vi.fn(() => new Promise((resolve) => { manager.resolve = resolve; }));
-    const setMode = vi.fn();
-    const voice = createVoiceLifecycle({ manager, connect, onStarted: () => {}, onUnavailable: () => {}, teardown: () => {}, setMode });
-    const a = voice.start({ talk: false });
-    expect(connect).toHaveBeenCalledWith({ talk: false });
-    const b = voice.start({ talk: true }); // a voiceSettings while the prompt is up
+    const voice = createVoiceLifecycle({ manager, connect, onStarted: () => {}, onUnavailable: () => {}, teardown: () => {} });
+    const a = voice.start();
+    expect(connect).toHaveBeenCalledWith({});
+    const b = voice.start(); // a voiceSettings while the first start waits
     expect(b).toBe(a);
-    expect(setMode).toHaveBeenCalledWith(true);
-    voice.start(); // a start with no mode leaves it
-    expect(setMode).toHaveBeenCalledTimes(1);
     manager.active = true;
     manager.resolve();
     expect(await a).toBe(true);
