@@ -143,6 +143,24 @@ describe('a game with a native bot seat: no limit, and nothing said about one', 
     expect(helpIsUnlimited(null, cardHint())).toBe(false);
   });
 
+  it('once the server has said, its word wins over the table (as on iOS)', () => {
+    const botTable = { gameId: 'g', nativeBotSeat: true };
+    // createUI's zero count: the table decides
+    resetAssistUses('g');
+    expect(helpIsUnlimited(botTable)).toBe(true);
+    // a hint without unlimited (the server's verdict: the limit) wins over the table
+    noteAssistUses(cardHint({ uses: 3 }), 'g');
+    expect(helpIsUnlimited(botTable)).toBe(false);
+    expect(helpDescription('g', { unlimited: helpIsUnlimited(botTable) }))
+      .toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+    // and for that hint's own footer
+    expect(helpIsUnlimited(botTable, cardHint({ uses: 3 }))).toBe(false);
+    expect(assistFooter(cardHint({ uses: 3 }), { unlimited: helpIsUnlimited(botTable, cardHint({ uses: 3 })) }))
+      .toBe('What our strongest bot would play · Help 3 of 3 free');
+    // a hint with it: no limit, whatever the table
+    expect(helpIsUnlimited({ gameId: 'g', nativeBotSeat: false }, cardHint({ unlimited: true }))).toBe(true);
+  });
+
   it('the footer is just our strongest bot: a count, a re-ask and a forced move alike', () => {
     for (const h of [
       cardHint({ uses: 2, unlimited: true }), cardHint({ uses: 7, unlimited: true }),

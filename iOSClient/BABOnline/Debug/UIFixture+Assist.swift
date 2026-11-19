@@ -8,7 +8,8 @@ import Foundation
 /// free use, with the warning in `note`; 4: the use that makes the game bot-assisted).
 /// `-uiAssistShow YES`: the answer is up 1.5 s after launch, as if asked. `-uiAssistFree YES`: the
 /// answer is a game with a native bot seat's (`unlimited`, never assisted, no note), as the server
-/// sends it there (assistState.isFreeHelpGame). Every /help shows in
+/// sends it there (assistState.isFreeHelpGame); a table with a native bot seat (controller `.bot`,
+/// e.g. the tournament fixture's filler bots) answers so too, as the server would. Every /help shows in
 /// "fixture.sent"; the card, the glow and the ring in the probe "table.assist".
 extension UIFixture {
     static let assistMode: Bool = isActive && (UserDefaults.standard.bool(forKey: "uiAssist") || assistShow)
@@ -41,7 +42,9 @@ extension UIFixture {
     @MainActor
     static func answerHelp() {
         guard let store = assistStore else { return }
-        _ = store.apply(serverEvent: "assistHint", payload: [assistPayload(store.state)])
+        // as the server: a native bot seat (controller bot, never a lazy or resign bot) makes it unlimited
+        let nativeBot = store.state.players.seats.values.contains { $0.controller == .bot }
+        _ = store.apply(serverEvent: "assistHint", payload: [assistPayload(store.state, free: assistFree || nativeBot)])
     }
 
     /// assistHint as the server builds it (assistHandlers.hintPayload) for `s`.

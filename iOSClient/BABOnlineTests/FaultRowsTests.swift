@@ -130,7 +130,7 @@ final class FaultRowsTests: XCTestCase {
             raw["viewer"] = v
         }
         TableReducer.reduce(&s, .snapshot(two, .rejoin, hints: nil))
-        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 2, freeUses: 3, assisted: false))
+        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 2, freeUses: 3, assisted: false, told: true))
         XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses), "Ask a bot for advice (2 of 3 free used)")
         // a same-game snapshot without it (an older server) keeps what we had
         let none = try T.snapshot("trick-mid-lead3") { raw in

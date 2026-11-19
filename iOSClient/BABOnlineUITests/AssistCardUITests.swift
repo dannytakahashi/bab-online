@@ -182,7 +182,8 @@ final class AssistCardUITests: XCTestCase {
     }
 
     func testFillerBotsAloneMakeTheFooterPlain() throws {
-        // the fixture's hint has no unlimited (as an older server's): the table's seats decide
+        // the fixture answers as the server does at a table with native bot seats (unlimited: no
+        // count, no warning; the hint's own flag decides, as on the web)
         let app = Fixture.launch("env", extra: ["-uiAssist", "YES", "-uiAssistUses", "3"], env: try fillerBotsOnly())
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         _ = Fixture.settledState(app)

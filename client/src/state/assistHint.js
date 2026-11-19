@@ -28,8 +28,11 @@
  *    count, never "free", "unlimited" or "bot-assisted"): the footer is just
  *    FOOTER_BOT and the chat line just HELP_LABEL. Known from the hint's
  *    `unlimited`, the snapshot's viewer.assist.unlimited, and before either
- *    from GameState.nativeBotSeat (helpIsUnlimited). The flag name is
- *    internal: never shown.
+ *    from GameState.nativeBotSeat (positionUpdate.nativeBot, the snapshot's
+ *    seats[].controller; never positionUpdate.isBot alone, which a
+ *    draw-phase leaver's resign bot has too). Once the server has said (a
+ *    hint, a snapshot's viewer.assist) its word wins over the table, as on
+ *    iOS (helpIsUnlimited). The flag name is internal: never shown.
  *
  * Names only in every text (never team numbers, "your team", "opponents");
  * the hint's own texts come from the server, which lints them.
@@ -66,7 +69,9 @@ export const HELP_LABEL = 'Ask a bot for advice';
 
 // ------------------------------------------------------------ this game's uses
 
-const blank = (gameId, known) => ({ gameId: gameId || null, known, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false, unlimited: false });
+// told: the server sent these (a hint, a snapshot's viewer.assist), so their
+// `unlimited` is its verdict; false for createUI's zero count
+const blank = (gameId, known) => ({ gameId: gameId || null, known, told: false, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false, unlimited: false });
 let uses = blank(null, false);
 
 const count = (v, d = 0) => (Number.isSafeInteger(v) && v >= 0 ? v : d);
@@ -93,6 +98,7 @@ export function noteAssistUses(hint, gameId = null) {
   uses = {
     gameId: id,
     known: true,
+    told: true,
     uses: count(hint.uses),
     freeUses: count(hint.freeUses, DEFAULT_FREE_USES),
     assisted: hint.assisted === true,
@@ -111,17 +117,19 @@ export function assistUses(gameId = null) {
 }
 
 /**
- * Does this game have no /help limit to show (a native bot seat)? From the
- * hint's `unlimited`, this game's uses (a hint's or a snapshot's
- * viewer.assist.unlimited), or the table itself (GameState.nativeBotSeat:
- * positionUpdate.isBot, snapshot seats[].controller 'bot'; a lazy or resign
- * bot never counts).
+ * Does this game have no /help limit to show (a native bot seat)? The
+ * server's word wins, as on iOS (AssistRules.isFreeHelpGame / inFreeHelpGame):
+ * a hint's own `unlimited` decides for that hint (its footer); else this
+ * game's uses once the server has sent them (a hint's or a snapshot's
+ * viewer.assist.unlimited); before that, the table itself
+ * (GameState.nativeBotSeat: positionUpdate.nativeBot, snapshot
+ * seats[].controller 'bot'; a lazy or resign bot never counts).
  * @param {Object} [state] - GameState
  * @param {Object} [hint] - an assistHint
  */
 export function helpIsUnlimited(state = null, hint = null) {
-  if (hint && hint.unlimited === true) return true;
-  if (assistUses(state?.gameId || null)?.unlimited) return true;
+  if (hint && typeof hint === 'object') return hint.unlimited === true;
+  if (assistUses(state?.gameId || null) && uses.told) return uses.unlimited === true;
   return state?.nativeBotSeat === true;
 }
 

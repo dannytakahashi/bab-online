@@ -6224,7 +6224,15 @@
               "type": "boolean"
             },
             "maxItems": 4,
-            "description": "Per seat, in positions order: a native bot (its seat socket id starts with bot:)"
+            "description": "Per seat, in positions order: a bot holds the seat (its seat socket id starts with bot:). A native bot, or a draw-phase leaver's resign bot (controller resignBot): use nativeBot to tell them apart"
+          },
+          "nativeBot": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            },
+            "maxItems": 4,
+            "description": "Per seat, in positions order: the seat's controller is a native bot (bot: lobby Add Bot, tournament filler, solo game), never a resign bot. Additive 2026-11-19: what clients read for /help having no limit in this game (assistState.isFreeHelpGame); absent from an older server"
           },
           "seq": {
             "$ref": "#/$defs/seq"
@@ -6246,9 +6254,10 @@
       "added": [
         "avatarUrls",
         "isBot",
+        "nativeBot",
         "seq"
       ],
-      "notes": "pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate); the web reads it since 2026-11-19 (GameState positionUpdate: which seats are human, for the no-voice-alone rule, docs/claude/voice.md). sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username and for the bot: prefix when isBot is absent or not a boolean, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14).",
+      "notes": "pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate); the web reads it since 2026-11-19 (GameState positionUpdate: which seats are human, for the no-voice-alone rule, docs/claude/voice.md). sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username and for the bot: prefix when isBot is absent or not a boolean, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14). nativeBot (additive 2026-11-19): isBot is also true for a draw-phase leaver's resign bot, so web (GameState.nativeBotSeat) and iOS 1.2.3 (19) (seat controller .bot vs .resignBot) read nativeBot for a native bot seat (docs/claude/assist.md, Games with a native bot seat).",
       "reserved": [
         {
           "key": "yourPosition",

@@ -948,17 +948,23 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
   it('a game with a native bot seat: the footer and the chat line name no count (the hint or the table says)', () => {
     const { scene, state } = mySeat();
     const foot = () => document.querySelector('.hud-assist .assist-card__foot')?.textContent;
-    // the table knows first (a native bot seat), the hint without the flag
+    // the table knows first (a native bot seat), before the server has said
     state.nativeBotSeat = true;
-    scene.handleAssistHint(cardHint({ uses: 4 }));
-    expect(foot()).toBe('What our strongest bot would play');
+    assist.resetAssistUses(state.gameId);
     expect(assist.helpDescription(state.gameId, { unlimited: assist.helpIsUnlimited(state) })).toBe('Ask a bot for advice');
+    // a hint without the flag is the server's word (the limit; as on iOS), whatever the table
+    scene.handleAssistHint(cardHint({ uses: 3, note: 'That\'s your 3rd free /help.' }));
+    expect(foot()).toBe('What our strongest bot would play · Help 3 of 3 free');
+    expect(assist.helpDescription(state.gameId, { unlimited: assist.helpIsUnlimited(state) }))
+      .toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
     // the hint's own flag, the table not knowing (yet)
     state.nativeBotSeat = false;
     scene.handleAssistHint(cardHint({ uses: 5, unlimited: true }));
     expect(foot()).toBe('What our strongest bot would play');
     expect(assist.helpDescription()).toBe('Ask a bot for advice');
-    const said = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent).join(' ');
+    // the unlimited hint's announcement (the last one) names no count
+    const said = [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent).at(-1);
+    expect(said).toMatch(/^Suggestion: /);
     expect(said).not.toMatch(/free|unlimited|bot-assisted|\b[0-9] of\b/i);
     state.nativeBotSeat = false;
   });

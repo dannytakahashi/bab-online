@@ -97,17 +97,23 @@ describe('a reload after set hands', () => {
     expect(helpText()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
   });
 
-  it('the recorded game has native bot seats: /help names no count, from the snapshot or the seats alone', () => {
+  it('the recorded game has native bot seats: /help names no count, from the snapshot, or the seats before the server has said', async () => {
     const recorded = rec.logs['seat1-rejoin'][0].data.snapshot;
     expect(recorded.seats.filter((st) => st.controller === 'bot')).toHaveLength(3);
     expect(recorded.viewer.assist).toMatchObject({ unlimited: true });
-    // the seats alone say so (no viewer.assist.unlimited seen yet), whatever the count
     expect(helpText()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+    // a viewer.assist without unlimited is the server's word (the limit), whatever the seats
+    // (as on iOS: AssistRules.isFreeHelpGame)
     reconnectWith(rejoinWith({ assist: { uses: 5, freeUses: 3, assisted: false }, bots: true }));
-    expect(helpText()).toBe('Ask a bot for advice');
-    // and the snapshot as the server sent it
+    expect(helpText()).toBe('Ask a bot for advice (this game is bot-assisted for you)');
+    // the snapshot as the server sent it
     reconnectWith(rejoinWith({ assist: 'recorded', bots: true }));
     expect(helpText()).toBe('Ask a bot for advice');
     expect(redText()).toEqual(storedFaults());
+    // the seats alone, before the server has said anything about /help (no viewer.assist, no count kept)
+    const { forgetAssistUses } = await import('../state/assistHint.js');
+    forgetAssistUses();
+    reconnectWith(rejoinWith({ assist: null, bots: true }));
+    expect(helpText()).toBe('Ask a bot for advice');
   });
 });

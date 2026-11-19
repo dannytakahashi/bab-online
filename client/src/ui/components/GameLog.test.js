@@ -394,9 +394,23 @@ describe('/help in the autocomplete (plan H3)', () => {
     // before any hint or snapshot: a native bot seat at seating
     forgetAssistUses();
     getGameState().applyPositionUpdate({
-      positions: [1, 2, 3, 4], usernames: ['Ann', 'Bob', 'Mary', 'Dan'], isBot: [false, false, true, false], yourPosition: 1,
+      positions: [1, 2, 3, 4], usernames: ['Ann', 'Bob', 'Mary', 'Dan'], isBot: [false, false, true, false],
+      nativeBot: [false, false, true, false], yourPosition: 1,
     });
     expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice' }]);
+  });
+
+  it('a draw-phase leaver\'s resign bot keeps the count and the warning (isBot without nativeBot)', () => {
+    gameLog = createGameLog();
+    getGameState().applyPositionUpdate({
+      positions: [1, 2, 3, 4], usernames: ['Ann', 'Bob', 'Rusty', 'Dan'], sockets: ['s1', 's2', 'bot:r', 's4'],
+      isBot: [false, false, true, false], nativeBot: [false, false, false, false], yourPosition: 1,
+    });
+    expect(getGameState().nativeBotSeat).toBe(false);
+    resetAssistUses();
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (0 of 3 free used)' }]);
+    noteAssistUses(hint(3));
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (the next one makes this game bot-assisted)' }]);
   });
 
   it('a lazy bot in a seat keeps the count (only a native bot seat lifts it)', () => {

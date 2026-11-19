@@ -18,11 +18,12 @@ extension TableReducer {
         s.table.assistAsking = false
         // a pure spectator's reply ("players only") says nothing about my uses
         if s.table.viewer.role != .spectator {
-            s.table.assistUses = AssistUses(uses: wire.uses, freeUses: wire.freeUses, assisted: wire.assisted, unlimited: wire.unlimited)
+            s.table.assistUses = AssistUses(uses: wire.uses, freeUses: wire.freeUses, assisted: wire.assisted, unlimited: wire.unlimited,
+                                      told: true)
         }
         // a game with a native bot seat: no count, no note, never bot-assisted (the card's
-        // footer and VoiceOver), whether the hint or the table's seats say so
-        let h = AssistRules.inFreeHelpGame(wire, s)
+        // footer and VoiceOver); the hint's own flag decides (the server's verdict)
+        let h = AssistRules.inFreeHelpGame(wire)
         switch s.table.phase.kind {
         case .ended:
             if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h)) }

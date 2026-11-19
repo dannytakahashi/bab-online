@@ -18,7 +18,10 @@ import Foundation
 //    assistState.isFreeHelpGame: a seat whose controller is `bot`, never a lazy or resign bot)
 //    has no /help limit: players see no count and never "free", "unlimited" or "bot-assisted"
 //    there (the footer, the chat list, VoiceOver). Known from the hint's `unlimited`, the
-//    snapshot's viewer.assist.unlimited, or the table's own seats (`isFreeHelpGame`).
+//    snapshot's viewer.assist.unlimited, or, before the server has said, the table's own seats
+//    (`isFreeHelpGame`: positionUpdate's nativeBot / the snapshot's controller `bot`; never
+//    positionUpdate's isBot alone, which a draw-phase leaver's resign bot has too). Once the
+//    server has said (a hint, a snapshot's viewer.assist), its word wins, as on the web.
 //
 // Names only in every text (never team numbers, "your team", "opponents"); the hint's own
 // texts come from the server, which lints them.
@@ -46,8 +49,8 @@ struct AssistHint: Equatable {
     var freeUses = AssistRules.defaultFreeUses
     var assisted = false
     var counted = false
-    /// A game with a native bot seat (the wire's `unlimited`, or the table's seats: the reducer
-    /// sets it, `AssistRules.inFreeHelpGame`): no count, no note, never bot-assisted.
+    /// A game with a native bot seat (the wire's `unlimited`; `AssistRules.inFreeHelpGame`
+    /// normalizes such a hint): no count, no note, never bot-assisted.
     var unlimited = false
 
     /// nil for a hint this build cannot show (v not 1, a kind it does not know, no headline).
@@ -87,6 +90,9 @@ struct AssistUses: Equatable {
     var assisted = false
     /// The wire's `unlimited` (the hint's, the snapshot's viewer.assist): a game with a native bot seat.
     var unlimited = false
+    /// The server sent these (a hint, a snapshot's viewer.assist), so its `unlimited` is the
+    /// server's verdict; false for createUI's zero count, where the table's seats decide.
+    var told = false
 }
 
 enum AssistRules {
@@ -141,18 +147,22 @@ enum AssistRules {
         return "\(askLabel) (\(u.uses) of \(u.freeUses) free used)"
     }
 
-    /// A game with a native bot seat (server assistState.isFreeHelpGame): the wire said so (the
-    /// latest hint's or snapshot's `unlimited`), or a seat's controller is a native bot (lobby Add
-    /// Bot, a tournament filler, a solo game; never `.lazyBot` / `.resignBot`, a human's seat).
-    /// Native bots never leave, so once true it stays true for the game.
+    /// A game with a native bot seat (server assistState.isFreeHelpGame). Once the server has
+    /// said (`assistUses.told`: the latest hint's or snapshot's `unlimited`) its word wins, as on
+    /// the web (assistHint.js helpIsUnlimited); before that, a seat whose controller is a native
+    /// bot (lobby Add Bot, a tournament filler, a solo game; positionUpdate's nativeBot or the
+    /// snapshot's controller; never `.lazyBot` / `.resignBot`, a human's seat, even though a
+    /// draw-phase leaver's resign bot has positionUpdate's isBot). Native bots never leave.
     static func isFreeHelpGame(_ s: TableState) -> Bool {
-        s.table.assistUses?.unlimited == true || s.players.seats.values.contains { $0.controller == .bot }
+        if let u = s.table.assistUses, u.told { return u.unlimited }
+        return s.players.seats.values.contains { $0.controller == .bot }
     }
 
-    /// `h` as this table shows it: in a game with a native bot seat it is `unlimited`, with no
-    /// note (the server sends none there: no 3rd-use warning, no crossing) and never assisted.
-    static func inFreeHelpGame(_ h: AssistHint, _ s: TableState) -> AssistHint {
-        guard h.unlimited || isFreeHelpGame(s) else { return h }
+    /// `h` as this table shows it: the hint's own `unlimited` decides (the server's verdict wins
+    /// over the table's seats, as on the web); such a hint has no note (the server sends none
+    /// there: no 3rd-use warning, no crossing) and is never assisted.
+    static func inFreeHelpGame(_ h: AssistHint) -> AssistHint {
+        guard h.unlimited else { return h }
         var h = h
         h.unlimited = true
         h.note = nil

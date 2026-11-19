@@ -322,12 +322,16 @@ extension TableReducer {
             // positionUpdate.isBot (V1_REMOVALS #14) wins; the bot: socket prefix is the fallback, so a
             // later server can drop sockets without this build losing its bots
             let isBot = (i < (p.isBot?.count ?? 0) ? p.isBot![i] : nil) ?? (sid?.hasPrefix("bot:") ?? false)
+            // nativeBot (additive 2026-11-19) tells a native bot from a draw-phase leaver's resign
+            // bot (isBot is true for both): only a native bot is `.bot` (AssistRules.isFreeHelpGame).
+            // From an older server (no nativeBot) every bot seat is `.bot`, as before.
+            let native = (i < (p.nativeBot?.count ?? 0) ? p.nativeBot![i] : nil) ?? isBot
             var seat = s.players.seats[pos] ?? SeatState(position: pos)
             seat.username = name ?? seat.username
             seat.pic = pic
             seat.avatarUrl = p.avatarUrls?[String(pos)]
             seat.isBot = isBot
-            seat.controller = isBot ? .bot : .human
+            seat.controller = !isBot ? .human : native ? .bot : .resignBot
             seat.presence = isBot ? .none : (seat.presence == .none ? .connected : seat.presence)
             seat.ownerUsername = isBot ? nil : name
             seat.lazy = false

@@ -467,7 +467,7 @@ describe('GameState', () => {
       position: i + 1, ownerUsername: `p${i + 1}`, controller, presence: 'here',
     }));
 
-    it('from seating: positionUpdate.isBot (else the bot: prefix)', () => {
+    it('from seating: positionUpdate.nativeBot (a server before it: isBot, else the bot: prefix)', () => {
       expect(state.nativeBotSeat).toBe(false);
       state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: ['a', 'b', 'c', 'd'], isBot: [false, true, false, false], yourPosition: 1 });
       expect(state.nativeBotSeat).toBe(true);
@@ -477,6 +477,15 @@ describe('GameState', () => {
       expect(state.nativeBotSeat).toBe(true);
       state.reset();
       expect(state.nativeBotSeat).toBe(false);
+    });
+
+    it('a draw-phase leaver\'s resign bot (isBot true, nativeBot false) is no native bot seat', () => {
+      const names = ['a', 'b', 'c', 'd'];
+      state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: names, sockets: ['s1', 'bot:x', 's3', 's4'], isBot: [false, true, false, false], nativeBot: [false, false, false, false], yourPosition: 1 });
+      expect(state.nativeBotSeat).toBe(false);
+      expect(state.humanOwners).toEqual({ 1: 'a', 3: 'c', 4: 'd' });
+      state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: names, isBot: [false, true, false, true], nativeBot: [false, false, false, true], yourPosition: 1 });
+      expect(state.nativeBotSeat).toBe(true);
     });
 
     it('from a snapshot: seats[].controller bot, never a lazy or resign bot', () => {

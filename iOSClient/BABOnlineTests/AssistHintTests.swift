@@ -85,7 +85,7 @@ final class AssistHintTests: XCTestCase {
         XCTAssertTrue(fx.contains(.announce("Suggestion: Bid 2. P (your partner) bid 1.")))
         XCTAssertFalse(AssistRules.showsAsk(s), "the lightbulb hides while the card is up")
         XCTAssertNil(TableRenderModel(s).hand?.suggestedId, "a bid answer rings no card")
-        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 1, freeUses: 3, assisted: false))
+        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 1, freeUses: 3, assisted: false, told: true))
         // the same turn's updateTurn again (a repeat) keeps it; my own bid ends it
         TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 4]))
         XCTAssertNotNil(s.table.assist)
@@ -240,7 +240,7 @@ final class AssistHintTests: XCTestCase {
         XCTAssertNil(t.table.assistUses)
         XCTAssertNil(t.table.assist)
         if let other = try? T.snapshot("bidding-mid") { TableReducer.reduce(&t, .snapshot(other, .rejoin, hints: nil)) }
-        XCTAssertEqual(t.table.assistUses, AssistUses(uses: 0, freeUses: 3, assisted: false), "the snapshot's viewer.assist")
+        XCTAssertEqual(t.table.assistUses, AssistUses(uses: 0, freeUses: 3, assisted: false, told: true), "the snapshot's viewer.assist")
     }
 
     // MARK: - A game with a native bot seat (owner 2026-11-19, "Unlimited, keep notice")
@@ -248,6 +248,8 @@ final class AssistHintTests: XCTestCase {
     func testANativeBotSeatMakesHelpFreeButALazyOrResignBotDoesNot() throws {
         var human = try T.state(fixture: "bidding-mid")
         XCTAssertFalse(AssistRules.isFreeHelpGame(human), "four human seats: the limit")
+        // the seats decide only before the server has said (the fixture's viewer.assist has)
+        human.table.assistUses = AssistUses()
         for c in [SeatController.lazyBot, .resignBot, .human, .unknown] {
             human.players.seats[2]?.controller = c
             XCTAssertFalse(AssistRules.isFreeHelpGame(human), "\(c): a human's seat")
@@ -256,10 +258,10 @@ final class AssistHintTests: XCTestCase {
         XCTAssertTrue(AssistRules.isFreeHelpGame(human), "a native bot seat")
         XCTAssertFalse(AssistRules.isFreeHelpGame(try T.state(fixture: "presence-mixed")), "a lazy bot keeps the limit")
         XCTAssertFalse(AssistRules.isFreeHelpGame(try T.state(fixture: "lazy-at-seat")), "my own lazy seat too")
-        XCTAssertTrue(AssistRules.isFreeHelpGame(T.dealtState()), "positionUpdate's isBot / bot: sockets are native bots")
+        XCTAssertTrue(AssistRules.isFreeHelpGame(T.dealtState()), "an older server's positionUpdate (no nativeBot): bot: sockets are native bots")
         // the snapshot: viewer.assist.unlimited, and without it the seats alone
         let tournament = try T.state(fixture: "tournament-game")
-        XCTAssertEqual(tournament.table.assistUses, AssistUses(uses: 0, freeUses: 3, assisted: false, unlimited: true))
+        XCTAssertEqual(tournament.table.assistUses, AssistUses(uses: 0, freeUses: 3, assisted: false, unlimited: true, told: true))
         XCTAssertTrue(AssistRules.isFreeHelpGame(tournament))
         let bare = TableReducer.state(from: try T.snapshot("tournament-game") { raw in
             var v = raw["viewer"] as! [String: Any]
@@ -270,8 +272,57 @@ final class AssistHintTests: XCTestCase {
         XCTAssertTrue(AssistRules.isFreeHelpGame(bare), "before any hint or count: the table's filler bots")
         // the wire's flag alone (a table whose seats this build has not read yet)
         var told = TableState()
-        told.table.assistUses = AssistUses(uses: 2, unlimited: true)
+        told.table.assistUses = AssistUses(uses: 2, unlimited: true, told: true)
         XCTAssertTrue(AssistRules.isFreeHelpGame(told))
+        // once the server has said, its word wins over the seats (as on the web)
+        var said = T.dealtState()
+        said.table.assistUses = AssistUses(uses: 2, told: true)
+        XCTAssertFalse(AssistRules.isFreeHelpGame(said), "a hint without unlimited: the limit, whatever the seats")
+        said.table.assistUses = AssistUses(uses: 0)
+        XCTAssertTrue(AssistRules.isFreeHelpGame(said), "createUI's zero count: the seats decide")
+    }
+
+    /// A human who leaves during Tap to Draw is seated as a resign bot (server handleDrawComplete):
+    /// positionUpdate's isBot is true for that seat, nativeBot false. The limit stays (server
+    /// assistState.isFreeHelpGame counts only controller `bot`): the count, the 3rd-use warning.
+    func testADrawPhaseLeaversResignBotKeepsTheLimit() throws {
+        func table(nativeBot: [Bool]?) -> TableState {
+            var s = TableState()
+            TableReducer.reduce(&s, .local(.identity(username: "me", playerId: "sid-me")))
+            TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+            var p: [String: Any] = [
+                "positions": [1, 2, 3, 4], "sockets": ["sid-me", "bot:carol", "sid-p", "sid-r"],
+                "usernames": [["username": "me"], ["username": "Rusty"], ["username": "P"], ["username": "R"]],
+                "pics": [1, 2, 3, 4], "isBot": [false, true, false, false], "seq": 1,
+            ]
+            if let nativeBot { p["nativeBot"] = nativeBot }
+            TableReducer.reduce(&s, T.ev("positionUpdate", p))
+            TableReducer.reduce(&s, T.ev("createUI", ["seq": 2]))
+            TableReducer.reduce(&s, T.ev("gameStart", [
+                "gameId": "g1", "hand": [T.card("spades", "A"), T.card("hearts", "2"), T.card("clubs", "K")],
+                "trump": T.card("diamonds", "5"), "score1": 0, "score2": 0, "dealer": 4, "position": 1, "currentHand": 3, "seq": 3,
+            ]))
+            TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 4]))
+            return s
+        }
+        var s = table(nativeBot: [false, false, false, false])
+        XCTAssertEqual(s.players.seats[2]?.controller, .resignBot, "a resign bot, not a native bot")
+        XCTAssertEqual(s.players.seats[2]?.isBot, true, "still a bot at the seat")
+        XCTAssertFalse(AssistRules.isFreeHelpGame(s))
+        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses, free: AssistRules.isFreeHelpGame(s)),
+                       "Ask a bot for advice (0 of 3 free used)")
+        TableReducer.reduce(&s, hint("bid", uses: 3, note: UIFixture.assistWarning))
+        XCTAssertEqual(s.table.assist?.note, UIFixture.assistWarning, "the 3rd-use warning stays")
+        XCTAssertEqual(s.table.assist.flatMap(AssistRules.footer), "What our strongest bot would play \u{00B7} Help 3 of 3 free")
+        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses, free: AssistRules.isFreeHelpGame(s)),
+                       "Ask a bot for advice (the next one makes this game bot-assisted)")
+        // the same seat as a native bot (lobby Add Bot): no limit shown
+        let native = table(nativeBot: [false, true, false, false])
+        XCTAssertEqual(native.players.seats[2]?.controller, .bot)
+        XCTAssertTrue(AssistRules.isFreeHelpGame(native))
+        XCTAssertEqual(AssistRules.helpDescription(native.table.assistUses, free: AssistRules.isFreeHelpGame(native)), "Ask a bot for advice")
+        // an older server (no nativeBot): every bot seat is a native bot, as before
+        XCTAssertEqual(table(nativeBot: nil).players.seats[2]?.controller, .bot)
     }
 
     func testNoCountOrLimitWordsInAGameWithANativeBotSeat() throws {
@@ -294,14 +345,15 @@ final class AssistHintTests: XCTestCase {
         }
         XCTAssertEqual(AssistRules.helpDescription(AssistUses(uses: 5, unlimited: true)), "Ask a bot for advice", "the wire's flag alone")
         XCTAssertEqual(AssistRules.askLabel, "Ask a bot for advice", "the lightbulb, in every game")
-        // a hint the table puts in such a game (an older server's note and assisted) loses both
-        var human = try T.state(fixture: "bidding-mid")
+        // the hint's own flag decides (the server's verdict, as on the web): without it, as sent;
+        // with it, any note and assisted go
         let old = try XCTUnwrap(AssistHint(WirePayload.AssistHint(kind: "bid", headline: "Bid 2", uses: 4, freeUses: 3, assisted: true,
                                                                   counted: true, confidence: "clear",
                                                                   note: "This game now counts as bot-assisted for you.")))
-        XCTAssertEqual(AssistRules.inFreeHelpGame(old, human), old, "four humans: as sent")
-        human.players.seats[1]?.controller = .bot
-        let free = AssistRules.inFreeHelpGame(old, human)
+        XCTAssertEqual(AssistRules.inFreeHelpGame(old), old, "no unlimited: as sent")
+        var flagged = old
+        flagged.unlimited = true
+        let free = AssistRules.inFreeHelpGame(flagged)
         XCTAssertTrue(free.unlimited)
         XCTAssertNil(free.note)
         XCTAssertFalse(free.assisted)
@@ -329,20 +381,23 @@ final class AssistHintTests: XCTestCase {
         XCTAssertNil(shown.note)
         XCTAssertFalse(shown.assisted)
         XCTAssertEqual(AssistRules.footer(shown), "What our strongest bot would play")
-        XCTAssertEqual(store.state.table.assistUses, AssistUses(uses: 4, freeUses: 3, assisted: false, unlimited: true))
+        XCTAssertEqual(store.state.table.assistUses, AssistUses(uses: 4, freeUses: 3, assisted: false, unlimited: true, told: true))
         XCTAssertEqual(store.helpDescription, "Ask a bot for advice")
         XCTAssertEqual(said.count, 1)
         XCTAssertTrue(said.first?.hasPrefix("Suggestion: Bid 2. ") == true, "\(said)")
         XCTAssertFalse(said.first?.contains("bot-assisted") ?? true, "no crossing note for VoiceOver")
-        // the table's seats say so: a hint without the flag (an older server's 3rd-use warning)
+        // the table's seats say so before any hint; a hint without the flag (the server's verdict:
+        // the limit) wins over them, and keeps its 3rd-use warning, as on the web
         var s = myBidTurn()
-        let fx = TableReducer.reduce(&s, hint("bid", uses: 3, note: UIFixture.assistWarning))
-        XCTAssertEqual(s.table.assist?.unlimited, true)
-        XCTAssertNil(s.table.assist?.note)
-        XCTAssertEqual(s.table.assist.flatMap(AssistRules.footer), "What our strongest bot would play")
-        XCTAssertTrue(fx.contains(.announce("Suggestion: Bid 2. P (your partner) bid 1.")), "\(fx)")
-        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 3, freeUses: 3, assisted: false), "the uses as the wire said them")
         XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses, free: AssistRules.isFreeHelpGame(s)), "Ask a bot for advice")
+        let fx = TableReducer.reduce(&s, hint("bid", uses: 3, note: UIFixture.assistWarning))
+        XCTAssertEqual(s.table.assist?.unlimited, false)
+        XCTAssertEqual(s.table.assist?.note, UIFixture.assistWarning)
+        XCTAssertEqual(s.table.assist.flatMap(AssistRules.footer), "What our strongest bot would play \u{00B7} Help 3 of 3 free")
+        XCTAssertTrue(fx.contains(.announce("Suggestion: Bid 2. P (your partner) bid 1. \(UIFixture.assistWarning)")), "\(fx)")
+        XCTAssertEqual(s.table.assistUses, AssistUses(uses: 3, freeUses: 3, assisted: false, told: true), "the uses as the wire said them")
+        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses, free: AssistRules.isFreeHelpGame(s)),
+                       "Ask a bot for advice (the next one makes this game bot-assisted)")
         // the same hint at a table of four humans keeps its count and its warning
         var four = try T.state(fixture: "bidding-mid")
         TableReducer.reduce(&four, T.ev("assistHint", UIFixture.assistPayload(four, uses: 3, free: false)))

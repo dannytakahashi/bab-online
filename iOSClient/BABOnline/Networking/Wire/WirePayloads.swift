@@ -22,6 +22,9 @@ enum WirePayload {
         /// positions order, true for a bot seat (additive, contract/V1_REMOVALS #14). Read first;
         /// the bot: prefix of `sockets` is the fallback for a server that does not send it yet.
         var isBot: [Bool]?
+        /// positions order, true only for a native bot seat (controller `bot`), never a draw-phase
+        /// leaver's resign bot, whose isBot is true too (additive 2026-11-19; nil from an older server).
+        var nativeBot: [Bool]?
         var usernames: [Name]?
         var pics: [PicWire]?
         var avatarUrls: [String: String]?

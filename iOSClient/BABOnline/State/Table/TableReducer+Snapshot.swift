@@ -71,7 +71,7 @@ extension TableReducer {
         // Its additive `unlimited`: a game with a native bot seat (AssistRules.isFreeHelpGame).
         if let a = snap.viewer.assist {
             s.table.assistUses = AssistUses(uses: max(0, a.uses), freeUses: max(0, a.freeUses), assisted: a.assisted,
-                                            unlimited: a.unlimited == true)
+                                            unlimited: a.unlimited == true, told: true)
         }
         s.table.hand = snap.hand ?? []
         s.table.deal = snap.deal.map {
