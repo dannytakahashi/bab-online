@@ -45,6 +45,7 @@
 'use strict';
 
 const BEAT_MS = 3000;
+const SWEEP_MS = 1000;
 const SIGNALS = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'];
 
 function createDeploy({ holder, db, mode = 'on', hooks: extraHooks = {} } = {}) {
@@ -147,6 +148,12 @@ function createDeploy({ holder, db, mode = 'on', hooks: extraHooks = {} } = {}) 
             }
             await extraHooks.beforeSweep?.(inst, ctx);
             await inst.store.sweep();
+            // The adopter's own 1 s cadence ends at a tick that finds it not
+            // serving (as at a real shutdown, which never ends); a held
+            // successor's ticks did, so it sweeps on this cadence instead
+            if (ctx.kind !== 'boot') {
+                inst.sweeper = setInterval(() => { if (!inst.dead) inst.store.sweep(); }, SWEEP_MS);
+            }
             return;
         }
         // 'write' / 'off': the process's own store, as server/index.js makes it
@@ -167,6 +174,7 @@ function createDeploy({ holder, db, mode = 'on', hooks: extraHooks = {} } = {}) 
                 await stopProcess(old, 'SIGTERM');
             },
             crash: (old) => stopProcess(old, 'uncaughtException'),
+            reap: (old) => { clearInterval(old.sweeper); },
             start
         }
     });
@@ -191,6 +199,7 @@ function createDeploy({ holder, db, mode = 'on', hooks: extraHooks = {} } = {}) 
             return gameManager.games.get(gameId) || null;
         },
         close() {
+            for (const inst of harness.instances) clearInterval(inst.sweeper);
             for (const t of beats.values()) clearInterval(t);
             beats.clear();
             harness.current?.store?.close?.();

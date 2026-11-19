@@ -18,7 +18,8 @@
  * picks; with none (or no hook) every pick is the original one. ctx
  * exposes the run's state: seed, rand, pick, randInt, track, newSocket,
  * kill, rejoinAs, promote, humans, sockets, spectators, gameId,
- * setNote(text); `io` and `log` (getters: the current ones), swapIo({io,
+ * setNote(text), noteRestore(positions) (a restored table's human seats in
+ * grace start their grace now, for the resign-offer oracle); `io` and `log` (getters: the current ones), swapIo({io,
  * log}) (a restart moves the run to the new instance's io: runSeedInner's
  * doc), and `game` and `dummy` (get and set: a restart may swap in the
  * restored GameState, or a new dummy table). opts.instance runs the whole
@@ -118,6 +119,9 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         io = next.io;
         log = next.log;
         recordRoomMembers(io, log);
+        // The offers the old process's sockets held went with them; read the new log from its start
+        heldOffer.clear();
+        offersSeen = 0;
     };
     onIo(io);
     const asyncErrors = [];
@@ -434,6 +438,10 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
             seed, rand, pick, randInt, track, newSocket, kill, rejoinAs, promote,
             humans, sockets, spectators, gameId, swapIo,
             setNote: (text) => { note = text; },
+            // A deploy restored the table: its human seats in grace begin
+            // their grace now (the resign-offer oracle). A marker, not an
+            // emit: no `event`, so no wire check sees it
+            noteRestore: (positions) => { log.push({ marker: 'restore', to: game.roomName, positions: [...positions], at: Date.now() }); },
             get io() { return io; },
             get log() { return log; },
             get game() { return game; },
@@ -517,7 +525,8 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         }
         // No zombie: an owned table with nobody connected must be counting down
         if (seats.length === 4 && seats.some((s) => s.ownerUsername) && !game.hasPresentHuman()) {
-            const counting = game.hasTimer('abandon') || seats.some((s) => game.hasTimer(`grace:${s.position}`));
+            // (a table restored by a deploy counts down its restored abandon instead)
+            const counting = game.hasTimer('abandon') || game.hasTimer('restoreAbandon') || seats.some((s) => game.hasTimer(`grace:${s.position}`));
             if (!counting) return 'zombie: owned table, nobody connected, no abandon/grace timer';
         }
         // Resign offers: while a seat is resignable, every connected owner
@@ -596,6 +605,11 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
     for (const l of log) {
         if (l.to !== game.roomName) continue;
         const p = l.data?.position;
+        // A restore (ctx.noteRestore): the restored human seats start their grace now
+        if (l.marker === 'restore') {
+            for (const q of l.positions) { lastDc[q] = l.at; resolved[q] = false; }
+            continue;
+        }
         if (l.event === 'playerDisconnected') { lastDc[p] = l.at; resolved[p] = false; }
         if (l.event === 'playerReconnected' || l.event === 'playerResigned') resolved[p] = true;
         if (l.event === 'resignationAvailable') {

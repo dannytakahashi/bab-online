@@ -12,6 +12,9 @@
  *   - a handComplete that is not the game's last is followed by the next
  *     deal's gameStart and its updateTurn in the same tick.
  * Event entries need `at` (gameDriver.makeIo / the chaos io record it).
+ * A table restored by a deploy (game.restored) that a watcher first sees
+ * after its restore starts from the cards on it (a watcher started after
+ * the restart: chaosRestore.test.js).
  */
 
 'use strict';
@@ -24,7 +27,15 @@ function watchPacing({ requireResumeInMs = false } = {}) {
     const failures = [];
     const games = new Map(); // gameId -> {cards, held, expectTurnAt, expectDealAt}
     const st = (id) => {
-        if (!games.has(id)) games.set(id, { cards: 0, held: false, expectTurnAt: null, expectDealAt: null });
+        if (!games.has(id)) {
+            // A table restored by a deploy (deploy survival: restoreGame,
+            // game.restored) first seen here starts from what is on it: the
+            // cards of the open trick, a held trick in TRICK_RESOLVING
+            const g = gameManager.getGameById(id);
+            const restored = !!g?.restored;
+            const cards = restored ? (g.playedCards || []).filter(Boolean).length : 0;
+            games.set(id, { cards, held: restored && g.stage === Phase.TRICK_RESOLVING, expectTurnAt: null, expectDealAt: null });
+        }
         return games.get(id);
     };
     const fail = (why, extra) => {
