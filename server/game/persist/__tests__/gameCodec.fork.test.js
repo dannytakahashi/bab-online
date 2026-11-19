@@ -11,6 +11,13 @@
  * order), reach the same score, rainbows, hand stats, player stats and
  * last trickHistory, and insert the same gameRecords document.
  *
+ * game.assist (/help, CODEC_V 2): on both A and B, at every safe point
+ * (before a fork is taken), the human on turn "asks" the way /help counts
+ * (countHelp: once per turnKey, the owner's record, the tutorial's
+ * reserved fields stirred too). B must end with A's records: a restore
+ * that lost a counter, or the turn of the last use (a re-ask after the
+ * restart would count again), fails here.
+ *
  * Fork points: the first hand's firstTurn hold, mid-bid, the opening lead,
  * 2 cards down, the 4th card down (TRICK_RESOLVING), HAND_RESOLVING before
  * the last hand, HAND_RESOLVING after the 13th, and the first BIDDING after
@@ -119,6 +126,24 @@ function zeroFirstDeal() {
     return () => { BotPlayer.prototype.decideBid = real; };
 }
 
+/**
+ * /help's count (plan 4.2 step 4) at a safe point: the human on turn asks
+ * once per turn. Deterministic in the game's own state, so A and B agree.
+ */
+function countHelp(game) {
+    const pos = game.currentTurn;
+    const seat = game.seat(pos);
+    if (seat?.controller !== 'human' || (game.stage !== Phase.BIDDING && game.stage !== Phase.PLAYING)) return;
+    const a = game.assist[pos];
+    if (a.user !== seat.ownerUsername) Object.assign(a, { user: seat.ownerUsername, help: 0, lastHelpKey: null });
+    const key = game.turnKey();
+    if (a.lastHelpKey === key) return;
+    a.help++;
+    a.lastHelpKey = key;
+    a.tips = (a.tips * 3 + game.cardIndex) % 100003;
+    a.tutorialEver = a.tutorialEver || a.help % 7 === 0;
+}
+
 /** The one human's fixed rule, when it is on turn and seated. */
 function driveHuman(io, game, socket) {
     const pos = game.seatByOwnerSocket(socket.id);
@@ -170,6 +195,7 @@ function outcome(game) {
         handStats: json(game.handStats),
         playerStats: json(game.playerStats),
         trickHistory: json(game.trickHistory),
+        assist: json(game.assist),
         record: stored,
     };
 }
@@ -212,6 +238,7 @@ async function runOriginal(seed) {
     const forks = new Array(points.length).fill(null);
     const watch = watchSafePoints((g) => {
         if (g !== game || gameManager.getGameById(g.gameId) !== g) return;
+        countHelp(g);
         points.forEach(([name, pred, nth], i) => {
             if (forks[i] || !pred(g)) return;
             counts[i]++;
@@ -238,6 +265,9 @@ async function runFork(users, username, f) {
     const io = makeIo(log);
     const game = adoptForTest(f.doc, { io });
     expect(game.stage).toBe(f.doc.stage);
+    const watch = watchSafePoints((g) => {
+        if (g === game && gameManager.getGameById(g.gameId) === g) countHelp(g);
+    });
     const sock = makeSocket(`${username}-back`, log, io);
     gameManager.registerUser(sock.id, username);
     await reconnectHandlers.rejoinGame(sock, io, { gameId: game.gameId, username });
@@ -245,8 +275,12 @@ async function runFork(users, username, f) {
     const first = decisions.entries.length;
     rng.setState(f.rng);
     kickRestored(io, game);
-    await playToEnd(io, game.gameId, sock);
-    await jest.advanceTimersByTimeAsync(5000);
+    try {
+        await playToEnd(io, game.gameId, sock);
+        await jest.advanceTimersByTimeAsync(5000);
+    } finally {
+        watch.stop();
+    }
     return { result: outcome(game), decisions: decisions.entries.slice(first) };
 }
 
@@ -297,6 +331,7 @@ describe('a restored game plays on exactly as the original', () => {
                     }
                 }
                 expect(original.result.record).not.toBeNull();
+                expect(Object.values(original.result.assist).filter((a) => a.help > 10).length).toBeGreaterThan(0);
             } finally {
                 uninstall();
                 decisions.stop();

@@ -1,0 +1,1967 @@
+[
+ {
+  "v": 1,
+  "gameId": "10e70e9a-8b26-4124-937f-47efb329b957",
+  "stage": "BIDDING",
+  "tournamentId": null,
+  "state": {
+   "createdAt": 1795046574169,
+   "eventSeq": 15,
+   "dealSeq": 1,
+   "currentHand": 12,
+   "dealer": 1,
+   "bidder": 2,
+   "bids": {
+    "2": "2"
+   },
+   "playerBids": [
+    null,
+    "2",
+    null,
+    null
+   ],
+   "team1Mult": 1,
+   "team2Mult": 1,
+   "currentTurn": 3,
+   "leadPosition": 1,
+   "leadCard": null,
+   "playedCards": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "playedCardsIndex": 0,
+   "trump": {
+    "suit": "diamonds",
+    "rank": "J"
+   },
+   "isTrumpBroken": false,
+   "cardIndex": 0,
+   "tricks": {
+    "team1": 0,
+    "team2": 0
+   },
+   "trickHistory": [],
+   "score": {
+    "team1": 0,
+    "team2": 0
+   },
+   "rainbows": {
+    "team1": 0,
+    "team2": 0
+   },
+   "handStats": {
+    "totalHands": 0,
+    "team1Sets": 0,
+    "team2Sets": 0
+   },
+   "playerStats": {
+    "1": {
+     "totalBids": 0,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 0
+    },
+    "2": {
+     "totalBids": 2,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 0
+    },
+    "3": {
+     "totalBids": 0,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 0
+    },
+    "4": {
+     "totalBids": 0,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 0
+    }
+   },
+   "handTricks": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0
+   },
+   "hsiValues": {
+    "1": 165.75,
+    "2": 161.14583333333331,
+    "3": 143,
+    "4": 106.16666666666666
+   },
+   "hands": {
+    "1": [
+     {
+      "suit": "hearts",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "7"
+     },
+     {
+      "suit": "spades",
+      "rank": "10"
+     },
+     {
+      "suit": "clubs",
+      "rank": "8"
+     },
+     {
+      "suit": "spades",
+      "rank": "9"
+     },
+     {
+      "suit": "clubs",
+      "rank": "J"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "K"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "4"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "6"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "Q"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "7"
+     }
+    ],
+    "2": [
+     {
+      "suit": "diamonds",
+      "rank": "A"
+     },
+     {
+      "suit": "hearts",
+      "rank": "10"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "2"
+     },
+     {
+      "suit": "hearts",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "10"
+     },
+     {
+      "suit": "clubs",
+      "rank": "5"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "3"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "J"
+     },
+     {
+      "suit": "hearts",
+      "rank": "7"
+     },
+     {
+      "suit": "hearts",
+      "rank": "2"
+     },
+     {
+      "suit": "hearts",
+      "rank": "6"
+     }
+    ],
+    "3": [
+     {
+      "suit": "diamonds",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "A"
+     },
+     {
+      "suit": "spades",
+      "rank": "4"
+     },
+     {
+      "suit": "clubs",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "A"
+     },
+     {
+      "suit": "hearts",
+      "rank": "3"
+     },
+     {
+      "suit": "joker",
+      "rank": "LO"
+     },
+     {
+      "suit": "clubs",
+      "rank": "A"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "5"
+     },
+     {
+      "suit": "clubs",
+      "rank": "3"
+     },
+     {
+      "suit": "hearts",
+      "rank": "K"
+     }
+    ],
+    "4": [
+     {
+      "suit": "spades",
+      "rank": "Q"
+     },
+     {
+      "suit": "hearts",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "4"
+     },
+     {
+      "suit": "spades",
+      "rank": "7"
+     },
+     {
+      "suit": "spades",
+      "rank": "5"
+     },
+     {
+      "suit": "joker",
+      "rank": "HI"
+     },
+     {
+      "suit": "clubs",
+      "rank": "6"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "10"
+     },
+     {
+      "suit": "clubs",
+      "rank": "2"
+     },
+     {
+      "suit": "spades",
+      "rank": "K"
+     },
+     {
+      "suit": "spades",
+      "rank": "6"
+     },
+     {
+      "suit": "clubs",
+      "rank": "4"
+     }
+    ]
+   },
+   "seats": {
+    "1": {
+     "controller": "human",
+     "presence": "grace",
+     "ownerUsername": "s1_u0",
+     "ownerPic": 1,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "2": {
+     "controller": "bot",
+     "presence": "none",
+     "ownerUsername": null,
+     "ownerPic": null,
+     "bot": {
+      "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+      "username": "🤖 C0",
+      "pic": 72,
+      "personality": "mary"
+     },
+     "lastPersonality": "mary",
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "3": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u2",
+     "ownerPic": 3,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "4": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u1",
+     "ownerPic": 2,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    }
+   },
+   "seatOrder": [
+    2,
+    3,
+    1,
+    4
+   ],
+   "casualVoice": null,
+   "lobbyOrigin": null
+  },
+  "log": [
+   {
+    "message": "s1_u0 disconnected during card draw.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046593960
+   },
+   {
+    "message": "Game started!",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046608669
+   },
+   {
+    "message": "🤖 C0 bid 2.",
+    "playerPosition": 2,
+    "type": "bid",
+    "timestamp": 1795046610827
+   }
+  ],
+  "logTotal": 3,
+  "bots": [
+   {
+    "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+    "username": "🤖 C0",
+    "personality": "mary",
+    "position": 2,
+    "pic": 72,
+    "partnerHistory": []
+   }
+  ]
+ },
+ {
+  "v": 1,
+  "gameId": "d10c616c-0f72-409e-b10e-3ce89b7579ba",
+  "stage": "PLAYING",
+  "tournamentId": null,
+  "state": {
+   "createdAt": 1795047231661,
+   "eventSeq": 45,
+   "dealSeq": 1,
+   "currentHand": 12,
+   "dealer": 1,
+   "bidder": 2,
+   "bids": {
+    "team1": 12,
+    "team2": 5
+   },
+   "playerBids": [
+    "3",
+    "1",
+    "10",
+    "4"
+   ],
+   "team1Mult": 1,
+   "team2Mult": 1,
+   "currentTurn": 2,
+   "leadPosition": 3,
+   "leadCard": {
+    "suit": "spades",
+    "rank": "K"
+   },
+   "playedCards": [
+    {
+     "suit": "spades",
+     "rank": "8"
+    },
+    null,
+    {
+     "suit": "spades",
+     "rank": "K"
+    },
+    {
+     "suit": "spades",
+     "rank": "4"
+    }
+   ],
+   "playedCardsIndex": 3,
+   "trump": {
+    "suit": "hearts",
+    "rank": "5"
+   },
+   "isTrumpBroken": false,
+   "cardIndex": 3,
+   "tricks": {
+    "team1": 0,
+    "team2": 0
+   },
+   "trickHistory": [],
+   "score": {
+    "team1": 0,
+    "team2": 0
+   },
+   "rainbows": {
+    "team1": 0,
+    "team2": 0
+   },
+   "handStats": {
+    "totalHands": 0,
+    "team1Sets": 0,
+    "team2Sets": 0
+   },
+   "playerStats": {
+    "1": {
+     "totalBids": 3,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 109.41666666666666
+    },
+    "2": {
+     "totalBids": 1,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 195
+    },
+    "3": {
+     "totalBids": 10,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 94.25
+    },
+    "4": {
+     "totalBids": 4,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 122.41666666666666
+    }
+   },
+   "handTricks": {
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0
+   },
+   "hsiValues": {
+    "1": 109.41666666666666,
+    "2": 195,
+    "3": 94.25,
+    "4": 122.41666666666666
+   },
+   "hands": {
+    "1": [
+     {
+      "suit": "clubs",
+      "rank": "6"
+     },
+     {
+      "suit": "spades",
+      "rank": "5"
+     },
+     {
+      "suit": "hearts",
+      "rank": "3"
+     },
+     {
+      "suit": "hearts",
+      "rank": "10"
+     },
+     {
+      "suit": "spades",
+      "rank": "A"
+     },
+     {
+      "suit": "hearts",
+      "rank": "9"
+     },
+     {
+      "suit": "clubs",
+      "rank": "4"
+     },
+     {
+      "suit": "clubs",
+      "rank": "9"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "6"
+     },
+     {
+      "suit": "clubs",
+      "rank": "2"
+     },
+     {
+      "suit": "clubs",
+      "rank": "7"
+     }
+    ],
+    "2": [
+     {
+      "suit": "diamonds",
+      "rank": "Q"
+     },
+     {
+      "suit": "hearts",
+      "rank": "7"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "8"
+     },
+     {
+      "suit": "hearts",
+      "rank": "4"
+     },
+     {
+      "suit": "hearts",
+      "rank": "6"
+     },
+     {
+      "suit": "clubs",
+      "rank": "A"
+     },
+     {
+      "suit": "joker",
+      "rank": "LO"
+     },
+     {
+      "suit": "spades",
+      "rank": "9"
+     },
+     {
+      "suit": "joker",
+      "rank": "HI"
+     },
+     {
+      "suit": "clubs",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "3"
+     },
+     {
+      "suit": "hearts",
+      "rank": "A"
+     }
+    ],
+    "3": [
+     {
+      "suit": "spades",
+      "rank": "7"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "5"
+     },
+     {
+      "suit": "clubs",
+      "rank": "K"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "4"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "3"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "A"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "7"
+     },
+     {
+      "suit": "clubs",
+      "rank": "10"
+     },
+     {
+      "suit": "clubs",
+      "rank": "8"
+     },
+     {
+      "suit": "hearts",
+      "rank": "J"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "2"
+     }
+    ],
+    "4": [
+     {
+      "suit": "spades",
+      "rank": "6"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "10"
+     },
+     {
+      "suit": "clubs",
+      "rank": "3"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "J"
+     },
+     {
+      "suit": "spades",
+      "rank": "10"
+     },
+     {
+      "suit": "hearts",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "5"
+     },
+     {
+      "suit": "hearts",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "2"
+     },
+     {
+      "suit": "hearts",
+      "rank": "K"
+     },
+     {
+      "suit": "spades",
+      "rank": "J"
+     }
+    ]
+   },
+   "seats": {
+    "1": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s2_u3",
+     "ownerPic": 4,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "2": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s2_u2",
+     "ownerPic": 3,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "3": {
+     "controller": "lazyBot",
+     "presence": "gone",
+     "ownerUsername": "s2_u0",
+     "ownerPic": 1,
+     "bot": {
+      "socketId": "bot:🤖 mary:a49db7c9-7f59-44bb-acb3-539fed7fd79a",
+      "username": "🤖 Mary",
+      "pic": 74,
+      "personality": "mary"
+     },
+     "lastPersonality": "mary",
+     "resignedAt": null,
+     "leftAt": 1795047390109,
+     "gone": true
+    },
+    "4": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s2_u1",
+     "ownerPic": 2,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    }
+   },
+   "seatOrder": [
+    2,
+    1,
+    4,
+    3
+   ],
+   "casualVoice": {
+    "host": "s2_u0",
+    "spectatorsCanTalk": true,
+    "lobbyExtras": []
+   },
+   "lobbyOrigin": {
+    "lobbyId": "abd00932-4bbc-4975-bd5a-b0b02def5646",
+    "name": "s2_u0's Game",
+    "createdBy": null,
+    "host": "s2_u0",
+    "settings": {
+     "spectatorsCanTalk": true
+    },
+    "order": [
+     "s2_u0",
+     "s2_u1",
+     "s2_u2",
+     "s2_u3"
+    ],
+    "bots": [],
+    "playAgainUsers": [],
+    "casualUsers": [],
+    "extras": []
+   }
+  },
+  "log": [
+   {
+    "message": "s2_u3 disconnected during card draw.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047239410
+   },
+   {
+    "message": "Game started!",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047268161
+   },
+   {
+    "message": "s2_u3 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047303777
+   },
+   {
+    "message": "s2_u2 bid 1.",
+    "playerPosition": 2,
+    "type": "bid",
+    "timestamp": 1795047307343
+   },
+   {
+    "message": "s2_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047307971
+   },
+   {
+    "message": "s2_u0 bid 10.",
+    "playerPosition": 3,
+    "type": "bid",
+    "timestamp": 1795047310415
+   },
+   {
+    "message": "s2_u1 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047316461
+   },
+   {
+    "message": "s2_u1 bid 4.",
+    "playerPosition": 4,
+    "type": "bid",
+    "timestamp": 1795047318547
+   },
+   {
+    "message": "s2_u3 bid 3.",
+    "playerPosition": 1,
+    "type": "bid",
+    "timestamp": 1795047319319
+   },
+   {
+    "message": "s2_u1 disconnected. Waiting for reconnection...",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047323897
+   },
+   {
+    "message": "s2_u1 failed to reconnect. You may replace them with a bot.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047383897
+   },
+   {
+    "message": "s2_u1 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047383981
+   },
+   {
+    "message": "s2_u0 left the game. 🤖 Mary is playing for them.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795047390109
+   }
+  ],
+  "logTotal": 13,
+  "bots": [
+   {
+    "socketId": "bot:🤖 mary:a49db7c9-7f59-44bb-acb3-539fed7fd79a",
+    "username": "🤖 Mary",
+    "personality": "mary",
+    "position": 3,
+    "pic": 74,
+    "partnerHistory": []
+   }
+  ]
+ },
+ {
+  "v": 1,
+  "gameId": "10e70e9a-8b26-4124-937f-47efb329b957",
+  "stage": "TRICK_RESOLVING",
+  "tournamentId": null,
+  "state": {
+   "createdAt": 1795046574169,
+   "eventSeq": 43,
+   "dealSeq": 1,
+   "currentHand": 12,
+   "dealer": 1,
+   "bidder": 2,
+   "bids": {
+    "team1": 0,
+    "team2": 9
+   },
+   "playerBids": [
+    "0",
+    "2",
+    "0",
+    "7"
+   ],
+   "team1Mult": 1,
+   "team2Mult": 1,
+   "currentTurn": 3,
+   "leadPosition": 3,
+   "leadCard": {
+    "suit": "clubs",
+    "rank": "3"
+   },
+   "playedCards": [
+    {
+     "suit": "clubs",
+     "rank": "8"
+    },
+    {
+     "suit": "clubs",
+     "rank": "10"
+    },
+    {
+     "suit": "clubs",
+     "rank": "3"
+    },
+    {
+     "suit": "clubs",
+     "rank": "4"
+    }
+   ],
+   "playedCardsIndex": 4,
+   "trump": {
+    "suit": "diamonds",
+    "rank": "J"
+   },
+   "isTrumpBroken": false,
+   "cardIndex": 8,
+   "tricks": {
+    "team1": 1,
+    "team2": 0
+   },
+   "trickHistory": [
+    {
+     "winner": 3,
+     "lead": 4,
+     "cards": [
+      {
+       "suit": "clubs",
+       "rank": "2"
+      },
+      {
+       "suit": "clubs",
+       "rank": "J"
+      },
+      {
+       "suit": "clubs",
+       "rank": "5"
+      },
+      {
+       "suit": "clubs",
+       "rank": "A"
+      }
+     ]
+    }
+   ],
+   "score": {
+    "team1": 0,
+    "team2": 0
+   },
+   "rainbows": {
+    "team1": 0,
+    "team2": 0
+   },
+   "handStats": {
+    "totalHands": 0,
+    "team1Sets": 0,
+    "team2Sets": 0
+   },
+   "playerStats": {
+    "1": {
+     "totalBids": 0,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 165.75
+    },
+    "2": {
+     "totalBids": 2,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 161.14583333333331
+    },
+    "3": {
+     "totalBids": 0,
+     "totalTricks": 1,
+     "setsCaused": 0,
+     "totalHSI": 143
+    },
+    "4": {
+     "totalBids": 7,
+     "totalTricks": 0,
+     "setsCaused": 0,
+     "totalHSI": 106.16666666666666
+    }
+   },
+   "handTricks": {
+    "1": 0,
+    "2": 0,
+    "3": 1,
+    "4": 0
+   },
+   "hsiValues": {
+    "1": 165.75,
+    "2": 161.14583333333331,
+    "3": 143,
+    "4": 106.16666666666666
+   },
+   "hands": {
+    "1": [
+     {
+      "suit": "hearts",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "7"
+     },
+     {
+      "suit": "spades",
+      "rank": "10"
+     },
+     {
+      "suit": "spades",
+      "rank": "9"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "K"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "4"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "6"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "Q"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "7"
+     }
+    ],
+    "2": [
+     {
+      "suit": "diamonds",
+      "rank": "A"
+     },
+     {
+      "suit": "hearts",
+      "rank": "10"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "2"
+     },
+     {
+      "suit": "hearts",
+      "rank": "8"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "3"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "J"
+     },
+     {
+      "suit": "hearts",
+      "rank": "7"
+     },
+     {
+      "suit": "hearts",
+      "rank": "2"
+     },
+     {
+      "suit": "hearts",
+      "rank": "6"
+     }
+    ],
+    "3": [
+     {
+      "suit": "diamonds",
+      "rank": "8"
+     },
+     {
+      "suit": "clubs",
+      "rank": "Q"
+     },
+     {
+      "suit": "spades",
+      "rank": "A"
+     },
+     {
+      "suit": "spades",
+      "rank": "4"
+     },
+     {
+      "suit": "clubs",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "A"
+     },
+     {
+      "suit": "hearts",
+      "rank": "3"
+     },
+     {
+      "suit": "joker",
+      "rank": "LO"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "5"
+     },
+     {
+      "suit": "hearts",
+      "rank": "K"
+     }
+    ],
+    "4": [
+     {
+      "suit": "spades",
+      "rank": "Q"
+     },
+     {
+      "suit": "hearts",
+      "rank": "9"
+     },
+     {
+      "suit": "hearts",
+      "rank": "4"
+     },
+     {
+      "suit": "spades",
+      "rank": "7"
+     },
+     {
+      "suit": "spades",
+      "rank": "5"
+     },
+     {
+      "suit": "joker",
+      "rank": "HI"
+     },
+     {
+      "suit": "clubs",
+      "rank": "6"
+     },
+     {
+      "suit": "diamonds",
+      "rank": "10"
+     },
+     {
+      "suit": "spades",
+      "rank": "K"
+     },
+     {
+      "suit": "spades",
+      "rank": "6"
+     }
+    ]
+   },
+   "seats": {
+    "1": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u0",
+     "ownerPic": 1,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "2": {
+     "controller": "bot",
+     "presence": "none",
+     "ownerUsername": null,
+     "ownerPic": null,
+     "bot": {
+      "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+      "username": "🤖 C0",
+      "pic": 72,
+      "personality": "mary"
+     },
+     "lastPersonality": "mary",
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "3": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u2",
+     "ownerPic": 3,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "4": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u1",
+     "ownerPic": 2,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    }
+   },
+   "seatOrder": [
+    2,
+    4,
+    1,
+    3
+   ],
+   "casualVoice": null,
+   "lobbyOrigin": null
+  },
+  "log": [
+   {
+    "message": "s1_u0 disconnected during card draw.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046593960
+   },
+   {
+    "message": "Game started!",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046608669
+   },
+   {
+    "message": "🤖 C0 bid 2.",
+    "playerPosition": 2,
+    "type": "bid",
+    "timestamp": 1795046610827
+   },
+   {
+    "message": "s1_u2 ran out of time.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046650827
+   },
+   {
+    "message": "s1_u2 bid 0.",
+    "playerPosition": 3,
+    "type": "bid",
+    "timestamp": 1795046650827
+   },
+   {
+    "message": "s1_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046663376
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046665992
+   },
+   {
+    "message": "s1_u1 bid 7.",
+    "playerPosition": 4,
+    "type": "bid",
+    "timestamp": 1795046669500
+   },
+   {
+    "message": "s1_u0 bid 0.",
+    "playerPosition": 1,
+    "type": "bid",
+    "timestamp": 1795046676195
+   },
+   {
+    "message": "Trick won by s1_u2.",
+    "playerPosition": 3,
+    "type": "trick",
+    "timestamp": 1795046684146
+   }
+  ],
+  "logTotal": 10,
+  "bots": [
+   {
+    "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+    "username": "🤖 C0",
+    "personality": "mary",
+    "position": 2,
+    "pic": 72,
+    "partnerHistory": []
+   }
+  ]
+ },
+ {
+  "v": 1,
+  "gameId": "10e70e9a-8b26-4124-937f-47efb329b957",
+  "stage": "HAND_RESOLVING",
+  "tournamentId": null,
+  "state": {
+   "createdAt": 1795046574169,
+   "eventSeq": 176,
+   "dealSeq": 1,
+   "currentHand": 12,
+   "dealer": 1,
+   "bidder": 2,
+   "bids": {
+    "team1": 0,
+    "team2": 9
+   },
+   "playerBids": [
+    "0",
+    "2",
+    "0",
+    "7"
+   ],
+   "team1Mult": 1,
+   "team2Mult": 1,
+   "currentTurn": 1,
+   "leadPosition": 1,
+   "leadCard": {
+    "suit": "diamonds",
+    "rank": "4"
+   },
+   "playedCards": [
+    null,
+    null,
+    null,
+    null
+   ],
+   "playedCardsIndex": 0,
+   "trump": {
+    "suit": "diamonds",
+    "rank": "J"
+   },
+   "isTrumpBroken": true,
+   "cardIndex": 48,
+   "tricks": {
+    "team1": 7,
+    "team2": 5
+   },
+   "trickHistory": [
+    {
+     "winner": 3,
+     "lead": 4,
+     "cards": [
+      {
+       "suit": "clubs",
+       "rank": "2"
+      },
+      {
+       "suit": "clubs",
+       "rank": "J"
+      },
+      {
+       "suit": "clubs",
+       "rank": "5"
+      },
+      {
+       "suit": "clubs",
+       "rank": "A"
+      }
+     ]
+    },
+    {
+     "winner": 2,
+     "lead": 3,
+     "cards": [
+      {
+       "suit": "clubs",
+       "rank": "3"
+      },
+      {
+       "suit": "clubs",
+       "rank": "4"
+      },
+      {
+       "suit": "clubs",
+       "rank": "8"
+      },
+      {
+       "suit": "clubs",
+       "rank": "10"
+      }
+     ]
+    },
+    {
+     "winner": 1,
+     "lead": 2,
+     "cards": [
+      {
+       "suit": "hearts",
+       "rank": "2"
+      },
+      {
+       "suit": "hearts",
+       "rank": "3"
+      },
+      {
+       "suit": "hearts",
+       "rank": "9"
+      },
+      {
+       "suit": "hearts",
+       "rank": "Q"
+      }
+     ]
+    },
+    {
+     "winner": 2,
+     "lead": 1,
+     "cards": [
+      {
+       "suit": "spades",
+       "rank": "10"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "2"
+      },
+      {
+       "suit": "spades",
+       "rank": "A"
+      },
+      {
+       "suit": "spades",
+       "rank": "5"
+      }
+     ]
+    },
+    {
+     "winner": 3,
+     "lead": 2,
+     "cards": [
+      {
+       "suit": "diamonds",
+       "rank": "3"
+      },
+      {
+       "suit": "joker",
+       "rank": "LO"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "10"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "K"
+      }
+     ]
+    },
+    {
+     "winner": 2,
+     "lead": 3,
+     "cards": [
+      {
+       "suit": "clubs",
+       "rank": "Q"
+      },
+      {
+       "suit": "clubs",
+       "rank": "6"
+      },
+      {
+       "suit": "clubs",
+       "rank": "7"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "9"
+      }
+     ]
+    },
+    {
+     "winner": 4,
+     "lead": 2,
+     "cards": [
+      {
+       "suit": "diamonds",
+       "rank": "A"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "5"
+      },
+      {
+       "suit": "joker",
+       "rank": "HI"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "7"
+      }
+     ]
+    },
+    {
+     "winner": 4,
+     "lead": 4,
+     "cards": [
+      {
+       "suit": "spades",
+       "rank": "Q"
+      },
+      {
+       "suit": "spades",
+       "rank": "9"
+      },
+      {
+       "suit": "hearts",
+       "rank": "6"
+      },
+      {
+       "suit": "spades",
+       "rank": "4"
+      }
+     ]
+    },
+    {
+     "winner": 1,
+     "lead": 4,
+     "cards": [
+      {
+       "suit": "spades",
+       "rank": "6"
+      },
+      {
+       "suit": "spades",
+       "rank": "8"
+      },
+      {
+       "suit": "hearts",
+       "rank": "7"
+      },
+      {
+       "suit": "clubs",
+       "rank": "9"
+      }
+     ]
+    },
+    {
+     "winner": 3,
+     "lead": 1,
+     "cards": [
+      {
+       "suit": "diamonds",
+       "rank": "6"
+      },
+      {
+       "suit": "hearts",
+       "rank": "8"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "8"
+      },
+      {
+       "suit": "hearts",
+       "rank": "4"
+      }
+     ]
+    },
+    {
+     "winner": 1,
+     "lead": 3,
+     "cards": [
+      {
+       "suit": "hearts",
+       "rank": "A"
+      },
+      {
+       "suit": "spades",
+       "rank": "K"
+      },
+      {
+       "suit": "diamonds",
+       "rank": "Q"
+      },
+      {
+       "suit": "hearts",
+       "rank": "10"
+      }
+     ]
+    },
+    {
+     "winner": 1,
+     "lead": 1,
+     "cards": [
+      {
+       "suit": "diamonds",
+       "rank": "4"
+      },
+      {
+       "suit": "hearts",
+       "rank": "J"
+      },
+      {
+       "suit": "hearts",
+       "rank": "K"
+      },
+      {
+       "suit": "spades",
+       "rank": "7"
+      }
+     ]
+    }
+   ],
+   "score": {
+    "team1": 0,
+    "team2": 0
+   },
+   "rainbows": {
+    "team1": 0,
+    "team2": 0
+   },
+   "handStats": {
+    "totalHands": 0,
+    "team1Sets": 0,
+    "team2Sets": 0
+   },
+   "playerStats": {
+    "1": {
+     "totalBids": 0,
+     "totalTricks": 4,
+     "setsCaused": 0,
+     "totalHSI": 165.75
+    },
+    "2": {
+     "totalBids": 2,
+     "totalTricks": 3,
+     "setsCaused": 0,
+     "totalHSI": 161.14583333333331
+    },
+    "3": {
+     "totalBids": 0,
+     "totalTricks": 3,
+     "setsCaused": 0,
+     "totalHSI": 143
+    },
+    "4": {
+     "totalBids": 7,
+     "totalTricks": 2,
+     "setsCaused": 0,
+     "totalHSI": 106.16666666666666
+    }
+   },
+   "handTricks": {
+    "1": 4,
+    "2": 3,
+    "3": 3,
+    "4": 2
+   },
+   "hsiValues": {
+    "1": 165.75,
+    "2": 161.14583333333331,
+    "3": 143,
+    "4": 106.16666666666666
+   },
+   "hands": {
+    "1": [],
+    "2": [],
+    "3": [],
+    "4": []
+   },
+   "seats": {
+    "1": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u0",
+     "ownerPic": 1,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "2": {
+     "controller": "bot",
+     "presence": "none",
+     "ownerUsername": null,
+     "ownerPic": null,
+     "bot": {
+      "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+      "username": "🤖 C0",
+      "pic": 72,
+      "personality": "mary"
+     },
+     "lastPersonality": "mary",
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "3": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u2",
+     "ownerPic": 3,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    },
+    "4": {
+     "controller": "human",
+     "presence": "connected",
+     "ownerUsername": "s1_u1",
+     "ownerPic": 2,
+     "bot": null,
+     "lastPersonality": null,
+     "resignedAt": null,
+     "leftAt": null,
+     "gone": false
+    }
+   },
+   "seatOrder": [
+    2,
+    3,
+    1,
+    4
+   ],
+   "casualVoice": null,
+   "lobbyOrigin": null
+  },
+  "log": [
+   {
+    "message": "s1_u0 disconnected during card draw.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046593960
+   },
+   {
+    "message": "Game started!",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046608669
+   },
+   {
+    "message": "🤖 C0 bid 2.",
+    "playerPosition": 2,
+    "type": "bid",
+    "timestamp": 1795046610827
+   },
+   {
+    "message": "s1_u2 ran out of time.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046650827
+   },
+   {
+    "message": "s1_u2 bid 0.",
+    "playerPosition": 3,
+    "type": "bid",
+    "timestamp": 1795046650827
+   },
+   {
+    "message": "s1_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046663376
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046665992
+   },
+   {
+    "message": "s1_u1 bid 7.",
+    "playerPosition": 4,
+    "type": "bid",
+    "timestamp": 1795046669500
+   },
+   {
+    "message": "s1_u0 bid 0.",
+    "playerPosition": 1,
+    "type": "bid",
+    "timestamp": 1795046676195
+   },
+   {
+    "message": "Trick won by s1_u2.",
+    "playerPosition": 3,
+    "type": "trick",
+    "timestamp": 1795046684146
+   },
+   {
+    "message": "Trick won by 🤖 C0.",
+    "playerPosition": 2,
+    "type": "trick",
+    "timestamp": 1795046690112
+   },
+   {
+    "message": "s1_u0 disconnected. Waiting for reconnection...",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046694385
+   },
+   {
+    "message": "s1_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046707250
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046709847
+   },
+   {
+    "message": "s1_u2 disconnected. Waiting for reconnection...",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046719821
+   },
+   {
+    "message": "Trick won by s1_u0.",
+    "playerPosition": 1,
+    "type": "trick",
+    "timestamp": 1795046720834
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046732365
+   },
+   {
+    "message": "s1_u1 disconnected. Waiting for reconnection...",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046741141
+   },
+   {
+    "message": "s1_u2 disconnected. Waiting for reconnection...",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046743092
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046758570
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046766528
+   },
+   {
+    "message": "s1_u1 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046771130
+   },
+   {
+    "message": "Trick won by 🤖 C0.",
+    "playerPosition": 2,
+    "type": "trick",
+    "timestamp": 1795046774547
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046775437
+   },
+   {
+    "message": "Trick won by s1_u2.",
+    "playerPosition": 3,
+    "type": "trick",
+    "timestamp": 1795046788064
+   },
+   {
+    "message": "Trick won by 🤖 C0.",
+    "playerPosition": 2,
+    "type": "trick",
+    "timestamp": 1795046795680
+   },
+   {
+    "message": "Trick won by s1_u1.",
+    "playerPosition": 4,
+    "type": "trick",
+    "timestamp": 1795046801187
+   },
+   {
+    "message": "Trick won by s1_u1.",
+    "playerPosition": 4,
+    "type": "trick",
+    "timestamp": 1795046805778
+   },
+   {
+    "message": "Trick won by s1_u0.",
+    "playerPosition": 1,
+    "type": "trick",
+    "timestamp": 1795046818302
+   },
+   {
+    "message": "s1_u2 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046818972
+   },
+   {
+    "message": "Trick won by s1_u2.",
+    "playerPosition": 3,
+    "type": "trick",
+    "timestamp": 1795046827924
+   },
+   {
+    "message": "s1_u1 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046834313
+   },
+   {
+    "message": "Trick won by s1_u0.",
+    "playerPosition": 1,
+    "type": "trick",
+    "timestamp": 1795046841178
+   },
+   {
+    "message": "s1_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046845628
+   },
+   {
+    "message": "s1_u0 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046848034
+   },
+   {
+    "message": "s1_u1 reconnected.",
+    "playerPosition": null,
+    "type": "system",
+    "timestamp": 1795046864027
+   },
+   {
+    "message": "Trick won by s1_u0.",
+    "playerPosition": 1,
+    "type": "trick",
+    "timestamp": 1795046865856
+   }
+  ],
+  "logTotal": 37,
+  "bots": [
+   {
+    "socketId": "bot:🤖 c0:012a10ea-c294-4124-945b-6cb0a797aa9f",
+    "username": "🤖 C0",
+    "personality": "mary",
+    "position": 2,
+    "pic": 72,
+    "partnerHistory": []
+   }
+  ]
+ }
+]
