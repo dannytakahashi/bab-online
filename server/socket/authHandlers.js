@@ -16,6 +16,7 @@ const { checkNewUsername, findNameClash, takenMessage, MESSAGES: USERNAME_MESSAG
 const { rememberBlockList } = require('./voiceHandlers');
 const playAgain = require('./playAgain');
 const { eraseAccount, forgetAccount, isNameHold } = require('../admin/accountDelete');
+const pointerResolve = require('./pointerResolve');
 const { checkPasswordRule, revokeOpenResetLinks, PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const {
     belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded,
@@ -305,6 +306,37 @@ async function usersCollectionWhenReady() {
     return usersCollection;
 }
 
+/**
+ * The game a signing-in user's saved activeGameId names, for the signIn /
+ * restoreSession reply: {game, held}. Off / write: today's in-memory
+ * lookup, synchronous (nothing more is awaited). LIVE_PERSIST=on (deploy
+ * survival PR 5, pointerResolve; the plan's 2.6): a game not in memory is
+ * resolved through the live store. One adopted just now is the active
+ * game; one another live instance still holds (pending: the deploy
+ * overlap, an older instance alive) keeps the pointer and is answered as
+ * active too, so the client sends rejoinGame, which parks until it is
+ * adopted here (or engine-closes for a retry). Only 'gone' clears it.
+ * @returns {{game: Object|null, held: boolean}|Promise<{game: Object|null, held: boolean}>}
+ */
+function pointerGame(activeGameId) {
+    const game = activeGameId ? gameManager.getGameById(activeGameId) : null;
+    if (game || !activeGameId || !pointerResolve.active()) return { game, held: false };
+    return pointerResolve.resolveGame(activeGameId).then((r) => ({ game: r.game || null, held: r.state === 'pending' }));
+}
+
+/**
+ * The tournament a signing-in user's saved activeTournamentId names, or
+ * null. LIVE_PERSIST=on: only one the user is a member of; a non-member's
+ * pointer is answered as none and cleared (scoped) by the caller, so a
+ * client is never routed into a tournament it is not in (the plan's 2.6,
+ * review clients 3). Off / write: today's lookup.
+ */
+function pointerTournament(activeTournamentId, username) {
+    const t = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
+    if (!t || !pointerResolve.active()) return t;
+    return typeof t.getPlayerByUsername === 'function' && !t.getPlayerByUsername(username) ? null : t;
+}
+
 async function signIn(socket, io, data) {
     const { username, password } = data;
 
@@ -436,12 +468,13 @@ async function signIn(socket, io, data) {
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
-        const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
+        let where = pointerGame(activeGameId);
+        if (typeof where.then === 'function') where = await where;
 
         const blockedUsers = user.blockedUsers || [];
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
-        if (activeGame) {
+        if (where.game || where.held) {
             // User has an active game - notify client
             socket.emit('signInResponse', {
                 success: true,
@@ -455,14 +488,15 @@ async function signIn(socket, io, data) {
         } else {
             // No active game (or game no longer exists) - clear stale activeGameId if present
             // Scoped to the stale id: a game that starts meanwhile and
-            // writes a new pointer must keep it
-            if (activeGameId) {
+            // writes a new pointer must keep it. Never while this process
+            // hands its tables off (LIVE_PERSIST=on, shutting down)
+            if (activeGameId && !pointerResolve.holdsPointers()) {
                 await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
             const activeTournamentId = user.activeTournamentId;
-            const activeTournament = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
+            const activeTournament = pointerTournament(activeTournamentId, username);
 
             if (activeTournament) {
                 socket.emit('signInResponse', {
@@ -475,7 +509,7 @@ async function signIn(socket, io, data) {
                 });
                 authLogger.info('User signed in with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
-                if (activeTournamentId) {
+                if (activeTournamentId && !pointerResolve.holdsPointers()) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('signInResponse', { success: true, username, sessionToken, blockedUsers, ...replyExtras(user) });
@@ -859,11 +893,12 @@ async function restoreSession(socket, io, data) {
 
         // Check if user has an active game they can rejoin
         const activeGameId = user.activeGameId;
-        const activeGame = activeGameId ? gameManager.getGameById(activeGameId) : null;
+        let where = pointerGame(activeGameId);
+        if (typeof where.then === 'function') where = await where;
         const blockedUsers = user.blockedUsers || [];
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
 
-        if (activeGame) {
+        if (where.game || where.held) {
             socket.emit('restoreSessionResponse', {
                 success: true,
                 username,
@@ -875,14 +910,15 @@ async function restoreSession(socket, io, data) {
         } else {
             // Clear stale activeGameId if present
             // Scoped to the stale id: a game that starts meanwhile and
-            // writes a new pointer must keep it
-            if (activeGameId) {
+            // writes a new pointer must keep it. Never while this process
+            // hands its tables off (LIVE_PERSIST=on, shutting down)
+            if (activeGameId && !pointerResolve.holdsPointers()) {
                 await gameManager.clearActiveGame(username, activeGameId);
             }
 
             // Check for active tournament
             const activeTournamentId = user.activeTournamentId;
-            const activeTournament = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
+            const activeTournament = pointerTournament(activeTournamentId, username);
 
             if (activeTournament) {
                 socket.emit('restoreSessionResponse', {
@@ -894,7 +930,7 @@ async function restoreSession(socket, io, data) {
                 });
                 authLogger.info('Session restored with active tournament', { username, socketId: socket.id, tournamentId: activeTournamentId });
             } else {
-                if (activeTournamentId) {
+                if (activeTournamentId && !pointerResolve.holdsPointers()) {
                     await gameManager.clearActiveTournament(username, activeTournamentId);
                 }
                 socket.emit('restoreSessionResponse', { success: true, username, blockedUsers, ...replyExtras(user) });
@@ -1004,6 +1040,11 @@ async function deleteAccount(socket, io, data) {
             if (live) return live.kind === 'game' ? DELETE_IN_GAME_MESSAGE : DELETE_IN_TOURNAMENT_MESSAGE;
             gameManager.lockForMerge?.([username]);
             try {
+                // LIVE_PERSIST=on: the saved pointer too, through resolve()
+                if (pointerResolve.active()) {
+                    const held = await savedGameRefusal(usersCollection, current._id, username);
+                    if (held) return held;
+                }
                 return await eraseOwnAccount(io, usersCollection, user, current, username);
             } finally {
                 gameManager.unlockMerge?.([username]);
@@ -1044,6 +1085,27 @@ async function deleteAccount(socket, io, data) {
         else if (passwordChecked === false) signInThrottle.confirm(who);
         else signInThrottle.release(who, reservation);
     }
+}
+
+/**
+ * Self delete, LIVE_PERSIST=on (deploy survival PR 5, the plan's 2.6): the
+ * account's saved activeGameId, resolved. A game in memory, adopted now or
+ * pending on another live instance refuses the deletion (the account's
+ * seat may still come back); a pointer nothing holds (no doc, no live
+ * instance lists it) is stale: cleared (scoped), and the deletion goes on,
+ * so a stale pointer can never block it. While this process hands its
+ * tables off, any pointer refuses. Runs with the name locked.
+ * @returns {Promise<string|null>} a refusal or null
+ */
+async function savedGameRefusal(usersCollection, userId, username) {
+    const doc = await usersCollection.findOne({ _id: userId, username }, { projection: { activeGameId: 1 } });
+    const gameId = doc?.activeGameId;
+    if (!gameId) return null;
+    if (pointerResolve.holdsPointers()) return DELETE_IN_GAME_MESSAGE;
+    const r = await pointerResolve.resolveGame(gameId);
+    if (r.state !== 'gone') return DELETE_IN_GAME_MESSAGE;
+    await gameManager.clearActiveGame(username, gameId);
+    return null;
 }
 
 /**
@@ -1171,9 +1233,10 @@ module.exports = {
     releaseClaim,
     MERGE_LOCKED_MESSAGE,
     tombstoneMessage,
-    signIn,
+    // Counted as a restore in flight for requestSnapshot's deferral (LIVE_PERSIST=on)
+    signIn: pointerResolve.tracked(signIn),
     signUp,
-    restoreSession,
+    restoreSession: pointerResolve.tracked(restoreSession),
     deleteAccount,
     changePassword
 };

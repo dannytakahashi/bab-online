@@ -137,6 +137,55 @@ test('a shutdown that wedges is cut off by the hard deadline with the same code'
 
 test('the default deadline covers the normal shutdown', () => {
     expect(HARD_EXIT_MS).toBeGreaterThan(NOTICE_MS + SETTLE_MS);
+    expect(HARD_EXIT_MS).toBe(15000);
+});
+
+describe("LIVE_PERSIST=on's handoff (deploy survival PR 5)", () => {
+    const h = require('../testUtils/persistHarness');
+    const liveStore = require('../game/persist/liveStore');
+    const { createHandoff } = require('../game/persist/handoff');
+
+    afterEach(() => liveStore._resetForTests());
+
+    async function onStore() {
+        const db = h.liveDb();
+        const store = liveStore.createLiveStore({ mode: 'on', bootId: 'boot-x', getCollections: () => db, gameIdIndexUnique: () => true, logger: { info() {}, warn() {}, error() {} } });
+        await store.start();
+        return { store, db };
+    }
+
+    test.each(['SIGTERM', 'SIGINT'])('%s with no live table: the handoff adds no wait (microtask-only), serverShutdown then io.close, exit 0 on time', async (signal) => {
+        const { store } = await onStore();
+        const { server, io, order } = fakeServers();
+        setupGracefulShutdown(server, io, { handoff: createHandoff({ store }) });
+        process.listeners(signal).find((fn) => !before[signal].includes(fn))();
+        await jest.advanceTimersByTimeAsync(NOTICE_MS + SETTLE_MS - 1);
+        expect(exit).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(1);
+        expect(exit).toHaveBeenCalledTimes(1);
+        expect(exit).toHaveBeenCalledWith(0);
+        expect(order).toEqual(['server.close', 'emit:serverShutdown', 'io.close']);
+        expect(store.closed).toBe(true);
+    });
+
+    test('a crash with no live table: the same timing, exit 1', async () => {
+        const { store } = await onStore();
+        const { server, io } = fakeServers();
+        const hs = setupGracefulShutdown(server, io, { handoff: createHandoff({ store }) });
+        hs.onUncaughtException(new Error('kaboom'));
+        await jest.advanceTimersByTimeAsync(NOTICE_MS + SETTLE_MS);
+        expect(exit).toHaveBeenCalledWith(1);
+    });
+
+    test('a handoff that throws still exits (today\'s line to every table), and a handoff not enabled is never run', async () => {
+        const { server, io } = fakeServers();
+        const broken = { enabled: () => true, run: () => { throw new Error('half built'); }, crash: jest.fn() };
+        setupGracefulShutdown(server, io, { handoff: broken });
+        process.listeners('SIGTERM').find((fn) => !before.SIGTERM.includes(fn))();
+        await jest.advanceTimersByTimeAsync(NOTICE_MS + SETTLE_MS);
+        expect(exit).toHaveBeenCalledWith(0);
+        expect(logs.some((l) => l.msg === 'Handoff failed')).toBe(true);
+    });
 });
 
 describe('the SIGTERM line carries the deploy measurements', () => {

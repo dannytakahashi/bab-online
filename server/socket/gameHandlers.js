@@ -28,6 +28,7 @@ const { recordTableScores } = require('../game/tournamentScoring');
 const seatLifecycle = require('./seatLifecycle');
 const progressWatchdog = require('./progressWatchdog');
 const bidClock = require('./bidClock');
+const restoreGame = require('../game/persist/restoreGame');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
@@ -72,6 +73,14 @@ function triggerBotIfNeeded(io, game, actionType) {
     // The bid clock first (bidClock.js): arms on a human bid turn, stops on
     // a bot's turn, a controller change or the end of bidding
     bidClock.onTurn(io, game);
+    // A restored table still waiting for its humans (persist/restoreGame.js):
+    // no bot action, AFK or progress watchdog; the restore kick runs this
+    // again when the gate opens
+    if (restoreGame.isGated(game)) {
+        progressWatchdog.disarm(game);
+        for (let p = 1; p <= 4; p++) game.clearTimer(`afk:${p}`);
+        return;
+    }
     const seat = game.seat(game.currentTurn);
     // A human seat acts through its own socket; a connected one gets the
     // turn watchdog (seatLifecycle.armAfk: lazy after AFK_TIMEOUT_MS idle).
@@ -1093,9 +1102,19 @@ async function forceResign(socket, io, data) {
         return;
     }
 
+    // A suspended table (the holder self-fence) holds the replacement to its
+    // thaw, then runs it from here again, re-validated then
+    // (seatLifecycle.holdForThaw); refusals go out now as always (emitError
+    // is the socket's own)
+    const held = () => seatLifecycle.holdForThaw(game, socket, 'forceResign', () => {
+        if (gameManager.getPlayerGame(socket.id) !== game) return undefined;
+        return forceResign(socket, io, data);
+    });
+
     // An idle seat at a tournament table whose offer stands (owner,
     // 2026-11-15): any other present owner may replace it
     if (position !== requestingPosition && seatLifecycle.idleOfferStands(game, position)) {
+        if (held()) return;
         const idleUsername = game.seat(position).ownerUsername;
         if (!seatLifecycle.replaceIdleSeat(io, game, position)) return;
         gameLogger.info('Idle player replaced with a bot', {
@@ -1117,6 +1136,7 @@ async function forceResign(socket, io, data) {
         return;
     }
 
+    if (held()) return;
     const oldUsername = game.seat(position).ownerUsername;
     if (!seatLifecycle.resignSeat(io, game, position)) return;
 

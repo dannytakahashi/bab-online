@@ -16,6 +16,15 @@
  *   comparable(doc)             a codec doc's saved part, for "the stored
  *                               doc equals serialize(game)"
  *   advanceUntil(pred)          fake time in 100 ms steps until pred()
+ *   installOnStore(holder, opts) an 'on' store (the unique gameId index
+ *                               present) over the REAL game side:
+ *                               restoreGame.adoptGame (every call
+ *                               recorded), restoreGame.isGated (a test may
+ *                               open a gate by id: store.openGates), and
+ *                               GameState.suspend / unsuspend (every call
+ *                               recorded: store.suspendCalls)
+ *   recordingAdoptGame(calls)   restoreGame.adoptGame with each call
+ *                               pushed to `calls` as {doc, opts}
  *
  * Server modules are required lazily (tests mock ../database first).
  */
@@ -113,4 +122,65 @@ function comparable(doc) {
     return plain({ stage: doc.stage, tournamentId: doc.tournamentId ?? null, state: doc.state, log: doc.log, logTotal: doc.logTotal, bots: doc.bots });
 }
 
-module.exports = { recordingLogger, installStore, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };
+/** restoreGame.adoptGame(io, doc, opts), each call pushed to `calls` as {doc, opts}. */
+function recordingAdoptGame(calls = []) {
+    return (io, doc, opts = {}) => {
+        calls.push({ doc: plain(doc), opts: { ...opts } });
+        return require('../game/persist/restoreGame').adoptGame(io, doc, opts);
+    };
+}
+
+/**
+ * An 'on' store over holder.current, made the process's store, over the
+ * real GAME side: store.adoptCalls (restoreGame.adoptGame, recorded),
+ * store.openGates (a Set of gameIds a test treats as having opened their
+ * restore gate; isGated is otherwise restoreGame.isGated), store.suspendCalls
+ * ([['suspend'|'unsuspend', gameId]], then game.suspend() / unsuspend(io)).
+ * opts go to createLiveStore (opts.adoption merges over these).
+ */
+function installOnStore(holder, opts = {}) {
+    const store = createOnStore({ getCollections: () => holder.current, ...opts });
+    require('../game/persist/liveStore')._setForTests(store);
+    return store;
+}
+
+/**
+ * The same 'on' store, NOT made the process's store (a successor that is
+ * up before it owns the singletons: deployKit's announce). opts go to
+ * createLiveStore (getCollections required).
+ */
+function createOnStore(opts = {}) {
+    const calls = [];
+    const open = new Set();
+    const suspendCalls = [];
+    const { adoption = {}, ...rest } = opts;
+    const restoreGame = require('../game/persist/restoreGame');
+    const { logs, logger } = recordingLogger();
+    const store = require('../game/persist/liveStore').createLiveStore({
+        mode: 'on',
+        bootId: 'boot-A',
+        logger,
+        gameIdIndexUnique: () => true,
+        suspendGame: (g) => {
+            suspendCalls.push(['suspend', g.gameId]);
+            return g.suspend();
+        },
+        unsuspendGame: (g, io) => {
+            suspendCalls.push(['unsuspend', g.gameId]);
+            return g.unsuspend(io);
+        },
+        ...rest,
+        adoption: {
+            adoptGame: recordingAdoptGame(calls),
+            isGated: (g) => !open.has(g.gameId) && restoreGame.isGated(g),
+            ...adoption
+        }
+    });
+    store.logs = logs;
+    store.adoptCalls = calls;
+    store.openGates = open;
+    store.suspendCalls = suspendCalls;
+    return store;
+}
+
+module.exports = { recordingLogger, installStore, installOnStore, createOnStore, recordingAdoptGame, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };

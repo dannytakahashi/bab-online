@@ -743,7 +743,9 @@ function becomeCurrent(inst, holder) {
  *   kill         death at once (no crash, no stop), reap; then the
  *                successor: spawned, announce, start
  * Options: sameDeployment (the successor keeps the deploymentId),
- * abandonStalled (killInstance's), mode (the successor's LIVE_PERSIST).
+ * abandonStalled (killInstance's; for mongo-stall also: the ops stalled
+ * when the stall lifts are dropped, never applied), mode (the successor's
+ * LIVE_PERSIST).
  * `mods` default to this test's own server modules.
  */
 function createPersistHarness({ db, hooks = {}, mods = null, holder = null, mode = null } = {}) {
@@ -801,6 +803,10 @@ function createPersistHarness({ db, hooks = {}, mods = null, holder = null, mode
                     try {
                         await jest.advanceTimersByTimeAsync(stallMs);
                     } finally {
+                        // abandonStalled: the old process's stalled ops never
+                        // reach Mongo (its connection is gone for good); else
+                        // they apply late, as a write already sent may
+                        if (abandonStalled) db.faults.abandon({ instances: old.name });
                         db.faults.release();
                     }
                     await handoff;

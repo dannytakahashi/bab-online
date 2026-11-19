@@ -20,7 +20,8 @@
  *   - a Mongo outage or stall never holds a game up (no await but the
  *     claim), logs are rate-limited and name ids only, no unhandled
  *     rejection; a null collection skips;
- *   - modes: off does nothing, on runs as write (one log line);
+ *   - modes: off does nothing, on without the unique gameId index runs as
+ *     write (one log line), on with it holds writes until start;
  *   - the serverInstances doc: insert at start, heartbeat with beatSeq and
  *     the live ids, $addToSet at creation; no sweep in write mode.
  */
@@ -543,14 +544,32 @@ describe('modes', () => {
         expect(store.health()).toMatchObject({ mode: 'off', effectiveMode: 'off', docsOwned: 0 });
     });
 
-    test("on: runs as write (handoff and adoption are PR 5), docs say ownerMode 'write', one log line says so", async () => {
-        const store = install({ mode: 'on' });
+    test("on without the unique gameId index: runs as write, docs say ownerMode 'write', one log line says why", async () => {
+        const store = install({ mode: 'on', gameIdIndexUnique: () => false });
         expect(store.effectiveMode).toBe('write');
+        await store.start({ io });
         expect(store.logs.filter((l) => /LIVE_PERSIST=on runs as 'write'/.test(l.msg))).toHaveLength(1);
         const { game } = await kit.startGame(io, log, { humans: ['Hal'] });
         await h.flushStore(store);
         expect(kit.savedGame(db(), game.gameId)).toMatchObject({ ownerMode: 'write' });
         expect(store.health()).toMatchObject({ mode: 'on', effectiveMode: 'write', docsOwned: 1, adopted: 0, lastSweepAt: null, bootSwept: false });
+        // No sweep in effective write
+        expect(db().faults.calls.filter((c) => c.collection === 'liveGames' && c.op === 'find')).toEqual([]);
+        store.close();
+    });
+
+    test("on with the unique gameId index: effectiveMode 'on'; nothing is written before start (its instance doc first), then a casual game says ownerMode 'on'", async () => {
+        const store = install({ mode: 'on', gameIdIndexUnique: () => true });
+        expect(store.effectiveMode).toBe('on');
+        const { game } = await kit.startGame(io, log, { humans: ['Hal'] });
+        await h.flushStore(store);
+        expect(kit.savedGame(db(), game.gameId)).toBeNull();
+        await store.start({ io });
+        await h.flushStore(store);
+        expect(db().serverInstances.docs[0]).toMatchObject({ _id: 'boot-A', mode: 'on' });
+        expect(kit.savedGame(db(), game.gameId)).toMatchObject({ owner: 'boot-A', ownerMode: 'on', released: false });
+        expect(store.logs.some((l) => /runs as 'write'/.test(l.msg))).toBe(false);
+        store.close();
     });
 
     test('the process store (getLiveStore) takes LIVE_PERSIST as read at boot', () => {

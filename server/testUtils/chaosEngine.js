@@ -18,7 +18,8 @@
  * picks; with none (or no hook) every pick is the original one. ctx
  * exposes the run's state: seed, rand, pick, randInt, track, newSocket,
  * kill, rejoinAs, promote, humans, sockets, spectators, gameId,
- * setNote(text); `io` and `log` (getters: the current ones), swapIo({io,
+ * setNote(text), noteRestore(positions) (a restored table's human seats in
+ * grace start their grace now, for the resign-offer oracle); `io` and `log` (getters: the current ones), swapIo({io,
  * log}) (a restart moves the run to the new instance's io: runSeedInner's
  * doc), and `game` and `dummy` (get and set: a restart may swap in the
  * restored GameState, or a new dummy table). opts.instance runs the whole
@@ -100,9 +101,11 @@ function recordRoomMembers(io, log) {
  * watches on the new io are its own (onIo ran for the first io only).
  * @param {number} seed
  * @param {Function} onIo
- * @param {{errorLogs: Array, extraActions?: Function, instance?: {io: Object, log: Array}}} opts
+ * opts.maxSteps: the step budget (default MAX_STEPS); a test pins a run
+ * that ends on its budget with it.
+ * @param {{errorLogs: Array, extraActions?: Function, instance?: {io: Object, log: Array}, maxSteps?: number}} opts
  */
-async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instance = null } = {}) {
+async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instance = null, maxSteps = MAX_STEPS } = {}) {
     errorLogs.length = 0;
     GamePhase.resetViolations();
     const rand = mulberry32(seed);
@@ -118,6 +121,9 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         io = next.io;
         log = next.log;
         recordRoomMembers(io, log);
+        // The offers the old process's sockets held went with them; read the new log from its start
+        heldOffer.clear();
+        offersSeen = 0;
     };
     onIo(io);
     const asyncErrors = [];
@@ -350,6 +356,13 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
             if (what === '/active' && pos && game.isBotControlled(pos) && game.seatPresence(pos) === 'away' &&
                 game.isSpectator(sid)) {
                 chatHandlers.chatMessage(s, io, { message: what });
+                // A suspended table (deploy survival) holds it to the thaw
+                // (seatLifecycle.holdForThaw), re-validated then: queued
+                // behind it, promote the socket if it did take the seat
+                if (game.isSuspended) {
+                    game.deferWhileSuspended(() => { if (game.seat(pos).ownerSocketId === sid) promote(h, sid); });
+                    return;
+                }
                 if (game.seat(pos).ownerSocketId !== sid) outsiderBroke = outsiderBroke || { label: note + ' did not reclaim' };
                 else promote(h, sid);
                 return;
@@ -434,6 +447,10 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
             seed, rand, pick, randInt, track, newSocket, kill, rejoinAs, promote,
             humans, sockets, spectators, gameId, swapIo,
             setNote: (text) => { note = text; },
+            // A deploy restored the table: its human seats in grace begin
+            // their grace now (the resign-offer oracle). A marker, not an
+            // emit: no `event`, so no wire check sees it
+            noteRestore: (positions) => { log.push({ marker: 'restore', to: game.roomName, positions: [...positions], at: Date.now() }); },
             get io() { return io; },
             get log() { return log; },
             get game() { return game; },
@@ -517,7 +534,8 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         }
         // No zombie: an owned table with nobody connected must be counting down
         if (seats.length === 4 && seats.some((s) => s.ownerUsername) && !game.hasPresentHuman()) {
-            const counting = game.hasTimer('abandon') || seats.some((s) => game.hasTimer(`grace:${s.position}`));
+            // (a table restored by a deploy counts down its restored abandon instead)
+            const counting = game.hasTimer('abandon') || game.hasTimer('restoreAbandon') || seats.some((s) => game.hasTimer(`grace:${s.position}`));
             if (!counting) return 'zombie: owned table, nobody connected, no abandon/grace timer';
         }
         // Resign offers: while a seat is resignable, every connected owner
@@ -538,7 +556,7 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
 
     let steps = 0;
     const trail = [];
-    while (gameManager.getGameById(gameId) && steps < MAX_STEPS) {
+    while (gameManager.getGameById(gameId) && steps < maxSteps) {
         steps++;
         await jest.advanceTimersByTimeAsync(randInt(0, 2500));
         if (!gameManager.getGameById(gameId)) break;
@@ -556,7 +574,18 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         if (asyncErrors.length) return fail('async error', { error: asyncErrors[0].stack });
     }
     // Still running after the step budget: tear it down to check teardown
-    if (gameManager.getGameById(gameId)) await gameLifecycle.abortGame(io, game, 'chaos-end');
+    if (gameManager.getGameById(gameId)) {
+        await gameLifecycle.abortGame(io, game, 'chaos-end');
+        // A suspended table (deploy survival, GameState.suspend) aborts at
+        // its thaw (gameLifecycle.abortGame defers it, never while ownership
+        // is in doubt): the terminal event is the one the thaw sends. Only
+        // then is it looked for. No action runs meanwhile; an unsuspended
+        // run (chaos.test.js) advances nothing here, its stream unchanged
+        if (game.isSuspended) {
+            for (let i = 0; i < 120 && game.isSuspended; i++) await jest.advanceTimersByTimeAsync(1000);
+            await jest.advanceTimersByTimeAsync(0);   // the deferred abort (a microtask after the thaw)
+        }
+    }
 
     const terminalIdx = log.findIndex((l) => l.to === game.roomName && (l.event === 'gameEnd' || l.event === 'abortGame'));
     for (let i = 0; i < 30; i++) {
@@ -596,6 +625,11 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
     for (const l of log) {
         if (l.to !== game.roomName) continue;
         const p = l.data?.position;
+        // A restore (ctx.noteRestore): the restored human seats start their grace now
+        if (l.marker === 'restore') {
+            for (const q of l.positions) { lastDc[q] = l.at; resolved[q] = false; }
+            continue;
+        }
         if (l.event === 'playerDisconnected') { lastDc[p] = l.at; resolved[p] = false; }
         if (l.event === 'playerReconnected' || l.event === 'playerResigned') resolved[p] = true;
         if (l.event === 'resignationAvailable') {

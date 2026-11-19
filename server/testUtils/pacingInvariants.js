@@ -10,8 +10,13 @@
  *   - a trickComplete that opens another trick is followed by the room
  *     updateTurn in the same tick (same virtual ms, nothing in between);
  *   - a handComplete that is not the game's last is followed by the next
- *     deal's gameStart and its updateTurn in the same tick.
+ *     deal's gameStart and its updateTurn in the same tick (a deal nobody
+ *     gets a gameStart for, no owner connected and no spectator, by its
+ *     room updateTurn in that tick).
  * Event entries need `at` (gameDriver.makeIo / the chaos io record it).
+ * A table restored by a deploy (game.restored) that a watcher first sees
+ * after its restore starts from the cards on it (a watcher started after
+ * the restart: chaosRestore.test.js).
  */
 
 'use strict';
@@ -24,7 +29,15 @@ function watchPacing({ requireResumeInMs = false } = {}) {
     const failures = [];
     const games = new Map(); // gameId -> {cards, held, expectTurnAt, expectDealAt}
     const st = (id) => {
-        if (!games.has(id)) games.set(id, { cards: 0, held: false, expectTurnAt: null, expectDealAt: null });
+        if (!games.has(id)) {
+            // A table restored by a deploy (deploy survival: restoreGame,
+            // game.restored) first seen here starts from what is on it: the
+            // cards of the open trick, a held trick in TRICK_RESOLVING
+            const g = gameManager.getGameById(id);
+            const restored = !!g?.restored;
+            const cards = restored ? (g.playedCards || []).filter(Boolean).length : 0;
+            games.set(id, { cards, held: restored && g.stage === Phase.TRICK_RESOLVING, expectTurnAt: null, expectDealAt: null });
+        }
         return games.get(id);
     };
     const fail = (why, extra) => {
@@ -69,6 +82,15 @@ function watchPacing({ requireResumeInMs = false } = {}) {
                 if (s.held) fail('updateTurn while a trick is held', { gameId, at });
                 if (game && game.stage !== Phase.BIDDING && game.stage !== Phase.PLAYING) {
                     fail('updateTurn outside BIDDING/PLAYING', { gameId, stage: game.stage, to });
+                }
+                // A deal with no gameStart recipient (no connected owner and
+                // no spectator: e.g. a restored table before anyone is back)
+                // shows only as its room updateTurn; it too must be in the
+                // handComplete tick
+                if (isRoom && s.expectDealAt !== null) {
+                    if (at !== s.expectDealAt) fail('deal not in the handComplete tick', { gameId, at, expected: s.expectDealAt });
+                    s.expectDealAt = null;
+                    checked++;
                 }
                 if (isRoom && s.expectTurnAt !== null) {
                     if (at !== s.expectTurnAt) fail('updateTurn not in the trickComplete/deal tick', { gameId, at, expected: s.expectTurnAt });

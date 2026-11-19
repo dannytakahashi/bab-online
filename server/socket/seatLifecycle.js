@@ -29,6 +29,10 @@ const avatarWire = require('../avatar/avatarWire');
 const { randomStockPic } = require('../avatar/stockAvatars');
 const gameVoice = require('../voice/gameVoice');
 const { openTrick } = require('../game/tableView');
+// Deploy survival (LIVE_PERSIST on): the restored-table gate. Every hook is
+// false / a no-op for a game that was not adopted
+const restoreGame = require('../game/persist/restoreGame');
+const { serverErrorOf } = require('./serverError');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -142,6 +146,49 @@ function reattachTournament(io, socket, gameId, username) {
     return gameManager.getTournamentById(tournamentId);
 }
 
+/**
+ * The private line to the sender of a seat command (/lazy, /active, /leave,
+ * a spectator's reclaiming /active, forceResign) held by a suspended table
+ * (holdForThaw). Sent with socket.emit as a serverError (unsequenced, never
+ * stored; game.sendToPlayer is dropped while suspended).
+ */
+const HELD_LINE = 'The game is paused. This will happen when it resumes.';
+
+/**
+ * A seat command on a suspended table (GameState.suspend, the holder
+ * self-fence; effective 'on', casual tables) waits for the thaw: it changes
+ * who plays a seat for the whole room, and nothing reaches the room while
+ * suspended. `run` is queued on the game (deferWhileSuspended, in arrival
+ * order with the other deferred work) and runs after unsuspend, after the
+ * thaw's re-announcements (afterSuspend) and the resume line, so its own
+ * events go out normally. It must re-enter the command's handler, which
+ * re-validates it then (same sender, seat still in the state it needs) and
+ * answers a stale one with its normal refusal, or drops it. A socket gone
+ * by then is dropped here, unless `whenGone` is given: it runs instead (a
+ * held /leave, which was acknowledged and so outlives its socket:
+ * leaveSeatOf). A table fenced instead (freeze) or ended meanwhile drops
+ * the queue: such a /leave is lost and the seat kept (its players
+ * reconnect to the adopter). `ack`: the sender is told it will happen at
+ * the resume (HELD_LINE); a command the handler would refuse gets its
+ * refusal at the thaw instead.
+ * @param {GameState} game
+ * @param {Socket} socket - the sender
+ * @param {string} handler - the c2s event (the serverError's handler)
+ * @param {Function} run
+ * @param {{ack?: boolean, whenGone?: Function}} [opts]
+ * @returns {boolean} true if held (the caller stops), false if not suspended
+ */
+function holdForThaw(game, socket, handler, run, { ack = true, whenGone = null } = {}) {
+    if (!game.isSuspended) return false;
+    game.deferWhileSuspended(() => {
+        if (game.isTerminal() || game.frozen) return undefined;
+        if (socket.connected === false) return whenGone ? whenGone() : undefined;
+        return run();
+    });
+    if (ack) socket.emit('serverError', serverErrorOf({ message: HELD_LINE }, handler));
+    return true;
+}
+
 // ==================== presence replay & resign offers ====================
 
 /**
@@ -185,6 +232,50 @@ function replayPresenceTo(game, socket, ownPos) {
 }
 
 /**
+ * The thaw (GameState.unsuspend; deploy survival, 'on'): every emit was
+ * dropped while the table was suspended, so the room never heard of a
+ * human seat's owner who dropped or came back meanwhile, nor of a resign
+ * offer reofferAfter moved. Re-announce what changed against what the room
+ * was told at the suspend (`before.seats`): playerReconnected for a seat
+ * absent then and connected now; playerDisconnected (oldest absence first,
+ * as replayPresenceTo) for one absent now that was not then; for one absent
+ * then whose grace began meanwhile (`before.regraced`: it was back and
+ * dropped again) playerReconnected, then its playerDisconnected (the live
+ * order: the reconnect clears a resign offer the clients still hold for it,
+ * web's dialog and iOS's banner, which a playerDisconnected alone keeps).
+ * Then the offer, if it moved and someone is here. Seat commands held
+ * meanwhile (holdForThaw) run after this, each with its own events. Human-controlled seats only
+ * (then and now): a controller change is no presence change.
+ * @param {Object} io
+ * @param {GameState} game
+ * @param {{seats: Map<number, {absent: boolean, controller: string}>, offerPos: ?number, regraced: Set<number>}} before
+ */
+function afterSuspend(io, game, before) {
+    const absent = s => s.presence === Presence.GRACE || s.presence === Presence.RESIGNABLE;
+    const dropped = [];
+    for (const s of game.seatList()) {
+        const then = before.seats.get(s.position);
+        if (!then || !s.ownerUsername || s.controller !== Controller.HUMAN || then.controller !== Controller.HUMAN) continue;
+        if (absent(s)) {
+            if (!then.absent) dropped.push(s);
+            else if (before.regraced.has(s.position)) {
+                // Back and gone again: the room still holds the old absence
+                // (and maybe its resign offer), which only playerReconnected
+                // clears on both clients, as the live flow would have sent
+                game.broadcast(io, 'playerReconnected', { position: s.position, username: s.ownerUsername });
+                dropped.push(s);
+            }
+        } else if (then.absent && s.presence === Presence.CONNECTED) {
+            game.broadcast(io, 'playerReconnected', { position: s.position, username: s.ownerUsername });
+        }
+    }
+    dropped.sort((a, b) => (a.absentSince - b.absentSince) || (a.position - b.position));
+    for (const s of dropped) game.broadcast(io, 'playerDisconnected', { position: s.position, username: s.ownerUsername });
+    const p = game.offerPos;
+    if (p != null && p !== before.offerPos && game.resignablePositions().includes(p) && game.hasPresentHuman()) offer(io, game, p);
+}
+
+/**
  * Clients hold one resign offer at a time (and clear it on ANY
  * playerResigned): after a resign, or after the offered seat came back,
  * offer the oldest remaining resignable seat, if anyone is here to act.
@@ -223,6 +314,9 @@ function maybeAbort(io, game) {
         abortGame(io, game, 'All players left').catch(logError('abortGame', game));
         return true;
     }
+    // A restored table nobody came back to yet: its restored abandon
+    // (restoreGame, 10 min) is the only window
+    if (restoreGame.holdsAbandon(game)) return false;
     if (!game.hasTimer('abandon')) {
         const ms = abandonMs(game, owned);
         if (ms !== ABANDON_MS) socketLogger.info('Solo game: waiting for its players', { gameId: game.gameId, ms });
@@ -305,6 +399,9 @@ function onGraceExpired(io, game, pos) {
         offer(io, game, pos);
         logEntry(io, game, `${seat.ownerUsername} failed to reconnect. You may replace them with a bot.`);
     }
+    // A restored table no longer waits for this seat: with someone here the
+    // gate may open now (after the offer)
+    restoreGame.openGateIfReady(io, game);
     // Nobody here: a returning player gets the offer through replayPresenceTo
     maybeAbort(io, game);
 }
@@ -370,6 +467,9 @@ function reconnectOwner(io, game, pos, socket, username) {
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
     const tournament = reattachTournament(io, socket, game.gameId, username);
+    // A restored table: the gate may open here, and its kick runs before the
+    // carrier is built (the snapshot's seq and resume count the kick)
+    restoreGame.openGateIfReady(io, game);
 
     socketLogger.info('Player rejoined game', { username, gameId: game.gameId, position: pos });
     socket.emit('rejoinSuccess', carrierFor(game, socket, {
@@ -450,6 +550,8 @@ function watchSeat(io, game, pos, socket, username, { via }) {
         const tournament = reattachTournament(io, socket, game.gameId, username);
         extra.tournamentId = tournament ? tournament.tournamentId : null;
     }
+    // A restored table: the gate may open here, before the carrier
+    restoreGame.openGateIfReady(io, game);
     const state = carrierFor(game, socket, extra);
     socketLogger.info('Owner watching bot-controlled seat', { username, gameId: game.gameId, position: pos, via });
     socket.emit('rejoinSuccess', state);
@@ -483,6 +585,8 @@ function reclaimSeat(io, game, pos, socket, username) {
     game.joinToRoom(io, socket.id);
     gameManager.registerUser(socket.id, username);
     socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
+    // A restored table: the gate may open here, before goActive's carrier
+    restoreGame.openGateIfReady(io, game);
     // ownerView is 'watch' now: goActive re-sends the seat's full state
     // (restorePlayerState) and the presence replay to this socket
     if (!goActive(io, game, pos, socket, { voice: false })) return false;
@@ -500,7 +604,9 @@ const afkKey = (pos) => `afk:${pos}`;
 function afkEligible(game, pos) {
     const seat = game.seat(pos);
     return !!seat && seat.controller === Controller.HUMAN && seat.presence === Presence.CONNECTED &&
-        game.acceptsTurnInput() && game.currentTurn === pos && !afkExempt(game);
+        game.acceptsTurnInput() && game.currentTurn === pos && !afkExempt(game) &&
+        // A restored table's gate: no AFK clock until everyone is back (the kick arms it)
+        !restoreGame.isGated(game);
 }
 
 /**
@@ -796,6 +902,50 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     return true;
 }
 
+/**
+ * A /leave held by a suspended table (holdForThaw) whose socket dropped
+ * before the thaw: the sender was told it would happen at the resume, and
+ * the live /leave (it came first) would have left the seat before that
+ * drop. So it takes effect now, by seat, if the seat is still `username`'s
+ * and absent with no newer socket on it (the owner back on another socket
+ * cancels it, as it does any held command). A human seat in grace or
+ * resignable has no owner socket to go lazy from: a bot takes it as a
+ * resign does (playerResigned, which also clears a resign offer the
+ * clients hold for it), with the leave line; then, as leaveSeat, the seat
+ * is gone (seatLeft) and the account's activeGameId cleared. Nothing goes
+ * to the dead socket (no leaveRoom, no leftGame).
+ * @returns {boolean} true if the seat is gone
+ */
+function leaveSeatOf(io, game, pos, username, sid) {
+    const seat = game.seat(pos);
+    if (!seat || seat.ownerUsername !== username || (seat.ownerSocketId != null && seat.ownerSocketId !== sid)) return false;
+    if (seat.controller === Controller.HUMAN) {
+        if (seat.presence === Presence.GRACE && !game.seatGraceExpired(pos)) return false;
+        if (seat.presence !== Presence.RESIGNABLE) return false;
+        const bot = createSeatBot(game, pos, seat.lastPersonality);
+        const oldSid = game.seatResign(pos, bot);
+        if (oldSid == null) {
+            discardSeatBot(game, bot);
+            return false;
+        }
+        unmap(game, oldSid);
+        game.broadcast(io, 'playerResigned', { position: pos, oldUsername: username, botUsername: bot.username, botPic: bot.pic });
+        logEntry(io, game, `${username} left the game. ${bot.username} is playing for them.`);
+        reofferAfter(io, game, pos, 'resign');
+        triggerIfOnTurn(io, game, pos);
+    } else if (seat.presence !== Presence.AWAY) {
+        return false;
+    }
+    if (!game.seatLeave(pos)) return false;
+    game.emitUnsequenced(io, 'seatLeft', { gameId: game.gameId, position: pos, username });
+    unmap(game, sid);
+    gameVoice.refreshVoice(io, game);
+    gameManager.clearActiveGame(username, game.gameId);
+    socketLogger.info('Player left game (permanent, held through a suspension)', { gameId: game.gameId, position: pos });
+    maybeAbort(io, game);
+    return true;
+}
+
 // ==================== draw watchdog ====================
 
 /**
@@ -857,5 +1007,9 @@ module.exports = {
     maybeAbort,
     reofferAfter,
     replayPresenceTo,
+    afterSuspend,
+    holdForThaw,
+    leaveSeatOf,
+    HELD_LINE,
     startDrawWatchdog
 };

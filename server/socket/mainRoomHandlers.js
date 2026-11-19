@@ -15,6 +15,7 @@ const { deletedSince } = require('../admin/accountDelete');
 const clientInfo = require('./clientInfo');
 const gameVoice = require('../voice/gameVoice');
 const playAgain = require('./playAgain');
+const pointerResolve = require('./pointerResolve');
 
 /** Did `socket` announce casualSpectators (a lobby of up to 8, spectator voice)? */
 const isCapable = (socket) => clientInfo.hasCap(socket, gameVoice.CAP);
@@ -289,7 +290,7 @@ function joinLobby(socket, io, data) {
 /**
  * Handle player joining a game as a spectator
  */
-function joinAsSpectator(socket, io, data, { fromLobby = false } = {}) {
+function joinAsSpectator(socket, io, data, { fromLobby = false, resolved = false } = {}) {
     const { gameId } = data;
     playAgain.endLingering(io, socket.id, 'joinAsSpectator');
 
@@ -299,6 +300,15 @@ function joinAsSpectator(socket, io, data, { fromLobby = false } = {}) {
     const user = gameManager.getUserBySocketId(socket.id);
     const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
+        // LIVE_PERSIST=on: a game in no memory here may be saved or held by
+        // another instance (pointerResolve): resolved, adopted or parked;
+        // then this runs again (resolved) and finds it, or "not found"
+        if (!resolved && user && pointerResolve.active() && !gameManager.getGameById(gameId)) {
+            return pointerResolve.resolveThen(socket, gameId, 'joinAsSpectator', {
+                onGame: () => joinAsSpectator(socket, io, data, { fromLobby, resolved: true }),
+                onGone: () => emitError(socket, { message: 'Game not found' }, 'joinAsSpectator')
+            });
+        }
         emitError(socket, { message: 'Game not found' }, 'joinAsSpectator');
         return;
     }
@@ -367,5 +377,6 @@ module.exports = {
     mainRoomChat,
     createLobby,
     joinLobby,
-    joinAsSpectator
+    // Counted as a restore in flight for requestSnapshot's deferral (LIVE_PERSIST=on)
+    joinAsSpectator: pointerResolve.tracked(joinAsSpectator)
 };

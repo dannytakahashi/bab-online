@@ -91,8 +91,23 @@ const NAME_HOLD_MS = 30 * 24 * 60 * 60 * 1000;
 // survival (LIVE_PERSIST=on, PR 5) lets a game move to a new process: the
 // adoption must rebuild this from the name hold's deletedAt (users doc
 // {mergedInto: '[deleted]', deletedAt}) for every seat owner and chat
-// sender it looks up. Write mode (PR 4) adopts nothing.
+// sender it looks up: it does (persist/adopt.js -> noteDeletedAccount
+// below). Write mode adopts nothing.
 const deletedAt = new Map();
+
+/**
+ * Deploy survival (LIVE_PERSIST=on, persist/adopt.js): a game adopted from
+ * another process names `username`, whose account is a name hold deleted
+ * at `atMs` (users {mergedInto: '[deleted]', deletedAt}). This process
+ * learns it as forgetAccount would have taught it: deletedSince and
+ * gameManager.deletedUsernames (no stats, no name in the game record).
+ */
+function noteDeletedAccount(username, atMs) {
+    if (typeof username !== 'string' || !username || !Number.isFinite(atMs)) return;
+    const prev = deletedAt.get(username);
+    if (prev === undefined || atMs > prev) deletedAt.set(username, atMs);
+    require('../game/GameManager').deletedUsernames?.add(username);
+}
 
 /** Was `username` deleted after `sinceMs` (a game's createdAt)? */
 function deletedSince(username, sinceMs) {
@@ -295,6 +310,6 @@ async function refreshBlockLists(io, db, usernames, { emit = true, silent = fals
 }
 
 module.exports = {
-    eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists, deletedSince, isNameHold,
+    eraseAccount, deleteTombstone, forgetAccount, refreshBlockLists, deletedSince, isNameHold, noteDeletedAccount,
     DELETED_NAME, NAME_HOLD_MS
 };

@@ -44,10 +44,44 @@ function sendError(io, game, socket, message) {
     game.sendToPlayer(io, socket.id, 'serverError', serverErrorOf({ message }, 'chatMessage'));
 }
 
+/** The seat commands a suspended table holds to its thaw (seatLifecycle.holdForThaw). */
+const SEAT_COMMANDS = new Set(['/lazy', '/active', '/leave']);
+
+/**
+ * A suspended table: the seat command waits for the thaw
+ * (seatLifecycle.holdForThaw), then runs through this handler again if the
+ * socket is still the same sender (this game, role and seat); a socket that
+ * is not (it left, dropped or was demoted meanwhile) has it dropped, except
+ * an owner's /leave from a socket that dropped: it still leaves the seat
+ * (seatLifecycle.leaveSeatOf).
+ * `acts`: it would change the seat now, so the sender is told it will
+ * happen at the resume; one the handler would refuse ("Not in lazy mode.")
+ * gets that refusal at the thaw instead.
+ * @returns {boolean} true if held
+ */
+function heldWhilePaused(socket, io, game, role, pos, message, acts) {
+    // An owner's /leave outlives its socket (seatLifecycle.leaveSeatOf): it
+    // was acknowledged, so the seat still goes at the thaw if the sender
+    // closed the tab meanwhile
+    const leave = role === 'owner' && message.trim().toLowerCase() === '/leave';
+    const username = leave ? game.seat(pos).ownerUsername : null;
+    const sid = socket.id;
+    return seatLifecycle.holdForThaw(game, socket, 'chatMessage', () => {
+        const now = resolveSender(socket.id);
+        if (!now || now.game !== game || now.role !== role || now.pos !== pos) return;
+        if (role === 'owner') ownerCommand(socket, io, game, pos, message);
+        else spectatorCommand(socket, io, game, message);
+    }, { ack: acts, whenGone: leave ? () => { seatLifecycle.leaveSeatOf(io, game, pos, username, sid); } : null });
+}
+
 /** Slash commands from a seat owner. */
 function ownerCommand(socket, io, game, pos, message) {
     const command = message.trim().toLowerCase();
     const seat = game.seat(pos);
+    if (game.isSuspended && SEAT_COMMANDS.has(command)) {
+        const acts = command === '/leave' || command === (seat.controller === Controller.HUMAN ? '/lazy' : '/active');
+        if (heldWhilePaused(socket, io, game, 'owner', pos, message, acts)) return;
+    }
 
     // /help: a suggestion at a human seat; at a bot-controlled one (either
     // view) the line "A bot is playing your seat. Type /active first."
@@ -152,6 +186,7 @@ function spectatorCommand(socket, io, game, message) {
     if (command !== '/active') return;
     const owned = recordedSeat(socket, game);
     if (!owned) return; // an ordinary spectator
+    if (owned.state === 'reclaim' && heldWhilePaused(socket, io, game, 'spectator', null, message, true)) return;
     if (owned.state === 'reclaim') {
         seatLifecycle.reclaimSeat(io, game, owned.pos, socket, owned.username);
     } else {

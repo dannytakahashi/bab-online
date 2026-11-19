@@ -11,9 +11,19 @@
  *   write  docs are written, tombstoned and deleted; heartbeat only (no
  *          sweep, no adoption, no handoff); at SIGTERM, after today's
  *          notice, this process deletes its own docs (shutdown())
- *   on     handoff and adoption are not built yet (PR 5): 'on' runs
- *          exactly as 'write' (effectiveMode 'write', one log line), and
- *          every doc says ownerMode 'write', so nothing ever adopts one
+ *   on     (PR 5, casual games) everything write does, plus: the store
+ *          writes nothing until start() (its serverInstances doc exists
+ *          first), a casual game's doc says ownerMode 'on' (adoptable),
+ *          a lost casual doc is a fence (fenceOnLoss; a lost tournament or
+ *          tournament-table doc plays on as in write mode), the sweep adopts other
+ *          instances' released or dead-owner docs (adopt.js), resolve()
+ *          answers where a game is, the heartbeat carries the holder
+ *          self-fence, and SIGTERM / a crash hand off (handoff.js). Only
+ *          with gameRecords' UNIQUE gameId index (database
+ *          getGameIdIndexUnique, read at start()): without it 'on' runs
+ *          as 'write' (effectiveMode 'write', one log line). Tournaments
+ *          and their tables keep ownerMode 'write' until PR 6, so nothing
+ *          adopts them and a handoff deletes them (today's notice)
  *
  * Writes (one writer per entity, never awaited by game code):
  *   - a change (persist/hooks.js: GameState.nextSeq, _afterSeat,
@@ -25,19 +35,21 @@
  *     tainted, invalid, terminal) keeps the last good doc
  *   - the first write is insertOne; once one is acknowledged the id is
  *     never inserted or upserted again: later writes are
- *     updateOne({_id, owner: me, released: false}) with $set of the state
+ *     updateOne({_id, owner: me, released: false}) ('on' adds rev: {$lt:
+ *     the new rev}, so a late write never lands over a newer one) with $set of the state
  *     and $push {$each: new log lines, $slice: -500}; after a failed or
  *     ambiguous write, a chat scrub or a sender rename, the next one $sets
  *     the whole log (still an update). E11000 on the insert (an ambiguous
  *     insert that did land) is read back: ours, then updates; else lost
  *   - matchedCount 0 -> findOne: gone at or after expireAt - 10 min ->
  *     stop persisting and play on; ANYTHING else (gone early, another
- *     owner, mine but released) means the doc is lost. In write mode (the
- *     only mode in PR 4) that also stops persisting and plays on, with a
+ *     owner, mine but released) means the doc is lost. In write mode that
+ *     also stops persisting and plays on, with a
  *     warning: no instance can adopt a 'write' doc, so a lost one is an
  *     outside delete (an operator, a restore, a rolled-back write), never
  *     a successor, and the game must not end over it. With `fenceOnLoss`
- *     (PR 5's 'on'; tests) a lost doc is a fence: the local copy is retired
+ *     (the default in effective 'on' for a doc last written ownerMode
+ *     'on', the only kind another instance adopts; tests) a lost doc is a fence: the local copy is retired
  *     (game.freeze: nothing more is emitted or timed; GameManager._retire
  *     with no io; a tournament is deleted from GameManager), no side
  *     effect runs, and the sockets at it are engine-closed
@@ -65,7 +77,32 @@
  * insert exactly once (the unique gameId index). An aborted casual game's
  * doc is deleted; an aborted tournament table becomes a tombstone with
  * `aborted: true` (no record). In write mode the claim never fences (no
- * adopter exists): its outcome never skips stats.
+ * adopter exists): its outcome never skips stats. In 'on' a claim of a casual
+ * (ownerMode 'on') doc that finds it gone early, another instance's or
+ * released answers 'fenced' (another instance owns the end: gameEnd and abortGame then
+ * skip stats, pointer clears and tournament scoring), and so does any
+ * later claim of a game this store fenced.
+ *
+ * resolve(gameId) (PR 5, 'on'): where a game is, for the pointer call
+ * sites (signIn, restoreSession, rejoinGame, spectate): in memory, adopted
+ * now, 'pending' (another live instance holds it, or may still: never
+ * answer "gone" then) or gone. See resolve() below.
+ *
+ * Holder self-fence (PR 5, 'on'): when no heartbeat has been acknowledged
+ * for SELF_FENCE_MS on this process's monotonic clock, every casual table
+ * with a saved doc is suspended (game.suspend(): timers remembered, no
+ * emit, never saved meanwhile); after the next good beat each doc is
+ * re-taken with a compare-and-set write (owner me, live, not released ->
+ * rev + 1, which also defeats an adopter's claim still in flight): matched
+ * -> unsuspend; anything else -> fenced (as above: frozen, retired with no
+ * emit, sockets engine-closed). The room is told (owner 2026-11-19, "pause
+ * with a notice"): PAUSE_NOTICE once when a table is suspended,
+ * RESUME_NOTICE once when that table is unsuspended, nothing when it is
+ * fenced (its players reconnect to the adopter) or when an abort asked
+ * for while suspended runs at the thaw (GameState.abortOnThaw). Each is an
+ * unsaved sequenced system line (game.unsavedNotice); the pause lines go
+ * out from an immediate after the check (sendPauseNotices), never from
+ * inside persistHooks.beforeRun, which stays passive.
  *
  * remove(): a game's doc is left to the claim (GameManager._retire runs
  * before it); a tournament's is deleted (GameManager.deleteTournament:
@@ -93,6 +130,20 @@ const SHUTDOWN_DELETE_MS = 2000;
 const CLAIM_MAX_MS = 5000;
 /** One log line per kind of failure at most this often. */
 const LOG_EVERY_MS = 60 * 1000;
+/** 'on': this long without an acknowledged heartbeat (monotonic) suspends this process's tables. */
+const SELF_FENCE_MS = 8000;
+/** 'on': the system line a self-fence suspension sends to the table's room (never saved). */
+const PAUSE_NOTICE = 'Game paused: the server is reconnecting. It will resume on its own.';
+/** 'on': the system line when that table is unsuspended (never after a fence; never saved). */
+const RESUME_NOTICE = 'Game resumed.';
+/** 'on': how often the self-fence is checked (between heartbeats). */
+const FENCE_CHECK_MS = 1000;
+/** 'on': a heartbeat that has not answered after this long no longer blocks the next one. */
+const BEAT_WAIT_MS = 2 * HEARTBEAT_MS;
+/** /ready answers 200 this long after start() even if the boot sweep has not finished. */
+const BOOT_SWEEP_CAP_MS = 20000;
+/** resolve(): the longest wait for connectDB and the boot sweep before an answer. */
+const RESOLVE_WAIT_MS = 3000;
 
 const COLLECTION = { game: 'liveGames', tournament: 'liveTournaments' };
 const LIVE_GETTERS = Object.freeze({
@@ -214,12 +265,25 @@ function bounded(p, ms, onTimeout) {
  * @param {Function} [opts.serializeGame] / [opts.serializeTournament] / [opts.serializeEnded] - the codecs
  * @param {Function} [opts.onGameFenced] / [opts.onTournamentFenced] - (entity, {io, why}) the retire
  * @param {Function} [opts.listGames] / [opts.listTournaments] - () => iterable of live ids (heartbeat)
+ * @param {Function} [opts.findGame] - (gameId) => the live GameState here, or
+ *   undefined (resolve / whenAdopted's "in memory"; GameManager.games)
  * @param {Function} [opts.tournamentOfGame] - gameId -> the live TournamentState it belongs to, or null
  * @param {Function} [opts.gameIdIndexUnique] - () => true | false | null (/health)
- * @param {boolean} [opts.fenceOnLoss=false] - a lost doc (gone early, another
- *   owner, released) fences the entity instead of stopping its writes. Off
- *   in write mode (PR 4: nothing can adopt a 'write' doc); PR 5's 'on' and
- *   the fence tests set it
+ * @param {boolean|null} [opts.fenceOnLoss=null] - a lost doc (gone early, another
+ *   owner, released) fences the entity instead of stopping its writes.
+ *   null: on in effective 'on', off in write mode (nothing can adopt a
+ *   'write' doc); the fence tests set it
+ * @param {Function} [opts.monoNow] - this process's monotonic clock in ms
+ *   (observer-side death, the self-fence, the /ready cap; never compared
+ *   with another instance's)
+ * @param {Object} [opts.adoption] - 'on': adopt.js's dependencies and
+ *   timings (createAdopter), for tests; production uses the defaults
+ * @param {Function} [opts.isShuttingDown] - () => boolean (utils/shutdown)
+ * @param {Function} [opts.suspendGame] / [opts.unsuspendGame] - the
+ *   reversible holder self-fence (game.suspend() / game.unsuspend(io))
+ * @param {Function} [opts.noticeGame] - (game, io, line) => boolean: the
+ *   self-fence's unsaved room line (game.unsavedNotice(io, line))
+ * @param {Function} [opts.whenDbReady] - (ms) => Promise<boolean> (database.whenReady)
  */
 function createLiveStore({
     mode = 'off',
@@ -236,19 +300,43 @@ function createLiveStore({
     onTournamentFenced = defaultTournamentFence,
     listGames = () => gameManagerOf().games.keys(),
     listTournaments = () => gameManagerOf().tournaments.keys(),
+    findGame = (gameId) => gameManagerOf().games.get(gameId),
     tournamentOfGame = (gameId) => {
         const gm = gameManagerOf();
         const tid = gm.tournamentGames.get(gameId);
         return tid ? gm.tournaments.get(tid) || null : null;
     },
     gameIdIndexUnique = defaultGameIdIndexUnique,
-    fenceOnLoss = false
-} = {}) {
-    const effectiveMode = mode === 'on' ? 'write' : mode;
-    const active = effectiveMode === 'write';
-    if (mode === 'on') {
-        logger.info("LIVE_PERSIST=on runs as 'write' (handoff and adoption are not built yet: deploy survival PR 5)");
+    fenceOnLoss = null,
+    monoNow = () => performance.now(),
+    adoption = {},
+    isShuttingDown = () => require('../../utils/shutdown').isShuttingDown(),
+    suspendGame = (game) => game.suspend(),
+    unsuspendGame = (game, io) => game.unsuspend(io),
+    noticeGame = (game, io, line) => (typeof game.unsavedNotice === 'function' ? game.unsavedNotice(io, line) : false),
+    whenDbReady = (ms) => {
+        const database = require('../../database');
+        return typeof database.whenReady === 'function' ? database.whenReady(ms) : Promise.resolve(true);
     }
+} = {}) {
+    const active = mode === 'write' || mode === 'on';
+    // 'on' needs gameRecords' unique gameId index (an adopted tombstone and
+    // the old owner's drain could otherwise insert one game twice). Read at
+    // start(), after connectDB's index probe, and kept for the process;
+    // before that it follows the probe
+    let latchedMode = null;
+    const computeEffective = () => {
+        if (mode !== 'on') return mode;
+        return safeCall(gameIdIndexUnique) === true ? 'on' : 'write';
+    };
+    const effective = () => latchedMode ?? computeEffective();
+    const isOn = () => effective() === 'on';
+    // A lost doc is a fence only if another instance could own it now: in
+    // effective 'on', a doc last written ownerMode 'on' (a casual table;
+    // adopt.js adopts nothing else). A tournament and its tables say
+    // 'write' until PR 6, so a lost one (a sweep discarded it after a false
+    // death of this process) stops persisting and plays on, as in write mode
+    const fences = (st) => (fenceOnLoss === null ? isOn() && !!st && st.ownerMode === 'on' : fenceOnLoss);
 
     // entity -> state, and id -> state (tombstones, tournaments by id)
     const byEntity = new WeakMap();
@@ -267,14 +355,38 @@ function createLiveStore({
     let closed = false;
     let ioRef = null;
     let started = false;
+    let startExpected = false;
     let heartbeat = null;
     let beating = false;
     let beatSeq = 0;
     let installed = false;
+    // 'on' only
+    let startedAt = null;          // wall clock (Date) of start(): the instance doc's startedAt
+    let startedMono = null;        // monotonic, for the /ready cap
+    let lastBeatOkMono = null;     // the last acknowledged heartbeat (monotonic)
+    let beatStartedMono = null;    // the heartbeat in flight began then
+    let fenceCheck = null;
+    let selfFenced = false;
+    let recovering = false;
+    /** 'on': the pending immediate that sends owed PAUSE_NOTICEs (sendPauseNotices). */
+    let pauseImmediate = null;
+    let keepBeating = false;       // a handoff closed the writes but beats on until it ends
+    let writesOpen = false;        // 'on': start() has written the instance doc
+    let readyCapLogged = false;
+    let markStarted;
+    const startedPromise = new Promise((r) => { markStarted = r; });
+    // Games this store fenced: a later terminal claim answers 'fenced' (another instance ends them)
+    const fencedGames = new WeakSet();
+    let adopter = null;
 
     const listener = {
         game: (game) => markDirty(game),
-        tournament: (t) => markDirty(t)
+        tournament: (t) => markDirty(t),
+        // 'on': the self-fence check, synchronously, before a game timer,
+        // pause or bot action runs (a thawed process runs its overdue
+        // timers in due order, some before the 1 s check). Off / write:
+        // no listener
+        ...(mode === 'on' && { beforeRun: () => checkSelfFence() })
     };
 
     function collections() {
@@ -330,12 +442,49 @@ function createLiveStore({
             completed: new Set(),  // tournaments: completedGames of the last acknowledged doc
             rereads: 0,            // read-backs in a row that found the doc ours
             retired: false,        // left GameManager (no live writes)
-            done: false            // stopped, fenced, removed: no more writes at all
+            done: false,           // stopped, fenced, removed: no more writes at all
+            suspended: false,      // 'on': the holder self-fence holds its writes
+            pauseNoticed: false,   // 'on': this suspension's PAUSE_NOTICE was sent (RESUME_NOTICE owed)
+            pauseOwed: false,      // 'on': suspended, PAUSE_NOTICE not sent yet (sendPauseNotices)
+            resetAttempts: false,  // 'on', adopted: the first write after the restore gate opens $sets adoptAttempts 0
+            ownerMode: null        // the ownerMode of the last doc sent ('on': adoptable elsewhere, so a loss fences)
         };
         byEntity.set(entity, st);
         byId.set(`${kind}:${id}`, st);
         addToInstance(kind, id);
         markDirty(entity);
+    }
+
+    /**
+     * 'on', adoption (adopt.js): `game` was just built from `doc`, which
+     * this process now owns (the adopt compare-and-set landed at doc.rev).
+     * Its writes go on as updates of that doc (never an insert), the first
+     * one with the whole log (the adoption scrubbed lines and added one).
+     */
+    function trackAdopted(game, doc) {
+        if (!active || closed || !game) return null;
+        const id = game.gameId;
+        const prev = byId.get(`game:${id}`);
+        if (prev && !prev.done) forget(prev);
+        const createdAt = doc.createdAt instanceof Date ? doc.createdAt.getTime()
+            : Number.isFinite(game.createdAt) ? game.createdAt : now();
+        const st = {
+            id, kind: 'game', entity: game, createdAt,
+            inserted: true, insertTried: true, dirty: false, immediate: null, ops: 0,
+            tail: Promise.resolve(), rev: Number.isInteger(doc.rev) ? doc.rev : 0,
+            lastLogTotal: Number.isInteger(doc.logTotal) ? doc.logTotal : null,
+            fullLog: true, fullLogSeq: 0, lastJson: null, completed: new Set(), rereads: 0,
+            retired: false, done: false, suspended: false, pauseNoticed: false, pauseOwed: false, resetAttempts: true,
+            // The adopt compare-and-set wrote ownerMode 'on'
+            ownerMode: doc.ownerMode ?? 'on',
+            // The adoption fields a whole-doc write (the handoff's final write) keeps
+            adoption: { adoptAttempts: Number(doc.adoptAttempts) || 0, adoptedBy: doc.adoptedBy ?? null, adoptedAt: doc.adoptedAt ?? null }
+        };
+        byEntity.set(game, st);
+        byId.set(`game:${id}`, st);
+        addToInstance('game', id);
+        markDirty(game);
+        return st;
     }
 
     function markDirty(entity) {
@@ -362,9 +511,13 @@ function createLiveStore({
 
     function schedule(st) {
         if (st.immediate || st.ops > 0 || closed || st.done) return;
+        // 'on': nothing is written before this process's instance doc
+        // exists (start()), so no doc ever names an owner no instance
+        // doc speaks for; and nothing while the self-fence holds it
+        if (mode === 'on' && (!writesOpen || st.suspended)) return;
         st.immediate = safeImmediate(() => {
             st.immediate = null;
-            if (st.dirty && !st.done && !st.retired && !closed) enqueue(st, () => writeOnce(st));
+            if (st.dirty && !st.done && !st.retired && !closed && !st.suspended) enqueue(st, () => writeOnce(st));
         }, 'liveStore:write');
     }
 
@@ -393,22 +546,34 @@ function createLiveStore({
 
     const stopAt = (st) => st.createdAt + TTL_MS - STOP_BEFORE_EXPIRE_MS;
 
+    /**
+     * The ownerMode a doc says: 'on' (adoptable) only for a casual game in
+     * effective 'on'; a tournament and its tables stay 'write' until the
+     * tournament handoff exists (PR 6), so nothing adopts them.
+     */
+    function ownerModeFor(st, doc) {
+        const m = effective();
+        if (m !== 'on') return m;
+        return st.kind === 'game' && !(doc && doc.tournamentId) ? 'on' : 'write';
+    }
+
     function envelope(st, doc, at) {
+        st.ownerMode = ownerModeFor(st, doc);
         const base = {
             _id: st.id,
             v: doc.v,
             kind: 'live',
             owner: bootId,
-            ownerMode: effectiveMode,
+            ownerMode: st.ownerMode,
             released: false,
             releasedAt: null,
             rev: st.rev,
             createdAt: new Date(st.createdAt),
             updatedAt: at,
             expireAt: new Date(st.createdAt + TTL_MS),
-            adoptAttempts: 0,
-            adoptedBy: null,
-            adoptedAt: null
+            adoptAttempts: st.adoption ? st.adoption.adoptAttempts : 0,
+            adoptedBy: st.adoption ? st.adoption.adoptedBy : null,
+            adoptedAt: st.adoption ? st.adoption.adoptedAt : null
         };
         if (st.kind === 'game') {
             return { ...base, stage: doc.stage, tournamentId: doc.tournamentId ?? null, state: doc.state, log: doc.log, logTotal: doc.logTotal, bots: doc.bots };
@@ -419,6 +584,14 @@ function createLiveStore({
     function updateFor(st, doc, at, fullLog) {
         const set = { v: doc.v, rev: st.rev, updatedAt: at, state: doc.state };
         const update = { $set: set };
+        if (mode === 'on') {
+            // An early doc (before the index probe latched the mode) says what holds now
+            set.ownerMode = ownerModeFor(st, doc);
+            st.ownerMode = set.ownerMode;
+            // Adopted: the first write once the restore gate is open (an
+            // owner is back, the table plays) clears the crash-loop counter
+            if (st.resetAttempts && st.kind === 'game' && adopter && !adopter.gated(st.entity)) set.adoptAttempts = 0;
+        }
         if (st.kind === 'tournament') {
             set.phase = doc.phase;
             set.completedAt = doc.state?.completedAt ?? null;
@@ -434,9 +607,13 @@ function createLiveStore({
         return update;
     }
 
-    function acked(st, doc, json, fullLogSeq) {
+    function acked(st, doc, json, fullLogSeq, update = null) {
         st.inserted = true;
         st.rereads = 0;
+        if (update && update.$set && update.$set.adoptAttempts === 0) {
+            st.resetAttempts = false;
+            if (st.adoption) st.adoption.adoptAttempts = 0;
+        }
         if (st.fullLogSeq === fullLogSeq) st.fullLog = false;
         if (st.kind === 'game') {
             st.lastLogTotal = doc.logTotal;
@@ -459,7 +636,7 @@ function createLiveStore({
     }
 
     async function writeOnce(st) {
-        if (!st.dirty || st.done || st.retired || closed) return;
+        if (!st.dirty || st.done || st.retired || closed || st.suspended) return;
         st.dirty = false;
         let doc;
         try {
@@ -498,8 +675,15 @@ function createLiveStore({
             return;
         }
         let res;
+        const update = updateFor(st, doc, at, fullLog);
+        // 'on': rev-monotonic, so an update that applies late (after the
+        // handoff's final write, or a self-fence re-take) never lands over
+        // a newer doc; one that matches nothing for it is read back as ours
+        const filter = mode === 'on'
+            ? { _id: st.id, owner: bootId, released: false, rev: { $lt: st.rev } }
+            : { _id: st.id, owner: bootId, released: false };
         try {
-            res = await coll.updateOne({ _id: st.id, owner: bootId, released: false }, updateFor(st, doc, at, fullLog));
+            res = await coll.updateOne(filter, update);
         } catch (err) {
             failed(st, 'update', err);
             return;
@@ -508,7 +692,7 @@ function createLiveStore({
             await readBack(st, coll, 'update');
             return;
         }
-        acked(st, doc, json, fullLogSeq);
+        acked(st, doc, json, fullLogSeq, update);
     }
 
     /**
@@ -591,7 +775,15 @@ function createLiveStore({
      */
     function lost(st, why) {
         if (st.done) return;
-        if (fenceOnLoss) {
+        if (fences(st)) {
+            if (closed) {
+                // After close() (the handoff, the crash release) the
+                // shutdown owns every table's outcome: a late write that
+                // finds its doc released retires nothing and closes no
+                // socket before the notice
+                forget(st);
+                return;
+            }
             fence(st, why);
             return;
         }
@@ -602,6 +794,7 @@ function createLiveStore({
     function fence(st, why) {
         if (st.done) return;
         forget(st);
+        if (st.kind === 'game' && st.entity) fencedGames.add(st.entity);
         logger.warn('Live doc fenced: this instance no longer owns it', { [idField(st)]: st.id, rev: st.rev, why });
         const io = ioRef || safeCall(getIo);
         try {
@@ -689,13 +882,18 @@ function createLiveStore({
      */
     /** True when claimEnded(game) has a doc to end (gameEnd builds the record only then). */
     function claimable(game) {
-        if (!active || closed || !game) return false;
+        if (!active || !game) return false;
+        // A fenced game's end belongs to the instance that owns it now
+        if (fencedGames.has(game)) return true;
+        if (closed) return false;
         const st = byEntity.get(game);
         return !!st && !st.done && (st.inserted || st.insertTried) && !!collectionFor(st);
     }
 
     function claimEnded(game, { record = null, tournamentId = null } = {}) {
-        if (!active || closed || !game) return null;
+        if (!active || !game) return null;
+        if (fencedGames.has(game)) return Promise.resolve('fenced');
+        if (closed) return null;
         const st = byEntity.get(game);
         if (!st || st.done) return null;
         st.retired = true;
@@ -780,9 +978,19 @@ function createLiveStore({
                 stop(st, 'expired');
                 return 'stopped';
             }
-            // Someone else holds it, or it is gone. In write mode nobody
-            // can have adopted it: the end goes on as today (stats, pointer
-            // clears, tournament scoring), never fenced
+            if (fences(st)) {
+                // 'on', a casual (ownerMode 'on') doc: gone early, another instance's or released: that
+                // instance (an adopter) owns the end. No stats, no pointer
+                // clear, no tournament score from this copy
+                logger.warn('Terminal claim fenced: another instance owns the game', { gameId: st.id, rev: st.rev, why: !doc ? 'gone' : doc.owner !== bootId ? 'owner' : 'released' });
+                fencedGames.add(game);
+                forget(st);
+                return 'fenced';
+            }
+            // Someone else holds it, or it is gone. In write mode (and for
+            // a 'write' doc in 'on': a tournament table) nobody can have
+            // adopted it: the end goes on as today (stats, pointer clears,
+            // tournament scoring), never fenced
             logger.warn('Terminal claim matched no doc; ending as usual', { gameId: st.id, rev: st.rev, why: doc ? 'owner' : 'gone' });
             forget(st);
             return 'error';
@@ -928,69 +1136,286 @@ function createLiveStore({
     };
 
     async function beat() {
-        if (beating || closed) return;
+        if (closed && !keepBeating) return;
+        if (beating) {
+            // 'on': a heartbeat that never answers (a stalled Mongo) must not
+            // stop the next ones, or the self-fence could never lift
+            if (!isOn() || beatStartedMono === null || monoNow() - beatStartedMono < BEAT_WAIT_MS) return;
+        }
         beating = true;
+        const startedBeat = monoNow();
+        beatStartedMono = startedBeat;
+        let ok = false;
         try {
             const coll = collections().serverInstances;
             if (!coll) return;
             beatSeq++;
-            await coll.updateOne(
-                { _id: bootId },
-                {
-                    $set: { beatAt: new Date(now()), beatSeq, gameIds: idsOf(listGames), tournamentIds: idsOf(listTournaments) },
-                    $setOnInsert: { deploymentId, mode: effectiveMode, startedAt: new Date(now()), shuttingDown: false }
-                },
-                { upsert: true }
-            );
+            const seq = beatSeq;
+            // 'on': a late beat never moves beatSeq back (observers judge
+            // death by (beatAt, beatSeq) changing, on their own clock)
+            const filter = isOn() ? { _id: bootId, beatSeq: { $lt: seq } } : { _id: bootId };
+            try {
+                await coll.updateOne(
+                    filter,
+                    {
+                        $set: { beatAt: new Date(now()), beatSeq: seq, gameIds: idsOf(listGames), tournamentIds: idsOf(listTournaments) },
+                        $setOnInsert: { deploymentId, mode: effective(), startedAt: startedAt || new Date(now()), shuttingDown: false }
+                    },
+                    { upsert: true }
+                );
+                ok = true;
+            } catch (err) {
+                // E11000 in 'on': a newer beat already landed (this one is stale)
+                if (!(isOn() && err?.code === 11000)) throw err;
+            }
         } catch (err) {
             logFailure('heartbeat', null, err);
         } finally {
-            beating = false;
+            if (beatStartedMono === startedBeat) {
+                beating = false;
+                beatStartedMono = null;
+            }
+        }
+        if (ok && isOn()) {
+            lastBeatOkMono = Math.max(lastBeatOkMono ?? startedBeat, startedBeat);
+            if (selfFenced) recoverFromSelfFence();
         }
         // Tombstone deletes that failed get another go on each beat
         for (const tb of tombstones.values()) if (tb.retry) maybeDeleteTombstone(tb);
     }
 
+    // ---------- 'on': the holder self-fence ----------
+
+    /** The tables a self-fence suspends: casual games with a doc this process wrote. */
+    function fenceableStates() {
+        const out = [];
+        for (const st of byId.values()) {
+            if (st.kind !== 'game' || st.done || st.retired || !st.entity) continue;
+            if (!st.inserted && !st.insertTried) continue;
+            if (safeCall(() => tournamentOfGame(st.id))) continue;
+            if (st.entity.isTerminal?.() || st.entity.frozen) continue;
+            out.push(st);
+        }
+        return out;
+    }
+
+    /**
+     * The self-fence's line to a table's room (PAUSE_NOTICE, RESUME_NOTICE):
+     * unsaved, the next seq (game.unsavedNotice). Never throws.
+     * @returns {boolean} true if sent
+     */
+    function tellRoom(st, line) {
+        if (st.entity.frozen || st.entity.isTerminal?.()) return false;
+        try {
+            return noticeGame(st.entity, ioRef || safeCall(getIo), line) === true;
+        } catch (err) {
+            logFailure('self-fence notice', st, err);
+            return false;
+        }
+    }
+
+    /**
+     * SELF_FENCE_MS without an acknowledged heartbeat: another instance may
+     * judge this one dead and adopt its tables, so they stop here (no
+     * emit, no timer, no save) until ownership is read back.
+     */
+    function checkSelfFence() {
+        if (!isOn() || closed || selfFenced || lastBeatOkMono === null) return;
+        if (monoNow() - lastBeatOkMono < SELF_FENCE_MS) return;
+        selfFenced = true;
+        let n = 0;
+        for (const st of fenceableStates()) {
+            try {
+                suspendGame(st.entity);
+                st.suspended = true;
+                cancelImmediate(st);
+                n++;
+            } catch (err) {
+                logFailure('suspend', st, err);
+                continue;
+            }
+            if (!st.pauseNoticed) st.pauseOwed = true;
+        }
+        // The pause lines go out from an immediate, never from here: this
+        // check also runs inside persistHooks.beforeRun, and hooks never
+        // emit (persist/hooks.js, server/CLAUDE.md rule 2)
+        if (n > 0 && !pauseImmediate) {
+            pauseImmediate = safeImmediate(() => {
+                pauseImmediate = null;
+                sendPauseNotices();
+            }, 'liveStore:pauseNotice');
+        }
+        logger.warn('Live persist self-fence: no heartbeat acknowledged; tables suspended', { tables: n, ms: SELF_FENCE_MS });
+    }
+
+    /**
+     * PAUSE_NOTICE to each table checkSelfFence suspended, once per
+     * suspension, if it is still suspended (not re-taken, fenced, frozen,
+     * ended or forgotten meanwhile).
+     */
+    function sendPauseNotices() {
+        if (closed) return;
+        for (const st of byId.values()) {
+            if (!st.pauseOwed) continue;
+            st.pauseOwed = false;
+            if (st.done || !st.suspended || st.pauseNoticed || !st.entity.isSuspended) continue;
+            st.pauseNoticed = tellRoom(st, PAUSE_NOTICE);
+        }
+    }
+
+    /**
+     * A heartbeat landed again: each suspended table re-takes its doc with
+     * a write, never a plain read: {_id, owner: me, released: false, kind:
+     * 'live'} -> rev + 1. Matched: still ours, and any adopter's
+     * compare-and-set still in flight on the old rev now fails, so it
+     * plays on (unsuspend re-arms its timers). Not matched (adopted,
+     * released, gone, ended): fenced, with no emit. A write that fails or
+     * times out keeps it suspended until the next beat.
+     */
+    async function recoverFromSelfFence() {
+        if (recovering) return;
+        recovering = true;
+        try {
+            const coll = collections().liveGames;
+            const states = [...byId.values()].filter((st) => st.kind === 'game' && st.suspended && !st.done);
+            let pendingReads = 0;
+            await Promise.all(states.map(async (st) => {
+                let doc;
+                try {
+                    if (!coll) throw Object.assign(new Error('no collection'), { name: 'NoCollection' });
+                    doc = await bounded(coll.findOneAndUpdate(
+                        { _id: st.id, owner: bootId, released: false, kind: 'live' },
+                        { $inc: { rev: 1 } },
+                        { returnDocument: 'after', projection: { rev: 1 } }
+                    ), BEAT_WAIT_MS, undefined);
+                    if (doc === undefined) throw Object.assign(new Error('timed out'), { name: 'Timeout' });
+                } catch (err) {
+                    pendingReads++;
+                    logFailure('self-fence re-take', st, err);
+                    return;
+                }
+                if (st.done) return;
+                const noticed = st.pauseNoticed;
+                st.pauseNoticed = false;
+                st.pauseOwed = false;
+                if (doc) {
+                    // Later writes carry a rev past the one this re-take wrote
+                    if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
+                    st.suspended = false;
+                    // An abort asked for while suspended runs straight
+                    // after the thaw: no resume line (a held /leave that
+                    // ends the table runs after it: seatLifecycle.holdForThaw)
+                    const ending = st.entity.abortOnThaw === true;
+                    let resumed = false;
+                    try {
+                        unsuspendGame(st.entity, ioRef || safeCall(getIo));
+                        resumed = true;
+                    } catch (err) {
+                        logFailure('unsuspend', st, err);
+                    }
+                    // Only after a pause line, and only if it really plays on
+                    if (noticed && resumed && !ending && !st.entity.frozen && !st.entity.isSuspended) tellRoom(st, RESUME_NOTICE);
+                    if (st.dirty) schedule(st);
+                    return;
+                }
+                // Fenced: no resume line (the fence closes its sockets; the
+                // players reconnect to the adopter)
+                st.suspended = false;
+                fence(st, 'not ours');
+            }));
+            if (pendingReads === 0) {
+                selfFenced = false;
+                logger.info('Live persist self-fence lifted');
+            }
+        } finally {
+            recovering = false;
+        }
+    }
+
+    // ---------- start, close, shutdown ----------
+
     /**
      * After connectDB (server/index.js, in parallel with
      * resumePendingGameStats): the serverInstances doc, then a heartbeat
-     * every HEARTBEAT_MS. Write mode runs no sweep.
+     * every HEARTBEAT_MS. Write mode runs no sweep. 'on' (with the unique
+     * gameId index, read here once) also starts the self-fence check and
+     * the sweep (adopt.js: once now, then every second for 3 minutes, then
+     * every 15 s); whenBootSwept() resolves after the first pass.
      */
     async function start({ io = null } = {}) {
         if (io) ioRef = io;
         if (!active || started || closed) return;
         started = true;
+        latchedMode = computeEffective();
+        startedAt = new Date(now());
+        startedMono = monoNow();
         const coll = collections().serverInstances;
         if (coll) {
-            const at = new Date(now());
             try {
                 await coll.insertOne({
-                    _id: bootId, deploymentId, mode: effectiveMode, startedAt: at, beatAt: at,
+                    _id: bootId, deploymentId, mode: latchedMode, startedAt, beatAt: startedAt,
                     beatSeq: 0, shuttingDown: false, gameIds: idsOf(listGames), tournamentIds: idsOf(listTournaments)
                 });
+                if (latchedMode === 'on') lastBeatOkMono = monoNow();
             } catch (err) {
                 // The heartbeat upserts it
                 logFailure('instance insert', null, err);
             }
         }
         if (closed) return;
-        if (mode === 'on' && safeCall(gameIdIndexUnique) === false) {
+        if (mode === 'on' && latchedMode !== 'on') {
             // The precondition for 'on' (the plan's 2.1): one line, once
-            logger.warn('gameRecords has no unique gameId index: LIVE_PERSIST=on would run as write even once handoff exists (remove the duplicate game records)');
+            logger.warn("LIVE_PERSIST=on runs as 'write': gameRecords has no unique gameId index (remove the duplicate game records)", { uniqueGameIdIndex: safeCall(gameIdIndexUnique) ?? null });
         }
+        writesOpen = true;
         heartbeat = safeInterval(beat, HEARTBEAT_MS, 'liveStore:heartbeat');
         heartbeat.unref?.();
-        logger.info('Live persist started', { mode: effectiveMode });
+        if (mode === 'on') {
+            // Writes held until now ('on' writes nothing before its instance doc)
+            for (const st of byId.values()) if (st.dirty && !st.done && !st.retired) schedule(st);
+        }
+        if (latchedMode === 'on') {
+            if (lastBeatOkMono === null) lastBeatOkMono = monoNow();
+            fenceCheck = safeInterval(checkSelfFence, FENCE_CHECK_MS, 'liveStore:selfFence');
+            fenceCheck.unref?.();
+            getAdopter().start();
+        }
+        logger.info('Live persist started', { mode: latchedMode });
+        markStarted(true);
     }
 
-    /** No more writes of any kind: pending immediates cancelled, the heartbeat stopped, the hooks off. */
-    function close() {
+    function stopTimers({ beat: stopBeat = true } = {}) {
+        if (stopBeat && heartbeat) {
+            clearInterval(heartbeat);
+            heartbeat = null;
+        }
+        if (fenceCheck) clearInterval(fenceCheck);
+        fenceCheck = null;
+        adopter?.stop();
+    }
+
+    /**
+     * No more writes of any kind: pending immediates cancelled, the hooks
+     * off, the sweep and the self-fence check stopped, and (unless
+     * `keepHeartbeat`: a handoff beats on until it ends, so no observer
+     * takes this process for dead while it flushes) the heartbeat stopped.
+     */
+    function close({ keepHeartbeat = false } = {}) {
         closed = true;
-        if (heartbeat) clearInterval(heartbeat);
-        heartbeat = null;
+        keepBeating = keepHeartbeat && !!heartbeat;
+        stopTimers({ beat: !keepBeating });
         for (const st of byId.values()) cancelImmediate(st);
+        if (pauseImmediate) clearImmediate(pauseImmediate);
+        pauseImmediate = null;
         for (const done of [...claimWaits]) done('error');
         uninstall();
+    }
+
+    /** The handoff is over (or never needed the beat): the heartbeat stops. */
+    function stopHeartbeat() {
+        keepBeating = false;
+        if (heartbeat) clearInterval(heartbeat);
+        heartbeat = null;
     }
 
     /**
@@ -1023,6 +1448,188 @@ function createLiveStore({
         if (out.timedOut) logger.warn('Live docs not all deleted at shutdown; they expire by TTL', { timeoutMs });
         else logger.info('Live docs deleted at shutdown', { games: out.games, tournaments: out.tournaments });
         return out;
+    }
+
+    // ---------- 'on': what the handoff (handoff.js) needs ----------
+
+    /** Settle: the ops in flight of every entity (an insert at SIGTERM) and the adoptions, within `ms`. */
+    function settle(ms) {
+        const work = Promise.allSettled([
+            ...[...byId.values()].map((st) => st.tail),
+            ...looseOps,
+            ...(adopter ? adopter.inFlight() : [])
+        ]);
+        return bounded(work.then(() => true), ms, false);
+    }
+
+    /**
+     * What this process wrote for `entity`: null when never tracked.
+     * inserted: a doc is acknowledged; insertPending: an insert was sent
+     * and never acknowledged (it may land late); rev: the last rev sent.
+     */
+    function docInfo(entity) {
+        const st = entity ? byEntity.get(entity) : null;
+        if (!st) return null;
+        return { inserted: st.inserted, insertPending: st.insertTried && !st.inserted, rev: st.rev, done: st.done, fenced: fencedGames.has(entity) };
+    }
+
+    /**
+     * The handoff's final write of a game: the whole doc as this process
+     * would insert it, at the next rev, still released: false (the release
+     * is a separate, later update, so a late-applying final write can
+     * never release anything). Null when it cannot be built.
+     */
+    function finalDoc(game, doc) {
+        const st = byEntity.get(game);
+        if (!st || !doc) return null;
+        st.rev++;
+        return envelope(st, doc, new Date(now()));
+    }
+
+    /** Mark this process's instance doc shutting down (fire-and-forget; resolves with the outcome). */
+    function markShuttingDown() {
+        const coll = collections().serverInstances;
+        if (!coll) return Promise.resolve(false);
+        return loose(coll.updateOne({ _id: bootId }, { $set: { shuttingDown: true } }).then(() => true, (err) => {
+            logFailure('instance shutting down', null, err);
+            return false;
+        }));
+    }
+
+    /**
+     * server/index.js at boot, LIVE_PERSIST=on: start() will run once
+     * connectDB is done. Until then (a cold start, a crash restart with no
+     * healthcheck gate) the pointer call sites already resolve through this
+     * store (resolve() waits for start and never answers "gone" before it),
+     * unless the gameRecords index is known not unique ('write').
+     */
+    function expectStart() {
+        startExpected = true;
+    }
+
+    /**
+     * Whether the pointer call sites (socket/pointerResolve) resolve
+     * through this store: 'on' that runs as 'on' (latched at start()), or
+     * that is about to start (expectStart) with the index not known to be
+     * missing. A store nobody starts (most tests) never resolves.
+     */
+    function resolving() {
+        if (mode !== 'on' || closed) return false;
+        if (started) return latchedMode === 'on';
+        return startExpected && safeCall(gameIdIndexUnique) !== false;
+    }
+
+    /** True while a shutdown in 'on' holds every pointer (the clear sites skip). */
+    function holdsPointers() {
+        return isOn() && safeCall(isShuttingDown) === true;
+    }
+
+    // ---------- 'on': adoption (adopt.js) ----------
+
+    function getAdopter() {
+        if (!adopter) {
+            adopter = require('./adopt').createAdopter({
+                bootId,
+                deploymentId,
+                startedAt: () => startedAt,
+                now,
+                monoNow,
+                logger,
+                logFailure,
+                collections,
+                isShuttingDown: () => safeCall(isShuttingDown) === true,
+                getIo: () => ioRef || safeCall(getIo),
+                trackAdopted,
+                isOn,
+                isClosed: () => closed,
+                holdsLocally: (gameId) => {
+                    const st = byId.get(`game:${gameId}`);
+                    return (!!st && !st.done) || tombstones.has(gameId);
+                },
+                ...adoption
+            });
+        }
+        return adopter;
+    }
+
+    /**
+     * Where game `gameId` is, for the pointer call sites (PR 5 part 2;
+     * the plan's 2.6). Never throws. Resolves to one of:
+     *   {state: 'memory',  game}  live in this process (GameManager)
+     *   {state: 'adopted', game}  adopted just now from another instance's
+     *                             released or dead-owner doc
+     *   {state: 'pending'}        another live instance holds it (or may:
+     *                             an older 'on' instance is still alive, or
+     *                             this process is shutting down). Never
+     *                             clear the pointer or answer "gone": park
+     *                             the socket (whenAdopted) and engine-close
+     *                             it after the wait so the client retries
+     *   {state: 'gone'}           no doc, no live instance lists it: the
+     *                             game is over (clear the pointer, today's
+     *                             failure answer)
+     * Off / write: 'memory' or 'gone' (no doc is ever adopted). Before
+     * answering 'gone' it waits (at most `waitMs`, default 3 s) for
+     * connectDB and the boot sweep.
+     * @param {string} gameId
+     * @param {{waitMs?: number}} [opts]
+     * @returns {Promise<{state: 'memory'|'adopted'|'pending'|'gone', game?: GameState}>}
+     */
+    async function resolve(gameId, { waitMs = RESOLVE_WAIT_MS } = {}) {
+        const inMemory = () => {
+            const g = safeCall(() => findGame(gameId));
+            return g && !g.isTerminal?.() && !g.frozen ? g : null;
+        };
+        const live = inMemory();
+        if (live) return { state: 'memory', game: live };
+        if (typeof gameId !== 'string' || !gameId) return { state: 'gone' };
+        if (mode === 'on' && !started) {
+            // A cold start (a crash restart has no healthcheck gate): wait
+            // for start() before saying anything; never "gone" before it
+            const ok = await bounded(startedPromise, waitMs, false);
+            if (!ok) return { state: 'pending' };
+            const now2 = inMemory();
+            if (now2) return { state: 'memory', game: now2 };
+        }
+        if (!isOn() || !started) return { state: 'gone' };
+        if (safeCall(isShuttingDown) === true) return { state: 'pending' };
+        try {
+            return await getAdopter().resolve(gameId, { waitMs, inMemory, whenDbReady });
+        } catch (err) {
+            logFailure('resolve', null, err, { gameId });
+            return { state: 'pending' };
+        }
+    }
+
+    /**
+     * Wait (at most `ms`) for `gameId` to be live here: resolves with the
+     * game once adopted or in memory, null at the timeout or if the doc
+     * turned out not adoptable. For a call site parking a socket after
+     * resolve() answered 'pending'.
+     */
+    function whenAdopted(gameId, ms) {
+        const g = safeCall(() => findGame(gameId));
+        if (g && !g.isTerminal?.() && !g.frozen) return Promise.resolve(g);
+        if (!isOn() || !adopter) return Promise.resolve(null);
+        return adopter.whenAdopted(gameId, ms);
+    }
+
+    /** /ready: true unless 'on' is still in its boot sweep (capped at BOOT_SWEEP_CAP_MS after start). */
+    function ready() {
+        if (mode !== 'on') return true;
+        if (!started) return false;
+        if (latchedMode !== 'on') return true;
+        if (adopter?.bootSwept) return true;
+        if (monoNow() - startedMono < BOOT_SWEEP_CAP_MS) return false;
+        if (!readyCapLogged) {
+            readyCapLogged = true;
+            logger.warn('Ready without the boot sweep: it has not finished within the cap', { capMs: BOOT_SWEEP_CAP_MS });
+        }
+        return true;
+    }
+
+    function whenBootSwept() {
+        if (!isOn() || !started) return Promise.resolve(false);
+        return getAdopter().whenBootSwept();
     }
 
     // ---------- hooks, introspection ----------
@@ -1067,18 +1674,18 @@ function createLiveStore({
         }
         return {
             mode,
-            effectiveMode,
+            effectiveMode: effective(),
             uniqueGameIdIndex: unique === undefined ? null : unique,
             docsOwned,
-            adopted: 0,
-            lastSweepAt: null,
-            bootSwept: false
+            adopted: adopter ? adopter.adoptedCount : 0,
+            lastSweepAt: adopter && adopter.lastSweepAt ? new Date(adopter.lastSweepAt).toISOString() : null,
+            bootSwept: adopter ? adopter.bootSwept : false
         };
     }
 
     return {
         mode,
-        effectiveMode,
+        get effectiveMode() { return effective(); },
         active,
         bootId,
         trackGame: (game) => track(game, 'game'),
@@ -1095,6 +1702,25 @@ function createLiveStore({
         start,
         close,
         shutdown,
+        // 'on'
+        resolve,
+        expectStart,
+        get resolving() { return resolving(); },
+        whenAdopted,
+        whenBootSwept,
+        ready,
+        holdsPointers,
+        sweep: () => (isOn() && started ? getAdopter().sweep() : Promise.resolve(null)),
+        // handoff.js only
+        settle,
+        docInfo,
+        finalDoc,
+        markShuttingDown,
+        stopHeartbeat,
+        collections,
+        get startedAt() { return startedAt; },
+        get selfFenced() { return selfFenced; },
+        get adopter() { return adopter; },
         install,
         uninstall,
         pending,
@@ -1166,5 +1792,10 @@ module.exports = {
     HEARTBEAT_MS,
     LOG_CAP,
     SHUTDOWN_DELETE_MS,
-    CLAIM_MAX_MS
+    CLAIM_MAX_MS,
+    SELF_FENCE_MS,
+    PAUSE_NOTICE,
+    RESUME_NOTICE,
+    BOOT_SWEEP_CAP_MS,
+    RESOLVE_WAIT_MS
 };

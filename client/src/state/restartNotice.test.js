@@ -82,6 +82,24 @@ describe('restartNotice', () => {
     expect(none.pending).toBe(LOSS.SEAT);
   });
 
+  it('a deploy the game survives (LIVE_PERSIST on): the record outlasts the restore retries, and the landing clears it', () => {
+    const notice = createRestartNotice({ storage, now });
+    notice.note(LOSS.SEAT);
+    // the new instance adopts after the old owner's 12 s stale wait at worst; meanwhile each
+    // parked restore (8 s) ends in an engine close and a fresh restore, nothing taken
+    for (let retry = 0; retry < 6; retry++) {
+      t += 8000;
+      expect(notice.pending).toBe(LOSS.SEAT);
+    }
+    // rejoinSuccess / the re-spectate: the place survived
+    notice.clear();
+    expect(notice.pending).toBeNull();
+    expect(notice.take()).toBeNull();
+    // the next deploy the game does not survive is explained again
+    notice.note(LOSS.SEAT);
+    expect(notice.take()).toBe(RESTART_LOSS_TEXT[LOSS.SEAT]);
+  });
+
   it('the texts say what happened; only an unfinished game claims no stats', () => {
     expect(RESTART_LOSS_TEXT[LOSS.SEAT]).toBe("Your game ended because the server restarted for an update. It won't count toward your stats.");
     expect(RESTART_LOSS_TEXT[LOSS.SPECTATOR]).toBe('The game you were watching ended because the server restarted for an update.');

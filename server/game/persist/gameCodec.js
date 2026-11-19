@@ -3,11 +3,12 @@
  * 2.2): a live GameState to a JSON document and back. Pure apart from two
  * lookups it can be handed instead (the game's tournament, its registered
  * bots): no I/O, no emits, no RNG. The persist store (liveStore.js, PR 4)
- * writes what serialize and serializeEnded return; adoption (PR 5) will
- * build a game from hydrate, which nothing in production calls yet.
+ * writes what serialize and serializeEnded return; adoption (PR 5,
+ * persist/restoreGame.adoptGame) builds a game from hydrate.
  *
  * serialize(game) is null (nothing to save) for the ambient demo game, a
- * terminal or frozen game, a stage outside the four restore stages
+ * terminal, frozen or suspended game (GameState.suspend, the holder
+ * self-fence), a stage outside the four restore stages
  * (BIDDING, PLAYING, TRICK_RESOLVING, HAND_RESOLVING: a dealt hand; DEALING
  * and REDEAL never last past one synchronous run, and a dealHand that threw
  * would leave DEALING), a game whose last run threw (game._tainted,
@@ -62,13 +63,14 @@
  * DERIVED: a deadline is an instant on the old process, and every restored
  * human seat starts in reconnect grace, so the fair rule is a fresh clock
  * (T0 = adoption; at most one extra full clock per restart) and no strikes.
- * PR 5 must: (a) kick a restored BIDDING game through
+ * PR 5 does: (a) the restore kick (persist/restoreGame.kick, when the
+ * restored table's gate opens) takes a restored BIDDING game through
  * gameHandlers.triggerBotIfNeeded(io, game, 'bid') (its first line is
- * bidClock.onTurn), as testUtils/restoreKit.kickRestored does, so a human
- * bidder gets that fresh clock (otherwise a restored table whose bidder
- * never returns waits on grace + resign again); (b) in the reversible
- * holder self-fence, re-arm 'bidClock' from game.bidClock through
- * bidClock.onTurn (its same-turn resume), never drop it.
+ * bidClock.onTurn), so a human bidder gets that fresh clock (otherwise a
+ * restored table whose bidder never returns waits on grace + resign
+ * again); (b) the reversible holder self-fence (GameState.suspend /
+ * unsuspend) re-arms 'bidClock' through bidClock.afterSuspend -> onTurn
+ * (its same-turn resume), never drops it.
  *
  * Field guard (gameCodec.fieldGuard.test.js): every key of a live game,
  * seat record, seat bot record and BotPlayer is in SAVED or DERIVED, every
@@ -163,6 +165,8 @@ const DERIVED = deepFreeze({
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
         'frozen', '_tainted',                         // a frozen or tainted game is never saved
+        '_suspended',                                 // the holder self-fence (suspend): never saved while set
+        'restored',                                   // restoreGame's gate and restored abandon: set fresh by the adopter
         'voiceSpectators'                             // socket-keyed: voice spectators re-spectate and re-join
     ],
     seat: ['position', 'ownerSocketId', 'ownerView', 'seatSocketId', 'absentSince', 'graceDeadline', 'resignableAt'],
@@ -262,6 +266,7 @@ function refusal(game) {
     if (game.isDemo) return 'demo';
     if (game.isTerminal()) return 'terminal';
     if (game.frozen) return 'frozen';
+    if (game.isSuspended) return 'suspended';
     if (!SAVE_STAGES.has(game.stage)) return 'stage';
     if (game._tainted) return 'tainted';
     if (game.seatList().length !== 4) return 'seats';

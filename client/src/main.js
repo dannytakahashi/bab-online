@@ -1395,10 +1395,17 @@ function initializeApp() {
       });
     },
     onServerShutdown: () => {
-      // A deploy: the server closes every socket in about a second and
-      // comes back without any game, lobby or tournament. The banner says
-      // so until the socket is back; what this tab is in is remembered
-      // (sessionStorage, ~2 min) for the restore to explain
+      // A deploy (or a crash): the server closes every socket within a few
+      // seconds. Lobbies, pre-deal tables and (until deploy survival PR 6)
+      // tournaments never come back; with LIVE_PERSIST on a dealt casual
+      // game may (the new instance adopts it, and the table's game log
+      // says which: "...will continue in a few seconds" or "...won't
+      // count"). The banner says it is a restart until the socket is back;
+      // what this tab is in is remembered (sessionStorage, ~2 min) and the
+      // restore decides: rejoinSuccess / the re-spectate clears it (no
+      // toast), a refusal explains it once (state/restartNotice.js). A
+      // restore the new instance parks ends in a plain transport close and
+      // the next socket restores again, so nothing here waits on it
       connectionBanner.noteServerRestart();
       restartNotice.note(restartLossKind());
     },

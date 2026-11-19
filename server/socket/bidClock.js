@@ -42,6 +42,7 @@
 const SeatState = require('../game/SeatState');
 const { Phase } = require('../game/GamePhase');
 const { gameLogger } = require('../utils/logger');
+const restoreGame = require('../game/persist/restoreGame');
 
 const { Controller, Presence } = SeatState;
 const KEY = 'bidClock';
@@ -50,6 +51,8 @@ const KEY = 'bidClock';
 function eligible(game) {
     if (!SeatState.bidClockEnabled()) return false;
     if (game.stage !== Phase.BIDDING || game.isTerminal?.() || game.frozen) return false;
+    // A restored table's gate (persist/restoreGame.js): the kick arms a fresh one
+    if (restoreGame.isGated(game)) return false;
     // The first hand's deal reveal: the turn opens (T0) when the hold ends
     if (game.resume && game.resume.kind === 'firstTurn') return false;
     const pos = game.currentTurn;
@@ -138,6 +141,21 @@ function resume(io, game) {
     game.emitUnsequenced(io, 'bidClock', runningPayload(game, rec, left));
     gameLogger.debug('Bid clock resumed', { gameId: game.gameId, position: rec.pos, inMs: left });
     return game.setTimer(KEY, left, () => expire(io, game, turn));
+}
+
+/**
+ * The game thawed from a suspension (GameState.unsuspend, the holder
+ * self-fence) with this clock's timer pending: re-arm it through onTurn's
+ * same-turn resume, never drop it. The clients' countdown ran on while the
+ * game was suspended and nothing was emitted, so a running clock is first
+ * stopped ('turn') and then announced again with what is left of it (its
+ * deadline moved by the suspended time; topped up once to
+ * BID_CLOCK_RESUME_MIN_MS like any same-turn resume). A pre-wait simply
+ * goes on.
+ */
+function afterSuspend(io, game) {
+    if (game.bidClock?.running) stop(io, game, 'turn');
+    return onTurn(io, game);
 }
 
 /** The clock ran out: bid '0' for the seat (placeBid stops it with reason 'timeout'). */
@@ -246,6 +264,7 @@ module.exports = {
     onTurn,
     start,
     resume,
+    afterSuspend,
     expire,
     stop,
     reset,

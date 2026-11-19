@@ -28,6 +28,13 @@ jest.mock('../../database', () => ({
     getUsersCollection: () => mockDb.current.users,
     getGameRecordsCollection: () => mockDb.current.gameRecords,
     getReportsCollection: () => mockDb.current.reports,
+    // The restart recording's live collections (persistHarness.liveDb; the
+    // other recordings' memoryDb has none, so nothing is persisted there)
+    getLiveGamesCollection: () => mockDb.current.liveGames,
+    getLiveTournamentsCollection: () => mockDb.current.liveTournaments,
+    getServerInstancesCollection: () => mockDb.current.serverInstances,
+    getLiveDbForTests: () => mockDb.current,
+    whenReady: () => Promise.resolve(true),
 }));
 jest.mock('uuid', () => {
     let n = 0;
@@ -42,14 +49,14 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { createEventRecorder, serialize } = require('../../testUtils/eventRecorder');
-const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock } = require('../../testUtils/iosScenarios');
+const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart } = require('../../testUtils/iosScenarios');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const DIR = path.resolve(ROOT, process.env.IOS_FIXTURE_DIR || 'iOSClient/BABOnlineTests/Fixtures/events');
 const UPDATE = process.env.UPDATE_IOS_FIXTURES === '1';
 const realRandom = Math.random;
 
-function setup(seed, { bidClock = false } = {}) {
+function setup(seed, { bidClock = false, live = false } = {}) {
     // Only the bidclock recording runs with the bid clock: the others idle
     // human bid turns to test other mechanisms (a 61 s grace) and predate it
     if (bidClock) delete process.env.BID_CLOCK;
@@ -57,11 +64,12 @@ function setup(seed, { bidClock = false } = {}) {
     require('uuid').__reset();
     jest.useFakeTimers();
     jest.setSystemTime(Date.UTC(2026, 0, 1, 12));
-    mockDb.current = createMemoryDb({ users: [] });
+    mockDb.current = live ? require('../../testUtils/persistHarness').liveDb({ users: [] }) : createMemoryDb({ users: [] });
     Math.random = mulberry32(seed);
 }
 
 function teardown() {
+    require('../../game/persist/liveStore')._resetForTests();
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
     for (const id of Array.from(gameManager.lobbies.keys())) gameManager.lobbies.delete(id);
@@ -87,7 +95,7 @@ afterEach(() => {
 afterAll(() => require('../errorHandler').rateLimiter.shutdown());
 
 async function record(name, scenario, seed) {
-    setup(seed, { bidClock: scenario === scenarioBidClock });
+    setup(seed, { bidClock: scenario === scenarioBidClock, live: scenario === scenarioRestart });
     const w = world(`ios-${name}`);
     let game = null;
     const rec = createEventRecorder(w, { getGame: () => game || [...gameManager.games.values()][0] });
@@ -112,7 +120,7 @@ async function recordHumans(name, from) {
     throw new Error('no rainbow in 40 seeds');
 }
 
-const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament, bidclock: scenarioBidClock };
+const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament, bidclock: scenarioBidClock, restart: scenarioRestart };
 
 test.each([
     ['events-bots-s12', 'bots', 12],
@@ -121,6 +129,7 @@ test.each([
     ['events-presence-s21', 'presence', 21],
     ['events-tournament-s15', 'tournament', 15],
     ['events-bidclock-s16', 'bidclock', 16],
+    ['events-restart-s18', 'restart', 18],
 ])('%s matches the committed iOS fixture (run npm run ios:fixtures)', async (name, kind, seed) => {
     const rec = kind === 'humans' ? await recordHumans(name, seed) : (await record(name, SCENARIOS[kind], seed)).rec;
     // Sanity: every open viewer reached gameEnd with a final snapshot, and there are checkpoints
@@ -144,6 +153,18 @@ test.each([
         expect(rejoin.data.snapshot.bidClock).toMatchObject({ inMs: expect.any(Number), durationMs: 30000 });
         expect(rejoin.data.snapshot.bidClock.inMs).toBeGreaterThan(11000);
         expect(rejoin.data.snapshot.bidClock.inMs).toBeLessThanOrEqual(12000);
+    } else if (kind === 'restart') {
+        expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin']);
+        const lines = (label) => rec.logs[label].filter((e) => e.event === 'gameLogEntry').map((e) => e.data.message);
+        // The play sent during the flush (dropped by the gate), then the old process's line
+        expect(lines('seat1').at(-1)).toBe('The server is updating. This game will continue in a few seconds.');
+        expect(rec.logs.seat1.at(-1)).toMatchObject({ dir: 's2c', event: 'gameLogEntry' });
+        expect(rec.logs.seat1.at(-2)).toMatchObject({ dir: 'c2s', event: 'playCard' });
+        const rejoin = rec.logs['seat1-rejoin'].find((e) => e.event === 'rejoinSuccess');
+        const last = rec.logs.seat1.filter((e) => e.dir === 's2c' && Number.isInteger(e.data?.seq)).at(-1).data.seq;
+        expect(rejoin.data.snapshot.seq).toBeGreaterThanOrEqual(last + 999);
+        expect(JSON.stringify(rejoin.data.snapshot.log)).toContain('This game resumed after a server update.');
+        expect(hasEvent(rec, 'rejoinFailed')).toBe(false);
     } else if (kind === 'bots') {
         expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
     } else if (kind === 'presence') {

@@ -15,7 +15,9 @@
  *
  * Read by the live persist store only (server/game/persist/liveStore.js,
  * getLiveStore: deploy survival PR 4); everything else asks the store.
- * Until handoff and adoption land (PR 5), 'on' runs as 'write'.
+ * 'on' (PR 5: handoff and adoption of casual games; tournaments in PR 6)
+ * runs as 'on' only with gameRecords' unique gameId index, read when the
+ * store starts; without it, as 'write' (the store's effectiveMode).
  */
 
 'use strict';
