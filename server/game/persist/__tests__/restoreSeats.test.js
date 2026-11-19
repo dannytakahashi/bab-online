@@ -384,6 +384,7 @@ describe('a rejoin on a restored game', () => {
 });
 
 describe('a lobby-born casual game (family lobby voice, play again)', () => {
+    // Saved before 2026-11-18, with "Spectators can talk" off: it restores on
     function lobbyDoc() {
         const seats = allNative();
         seats[1] = savedSeat(1, 'human', 'connected');
@@ -400,14 +401,14 @@ describe('a lobby-born casual game (family lobby voice, play again)', () => {
         return doc;
     }
 
-    test('hydrate rebuilds the voice settings with an empty voice room and the origin without chat; it saves back the same', () => {
+    test('hydrate rebuilds the voice settings (spectator talk always on) with an empty voice room and the origin without chat; it saves back the same', () => {
         const doc = lobbyDoc();
         const { game } = codec.hydrate(JSON.parse(JSON.stringify(doc)), { now: NOW });
         try {
-            expect(game.casualVoice).toMatchObject({ host: 'owner1', spectatorsCanTalk: false, lastIo: null, requested: null });
+            expect(game.casualVoice).toMatchObject({ host: 'owner1', spectatorsCanTalk: true, lastIo: null });
             expect(Array.from(game.casualVoice.lobbyExtras)).toEqual(['watcher5']);
             expect(game.voiceSpectators).toEqual(new Map());
-            expect(game.voiceOfferDir).toEqual(new Map());
+            expect(game.lobbyOrigin.settings).toEqual({ spectatorsCanTalk: true });
             const o = game.lobbyOrigin;
             expect(o).toMatchObject({ lobbyId: 'lobby-1', name: "owner1's Game", createdBy: 'owner1', host: 'owner1', messages: [] });
             expect(o.bots).toEqual(new Map([[BOTS[2].socketId, 'sharon'], [BOTS[4].socketId, 'mike']]));
@@ -416,6 +417,8 @@ describe('a lobby-born casual game (family lobby voice, play again)', () => {
             expect(o.extras).toEqual(new Set(['watcher5']));
             const again = codec.serialize(game, { tournamentId: null, getBot: () => null });
             expect(again).toEqual(codec.expectedAfterRestore(doc));
+            expect(again.state.casualVoice.spectatorsCanTalk).toBe(true);
+            expect(again.state.lobbyOrigin.settings).toEqual({ spectatorsCanTalk: true });
         } finally {
             game._cancelAllTimers();
         }
@@ -436,7 +439,7 @@ describe('a lobby-born casual game (family lobby voice, play again)', () => {
         const io = makeIo([]);
         const game = adoptForTest(lobbyDoc(), { io, now: NOW });
         const plan = require('../../../socket/playAgain').plan(game, io);
-        expect(plan).toMatchObject({ gameId: GAME_ID, spectatorsCanTalk: false });
+        expect(plan).toMatchObject({ gameId: GAME_ID, spectatorsCanTalk: true });
         expect(plan.origin).toBe(game.lobbyOrigin);
         expect(plan.owners.map((o) => o.username)).toEqual(['owner1', 'owner3']);
     });

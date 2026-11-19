@@ -433,9 +433,9 @@ describe('the start: extras watch the game', () => {
             expect(since.filter((l) => l.to === s.id && l.event === 'allPlayersReady')).toHaveLength(1);
             expect(since.filter((l) => l.to === s.id && l.event === 'voiceSettings').pop().data).toMatchObject({ role: 'player', canTalk: true });
         }
-        // The host is seated: only the host may switch
+        // No switch (owner 2026-11-18): nobody may change it, the host included
         const hostSettings = since.filter((l) => l.to === socks[0].id && l.event === 'voiceSettings').pop().data;
-        expect(hostSettings).toMatchObject({ canChange: true, host: game.casualVoice.host });
+        expect(hostSettings).toMatchObject({ canChange: false, spectatorsCanTalk: true, host: game.casualVoice.host });
         expect(since.filter((l) => l.to === socks[1].id && l.event === 'voiceSettings').pop().data.canChange).toBe(false);
         await jest.advanceTimersByTimeAsync(5000);
         await Promise.all(starting);
@@ -450,14 +450,15 @@ describe('the start: extras watch the game', () => {
         await Promise.all(starting);
     });
 
-    test('switch off at the start: extras get canTalk false and drop each other; players keep them', async () => {
+    test('the host\'s old switch sent OFF in the lobby (iOS 12-15) is ignored: extras talk and keep each other\'s calls', async () => {
         const w = world();
         const { game, mark, extras, starting } = await startSix(w, { lobbyOff: true });
-        expect(game.casualVoice.spectatorsCanTalk).toBe(false);
+        expect(game.casualVoice.spectatorsCanTalk).toBe(true);
         const since = w.log.slice(mark);
-        expect(since.filter((l) => l.to === extras[0].id && l.event === 'voiceSettings').pop().data).toMatchObject({ canTalk: false });
-        expect(since.filter((l) => l.event === 'voicePeerLeft' && l.to === extras[0].id).map((l) => l.data.socketId)).toEqual([extras[1].id]);
-        expect(since.filter((l) => l.event === 'voicePeerLeft' && l.to === extras[1].id).map((l) => l.data.socketId)).toEqual([extras[0].id]);
+        for (const x of extras) {
+            expect(since.filter((l) => l.to === x.id && l.event === 'voiceSettings').pop().data).toMatchObject({ canTalk: true, spectatorsCanTalk: true, canChange: false });
+            expect(since.filter((l) => l.event === 'voicePeerLeft' && l.to === x.id)).toEqual([]);
+        }
         await jest.advanceTimersByTimeAsync(5000);
         await Promise.all(starting);
     });
@@ -488,7 +489,6 @@ describe('the start: extras watch the game', () => {
         await require('../gameLifecycle').abortGame(w.io, game, 'test');
         expect(gameManager.startedLobbies.has(lobby.id)).toBe(false);
         expect(game.voiceSpectators.size).toBe(0);
-        expect(game.voiceOfferDir.size).toBe(0);
         await jest.advanceTimersByTimeAsync(5000);
         await Promise.all(starting);
     });
@@ -544,23 +544,30 @@ describe('host', () => {
         expect(gameManager.lobbyHost(lobby)).toBe(gameManager.getUserBySocketId(a.id).username);
     });
 
-    test('only the host sets "Spectators can talk" in the lobby; every member gets the settings', () => {
+    test('setSpectatorsCanTalk in the lobby (iOS 12-15\'s old host switch) is ignored: the sender alone gets the unchanged settings, never an error', () => {
         const w = world();
         const socks = names(5).map((n) => w.user(n));
         const lobby = lobbyOf(w, socks);
-        voice.setSpectatorsCanTalk(socks[1], w.io, { spectatorsCanTalk: false });
-        expect(errors(w, socks[1])).toEqual(['Only the host can change this']);
-        expect(lobby.settings.spectatorsCanTalk).toBe(true);
-        voice.setSpectatorsCanTalk(socks[0], w.io, { spectatorsCanTalk: false });
-        expect(lobby.settings.spectatorsCanTalk).toBe(false);
-        for (const s of socks) expect(w.last(s, 'playerReadyUpdate').settings).toEqual({ spectatorsCanTalk: false });
+        for (const sender of [socks[0], socks[1]]) {
+            const mark = w.log.length;
+            voice.setSpectatorsCanTalk(sender, w.io, { spectatorsCanTalk: false });
+            expect(errors(w, sender)).toEqual([]);
+            expect(lobby.settings.spectatorsCanTalk).toBe(true);
+            const since = w.log.slice(mark);
+            const updates = since.filter((l) => l.event === 'playerReadyUpdate');
+            expect(updates.map((l) => l.to)).toEqual([sender.id]);
+            expect(updates[0].data).toMatchObject({ settings: { spectatorsCanTalk: true }, host: lobby.players[0].username, capacity: 8 });
+            expect(since.filter((l) => l.event === 'serverError')).toEqual([]);
+        }
     });
 
-    test('outside a lobby and a casual game the switch is refused', () => {
+    test('outside a lobby and a casual game setSpectatorsCanTalk does nothing (no error)', () => {
         const w = world();
         const s = w.user(`solo${seq}`);
+        const mark = w.log.length;
         voice.setSpectatorsCanTalk(s, w.io, { spectatorsCanTalk: false });
-        expect(errors(w, s)).toEqual(['Spectator talk can only be set in a lobby or a casual game']);
+        expect(errors(w, s)).toEqual([]);
+        expect(w.log.slice(mark)).toEqual([]);
     });
 });
 

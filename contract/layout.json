@@ -226,6 +226,7 @@
           "spectatorJoined",
           "spectatorsUpdated",
           "bidClock",
+          "seatLeft",
           "assistHint"
         ]
       },
@@ -536,6 +537,7 @@
           "spectatorJoined",
           "spectatorsUpdated",
           "bidClock",
+          "seatLeft",
           "assistHint"
         ]
       },

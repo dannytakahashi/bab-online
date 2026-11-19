@@ -30,7 +30,7 @@ final class VoicePanelTipUITests: XCTestCase {
         XCTAssertTrue(t.label.contains("touch and hold the mic for the voice panel"), t.label)
         let window = app.windows.firstMatch.frame
         XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(t.frame), "\(t.frame) in \(window)")
-        let mic = app.buttons["Mute microphone"]
+        let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.exists)
         XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over the mic \(mic.frame)")
         // the scene's cards reach the tree once it has rendered (as SeatRowUITests waits)
@@ -74,49 +74,63 @@ final class VoicePanelTipUITests: XCTestCase {
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         let t = tip(app)
         XCTAssertTrue(t.waitForExistence(timeout: 6))
-        app.buttons["Mute microphone"].press(forDuration: 0.8)
+        app.buttons["Unmute microphone"].press(forDuration: 0.8)
         XCTAssertTrue(waitForGone(t), "the panel opened: no tip")
         app.terminate()
     }
 
-    /// A listen-only spectator's button shows headphones, and the tip says so.
-    func testAListenOnlySpectatorHearsAboutTheHeadphones() {
-        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen"] + Self.fresh)
+    /// A spectator joins muted: the pill's button is the mic, and the tip says so.
+    func testAMutedSpectatorHearsAboutTheMic() {
+        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "muted"] + Self.fresh)
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         let t = tip(app)
         XCTAssertTrue(t.waitForExistence(timeout: 6))
-        XCTAssertTrue(t.label.contains("touch and hold the headphones"), t.label)
-        let mic = app.buttons["Tap to talk"]
-        if mic.exists { XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over \(mic.frame)") }
+        XCTAssertTrue(t.label.contains("touch and hold the mic for the voice panel"), t.label)
+        let mic = app.buttons["Unmute microphone"]
+        XCTAssertTrue(mic.exists)
+        XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over \(mic.frame)")
         keep("voice-tip-spectator")
         app.terminate()
     }
 
-    /// A spectator's headphones under the draw or game-end scrim: no tip there, and it is not
+    /// After a refused mic the button shows headphones, and the tip says so.
+    func testAListenOnlySpectatorHearsAboutTheHeadphones() {
+        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "denied"] + Self.fresh)
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        let t = tip(app)
+        XCTAssertTrue(t.waitForExistence(timeout: 6))
+        XCTAssertTrue(t.label.contains("touch and hold the headphones"), t.label)
+        let mic = app.buttons["Listening only (no mic access)"]
+        if mic.exists { XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over \(mic.frame)") }
+        keep("voice-tip-spectator-denied")
+        app.terminate()
+    }
+
+    /// A spectator's mic under the draw or game-end scrim: no tip there, and it is not
     /// used up (the table later shows it, on a launch that keeps the flag).
     func testUnderTheDrawAndGameEndOverlaysItWaitsAndIsNotUsedUp() {
-        let draw = Fixture.launch("draw-spectator", extra: ["-uiSpectatorVoice", "listen"] + Self.fresh)
+        let draw = Fixture.launch("draw-spectator", extra: ["-uiSpectatorVoice", "muted"] + Self.fresh)
         XCTAssertTrue(draw.staticTexts["Draw for Deal"].waitForExistence(timeout: 20))
-        XCTAssertTrue(draw.buttons["Tap to talk"].waitForExistence(timeout: 5), "the pill's headphones, under the scrim")
+        XCTAssertTrue(draw.buttons["Unmute microphone"].waitForExistence(timeout: 5), "the pill's mic, under the scrim")
         XCTAssertFalse(tip(draw).waitForExistence(timeout: 4), "no tip under the draw overlay")
         draw.terminate()
 
-        let end = Fixture.launch("game-end-spectator", extra: ["-uiSpectatorVoice", "listen", "-uiVoiceTip", "YES"])
+        let end = Fixture.launch("game-end-spectator", extra: ["-uiSpectatorVoice", "muted", "-uiVoiceTip", "YES"])
         XCTAssertTrue(Fixture.readyElement(end, "game-end-spectator").waitForExistence(timeout: 20))
         XCTAssertFalse(tip(end).waitForExistence(timeout: 4), "no tip under the game-end modal")
         end.terminate()
 
-        let table = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen", "-uiVoiceTip", "YES"])
+        let table = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "muted", "-uiVoiceTip", "YES"])
         XCTAssertTrue(table.buttons["leave"].waitForExistence(timeout: 20))
         XCTAssertTrue(tip(table).waitForExistence(timeout: 6), "still to come at the table")
         table.terminate()
     }
 
-    /// The info toast in the tip's spot (e.g. a listen-only tap's "tap to talk" reason): the tip
+    /// The info toast in the tip's spot (e.g. a refused mic's "You can still listen"): the tip
     /// waits under no toast, and shows once the notice is gone.
     func testANoticeInItsSpotHoldsItUntilTheNoticeGoes() {
-        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "listen",
-                                                                "-uiInfoToast", "The host turned off spectator talk"] + Self.fresh)
+        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "denied",
+                                                                "-uiInfoToast", "Microphone access denied. You can still listen."] + Self.fresh)
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         let notice = app.descendants(matching: .any)["infoToast"]
         XCTAssertTrue(notice.waitForExistence(timeout: 6))
@@ -146,7 +160,7 @@ final class VoicePanelTipUITests: XCTestCase {
         let window = app.windows.firstMatch.frame
         XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(t.frame), "\(t.frame) in \(window)")
         XCTAssertLessThan(t.frame.height, window.height / 3, "a few lines: \(t.frame)")
-        let mic = app.buttons["Mute microphone"]
+        let mic = app.buttons["Unmute microphone"]
         if mic.exists { XCTAssertFalse(t.frame.intersects(mic.frame), "tip \(t.frame) over the mic \(mic.frame)") }
         keep("voice-tip-table-ax5")
         app.terminate()

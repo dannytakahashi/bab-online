@@ -518,6 +518,8 @@ body > .voice-btn {
 .voice-popover__item:hover { background: rgb(var(--text-primary-rgb) / 0.08); }
 .voice-popover__item.is-active { color: var(--success); }
 .voice-popover__item.is-muted { color: var(--text-secondary); }
+.voice-popover__item[aria-disabled="true"] { cursor: default; }
+.voice-popover__item[aria-disabled="true"]:hover { background: none; }
 .voice-popover__mark { flex-shrink: 0; width: 1em; }
 .voice-popover__label { overflow: hidden; text-overflow: ellipsis; }
 .voice-popover__divider { height: 1px; margin: var(--space-1) 0; background: var(--line-subtle); }
@@ -731,17 +733,11 @@ body > .voice-btn {
 .voice-row.is-muted .voice-row__slider,
 .voice-row.is-muted .voice-row__pct { opacity: 0.4; }
 .voice-row .kit-btn { min-height: var(--hit-target); min-width: 64px; }
-/* spectator voice: "(watching)" / "listening only" after a name */
+/* voice: "(watching)" / "listening only" (my row, a refused microphone) after a name */
 .voice-row__tags { margin-left: var(--space-2); color: var(--text-dim); font-size: var(--type-xs); }
 .voice-row__tags:empty { display: none; }
-/* the "Spectators can talk" switch (a player who may change it) */
-.voice-overlay__settings { margin-bottom: var(--space-3); padding-bottom: var(--space-2); border-bottom: 1px solid var(--line-subtle); }
-.voice-overlay__settings[hidden] { display: none; }
-/* the gear menu's copy of the switch (a host without a keyboard) */
-.voice-popover__settings { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line-subtle); margin-bottom: var(--space-1); }
-.voice-popover__settings[hidden] { display: none; }
 
-/* listen-only: the headphones (aria-disabled, still clickable); green rim when a tap would talk */
+/* listen-only (a refused microphone): the headphones (aria-disabled, still clickable); green rim: a tap asks again */
 .voice-btn.kit-icon-btn.is-listen-only { color: var(--text-secondary); }
 .voice-btn.kit-icon-btn.is-listen-only.can-talk { border-color: var(--success); color: var(--text-primary); }
 

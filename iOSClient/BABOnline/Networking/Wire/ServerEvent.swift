@@ -40,6 +40,9 @@ enum ServerEvent: Equatable {
     /// bidClock: UNSEQUENCED too (decoded with seq nil): a human seat's bid clock started or
     /// stopped (contract/README.md "Bid clock"); never opens or fills a gap
     case bidClock(WirePayload.BidClock)
+    /// seatLeft: UNSEQUENCED too (decoded with seq nil): a seat's owner left for good (the
+    /// voice rule, VoiceCompany); never opens or fills a gap
+    case seatLeft(WirePayload.SeatLeft)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -182,6 +185,9 @@ extension ServerEvent {
                 seq = nil
             case "bidClock":
                 event = .bidClock(try d(WirePayload.BidClock.self))
+                seq = nil
+            case "seatLeft":
+                event = .seatLeft(try d(WirePayload.SeatLeft.self))
                 seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else

@@ -82,6 +82,13 @@ extension TableReducer {
         for (pos, sid) in hints?.sockets ?? [:] { s.players.socketBySeat[pos] = sid }
         s.players.spectatorCount = snap.spectatorCount
         s.players.watching = WatchingList(snap.watching)
+        // the voice rule before seating (VoiceCompany): the draw's human entrants not left
+        if s.players.seats.count < 4, let entrants = snap.entrants {
+            s.players.entrantHumans = entrants.compactMap { e in
+                guard !e.isBot, e.presence != .left, let name = e.username, !name.isEmpty else { return nil }
+                return name
+            }
+        }
         if let offered = snap.seats.first(where: { $0.offered }) {
             s.players.resignationOffer = ResignationOffer(position: offered.position, username: offered.ownerUsername ?? offered.username ?? "")
         } else if sameGame, let idle = prev.players.resignationOffer, idle.idle, snap.turn?.position == idle.position,

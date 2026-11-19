@@ -727,14 +727,22 @@ describe('/leave outcome and its log line', () => {
     });
 
     // What iOS's Leave check (LeaveOutcome `.unsure`, a `leave-N` requestSnapshot) relies on:
-    // the room never hears that a seat went gone; only a snapshot shows it
-    test('the room hears a /leave only as playerLazyMode, an already-lazy owner\'s not at all; a snapshot shows gone', () => {
+    // a snapshot shows the seat gone. Since 2026-11-19 the room also gets the
+    // unsequenced seatLeft (the clients' "no voice alone" rule: a /lazy owner
+    // still counts as a human, a gone one does not), never sequenced, so the
+    // sequenced stream is unchanged (playerLazyMode only, an already-lazy owner's nothing)
+    test('the room hears a /leave as playerLazyMode then the unsequenced seatLeft, an already-lazy owner\'s as seatLeft only; a snapshot shows gone', () => {
         const t = table({ bots: { 3: 'mary', 4: 'sharon' } });
         const roomEvents = (from) => t.log.slice(from).filter((e) => e.to === t.game.roomName && e.event !== 'gameLogEntry').map((e) => e.event);
         const seat1In = () => snapshotHandlers.snapshotFor(t.game, t.sids[2]).seats.find((x) => x.position === 1);
         let mark = t.log.length;
         chat(t, 1, '/leave');
-        expect(roomEvents(mark)).toEqual(['playerLazyMode']);
+        expect(roomEvents(mark)).toEqual(['playerLazyMode', 'seatLeft']);
+        const left = events(t.log.slice(mark), 'seatLeft');
+        expect(left.map((e) => e.data)).toEqual([{ gameId: t.game.gameId, position: 1, username: 'user1' }]);
+        // unsequenced (no seq key), and the leaver had left the room first
+        expect('seq' in left[0].data).toBe(false);
+        expect(inRoom(t, t.sids[1])).toBe(false);
         expect(seat1In()).toMatchObject({ controller: 'lazyBot', presence: 'gone' });
         expect(aborts(t)).toHaveLength(0);
 
@@ -742,9 +750,17 @@ describe('/leave outcome and its log line', () => {
         chat(u, 1, '/lazy');
         mark = u.log.length;
         chat(u, 1, '/leave');
-        expect(u.log.slice(mark).filter((e) => e.to === u.game.roomName && e.event !== 'gameLogEntry')).toEqual([]);
+        expect(u.log.slice(mark).filter((e) => e.to === u.game.roomName && e.event !== 'gameLogEntry').map((e) => [e.event, e.data]))
+            .toEqual([['seatLeft', { gameId: u.game.gameId, position: 1, username: 'user1' }]]);
         expect(snapshotHandlers.snapshotFor(u.game, u.sids[2]).seats.find((x) => x.position === 1))
             .toMatchObject({ controller: 'lazyBot', presence: 'gone' });
+    });
+
+    test('seatLeft never comes from /lazy, a drop or a resign (those owners still count as humans)', async () => {
+        const t = table({ bots: { 4: 'mary' } });
+        chat(t, 1, '/lazy');
+        await drop(t, t.sockets[2]);
+        expect(events(t.log, 'seatLeft')).toEqual([]);
     });
 
     // review L2: README's /leave row said "You can rejoin later" and never that the game can end

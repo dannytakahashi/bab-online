@@ -60,16 +60,16 @@ enum UIFixture {
     /// `-uiVoicePanel YES`: the game lobby opens the voice panel (fixture mode never starts voice).
     static let showsVoicePanel: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoicePanel")
 
-    /// `-uiSpectatorVoice listen|full` on a spectator table (`draw-spectator`,
-    /// `spectator-mid-hand`): the pill's voice button listen-only ("Tap to talk"; a long press
-    /// opens the panel, with a player and a watcher) or "Voice is full (8 people)" (1.2.2 (12)).
+    /// `-uiSpectatorVoice muted|denied|full` on a spectator table (`draw-spectator`,
+    /// `spectator-mid-hand`, `game-end-spectator`): the pill's voice button as a spectator joins
+    /// voice, muted ("Unmute microphone"; a tap unmutes, in fixture mode only the button), after
+    /// a refused mic (headphones, "Listening only (no mic access)"), or "Voice is full (8
+    /// people)". A long press opens the panel, with a player and a watcher.
     static let spectatorVoice: String? = isActive ? UserDefaults.standard.string(forKey: "uiSpectatorVoice") : nil
+    /// The pill's voice button is up (`-uiSpectatorVoice muted|denied`).
+    static var showsSpectatorVoiceButton: Bool { spectatorVoice == "muted" || spectatorVoice == "denied" }
 
-    /// `-uiVoiceSwitch YES` with `-uiVoicePanel YES`: the panel shows the in-game "Spectators
-    /// can talk" switch (voiceSettings canChange, as a seated host gets it).
-    static let showsVoiceSwitch: Bool = isActive && UserDefaults.standard.bool(forKey: "uiVoiceSwitch")
-
-    /// `-uiVoiceTip YES` with a voice button (`-uiVoice YES`, `-uiSpectatorVoice listen`): the
+    /// `-uiVoiceTip YES` with a voice button (`-uiVoice YES`, `-uiSpectatorVoice muted|denied`): the
     /// voice panel tip may show (VoicePanelTip; fixture mode never shows it otherwise), and stays
     /// 60 s. `-uiVoiceTipFresh YES` clears its seen flag first (a fresh install); without it a
     /// second launch finds the flag the first one set.
@@ -135,11 +135,7 @@ enum UIFixture {
                 "sid-hal": VoiceChatManager.PeerInfo(username: "hal", isMuted: true, volume: 1.5),
             ]
         }
-        if showsVoiceSwitch {
-            VoiceChatManager.shared.settings = VoiceSettings(gameId: "fixture", host: "ivy", spectatorsCanTalk: true,
-                                                             role: .player, canTalk: true, canChange: true)
-        }
-        if spectatorVoice == "listen" {
+        if showsSpectatorVoiceButton {
             // a player and a watcher in the panel (the watcher's name is on the badge's list)
             VoiceChatManager.shared.peerInfos = [
                 "sid-p": VoiceChatManager.PeerInfo(username: "ivy"),
@@ -433,19 +429,8 @@ enum UIFixture {
             message = "releaseLobbyHold:\(username)"
             emulateRelease(username)
         case SocketEvents.Client.setSpectatorsCanTalk:
-            let value = data["spectatorsCanTalk"] as? Bool ?? true
-            message = "setSpectatorsCanTalk:\(value)"
-            // the server's echo a moment later: playerReadyUpdate with settings (a family lobby)
-            // or voiceSettings (the in-game switch)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if let lobby = fixtureLobby { lobby.applyFamilyKeys(from: ["settings": ["spectatorsCanTalk": value]]) }
-                let voice = VoiceChatManager.shared
-                if var s = voice.settings {
-                    s.spectatorsCanTalk = value
-                    voice.settings = s
-                    voice.switchPending = nil
-                }
-            }
+            // this build has no switch (2026-11-18); a send would show here
+            message = "setSpectatorsCanTalk"
         default:
             return
         }

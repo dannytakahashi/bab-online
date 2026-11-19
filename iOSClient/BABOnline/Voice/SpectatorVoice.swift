@@ -2,13 +2,16 @@ import Foundation
 
 /// s2c `voiceSettings` (private, unsequenced; server/voice/gameVoice.js `settingsFor`): what
 /// a casual game's voice room says to this socket. Only a socket that sent the
-/// casualSpectators cap (1.2.2, build 12) gets it, at the start, on spectating, on each
-/// applied "Spectators can talk" change and when a seat owner drops, returns or reclaims.
+/// casualSpectators cap (1.2.2, build 12) gets it, at the start, on spectating and when a seat
+/// owner drops, returns or reclaims. Since 2026-11-18 (owner: "we don't need the spectator
+/// voice host toggle") spectators always may talk: the server always sends spectatorsCanTalk
+/// true and canChange false, and this build acts on the role alone (every field is still
+/// decoded; builds 12 to 15 read them).
 struct VoiceSettings: Equatable {
     enum Role: String, Equatable {
-        /// A seat owner or entrant in voice: always talks.
+        /// A seat owner or entrant in voice.
         case player
-        /// Admitted to the voice room as a spectator: talks only while `canTalk`.
+        /// Admitted to the voice room as a spectator: talks like a player.
         case spectator
         /// A capable spectator with no slot: voice is full (8 people).
         case none
@@ -19,7 +22,7 @@ struct VoiceSettings: Equatable {
     var spectatorsCanTalk: Bool
     var role: Role
     var canTalk: Bool
-    /// May send setSpectatorsCanTalk (the host while seated and connected, else a capable player).
+    /// Builds 12 to 15 showed their in-game switch while this was true; always false now.
     var canChange: Bool
 
     /// nil for a payload this build cannot read (no game id, an unknown role).
@@ -32,70 +35,47 @@ struct VoiceSettings: Equatable {
     }
 }
 
-/// The words of spectator voice (the spec's copy; the web says the same).
+/// The words of voice (the web says the same where it has them).
 enum VoiceCopy {
-    static let talkOff = "The host turned off spectator talk \u{2014} you can still listen"
-    /// "Tap to talk" while the switch is on but this game lets spectators only listen (no
-    /// capable player at the table could turn their talk off: server mayTalk).
-    static let listenOnlyHere = "Spectators can only listen in this game"
     static let voiceFull = "Voice is full (8 people)"
-    static let listeningOnly = "Listening only"
+    /// The mic button and the panel's own row once the microphone was refused (headphones).
     static let noMic = "Listening only (no mic access)"
-    static let tapToTalk = "Tap to talk"
-    /// The voice panel's note while listen-only: WebRTC's one VoIP audio unit records and
-    /// plays together, so iOS may keep its mic indicator on (not verified on a device).
-    static let micDotNote = "Listening only \u{2014} your iPhone may show the mic dot; nothing is sent."
-    static let switchLabel = "Spectators can talk"
-    static let lobbyHintOn = "The first 4 to tap Ready play; everyone else watches and can talk"
-    static let lobbyHintOff = "The first 4 to tap Ready play; everyone else watches and can only listen"
+    /// VoiceOver's hint on those buttons: a tap tries the microphone again (iOS shows its prompt
+    /// only once; after a refusal the person allows it in Settings, then the tap unmutes).
+    static let noMicHint = "Double-tap to try the microphone again. Allow it for BAB Online in Settings first."
+    /// VoiceOver's hint on the mic button: the long press opens the voice panel.
+    static let panelHint = "Touch and hold for the voice panel"
+    /// The toast of a refused microphone (the web's words).
+    static let micDenied = "Microphone access denied. You can still listen."
+    /// The voice panel's note while muted: WebRTC's one VoIP audio unit records and plays
+    /// together, so once the microphone was allowed iOS may keep its mic indicator on.
+    static let mutedNote = "Muted \u{2014} nothing is sent, even if your iPhone shows the mic dot."
+    /// The voice panel's note after a refusal (iOS asks only once; Settings can allow it).
+    static let deniedNote = "No mic access \u{2014} you can still listen. To talk, allow the microphone for BAB Online in Settings."
+    static let lobbyHint = "The first 4 to tap Ready play; everyone else watches and can talk"
     static let tableFull = "Table full \u{2014} you'll watch"
-
-    /// The mic button's word in listen-only: "Tap to talk" when a tap would turn the mic on.
-    static func listenOnlyLabel(talkAllowed: Bool, micDenied: Bool) -> String {
-        if micDenied { return noMic }
-        return talkAllowed ? tapToTalk : listeningOnly
-    }
 }
 
 extension VoiceSocketHandler {
-    /// `voiceSettings`: the talk mode, the in-game switch and the "voice is full" pill.
-    /// Static (and the manager passed in) so the unit tests drive it without a socket.
-    /// - A spectator gets its mode (`canTalk`); a lobby extra keeps the mic it held in the
-    ///   lobby, a main-room spectator listens until it taps to talk (no mic prompt on
-    ///   Spectate). Voice starts if it is not running (`start`).
-    /// - A player keeps talking; while spectators may not talk it mutes the spectators it
-    ///   hears (a backstop: the server drops their audio).
+    /// `voiceSettings`: the role. Static (and the manager passed in) so the unit tests drive it
+    /// without a socket.
+    /// - A spectator's voice starts if it is not running (`start`), muted like every voice
+    ///   start: no mic prompt on Spectate. A lobby extra's lobby session carries on, its mute
+    ///   as it was.
+    /// - A player's voice is started by the table.
     /// - role none: no slot (the pill says so).
     /// A copy for another game than the table's (a late one after leaving) is ignored.
     @MainActor
     static func applyVoiceSettings(_ dict: [String: Any], manager: VoiceChatManager, gameState: GameState,
-                                   start: @MainActor (VoiceChatManager) -> Void = { $0.ensureStarted() },
-                                   notify: @MainActor (String) -> Void = { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) }) {
+                                   start: @MainActor (VoiceChatManager) -> Void = { $0.ensureStarted() }) {
         guard let s = VoiceSettings.from(dict) else { return }
         if let gameId = gameState.gameId, gameId != s.gameId {
             print("[Voice] voiceSettings for another game (\(s.gameId)): ignored")
             return
         }
-        let previous = manager.settings
-        let sameGame = previous?.gameId == s.gameId
         manager.settings = s
-        manager.switchPending = nil
-        switch s.role {
-        case .player:
-            manager.setDesiredMode(canTalk: true, wantsMic: true)
-            manager.applyForcedMutes(watching: gameState.watching.spectators.map(\.username))
-        case .spectator:
-            // first word as a spectator of this game: a session already talking (the lobby's
-            // mesh carried over) keeps its mic; anyone else waits for "Tap to talk"
-            let wasSpectator = sameGame && previous?.role == .spectator
-            let wantsMic = wasSpectator ? manager.wantsMic : (manager.isActive && !manager.isListenOnly)
-            manager.setForcedMuted([])
-            manager.setDesiredMode(canTalk: s.canTalk, wantsMic: wantsMic)
-            if !manager.isActive { start(manager) }
-            if wasSpectator, previous?.spectatorsCanTalk == true, !s.spectatorsCanTalk { notify(VoiceCopy.talkOff) }
-        case .none:
-            manager.setForcedMuted([])
-        }
-        print("[Voice] voiceSettings: \(s.role.rawValue), canTalk \(s.canTalk), spectatorsCanTalk \(s.spectatorsCanTalk), canChange \(s.canChange)")
+        manager.casualVoiceGameId = s.gameId
+        if s.role == .spectator, !manager.isActive { start(manager) }
+        print("[Voice] voiceSettings: \(s.role.rawValue)")
     }
 }

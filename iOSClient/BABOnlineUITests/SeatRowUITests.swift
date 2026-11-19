@@ -21,7 +21,7 @@ final class SeatRowUITests: XCTestCase {
         let app = Fixture.launch("trick-mid-lead3", extra: ["-uiVoice", "YES"])
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         _ = Fixture.settledState(app)
-        let pips = app.otherElements["pips.mine"], hsi = element(app, "hsi"), mic = app.buttons["Mute microphone"]
+        let pips = app.otherElements["pips.mine"], hsi = element(app, "hsi"), mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(pips.exists && hsi.exists && mic.exists, "pips \(pips.exists) hsi \(hsi.exists) mic \(mic.exists)")
         XCTAssertEqual(hsi.label, "Hand strength index 119.2")
         XCTAssertTrue(pips.label.hasPrefix("Your tricks: "), pips.label)

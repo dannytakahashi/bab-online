@@ -163,6 +163,7 @@ enum SocketEvents {
         static let spectatorJoined = "spectatorJoined"
         static let spectatorsUpdated = "spectatorsUpdated"
         static let bidClock = "bidClock"
+        static let seatLeft = "seatLeft"
         static let assistHint = "assistHint"
 
         // Tournament

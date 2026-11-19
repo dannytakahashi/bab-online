@@ -135,8 +135,8 @@ async function startLobbyIfAllReady(io, lobby) {
     // Play again: members still reading the last game's results are not
     // made spectators of this one (leftLobby, their calls end)
     playAgain.leftOnResults(io, startResult);
-    // Every capable socket of the voice room learns its role, who may talk
-    // and who controls the switch (nothing for a legacy client)
+    // Every capable socket of the voice room learns its role (nothing for a
+    // legacy client)
     gameVoice.refreshVoice(io, game);
 
     // The started lobby leaves the main room's list now (it used to stay
@@ -177,15 +177,13 @@ function tableBotsReadied(io, lobby, { sendState = true } = {}) {
  * game, in the same tick as the table's allPlayersReady: pure spectators
  * (spectatorJoined full state at CREATED, no room notice per extra: the
  * badge lists them), then voice spectators. Their lobby calls to the table
- * and to each other carry on (no new announcement at start); with
- * "Spectators can talk" off each client switches itself to listen-only
- * (voiceSettings canTalk false) and re-offers, extras drop each other, and
- * the backstop covers a client that does not.
+ * and to each other carry on (no new announcement at start): spectators
+ * always may talk (owner 2026-11-18).
  */
 function startExtras(io, game, extras) {
     if (extras.length === 0) return;
     const { sendSpectatorJoin } = require('./snapshotHandlers');
-    const admitted = [];
+    let admitted = 0;
     for (const { socketId, username } of extras) {
         const socket = io.sockets.sockets.get(socketId);
         if (!socket) continue;
@@ -193,19 +191,9 @@ function startExtras(io, game, extras) {
         socket.leave('mainRoom');
         gameManager.leaveMainRoom(socketId);
         sendSpectatorJoin(game, socket, username, { notice: false });
-        if (gameVoice.admitVoiceSpectator(io, game, socketId, { fromLobby: true, announce: false, priorTalk: true })) {
-            admitted.push(socketId);
-        }
+        if (gameVoice.admitVoiceSpectator(io, game, socketId, { fromLobby: true, announce: false })) admitted++;
     }
-    if (!game.casualVoice.spectatorsCanTalk) {
-        for (let i = 0; i < admitted.length; i++) {
-            for (let j = i + 1; j < admitted.length; j++) {
-                io.to(admitted[i]).emit('voicePeerLeft', { socketId: admitted[j] });
-                io.to(admitted[j]).emit('voicePeerLeft', { socketId: admitted[i] });
-            }
-        }
-    }
-    socketLogger.info('Lobby extras now watch the game', { gameId: game.gameId, extras: extras.length, voice: admitted.length });
+    socketLogger.info('Lobby extras now watch the game', { gameId: game.gameId, extras: extras.length, voice: admitted });
 }
 
 /**
@@ -535,25 +523,22 @@ function removeBot(socket, io, data) {
 }
 
 /**
- * setSpectatorsCanTalk in a lobby: the host's switch (default on). Every
- * member gets the list with the new settings (playerReadyUpdate, the plain
- * variant); the game takes the value at start. Anyone else: rejected.
+ * setSpectatorsCanTalk in a lobby (shipped iOS 12-15 and cached web tabs
+ * still show the old host switch): ignored since 2026-11-18, spectators
+ * always may talk. The sender alone gets the list with the unchanged
+ * settings ({spectatorsCanTalk: true}, playerReadyUpdate); no error,
+ * whoever sends it. The echo repeats the value the client holds, which
+ * those clients do not take as the answer, so their switch shows Off until
+ * their own 5 s echo timeout puts it back On. It still counts as acting in
+ * the lobby (play again: settle).
  * @returns {boolean} handled (the socket is in a lobby)
  */
-function setLobbySpectatorsCanTalk(socket, io, value) {
+function setLobbySpectatorsCanTalk(socket, io) {
     const lobby = gameManager.getPlayerLobby(socket.id);
     if (!lobby) return false;
     const settled = playAgain.settle(socket.id);
-    const user = gameManager.getUserBySocketId(socket.id);
-    if (!user || gameManager.lobbyHost(lobby) !== user.username) {
-        emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');
-        playAgain.announceSettled(io, settled, socket.id);
-        return true;
-    }
-    if (!lobby.settings) lobby.settings = {};
-    lobby.settings.spectatorsCanTalk = value;
-    sendLobbyState(io, lobby);
-    socketLogger.info('Lobby spectator talk set', { lobbyId: lobby.id, spectatorsCanTalk: value });
+    sendLobbyState(io, lobby, { onlyTo: socket.id });
+    playAgain.announceSettled(io, settled, socket.id);
     return true;
 }
 

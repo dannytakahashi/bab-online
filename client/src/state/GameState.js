@@ -29,6 +29,9 @@ export const PHASE = {
 export class GameState {
   constructor() {
     this._listeners = new Map();
+    // Who-is-here observers (voice/voiceCompany.js): kept across reset(),
+    // unlike _listeners, since the page's voice rule outlives every table
+    this._companyObservers = new Set();
     this.resetSession();
   }
 
@@ -164,6 +167,16 @@ export class GameState {
     this.seatOwners = {};
     // Who is watching (spectatorsUpdated / snapshot.watching): the badge
     this.watching = { spectators: [], count: 0 };
+    // The human seat owners for the voice rule (owner 2026-11-19: voice only
+    // with another human; voice/voiceCompany.js): {1..4} -> owner username of
+    // a seat that is not a native bot and whose owner is not gone (a lazy,
+    // resigned, disconnected owner still counts). Set at seating
+    // (positionUpdate.isBot) and by every snapshot (seats[].presence); a
+    // seatLeft drops one. Before seating, a snapshot's human entrants not
+    // left. humansKnown: seating or a snapshot said who is here
+    this.humanOwners = {};
+    this.entrantHumans = [];
+    this.humansKnown = false;
     this.resume = null;
     // A seat's running bid clock (bidClock / snapshot bidClock; state/bidClock.js):
     // {position, deadline (bidClockNow ms), durationMs} or null
@@ -173,6 +186,69 @@ export class GameState {
     this.version = 0;
 
     this._emit('reset');
+    this._companyChanged();
+  }
+
+  // ============================================
+  // Who is here (the voice rule)
+  // ============================================
+
+  /**
+   * Observe changes of who is at this table (seat owners, entrants,
+   * spectators, a reset). Survives reset().
+   * @param {Function} fn
+   * @returns {Function} unsubscribe
+   */
+  onCompanyChange(fn) {
+    this._companyObservers.add(fn);
+    return () => this._companyObservers.delete(fn);
+  }
+
+  _companyChanged() {
+    if (!this._companyObservers) return;
+    for (const fn of [...this._companyObservers]) {
+      try {
+        fn();
+      } catch (err) {
+        console.error('Error in company observer:', err);
+      }
+    }
+  }
+
+  /**
+   * The other humans at this table (owner 2026-11-19, voice/voiceCompany.js):
+   * human seat owners not gone (before seating: human entrants not left)
+   * and the spectators, without my own name.
+   * @param {{spectators?: boolean}} [opts] spectators false: the watchers
+   *   do not count (a table with no casual voice, e.g. a tournament table,
+   *   never admits a spectator into voice)
+   * @returns {{known: boolean, names: Set<string>}} known: seating or a
+   *   snapshot said who sits here (else only the spectators are known)
+   */
+  otherHumans({ spectators = true } = {}) {
+    const names = new Set();
+    for (const n of Object.values(this.humanOwners)) if (n) names.add(n);
+    for (const n of this.entrantHumans) names.add(n);
+    if (spectators) for (const w of this.watching?.spectators || []) if (w?.username) names.add(w.username);
+    if (this.username) names.delete(this.username);
+    return { known: this.humansKnown, names };
+  }
+
+  /**
+   * seatLeft {gameId, position, username} (unsequenced, additive
+   * 2026-11-19): that seat's owner left for good; another game's is ignored.
+   * @returns {boolean} whether it was applied
+   */
+  applySeatLeft(data) {
+    if (!data || !data.position || (data.gameId && this.gameId && data.gameId !== this.gameId)) return false;
+    const pos = data.position;
+    if (!(pos in this.humanOwners)) return false;
+    if (data.username && this.humanOwners[pos] !== data.username) return false;
+    delete this.humanOwners[pos];
+    this.seats = this.seats.map((st) => (st.position === pos ? { ...st, presence: 'gone' } : st));
+    this._changed();
+    this._companyChanged();
+    return true;
   }
 
   // ============================================
@@ -976,7 +1052,33 @@ export class GameState {
     if (!watching) return false;
     this.watching = watching;
     this._changed();
+    this._companyChanged();
     return true;
+  }
+
+  /**
+   * Who is here from a snapshot (the voice rule): 4 seats -> the owners of
+   * the seats that are not native bots and not gone; no seats yet (the
+   * draw) -> the human entrants not left. A snapshot with neither (a v1
+   * payload) keeps what is known.
+   */
+  _humansFromSnapshot(snap) {
+    if (Array.isArray(snap.seats) && snap.seats.length === 4) {
+      this.humanOwners = {};
+      for (const st of snap.seats) {
+        if (!st?.position || typeof st.ownerUsername !== 'string' || !st.ownerUsername) continue;
+        if (st.controller === 'bot' || st.presence === 'gone' || st.presence === 'none') continue;
+        this.humanOwners[st.position] = st.ownerUsername;
+      }
+      this.entrantHumans = [];
+      this.humansKnown = true;
+    } else if (Array.isArray(snap.entrants)) {
+      this.humanOwners = {};
+      this.entrantHumans = snap.entrants
+        .filter((e) => e && !e.isBot && e.presence !== 'left' && typeof e.username === 'string' && e.username)
+        .map((e) => e.username);
+      this.humansKnown = true;
+    }
   }
 
   /**
@@ -1046,6 +1148,7 @@ export class GameState {
 
     this._seatsToPlayerData(snap.seats || [], players);
     this.seats = Array.isArray(snap.seats) ? snap.seats.map((s) => ({ ...s })) : [];
+    this._humansFromSnapshot(snap);
 
     const deal = snap.deal;
     this.handNo = deal ? (deal.handNo || this.handNo || 1) : 0;
@@ -1132,6 +1235,7 @@ export class GameState {
     this.bidClock = snap.bidClock ? clockFrom(snap.bidClock) : null;
     this._changed();
     this._emit('stateRestored', snap);
+    this._companyChanged();
   }
 
   /** {position -> seat socket id} from playerData (the voice glow's fallback). */
@@ -1169,7 +1273,20 @@ export class GameState {
     positions.forEach((pos, i) => {
       if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
     });
+    // The human seats (the voice rule): isBot[] per seat, else the bot:
+    // prefix of the seat socket id (a server before isBot)
+    this.humanOwners = {};
+    positions.forEach((pos, i) => {
+      if (typeof names[i] !== 'string') return;
+      const bot = Array.isArray(d.isBot) && typeof d.isBot[i] === 'boolean'
+        ? d.isBot[i]
+        : typeof d.sockets?.[i] === 'string' && d.sockets[i].startsWith('bot:');
+      if (!bot) this.humanOwners[pos] = names[i];
+    });
+    this.entrantHumans = [];
+    if (positions.length) this.humansKnown = true;
     this.setPlayerData(d);
+    this._companyChanged();
   }
 
   /** playerData (names, pictures) from the snapshot's seats; a v1 players[] wins for pictures. */

@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Floating circular mic mute/unmute button for voice chat.
-/// Listen-only (1.2.2 (12): a spectator who may not or has not chosen to talk, or a refused mic)
-/// it shows headphones: a tap is "Tap to talk" (asks for the mic) when talking is allowed,
-/// else a toast says why. It is never `.disabled`, which would also end the long press that
+/// Floating circular mic mute/unmute button for voice chat. Voice starts muted (build 16,
+/// owner 2026-11-18): the first tap unmutes and asks for the microphone then. Once the mic was
+/// refused it shows headphones ("Listening only (no mic access)"); a tap asks again. It is
+/// never `.disabled`, which would also end the long press that
 /// opens the voice panel. That long press is the panel only: the Button's action that
 /// SwiftUI still fires when the finger lifts is skipped (`longPressFired`), so it never also
 /// mutes, unmutes or asks for the mic (owner 2026-11-18: a spectator's hold on the
@@ -14,7 +14,7 @@ struct VoiceMuteButton: View {
     /// The circle's diameter: the 44 pt target, times the table's zoom in my seat's row
     /// (TableLayout.voiceButtonSize scene units; the glyph stays Dynamic Type).
     var size: CGFloat = Theme.hitTarget
-    /// UI fixtures: draw the listen-only state without a voice session.
+    /// UI fixtures: draw the refused-mic (listen-only) state without a voice session.
     var forceListenOnly = false
 
     private var listenOnly: Bool { forceListenOnly || voiceManager.isListenOnly }
@@ -24,10 +24,10 @@ struct VoiceMuteButton: View {
     /// Set when this press became the panel's long press; cleared at every touch-down, so a
     /// hold that slid off the button (no action) never swallows the next tap.
     @State private var longPressFired = false
-    /// Voice on, for the tip: a fixture's button (`-uiVoice YES`, `-uiSpectatorVoice listen`) counts.
+    /// Voice on, for the tip: a fixture's button (`-uiVoice YES`, `-uiSpectatorVoice muted|denied`) counts.
     private var voiceOn: Bool {
         #if DEBUG
-        return voiceManager.isActive || forceListenOnly || UIFixture.showsVoiceButton
+        return voiceManager.isActive || forceListenOnly || UIFixture.showsVoiceButton || UIFixture.showsSpectatorVoiceButton
         #else
         return voiceManager.isActive || forceListenOnly
         #endif
@@ -48,7 +48,9 @@ struct VoiceMuteButton: View {
                 )
         }
         .accessibilityLabel(label)
-        .accessibilityHint("Touch and hold for the voice panel")
+        // listen-only: the tap still tries the mic (VoiceOver says so; the web's button reads
+        // "Tap to talk (no mic access yet)")
+        .accessibilityHint(listenOnly ? "\(VoiceCopy.noMicHint) \(VoiceCopy.panelHint)" : VoiceCopy.panelHint)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onChanged { _ in longPressFired = false }
@@ -71,9 +73,7 @@ struct VoiceMuteButton: View {
     private var speaking: Bool { !listenOnly && voiceManager.isSelfSpeaking && !voiceManager.isSelfMuted }
 
     private var label: String {
-        if listenOnly {
-            return VoiceCopy.listenOnlyLabel(talkAllowed: voiceManager.talkAllowed, micDenied: voiceManager.micPermissionDenied)
-        }
+        if listenOnly { return VoiceCopy.noMic }
         return voiceManager.isSelfMuted ? "Unmute microphone" : "Mute microphone"
     }
 
@@ -83,13 +83,8 @@ struct VoiceMuteButton: View {
             return
         }
         HapticManager.lightImpact()
-        guard listenOnly else {
-            voiceManager.toggleSelfMute()
-            return
-        }
         guard !forceListenOnly else { return }
-        if let why = voiceManager.tapToTalk() {
-            SocketService.shared.serverError = ServerErrorNotice(message: why, kind: .info)
-        }
+        // muted: unmute (the first one asks for the mic; after a refusal it asks again)
+        voiceManager.toggleSelfMute()
     }
 }

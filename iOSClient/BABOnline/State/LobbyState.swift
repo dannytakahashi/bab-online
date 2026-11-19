@@ -31,11 +31,11 @@ final class LobbyState: ObservableObject {
     // `members` (everyone, up to 8) instead of the first 4.
     /// How many the lobby may hold: 8 while every human in it is capable, else 4.
     @Published var capacity: Int = 4
-    /// Who sets "Spectators can talk" (nil: an older server, or a lobby with no human).
+    /// The lobby's host, "(host)" (nil: an older server, or a lobby with no human).
     @Published var host: String?
-    /// The host's "Spectators can talk" (default on).
+    /// settings.spectatorsCanTalk: always true since 2026-11-18 (no switch; read, never shown).
     @Published var spectatorsCanTalk: Bool = true
-    /// A server that sends the family keys (`settings`): the lobby shows its Voice section.
+    /// A server that sends the family keys (`settings`): the lobby shows its voice line.
     @Published var hasSettings = false
 
     // Play again (1.2.2, build 12; server/socket/playAgain.js; `LobbyReturn`)
