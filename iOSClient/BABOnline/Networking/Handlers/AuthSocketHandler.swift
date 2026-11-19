@@ -175,7 +175,7 @@ final class AuthSocketHandler {
         }
     }
 
-    private func handleForceLogout(_ data: [String: Any]?) {
+    func handleForceLogout(_ data: [String: Any]?) {
         DispatchQueue.main.async {
             let reason = data?["reason"] as? String ?? "Logged out"
             print("[Auth] Force logout: \(reason)")

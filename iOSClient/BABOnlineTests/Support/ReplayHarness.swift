@@ -3,11 +3,12 @@ import XCTest
 @testable import BAB_Online
 
 final class FakeEmitter: GameActionEmitting {
-    enum Sent: Equatable { case play(Card, Int), bid(String, Int), snapshot(String, Bool) }
+    enum Sent: Equatable { case play(Card, Int), bid(String, Int), snapshot(String, Bool), chat(String) }
     var sent: [Sent] = []
     func playCard(_ c: Card, position: Int) { sent.append(.play(c, position)) }
     func playerBid(_ b: String, position: Int) { sent.append(.bid(b, position)) }
     func requestSnapshot(requestId: String, log: Bool) { sent.append(.snapshot(requestId, log)) }
+    func chat(_ message: String) { sent.append(.chat(message)) }
     var snapshotRequests: [String] { sent.compactMap { if case .snapshot(let id, _) = $0 { return id } else { return nil } } }
 }
 

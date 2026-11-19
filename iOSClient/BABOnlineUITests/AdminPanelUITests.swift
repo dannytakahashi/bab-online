@@ -34,9 +34,11 @@ final class AdminPanelUITests: XCTestCase {
 
     /// The toast sits over the main room's header: a tap dismisses it.
     private func dismissToast(_ app: XCUIApplication) {
-        let toast = element(app, "serverErrorToast")
-        if toast.exists { toast.tap() }
-        _ = toast.waitForNonExistence(timeout: 3)
+        for id in ["serverErrorToast", "infoToast"] {
+            let toast = element(app, id)
+            if toast.exists { toast.tap() }
+            _ = toast.waitForNonExistence(timeout: 3)
+        }
     }
 
     private func openAccount(_ app: XCUIApplication) {
@@ -362,7 +364,8 @@ final class AdminPanelUITests: XCTestCase {
         filterPlayers(app, "ivy")
         openMenu(app, "ivy", item: "Remove admin…")
         app.alerts.firstMatch.buttons["Remove admin"].tap()
-        let toast = element(app, "serverErrorToast")
+        // news I asked for: the info toast (toast audit 2026-11-18), not the refusal's
+        let toast = element(app, "infoToast")
         XCTAssertTrue(toast.waitForExistence(timeout: 8))
         XCTAssertTrue(toast.label.contains("You are no longer an admin."), toast.label)
         XCTAssertTrue(app.navigationBars["Admin"].waitForNonExistence(timeout: 5), "the panel closed")
