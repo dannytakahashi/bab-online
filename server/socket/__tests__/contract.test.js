@@ -371,6 +371,68 @@ describe('(b2) bid clock', () => {
     }, 60000);
 });
 
+// ==================== (b3) /help ====================
+
+describe('(b3) /help', () => {
+    test('assistHint (bid, status) to a cap socket, private gameLogEntry lines elsewhere, the room notice; seq and snapshot invariants hold', async () => {
+        const pacing = require('../../game/pacing');
+        const clientInfo = require('../clientInfo');
+        Math.random = mulberry32(37);
+        const w = world('b3');
+        const seqWatch = watchSeq(w.io);
+        const snaps = watchSnapshots(w);
+        const names = ['b3_ann', 'b3_bob', 'b3_cat', 'b3_dan'];
+        const socks = names.map((n, i) => w.user(`b3-h${i}`, n));
+        mainRoomHandlers.createLobby(socks[0], w.io, { name: 'Help table' });
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+        const draws = socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING && !game.resume, 100);
+        const spec = w.user('b3-spec', 'b3_fan');
+        mainRoomHandlers.joinAsSpectator(spec, w.io, { gameId: game.gameId });
+        const owner = (pos) => w.sockets.get(game.seat(pos).ownerSocketId);
+        const say = (s, message) => chatHandlers.chatMessage(s, w.io, { message });
+        const p1 = game.currentTurn;
+        const p2 = (p1 % 4) + 1;
+        clientInfo.handle(owner(p1), w.io, { client: 'web', version: '1.0.0', caps: ['assist'] });
+
+        const mark = w.log.length;
+        say(owner(p1), '/help');                 // a bid suggestion, counted
+        say(owner(p1), '?help');                 // the same turn again: not counted
+        say(owner(p2), '?help');                 // off turn, no cap: the status line
+        say(spec, '?help');                      // players only
+        const hints = w.log.slice(mark).filter((l) => l.event === 'assistHint');
+        expect(hints.map((l) => [l.to, l.data.kind, l.data.counted])).toEqual([[owner(p1).id, 'bid', true], [owner(p1).id, 'bid', false]]);
+        const privateLines = w.log.slice(mark).filter((l) => l.event === 'gameLogEntry' && !l.to.startsWith('game:'));
+        expect(privateLines.map((l) => l.to)).toEqual([owner(p2).id, spec.id]);
+        expect(privateLines.every((l) => !('seq' in l.data))).toBe(true);
+        const notices = w.log.slice(mark).filter((l) => l.event === 'gameLogEntry' && l.to === game.roomName);
+        expect(notices.map((l) => l.data.message)).toEqual([`${game.seat(p1).ownerUsername} used /help.`]);
+        expect(w.log.slice(mark).some((l) => l.event === 'chatMessage')).toBe(false);
+
+        await gameHandlers.playerBid(owner(p1), w.io, { bid: '1' });
+        say(owner(p1), '/help');                 // off turn now, with the cap: kind status
+        expect(events(w.log, 'assistHint').at(-1).data).toMatchObject({ kind: 'status', counted: false, uses: 1 });
+        say(owner(p2), '?help');                 // on turn, no cap: the answer line, then the notice
+        expect(w.log.at(-2)).toMatchObject({ to: owner(p2).id, event: 'gameLogEntry', data: { type: 'system' } });
+        expect(w.log.at(-2).data.message).toMatch(/^Suggested \(only you see this\): Bid .*\(Help 1 of 3 free\)$/);
+        expect(w.log.at(-1)).toMatchObject({ to: game.roomName, event: 'gameLogEntry', data: { message: `${game.seat(p2).ownerUsername} used /help.` } });
+        while (game.stage === Phase.BIDDING) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '1' });
+        }
+        await jest.advanceTimersByTimeAsync(1000);
+        const sq = seqWatch.stop();
+        expect(sq.failures).toEqual([]);
+        const sn = snaps.stop();
+        expect(sn.failures).toEqual([]);
+        await Promise.all([...starting, ...draws]);
+    }, 60000);
+});
+
 // ==================== (f) requestSnapshot ====================
 
 describe('(f) requestSnapshot -> stateSnapshot', () => {

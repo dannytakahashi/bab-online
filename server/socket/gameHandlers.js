@@ -975,6 +975,10 @@ async function handleHandComplete(game, io) {
         // Check for tournament context
         const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
 
+        // /help: a private line to each player this game counted as
+        // bot-assisted for (before gameEnd: nothing is sent after it)
+        require('./assistHandlers').gameEndLines(io, game);
+
         // gameEnd goes out first, then ENDED + epoch bump + timer
         // cancellation (synchronously). False: the game was aborted
         // meanwhile, so the tournament must not be resolved a second time.

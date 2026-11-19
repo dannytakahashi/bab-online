@@ -37,7 +37,12 @@ describe('/privacy', () => {
     beforeAll(async () => { html = await page('/privacy'); });
 
     test('shows the effective date', () => {
-        expect(html).toContain('<strong>Last updated:</strong> November 17, 2026');
+        expect(html).toContain('<strong>Last updated:</strong> November 18, 2026');
+    });
+
+    test('says the /help counts are kept with the game and in its record (server/socket/assistHandlers.js, buildGameEndRecord)', () => {
+        expect(html).toContain('how many times each seat used /help (and whether that made it a bot-assisted game for that player)');
+        expect(html).toContain('how many times each player has used /help, the game log, and its chat');
     });
 
     test('names every processor that sees player data', () => {
@@ -86,7 +91,7 @@ describe('/privacy', () => {
 
     test('says what a game in progress keeps, and for how long (deploy survival: liveGames / liveTournaments)', () => {
         // What We Collect
-        expect(html).toContain('<li><strong>Games in progress:</strong> while a game or tournament is running, its state is saved to our database so it can continue after a server update: who is in each seat, each player\'s cards, bids, tricks and scores, the game log, and its chat (including spectators\' messages), and for a game started from a lobby, the lobby\'s name and the usernames of its members (including members who sat out and watched); for a tournament, from when it is created, also its name, players, scoreboard and chat. It is normally deleted when the game ends, or about 10 minutes after a tournament ends (while its final standings are shown), and always within a day.</li>');
+        expect(html).toContain('<li><strong>Games in progress:</strong> while a game or tournament is running, its state is saved to our database so it can continue after a server update: who is in each seat, each player\'s cards, bids, tricks and scores, how many times each player has used /help, the game log, and its chat (including spectators\' messages), and for a game started from a lobby, the lobby\'s name and the usernames of its members (including members who sat out and watched); for a tournament, from when it is created, also its name, players, scoreboard and chat. It is normally deleted when the game ends, or about 10 minutes after a tournament ends (while its final standings are shown), and always within a day.</li>');
         // How Long We Keep It (the TTL: expireAt = createdAt + 24 h)
         expect(html).toContain('<li><strong>Games in progress:</strong> until the game ends, or about 10 minutes after a tournament ends, and at most one day. Copies in backups expire as described below.</li>');
         expect(html).toContain('reconnecting you to games in progress, including after a server update');
@@ -128,5 +133,12 @@ describe('/support', () => {
         // A tournament is saved from creation, its lobby chat included
         expect(html).not.toContain('Main room and lobby chat is not saved');
         expect(html).not.toContain('Chat is not saved');
+    });
+
+    test('the /help answer (assistHandlers: ?help for older iOS, 3 free uses, the 4th makes it a bot game)', async () => {
+        const html = await page('/support');
+        expect(html).toContain('<summary>Can I get a hint during a game?</summary>');
+        expect(html).toMatch(/type <strong>\/help<\/strong> in the game chat \(in older versions of the iOS app, type <strong>\?help<\/strong>\)/);
+        expect(html).toContain('Each game you get 3 free uses; if you use /help a 4th time, that game counts as bot-assisted for you');
     });
 });

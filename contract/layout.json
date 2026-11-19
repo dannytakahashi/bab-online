@@ -225,7 +225,8 @@
           "restorePlayerState",
           "spectatorJoined",
           "spectatorsUpdated",
-          "bidClock"
+          "bidClock",
+          "assistHint"
         ]
       },
       {
@@ -534,7 +535,8 @@
           "restorePlayerState",
           "spectatorJoined",
           "spectatorsUpdated",
-          "bidClock"
+          "bidClock",
+          "assistHint"
         ]
       },
       {

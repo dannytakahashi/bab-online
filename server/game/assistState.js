@@ -30,6 +30,14 @@
 
 const POSITIONS = [1, 2, 3, 4];
 
+/**
+ * Free counted /help uses per player per game (plan D10, owner
+ * 2026-11-18): the next one makes the game bot-assisted for that player
+ * (their stats go to the bot-game bucket; profileHandlers.buildGameEndRecord).
+ * Change it only with the owner.
+ */
+const ASSIST_FREE_HELP = 3;
+
 /** The record's keys, in order (gameCodec SAVED.assistSeat). */
 const ASSIST_SEAT_KEYS = Object.freeze(['user', 'help', 'lastHelpKey', 'tutorial', 'auto', 'tutorialEver', 'tips']);
 
@@ -77,7 +85,26 @@ function normalizeAssist(assist) {
     return out;
 }
 
+/**
+ * Has the seat owner `owner` made this game bot-assisted for themselves
+ * (more than ASSIST_FREE_HELP counted /help uses)? A record that belongs to
+ * someone else (a.user is not the owner) never counts.
+ * @param {Object|null|undefined} a - one game.assist record
+ * @param {string|null|undefined} owner - the seat's ownerUsername
+ */
+function isAssistedSeat(a, owner) {
+    return !!a && !!owner && a.user === owner && a.help > ASSIST_FREE_HELP;
+}
+
+/** The counted /help uses of `owner` in record `a` (0 for someone else's record). */
+function helpUses(a, owner) {
+    return a && owner && a.user === owner ? a.help : 0;
+}
+
 module.exports = {
+    ASSIST_FREE_HELP,
+    isAssistedSeat,
+    helpUses,
     ASSIST_SEAT_KEYS,
     defaultAssistSeat,
     defaultAssist,

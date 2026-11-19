@@ -1,6 +1,6 @@
 /**
- * Chat socket event handlers (in-game chat and the /lazy /active /leave
- * slash commands).
+ * Chat socket event handlers (in-game chat, the /lazy /active /leave /help
+ * slash commands and the ?help keyword).
  *
  * The sender's role decides what a message may do:
  *   owner      the socket in a seat's ownerSocketId (human at the seat, or the
@@ -10,6 +10,10 @@
  *   spectator  a pure spectator (gameManager.spectatorGames), incl. a stale
  *              shadow demoted when a newer socket took the seat
  * Anything else that is mapped (a bot or stale socket) is ignored.
+ *
+ * /help and the exact line ?help (shipped iOS cannot send an unknown /
+ * command) go to assistHandlers for every role and are never chat: a seat
+ * owner gets a suggestion, a spectator or entrant a private line.
  */
 
 const gameManager = require('../game/GameManager');
@@ -18,6 +22,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { serverErrorOf } = require('./serverError');
 const { deletedSince } = require('../admin/accountDelete');
+const assistHandlers = require('./assistHandlers');
 
 /** @returns {{game, role, pos}|null} */
 function resolveSender(socketId) {
@@ -43,6 +48,13 @@ function sendError(io, game, socket, message) {
 function ownerCommand(socket, io, game, pos, message) {
     const command = message.trim().toLowerCase();
     const seat = game.seat(pos);
+
+    // /help: a suggestion at a human seat; at a bot-controlled one (either
+    // view) the line "A bot is playing your seat. Type /active first."
+    if (assistHandlers.isHelpCommand(command)) {
+        assistHandlers.help(socket, io, game, pos);
+        return;
+    }
 
     if (seat.controller === Controller.HUMAN) {
         if (command === '/lazy') {
@@ -81,6 +93,10 @@ function ownerCommand(socket, io, game, pos, message) {
  */
 function spectatorCommand(socket, io, game, message) {
     const command = message.trim().toLowerCase();
+    if (assistHandlers.isHelpCommand(command)) {
+        assistHandlers.request(socket, io, { game, role: 'spectator', pos: null });
+        return;
+    }
     if (command === '/leave') {
         gameManager.leaveSpectating(io, socket.id);
         // leftGame only: both clients go back to the main room on it (the
@@ -161,15 +177,25 @@ function chatMessage(socket, io, data) {
     const { game, role, pos } = sender;
     const isCommand = data.message.startsWith('/');
 
+    // ?help (the exact line): /help for shipped iOS. Before the profanity
+    // filter and the log: never broadcast, never stored as chat
+    if (!isCommand && assistHandlers.isHelpKeyword(data.message)) {
+        assistHandlers.request(socket, io, sender);
+        return;
+    }
+
     if (role === 'spectator') {
         if (isCommand) {
             spectatorCommand(socket, io, game, data.message);
             return;
         }
     } else if (role === 'entrant') {
-        // Before seats exist only /leave does anything
-        if (isCommand && data.message.trim().toLowerCase() === '/leave') {
+        // Before seats exist only /leave does anything (and /help says when it will)
+        const command = data.message.trim().toLowerCase();
+        if (isCommand && command === '/leave') {
             handleDrawPhaseLeave(socket, io, game);
+        } else if (isCommand && assistHandlers.isHelpCommand(command)) {
+            assistHandlers.request(socket, io, sender);
         } else {
             socketLogger.debug('Chat rejected: no position', { socketId: socket.id });
         }

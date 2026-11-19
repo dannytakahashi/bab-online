@@ -200,6 +200,16 @@ After all 13 hands are completed:
 
 ---
 
+## Suggestions (/help)
+
+- On your turn, type `/help` in the game chat (older iOS app versions: type `?help`, exactly that) to see the bid or card our strongest bot would choose in your seat, with a short reason. It is a strong guess, not a guarantee
+- Only you see the suggestion. The table sees "<your name> used /help." each time a use counts
+- Off your turn it tells you whose turn it is; it never pauses the bid timer
+- Each game you get **3 free uses**. Asking again on the same turn is free, and so is a move with only one legal card. The **4th use** makes that game count as bot-assisted for you: it goes in your bot-game statistics, not your human ones, and the game is listed with the bot games in Records (the other players' statistics stay human). This applies at tournament tables too
+- Spectators can't use it
+
+---
+
 ## Strategy Tips
 
 The most important thing to know: **the set penalty is devastating**. Bidding 3 and winning 4 gives you +31, but bidding 4 and winning 3 costs you -40. When in doubt, bid one fewer than you think you can win.

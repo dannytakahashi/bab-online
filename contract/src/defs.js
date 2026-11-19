@@ -276,6 +276,11 @@ const defs = {
     // at the end of a lobby-born casual game the client is moved back into
     // that lobby (s2c lobbyReturn) (contract/README.md "Client capabilities")
     clientCapPlayAgain: konst('playAgain'),
+    // A fourth, its own const for the same reason (2026-11-18, /help): the
+    // client renders the private s2c assistHint; without it a /help answer
+    // comes as private gameLogEntry lines (contract/README.md "Client
+    // capabilities")
+    clientCapAssist: konst('assist'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)
