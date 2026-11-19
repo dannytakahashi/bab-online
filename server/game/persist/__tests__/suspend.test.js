@@ -32,6 +32,7 @@ const GamePhase = require('../../GamePhase');
 const SeatState = require('../../SeatState');
 const gameHandlers = require('../../../socket/gameHandlers');
 const gameLifecycle = require('../../../socket/gameLifecycle');
+const SeatLifecycle = require('../../../socket/seatLifecycle');
 const profileHandlers = require('../../../socket/profileHandlers');
 const { decisionLog } = require('../../../testUtils/persistHarness');
 const { watchSafePoints } = require('../../../testUtils/restoreKit');
@@ -356,6 +357,191 @@ describe('while suspended', () => {
         t.done();
     });
 
+});
+
+/** A table with `humans` connected human seats, in BIDDING with no hold open. */
+async function seatedHumans(seed, humans) {
+    const t = startTable({ mockDb, seed, humans, prefix: 'sp' });
+    const { game, io, socks } = t;
+    const target = () => game.stage === Phase.BIDDING && !game.resume;
+    for (let i = 0; i < 4000 && !target(); i++) {
+        await jest.advanceTimersByTimeAsync(100);
+        if (!target()) track(driveHumans(io, game, socks));
+    }
+    expect(target()).toBe(true);
+    const posOf = (sock) => game.seatByOwnerSocket(sock.id);
+    const room = (from) => t.log.slice(from).filter((l) => l.to === game.roomName);
+    /** ms of play, the given sockets driven every 500 ms */
+    const play = async (ms, sockets) => {
+        for (let left = ms; left > 0 && !game.isTerminal(); left -= 500) {
+            await jest.advanceTimersByTimeAsync(Math.min(500, left));
+            track(driveHumans(io, game, sockets));
+        }
+    };
+    return { ...t, posOf, room, play };
+}
+
+// Presence changed while suspended is announced at the thaw (chaos seeds
+// 43, 62, 76, ...: "early or stale resign offer"). Every emit is dropped
+// while suspended, so the room never heard of a drop (or a return) that
+// happened then; the resign offer a minute later followed no announced
+// disconnect. unsuspend re-announces what changed, oldest absence first,
+// then the resign offer if it moved
+describe('presence across a suspension', () => {
+    const queueHandlers = () => require('../../../socket/queueHandlers');
+    const reconnectHandlers = () => require('../../../socket/reconnectHandlers');
+    const { makeSocket } = require('../../../testUtils/gameDriver');
+
+    test('an owner who drops while suspended: playerDisconnected at the thaw, the offer a full grace after it', async () => {
+        const t = await seatedHumans(41, 2);
+        const { game, io, socks, room, play } = t;
+        const pos = t.posOf(socks[1]);
+        expect(game.suspend()).toBe(true);
+        const mark = t.log.length;
+        await queueHandlers().handleDisconnect(socks[1], io);
+        expect(game.seat(pos).presence).toBe('grace');
+        await jest.advanceTimersByTimeAsync(2000);
+        expect(room(mark)).toEqual([]);
+        game.unsuspend(io);
+        const dc = room(mark).filter((l) => l.event === 'playerDisconnected');
+        expect(dc.map((l) => l.data)).toEqual([expect.objectContaining({ position: pos, username: game.seat(pos).ownerUsername })]);
+        await play(61000, [socks[0]]);
+        const offers = room(mark).filter((l) => l.event === 'resignationAvailable');
+        expect(offers.map((l) => l.data.position)).toEqual([pos]);
+        expect(offers[0].at - dc[0].at).toBeGreaterThanOrEqual(60000);
+        t.done();
+    });
+
+    test('an owner who drops before and is back while suspended: playerReconnected at the thaw', async () => {
+        const t = await seatedHumans(42, 2);
+        const { game, io, socks, room } = t;
+        const pos = t.posOf(socks[1]);
+        const username = game.seat(pos).ownerUsername;
+        const before = t.log.length;
+        await queueHandlers().handleDisconnect(socks[1], io);
+        expect(room(before).filter((l) => l.event === 'playerDisconnected').map((l) => l.data.position)).toEqual([pos]);
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(game.suspend()).toBe(true);
+        const back = makeSocket('sp42-h1-back', t.log, io);
+        gameManager.registerUser(back.id, username);
+        await reconnectHandlers().rejoinGame(back, io, { gameId: game.gameId, username });
+        expect(game.seat(pos).presence).toBe('connected');
+        const mark = t.log.length;
+        game.unsuspend(io);
+        const presence = room(mark).filter((l) => l.event === 'playerDisconnected' || l.event === 'playerReconnected');
+        expect(presence.map((l) => [l.event, l.data.position])).toEqual([['playerReconnected', pos]]);
+        t.done();
+    });
+
+    test('the offered owner is back while suspended: playerReconnected, then the offer moved meanwhile, at the thaw', async () => {
+        const t = await seatedHumans(43, 3);
+        const { game, io, socks, room, play } = t;
+        const [p1, p2] = [t.posOf(socks[1]), t.posOf(socks[2])];
+        await queueHandlers().handleDisconnect(socks[1], io);
+        await play(1000, [socks[0]]);
+        await queueHandlers().handleDisconnect(socks[2], io);
+        await play(61000, [socks[0]]);
+        expect(game.resignablePositions().sort()).toEqual([p1, p2].sort());
+        // Each grace expiry offers its seat: the room holds p2's offer
+        expect(game.offerPos).toBe(p2);
+        expect(game.suspend()).toBe(true);
+        const username = game.seat(p2).ownerUsername;
+        const back = makeSocket('sp43-h2-back', t.log, io);
+        gameManager.registerUser(back.id, username);
+        await reconnectHandlers().rejoinGame(back, io, { gameId: game.gameId, username });
+        // reofferAfter moved the offer to p1 (its broadcast dropped)
+        expect(game.offerPos).toBe(p1);
+        const mark = t.log.length;
+        game.unsuspend(io);
+        const told = room(mark).filter((l) => ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event));
+        expect(told.map((l) => [l.event, l.data.position])).toEqual([['playerReconnected', p2], ['resignationAvailable', p1]]);
+        t.done();
+    });
+
+    test('an absent owner back and gone again while suspended: playerDisconnected at the thaw (its new grace)', async () => {
+        const t = await seatedHumans(45, 2);
+        const { game, io, socks, room } = t;
+        const pos = t.posOf(socks[1]);
+        const username = game.seat(pos).ownerUsername;
+        await queueHandlers().handleDisconnect(socks[1], io);
+        await jest.advanceTimersByTimeAsync(1000);
+        expect(game.suspend()).toBe(true);
+        const back = makeSocket('sp45-h1-back', t.log, io);
+        gameManager.registerUser(back.id, username);
+        await reconnectHandlers().rejoinGame(back, io, { gameId: game.gameId, username });
+        expect(game.seat(pos).presence).toBe('connected');
+        await queueHandlers().handleDisconnect(back, io);
+        expect(game.seat(pos).presence).toBe('grace');
+        const mark = t.log.length;
+        game.unsuspend(io);
+        const told = room(mark).filter((l) => ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event));
+        expect(told.map((l) => [l.event, l.data.position])).toEqual([['playerDisconnected', pos]]);
+        t.done();
+    });
+
+    // Chaos seeds 350 and 1136 (Node 26): a /lazy or a forceResign while
+    // suspended changed who plays the seat, but playerLazyMode /
+    // playerResigned, the clock's `stopped` (350: 'bid clock wire') and the
+    // moved offer (1136: an owner held a stale offer) were all dropped, so
+    // the room kept a human at a seat a bot now plays. A seat command
+    // changes the table for everyone, like turn input: refused while paused
+    // (the sender is told on its own socket)
+    test('seat commands (/lazy, /active, /leave, forceResign) are refused while suspended, and work after the thaw', async () => {
+        const t = await seatedHumans(46, 3);
+        const { game, io, socks, room, play } = t;
+        const chat = require('../../../socket/chatHandlers');
+        const [p0, p1, p2] = socks.map((sk) => t.posOf(sk));
+        await queueHandlers().handleDisconnect(socks[2], io);
+        await play(61000, [socks[0], socks[1]]);
+        expect(game.resignablePositions()).toEqual([p2]);
+        chat.chatMessage(socks[1], io, { message: '/lazy' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(game.seat(p1).controller).toBe('lazyBot');
+        const seats = () => JSON.stringify(game.seatList().map((st) => [st.position, st.controller, st.presence, st.ownerSocketId]));
+        expect(game.suspend()).toBe(true);
+        const before = seats();
+        const mark = t.log.length;
+        chat.chatMessage(socks[0], io, { message: '/lazy' });
+        chat.chatMessage(socks[0], io, { message: '/leave' });
+        chat.chatMessage(socks[1], io, { message: '/active' });
+        chat.chatMessage(socks[1], io, { message: '/leave' });
+        await gameHandlers.forceResign(socks[0], io, { position: p2 });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(seats()).toBe(before);
+        expect(room(mark)).toEqual([]);
+        const refusals = t.log.slice(mark).filter((l) => l.event === 'serverError');
+        expect(refusals.map((l) => [l.to.replace(/^self:/, ''), l.data.handler, l.data.message])).toEqual([
+            ...[0, 0, 1, 1].map((i) => [socks[i].id, 'chatMessage', SeatLifecycle.PAUSED_LINE]),
+            [socks[0].id, 'forceResign', SeatLifecycle.PAUSED_LINE],
+        ]);
+        game.unsuspend(io);
+        await gameHandlers.forceResign(socks[0], io, { position: p2 });
+        expect(game.seat(p2).controller).toBe('resignBot');
+        chat.chatMessage(socks[1], io, { message: '/active' });
+        await jest.advanceTimersByTimeAsync(0);
+        expect(game.seat(p1).controller).toBe('human');
+        expect(game.seat(p0).controller).toBe('human');
+        t.done();
+    });
+
+    test('nothing changed while suspended: nothing re-announced', async () => {
+        const t = await seatedHumans(44, 2);
+        const { game, io, socks, room, play } = t;
+        const pos = t.posOf(socks[1]);
+        await queueHandlers().handleDisconnect(socks[1], io);
+        await play(61000, [socks[0]]);
+        expect(game.resignablePositions()).toEqual([pos]);
+        expect(game.offerPos).toBe(pos);
+        expect(game.suspend()).toBe(true);
+        await jest.advanceTimersByTimeAsync(1500);
+        const mark = t.log.length;
+        game.unsuspend(io);
+        expect(room(mark).filter((l) => ['playerDisconnected', 'playerReconnected', 'resignationAvailable'].includes(l.event))).toEqual([]);
+        t.done();
+    });
+});
+
+describe('a frozen game', () => {
     test('a frozen game: abortGame emits, retires and clears nothing', async () => {
         const t = await atHumanBid(36);
         const { game, io, log } = t;

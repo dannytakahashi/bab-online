@@ -1102,6 +1102,13 @@ async function forceResign(socket, io, data) {
         return;
     }
 
+    // A suspended table (the holder self-fence) takes no seat command: the
+    // room could not be told (seatLifecycle.PAUSED_LINE)
+    if (game.isSuspended) {
+        emitError(socket, { message: seatLifecycle.PAUSED_LINE }, 'forceResign');
+        return;
+    }
+
     // An idle seat at a tournament table whose offer stands (owner,
     // 2026-11-15): any other present owner may replace it
     if (position !== requestingPosition && seatLifecycle.idleOfferStands(game, position)) {

@@ -525,7 +525,8 @@ class GameState {
      * is emitted (broadcast, sendToPlayer, ... are no-ops: no seq is used;
      * the one exception is the store's pause / resume line, unsavedNotice),
      * no turn input is accepted (applyBid / checkPlay refuse as
-     * not_your_turn), a timer, pause or bot action started meanwhile is
+     * not_your_turn) nor any seat command (/lazy, /active, /leave,
+     * forceResign: seatLifecycle.PAUSED_LINE), a timer, pause or bot action started meanwhile is
      * only remembered, an abort waits (gameLifecycle.abortGame defers it to
      * the thaw) and the codec refuses to save the game. Not terminal, not
      * frozen. unsuspend(io) puts it all back.
@@ -556,7 +557,15 @@ class GameState {
             ends: false,   // a deferred abort is queued (abortOnThaw)
             resumeLeft: this.resume ? Math.max(0, this.resume.at - now) : null,
             bidClock: this.bidClock,
-            afkClock: this.afkClock
+            afkClock: this.afkClock,
+            // What the room was last told (presence and the resign offer):
+            // nothing is emitted meanwhile, the thaw re-announces what changed
+            // (seatLifecycle.afterSuspend)
+            seats: new Map(this.seatList().map(seat => [seat.position, {
+                absent: seat.presence === Presence.GRACE || seat.presence === Presence.RESIGNABLE,
+                controller: seat.controller
+            }])),
+            offerPos: this.offerPos
         };
         require('./bot').botController.suspendGame(this.gameId);
         gameLogger.info('Game suspended', { gameId: this.gameId, stage: this._stage });
@@ -622,8 +631,11 @@ class GameState {
      * is never re-armed from its raw timer: bidClock.afterSuspend runs
      * bidClock.onTurn (its same-turn resume, the clock's own deadline moved
      * by the suspended time), which arms it again and announces a running
-     * clock anew (after a `stopped`: the clients' countdown ran on). Aborts asked for
-     * meanwhile run last. A game frozen or ended meanwhile just drops it all.
+     * clock anew (after a `stopped`: the clients' countdown ran on). The
+     * human seats' presence that changed meanwhile, and the resign offer if
+     * it moved, are announced again (seatLifecycle.afterSuspend: the room
+     * heard nothing while suspended). Aborts asked for meanwhile run last.
+     * A game frozen or ended meanwhile just drops it all.
      * @param {Object} io
      * @returns {boolean} false if it was not suspended
      */
@@ -676,6 +688,16 @@ class GameState {
         due.sort((a, b) => a.ms - b.ms);
         for (const d of due) d.arm();
         if (s.timers.has('bidClock')) require('../socket/bidClock').afterSuspend(io, this);
+        // The presence changed meanwhile, and the resign offer if it moved, to
+        // the room (a grace begun meanwhile: its owner dropped again). Not
+        // when the deferred abort runs straight after (abortOnThaw)
+        if (io && !s.ends) {
+            const regraced = new Set();
+            for (const [key, t] of s.timers) {
+                if (key.startsWith('grace:') && t.since != null) regraced.add(Number(key.slice(6)));
+            }
+            require('../socket/seatLifecycle').afterSuspend(io, this, { seats: s.seats, offerPos: s.offerPos, regraced });
+        }
         gameLogger.info('Game unsuspended', { gameId: this.gameId, stage: this._stage, ms: dt });
         // Changes made while suspended were not saved
         persistHooks.gameChanged(this);

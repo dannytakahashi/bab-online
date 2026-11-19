@@ -145,6 +145,15 @@ function reattachTournament(io, socket, gameId, username) {
     return gameManager.getTournamentById(tournamentId);
 }
 
+/**
+ * The private reply to a seat command (/lazy, /active, /leave, forceResign)
+ * from a suspended table (GameState.suspend, the holder self-fence): it
+ * changes who plays a seat for the whole room, and nothing reaches the room
+ * while suspended, so it is refused like turn input. Sent with socket.emit
+ * (game.sendToPlayer is dropped while suspended).
+ */
+const PAUSED_LINE = 'The game is paused. Try again when it resumes.';
+
 // ==================== presence replay & resign offers ====================
 
 /**
@@ -185,6 +194,39 @@ function replayPresenceTo(game, socket, ownPos) {
     } else if (game.idleOffer && game.idleOffer.pos !== ownPos) {
         sendIdleOffer(socket, game, game.idleOffer.pos);
     }
+}
+
+/**
+ * The thaw (GameState.unsuspend; deploy survival, 'on'): every emit was
+ * dropped while the table was suspended, so the room never heard of a
+ * human seat's owner who dropped or came back meanwhile, nor of a resign
+ * offer reofferAfter moved. Re-announce what changed against what the room
+ * was told at the suspend (`before.seats`): playerReconnected for a seat
+ * absent then and connected now; playerDisconnected (oldest absence first,
+ * as replayPresenceTo) for one absent now that was not then, or whose grace
+ * began meanwhile (`before.regraced`: it was back and dropped again). Then
+ * the offer, if it moved and someone is here. Human-controlled seats only
+ * (then and now): a controller change is no presence change.
+ * @param {Object} io
+ * @param {GameState} game
+ * @param {{seats: Map<number, {absent: boolean, controller: string}>, offerPos: ?number, regraced: Set<number>}} before
+ */
+function afterSuspend(io, game, before) {
+    const absent = s => s.presence === Presence.GRACE || s.presence === Presence.RESIGNABLE;
+    const dropped = [];
+    for (const s of game.seatList()) {
+        const then = before.seats.get(s.position);
+        if (!then || !s.ownerUsername || s.controller !== Controller.HUMAN || then.controller !== Controller.HUMAN) continue;
+        if (absent(s)) {
+            if (!then.absent || before.regraced.has(s.position)) dropped.push(s);
+        } else if (then.absent && s.presence === Presence.CONNECTED) {
+            game.broadcast(io, 'playerReconnected', { position: s.position, username: s.ownerUsername });
+        }
+    }
+    dropped.sort((a, b) => (a.absentSince - b.absentSince) || (a.position - b.position));
+    for (const s of dropped) game.broadcast(io, 'playerDisconnected', { position: s.position, username: s.ownerUsername });
+    const p = game.offerPos;
+    if (p != null && p !== before.offerPos && game.resignablePositions().includes(p) && game.hasPresentHuman()) offer(io, game, p);
 }
 
 /**
@@ -875,5 +917,7 @@ module.exports = {
     maybeAbort,
     reofferAfter,
     replayPresenceTo,
+    afterSuspend,
+    PAUSED_LINE,
     startDrawWatchdog
 };
