@@ -366,7 +366,9 @@ const defs = {
         canAct: bool(),
         // additive (2026-11-19): the viewer's own /help count this game,
         // as s2c assistHint sends it; present only for a seat owner (role
-        // seat or lazyWatcher), absent for everyone else
+        // seat or lazyWatcher), absent for everyone else. Read by the web
+        // (tableSync) and iOS after 1.2.3 (17) (TableReducer+Snapshot: the
+        // chat list's "(n of 3 free used)" after a rejoin)
         assist: ref('viewerAssist'),
     }, { optional: ['assist'] }),
     viewerAssist: obj({

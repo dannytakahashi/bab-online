@@ -1,5 +1,6 @@
 #if DEBUG
 import Foundation
+import SwiftUI
 
 /// Fault rows in fixture mode (FaultRowsUITests; no server). `-uiFaults YES`: the seeded
 /// snapshot's log ends with an earlier hand's lines and its two stored fault lines (the server's
@@ -61,6 +62,33 @@ extension UIFixture {
                 store.apply(.snapshot(again, .rejoin, hints: nil))
             }
         }
+    }
+
+    /// `-uiLogProbe YES` (DEBUG, also outside fixture mode: LiveFaultRowsTests against a local
+    /// server): the probe "table.logFaults" lists the game log's red rows, whether or not the
+    /// log's lazy list has them on screen.
+    static let logProbe: Bool = UserDefaults.standard.bool(forKey: "uiLogProbe")
+}
+
+/// "table.logFaults": "<n>: <row> | <row> ..." (the log's fault rows in order; "0:" none).
+struct LogFaultsProbe: View {
+    let rows: [ChatMessage]
+
+    var body: some View {
+        let faults = rows.filter(\.isFault).map(\.message)
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.black)
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .accessibilityElement()
+                .accessibilityLabel("table.logFaults")
+                .accessibilityIdentifier("table.logFaults")
+                .accessibilityValue("\(faults.count): " + faults.joined(separator: " | "))
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .allowsHitTesting(false)
     }
 }
 #endif

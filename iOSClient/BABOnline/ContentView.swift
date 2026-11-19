@@ -141,6 +141,9 @@ struct ContentView: View {
                 FixtureWindowProbe().ignoresSafeArea(.keyboard)
                 FixtureProbes()
             }
+            if UIFixture.isActive || UIFixture.logProbe {
+                LogFaultsProbe(rows: gameState.gameLog)
+            }
         }
         #endif
         // the one-time passwordReset notice after a sign-in or restore (AccountRules.swift)

@@ -30,6 +30,8 @@ final class FaultRowsUITests: XCTestCase {
         // the reconnect's snapshot (4 s after launch) replays them: still once each
         Thread.sleep(forTimeInterval: 3.5)
         XCTAssertEqual(faultRows(app), ["Fault: ivy (bid 3, took 1)", "Fault: hal (bid 2, took 0)", "Fault: hal (bid 4, took 2)"])
+        XCTAssertEqual(Fixture.probe(app, "table.logFaults"),
+                       "3: Fault: ivy (bid 3, took 1) | Fault: hal (bid 2, took 0) | Fault: hal (bid 4, took 2)")
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = "fault-rows"
         shot.lifetime = .keepAlways

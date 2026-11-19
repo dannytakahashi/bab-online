@@ -41,4 +41,6 @@ Never auto-loaded: open it for `server/game/assist/**`, the bot decision traces 
 
 ## iOS (the build after 1.2.3 (17))
 
+- After a relaunch or rejoin the snapshot's `viewer.assist` sets this game's uses (`TableReducer+Snapshot` `state(from:)`; a same-game snapshot without it, from an older server, keeps the count it had; a spectator's has none: unknown), so the chat list reads the exact "Suggest a move (n of 3 free used)" at once (`FaultRowsTests.testTheSnapshotsViewerAssistMakesTheCountExact`, `FaultRowsUITests` `-uiSnapshotHelpUses`, `LiveFaultRowsTests`)
+
 - The app sends the clientHello cap `assist` and renders `assistHint` (AssistCardView above the hand or the bid panel, the suggested card's gold ring, the suggested bid's ring, the lightbulb by the hand that sends /help on my own turn, /help in the chat command list with "Suggest a move (n of 3 free used)"): `iOSClient/CLAUDE.md`, iOS table, the /help bullet. Builds <= 17 never send the cap and keep the private lines (and `?help`)
