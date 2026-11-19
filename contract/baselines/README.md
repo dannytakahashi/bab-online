@@ -58,7 +58,8 @@ the test and the release step alike:
 | iOS 1.2.2 (11) | `ios-1.2.2-b11.*` | cd9e11c (branch ios/build-11, frozen 2026-11-16 before its PR merged; the merge commit on main has the same `iOSClient/BABOnline` and `contract/src`; the schema is byte-identical to build 10's and the floor differs only in its build and commit; the `stateSnapshot.requestId` waiver holds as for 10) | submitted for review 2026-11-16, pulled from review the same day for build 12 |
 | iOS 1.2.2 (12) | `ios-1.2.2-b12.*` | eb46746 (branch nits/family-nits, frozen 2026-11-16 before PR #310 merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: family lobbies, spectator voice, play again with members[].onResults, polish, the lobby-header and spectator-label fixes; build 12 replaces 1.2.2 (11), pulled from review, so it stays 1.2.2; the `stateSnapshot.requestId` waiver holds) | submitted for review, pulled from review 2026-11-17 for build 13 |
 | iOS 1.2.2 (13) | `ios-1.2.2-b13.*` | 523a1f9 (branch release/ios-1.2.2-b13, frozen 2026-11-17 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: build 12 plus the 390 pt card-back fans fix (#313), the voice-test hardening (#312) and the refreshed boot splash with the sign-in / register in the web's style (#314); no wire change, so the contract and decodes match build 12's; still 1.2.2, it replaced build 12 in review; the `stateSnapshot.requestId` waiver holds) | submitted for review 2026-11-17, released 2026-11-17 |
-| iOS 1.2.3 (14) | `ios-1.2.3-b14.*` | 28356eb (branch release/ios-1.2.3-b14, frozen 2026-11-18 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.2 (13) plus teams labelled by player names (#318), voice on the loudspeaker (#320) and the one-time voice panel tip (#322); no wire change, so the contract and decodes match build 13's; 1.2.2 (13) was released 2026-11-17, so build 14 is 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded and submitted for review |
+| iOS 1.2.3 (14) | `ios-1.2.3-b14.*` | 28356eb (branch release/ios-1.2.3-b14, frozen 2026-11-18 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.2 (13) plus teams labelled by player names (#318), voice on the loudspeaker (#320) and the one-time voice panel tip (#322); no wire change, so the contract and decodes match build 13's; 1.2.2 (13) was released 2026-11-17, so build 14 is 1.2.3; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight 2026-11-18, not submitted |
+| iOS 1.2.3 (15) | `ios-1.2.3-b15.*` | a41dd0eb (branch release/ios-1.2.3-b15, frozen 2026-11-18 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (14) plus the bid clock (#330: decodes the unsequenced s2c `bidClock` and the snapshot's optional `bidClock`), the voice panel long press (#326) and the paced loudspeaker safety net (#327); build 14 went only to TestFlight, so build 15 is still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -79,8 +80,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 14                  # HEAD must be build 14 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 14 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 15                  # HEAD must be build 15 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 15 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
