@@ -14,7 +14,8 @@
  *   on     (PR 5, casual games) everything write does, plus: the store
  *          writes nothing until start() (its serverInstances doc exists
  *          first), a casual game's doc says ownerMode 'on' (adoptable),
- *          a lost doc is a fence (fenceOnLoss), the sweep adopts other
+ *          a lost casual doc is a fence (fenceOnLoss; a lost tournament or
+ *          tournament-table doc plays on as in write mode), the sweep adopts other
  *          instances' released or dead-owner docs (adopt.js), resolve()
  *          answers where a game is, the heartbeat carries the holder
  *          self-fence, and SIGTERM / a crash hand off (handoff.js). Only
@@ -46,7 +47,8 @@
  *     warning: no instance can adopt a 'write' doc, so a lost one is an
  *     outside delete (an operator, a restore, a rolled-back write), never
  *     a successor, and the game must not end over it. With `fenceOnLoss`
- *     (the default in effective 'on'; tests) a lost doc is a fence: the local copy is retired
+ *     (the default in effective 'on' for a doc last written ownerMode
+ *     'on', the only kind another instance adopts; tests) a lost doc is a fence: the local copy is retired
  *     (game.freeze: nothing more is emitted or timed; GameManager._retire
  *     with no io; a tournament is deleted from GameManager), no side
  *     effect runs, and the sockets at it are engine-closed
@@ -74,9 +76,9 @@
  * insert exactly once (the unique gameId index). An aborted casual game's
  * doc is deleted; an aborted tournament table becomes a tombstone with
  * `aborted: true` (no record). In write mode the claim never fences (no
- * adopter exists): its outcome never skips stats. In 'on' a claim that
- * finds the doc gone early, another instance's or released answers
- * 'fenced' (another instance owns the end: gameEnd and abortGame then
+ * adopter exists): its outcome never skips stats. In 'on' a claim of a casual
+ * (ownerMode 'on') doc that finds it gone early, another instance's or
+ * released answers 'fenced' (another instance owns the end: gameEnd and abortGame then
  * skip stats, pointer clears and tournament scoring), and so does any
  * later claim of a game this store fenced.
  *
@@ -312,7 +314,12 @@ function createLiveStore({
     };
     const effective = () => latchedMode ?? computeEffective();
     const isOn = () => effective() === 'on';
-    const fences = () => (fenceOnLoss === null ? isOn() : fenceOnLoss);
+    // A lost doc is a fence only if another instance could own it now: in
+    // effective 'on', a doc last written ownerMode 'on' (a casual table;
+    // adopt.js adopts nothing else). A tournament and its tables say
+    // 'write' until PR 6, so a lost one (a sweep discarded it after a false
+    // death of this process) stops persisting and plays on, as in write mode
+    const fences = (st) => (fenceOnLoss === null ? isOn() && !!st && st.ownerMode === 'on' : fenceOnLoss);
 
     // entity -> state, and id -> state (tombstones, tournaments by id)
     const byEntity = new WeakMap();
@@ -413,7 +420,8 @@ function createLiveStore({
             retired: false,        // left GameManager (no live writes)
             done: false,           // stopped, fenced, removed: no more writes at all
             suspended: false,      // 'on': the holder self-fence holds its writes
-            resetAttempts: false   // 'on', adopted: the first write after the restore gate opens $sets adoptAttempts 0
+            resetAttempts: false,  // 'on', adopted: the first write after the restore gate opens $sets adoptAttempts 0
+            ownerMode: null        // the ownerMode of the last doc sent ('on': adoptable elsewhere, so a loss fences)
         };
         byEntity.set(entity, st);
         byId.set(`${kind}:${id}`, st);
@@ -441,6 +449,8 @@ function createLiveStore({
             lastLogTotal: Number.isInteger(doc.logTotal) ? doc.logTotal : null,
             fullLog: true, fullLogSeq: 0, lastJson: null, completed: new Set(), rereads: 0,
             retired: false, done: false, suspended: false, resetAttempts: true,
+            // The adopt compare-and-set wrote ownerMode 'on'
+            ownerMode: doc.ownerMode ?? 'on',
             // The adoption fields a whole-doc write (the handoff's final write) keeps
             adoption: { adoptAttempts: Number(doc.adoptAttempts) || 0, adoptedBy: doc.adoptedBy ?? null, adoptedAt: doc.adoptedAt ?? null }
         };
@@ -522,12 +532,13 @@ function createLiveStore({
     }
 
     function envelope(st, doc, at) {
+        st.ownerMode = ownerModeFor(st, doc);
         const base = {
             _id: st.id,
             v: doc.v,
             kind: 'live',
             owner: bootId,
-            ownerMode: ownerModeFor(st, doc),
+            ownerMode: st.ownerMode,
             released: false,
             releasedAt: null,
             rev: st.rev,
@@ -550,6 +561,7 @@ function createLiveStore({
         if (mode === 'on') {
             // An early doc (before the index probe latched the mode) says what holds now
             set.ownerMode = ownerModeFor(st, doc);
+            st.ownerMode = set.ownerMode;
             // Adopted: the first write once the restore gate is open (an
             // owner is back, the table plays) clears the crash-loop counter
             if (st.resetAttempts && st.kind === 'game' && adopter && !adopter.gated(st.entity)) set.adoptAttempts = 0;
@@ -731,7 +743,7 @@ function createLiveStore({
      */
     function lost(st, why) {
         if (st.done) return;
-        if (fences()) {
+        if (fences(st)) {
             fence(st, why);
             return;
         }
@@ -926,8 +938,8 @@ function createLiveStore({
                 stop(st, 'expired');
                 return 'stopped';
             }
-            if (fences()) {
-                // 'on': gone early, another instance's or released: that
+            if (fences(st)) {
+                // 'on', a casual (ownerMode 'on') doc: gone early, another instance's or released: that
                 // instance (an adopter) owns the end. No stats, no pointer
                 // clear, no tournament score from this copy
                 logger.warn('Terminal claim fenced: another instance owns the game', { gameId: st.id, rev: st.rev, why: !doc ? 'gone' : doc.owner !== bootId ? 'owner' : 'released' });
@@ -935,9 +947,10 @@ function createLiveStore({
                 forget(st);
                 return 'fenced';
             }
-            // Someone else holds it, or it is gone. In write mode nobody
-            // can have adopted it: the end goes on as today (stats, pointer
-            // clears, tournament scoring), never fenced
+            // Someone else holds it, or it is gone. In write mode (and for
+            // a 'write' doc in 'on': a tournament table) nobody can have
+            // adopted it: the end goes on as today (stats, pointer clears,
+            // tournament scoring), never fenced
             logger.warn('Terminal claim matched no doc; ending as usual', { gameId: st.id, rev: st.rev, why: doc ? 'owner' : 'gone' });
             forget(st);
             return 'error';
