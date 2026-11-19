@@ -513,6 +513,28 @@ describe('the emit gate across a rejoin', () => {
     }
   });
 
+  it('an engine close during the wait (deploy survival: the new instance parked the rejoin): the old wait never flushes onto the new socket; its own restore and rejoin do, once', () => {
+    vi.useFakeTimers();
+    try {
+      const t = gated();
+      t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' });
+      t.socket.emit('chatMessage', { message: 'x' });
+      expect(t.sent()).toEqual(['rejoinGame']);
+      // socket.conn.close() after the 8 s park: a new socket, not restored yet
+      t.socket.id = 's2';
+      expect(t.session.awaitingRejoin).toBe(false);
+      vi.advanceTimersByTime(REJOIN_HOLD_MS);
+      expect(t.sent()).toEqual(['rejoinGame']);
+      expect(t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' })).toBe('rejoin');
+      expect(t.session.awaitingRejoin).toBe(true);
+      expect(t.sent()).toEqual(['rejoinGame', 'rejoinGame']);
+      t.session.noteRejoinSuccess('g1');
+      expect(t.sent()).toEqual(['rejoinGame', 'rejoinGame', 'chatMessage']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('signed out while waiting: the wait ends, nothing held goes out', () => {
     const t = gated();
     t.session.onSessionRestored({ username: 'me', activeGameId: 'g1' });
