@@ -6,12 +6,15 @@ import Foundation
 /// (a private assistHint for this turn: on my bid turn "Bid 2", on my play turn the first
 /// playable card, off turn a status reply). `-uiAssistUses <n>`: the answer's count (3: the last
 /// free use, with the warning in `note`; 4: the use that makes the game bot-assisted).
-/// `-uiAssistShow YES`: the answer is up 1.5 s after launch, as if asked. Every /help shows in
+/// `-uiAssistShow YES`: the answer is up 1.5 s after launch, as if asked. `-uiAssistFree YES`: the
+/// answer is a game with a native bot seat's (`unlimited`, never assisted, no note), as the server
+/// sends it there (assistState.isFreeHelpGame). Every /help shows in
 /// "fixture.sent"; the card, the glow and the ring in the probe "table.assist".
 extension UIFixture {
     static let assistMode: Bool = isActive && (UserDefaults.standard.bool(forKey: "uiAssist") || assistShow)
     static let assistShow: Bool = isActive && UserDefaults.standard.bool(forKey: "uiAssistShow")
     static let assistUses: Int = max(1, UserDefaults.standard.integer(forKey: "uiAssistUses"))
+    static let assistFree: Bool = isActive && UserDefaults.standard.bool(forKey: "uiAssistFree")
 
     /// The table store the answers go to (set by `seedAssist`).
     @MainActor private static weak var assistStore: GameState?
@@ -42,12 +45,13 @@ extension UIFixture {
     }
 
     /// assistHint as the server builds it (assistHandlers.hintPayload) for `s`.
-    static func assistPayload(_ s: TableState, uses: Int = assistUses) -> [String: Any] {
+    static func assistPayload(_ s: TableState, uses: Int = assistUses, free: Bool = assistFree) -> [String: Any] {
         let dealSeq = s.table.deal?.dealSeq ?? 1
         let me = s.table.viewer.position ?? 0
-        var p: [String: Any] = ["v": 1, "source": "help", "uses": uses, "freeUses": 3, "assisted": uses > 3, "counted": true]
-        if uses == 3 { p["note"] = assistWarning }
-        if uses == 4 { p["note"] = "This game now counts as bot-assisted for you." }
+        var p: [String: Any] = ["v": 1, "source": "help", "uses": uses, "freeUses": 3, "assisted": !free && uses > 3, "counted": true]
+        if free { p["unlimited"] = true }
+        if !free, uses == 3 { p["note"] = assistWarning }
+        if !free, uses == 4 { p["note"] = "This game now counts as bot-assisted for you." }
         let partner = s.players.name(Positions.team(max(me, 1)))
         let hand = TableRenderModel(s).hand
         let playable = hand?.cards.first { hand?.legalIds.contains($0.id) == true }

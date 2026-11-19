@@ -68,8 +68,10 @@ extension TableReducer {
         // /help: my own seat's uses this game (snapshot viewer.assist, additive 2026-11-19; a
         // seat or a lazy watcher only), so the chat list's "(n of 3 free used)" is exact after a
         // relaunch or rejoin. Absent (a spectator, an older server): unknown, or what this game had.
+        // Its additive `unlimited`: a game with a native bot seat (AssistRules.isFreeHelpGame).
         if let a = snap.viewer.assist {
-            s.table.assistUses = AssistUses(uses: max(0, a.uses), freeUses: max(0, a.freeUses), assisted: a.assisted)
+            s.table.assistUses = AssistUses(uses: max(0, a.uses), freeUses: max(0, a.freeUses), assisted: a.assisted,
+                                            unlimited: a.unlimited == true)
         }
         s.table.hand = snap.hand ?? []
         s.table.deal = snap.deal.map {

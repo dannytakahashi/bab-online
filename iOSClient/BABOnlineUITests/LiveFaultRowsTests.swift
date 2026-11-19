@@ -160,7 +160,7 @@ final class LiveFaultRowsTests: XCTestCase {
         let field = openLog(app)
         field.tap()
         field.typeText("/h")
-        XCTAssertTrue(app.staticTexts["Suggest a move (1 of 3 free used)"].waitForExistence(timeout: 5),
+        XCTAssertTrue(app.staticTexts["Ask a bot for advice (1 of 3 free used)"].waitForExistence(timeout: 5),
                       "the chat list's count after a rejoin (snapshot viewer.assist)")
         shot("3-after-relaunch")
 

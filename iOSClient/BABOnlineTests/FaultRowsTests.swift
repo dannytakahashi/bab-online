@@ -131,7 +131,7 @@ final class FaultRowsTests: XCTestCase {
         }
         TableReducer.reduce(&s, .snapshot(two, .rejoin, hints: nil))
         XCTAssertEqual(s.table.assistUses, AssistUses(uses: 2, freeUses: 3, assisted: false))
-        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses), "Suggest a move (2 of 3 free used)")
+        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses), "Ask a bot for advice (2 of 3 free used)")
         // a same-game snapshot without it (an older server) keeps what we had
         let none = try T.snapshot("trick-mid-lead3") { raw in
             var v = raw["viewer"] as! [String: Any]
@@ -146,7 +146,7 @@ final class FaultRowsTests: XCTestCase {
             raw["viewer"] = v
         }
         TableReducer.reduce(&s, .snapshot(crossed, .requested("c"), hints: nil))
-        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses), "Suggest a move (this game is bot-assisted for you)")
+        XCTAssertEqual(AssistRules.helpDescription(s.table.assistUses), "Ask a bot for advice (this game is bot-assisted for you)")
         // a spectator's snapshot carries none: unknown
         var w = TableState()
         TableReducer.reduce(&w, .local(.identity(username: "zed", playerId: "w")))

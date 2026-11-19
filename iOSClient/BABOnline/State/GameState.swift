@@ -270,8 +270,9 @@ final class GameState: ObservableObject {
     var suggestedBid: String? { assistHint?.kind == .bid ? assistHint?.bid : nil }
     /// The lightbulb by my hand shows (my own turn at my seat, no answer up or on its way).
     var showsAssistAsk: Bool { AssistRules.showsAsk(state) }
-    /// The chat command list's /help line.
-    var helpDescription: String { AssistRules.helpDescription(table.assistUses) }
+    /// The chat command list's /help line ("Ask a bot for advice", with no count in a game with
+    /// a native bot seat).
+    var helpDescription: String { AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state)) }
 
     var gameLog: [ChatMessage] { log.entries }
     var unreadChatCount: Int { log.unread }

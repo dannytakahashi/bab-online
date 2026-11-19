@@ -14,12 +14,15 @@ extension TableReducer {
     /// live is held (shown if the next turn change makes it live, else its row says the turn had
     /// passed). Off the table: the draw's status is a toast, the game-end screen's a log row.
     static func assistHint(_ s: inout TableState, _ w: WirePayload.AssistHint, _ fx: inout [TableEffect]) {
-        guard let h = AssistHint(w) else { return }
+        guard let wire = AssistHint(w) else { return }
         s.table.assistAsking = false
         // a pure spectator's reply ("players only") says nothing about my uses
         if s.table.viewer.role != .spectator {
-            s.table.assistUses = AssistUses(uses: h.uses, freeUses: h.freeUses, assisted: h.assisted)
+            s.table.assistUses = AssistUses(uses: wire.uses, freeUses: wire.freeUses, assisted: wire.assisted, unlimited: wire.unlimited)
         }
+        // a game with a native bot seat: no count, no note, never bot-assisted (the card's
+        // footer and VoiceOver), whether the hint or the table's seats say so
+        let h = AssistRules.inFreeHelpGame(wire, s)
         switch s.table.phase.kind {
         case .ended:
             if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h)) }

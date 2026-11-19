@@ -40,7 +40,7 @@ final class FaultRowsUITests: XCTestCase {
         let field = app.textFields["Chat..."]
         field.tap()
         field.typeText("/h")
-        XCTAssertTrue(app.staticTexts["Suggest a move (2 of 3 free used)"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Ask a bot for advice (2 of 3 free used)"].waitForExistence(timeout: 5))
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
     }
 }

@@ -14,6 +14,11 @@ import Foundation
 //  - The /help uses of this game come from the latest hint and start at 0 when a game starts
 //    (createUI); after a relaunch or a rejoin into another game they are unknown until the next
 //    hint. The chat command list describes /help from them (`helpDescription`).
+//  - A game with a native bot seat (owner 2026-11-19, "Unlimited, keep notice"; server
+//    assistState.isFreeHelpGame: a seat whose controller is `bot`, never a lazy or resign bot)
+//    has no /help limit: players see no count and never "free", "unlimited" or "bot-assisted"
+//    there (the footer, the chat list, VoiceOver). Known from the hint's `unlimited`, the
+//    snapshot's viewer.assist.unlimited, or the table's own seats (`isFreeHelpGame`).
 //
 // Names only in every text (never team numbers, "your team", "opponents"); the hint's own
 // texts come from the server, which lints them.
@@ -41,6 +46,9 @@ struct AssistHint: Equatable {
     var freeUses = AssistRules.defaultFreeUses
     var assisted = false
     var counted = false
+    /// A game with a native bot seat (the wire's `unlimited`, or the table's seats: the reducer
+    /// sets it, `AssistRules.inFreeHelpGame`): no count, no note, never bot-assisted.
+    var unlimited = false
 
     /// nil for a hint this build cannot show (v not 1, a kind it does not know, no headline).
     init?(_ w: WirePayload.AssistHint) {
@@ -62,6 +70,7 @@ struct AssistHint: Equatable {
         freeUses = max(0, w.freeUses ?? AssistRules.defaultFreeUses)
         assisted = w.assisted == true
         counted = w.counted == true
+        unlimited = w.unlimited == true
     }
 
     init(kind: Kind, headline: String, turnKey: String? = nil) {
@@ -76,6 +85,8 @@ struct AssistUses: Equatable {
     var uses = 0
     var freeUses = AssistRules.defaultFreeUses
     var assisted = false
+    /// The wire's `unlimited` (the hint's, the snapshot's viewer.assist): a game with a native bot seat.
+    var unlimited = false
 }
 
 enum AssistRules {
@@ -107,7 +118,7 @@ enum AssistRules {
     /// The private row for a bid or card answer that came after its turn had passed.
     static let lateLine = "Help: that turn had passed before the answer came (only you see this)"
     /// The lightbulb's VoiceOver label (the web "?" button's).
-    static let askLabel = "Suggest a move"
+    static let askLabel = "Ask a bot for advice"
     /// The lightbulb while the socket is down (the web's NOTICE.RECONNECTING).
     static let reconnecting = "Reconnecting. Try again in a moment."
     /// The card's close button.
@@ -116,16 +127,37 @@ enum AssistRules {
     static let whyLabel = "Why?"
 
     /// The /help line in the chat command list, from this game's uses:
-    ///   "Suggest a move (1 of 3 free used)"
-    ///   "Suggest a move (the next one makes this game bot-assisted)"
-    ///   "Suggest a move (this game is bot-assisted for you)"
-    ///   "Suggest a move (after 3 free, this game counts as bot-assisted)" (unknown: a
+    ///   "Ask a bot for advice (1 of 3 free used)"
+    ///   "Ask a bot for advice (the next one makes this game bot-assisted)"
+    ///   "Ask a bot for advice (this game is bot-assisted for you)"
+    ///   "Ask a bot for advice (after 3 free, this game counts as bot-assisted)" (unknown: a
     ///   relaunch, a rejoin; the warning stays, since the uses so far may be spent)
-    static func helpDescription(_ u: AssistUses?) -> String {
-        guard let u else { return "Suggest a move (after \(defaultFreeUses) free, this game counts as bot-assisted)" }
-        if u.assisted || u.uses > u.freeUses { return "Suggest a move (this game is bot-assisted for you)" }
-        if u.uses >= u.freeUses { return "Suggest a move (the next one makes this game bot-assisted)" }
-        return "Suggest a move (\(u.uses) of \(u.freeUses) free used)"
+    ///   "Ask a bot for advice" in a game with a native bot seat (`free`, or the uses' `unlimited`)
+    static func helpDescription(_ u: AssistUses?, free: Bool = false) -> String {
+        if free || u?.unlimited == true { return askLabel }
+        guard let u else { return "\(askLabel) (after \(defaultFreeUses) free, this game counts as bot-assisted)" }
+        if u.assisted || u.uses > u.freeUses { return "\(askLabel) (this game is bot-assisted for you)" }
+        if u.uses >= u.freeUses { return "\(askLabel) (the next one makes this game bot-assisted)" }
+        return "\(askLabel) (\(u.uses) of \(u.freeUses) free used)"
+    }
+
+    /// A game with a native bot seat (server assistState.isFreeHelpGame): the wire said so (the
+    /// latest hint's or snapshot's `unlimited`), or a seat's controller is a native bot (lobby Add
+    /// Bot, a tournament filler, a solo game; never `.lazyBot` / `.resignBot`, a human's seat).
+    /// Native bots never leave, so once true it stays true for the game.
+    static func isFreeHelpGame(_ s: TableState) -> Bool {
+        s.table.assistUses?.unlimited == true || s.players.seats.values.contains { $0.controller == .bot }
+    }
+
+    /// `h` as this table shows it: in a game with a native bot seat it is `unlimited`, with no
+    /// note (the server sends none there: no 3rd-use warning, no crossing) and never assisted.
+    static func inFreeHelpGame(_ h: AssistHint, _ s: TableState) -> AssistHint {
+        guard h.unlimited || isFreeHelpGame(s) else { return h }
+        var h = h
+        h.unlimited = true
+        h.note = nil
+        h.assisted = false
+        return h
     }
 
     /// The card's footer (nil for a status reply):
@@ -134,8 +166,11 @@ enum AssistRules {
     ///   "Not counted" (a forced move: nothing to guess)
     ///   "What our strongest bot would play · Asked again this turn: not counted"
     ///   "Quick suggestion: rules only, the server is busy. · Help 1 of 3 free"
+    /// In a game with a native bot seat (`unlimited`) no count: just "What our strongest bot
+    /// would play" (a forced move and a re-ask too), or the Quick note alone.
     static func footer(_ h: AssistHint) -> String? {
         guard h.kind != .status else { return nil }
+        if h.unlimited { return h.confidence == "quick" ? footerQuick : footerBot }
         if h.confidence == "only" { return "Not counted" }
         let lead = h.confidence == "quick" ? footerQuick : footerBot
         let tail: String

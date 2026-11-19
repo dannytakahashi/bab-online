@@ -11,7 +11,8 @@ import SwiftUI
 ///   the note (amber): the warning on the last free use, or "This game now counts as
 ///     bot-assisted for you."
 ///   "Why?" and up to 4 details
-///   the footer: "What our strongest bot would play · Help 2 of 3 free"
+///   the footer: "What our strongest bot would play · Help 2 of 3 free" (in a game with a
+///     native bot seat just "What our strongest bot would play", and no note: AssistRules.footer)
 ///
 /// A status reply (off turn, a refusal) is the same card with the headline only. VoiceOver hears
 /// the headline and the main reason once (TableEffect.announce); the card never takes focus.

@@ -5,7 +5,8 @@ import XCTest
 /// (the bid panel's leading corner) and my play turn (my hand's right end), the card above the
 /// bid panel or the hand, the suggested bid's ring ("Suggested"), the suggested card's ring
 /// (probe "table.assist" card=, from the scene: SceneDump's suggested=true), Why?, the close
-/// button, the warning on the 3rd use, no lightbulb for a spectator, /help in the chat list.
+/// button, the warning on the 3rd use, no lightbulb for a spectator, /help in the chat list, and a
+/// game with a native bot seat (`-uiAssistFree YES`, or filler bots alone): no count anywhere.
 /// `TEST_RUNNER_BAB_SHOTS=<folder>` saves PNGs.
 final class AssistCardUITests: XCTestCase {
     override func setUp() {
@@ -48,7 +49,7 @@ final class AssistCardUITests: XCTestCase {
         let app = launch("bidding-mid")
         let ask = app.buttons["assist.ask"]
         XCTAssertTrue(ask.waitForExistence(timeout: 5), "my bid turn: the lightbulb")
-        XCTAssertEqual(ask.label, "Suggest a move")
+        XCTAssertEqual(ask.label, "Ask a bot for advice")
         // the panel's accessibility container takes the lightbulb in: its chip row is the panel's top
         let panel = element(app, "bidOverlay").frame
         let chips = element(app, "bidChips").frame
@@ -117,8 +118,82 @@ final class AssistCardUITests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         field.tap()
         field.typeText("/h")
-        XCTAssertTrue(app.staticTexts["Suggest a move (the next one makes this game bot-assisted)"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Ask a bot for advice (the next one makes this game bot-assisted)"].waitForExistence(timeout: 5))
         shot(app, "chat-help")
+    }
+
+    // MARK: - A game with a native bot seat (owner 2026-11-19: no count, no free / limit words)
+
+    private func openChatList(_ app: XCUIApplication) {
+        // the log is a drawer, except where it is docked open (open-Duo landscape, book pose)
+        let field = app.textFields["Chat..."]
+        if !field.exists { app.buttons["log"].tap() }
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("/h")
+    }
+
+    /// No on-screen text names a count, "free", "unlimited" or "bot-assisted".
+    private func assertNoLimitWords(_ app: XCUIApplication, _ tag: String) {
+        let words = NSPredicate(format: "label CONTAINS[c] 'free' OR label CONTAINS[c] 'unlimited' OR label CONTAINS[c] 'bot-assisted' OR label CONTAINS[c] ' of 3'")
+        let hits = app.staticTexts.matching(words).allElementsBoundByIndex.map(\.label)
+        XCTAssertEqual(hits, [], tag)
+    }
+
+    /// The tournament-game fixture (me and three filler bots) without viewer.assist: only the
+    /// table's seats say it is a game with a native bot seat.
+    private func fillerBotsOnly() throws -> [String: String] {
+        final class Token {}
+        let url = try XCTUnwrap(Bundle(for: Token.self).url(forResource: "tournament-game", withExtension: "json", subdirectory: "v2"))
+        let raw = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var snap = try XCTUnwrap(raw["snapshot"] as? [String: Any])
+        var viewer = try XCTUnwrap(snap["viewer"] as? [String: Any])
+        viewer.removeValue(forKey: "assist")
+        snap["viewer"] = viewer
+        return ["UI_FIXTURE_SNAPSHOT": String(decoding: try JSONSerialization.data(withJSONObject: snap), as: UTF8.self)]
+    }
+
+    func testInABotGameTheFooterAndTheChatListNameNoCount() {
+        // the hint's unlimited (as the server sends it there): a 4th use, no warning, no crossing
+        let app = launch("bidding-mid", ["-uiAssistFree", "YES", "-uiAssistUses", "4"])
+        let ask = app.buttons["assist.ask"]
+        XCTAssertTrue(ask.waitForExistence(timeout: 5))
+        XCTAssertEqual(ask.label, "Ask a bot for advice")
+        ask.tap()
+        XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
+        XCTAssertEqual(element(app, "assist.footer").label, "What our strongest bot would play")
+        XCTAssertFalse(element(app, "assist.note").exists, "no warning, no crossing note")
+        assertNoLimitWords(app, "card")
+        shot(app, "bot-game-card")
+        openChatList(app)
+        XCTAssertTrue(app.staticTexts["Ask a bot for advice"].waitForExistence(timeout: 5))
+        assertNoLimitWords(app, "chat list")
+        shot(app, "bot-game-chat-help")
+    }
+
+    func testFillerBotsAloneMakeTheChatListPlainBeforeAnyHelp() throws {
+        let app = Fixture.launch("env", extra: ["-uiAssist", "YES"], env: try fillerBotsOnly())
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        openChatList(app)
+        XCTAssertTrue(app.staticTexts["Ask a bot for advice"].waitForExistence(timeout: 5),
+                      "no hint and no viewer.assist yet: the filler bots' seats say it")
+        assertNoLimitWords(app, "chat list")
+    }
+
+    func testFillerBotsAloneMakeTheFooterPlain() throws {
+        // the fixture's hint has no unlimited (as an older server's): the table's seats decide
+        let app = Fixture.launch("env", extra: ["-uiAssist", "YES", "-uiAssistUses", "3"], env: try fillerBotsOnly())
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(app)
+        let ask = app.buttons["assist.ask"]
+        XCTAssertTrue(ask.waitForExistence(timeout: 5), "my bid turn at the tournament table: the lightbulb")
+        ask.tap()
+        XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
+        XCTAssertEqual(element(app, "assist.footer").label, "What our strongest bot would play")
+        XCTAssertFalse(element(app, "assist.note").exists, "the 3rd-use warning is not shown there")
+        assertNoLimitWords(app, "card")
+        shot(app, "filler-bots-card")
     }
 
     // MARK: - What the card keeps clear of (review 2026-11-19)

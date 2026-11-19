@@ -187,17 +187,20 @@ enum WirePayload {
         var confidence: String?
         var suggest: Suggest?
         var note: String?
+        /// Additive (owner 2026-11-19): true only in a game with a native bot seat (server
+        /// assistState.isFreeHelpGame), where /help has no limit and no count is shown.
+        var unlimited: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note
+            case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note, unlimited
         }
 
         init(v: Int? = 1, source: String? = "help", kind: String?, turnKey: String? = nil, headline: String?, reasons: [String]? = nil,
              uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil, counted: Bool? = nil, details: [String]? = nil,
-             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil) {
+             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil, unlimited: Bool? = nil) {
             self.v = v; self.source = source; self.kind = kind; self.turnKey = turnKey; self.headline = headline
             self.reasons = reasons; self.uses = uses; self.freeUses = freeUses; self.assisted = assisted; self.counted = counted
-            self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note
+            self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note; self.unlimited = unlimited
         }
 
         /// Lenient: a field of the wrong type is absent (a card this build cannot read is no card).
@@ -218,6 +221,7 @@ enum WirePayload {
             confidence = opt(String.self, .confidence)
             suggest = opt(Suggest.self, .suggest)
             note = opt(String.self, .note)
+            unlimited = opt(Bool.self, .unlimited)
         }
     }
 
