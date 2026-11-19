@@ -4,7 +4,8 @@ import XCTest
 /// to a prepared account, a game with three bots, one /help on my bid turn, then `/lazy` until a
 /// hand ends with a set team and its fault line shows red; `/active`, and once the game waits on
 /// my play turn a forced reconnect (the server closes the transport when the file
-/// `$BAB_LIVE_CTL/drop` appears: a notes-only preload) and then a relaunch (a rejoin): the
+/// `$BAB_LIVE_CTL/drop` appears: a notes-only preload), a relaunch (a rejoin), and a background
+/// past the keep-alive with a drop meanwhile then a foreground (a reconnect and restore): the
 /// fault rows ("table.logFaults", `-uiLogProbe YES`) are the same, once each, and the chat list
 /// counts the /help from the snapshot's viewer.assist. Env (TEST_RUNNER_ prefixed):
 /// BAB_LIVE_SERVER (a localhost origin), BAB_LIVE_USER, BAB_LIVE_PASS (an existing account; keep
@@ -72,7 +73,7 @@ final class LiveFaultRowsTests: XCTestCase {
             throw XCTSkip("opt-in: TEST_RUNNER_BAB_LIVE_SERVER (localhost), _USER, _PASS (an existing account), _CTL")
         }
         let app = XCUIApplication()
-        app.launchArguments = ["-serverURL", server, "-uiLogProbe", "YES"]
+        app.launchArguments = ["-serverURL", server, "-uiLogProbe", "YES", "-keepAliveLimit", "5"]
         app.launch()
 
         // sign in (the Keychain may restore the session and skip this)
@@ -162,6 +163,19 @@ final class LiveFaultRowsTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Suggest a move (1 of 3 free used)"].waitForExistence(timeout: 5),
                       "the chat list's count after a rejoin (snapshot viewer.assist)")
         shot("3-after-relaunch")
+
+        // background past the keep-alive (`-keepAliveLimit 5`), the server drops the transport
+        // meanwhile, then the foreground: the app reconnects and restores, the same rows once each
+        XCUIDevice.shared.press(.home)
+        Thread.sleep(forTimeInterval: 8)
+        XCTAssertTrue(FileManager.default.createFile(atPath: drop.path, contents: Data()))
+        XCTAssertTrue(wait(10) { !FileManager.default.fileExists(atPath: drop.path) }, "the server did not take the drop")
+        Thread.sleep(forTimeInterval: 3)
+        app.activate()
+        XCTAssertTrue(wait(30) { app.buttons["leave"].exists }, "not at the table after the foreground")
+        XCTAssertTrue(wait(15) { faults(app) == before }, "after the foreground: \(faults(app)) vs \(before)")
+        _ = openLog(app)
+        shot("4-after-foreground")
         let a = XCTAttachment(string: "fault rows: \(before)")
         a.lifetime = .keepAlways
         add(a)
