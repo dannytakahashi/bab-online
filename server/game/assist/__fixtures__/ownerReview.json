@@ -3386,9 +3386,9 @@
      "Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card."
     ],
     "details": [
-     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average."
+     "Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out about the same later in the hand, and this trick is decided either way."
     ],
-    "confidence": "close",
+    "confidence": "clear",
     "suggest": {
      "card": {
       "suit": "clubs",
@@ -3405,13 +3405,13 @@
    "line": "Suggested (only you see this): Throw 8♣. You and Bob (your partner) need 1 more of the last 2 tricks. Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 8♣",
-    "label": "Close call",
+    "label": "Clear choice",
     "reasons": [
      "You and Bob (your partner) need 1 more of the last 2 tricks.",
      "Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card."
     ],
     "details": [
-     "Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average."
+     "Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out about the same later in the hand, and this trick is decided either way."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }
@@ -9893,7 +9893,7 @@
     "details": [
      "Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 2 points a hand better than the 5♦ on average."
     ],
-    "confidence": "close",
+    "confidence": "clear",
     "suggest": {
      "card": {
       "suit": "joker",
@@ -9909,7 +9909,7 @@
    "line": "Suggested (only you see this): Lead the HI joker. You and Dan (your partner) need 2 more of the last 3 tricks. It wins, and Bob and Alice must give up their highest trump. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead the HI joker",
-    "label": "Close call",
+    "label": "Clear choice",
     "reasons": [
      "You and Dan (your partner) need 2 more of the last 3 tricks.",
      "It wins, and Bob and Alice must give up their highest trump."
@@ -10531,9 +10531,9 @@
      "Nothing beats it, and Dan and Carol must each play their highest trump."
     ],
     "details": [
-     "Close call: the HI joker and the A♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average."
+     "Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average."
     ],
-    "confidence": "close",
+    "confidence": "clear",
     "suggest": {
      "card": {
       "suit": "joker",
@@ -10549,13 +10549,13 @@
    "line": "Suggested (only you see this): Lead the HI joker. You and Alice (your partner) need every trick left (2 of 2). Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead the HI joker",
-    "label": "Close call",
+    "label": "Clear choice",
     "reasons": [
      "You and Alice (your partner) need every trick left (2 of 2).",
      "Nothing beats it, and Dan and Carol must each play their highest trump."
     ],
     "details": [
-     "Close call: the HI joker and the A♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average."
+     "Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average."
     ],
     "footer": "What our strongest bot would play. A strong guess, not a guarantee."
    }

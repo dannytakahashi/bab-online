@@ -276,10 +276,10 @@ Main reason D.lowest.
 
 Alice, 12-card hand, trump 2♥. Hand: Q♠ 8♣. Bids: Alice 3, Carol 2, Bob 1, Dan 4. Table: Carol 4♦, Bob Q♥, Dan 8♠.
 
-> **Throw 8♣** · Close call
+> **Throw 8♣** · Clear choice
 > You and Bob (your partner) need 1 more of the last 2 tricks.
 > Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card.
-> - Why: Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average.
+> - Why: Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out about the same later in the hand, and this trick is decided either way.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
 Line: Suggested (only you see this): Throw 8♣. You and Bob (your partner) need 1 more of the last 2 tricks. Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)
@@ -605,7 +605,7 @@ Main reason L.hiJoker.
 
 Carol, 10-card hand, trump Q♦. Hand: 10♦ HI joker 5♦. Bids: Alice 3, Carol 3, Bob 1, Dan 1.
 
-> **Lead the HI joker** · Close call
+> **Lead the HI joker** · Clear choice
 > You and Dan (your partner) need 2 more of the last 3 tricks.
 > It wins, and Bob and Alice must give up their highest trump.
 > - Why: Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 2 points a hand better than the 5♦ on average.
@@ -652,10 +652,10 @@ Main reason L.maxHi.
 
 Bob, 4-card hand, trump K♠. Hand: HI joker A♠. Bids: Alice 1, Carol 0, Bob 2, Dan 1.
 
-> **Lead the HI joker** · Close call
+> **Lead the HI joker** · Clear choice
 > You and Alice (your partner) need every trick left (2 of 2).
 > Nothing beats it, and Dan and Carol must each play their highest trump.
-> - Why: Close call: the HI joker and the A♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average.
+> - Why: Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
 Line: Suggested (only you see this): Lead the HI joker. You and Alice (your partner) need every trick left (2 of 2). Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)

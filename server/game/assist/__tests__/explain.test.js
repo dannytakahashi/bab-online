@@ -8,7 +8,7 @@
 const fs = require('fs');
 const { seatView } = require('../seatView');
 const { advise } = require('../advise');
-const { explain, status } = require('../explain');
+const { explain, status, trickDecided } = require('../explain');
 const C = require('../copy');
 const { tableAt } = require('../sim/table');
 const { playStateGame } = require('../sim/stateGame');
@@ -342,3 +342,131 @@ describe('H1 review fixes', () => {
         expect(status(seatView(g, 1))).toBe('Not your turn yet: Bob (your partner) is bidding.');
     });
 });
+
+describe('a decided trick is never a close call (owner play-test 2026-11-19)', () => {
+    const { card } = require('../sim/table');
+    // The owner's table: trump clubs, Alice led the J♦, Carol (the partner)
+    // trumped with the 2♣, Bob played the 8♦; Dan plays last with the 9♦
+    // and the Q♦ (and 7 more), 9 tricks left
+    const ownerView = () => seatView(tableAt({
+        handSize: 12, trump: 'Jc', stage: 'play',
+        hands: { 4: ['9d', 'Qd', '6s', 'Js', 'Qs', '9h', '10h', '4c', '9c'] },
+        bids: ['4', '4', '1', '0'], turn: 4, trumpBroken: true,
+        tricks: [{ lead: 1, cards: ['As', '2s', '3s', '4s'] }, { lead: 1, cards: ['Ah', '2h', '3h', '4h'] }, { lead: 1, cards: ['Ad', '2d', '3d', '4d'] }],
+        open: { lead: 1, cards: ['Jd', '2c', '8d'] }
+    }), 4);
+    /** `d` with a search over the cards `cands` that agrees with the rule card (or not: `played`). */
+    const withSearch = (d, cands, n, played = null) => ({
+        ...d,
+        card: played ? card(played) : d.card,
+        source: 'search',
+        trace: {
+            ...d.trace,
+            search: {
+                cands: cands.map(card), ruleIdx: cands.findIndex((c) => card(c).suit === d.trace.ruleCard.suit && card(c).rank === d.trace.ruleCard.rank),
+                samples: 64, contract: { myBid: 4, oppBid: 5, myTricks: 0, oppTricks: 3, myMult: 1, oppMult: 1 }, ...n
+            }
+        }
+    });
+    const rendered = (e) => {
+        const rich = C.render(e);
+        return [rich.label, rich.headline, ...rich.reasons, ...rich.details, rich.footer, C.render(e, { style: 'line', uses: 1, freeUses: 3 })].join('\n');
+    };
+
+    test('the seat view decides it: last to play, every legal card leaves the same winner', () => {
+        expect(trickDecided(ownerView())).toBe(true);
+        // Last to play, but the Q♦ wins and the 9♦ does not
+        const open = seatView(tableAt({
+            handSize: 3, trump: 'Jc', stage: 'play', hands: { 4: ['9d', 'Qd', '6s'] },
+            bids: ['1', '1', '0', '0'], turn: 4, trumpBroken: true, open: { lead: 1, cards: ['Jd', '8d', '10d'] }
+        }), 4);
+        expect(trickDecided(open)).toBe(false);
+        // Not last to play
+        const second = seatView(tableAt({
+            handSize: 3, trump: 'Jc', stage: 'play', hands: { 2: ['10d', 'Kd', '5h'] },
+            bids: ['1', '1', '0', '0'], turn: 2, trumpBroken: true, open: { lead: 1, cards: ['Jd'] }
+        }), 2);
+        expect(trickDecided(second)).toBe(false);
+    });
+
+    test('the owner\'s position: Play 9♦, a clear choice, with or without the search', () => {
+        const v = ownerView();
+        const d = advise(v);
+        expect(d.card).toEqual(card('9d'));
+        const e = explain(d, v);
+        expect(e.headline).toBe('Play 9♦');
+        expect(e.codes).toContain('F.partnerWinsLow');
+        expect(e.reasons).toEqual([
+            'You and Carol (your partner) need 4 more of the last 9 tricks.',
+            'Carol is winning with the 2♣ and nobody plays after you. Play low and keep the rest.'
+        ]);
+        expect(e.confidence).toBe('clear');
+        expect(C.render(e).label).toBe('Clear choice');
+        expect(rendered(e)).not.toMatch(/close call/i);
+
+        // The search agreeing by a tight margin: still clear, no "Close call:"
+        const s = explain(withSearch(d, ['9d', 'Qd'], { totals: [314, 310], makes: [40, 40], sets: [14, 14] }), v);
+        expect(s.codes).toEqual(['C.normal', 'F.partnerWinsLow', 'S.close']);
+        expect(s.confidence).toBe('clear');
+        expect(C.render(s).label).toBe('Clear choice');
+        expect(s.details).toEqual(['Checked over 64 likely ways the hidden cards could be split: the 9♦ and the Q♦ come out about the same later in the hand, and this trick is decided either way.']);
+        expect(rendered(s)).not.toMatch(/close call/i);
+        // A rate the search quotes stays, when it fits
+        const r = explain(withSearch(d, ['9d', 'Qd'], { totals: [314, 310], makes: [51, 49], sets: [14, 14] }), v);
+        expect(r.details).toEqual(['Checked over 64 likely ways the hidden cards could be split: the 9♦ and the Q♦ come out about the same later in the hand (your bid makes about 80% vs 75%), and this trick is decided either way.']);
+        expect(r.details[0].length).toBeLessThanOrEqual(C.DETAIL_MAX);
+        expect(r.confidence).toBe('clear');
+    });
+
+    test('a real search on a decided trick (Carol winning with the K♦): clear, never "Close call"', () => {
+        const v = seatView(tableAt({
+            handSize: 3, trump: 'Jc', stage: 'play',
+            hands: { 1: ['5s', '6h'], 2: ['5h', '7s'], 3: ['3h', '8s'], 4: ['9d', 'Qd', '6s'] },
+            bids: ['1', '1', '0', '0'], turn: 4, trumpBroken: true, open: { lead: 1, cards: ['8d', 'Kd', '10d'] }
+        }), 4);
+        expect(trickDecided(v)).toBe(true);
+        const e = explain(advise(v), v);
+        expect(e.headline).toBe('Play 9♦');
+        expect(e.confidence).not.toBe('close');
+        expect(rendered(e)).not.toMatch(/close call/i);
+    });
+
+    test('the card can still change the trick, or the search overrode the rule card: still a close call', () => {
+        // Carol second to play: the K♦ or the 10♦ can still win or lose it
+        const v = seatView(tableAt({
+            handSize: 3, trump: 'Jc', stage: 'play', hands: { 2: ['10d', 'Kd', '5h'] },
+            bids: ['1', '1', '0', '0'], turn: 2, trumpBroken: true, open: { lead: 1, cards: ['Jd'] }
+        }), 2);
+        const d = advise(v);
+        expect(trickDecided(v)).toBe(false);
+        const rc = d.trace.path[d.trace.path.length - 1].code;
+        expect(rc).toBe('F.winFight');
+        const legal = v.legal.map((c) => (c.rank + c.suit[0]));
+        const totals = legal.map((c) => (same(card(c), d.trace.ruleCard) ? 314 : 310));
+        const e = explain(withSearch(d, legal, { totals, makes: legal.map(() => 40), sets: legal.map(() => 14) }), v);
+        expect(e.codes).toContain('S.close');
+        expect(e.confidence).toBe('close');
+        expect(C.render(e).label).toBe('Close call');
+        expect(e.details.join(' ')).toMatch(/^Close call: /);
+
+        // The owner's decided trick, the search playing the Q♦ over the rule's 9♦
+        const ov = ownerView();
+        const od = advise(ov);
+        const o = explain(withSearch(od, ['9d', 'Qd'], { totals: [310, 314], makes: [40, 40], sets: [14, 14] }, 'Qd'), ov);
+        expect(o.codes).toContain('S.close');
+        expect(o.confidence).toBe('close');
+        expect(o.reasons[1]).toBe('Close call: the Q♦ and the 9♦ do about equally well.');
+    });
+
+    test('a sure rule code is never turned into a close call by a tight search', () => {
+        // Bob leads the HI joker (L.maxHi), the search a fraction of a point apart
+        const fx = FIXTURES.find((x) => x.name === 'L.maxHi').expect.explanation;
+        expect(fx.codes).toEqual(expect.arrayContaining(['L.maxHi', 'S.close']));
+        expect(fx.confidence).toBe('clear');
+        expect(fx.details.join(' ')).not.toMatch(/close call/i);
+    });
+});
+
+function same(a, b) {
+    return !!a && !!b && a.suit === b.suit && a.rank === b.rank;
+}
