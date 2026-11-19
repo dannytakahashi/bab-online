@@ -785,16 +785,27 @@ final class TableDebugProbe: ObservableObject {
     /// in a flight or a fade now, the deck up or not).
     @Published var tableDeal = "-"
     /// My /help answer on the table (AssistCardView's hint, TableReducer+Assist):
-    /// "card=<id> bid=<b> frame=<x y w h>" from the scene's ringed hand card, the bid panel's
-    /// ringed bid and the card's frame in the pane's points ("-": none).
-    @Published var tableAssist = "card=- bid=- frame=-"
+    /// "card=<id> bid=<b> frame=<x y w h> clear=ok|over:<what>|- keeps=<what>|-" from the scene's
+    /// ringed hand card, the bid panel's ringed bid, the card's frame in the pane's points, what
+    /// it covers of what it keeps clear of, and those (my bid clock, my seat's row, the fold:
+    /// AssistLayout.Keeps; "-": no card, nothing).
+    @Published var tableAssist = "card=- bid=- frame=- clear=- keeps=-"
     var assistParts = "card=- bid=-" { didSet { updateAssist() } }
     /// The /help card's frame in the pane's points (GameContainerView).
     var assistFrame: CGRect? { didSet { updateAssist() } }
+    /// What the card keeps clear of (AssistLayout.Keeps.probe).
+    var assistKeeps: [String: CGRect] = [:] { didSet { updateAssist() } }
 
     private func updateAssist() {
         let frame = assistFrame.map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
-        let text = "\(assistParts) frame=\(frame)"
+        var clear = "-"
+        if let f = assistFrame {
+            // a shared edge is not a cover (half a point of rounding)
+            let over = assistKeeps.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
+            clear = over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")
+        }
+        let kept = assistKeeps.keys.sorted().joined(separator: ",")
+        let text = "\(assistParts) frame=\(frame) clear=\(clear) keeps=\(kept.isEmpty ? "-" : kept)"
         if text != tableAssist { tableAssist = text }
     }
     /// The bidder's countdown (BidClockPill) against the table, in the pane's points:

@@ -459,7 +459,7 @@ private struct GameScreen: View {
                         // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
-                            BidOverlayView(zoom: layout.zoom)
+                            BidOverlayView(zoom: layout.zoom, onClockFrame: { bidClockFrame = $0 })
                                 .frame(maxWidth: layout.window(layout.bidBand).width)
                             Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
                         }
@@ -669,6 +669,14 @@ private struct GameScreen: View {
     }
 
     @State private var leaveSize: CGSize = .zero
+    /// My bid clock's pill on the bid panel's edge, in the pane, as last laid out (nil: never
+    /// shown): the /help card stays above it while my clock runs (`myBidClockRuns`).
+    @State private var bidClockFrame: CGRect?
+
+    /// My seat's bid clock runs (BidOverlayView.myClock: a seat holder's own clock).
+    private var myBidClockRuns: Bool {
+        gameState.bidCountdown?.position == gameState.position && gameState.table.viewer.role == .seat
+    }
     @State private var logSize: CGSize = .zero
 
     // MARK: - My seat's row: my pips (the scene's), HSI, voice (layout.seatRow)
@@ -808,13 +816,20 @@ private struct GameScreen: View {
         if actions.askHelp(connected: connected) { HapticManager.selection() }
     }
 
-    /// The card: centred on my hand, its bottom just above the lifted cards, or above the bid
-    /// panel while it shows; scrolls inside when the room up to the score bar is short.
+    /// The card: centred on my hand, its bottom just above the lifted cards and my seat's row
+    /// (HSI, the voice button, my pips), or above the bid panel and its countdown while it
+    /// shows; in a tabletop pose it stays below the fold with them; scrolls inside when the
+    /// room up to the score bar (or the fold) is short.
     private func assistCard(_ layout: TableLayout, _ hint: AssistHint, full: CGSize) -> some View {
         let box = handBox(layout)
-        let bottom = showsBidOverlay ? layout.window(layout.bidBand).minY - AssistLayout.gap : box.minY - AssistLayout.gap
-        let top = paneSafeArea.top + scoreBarHeight + Theme.Space.s2
-        let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width, bottom: bottom, top: top,
+        let bidding = showsBidOverlay
+        let keeps = AssistLayout.Keeps(
+            anchor: bidding ? layout.window(layout.bidBand).minY : box.minY,
+            clock: bidding && myBidClockRuns ? bidClockFrame : nil,
+            seatRow: bidding ? nil : layout.window(layout.seatRow.content),
+            fold: layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window))
+        let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width,
+                                   top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
                                    safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
         let card = AssistCardView(hint: hint, onClose: { gameState.apply(.local(.assistDismissed)) })
         return VStack(spacing: 0) {
@@ -827,7 +842,11 @@ private struct GameScreen: View {
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
                 if UIFixture.isActive { TableDebugProbe.shared.assistFrame = r }
             }
-            .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.assistFrame = nil } }
+            // only once the card is gone: a removed copy's onDisappear may come after a new one's frame
+            .onDisappear { if UIFixture.isActive && gameState.assistHint == nil { TableDebugProbe.shared.assistFrame = nil } }
+            .onChange(of: keeps.probe, initial: true) { _, k in
+                if UIFixture.isActive { TableDebugProbe.shared.assistKeeps = k }
+            }
             #endif
         }
         .frame(width: f.width, height: f.height)
@@ -994,21 +1013,57 @@ private struct GameScreen: View {
 
 /// Where the /help card goes (pure, pane points): centred on my hand, at most `maxWidth` wide
 /// (and never under `minWidth` while the pane allows), kept 16 pt off the pane's safe sides; its
-/// box runs from `top` (under the score bar) down to `bottom` (just above the hand or the bid
-/// panel), the card at the box's bottom.
+/// box runs from `top` (under the score bar) down to just above what it keeps clear of
+/// (`Keeps`), the card at the box's bottom.
 enum AssistLayout {
     static let maxWidth: CGFloat = 380
     static let minWidth: CGFloat = 240
     static let gap: CGFloat = 6
     static let askSize: CGFloat = 36
+    /// The least box worth lifting the card into to clear my seat's row (a headline and a line;
+    /// the card scrolls inside): with less room it keeps the hand's anchor.
+    static let minRoom: CGFloat = 96
 
-    static func frame(paneWidth: CGFloat, handMidX: CGFloat, handWidth: CGFloat, bottom: CGFloat, top: CGFloat,
+    /// What the card keeps clear of, in the pane's points.
+    struct Keeps: Equatable {
+        /// The top of my lifted hand, or of the bid panel's band while I bid.
+        var anchor: CGFloat
+        /// My bid clock's pill on the bid panel's edge (it hangs above the band).
+        var clock: CGRect?
+        /// My seat's row (HSI, the voice button, my pips), just above my hand on my play turn.
+        var seatRow: CGRect?
+        /// The fold (none when the layout ignored it): in a tabletop pose the card stays in
+        /// the lower half, with the hand and the bid panel.
+        var fold: CGRect?
+
+        /// For the fixture probe "table.assist" (the card's frame against these).
+        var probe: [String: CGRect] {
+            var out: [String: CGRect] = [:]
+            if let clock { out["bidClock"] = clock }
+            if let seatRow { out["seatRow"] = seatRow }
+            if let fold { out["fold"] = fold }
+            return out
+        }
+    }
+
+    static func frame(paneWidth: CGFloat, handMidX: CGFloat, handWidth: CGFloat, top: CGFloat, keeps: Keeps,
                       safeLeft: CGFloat = 0, safeRight: CGFloat = 0) -> CGRect {
+        var top = top
+        var bottom = keeps.anchor
+        if let c = keeps.clock { bottom = min(bottom, c.minY) }
+        // a tabletop fold (wider than tall) above the anchor: the box starts under it
+        if let f = keeps.fold, f.width > f.height, f.maxY <= bottom { top = max(top, f.maxY + gap) }
         let lo = safeLeft + Theme.Space.s4, hi = paneWidth - safeRight - Theme.Space.s4
         let room = max(0, hi - lo)
         let width = min(room, min(maxWidth, max(minWidth, handWidth)))
         let x = min(max(handMidX - width / 2, lo), hi - width)
-        let height = max(0, bottom - top)
+        // my seat's row under the card's span (not one above the box, beside the trick cards
+        // in a tabletop pose): the card's bottom goes above it while that leaves room
+        if let r = keeps.seatRow, r.minX < x + width, r.maxX > x, r.maxY > top, r.minY < bottom,
+           r.minY - gap - top >= minRoom {
+            bottom = r.minY
+        }
+        let height = max(0, bottom - gap - top)
         return CGRect(x: x, y: top, width: width, height: height)
     }
 }

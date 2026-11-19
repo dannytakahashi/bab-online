@@ -17,6 +17,13 @@ struct ServerErrorNotice: Equatable {
     /// VoiceOver says it at high priority (the play-again "Back in" line, posted as its screen
     /// changes: the new screen's own speech would cut a default one off).
     var urgent = false
+    /// VoiceOver hears it this long after it is posted (0: at once): a notice posted in the same
+    /// tick as a screen change (forceLogout's sign-in, abortGame's main room) waits for the new
+    /// screen, as the play-again line does (LobbyReturn.announceDelay), so the screen's own
+    /// speech does not cut it off.
+    var announceDelay: TimeInterval = 0
+    /// The wait for a notice posted with a screen change (ContentView animates it over 0.3 s).
+    static let screenChangeDelay: TimeInterval = 0.6
     /// When it was posted: a toast layer mounted just after (the sign-in's, after forceLogout)
     /// still shows a notice this recent (ServerErrorToast.fresh).
     let at = Date()
@@ -26,7 +33,14 @@ struct ServerErrorNotice: Equatable {
     static var announce: (ServerErrorNotice) -> Void = { notice in
         var text = AttributedString(notice.message)
         if notice.urgent { text.accessibilitySpeechAnnouncementPriority = .high }
-        AccessibilityNotification.Announcement(text).post()
+        let said = text
+        if notice.announceDelay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + notice.announceDelay) {
+                AccessibilityNotification.Announcement(said).post()
+            }
+        } else {
+            AccessibilityNotification.Announcement(said).post()
+        }
     }
 }
 

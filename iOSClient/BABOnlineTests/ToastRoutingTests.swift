@@ -72,7 +72,7 @@ final class ToastRoutingTests: XCTestCase {
     // MARK: session outcomes
 
     func testAbortReasons() {
-        XCTAssertEqual(NoticeText.abortText("All players left"), "The game ended: everyone else left.")
+        XCTAssertEqual(NoticeText.abortText("All players left"), "The game ended: every player left.")
         XCTAssertEqual(NoticeText.abortText("All players disconnected"), "The game ended: every player disconnected.")
         XCTAssertEqual(NoticeText.abortText("Game stalled"), "The game ended.")
         XCTAssertEqual(NoticeText.abortText(nil), "The game ended.")
@@ -85,9 +85,14 @@ final class ToastRoutingTests: XCTestCase {
         app.screen = .game
         let handler = GameSocketHandler(socket: SocketService.shared, gameState: store, appState: app)
         handler.handle(event: "abortGame", payload: [["reason": "All players left"]])
-        XCTAssertEqual(SocketService.shared.serverError?.message, "The game ended: everyone else left.")
+        XCTAssertEqual(SocketService.shared.serverError?.message, "The game ended: every player left.")
         XCTAssertEqual(SocketService.shared.serverError?.kind, .info)
         XCTAssertEqual(app.screen, .mainRoom)
+        // posted with the screen change: VoiceOver hears it once the main room is up, at high
+        // priority (the new screen's speech would cut a default one off)
+        XCTAssertEqual(announced.last?.message, "The game ended: every player left.")
+        XCTAssertEqual(announced.last?.urgent, true)
+        XCTAssertEqual(announced.last?.announceDelay, ServerErrorNotice.screenChangeDelay)
     }
 
     func testForceLogoutSaysWhyOnTheSignIn() async {
@@ -104,6 +109,10 @@ final class ToastRoutingTests: XCTestCase {
         XCTAssertEqual(SocketService.shared.serverError?.kind, .info)
         XCTAssertTrue(ServerErrorToast.fresh(SocketService.shared.serverError!), "the sign-in's toast layer, just mounted, still shows it")
         XCTAssertFalse(ServerErrorToast.fresh(SocketService.shared.serverError!, now: Date().addingTimeInterval(3)))
+        // VoiceOver hears it once the sign-in is up, at high priority (not cut off by the screen's speech)
+        XCTAssertEqual(announced.last?.message, NoticeText.signedOut)
+        XCTAssertEqual(announced.last?.urgent, true)
+        XCTAssertEqual(announced.last?.announceDelay, ServerErrorNotice.screenChangeDelay)
     }
 
     func testVoiceFullIsAToastOnce() {

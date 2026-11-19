@@ -85,10 +85,12 @@ final class GameSocketHandler {
             // buffered, not applied: reset here so no stale retry or count outlives the game
             if gameState.table.snapshotTrouble != .none { gameState.reset() }
             // why the table went (an info toast; a cancelled tournament says it itself, a
-            // restart's notice explains its own)
+            // restart's notice explains its own); VoiceOver hears it once the next screen is up,
+            // at high priority, so that screen's speech does not cut it off
             if !RestartNotices.shared.isRestarting,
                let text = NoticeText.abortText((payload.first as? [String: Any])?["reason"] as? String) {
-                socket.serverError = ServerErrorNotice(message: text, kind: .info)
+                socket.serverError = ServerErrorNotice(message: text, kind: .info, urgent: true,
+                                                       announceDelay: ServerErrorNotice.screenChangeDelay)
             }
             if savedTournamentId != nil {
                 TournamentEmitter.returnToTournament()

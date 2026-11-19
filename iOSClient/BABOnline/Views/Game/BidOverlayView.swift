@@ -18,6 +18,9 @@ struct BidOverlayView: View {
     /// The table's zoom (TableLayout.zoom; 1 on a phone): the cells and the bottom row grow
     /// with the table's bid band; the type stays Dynamic Type.
     var zoom: CGFloat = 1
+    /// The countdown pill's frame in the pane (`BidClockPill.paneSpace`), each time it is laid
+    /// out: the /help card keeps its bottom above it while my clock runs (GameContainerView.assistCard).
+    var onClockFrame: (CGRect) -> Void = { _ in }
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -198,7 +201,7 @@ struct BidOverlayView: View {
                 .frame(height: 0)
                 .overlay(alignment: .bottomTrailing) {
                     if case .seconds(let n, let low) = clock {
-                        BidClockPill(seconds: n, low: low, zoom: zoom)
+                        BidClockPill(seconds: n, low: low, zoom: zoom, onFrame: onClockFrame)
                             .padding(.trailing, Theme.Space.s3)
                             .offset(y: 1)
                     }
@@ -399,6 +402,9 @@ struct BidClockPill: View {
     let seconds: Int
     let low: Bool
     var zoom: CGFloat = 1
+    /// Its frame in the pane, each time it is laid out (never cleared: a removal's onDisappear
+    /// may come after a new pill's frame): the /help card stays above it.
+    var onFrame: (CGRect) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 3 * zoom) {
@@ -423,12 +429,17 @@ struct BidClockPill: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(BidCountdownModel.label(seconds))
         .accessibilityIdentifier("bidClock")
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.paneSpace)) }) { f in
+            onFrame(f)
+            #if DEBUG
+            if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = f }
+            #endif
+        }
+        #if DEBUG
+        .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = nil } }
+        #endif
         #if DEBUG
         .accessibilityValue(low ? "\(seconds) low" : "\(seconds)")  // the fixture UI tests read it
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.paneSpace)) }) { f in
-            if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = f }
-        }
-        .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = nil } }
         #endif
     }
 }

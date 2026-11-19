@@ -120,6 +120,58 @@ final class AssistCardUITests: XCTestCase {
         shot(app, "chat-help")
     }
 
+    // MARK: - What the card keeps clear of (review 2026-11-19)
+
+    /// The card's visible frame (pane points, the window's on this app) and what it covers, from
+    /// the probe "table.assist" (AssistLayout.Keeps). The element's own frame is the card's whole
+    /// content: where the room is short it scrolls inside a shorter box, which the probe gives.
+    @discardableResult
+    private func cardClear(_ app: XCUIApplication, _ tag: String) -> CGRect {
+        let card = element(app, "assistCard")
+        XCTAssertTrue(card.waitForExistence(timeout: 5), tag)
+        XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"),
+                      "\(tag): \(Fixture.probe(app, "table.assist")) [\(Fixture.probe(app, "ui.pose"))]")
+        let probe = Fixture.probe(app, "table.assist")
+        print("[AssistCardUITests] \(tag) \(probe) [\(Fixture.probe(app, "ui.pose"))]")
+        let parts = probe.components(separatedBy: "frame=").last?.split(separator: " ").prefix(4).compactMap { Double($0) } ?? []
+        XCTAssertEqual(parts.count, 4, probe)
+        guard parts.count == 4 else { return .null }
+        return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    }
+
+    /// On my timed bid turn the card ends above the countdown pill on the bid panel's edge:
+    /// the seconds stay in sight while I read the suggestion.
+    func testOnATimedBidTheCountdownStaysInSight() {
+        for fold in [nil, "tabletop"] as [String?] {
+            let tag = fold ?? "flat"
+            let app = launch("bidding-mid", ["-uiAssistShow", "YES", "-uiBidClock", "20"] + (fold.map { ["-uiFold", $0] } ?? []))
+            let pill = element(app, "bidClock")
+            XCTAssertTrue(pill.waitForExistence(timeout: 5), tag)
+            let card = cardClear(app, tag)
+            XCTAssertTrue(Fixture.probe(app, "table.assist").contains("bidClock"), "the card knows the pill's frame")
+            XCTAssertFalse(card.intersects(pill.frame), "\(tag): card \(card) over the countdown \(pill.frame)")
+            shot(app, "bid-clock-\(tag)")
+            app.terminate()
+        }
+    }
+
+    /// On my play turn the card ends above my seat's row: the voice button (mute, and the
+    /// voice panel by long press) and HSI stay in reach while it is up.
+    func testOnMyPlayTurnMySeatRowStaysInReach() {
+        for fold in [nil, "tabletop"] as [String?] {
+            let tag = fold ?? "flat"
+            let app = launch("trick-mid-lead3", ["-uiAssistShow", "YES", "-uiVoice", "YES"] + (fold.map { ["-uiFold", $0] } ?? []))
+            let card = cardClear(app, tag)
+            XCTAssertTrue(Fixture.probe(app, "table.assist").contains("seatRow"))
+            let mic = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "microphone")).firstMatch
+            XCTAssertTrue(mic.waitForExistence(timeout: 5), tag)
+            XCTAssertFalse(card.intersects(mic.frame), "\(tag): card \(card) over the voice button \(mic.frame)")
+            XCTAssertTrue(mic.isHittable, "\(tag): the voice button takes a tap")
+            shot(app, "play-seat-row-\(tag)")
+            app.terminate()
+        }
+    }
+
     func testASpectatorHasNoLightbulb() {
         let app = launch("spectator-mid-hand")
         XCTAssertFalse(app.buttons["assist.ask"].waitForExistence(timeout: 2))

@@ -1,9 +1,11 @@
 import Foundation
 
 /// The words and the look of the app's toasts (ServerErrorToast) where the server or a session
-/// outcome says something to the player: the web's words (client/src/state/noticeText.js and
-/// main.js on branch web/toasts-help-faults; toast audit 2026-11-18, "iOS gaps"). `.error` is
-/// the amber "!" (a refusal), `.info` the teal "i" (news, not a failure).
+/// outcome says something to the player: the web's words where the web says something
+/// (client/src/state/noticeText.js and main.js on branch web/toasts-help-faults; toast audit
+/// 2026-11-18, "iOS gaps"). forceLogout's and abortGame's words below are
+/// iOS's own words: the web shows no toast for them. `.error` is the amber "!" (a refusal),
+/// `.info` the teal "i" (news, not a failure).
 enum NoticeText {
     // MARK: serverError (SocketService.handleServerError)
 
@@ -48,7 +50,7 @@ enum NoticeText {
     // MARK: session outcomes
 
     /// forceLogout (an admin, a password change or a rename elsewhere, another sign-in): shown
-    /// on the sign-in screen.
+    /// on the sign-in screen (iOS only: the web goes to its sign-in screen without a toast).
     static let signedOut = "You were signed out. Sign in again to keep playing."
 
     /// abortGame's `reason` in the player's words; nil when another toast says it (a cancelled
@@ -56,7 +58,9 @@ enum NoticeText {
     static func abortText(_ reason: String?) -> String? {
         switch reason {
         case "Tournament cancelled": return nil
-        case "All players left": return "The game ended: everyone else left."
+        // only spectators get it: the last owner to leave is out of the room first
+        // (seatLifecycle.leaveSeat, then maybeAbort), so not "everyone else"
+        case "All players left": return "The game ended: every player left."
         case "All players disconnected": return "The game ended: every player disconnected."
         default: return "The game ended."
         }
