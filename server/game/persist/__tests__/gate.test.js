@@ -13,6 +13,9 @@
  * (about TRICK_VIEW_MS) and its snapshot.seq counts the kick's events.
  */
 
+// Integration test (real Socket.IO / two instances / chaos): CI's slower runners take
+// 3-5 s on cases that run in about 2 s on a laptop, so the 5 s default is too tight.
+jest.setTimeout(30000);
 const mockDb = { current: null };
 jest.mock('../../../database', () => require('../../../testUtils/persistHarness').databaseMock(mockDb));
 
