@@ -121,7 +121,8 @@ final class LiveAssistTests: XCTestCase {
         XCTAssertTrue(ringed.waitForExistence(timeout: 5), "no bid ringed")
         XCTAssertTrue(headline.hasSuffix(" \(ringed.label)") || headline.contains(ringed.label), "\(headline) vs ringed \(ringed.label)")
         let footer = app.descendants(matching: .any)["assist.footer"].label
-        XCTAssertTrue(footer.contains("Help 1 of 3 free") || footer == "Not counted", footer)
+        // a game with a native bot seat (3 lobby bots here): no count or limit words (owner 2026-11-19)
+        XCTAssertEqual(footer, "What our strongest bot would play", footer)
         sleep(1)
         shot("2-bid-card")
         // the ringed bid, sent: the card goes
@@ -140,6 +141,7 @@ final class LiveAssistTests: XCTestCase {
         let playHeadline = app.descendants(matching: .any)["assist.headline"].label
         XCTAssertFalse(playHeadline.isEmpty)
         let playFooter = app.descendants(matching: .any)["assist.footer"].label
+        XCTAssertEqual(playFooter, "What our strongest bot would play", playFooter)
         sleep(1)
         shot("4-play-card")
         // the room's notice of a counted use reads in the log ("<name> used /help.")
@@ -148,6 +150,9 @@ final class LiveAssistTests: XCTestCase {
         XCTAssertTrue(notice.waitForExistence(timeout: 5), "no '<name> used /help.' in the game log")
         let mine = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Help: ")).firstMatch
         XCTAssertTrue(mine.exists, "no private 'Help: ... (only you see this)' row")
+        // nothing about free uses, limits or bot-assisted anywhere in the log of a bot game
+        let limitWords = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@", "of 3 free", "bot-assisted", "unlimited"))
+        XCTAssertEqual(limitWords.count, 0, limitWords.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
         shot("5-log")
         let a = XCTAttachment(string: "bid: \(headline) / \(footer)\nplay: \(playHeadline) / \(playFooter) ringed \(suggested.label)")
         a.lifetime = .keepAlways
