@@ -552,6 +552,7 @@ class GameState {
             at: now,
             timers,
             deferred: [],
+            ends: false,   // a deferred abort is queued (abortOnThaw)
             resumeLeft: this.resume ? Math.max(0, this.resume.at - now) : null,
             bidClock: this.bidClock,
             afkClock: this.afkClock
@@ -589,12 +590,26 @@ class GameState {
 
     /**
      * Run `fn` when the game thaws (unsuspend) instead of now. Only while
-     * suspended: returns false (and does nothing) otherwise.
+     * suspended: returns false (and does nothing) otherwise. `ends`: `fn`
+     * ends the game (gameLifecycle.abortGame's deferred abort), so the
+     * thaw is no real resume (abortOnThaw; the store sends no resume line).
+     * @param {Function} fn
+     * @param {{ends?: boolean}} [opts]
      */
-    deferWhileSuspended(fn) {
+    deferWhileSuspended(fn, { ends = false } = {}) {
         if (!this._suspended) return false;
         this._suspended.deferred.push(fn);
+        if (ends) this._suspended.ends = true;
         return true;
+    }
+
+    /**
+     * True while suspended with a deferred abort queued (deferWhileSuspended
+     * with ends): the thaw runs it straight after re-arming, so the table
+     * does not really play on. Read it BEFORE unsuspend (false after).
+     */
+    get abortOnThaw() {
+        return this._suspended?.ends === true;
     }
 
     /**

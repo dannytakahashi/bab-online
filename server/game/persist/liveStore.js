@@ -98,8 +98,11 @@
  * emit, sockets engine-closed). The room is told (owner 2026-11-19, "pause
  * with a notice"): PAUSE_NOTICE once when a table is suspended,
  * RESUME_NOTICE once when that table is unsuspended, nothing when it is
- * fenced (its players reconnect to the adopter). Each is an unsaved
- * sequenced system line (game.unsavedNotice).
+ * fenced (its players reconnect to the adopter) or when an abort asked
+ * for while suspended runs at the thaw (GameState.abortOnThaw). Each is an
+ * unsaved sequenced system line (game.unsavedNotice); the pause lines go
+ * out from an immediate after the check (sendPauseNotices), never from
+ * inside persistHooks.beforeRun, which stays passive.
  *
  * remove(): a game's doc is left to the claim (GameManager._retire runs
  * before it); a tournament's is deleted (GameManager.deleteTournament:
@@ -365,6 +368,8 @@ function createLiveStore({
     let fenceCheck = null;
     let selfFenced = false;
     let recovering = false;
+    /** 'on': the pending immediate that sends owed PAUSE_NOTICEs (sendPauseNotices). */
+    let pauseImmediate = null;
     let keepBeating = false;       // a handoff closed the writes but beats on until it ends
     let writesOpen = false;        // 'on': start() has written the instance doc
     let readyCapLogged = false;
@@ -440,6 +445,7 @@ function createLiveStore({
             done: false,           // stopped, fenced, removed: no more writes at all
             suspended: false,      // 'on': the holder self-fence holds its writes
             pauseNoticed: false,   // 'on': this suspension's PAUSE_NOTICE was sent (RESUME_NOTICE owed)
+            pauseOwed: false,      // 'on': suspended, PAUSE_NOTICE not sent yet (sendPauseNotices)
             resetAttempts: false,  // 'on', adopted: the first write after the restore gate opens $sets adoptAttempts 0
             ownerMode: null        // the ownerMode of the last doc sent ('on': adoptable elsewhere, so a loss fences)
         };
@@ -468,7 +474,7 @@ function createLiveStore({
             tail: Promise.resolve(), rev: Number.isInteger(doc.rev) ? doc.rev : 0,
             lastLogTotal: Number.isInteger(doc.logTotal) ? doc.logTotal : null,
             fullLog: true, fullLogSeq: 0, lastJson: null, completed: new Set(), rereads: 0,
-            retired: false, done: false, suspended: false, pauseNoticed: false, resetAttempts: true,
+            retired: false, done: false, suspended: false, pauseNoticed: false, pauseOwed: false, resetAttempts: true,
             // The adopt compare-and-set wrote ownerMode 'on'
             ownerMode: doc.ownerMode ?? 'on',
             // The adoption fields a whole-doc write (the handoff's final write) keeps
@@ -1199,6 +1205,7 @@ function createLiveStore({
      * @returns {boolean} true if sent
      */
     function tellRoom(st, line) {
+        if (st.entity.frozen || st.entity.isTerminal?.()) return false;
         try {
             return noticeGame(st.entity, ioRef || safeCall(getIo), line) === true;
         } catch (err) {
@@ -1227,9 +1234,33 @@ function createLiveStore({
                 logFailure('suspend', st, err);
                 continue;
             }
-            if (!st.pauseNoticed) st.pauseNoticed = tellRoom(st, PAUSE_NOTICE);
+            if (!st.pauseNoticed) st.pauseOwed = true;
+        }
+        // The pause lines go out from an immediate, never from here: this
+        // check also runs inside persistHooks.beforeRun, and hooks never
+        // emit (persist/hooks.js, server/CLAUDE.md rule 2)
+        if (n > 0 && !pauseImmediate) {
+            pauseImmediate = safeImmediate(() => {
+                pauseImmediate = null;
+                sendPauseNotices();
+            }, 'liveStore:pauseNotice');
         }
         logger.warn('Live persist self-fence: no heartbeat acknowledged; tables suspended', { tables: n, ms: SELF_FENCE_MS });
+    }
+
+    /**
+     * PAUSE_NOTICE to each table checkSelfFence suspended, once per
+     * suspension, if it is still suspended (not re-taken, fenced, frozen,
+     * ended or forgotten meanwhile).
+     */
+    function sendPauseNotices() {
+        if (closed) return;
+        for (const st of byId.values()) {
+            if (!st.pauseOwed) continue;
+            st.pauseOwed = false;
+            if (st.done || !st.suspended || st.pauseNoticed || !st.entity.isSuspended) continue;
+            st.pauseNoticed = tellRoom(st, PAUSE_NOTICE);
+        }
     }
 
     /**
@@ -1266,10 +1297,14 @@ function createLiveStore({
                 if (st.done) return;
                 const noticed = st.pauseNoticed;
                 st.pauseNoticed = false;
+                st.pauseOwed = false;
                 if (doc) {
                     // Later writes carry a rev past the one this re-take wrote
                     if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
                     st.suspended = false;
+                    // An abort asked for while suspended (the last human
+                    // left) runs straight after the thaw: no resume line
+                    const ending = st.entity.abortOnThaw === true;
                     let resumed = false;
                     try {
                         unsuspendGame(st.entity, ioRef || safeCall(getIo));
@@ -1278,7 +1313,7 @@ function createLiveStore({
                         logFailure('unsuspend', st, err);
                     }
                     // Only after a pause line, and only if it really plays on
-                    if (noticed && resumed && !st.entity.frozen && !st.entity.isSuspended) tellRoom(st, RESUME_NOTICE);
+                    if (noticed && resumed && !ending && !st.entity.frozen && !st.entity.isSuspended) tellRoom(st, RESUME_NOTICE);
                     if (st.dirty) schedule(st);
                     return;
                 }
@@ -1369,6 +1404,8 @@ function createLiveStore({
         keepBeating = keepHeartbeat && !!heartbeat;
         stopTimers({ beat: !keepBeating });
         for (const st of byId.values()) cancelImmediate(st);
+        if (pauseImmediate) clearImmediate(pauseImmediate);
+        pauseImmediate = null;
         for (const done of [...claimWaits]) done('error');
         uninstall();
     }

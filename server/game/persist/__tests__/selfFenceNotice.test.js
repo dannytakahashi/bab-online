@@ -7,7 +7,11 @@
  *   - RESUME_NOTICE once when the re-take finds the doc still ours and the
  *     table is unsuspended,
  *   - nothing more when the re-take finds it adopted elsewhere (fenced: its
- *     sockets close and the players reconnect to the adopter).
+ *     sockets close and the players reconnect to the adopter),
+ *   - no resume line when an abort asked for while suspended (the last
+ *     human left) runs at the thaw (GameState.abortOnThaw).
+ * The pause line goes out from an immediate after the check, never from
+ * inside persistHooks.beforeRun (hooks stay passive).
  * Each line is game.unsavedNotice: a system gameLogEntry to the room with
  * the next seq (like the shutdown notice to a frozen table), never in the
  * game log, so in no snapshot and no saved doc. Write mode sends nothing.
@@ -26,6 +30,7 @@ const { botController } = require('../../bot');
 const persistHooks = require('../hooks');
 const liveStore = require('../liveStore');
 const snapshotHandlers = require('../../../socket/snapshotHandlers');
+const seatLifecycle = require('../../../socket/seatLifecycle');
 const profileHandlers = require('../../../socket/profileHandlers');
 const { buildSnapshotV2 } = require('../../snapshotV2');
 const { gameLogger, socketLogger, authLogger, logger, dbLogger } = require('../../../utils/logger');
@@ -83,7 +88,7 @@ async function onTable() {
     const { game, sockets } = await kit.startGame(io, log, { humans: ['Hal'] });
     await db().users.updateOne({ username: 'Hal' }, { $set: { activeGameId: game.gameId } });
     await h.flushStore(store);
-    return { store, game, sockets, id: game.gameId };
+    return { store, game, sockets, id: game.gameId, mono };
 }
 
 /** Stall the heartbeat until the table is suspended. */
@@ -214,6 +219,63 @@ test('write mode: no self-fence, no line', async () => {
     expect(store.selfFenced).toBe(false);
     expect(log.some((e) => e.event === 'gameLogEntry' && NOTICES.includes(e.data?.message))).toBe(false);
     expect(game.isSuspended).toBe(false);
+    db().faults.release();
+});
+
+test('the last human leaves while suspended: the abort runs at the thaw and no resume line is sent', async () => {
+    const t = await onTable();
+    await suspendIt(t);
+    const pos = t.game.seatList().find((seat) => seat.ownerUsername === 'Hal').position;
+    expect(seatLifecycle.leaveSeat(io, t.game, pos, t.sockets[0])).toBe(true);
+    // Deferred: not ended while ownership is in doubt
+    expect(t.game.isTerminal()).toBe(false);
+    expect(t.game.abortOnThaw).toBe(true);
+    await recover(t);
+    expect(t.game.isTerminal()).toBe(true);
+    expect(notices(t.game).map(([m]) => m)).toEqual([PAUSE_NOTICE]);
+    const aborts = log.filter((e) => e.event === 'abortGame' && e.to === t.game.roomName);
+    expect(aborts).toHaveLength(1);
+    // Right after the pause line in the room's sequence: nothing in between
+    const pauseSeq = notices(t.game)[0][1];
+    expect(aborts[0].data.seq).toBe(pauseSeq + 1);
+});
+
+test('a deferred non-abort (not ending) still gets the resume line', async () => {
+    const t = await onTable();
+    await suspendIt(t);
+    let ran = 0;
+    expect(t.game.deferWhileSuspended(() => { ran++; })).toBe(true);
+    expect(t.game.abortOnThaw).toBe(false);
+    await recover(t);
+    expect(ran).toBe(1);
+    expect(notices(t.game).map(([m]) => m)).toEqual([PAUSE_NOTICE, RESUME_NOTICE]);
+});
+
+test('the check inside persistHooks.beforeRun suspends but emits nothing; the pause line follows in an immediate', async () => {
+    const t = await onTable();
+    db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+    t.mono.jump(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
+    const emitted = log.length;
+    persistHooks.beforeRun(t.game);
+    expect(t.game.isSuspended).toBe(true);
+    expect(t.store.selfFenced).toBe(true);
+    expect(log.length).toBe(emitted);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(notices(t.game).map(([m]) => m)).toEqual([PAUSE_NOTICE]);
+    expect(log.length).toBe(emitted + 1);
+    db().faults.release();
+});
+
+test('frozen before the pause immediate ran: no pause line', async () => {
+    const t = await onTable();
+    db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+    t.mono.jump(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
+    persistHooks.beforeRun(t.game);
+    expect(t.game.isSuspended).toBe(true);
+    // Frozen before the immediate (a handoff took it): no pause line
+    t.game.freeze();
+    await jest.advanceTimersByTimeAsync(0);
+    expect(notices(t.game)).toEqual([]);
     db().faults.release();
 });
 

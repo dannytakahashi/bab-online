@@ -110,7 +110,7 @@ function emitLobbiesUpdatedWide(io, { capable, demoSplit, lobbies, tournaments, 
 async function abortGame(io, game, reason) {
     if (!game || game.isTerminal() || game.frozen) return false;
     if (game.isSuspended) {
-        game.deferWhileSuspended(() => abortGame(io, game, reason));
+        game.deferWhileSuspended(() => abortGame(io, game, reason), { ends: true });
         return false;
     }
     const gameId = game.gameId;

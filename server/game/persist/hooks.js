@@ -24,9 +24,12 @@
  *                            only: the store runs its holder self-fence
  *                            check first (a process that thaws from a
  *                            freeze runs its overdue timers before the 1 s
- *                            check would), which may suspend the game; the
- *                            caller then holds the run for the thaw. No
- *                            listener in off / write
+ *                            check would), which may suspend the game (and
+ *                            every other casual table); the caller then
+ *                            holds the run for the thaw. The check itself
+ *                            emits nothing: the self-fence's pause lines go
+ *                            out from a later immediate (liveStore
+ *                            sendPauseNotices). No listener in off / write
  */
 
 'use strict';
