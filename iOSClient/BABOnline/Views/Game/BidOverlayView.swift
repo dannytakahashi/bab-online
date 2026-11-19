@@ -203,16 +203,7 @@ struct BidOverlayView: View {
                             .offset(y: 1)
                     }
                 }
-                // /help's lightbulb on my bid turn: on the leading corner, over the felt (the
-                // countdown keeps the trailing one); hidden while an answer is up or on its way
-                .overlay(alignment: .bottomLeading) {
-                    if gameState.showsAssistAsk {
-                        AssistAskButton(size: AssistLayout.askSize, action: askHelp)
-                            .padding(.leading, Theme.Space.s1)
-                            .offset(y: (Theme.hitTarget - AssistLayout.askSize) / 2 - 2)
-                            .transition(.opacity)
-                    }
-                }
+
         }
         .onChange(of: Self.announcement(clock, of: myClock), initial: true) { _, said in
             if let said { AccessibilityNotification.Announcement(said.text).post() }
@@ -225,6 +216,17 @@ struct BidOverlayView: View {
         #if DEBUG
         .accessibilityValue(selectedBid ?? "-")  // the fixture UI tests read the selection
         #endif
+        // /help's lightbulb on my bid turn: just above the panel's leading corner, over the felt
+        // (the countdown keeps the trailing one); hidden while an answer is up or on its way.
+        // Outside the panel's accessibility container, so "bidOverlay" keeps the panel's frame
+        .overlay(alignment: .topLeading) {
+            if gameState.showsAssistAsk {
+                AssistAskButton(size: AssistLayout.askSize, action: askHelp)
+                    .padding(.leading, Theme.Space.s2 + Theme.Space.s1)
+                    .offset(y: -Theme.hitTarget + (Theme.hitTarget - AssistLayout.askSize) / 2 - 2)
+                    .transition(.opacity)
+            }
+        }
     }
 
     /// VoiceOver hears the countdown twice per clock: when it appears and when it reaches
