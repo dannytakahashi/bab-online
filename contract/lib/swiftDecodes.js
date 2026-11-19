@@ -227,6 +227,17 @@ function describe(decl, decls) {
             const optional = how === 'decodeIfPresent' || tryQ === '?';
             fields[rawKey[key] || key] = { type: formatType(t), optional };
         }
+        // a lenient init's local helper, read only in exactly this shape (every call is optional):
+        //   func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+        //   v = opt(Int.self, .v)
+        const helper = /func\s+(\w+)\s*<\s*T\s*:\s*Decodable\s*>\s*\(\s*_\s+(\w+)\s*:\s*T\.Type\s*,\s*_\s+(\w+)\s*:\s*CodingKeys\s*\)\s*->\s*T\?\s*\{\s*\(\s*try\?\s*\w+\.decodeIfPresent\(\s*\2\s*,\s*forKey:\s*\3\s*\)\s*\)\s*\?\?\s*nil\s*\}/.exec(init);
+        if (helper) {
+            const call = new RegExp(`\\b${helper[1]}\\(\\s*(.+?)\\.self\\s*,\\s*\\.(\\w+)\\s*\\)`, 'g');
+            for (const [, typeText, key] of init.matchAll(call)) {
+                const t = resolveType(parseType(typeText), decl.name, decls);
+                fields[rawKey[key] || key] = { type: formatType(t), optional: true };
+            }
+        }
         if (!Object.keys(fields).length) throw new Error(`swiftDecodes: ${decl.name}: custom init(from:) with no keyed decode it can read`);
     } else {
         for (const s of decl.node.stmts) {
