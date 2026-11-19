@@ -526,8 +526,10 @@ function removeBot(socket, io, data) {
  * setSpectatorsCanTalk in a lobby (shipped iOS 12-15 and cached web tabs
  * still show the old host switch): ignored since 2026-11-18, spectators
  * always may talk. The sender alone gets the list with the unchanged
- * settings ({spectatorsCanTalk: true}, playerReadyUpdate), so its switch
- * snaps back on; no error, whoever sends it. It still counts as acting in
+ * settings ({spectatorsCanTalk: true}, playerReadyUpdate); no error,
+ * whoever sends it. The echo repeats the value the client holds, which
+ * those clients do not take as the answer, so their switch shows Off until
+ * their own 5 s echo timeout puts it back On. It still counts as acting in
  * the lobby (play again: settle).
  * @returns {boolean} handled (the socket is in a lobby)
  */

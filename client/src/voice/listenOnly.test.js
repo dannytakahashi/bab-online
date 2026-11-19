@@ -10,7 +10,7 @@
  * volume survive a re-created call, and a blocked autoplay re-arms.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { VoiceChatManager, REOFFER_DELAY_MS } from './VoiceChatManager.js';
+import { VoiceChatManager, REOFFER_DELAY_MS, AUDIO_POOL_SIZE } from './VoiceChatManager.js';
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 
@@ -341,9 +341,11 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
     expect(vm.autoplayBlocked).toBe(true);
     allow = true;
     play.mockClear();
+    const callEls = [vm.peers.get('sock-b').audioEl, vm.peers.get('sock-c').audioEl];
     document.dispatchEvent(new Event('pointerdown'));
     await flush();
-    expect(play).toHaveBeenCalledTimes(2); // every call's element
+    // every call's element, once (and the unlocked spares)
+    expect(play.mock.contexts.filter((el) => callEls.includes(el))).toHaveLength(2);
     expect(vm.autoplayBlocked).toBe(false);
     // a re-created call blocked again: told again
     allow = false;
@@ -353,6 +355,63 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
     expect(blocked).toHaveBeenCalledTimes(2);
     vm.shutdown();
     expect(vm.autoplayBlocked).toBe(false);
+  });
+});
+
+describe('audio unlocked at the first gesture (Safari: a muted start captures no microphone; review 2026-11-18)', () => {
+  it('the first pointerdown unlocks every call\'s element and a pool of spares; a replaced call and a new peer reuse unlocked elements', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play');
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await start(vm, sm);
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    const bEl = track(vm, 'sock-b');
+    expect(bEl._voiceUnlocked).toBeFalsy();
+    play.mockClear();
+    document.dispatchEvent(new Event('pointerdown'));
+    await flush();
+    expect(bEl._voiceUnlocked).toBe(true);
+    expect(play.mock.contexts).toContain(bEl);
+    const spares = [...document.querySelectorAll('audio')].filter((el) => el !== bEl);
+    expect(spares).toHaveLength(AUDIO_POOL_SIZE);
+    expect(spares.every((el) => el._voiceUnlocked && play.mock.contexts.includes(el))).toBe(true);
+    // only the first gesture (later ones change nothing)
+    play.mockClear();
+    document.dispatchEvent(new Event('pointerdown'));
+    expect(play).not.toHaveBeenCalled();
+    // bob's call replaced (a restart or a new offer): the same unlocked element
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    expect(vm.peers.get('sock-b').audioEl).toBe(bEl);
+    expect(bEl.id).toBe('voice-audio-sock-b');
+    // a new peer takes an unlocked spare, not a new (locked) element
+    await vm.handleOffer('sock-c', OFFER, 'cat');
+    const cEl = vm.peers.get('sock-c').audioEl;
+    expect(spares).toContain(cEl);
+    expect(cEl.id).toBe('voice-audio-sock-c');
+    expect(document.querySelectorAll('audio')).toHaveLength(AUDIO_POOL_SIZE + 1);
+    // cat leaves: its element goes back to the pool, nothing added
+    vm.removePeer('sock-c');
+    expect(cEl.isConnected).toBe(true);
+    expect(cEl.id).toBe('');
+    expect(document.querySelectorAll('audio')).toHaveLength(AUDIO_POOL_SIZE + 1);
+    vm.shutdown();
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
+  });
+
+  it('a refused unlock (no gesture after all) leaves the element locked; a new session arms again', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.reject(Object.assign(new Error('no gesture'), { name: 'NotAllowedError' })));
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    document.dispatchEvent(new Event('keydown'));
+    await flush();
+    const els = [...document.querySelectorAll('audio')];
+    expect(els).toHaveLength(AUDIO_POOL_SIZE);
+    expect(els.some((el) => el._voiceUnlocked)).toBe(false);
+    vm.shutdown();
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
+    // no listener left behind
+    document.dispatchEvent(new Event('pointerdown'));
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
   });
 });
 

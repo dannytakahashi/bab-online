@@ -207,8 +207,9 @@ async function getVoiceIceServers(socket, io, data) {
  * wrapper): accepted and ignored since 2026-11-18 (owner: "we don't need
  * the spectator voice host toggle, just having it default on is good").
  * Spectators always may talk; shipped iOS 12-15 and cached web tabs still
- * show a switch and send this. The sender gets the unchanged settings back,
- * so its switch snaps back on and never shows an error: in a lobby a
+ * show a switch and send this. The sender gets the unchanged settings back
+ * and never an error (an old lobby switch shows Off until its own 5 s echo
+ * timeout puts it back On: the echo repeats the value it holds): in a lobby a
  * playerReadyUpdate with settings {spectatorsCanTalk: true} to it alone
  * (lobbyHandlers.setLobbySpectatorsCanTalk), in a casual game its
  * voiceSettings (spectatorsCanTalk true, canChange false: those clients

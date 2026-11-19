@@ -40,6 +40,11 @@ enum VoiceCopy {
     static let voiceFull = "Voice is full (8 people)"
     /// The mic button and the panel's own row once the microphone was refused (headphones).
     static let noMic = "Listening only (no mic access)"
+    /// VoiceOver's hint on those buttons: a tap tries the microphone again (iOS shows its prompt
+    /// only once; after a refusal the person allows it in Settings, then the tap unmutes).
+    static let noMicHint = "Double-tap to try the microphone again. Allow it for BAB Online in Settings first."
+    /// VoiceOver's hint on the mic button: the long press opens the voice panel.
+    static let panelHint = "Touch and hold for the voice panel"
     /// The toast of a refused microphone (the web's words).
     static let micDenied = "Microphone access denied. You can still listen."
     /// The voice panel's note while muted: WebRTC's one VoIP audio unit records and plays

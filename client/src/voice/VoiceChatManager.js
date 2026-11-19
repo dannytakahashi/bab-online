@@ -68,6 +68,11 @@ const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
 
 /** A setTalk's re-offers wait this long (the server's voicePeerLeft for a pair it drops lands first). */
 export const REOFFER_DELAY_MS = 300;
+// Audio elements unlocked by the session's first gesture (WebKit plays an
+// element with sound without a gesture only once a gesture has played it,
+// or while the page captures a microphone, which a muted start does not):
+// the most calls a session holds (7, a mesh of 8) and one spare
+export const AUDIO_POOL_SIZE = 8;
 
 /** Keep only well-formed RTCIceServer entries from a voiceIceServers payload. */
 export function sanitizeIceServers(list) {
@@ -129,6 +134,10 @@ export class VoiceChatManager {
     this._autoplayArmed = false;
     this._autoplayListener = null;
     this._autoplayCallbacks = [];
+    // Unlocked audio elements not in a call (_takeAudioEl / _releaseAudioEl)
+    // and the listener that unlocks them at the session's first gesture
+    this._audioPool = [];
+    this._unlockListener = null;
 
     // Per-peer volume control (Web Audio API)
     this._gainNodes = new Map(); // socketId → GainNode
@@ -159,6 +168,11 @@ export class VoiceChatManager {
 
     // Bumped by shutdown: an initialize still awaiting stops when it changes
     this._generation = 0;
+    // Unmutes waiting for the microphone prompt (micRequestInFlight)
+    this._micRequests = 0;
+    // The microphone picked in the gear menu (kept for the tab, like the
+    // browser's own choice; null: the default)
+    this._preferredDeviceId = null;
   }
 
   /**
@@ -199,6 +213,7 @@ export class VoiceChatManager {
     if (this.localStream) this._addAnalyser('self', this.localStream);
     else this._silentSource();
     this._startSpeakingDetection();
+    this._armUnlock();
 
     console.log('[Voice] initialized, username:', this._localUsername, 'talk:', !!this.localStream, 'audioCtx:', this._audioContext?.state);
     this._notifyMode();
@@ -246,11 +261,15 @@ export class VoiceChatManager {
     return stream;
   }
 
-  /** The microphone, or null (refused or unavailable: listen-only from now on). */
+  /**
+   * The microphone, or null (refused or unavailable: listen-only from now
+   * on). The one picked in the gear menu before the first unmute
+   * (`_preferredDeviceId`) when it is still there, else the default.
+   */
   async _getMic() {
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia unavailable');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await this._getPreferredMic();
       this.micDenied = false;
       return stream;
     } catch (err) {
@@ -258,6 +277,20 @@ export class VoiceChatManager {
       this.micDenied = true;
       this._wantTalk = false;
       return null;
+    }
+  }
+
+  /** getUserMedia for the picked microphone; one that is gone (unplugged) falls back to the default. */
+  async _getPreferredMic() {
+    const id = this._preferredDeviceId;
+    if (!id) return navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      return await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: id } } });
+    } catch (err) {
+      // a refusal is a refusal (never a second prompt); only a missing device falls back
+      if (err?.name !== 'OverconstrainedError' && err?.name !== 'NotFoundError') throw err;
+      this._preferredDeviceId = null;
+      return navigator.mediaDevices.getUserMedia({ audio: true });
     }
   }
 
@@ -269,6 +302,11 @@ export class VoiceChatManager {
   /** Is this session running listen-only (no microphone: muted, or refused)? */
   isListenOnly() {
     return !!(this.active && !this.localStream);
+  }
+
+  /** Is an unmute waiting for the microphone (the browser's prompt is up)? */
+  get micRequestInFlight() {
+    return this._micRequests > 0;
   }
 
   /** Is my microphone muted (my mute, or no microphone held)? What the mic button shows. */
@@ -293,7 +331,14 @@ export class VoiceChatManager {
       this.localStream.getAudioTracks().forEach(t => { t.enabled = true; });
       return false;
     }
-    await this.setTalk(true);
+    // The microphone prompt is up until setTalk settles: a toggle meanwhile
+    // is a mute (toggleSelfMute), never a second unmute
+    this._micRequests++;
+    try {
+      await this.setTalk(true);
+    } finally {
+      this._micRequests--;
+    }
     if (!this.localStream) {
       this.selfMuted = true;
       return true;
@@ -651,9 +696,14 @@ export class VoiceChatManager {
 
   /**
    * Toggle my mute (setMuted: the first unmute asks for the microphone).
+   * While that prompt is up (the browser's prompt does not block the page)
+   * a toggle is a mute and wins: the granted microphone comes muted, as on
+   * iOS (a third toggle unmutes again). isMuted() is still true then (no
+   * microphone yet), so this reads the pending choice, selfMuted.
    * @returns {Promise<boolean>} the new muted state
    */
   toggleSelfMute() {
+    if (this.micRequestInFlight) return this.setMuted(!this.selfMuted);
     return this.setMuted(!this.isMuted());
   }
 
@@ -893,7 +943,8 @@ export class VoiceChatManager {
    * @returns {string|null}
    */
   getActiveDeviceId() {
-    if (!this.localStream) return null;
+    // no microphone yet (muted at the start): the one the first unmute will use
+    if (!this.localStream) return this._preferredDeviceId || null;
     const track = this.localStream.getAudioTracks()[0];
     if (!track) return null;
     const settings = track.getSettings();
@@ -905,8 +956,13 @@ export class VoiceChatManager {
    * @param {string} deviceId
    */
   async switchAudioDevice(deviceId) {
-    // listen-only holds no microphone: nothing to switch
-    if (!this.active || !this.localStream) return;
+    // No microphone held yet (muted at the start, or refused): remember the
+    // pick for the first unmute (_getMic)
+    if (!this.localStream) {
+      this._preferredDeviceId = deviceId || null;
+      return;
+    }
+    if (!this.active) return;
 
     const oldStream = this.localStream;
 
@@ -946,6 +1002,7 @@ export class VoiceChatManager {
 
     // All replacements succeeded — now safe to stop old tracks
     this.localStream = newStream;
+    this._preferredDeviceId = deviceId || null;
     if (oldStream) {
       oldStream.getAudioTracks().forEach(t => t.stop());
     }
@@ -1055,6 +1112,9 @@ export class VoiceChatManager {
     this._modeCallbacks = [];
     this._disarmAutoplay();
     this._autoplayCallbacks = [];
+    this._disarmUnlock();
+    for (const el of this._audioPool) el.remove();
+    this._audioPool = [];
 
     // Recovery state; the ICE servers themselves are kept for the session
     for (const t of this._restartTimers.values()) clearTimeout(t);
@@ -1079,11 +1139,10 @@ export class VoiceChatManager {
   _createPeerConnection(socketId, username) {
     const pc = new RTCPeerConnection({ iceServers: this._currentIceServers() });
 
-    // Audio element for reliable playback (Web Audio API alone is unreliable for remote WebRTC streams)
-    const audioEl = document.createElement('audio');
-    audioEl.autoplay = true;
-    audioEl.id = `voice-audio-${socketId}`;
-    document.body.appendChild(audioEl);
+    // Audio element for reliable playback (Web Audio API alone is unreliable
+    // for remote WebRTC streams): an unlocked one from the pool when there is
+    // one, so a call made or replaced after the first gesture plays in Safari
+    const audioEl = this._takeAudioEl(socketId);
 
     this.peers.set(socketId, {
       connection: pc,
@@ -1250,10 +1309,7 @@ export class VoiceChatManager {
     if (peer.connection.signalingState !== 'closed') {
       peer.connection.close();
     }
-    if (peer.audioEl) {
-      peer.audioEl.srcObject = null;
-      peer.audioEl.remove();
-    }
+    if (peer.audioEl) this._releaseAudioEl(peer.audioEl);
 
     this._gainNodes.delete(socketId);
     this._cleanupAnalyser(socketId);
@@ -1301,7 +1357,9 @@ export class VoiceChatManager {
     }
     if (p && typeof p.catch === 'function') {
       p.catch((err) => {
-        if (err?.name === 'NotAllowedError') this._armAutoplay();
+        if (err?.name !== 'NotAllowedError') return;
+        audioEl._voiceUnlocked = false;
+        this._armAutoplay();
       });
     }
   }
@@ -1326,12 +1384,90 @@ export class VoiceChatManager {
     this._autoplayArmed = false;
   }
 
-  /** A user gesture: play every current call's element (each one; a re-created call has a new element). */
+  /**
+   * A user gesture: play every current call's element and unlock the pool
+   * (calls made later take an unlocked element; a replaced call gives its
+   * element back and takes it again).
+   */
   resumePlayback() {
     this._disarmAutoplay();
+    this._disarmUnlock();
     if (this._audioContext?.state === 'suspended') this._audioContext.resume?.()?.catch?.(() => {});
     for (const peer of this.peers.values()) {
-      if (peer.audioEl?.srcObject) this._play(peer.audioEl);
+      if (!peer.audioEl) continue;
+      if (peer.audioEl.srcObject) {
+        peer.audioEl._voiceUnlocked = true;
+        this._play(peer.audioEl);
+      } else {
+        this._unlockEl(peer.audioEl);
+      }
+    }
+    if (!this.active) return;
+    while (this._audioPool.length < AUDIO_POOL_SIZE) this._audioPool.push(this._newAudioEl());
+    for (const el of this._audioPool) if (!el._voiceUnlocked) this._unlockEl(el);
+  }
+
+  /** The session's first pointerdown / keydown unlocks audio (resumePlayback), blocked or not. */
+  _armUnlock() {
+    if (this._unlockListener) return;
+    this._unlockListener = () => this.resumePlayback();
+    document.addEventListener('pointerdown', this._unlockListener, true);
+    document.addEventListener('keydown', this._unlockListener, true);
+  }
+
+  _disarmUnlock() {
+    if (!this._unlockListener) return;
+    document.removeEventListener('pointerdown', this._unlockListener, true);
+    document.removeEventListener('keydown', this._unlockListener, true);
+    this._unlockListener = null;
+  }
+
+  _newAudioEl() {
+    const el = document.createElement('audio');
+    el.autoplay = true;
+    document.body.appendChild(el);
+    return el;
+  }
+
+  /** A call's audio element: an unlocked spare from the pool, else a new one. */
+  _takeAudioEl(socketId) {
+    const el = this._audioPool.pop() || this._newAudioEl();
+    el.id = `voice-audio-${socketId}`;
+    return el;
+  }
+
+  /**
+   * A closed call's element: back to the pool when unlocked (and the
+   * session runs on), else removed. The pool stays small: only the first
+   * gesture adds spares, so at most AUDIO_POOL_SIZE plus the calls.
+   */
+  _releaseAudioEl(el) {
+    el.srcObject = null;
+    if (el._voiceUnlocked && this.active) {
+      el.removeAttribute('id');
+      this._audioPool.push(el);
+      return;
+    }
+    el.remove();
+  }
+
+  /**
+   * play() inside a gesture with nothing to play: WebKit lifts the
+   * element's gesture rule on that call, so a later play() of a call's
+   * stream needs none. Only a refusal (no gesture after all) undoes it.
+   */
+  _unlockEl(el) {
+    el._voiceUnlocked = true;
+    let p;
+    try {
+      p = el.play();
+    } catch (err) {
+      return;
+    }
+    if (p && typeof p.catch === 'function') {
+      p.catch((err) => {
+        if (err?.name === 'NotAllowedError') el._voiceUnlocked = false;
+      });
     }
   }
 

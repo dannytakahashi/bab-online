@@ -684,8 +684,6 @@ function initializeApp() {
       showWarning('Voice chat is unavailable in this browser.');
     },
     teardown: () => teardownVoice(),
-    // a second start naming a mode while one is in flight: the start reads it
-    setMode: (talk) => voiceManager.setTalk(talk),
   });
 
   function startVoice(opts) {
@@ -722,12 +720,18 @@ function initializeApp() {
    * joins voice muted (owner 2026-11-18: "by default the mic should be
    * muted and you can click to unmute / activate mic"); the first unmute
    * asks for the microphone, and a refusal stays muted (listen only) with
-   * the denied toast.
+   * the denied toast. While the browser's prompt is up the button shows
+   * the choice made (unmuted), so a second click visibly mutes, and that
+   * mute wins when the prompt is answered.
    * @returns {Promise<boolean>} muted afterwards
    */
   function onMicToggle() {
     const wasMuted = voiceManager.isMuted();
-    return Promise.resolve(voiceManager.toggleSelfMute()).then((muted) => {
+    const run = voiceManager.toggleSelfMute();
+    if (voiceManager.micRequestInFlight) setMuteButtonState(!!voiceManager.selfMuted);
+    return Promise.resolve(run).then((muted) => {
+      // a later click while the prompt is still up decides the button
+      if (voiceManager.micRequestInFlight) return voiceManager.selfMuted !== false;
       if (wasMuted && muted && voiceManager.active && voiceManager.micDenied) {
         showWarning('Microphone access denied. You can still listen.');
       }
@@ -962,14 +966,19 @@ function initializeApp() {
    * the stop for EXIT.LOBBY_RETURN). The table's voice settings go, and
    * the controls are drawn again in the lobby's slot (voiceLifecycle.start
    * returns at once while the manager is active and would draw nothing).
-   * The person's mute stays as it was: the same call carries on.
+   * The same call carries on, muted again: a game's end is where an
+   * unmuted microphone stops (the next game starts muted; within one
+   * lobby and its game the person's choice holds). The microphone is
+   * kept (a mute disables its track), so the next unmute asks nothing.
    * @returns {boolean} voice is running or starting (else the caller starts it)
    */
   function carryVoiceIntoLobby() {
     voiceSettings = null;
     voiceFull = false;
     if (!voiceManager.active) return voiceLifecycle.starting;
+    voiceManager.setMuted(true);
     createMuteButton();
+    setMuteButtonState(true);
     refreshTalkView();
     return true;
   }

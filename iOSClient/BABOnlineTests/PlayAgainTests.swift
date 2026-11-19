@@ -240,13 +240,16 @@ final class PlayAgainTests: XCTestCase {
     }
 
     /// A running session with a call (real RTCPeerConnection): Return to Lobby, then the table's
-    /// onDisappear (`LobbyReturn.tableGone`, what GameScreen runs) keeps the session, the call and
-    /// the person's unmute (the same session). The next way off a table (the flag is spent)
-    /// shuts it down as before, and the next session starts muted.
+    /// onDisappear (`LobbyReturn.tableGone`, what GameScreen runs) keeps the session and the call,
+    /// muted again (the next game starts muted) with the mic kept: the next unmute asks nothing.
+    /// The next way off a table (the flag is spent) shuts it down as before, and the next
+    /// session starts muted.
     func testVoiceAndItsCallsCarryIntoTheLobby() async throws {
         let (store, app, gameId) = try table(ended: true)
         let lobby = LobbyState()
-        let voice = manager()
+        var asks = 0
+        let voice = VoiceChatManager.silent(requestRecordPermission: { asks += 1; return true })
+        managers.append(voice)
         try await voice.initialize()
         voice.settings = VoiceSettings(gameId: gameId, host: "ivy", spectatorsCanTalk: true, role: .player, canTalk: true, canChange: false)
         voice.connectToPeer("sid-ivy", username: "ivy")
@@ -261,8 +264,14 @@ final class PlayAgainTests: XCTestCase {
         XCTAssertTrue(voice.isActive, "not shut down on the way into the lobby")
         XCTAssertNotNil(voice.signalingState(of: "sid-ivy"), "the call to ivy is kept (the server sends no new peer list)")
         XCTAssertNil(voice.settings, "the game's voice settings went with it")
-        XCTAssertFalse(voice.isSelfMuted, "unmuted stays unmuted: the same session")
-        XCTAssertTrue(voice.sendsMic(to: "sid-ivy"))
+        XCTAssertTrue(voice.isSelfMuted, "muted again in the lobby: the unmute does not carry into the next game")
+        XCTAssertEqual(voice.localTrackEnabled, false, "the track sends silence")
+        XCTAssertTrue(voice.sendsMic(to: "sid-ivy"), "the same track stays on the call (no renegotiation)")
+        XCTAssertEqual(asks, 1)
+        voice.toggleSelfMute()
+        XCTAssertFalse(voice.isSelfMuted, "the mic is still allowed: the unmute is immediate")
+        XCTAssertEqual(voice.localTrackEnabled, true)
+        XCTAssertEqual(asks, 1, "nothing asked again")
 
         // later, off a table some other way: shut down
         app.screen = .mainRoom
@@ -453,13 +462,18 @@ final class PlayAgainTests: XCTestCase {
         XCTAssertTrue(lobby.canAddBot)
     }
 
-    /// Into the lobby the game's voice settings go and the person's own mute stays as it was.
-    func testTheLobbyDropsTheGamesSettingsAndKeepsTheMute() {
+    /// Into the lobby the game's voice settings go and the person is muted (muted stays muted;
+    /// an unmute is undone: the next game starts muted).
+    func testTheLobbyDropsTheGamesSettingsAndMutes() {
         let m = VoiceChatManager.silent()
         m.settings = VoiceSettings(gameId: "g1", host: "ivy", spectatorsCanTalk: true, role: .spectator, canTalk: true, canChange: false)
         LobbyReturn.toLobbyVoice(m)
         XCTAssertNil(m.settings, "the game's voice settings went with the game")
         XCTAssertTrue(m.isSelfMuted, "muted stays muted")
+        m.unmute()  // voice not running (no session): only the flag
+        XCTAssertFalse(m.isSelfMuted)
+        LobbyReturn.toLobbyVoice(m)
+        XCTAssertTrue(m.isSelfMuted, "an unmute does not carry into the lobby")
     }
 
     func testTheWords() {

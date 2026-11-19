@@ -47,6 +47,7 @@ struct VoicePanelSheet: View {
                                 .frame(width: Theme.hitTarget, height: Theme.hitTarget)
                         }
                         .accessibilityLabel(VoiceCopy.noMic)
+                        .accessibilityHint(VoiceCopy.noMicHint)
                     } else {
                         Button(action: {
                             voiceManager.toggleSelfMute()

@@ -48,7 +48,9 @@ struct VoiceMuteButton: View {
                 )
         }
         .accessibilityLabel(label)
-        .accessibilityHint("Touch and hold for the voice panel")
+        // listen-only: the tap still tries the mic (VoiceOver says so; the web's button reads
+        // "Tap to talk (no mic access yet)")
+        .accessibilityHint(listenOnly ? "\(VoiceCopy.noMicHint) \(VoiceCopy.panelHint)" : VoiceCopy.panelHint)
         .simultaneousGesture(
             LongPressGesture(minimumDuration: 0.5)
                 .onChanged { _ in longPressFired = false }

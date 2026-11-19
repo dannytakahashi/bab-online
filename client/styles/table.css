@@ -512,6 +512,8 @@ body > .voice-btn {
 .voice-popover__item:hover { background: rgb(var(--text-primary-rgb) / 0.08); }
 .voice-popover__item.is-active { color: var(--success); }
 .voice-popover__item.is-muted { color: var(--text-secondary); }
+.voice-popover__item[aria-disabled="true"] { cursor: default; }
+.voice-popover__item[aria-disabled="true"]:hover { background: none; }
 .voice-popover__mark { flex-shrink: 0; width: 1em; }
 .voice-popover__label { overflow: hidden; text-overflow: ellipsis; }
 .voice-popover__divider { height: 1px; margin: var(--space-1) 0; background: var(--line-subtle); }

@@ -110,6 +110,27 @@ describe('a main-room spectator in a casual game\'s voice', () => {
     expect(toasts()).toBe('');
   });
 
+  it('a second click while the microphone prompt is up: the button shows each choice at once, and the mute wins when the prompt is allowed (review 2026-11-18)', async () => {
+    await page.voice.setTalk(false); // no microphone again
+    page.voice.holdMic = true;
+    const label = () => document.getElementById('voice-mute-btn').getAttribute('aria-label');
+    await vi.waitFor(() => expect(label()).toBe('Unmute microphone (M)'));
+    document.getElementById('voice-mute-btn').click();
+    expect(page.voice.micRequestInFlight).toBe(true);
+    expect(label()).toBe('Mute microphone (M)'); // the unmute asked for, while the prompt is up
+    document.getElementById('voice-mute-btn').click();
+    expect(label()).toBe('Unmute microphone (M)');
+    expect(page.voice.selfMuted).toBe(true);
+    page.voice.answerMic(); // allowed
+    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    await vi.waitFor(() => expect(page.voice.micRequestInFlight).toBe(false));
+    expect(page.voice.isMuted()).toBe(true);
+    await Promise.resolve();
+    expect(label()).toBe('Unmute microphone (M)');
+    expect(toasts()).toBe('');
+    page.voice.holdMic = false;
+  });
+
   it('running voice told "none" (no place in voice): the session stops and the pill says voice is full', async () => {
     expect(page.voice.active).toBe(true);
     page.socket.fire('voiceSettings', settings({ role: 'none', canTalk: false }));

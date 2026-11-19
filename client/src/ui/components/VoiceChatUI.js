@@ -276,13 +276,26 @@ async function toggleDevicePopover() {
   }
 
   const voiceManager = getVoiceChatManager();
-  const devices = await voiceManager.getAudioDevices?.() ?? [];
+  // Before the browser has granted a microphone (everyone joins muted) it
+  // lists one nameless input with no id: nothing to pick from yet
+  const devices = (await voiceManager.getAudioDevices?.() ?? []).filter((d) => d.deviceId);
   // a second click while the devices were being listed opened one already
   if (document.getElementById('voice-device-popover')) return;
 
   const activeId = voiceManager.getActiveDeviceId?.() ?? null;
 
   const popover = el('div', { className: 'voice-popover', attrs: { id: 'voice-device-popover', role: 'menu' } });
+
+  if (!devices.length) {
+    popover.appendChild(el('div', {
+      className: 'voice-popover__item is-muted',
+      attrs: { role: 'menuitem', 'aria-disabled': 'true', id: 'voice-device-none' },
+      children: [
+        el('span', { className: 'voice-popover__mark', text: '' }),
+        el('span', { className: 'voice-popover__label', text: 'Unmute to choose a microphone' }),
+      ],
+    }));
+  }
 
   for (const device of devices) {
     const isActive = device.deviceId === activeId;

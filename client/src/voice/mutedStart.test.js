@@ -315,3 +315,105 @@ describe('a new session', () => {
     vm.shutdown();
   });
 });
+
+describe('the mic button while the microphone prompt is up (review 2026-11-18)', () => {
+  it('a second toggle is a mute and wins over the unmute that asked; a third unmutes again', async () => {
+    let grant;
+    navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((r) => { grant = r; }));
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    const first = vm.toggleSelfMute();
+    await flush();
+    expect(vm.micRequestInFlight).toBe(true);
+    // no microphone yet, so isMuted() still reads true: the toggle must not unmute again
+    expect(vm.isMuted()).toBe(true);
+    expect(await vm.toggleSelfMute()).toBe(true);
+    expect(vm.selfMuted).toBe(true);
+    grant(newMic());
+    expect(await first).toBe(true);
+    expect(vm.micRequestInFlight).toBe(false);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(micTracks[0].enabled).toBe(false);
+    // the microphone is on the call (disabled): the next toggle unmutes, nothing asked
+    expect(senderOf(vm, 'sock-b').track).toBe(micTracks[0]);
+    expect(await vm.toggleSelfMute()).toBe(false);
+    expect(micTracks[0].enabled).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    vm.shutdown();
+  });
+
+  it('three toggles during the prompt: unmuted when it is granted, one prompt', async () => {
+    let grant;
+    navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((r) => { grant = r; }));
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    const first = vm.toggleSelfMute();
+    await flush();
+    await vm.toggleSelfMute(); // mute
+    const third = vm.toggleSelfMute(); // unmute again
+    await flush();
+    grant(newMic());
+    await first;
+    expect(await third).toBe(false);
+    expect(vm.isMuted()).toBe(false);
+    expect(micTracks[0].enabled).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    vm.shutdown();
+  });
+
+  it('a refused prompt after a mute during it: muted, denied, nothing in flight', async () => {
+    let refuse;
+    navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((_r, j) => { refuse = j; }));
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    const first = vm.toggleSelfMute();
+    await flush();
+    await vm.toggleSelfMute();
+    refuse(Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }));
+    expect(await first).toBe(true);
+    expect(vm.micDenied).toBe(true);
+    expect(vm.micRequestInFlight).toBe(false);
+    vm.shutdown();
+  });
+});
+
+describe('choosing a microphone before the first unmute (review 2026-11-18)', () => {
+  it('a pick before any microphone is remembered and used by the first unmute', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    await vm.switchAudioDevice('usb-mic');
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    expect(vm.getActiveDeviceId()).toBe('usb-mic');
+    expect(await vm.setMuted(false)).toBe(false);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: { deviceId: { exact: 'usb-mic' } } });
+    vm.shutdown();
+  });
+
+  it('a picked microphone that is gone falls back to the default; a refusal is never asked twice', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    await vm.switchAudioDevice('gone-mic');
+    navigator.mediaDevices.getUserMedia = vi.fn(async (c) => {
+      if (c.audio?.deviceId) throw Object.assign(new Error('no such device'), { name: 'OverconstrainedError' });
+      return newMic();
+    });
+    expect(await vm.setMuted(false)).toBe(false);
+    expect(navigator.mediaDevices.getUserMedia.mock.calls.map((c) => c[0])).toEqual([
+      { audio: { deviceId: { exact: 'gone-mic' } } },
+      { audio: true },
+    ]);
+    vm.shutdown();
+
+    const vm2 = new VoiceChatManager();
+    await start(vm2, fakeSocketManager());
+    await vm2.switchAudioDevice('usb-mic');
+    navigator.mediaDevices.getUserMedia = vi.fn(async () => { throw Object.assign(new Error('Permission denied'), { name: 'NotAllowedError' }); });
+    expect(await vm2.setMuted(false)).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    expect(vm2.micDenied).toBe(true);
+    vm2.shutdown();
+  });
+});

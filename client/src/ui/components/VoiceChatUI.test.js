@@ -297,3 +297,42 @@ describe('the mic button: muted at the start, a click unmutes (owner 2026-11-18)
     expect(document.getElementById('voice-panel-item')).not.toBeNull();
   });
 });
+
+describe('the gear menu before the first unmute (review 2026-11-18)', () => {
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  const realDevices = fakeVoice.getAudioDevices;
+  afterEach(() => {
+    document.getElementById('voice-device-popover')?.remove();
+    document.getElementById('voice-device-btn')?.remove();
+    fakeVoice.getAudioDevices = realDevices;
+    delete fakeVoice.switchAudioDevice;
+  });
+
+  it('no microphone granted yet (one nameless input, no id): one disabled "Unmute to choose a microphone" row, nothing to pick', async () => {
+    fakeVoice.getAudioDevices = async () => [{ deviceId: '', label: 'Microphone ()' }];
+    createDeviceButton();
+    document.getElementById('voice-device-btn').click();
+    await flush();
+    const pop = document.getElementById('voice-device-popover');
+    expect(pop.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+    const none = document.getElementById('voice-device-none');
+    expect(none.textContent).toBe('Unmute to choose a microphone');
+    expect(none.getAttribute('aria-disabled')).toBe('true');
+    expect(pop.textContent).not.toMatch(/Microphone \(\)/);
+    expect(document.getElementById('voice-panel-item')).not.toBeNull();
+  });
+
+  it('named microphones (granted before): listed, and a pick goes to the manager (remembered for the first unmute)', async () => {
+    fakeVoice.getAudioDevices = async () => [{ deviceId: 'a1', label: 'Built-in' }, { deviceId: 'b2', label: 'USB' }];
+    fakeVoice.switchAudioDevice = vi.fn(async () => {});
+    createDeviceButton();
+    document.getElementById('voice-device-btn').click();
+    await flush();
+    const items = [...document.querySelectorAll('#voice-device-popover [role="menuitemradio"]')];
+    expect(items.map((i) => i.textContent.trim())).toEqual(['Built-in', 'USB']);
+    expect(document.getElementById('voice-device-none')).toBeNull();
+    items[1].click();
+    await flush();
+    expect(fakeVoice.switchAudioDevice).toHaveBeenCalledWith('b2');
+  });
+});

@@ -92,6 +92,12 @@ export function createFakeVoice() {
     micDenied: false,
     // the next getUserMedia is refused (tests set it)
     refuseMic: false,
+    // the microphone prompt stays up until answerMic() (tests set it)
+    holdMic: false,
+    micAnswer: null,
+    micRequests: 0,
+    get micRequestInFlight() { return this.micRequests > 0; },
+    answerMic() { const a = this.micAnswer; this.micAnswer = null; a?.(); },
     selfMuted: true,
     localStream: null,
     modeCallbacks: [],
@@ -117,6 +123,8 @@ export function createFakeVoice() {
       this.wantTalk = !!talk;
       if (!this.active) return false;
       const was = this.talking;
+      if (talk && !this.talking && this.holdMic) await new Promise((r) => { this.micAnswer = r; });
+      if (!this.active) return false;
       if (talk && !this.talking) {
         if (this.refuseMic) this.micDenied = true;
         else { this.micDenied = false; this.talking = true; }
@@ -137,14 +145,18 @@ export function createFakeVoice() {
         return true;
       }
       this.selfMuted = false;
-      if (!this.talking) await this.setTalk(true);
+      if (!this.talking) {
+        this.micRequests++;
+        try { await this.setTalk(true); } finally { this.micRequests--; }
+      }
       if (!this.talking) this.selfMuted = true;
       return this.isMuted();
     }),
     onModeChange: vi.fn(function onModeChange(cb) { this.modeCallbacks.push(cb); }),
     onAutoplayBlocked: vi.fn(),
     onSpeakingChange: vi.fn(),
-    toggleSelfMute: vi.fn(function toggleSelfMute() { return this.setMuted(!this.isMuted()); }),
+    // as VoiceChatManager: a toggle while the prompt is up flips the pending choice
+    toggleSelfMute: vi.fn(function toggleSelfMute() { return this.setMuted(this.micRequestInFlight ? !this.selfMuted : !this.isMuted()); }),
     connectToPeer: vi.fn(),
     removePeer: vi.fn(),
     handleOffer: vi.fn(),

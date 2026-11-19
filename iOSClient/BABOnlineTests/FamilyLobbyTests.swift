@@ -312,6 +312,8 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         XCTAssertEqual(VoiceCopy.lobbyHint, "The first 4 to tap Ready play; everyone else watches and can talk")
         XCTAssertEqual(VoiceCopy.micDenied, "Microphone access denied. You can still listen.")
         XCTAssertEqual(VoiceCopy.noMic, "Listening only (no mic access)")
+        XCTAssertEqual(VoiceCopy.noMicHint, "Double-tap to try the microphone again. Allow it for BAB Online in Settings first.")
+        XCTAssertEqual(VoiceCopy.panelHint, "Touch and hold for the voice panel")
         XCTAssertEqual(VoiceCopy.voiceFull, "Voice is full (8 people)")
     }
 
