@@ -19,8 +19,9 @@
  *   - the ENDED tombstone: recorded once, stats once, pointers cleared,
  *     deleted
  *   - single flight; an adopt race has one winner; resolve() answers
- * restoreGame.adoptGame (the GAME side of PR 5) is STUBBED by
- * liveStoreKit.stubAdoptGame behind its interface; isGated by a Set.
+ * restoreGame.adoptGame and isGated are the real ones (liveStoreKit
+ * installOnStore records each adoptGame call; a test may treat a gate as
+ * open by id with store.openGates).
  */
 
 const mockDb = { current: null };
@@ -137,7 +138,7 @@ describe('adoptable', () => {
         expect(h.authoritative(game)).toEqual(before);
         for (const b of botController.getGameBots(id)) expect(kit.plain(b.getMemorySnapshot())).toEqual(memory[b.socketId]);
         expect(B.adoptCalls).toHaveLength(1);
-        expect(B.adoptCalls[0].opts).toEqual({ now: expect.any(Number), abandonMs: adopt.RESTORE_ABANDON_MS });
+        expect(B.adoptCalls[0].opts).toEqual({ now: expect.any(Number), abandonMs: adopt.RESTORE_ABANDON_MS, ownerPics: {} });
         expect(adopt.RESTORE_ABANDON_MS).toBe(10 * 60 * 1000);
         expect(B.adoptCalls[0].doc).toMatchObject({ gameId: id, v: expect.any(Number), stage: expect.any(String) });
         expect(game.gameLog.filter((e) => e.message === adopt.RESUMED_LINE)).toHaveLength(1);
@@ -149,6 +150,24 @@ describe('adoptable', () => {
         expect(db().faults.calls.filter((c) => c.collection === 'liveGames' && c.op === 'insertOne' && c.instance === undefined)).toHaveLength(1);
         expect(doc(id).log.at(-1).message).toBe(adopt.RESUMED_LINE);
         expect(kit.comparable(doc(id))).toEqual(kit.comparable(require('../gameCodec').serialize(game)));
+    });
+
+    test("an owner's custom picture (never in the doc) reaches adoptGame from the users lookup and is the restored seat's", async () => {
+        const { A, id, game: gameA } = await savedByA();
+        const pos = gameA.seatList().find((s) => s.ownerUsername === 'Hal').position;
+        await release(id);
+        dies(A);
+        const pic = ['data:image/png;base64', 'iVBORw0KGgo='].join(',');
+        await users().updateOne({ username: 'Hal' }, { $set: { customProfilePic: pic } });
+        // Hal played with that custom picture: the codec saved none for the seat
+        doc(id).state.seats[pos].ownerPic = null;
+        const B = await startB();
+        const game = gameManager.games.get(id);
+        expect(B.adoptCalls[0].opts.ownerPics).toEqual({ Hal: pic });
+        expect(game.seat(pos).ownerPic).toBe(pic);
+        // The real gate: closed until the humans are back
+        expect(require('../restoreGame').isGated(game)).toBe(true);
+        expect(doc(id).state.seats[pos].ownerPic).toBeNull();
     });
 
     test('the gate: adoptAttempts stays while gated, and the first write once it opens sets it to 0', async () => {
@@ -456,7 +475,7 @@ describe('single flight, races, resolve', () => {
             const s = liveStore.createLiveStore({
                 mode: 'on', bootId, gameIdIndexUnique: () => true, getCollections: () => db(), getIo: () => io,
                 logger: kit.recordingLogger().logger, monoNow: h.createMonoClock().now,
-                adoption: { adoptGame: kit.stubAdoptGame(calls), isGated: () => false }
+                adoption: { adoptGame: kit.recordingAdoptGame(calls), isGated: () => false }
             });
             s.calls = calls;
             return s;

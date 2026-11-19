@@ -78,12 +78,14 @@ const MAX_QUICK_DEATHS = 2;
 const SWEEP_FAST_MS = 1000;
 const SWEEP_FAST_FOR_MS = 3 * 60 * 1000;
 const SWEEP_SLOW_MS = 15000;
-/** A restored casual table nobody returns to is aborted after this (owner, 2026-11-16 answer b). */
-const RESTORE_ABANDON_MS = 10 * 60 * 1000;
-/** The same for a tournament table (5 min; PR 6 adopts those). */
-const TOURNAMENT_RESTORE_ABANDON_MS = 5 * 60 * 1000;
-/** The game-log line an adopted game gets (restoreGame.adoptGame writes it). */
-const RESUMED_LINE = 'This game resumed after a server update.';
+// The restored abandon (10 min casual; 5 min for a tournament table, which
+// PR 6 adopts: owner, 2026-11-16 answer b) and the game-log line an adopted
+// game gets are restoreGame's (it arms the one and writes the other)
+const {
+    RESTORE_ABANDON_MS,
+    RESTORE_ABANDON_TOURNAMENT_MS: TOURNAMENT_RESTORE_ABANDON_MS,
+    RESUMED_LINE
+} = require('./restoreGame');
 
 /** What the sweep reads of a doc: the envelope and the usernames a discard clears pointers for. */
 const ENVELOPE_PROJECTION = Object.freeze({
@@ -243,7 +245,7 @@ function screenDoc(doc, { goneOwners, scrubbed, now }) {
  * @param {Object} ctx - from liveStore (bootId, deploymentId, startedAt(),
  *   now, monoNow, logger, logFailure, collections, isShuttingDown, getIo,
  *   trackAdopted, isOn, isClosed) plus overrides for tests:
- *   adoptGame(io, doc, {now, abandonMs}) -> GameState (restoreGame.adoptGame),
+ *   adoptGame(io, doc, {now, abandonMs, ownerPics}) -> GameState (restoreGame.adoptGame),
  *   isGated(game), users(), gameRecords(), recordEnded(record) -> boolean,
  *   clearPointer(username, gameId), noteDeleted(username, atMs),
  *   readVersions, staleMs, maxAgeMs, quickDeathMs, sweepFastMs,
@@ -409,10 +411,11 @@ function createAdopter(ctx) {
         const names = [...new Set([...owners, ...senders])];
         const goneOwners = new Set();
         const scrubbed = new Set();
-        if (names.length === 0) return { goneOwners, scrubbed };
+        const ownerPics = {};
+        if (names.length === 0) return { goneOwners, scrubbed, ownerPics };
         const coll = users();
         if (!coll) throw Object.assign(new Error('no users collection'), { name: 'NoCollection' });
-        const found = await coll.find({ username: { $in: names } }, { projection: { username: 1, mergedInto: 1, deletedAt: 1 } }).toArray();
+        const found = await coll.find({ username: { $in: names } }, { projection: { username: 1, mergedInto: 1, deletedAt: 1, customProfilePic: 1 } }).toArray();
         const byName = new Map(found.map((u) => [u.username, u]));
         const DELETED = '[deleted]';
         for (const name of names) {
@@ -428,8 +431,13 @@ function createAdopter(ctx) {
             }
             if (owners.includes(name) && (deleted || merged)) goneOwners.add(name);
             if (senders.has(name) && deleted) scrubbed.add(name);
+            // A doc saves stock pictures only (gameCodec): an owner's custom
+            // one comes from here, and adoptGame warms it
+            if (owners.includes(name) && !deleted && !merged && u && typeof u.customProfilePic === 'string' && u.customProfilePic) {
+                ownerPics[name] = u.customProfilePic;
+            }
         }
-        return { goneOwners, scrubbed };
+        return { goneOwners, scrubbed, ownerPics };
     }
 
     /** Adopt a live doc (verdict 'adopt'). */
@@ -446,7 +454,7 @@ function createAdopter(ctx) {
         }
         const full = await coll.findOne({ _id: env._id, owner: env.owner, rev: env.rev });
         if (!full) return { state: 'lost' };
-        const { goneOwners, scrubbed } = await screenAccounts(full);
+        const { goneOwners, scrubbed, ownerPics } = await screenAccounts(full);
         if (stopping()) return { state: 'pending' };
         const at = new Date(now());
         const claimed = await coll.findOneAndUpdate(
@@ -468,7 +476,7 @@ function createAdopter(ctx) {
         const doc = screenDoc({ ...full, ...claimed, gameId: env._id }, { goneOwners, scrubbed, now: now() });
         let game;
         try {
-            game = adoptGame(getIo(), doc, { now: now(), abandonMs });
+            game = adoptGame(getIo(), doc, { now: now(), abandonMs, ownerPics });
         } catch (err) {
             logFailure('adopt', null, err, { gameId: env._id, why: err?.reason || err?.name || 'error' });
             // Not restorable: the doc goes, and so do its pointers

@@ -19,7 +19,7 @@
  *   and released, a rejoin whose auth spans SIGTERM clearing no pointer,
  *   the crash path (no serialize, writers closed, release <= 2 s, the
  *   crash text by outcome, exit 1), SIGINT like SIGTERM.
- * restoreGame.adoptGame is STUBBED (liveStoreKit.stubAdoptGame).
+ * restoreGame.adoptGame, isGated and suspend are the real ones (liveStoreKit.installOnStore).
  */
 
 const mockDb = { current: null };
@@ -368,7 +368,7 @@ describe('over a recording io (fake timers)', () => {
         expect(store.adoptCalls).toHaveLength(1);
         // The final write keeps the adoption's fields (the crash-loop count lives on)
         expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff', adoptedBy: 'boot-A', adoptAttempts: 1 });
-        // The adoption's own line (stubAdoptGame), then the handoff's
+        // The adoption's own line (restoreGame.adoptGame), then the handoff's
         expect(lineOf(id)).toEqual([require('../game/persist/adopt').RESUMED_LINE, shutdown.CONTINUE_NOTICE]);
     });
 

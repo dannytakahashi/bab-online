@@ -14,7 +14,7 @@
  *     or within 8 s (a pointer to a game it never rejoins; never signs in)
  *   - a socket that drops meanwhile gets nothing
  *   - write and off: today's synchronous reply
- * restoreGame.adoptGame is STUBBED (liveStoreKit.stubAdoptGame).
+ * restoreGame.adoptGame, isGated and suspend are the real ones (liveStoreKit.installOnStore).
  */
 
 const mockDb = { current: null };

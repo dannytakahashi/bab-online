@@ -13,7 +13,7 @@
  *   - while this process hands off: refused
  *   - write: today's in-memory check only (a pointer to another instance's
  *     doc does not block)
- * restoreGame.adoptGame is STUBBED (liveStoreKit.stubAdoptGame).
+ * restoreGame.adoptGame, isGated and suspend are the real ones (liveStoreKit.installOnStore).
  */
 
 const mockDb = { current: null };

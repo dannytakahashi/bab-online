@@ -21,7 +21,7 @@
  *   - restoreSession / signIn clear a non-member's tournament pointer (on)
  *   - joinTournament's failure clear is scoped in 'on'
  *   - write and off: today's paths, resolve never asked
- * restoreGame.adoptGame is STUBBED (liveStoreKit.stubAdoptGame).
+ * restoreGame.adoptGame, isGated and suspend are the real ones (liveStoreKit.installOnStore).
  */
 
 const mockDb = { current: null };
