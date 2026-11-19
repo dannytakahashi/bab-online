@@ -54,7 +54,7 @@ Never auto-loaded (it lives outside `client/`, which the server serves as static
 ## Fault lines (web)
 
 - Fault lines (2026-11-19): after a set hand's lines the web game log shows a red `Fault: <name> (bid N, took M)` row per short player on the set team (a bore counts as 0; the server's setsCaused rule). The server sends and stores them (room `gameLogEntry` with the optional `fault {position, bid, took}`, the same `fault` on snapshot v2 log items), so a reload, a rejoin and a fresh spectate join replay them in place, once; the page only draws a row red when it carries `fault`. Details and tests: `docs/claude/web-table.md` "Fault lines".
-- /help count after a reload (2026-11-19): every snapshot carries the seat owner's own count as `viewer.assist {uses, freeUses, assisted}` (absent for spectators); `state/tableSync.applyTableSnapshot` passes it to `assistHint.noteAssistUses`, so the chat autocomplete reads "Suggest a move (n of 3 free used)" right after a reload or rejoin (`docs/claude/assist.md`).
+- /help count after a reload (2026-11-19): every snapshot carries the seat owner's own count as `viewer.assist {uses, freeUses, assisted, unlimited?}` (absent for spectators); `state/tableSync.applyTableSnapshot` passes it to `assistHint.noteAssistUses`, so the chat autocomplete reads "Ask a bot for advice (n of 3 free used)" right after a reload or rejoin; in a game with a native bot seat the snapshot adds `viewer.assist.unlimited` and the list says just "Ask a bot for advice" (`docs/claude/assist.md`).
 
 ## Client error reports
 
