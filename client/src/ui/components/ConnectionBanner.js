@@ -74,12 +74,32 @@ export function installConnectionBanner(socketManager, { doc = document, showDel
   let staleTimer = null;
 
   // Toasts sit under the banner while it shows (kit.css
-  // body.has-connection-banner): its height, which wraps at phone width
-  const placeToasts = (on) => {
-    doc.body.classList.toggle(BANNER_BODY_CLASS, on);
-    const h = on ? element.offsetHeight : 0;
+  // body.has-connection-banner): its height, which wraps at phone width,
+  // measured again while it shows (a rotation or resize rewraps it)
+  const view = doc.defaultView;
+  let listening = false;
+  let observer = null;
+  const measure = () => {
+    const h = isVisible() ? element.offsetHeight : 0;
     if (h > 0) doc.documentElement.style.setProperty('--connection-banner-h', `${h}px`);
     else doc.documentElement.style.removeProperty('--connection-banner-h');
+  };
+  const placeToasts = (on) => {
+    doc.body.classList.toggle(BANNER_BODY_CLASS, on);
+    measure();
+    if (on === listening) return;
+    listening = on;
+    if (on) {
+      view?.addEventListener('resize', measure);
+      if (typeof view?.ResizeObserver === 'function') {
+        observer = new view.ResizeObserver(measure);
+        observer.observe(element);
+      }
+    } else {
+      view?.removeEventListener('resize', measure);
+      observer?.disconnect();
+      observer = null;
+    }
   };
 
   const show = (text) => {

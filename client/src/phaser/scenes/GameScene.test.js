@@ -847,6 +847,28 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
       expect(window.socket.emit).not.toHaveBeenCalled();
     });
 
+    it('a double-click\'s second press (the pointer, within 400 ms of my play) on the neighbour that slid under it: silent; a later press, or the keyboard, says why', () => {
+      vi.useFakeTimers();
+      const card = { suit: 'hearts', rank: 'A' };
+      const next = { suit: 'hearts', rank: 'K' };
+      const h = following([card, next], { suit: 'hearts', rank: '9' });
+      h.click(card, legal, 'pointer');
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      // the neighbour is dimmed now (and the play pending)
+      h.click(next, dimmed, 'pointer');
+      h.click(next, legal, 'pointer');
+      expect(notice()).toBeNull();
+      // the keyboard in that window still says why
+      h.click(next, dimmed, 'keyboard');
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+      clearToasts();
+      // a press after the window says why too
+      vi.advanceTimersByTime(450);
+      h.click(next, dimmed, 'pointer');
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+    });
+
     it('a second click while my card is pending: "Your card is on its way."', () => {
       const card = { suit: 'hearts', rank: 'A' };
       const h = following([card, { suit: 'hearts', rank: 'K' }], { suit: 'hearts', rank: '9' });

@@ -146,10 +146,7 @@ export class BidManager {
     numericRow.className = 'bid-numbers';
     for (let i = 0; i <= handSize; i++) {
       const btn = this.createBidButton(i.toString(), () => {
-        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          showNotice(NOTICE.NOT_YOUR_TURN);
-          return;
-        }
+        if (this._refuseOffTurn()) return;
         this.chooseBid(btn, i.toString(), onBidSelect);
       });
       this.allBidButtons.push(btn);
@@ -165,10 +162,7 @@ export class BidManager {
     BORES.forEach((bid) => {
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
-        if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          showNotice(NOTICE.NOT_YOUR_TURN);
-          return;
-        }
+        if (this._refuseOffTurn()) return;
         this.chooseBid(btn, bid, onBidSelect);
       }, true);
       btn.dataset.bid = bid;
@@ -188,6 +182,18 @@ export class BidManager {
     this.syncClock();
 
     console.log('✅ BidManager: Bid UI created');
+  }
+
+  /**
+   * A bid tap off my turn: true (nothing is sent). The "Not your turn."
+   * notice only for a sheet still open (out of sync with the turn); a tap
+   * on a closing sheet (the fade after my own bid's echo, or after the
+   * clock's bid 0) is the second click of a double-click: silent.
+   */
+  _refuseOffTurn() {
+    if (this.state.currentTurn === this.state.position && this.state.isBidding) return false;
+    if (this.bidContainer?.classList.contains('is-open')) showNotice(NOTICE.NOT_YOUR_TURN);
+    return true;
   }
 
   /**

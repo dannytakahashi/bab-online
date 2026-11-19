@@ -191,6 +191,19 @@ describe('CardManager', () => {
 
       expect(manager._onCardClick).toBe(handler);
     });
+
+    it('a pointer press says it came from the pointer (a double-click\'s second press is quiet); the keyboard\'s does not', () => {
+      const handler = vi.fn();
+      manager.setCardClickHandler(handler);
+      const card = { rank: 'A', suit: 'spades' };
+      manager.displayHand([card], { animate: false });
+      const sprite = mockScene._sprites[0];
+      const down = sprite.on.mock.calls.find(([ev]) => ev === 'pointerdown')[1];
+      down();
+      expect(handler).toHaveBeenLastCalledWith(card, sprite, 'pointer');
+      manager._activate(sprite);
+      expect(handler).toHaveBeenLastCalledWith(card, sprite, 'keyboard');
+    });
   });
 
   describe('clearHand', () => {

@@ -371,13 +371,14 @@ describe('a bid tap off my turn says so (iOS\'s words), on my turn it bids', () 
 
   const button = (label) => [...document.querySelectorAll('#bidContainer .bid-button')].find((b) => b.textContent === label);
 
-  it('a number or a bore off my turn: the "Not your turn." notice (amber), nothing sent', () => {
+  it('a number or a bore off my turn on a sheet still open (out of sync): the "Not your turn." notice (amber), nothing sent', () => {
     const state = getGameState();
     state.position = 1;
     state.currentTurn = 2;
     state.isBidding = true;
     const onBid = vi.fn();
     bm.showBidUI(13, onBid);
+    bm.bidContainer.classList.add('is-open'); // the turn moved, the sheet did not
     button('3').click();
     expect(onBid).not.toHaveBeenCalled();
     expect(document.querySelector('.kit-toast.toast-warning').textContent).toBe('Not your turn.');
@@ -388,6 +389,25 @@ describe('a bid tap off my turn says so (iOS\'s words), on my turn it bids', () 
       expect(document.querySelector('.kit-toast.toast-warning').textContent).toBe('Not your turn.');
     }
     expect(onBid).not.toHaveBeenCalled();
+  });
+
+  it('a tap on the closing sheet (a double-click after my bid\'s echo moved the turn): silent, nothing sent', () => {
+    const state = getGameState();
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isBidding = true;
+    const onBid = vi.fn(() => true);
+    bm.showBidUI(13, onBid);
+    bm.bidContainer.classList.add('is-open');
+    button('3').click();
+    expect(onBid).toHaveBeenCalledTimes(1);
+    state.currentTurn = 2; // the echo
+    bm.updateVisibility(); // the sheet starts its fade (visibility lingers --dur-fast)
+    expect(bm.bidContainer.classList.contains('is-open')).toBe(false);
+    button('4').click();
+    button('B').click();
+    expect(onBid).toHaveBeenCalledTimes(1);
+    expect(document.querySelector('.kit-toast')).toBeNull();
   });
 
   it('on my turn: the bid goes out, no toast', () => {

@@ -73,9 +73,13 @@ export class CardManager {
     return this._suggestedKey ?? null;
   }
 
-  /** A hand card was chosen (the pointer's pointerdown and the keyboard hand's click alike). */
-  _activate(sprite) {
-    if (this._onCardClick && sprite) this._onCardClick(sprite.getData('card'), sprite);
+  /**
+   * A hand card was chosen (the pointer's pointerdown and the keyboard
+   * hand's click alike). `via` is 'pointer' for the pointer's, so the
+   * handler can tell a double-click's second press from a keyboard choice.
+   */
+  _activate(sprite, via = 'keyboard') {
+    if (this._onCardClick && sprite) this._onCardClick(sprite.getData('card'), sprite, via);
   }
 
   /** The hand sprite of a card key (getCardImageKey), or null. */
@@ -317,7 +321,7 @@ export class CardManager {
       this._lowerCard(sprite);
     });
 
-    sprite.on('pointerdown', () => this._activate(sprite));
+    sprite.on('pointerdown', () => this._activate(sprite, 'pointer'));
   }
 
   /** Lift a card (hover, or keyboard focus) with its soft shadow. */

@@ -52,6 +52,7 @@ const GLYPH = {
 const queue = [];
 let current = null; // { el, type, timer, duration, text, announce }
 let announceTimer = null;
+let spokenBy = null; // the toast whose words the announcers hold (cleared when it goes)
 
 function visuallyHidden(role, live) {
   return el('div', {
@@ -80,8 +81,9 @@ export function toastAnnouncers() {
   };
 }
 
-/** Say `text` through the announcer for `type` (cleared first, so the same words are read again). */
-function speak(type, text) {
+/** Say `text` through the announcer for `type` (cleared first, so the same words are read again), for toast `owner`. */
+function speak(type, text, owner) {
+  spokenBy = owner;
   const { polite, assertive } = toastAnnouncers();
   const target = type === 'error' ? assertive : polite;
   const other = target === polite ? assertive : polite;
@@ -146,7 +148,7 @@ function show(item) {
   current = item;
   region().appendChild(item.el);
   arm(item);
-  if (item.announce) speak(item.type, item.text);
+  if (item.announce) speak(item.type, item.text, item);
 }
 
 function next() {
@@ -163,10 +165,22 @@ function dismissCurrent() {
   const leave = motionMs('fast');
   const done = () => {
     item.el.remove();
+    // its words leave with it: a reader browsing later finds no stale
+    // "Not your turn." in the region (another toast's words are kept)
+    if (spokenBy === item) silence();
     if (current === item) next();
   };
   if (leave > 0) item.timer = setTimeout(done, leave);
   else done();
+}
+
+/** Empty both announcers (and drop a pending announcement). */
+function silence() {
+  spokenBy = null;
+  clearTimeout(announceTimer);
+  announceTimer = null;
+  const r = document.getElementById(REGION_ID);
+  r?.querySelectorAll('.kit-toast-announcer').forEach((a) => { a.textContent = ''; });
 }
 
 /** Replay the nudge (the same words again). */
@@ -198,7 +212,7 @@ export function toast(message, { type = 'info', duration = TOAST_DURATION, annou
     current.duration = ms;
     current.announce = announce;
     arm(current);
-    if (announce) speak(kind, text);
+    if (announce) speak(kind, text, current);
     return current.el;
   }
   const queued = queue.find((q) => q.type === kind);
@@ -236,5 +250,6 @@ export function clearToasts() {
   queue.length = 0;
   clearTimeout(announceTimer);
   announceTimer = null;
+  spokenBy = null;
   document.getElementById(REGION_ID)?.remove();
 }

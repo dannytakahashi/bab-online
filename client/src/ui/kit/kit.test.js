@@ -312,6 +312,38 @@ describe('Toast: one queue', () => {
     expect(css).toMatch(/\.kit-toast-region \{[^}]*z-index: var\(--z-toast\)/);
   });
 
+  it('the announcers are emptied when their toast goes (timed out or tapped), so no stale words linger in the region; a pending announcement goes with it', () => {
+    toast('Not your turn.', { type: 'warning', duration: 3000 });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    const { polite, assertive } = toastAnnouncers();
+    expect(polite.textContent).toBe('Not your turn.');
+    vi.advanceTimersByTime(3000 + 120);
+    expect(shown()).toEqual([]);
+    expect(polite.textContent).toBe('');
+
+    const e = toast('Oops', { type: 'error' });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(assertive.textContent).toBe('Oops');
+    e.click();
+    vi.advanceTimersByTime(120);
+    expect(assertive.textContent).toBe('');
+
+    // tapped before its words were set: they are never set
+    const f = toast('Quick', { type: 'info' });
+    f.click();
+    vi.advanceTimersByTime(200);
+    expect(polite.textContent).toBe('');
+  });
+
+  it('a preempted toast leaving keeps the words of the one that replaced it', () => {
+    toast('Saved', { type: 'success' });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    toast('Sign-in failed!', { type: 'error' });
+    vi.advanceTimersByTime(120 + ANNOUNCE_DELAY_MS);
+    expect(shown()).toEqual(['Sign-in failed!']);
+    expect(toastAnnouncers().assertive.textContent).toBe('Sign-in failed!');
+  });
+
   it('{announce: false} shows the toast without speaking it', () => {
     toast('Already said', { type: 'warning', announce: false });
     vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);

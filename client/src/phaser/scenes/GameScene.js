@@ -58,6 +58,9 @@ import {
 } from '../../state/assistHint.js';
 import { showAssistCard, hideAssistCard, syncAssistButton } from '../../ui/components/AssistCard.js';
 
+/** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
+export const DOUBLE_CLICK_QUIET_MS = 400;
+
 /**
  * Main game scene class.
  */
@@ -1303,13 +1306,20 @@ export class GameScene extends Phaser.Scene {
 
     // Set up click handler for playing cards
     const scene = this;
-    this.cardManager.setCardClickHandler((card, clickedSprite) => {
+    this.cardManager.setCardClickHandler((card, clickedSprite, via) => {
       console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
+
+      // A double-click's second press lands on the neighbour that slid
+      // under the pointer after my play (the hand closes up and dims): no
+      // refusal toast for a pointer press just after my own play. The
+      // keyboard, and a later press, still say why.
+      const justPlayed = via === 'pointer' &&
+        Date.now() - (scene._myPlayAt ?? -Infinity) < DOUBLE_CLICK_QUIET_MS;
 
       // Only allow playing if the card is marked as legal; a dimmed card
       // says why (iOS's table notice: "Must follow suit.", "Not your turn."...)
       if (!clickedSprite.getData('isLegal')) {
-        const why = scene.illegalReason(card);
+        const why = justPlayed ? null : scene.illegalReason(card);
         if (why) showNotice(why);
         return;
       }
@@ -1323,9 +1333,10 @@ export class GameScene extends Phaser.Scene {
       // One outstanding action at a time (MyAction: pending until the echo).
       // A send it refused (reconnecting) told the player itself (onRefused)
       if (!getMyAction().submitPlay(card, gameState.position)) {
-        if (getMyAction().isPending()) showNotice(NOTICE.CARD_ON_ITS_WAY);
+        if (getMyAction().isPending() && !justPlayed) showNotice(NOTICE.CARD_ON_ITS_WAY);
         return;
       }
+      scene._myPlayAt = Date.now();
       // my card is on its way: the /help card (and its "?") is done
       scene.clearAssist();
 
