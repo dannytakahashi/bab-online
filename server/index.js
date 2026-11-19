@@ -122,6 +122,9 @@ function start() {
     // server/game/persist/liveStore.js). Off: none of it runs
     const liveStore = require('./game/persist/liveStore').getLiveStore();
     const persisting = liveStore.mode !== 'off';
+    // 'on': the pointer call sites resolve through the store from now on,
+    // waiting for its start() below (socket/pointerResolve.js)
+    if (liveStore.mode === 'on') liveStore.expectStart();
 
     // Setup graceful shutdown
     // Live tables hear about the update in their game log before serverShutdown

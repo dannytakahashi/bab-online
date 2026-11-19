@@ -328,6 +328,7 @@ function createLiveStore({
     let closed = false;
     let ioRef = null;
     let started = false;
+    let startExpected = false;
     let heartbeat = null;
     let beating = false;
     let beatSeq = 0;
@@ -1373,6 +1374,29 @@ function createLiveStore({
         }));
     }
 
+    /**
+     * server/index.js at boot, LIVE_PERSIST=on: start() will run once
+     * connectDB is done. Until then (a cold start, a crash restart with no
+     * healthcheck gate) the pointer call sites already resolve through this
+     * store (resolve() waits for start and never answers "gone" before it),
+     * unless the gameRecords index is known not unique ('write').
+     */
+    function expectStart() {
+        startExpected = true;
+    }
+
+    /**
+     * Whether the pointer call sites (socket/pointerResolve) resolve
+     * through this store: 'on' that runs as 'on' (latched at start()), or
+     * that is about to start (expectStart) with the index not known to be
+     * missing. A store nobody starts (most tests) never resolves.
+     */
+    function resolving() {
+        if (mode !== 'on' || closed) return false;
+        if (started) return latchedMode === 'on';
+        return startExpected && safeCall(gameIdIndexUnique) !== false;
+    }
+
     /** True while a shutdown in 'on' holds every pointer (the clear sites skip). */
     function holdsPointers() {
         return isOn() && safeCall(isShuttingDown) === true;
@@ -1554,6 +1578,8 @@ function createLiveStore({
         shutdown,
         // 'on'
         resolve,
+        expectStart,
+        get resolving() { return resolving(); },
         whenAdopted,
         whenBootSwept,
         ready,

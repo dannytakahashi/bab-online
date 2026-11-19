@@ -13,6 +13,7 @@ const { rememberBlockList } = require('./voiceHandlers');
 const { claimSocket, releaseClaim } = require('./authHandlers');
 const { releaseIdentity } = require('./sessionIdentity');
 const { deletedSince } = require('../admin/accountDelete');
+const pointerResolve = require('./pointerResolve');
 
 /**
  * A rejoin binds this socket to `username` and hands it that seat's hand, so
@@ -115,20 +116,64 @@ async function rejoinGame(socket, io, data) {
         // LIVE_PERSIST=on, shutting down: the table was handed off (or is
         // being), so the pointer stays and no failure is sent (the socket
         // closes in a moment and the client retries on the successor)
-        if (require('../game/persist/liveStore').getLiveStore().holdsPointers?.()) {
+        if (pointerResolve.holdsPointers()) {
             socketLogger.info('Rejoin held: shutting down', { gameId, socketId: socket.id });
             return;
         }
-        socketLogger.debug('Rejoin failed: game not found', { gameId });
-        // Clear the stale activeGameId from the database, scoped to this
-        // game id: a pointer to another (live) game must stay
-        if (username) {
-            await gameManager.clearActiveGame(username, gameId);
+        // LIVE_PERSIST=on: a game in no process's memory here may be saved
+        // or held by another instance (pointerResolve): resolved, adopted
+        // or parked; only a game that is really gone gets the failure
+        if (pointerResolve.active() && !gameManager.getGameById(gameId)) {
+            await pointerResolve.resolveThen(socket, gameId, 'rejoinGame', {
+                onGame: () => {
+                    // Awaited since the auth: the account may have been
+                    // signed out or locked meanwhile (no revoke can land
+                    // between the auth write and the seat otherwise)
+                    if (!stillAuthorized(socket, username)) {
+                        socketLogger.warn('Rejoin refused: not authenticated after the restore wait', { username, gameId, socketId: socket.id });
+                        socket.emit('rejoinFailed', { reason: 'Not authenticated' });
+                        return;
+                    }
+                    const found = gameManager.getGameVisibleTo(gameId, username);
+                    if (found) return seatRejoin(socket, io, found, gameId, username);
+                    return gameGone(socket, gameId, username);
+                },
+                onGone: () => gameGone(socket, gameId, username)
+            });
+            return;
         }
-        socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
+        await gameGone(socket, gameId, username);
         return;
     }
 
+    seatRejoin(socket, io, game, gameId, username);
+}
+
+/** The socket is still the one `username` signed in or rejoined with, and the name is not locked. */
+function stillAuthorized(socket, username) {
+    if (gameManager.isMergeLocked?.(username)) return false;
+    if (socket.data && socket.data.username === username) return true;
+    const authed = gameManager.getUserBySocketId(socket.id);
+    return Boolean(authed && authed.username === username);
+}
+
+/** The game is gone: the stale pointer cleared (scoped) and today's failure. */
+async function gameGone(socket, gameId, username) {
+    if (pointerResolve.holdsPointers()) {
+        socketLogger.info('Rejoin held: shutting down', { gameId, socketId: socket.id });
+        return;
+    }
+    socketLogger.debug('Rejoin failed: game not found', { gameId });
+    // Clear the stale activeGameId from the database, scoped to this
+    // game id: a pointer to another (live) game must stay
+    if (username) {
+        await gameManager.clearActiveGame(username, gameId);
+    }
+    socket.emit('rejoinFailed', { reason: 'Game no longer exists' });
+}
+
+/** rejoinGame once the game is found: the socket's seat (or a refusal). */
+function seatRejoin(socket, io, game, gameId, username) {
     // A socket seated (or entered) in another game keeps that game: taking
     // this seat would overwrite its mapping and strand the other seat on a
     // socket whose disconnect that game never hears
@@ -197,5 +242,6 @@ async function rejoinGame(socket, io, data) {
 }
 
 module.exports = {
-    rejoinGame
+    // Counted as a restore in flight for requestSnapshot's deferral (LIVE_PERSIST=on)
+    rejoinGame: pointerResolve.tracked(rejoinGame)
 };
