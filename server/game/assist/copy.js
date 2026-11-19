@@ -198,15 +198,19 @@ function nameAt(s, name) {
  *    (footer null on a forced move: there is nothing to guess)
  *  - 'line' (a private game-log line for clients without the card, ≤ 200
  *    characters): "Suggested (only you see this): Play 4♦. <reasons>
- *    (Help 2 of 3 free)"
+ *    (Help 2 of 3 free)"; in a game with a native bot seat (`unlimited`,
+ *    assistState.isFreeHelpGame, owner 2026-11-19 "say nothing") no count
+ *    and no free / limit words: no tail at all, or "(Not counted.)" for an
+ *    answer that is not counted (a forced move). 'rich' never names a count
  * @param {Object} e - from explain()
  * @param {Object} [o]
  * @param {'rich'|'line'} [o.style]
  * @param {number} [o.uses] - counted /help uses so far, this one included
  * @param {number} [o.freeUses] - the free uses (3)
  * @param {boolean} [o.counted] - false: this answer is not counted
+ * @param {boolean} [o.unlimited] - a game with a native bot seat: no count
  */
-function render(e, { style = 'rich', uses = null, freeUses = null, counted = true } = {}) {
+function render(e, { style = 'rich', uses = null, freeUses = null, counted = true, unlimited = false } = {}) {
     if (style === 'rich') {
         return {
             headline: e.headline,
@@ -218,6 +222,7 @@ function render(e, { style = 'rich', uses = null, freeUses = null, counted = tru
     }
     let tail = '';
     if (!counted) tail = ' (Not counted.)';
+    else if (unlimited) tail = '';
     else if (uses != null && freeUses != null) {
         tail = uses <= freeUses ? ` (Help ${uses} of ${freeUses} free)` : ` (Help ${uses}: this game counts as bot-assisted for you)`;
     }

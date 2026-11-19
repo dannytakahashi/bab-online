@@ -17,6 +17,11 @@
  *  - the bid clock: /help never stops, resets or delays it, and its timeout
  *    bid of 0 is not a use
  *  - the end-of-game line to the assisted player
+ *  - a game with a native bot seat (owner 2026-11-19, "Unlimited, keep
+ *    notice"; assistState.isFreeHelpGame): no count, no warning, no
+ *    crossing, no end-of-game line, unlimited on the hint and the snapshot,
+ *    the notice kept, and the game-end record still marks more than 3 uses;
+ *    a lazy bot is not a native one (the limit stays)
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -42,6 +47,7 @@ const pacing = require('../../game/pacing');
 const { SEARCH } = require('../../game/bot/playSearch');
 const { Phase } = require('../../game/GamePhase');
 const { NAME_LINT, LINE_PREFIX, LINE_MAX } = require('../../game/assist/copy');
+const assistState = require('../../game/assistState');
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { advanceUntil } = require('../../testUtils/tournamentDriver');
@@ -81,15 +87,19 @@ afterAll(() => rateLimiter.shutdown());
 
 const CAP_HELLO = { client: 'web', version: '1.0.0', caps: ['assist'] };
 
-/** A real casual game through the lobby, 4 humans, at its first open bid turn. */
-async function lobbyGame(tag, { seed = 5 } = {}) {
+/**
+ * A real casual game through the lobby, 4 humans (or `bots` native bots from
+ * the lobby's Add Bot and the rest humans), at its first open bid turn.
+ */
+async function lobbyGame(tag, { seed = 5, bots = 0 } = {}) {
     Math.random = mulberry32(seed);
     const w = world(tag);
-    const names = ['ann', 'bob', 'cat', 'dan'].map((n) => `${tag}_${n}`);
+    const names = ['ann', 'bob', 'cat', 'dan'].slice(0, 4 - bots).map((n) => `${tag}_${n}`);
     const socks = names.map((n, i) => w.user(`${tag}-h${i}`, n));
     mainRoomHandlers.createLobby(socks[0], w.io, { name: `${tag} table` });
     const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
     for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+    for (let i = 0; i < bots; i++) await lobbyHandlers.addBot(socks[0], w.io);
     const pending = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
     await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
     const game = gameManager.getPlayerGame(socks[0].id);
@@ -171,6 +181,7 @@ test('cap socket: assistHint; no-cap socket: private lines; nobody else gets eit
     expect(hint.headline).toMatch(/^Bid /);
     expect(hint.reasons.length).toBeGreaterThanOrEqual(1);
     expect(hint).not.toHaveProperty('note');
+    expect(hint).not.toHaveProperty('unlimited');   // an all-human game: the payload of before
     // the room line, stored and named; no chat
     const room = t.since(mark).filter((l) => l.to === game.roomName);
     expect(room.map((l) => [l.event, l.data.message])).toEqual([['gameLogEntry', `${t.name(p1)} used /help.`]]);
@@ -677,5 +688,189 @@ test('snapshot viewer.assist (2026-11-19): the viewer\'s own count only, exact a
     // The over-the-limit flag follows assistState
     game.assist[p1].help = 4;
     expect(snapOf(t.owner(p1)).viewer.assist).toEqual({ uses: 4, freeUses: 3, assisted: true });
+    await Promise.all(t.pending);
+});
+
+// ------------------------------------------------------------ a game with a native bot seat
+
+/** Words a player must never see about /help in a game with a native bot seat. */
+const LIMIT_WORDS = /free|unlimited|bot-assisted|\(Help \d|of 3/i;
+
+/** The first human seat (the asker). */
+const firstHuman = (game) => [1, 2, 3, 4].find((p) => game.seat(p).controller === 'human');
+
+/**
+ * Drive the game (humans bid / play, bots act on their timers) until
+ * `asker` has `n` counted uses; `ask()` runs on each of the asker's turns
+ * and returns true when that ask was counted.
+ */
+async function driveUses(t, asker, n, ask) {
+    const { game } = t;
+    let uses = 0;
+    while (uses < n) {
+        const open = (game.stage === Phase.BIDDING || game.stage === Phase.PLAYING) && !game.resume && game.acceptsTurnInput();
+        if (!open || game.seat(game.currentTurn).controller !== 'human') {
+            await jest.advanceTimersByTimeAsync(500);
+            continue;
+        }
+        if (game.currentTurn === asker) {
+            rateLimiter.clearSocket(t.owner(asker).id);   // turns come faster than 4 per 10 s here
+            if (ask()) uses++;
+        }
+        if (game.stage === Phase.BIDDING) await t.bid();
+        else await t.play();
+    }
+}
+
+test('isFreeHelpGame: a native bot seat only (never a lazy or resign bot); none in an all-human game', async () => {
+    expect(assistState.isFreeHelpGame(null)).toBe(false);
+    expect(assistState.isFreeHelpGame({})).toBe(false);
+    const seats = (...cs) => ({ seatList: () => cs.map((controller) => ({ controller })) });
+    expect(assistState.isFreeHelpGame(seats('human', 'human', 'human', 'human'))).toBe(false);
+    expect(assistState.isFreeHelpGame(seats('human', 'lazyBot', 'resignBot', 'human'))).toBe(false);
+    expect(assistState.isFreeHelpGame(seats('human', 'bot', 'human', 'human'))).toBe(true);
+    // the wire tally: unlimited only there, assisted never true there
+    const a = { ...assistState.defaultAssistSeat(), user: 'ann', help: 5 };
+    expect(assistState.assistTally(a, 'ann')).toEqual({ uses: 5, freeUses: 3, assisted: true });
+    expect(assistState.assistTally(a, 'ann', true)).toEqual({ uses: 5, freeUses: 3, assisted: false, unlimited: true });
+    expect(SeatState.Controller.BOT).toBe('bot');
+});
+
+test('a game with a native bot seat, no cap: no count tail, no warning, no crossing; the notice stays; a re-ask is free; no game-end line; the record still marks it', async () => {
+    const t = await lobbyGame('fb', { seed: 11, bots: 1 });
+    const { game } = t;
+    expect(assistState.isFreeHelpGame(game)).toBe(true);
+    const asker = firstHuman(game);
+    const n = t.name(asker);
+    const lines = [];
+    const notices = [];
+    let reasked = false;
+    await driveUses(t, asker, 5, () => {
+        const mark = t.w.log.length;
+        t.say(t.owner(asker), '?help');
+        const got = privateTo(t, mark).map((l) => l.data.message);
+        if (!got[0] || got[0].endsWith('(Not counted.)')) return false;
+        lines.push(got);
+        notices.push(...t.since(mark).filter((l) => l.to === game.roomName).map((l) => l.data.message));
+        if (!reasked) {
+            // a re-ask on the same turn: the same line, no notice
+            reasked = true;
+            const again = t.w.log.length;
+            t.say(t.owner(asker), '?help');
+            expect(privateTo(t, again).map((l) => l.data.message)).toEqual(got);
+            expect(t.since(again).filter((l) => l.to === game.roomName)).toEqual([]);
+        }
+        return true;
+    });
+    // one line per ask (never the warning), no count and no limit words
+    expect(lines.map((l) => l.length)).toEqual([1, 1, 1, 1, 1]);
+    for (const [line] of lines) {
+        expect(line.startsWith(LINE_PREFIX)).toBe(true);
+        expect(line).not.toMatch(LIMIT_WORDS);
+        expect(line).not.toMatch(/\)$/);   // no tail: ends with the reason's own full stop
+    }
+    // the notice, every counted use, never the crossing
+    expect(notices).toEqual([1, 2, 3, 4, 5].map(() => `${n} used /help.`));
+    expect(game.gameLog.filter((e) => /used \/help/.test(e.message)).map((e) => e.message)).toEqual(notices);
+    expect(game.assist[asker].help).toBe(5);
+    // the game ends: no end-of-game line, but the record still marks the asker (owner: "Free UI, still record it")
+    for (let p = 1; p <= 4; p++) if (game.seat(p).controller === 'human') t.say(t.owner(p), '/lazy');
+    const endSocket = t.owner(asker).id;
+    await advanceUntil(() => game.isTerminal(), 1000, 3_600_000);
+    expect(events(t.w.log, 'gameEnd').length).toBeGreaterThan(0);
+    expect(t.w.log.filter((l) => l.event === 'gameLogEntry' && l.to === endSocket && LIMIT_WORDS.test(l.data.message))).toEqual([]);
+    await advanceUntil(() => mockDb.current.gameRecords.docs.some((d) => d.gameId === game.gameId && !d.statsPending), 100);
+    const doc = mockDb.current.gameRecords.docs.find((d) => d.gameId === game.gameId);
+    expect(doc.withBots).toBe(true);
+    expect(doc.statsDeltas.bucket).toBe('botStats');
+    expect(doc.statsDeltas).not.toHaveProperty('bucketByPosition');
+    expect(doc.statsDeltas.assist).toEqual({ [asker]: { help: 5 } });
+    expect(doc.assistedTeams).toEqual([asker % 2 === 1 ? 1 : 2]);
+    await Promise.all(t.pending);
+}, 60000);
+
+test('a game with a native bot seat, with the cap: unlimited on every hint and the snapshot, assisted never true, no note; spectators get no assist', async () => {
+    const t = await lobbyGame('fc', { seed: 12, bots: 2 });
+    const { game } = t;
+    const asker = firstHuman(game);
+    clientInfo.handle(t.owner(asker), t.w.io, CAP_HELLO);
+    const snapOf = (s) => {
+        const mark = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, {});
+        return t.since(mark).find((l) => l.event === 'stateSnapshot' && l.to === `self:${s.id}`).data.snapshot;
+    };
+    // known before any use: after a reload the client can tell at once
+    expect(snapOf(t.owner(asker)).viewer.assist).toEqual({ uses: 0, freeUses: 3, assisted: false, unlimited: true });
+    const counted = [];
+    const statuses = [];
+    await driveUses(t, asker, 5, () => {
+        const mark = t.w.log.length;
+        t.say(t.owner(asker), '/help');
+        const h = privateTo(t, mark).filter((l) => l.event === 'assistHint').map((l) => l.data)[0];
+        if (!h) return false;
+        if (h.kind === 'status') statuses.push(h);
+        if (!h.counted) return false;
+        counted.push(h);
+        return true;
+    });
+    expect(counted.map((h) => [h.uses, h.freeUses, h.assisted, h.unlimited, h.note ?? null])).toEqual(
+        [1, 2, 3, 4, 5].map((u) => [u, 3, false, true, null])
+    );
+    // no text a player sees says anything about free uses or limits
+    for (const h of [...counted, ...statuses]) {
+        expect([h.headline, ...h.reasons, ...(h.details || []), h.note || ''].join(' ')).not.toMatch(LIMIT_WORDS);
+    }
+    expect(snapOf(t.owner(asker)).viewer.assist).toEqual({ uses: 5, freeUses: 3, assisted: false, unlimited: true });
+    expect(game.getSnapshotV2(t.owner(asker).id).viewer.assist).toEqual({ uses: 5, freeUses: 3, assisted: false, unlimited: true });
+    // another seat's reply (an answer or the status line) carries the flag too
+    const other = [1, 2, 3, 4].find((p) => p !== asker && game.seat(p).controller === 'human');
+    clientInfo.handle(t.owner(other), t.w.io, CAP_HELLO);
+    rateLimiter.clearSocket(t.owner(other).id);
+    const mark = t.w.log.length;
+    t.say(t.owner(other), '/help');
+    const reply = privateTo(t, mark).find((l) => l.event === 'assistHint').data;
+    expect(reply).toMatchObject({ assisted: false, unlimited: true });
+    // a spectator: no assist key
+    const spec = t.w.user('fc-spec', 'fc_fan');
+    mainRoomHandlers.joinAsSpectator(spec, t.w.io, { gameId: game.gameId });
+    expect(snapOf(spec).viewer).not.toHaveProperty('assist');
+    // the end-of-game line: none here, however many uses
+    const before = t.w.log.length;
+    assistHandlers.gameEndLines(t.w.io, game);
+    expect(t.w.log.length).toBe(before);
+    await Promise.all(t.pending);
+}, 60000);
+
+test('a forced move in a game with a native bot seat: "(Not counted.)" only, no count', () => {
+    const t = playTable({ 1: [C('A', 'spades')], 2: [C('K', 'clubs')], 3: [C('Q', 'diamonds')], 4: [C('3', 'spades')] });
+    t.game.forceSeat(4, { controller: SeatState.Controller.BOT, bot: { socketId: 'pt-bot4', username: 'Bot4', pic: 4, personality: 'mary' } });
+    expect(assistState.isFreeHelpGame(t.game)).toBe(true);
+    t.say(1, '?help');
+    const lines = t.log.filter((l) => l.to === 'pt-p1');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].data.message).toMatch(/ \(Not counted\.\)$/);
+    expect(lines[0].data.message).not.toMatch(LIMIT_WORDS);
+    expect(t.log.filter((l) => l.to === t.game.roomName)).toEqual([]);
+});
+
+test('a lazy bot is not a native one: the limit, the warning and the crossing stay (no unlimited)', async () => {
+    const t = await lobbyGame('lz', { seed: 7 });
+    const { game } = t;
+    const asker = game.currentTurn;
+    const lazy = (asker % 4) + 1;
+    t.say(t.owner(lazy), '/lazy');
+    expect(game.seat(lazy).controller).toBe('lazyBot');
+    expect(assistState.isFreeHelpGame(game)).toBe(false);
+    clientInfo.handle(t.owner(asker), t.w.io, CAP_HELLO);
+    const n = t.name(asker);
+    game.assist[asker] = { ...assistState.defaultAssistSeat(), user: n, help: 3 };
+    const mark = t.w.log.length;
+    t.say(t.owner(asker), '/help');
+    const h = privateTo(t, mark).find((l) => l.event === 'assistHint').data;
+    expect(h).toMatchObject({ uses: 4, assisted: true, counted: true, note: TEXT.crossedNote });
+    expect(h).not.toHaveProperty('unlimited');
+    expect(t.since(mark).filter((l) => l.to === game.roomName).map((l) => l.data.message))
+        .toEqual([`${n} used /help. This game now counts as bot-assisted for ${n}.`]);
+    expect(game.getSnapshotV2(t.owner(asker).id).viewer.assist).toEqual({ uses: 4, freeUses: 3, assisted: true });
     await Promise.all(t.pending);
 });

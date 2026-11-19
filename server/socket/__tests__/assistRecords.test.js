@@ -9,7 +9,8 @@
  *  - counted uses under the limit: only the evidence (statsDeltas.assist)
  *  - an assisted seat: bucketByPosition {pos: 'botStats'} for that seat,
  *    withBots + empty team bots, assistedTeams; in a bot game anyway no
- *    bucketByPosition; recordGameStats credits the assisted player's
+ *    bucketByPosition (still marked although players see no limit there,
+ *    owner 2026-11-19); recordGameStats credits the assisted player's
  *    botStats and everyone else's stats
  *  - a real tournament: /help is allowed at the table, counted, and the
  *    game counts as bot-assisted for the player there too
@@ -136,6 +137,20 @@ describe('buildGameEndRecord', () => {
         expect(r.statsDeltas).not.toHaveProperty('bucketByPosition');
         expect(r.statsDeltas.assist).toEqual({ 1: { help: 4 } });
         expect(r).toMatchObject({ withBots: true, team2Bots: ['🤖 Bot4'], assistedTeams: [1] });
+    });
+
+    test('a bot game where /help is free and unlimited for players (owner 2026-11-19): more than 3 uses is still recorded', () => {
+        // Players see no count or limit there (assistState.isFreeHelpGame),
+        // but the record still marks the player (owner: "Free UI, still record it")
+        const r = profile.buildGameEndRecord(finishedGame({ bots: [3, 4], help: { 1: 9, 2: 2 } }));
+        expect(r.statsDeltas.bucket).toBe('botStats');
+        expect(r.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(r.statsDeltas.assist).toEqual({ 1: { help: 9 }, 2: { help: 2 } });
+        expect(r.assistedTeams).toEqual([1]);
+        // 3 uses (the old free limit) is not assisted, in a bot game too
+        const three = profile.buildGameEndRecord(finishedGame({ bots: [4], help: { 2: 3 } }));
+        expect(three.statsDeltas.assist).toEqual({ 2: { help: 3 } });
+        expect(three).not.toHaveProperty('assistedTeams');
     });
 });
 
