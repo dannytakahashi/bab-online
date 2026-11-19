@@ -27,6 +27,9 @@ struct BidOverlayView: View {
     /// Sent, waiting for bidReceived (or a reject): no second submit.
     private var isSubmitted: Bool { gameState.myTurn.isSubmitted }
 
+    /// My /help answer's bid ("4", "B"): ringed in gold (the web's .bid-button.is-suggested).
+    private var suggested: String? { gameState.suggestedBid }
+
     private var maxBid: Int {
         gameState.myCards.count
     }
@@ -108,10 +111,12 @@ struct BidOverlayView: View {
                             .background(selectedBid == bidStr ? Theme.primary : Theme.surfaceLight)
                             .foregroundColor(selectedBid == bidStr ? Theme.buttonForeground : Theme.textPrimary)
                             .cornerRadius(Theme.Radius.sm)
+                            .modifier(SuggestedBidRing(on: suggested == bidStr, radius: Theme.Radius.sm))
                             .frame(width: cellSize, height: cellSize)
                             .contentShape(Rectangle())
                     }
                     .accessibilityShowsLargeContentViewer()
+                    .accessibilityValue(suggested == bidStr ? "Suggested" : "")
                 }
             }
             .padding(.horizontal, 6)
@@ -129,9 +134,11 @@ struct BidOverlayView: View {
                                 .background(selectedBid == level ? Theme.danger : Theme.surfaceLight)
                                 .foregroundColor(selectedBid == level ? Theme.dangerForeground : Theme.textPrimary)
                                 .cornerRadius(Theme.Radius.sm)
+                                .modifier(SuggestedBidRing(on: suggested == level, radius: Theme.Radius.sm))
                                 .contentShape(Rectangle().inset(by: -2))
                         }
                         .accessibilityShowsLargeContentViewer()
+                        .accessibilityValue(suggested == level ? "Suggested" : "")
                     }
                 }
 
@@ -196,6 +203,16 @@ struct BidOverlayView: View {
                             .offset(y: 1)
                     }
                 }
+                // /help's lightbulb on my bid turn: on the leading corner, over the felt (the
+                // countdown keeps the trailing one); hidden while an answer is up or on its way
+                .overlay(alignment: .bottomLeading) {
+                    if gameState.showsAssistAsk {
+                        AssistAskButton(size: AssistLayout.askSize, action: askHelp)
+                            .padding(.leading, Theme.Space.s1)
+                            .offset(y: (Theme.hitTarget - AssistLayout.askSize) / 2 - 2)
+                            .transition(.opacity)
+                    }
+                }
         }
         .onChange(of: Self.announcement(clock, of: myClock), initial: true) { _, said in
             if let said { AccessibilityNotification.Announcement(said.text).post() }
@@ -231,6 +248,15 @@ struct BidOverlayView: View {
         return Announcement(position: countdown.position, deadline: countdown.deadline, low: low, text: BidCountdownModel.announcement(n))
     }
 
+    private func askHelp() {
+        #if DEBUG
+        let connected = SocketService.shared.isConnected || UIFixture.isActive
+        #else
+        let connected = SocketService.shared.isConnected
+        #endif
+        if actions.askHelp(connected: connected) { HapticManager.selection() }
+    }
+
     private func submitBid() {
         guard let bid = selectedBid else { return }
         // the countdown reached 0: the server is bidding 0 for me (C2's margin)
@@ -238,6 +264,25 @@ struct BidOverlayView: View {
         if actions.bid(bid) {
             HapticManager.mediumImpact()
             selectedBid = nil
+        }
+    }
+}
+
+/// The gold ring round the /help answer's bid (the lightbulb's colour), outside the face.
+struct SuggestedBidRing: ViewModifier {
+    let on: Bool
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if on {
+                RoundedRectangle(cornerRadius: radius + 2)
+                    .strokeBorder(Theme.gold, lineWidth: 2)
+                    .padding(-2)
+                    .shadow(color: Theme.gold.opacity(0.55), radius: 4)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }

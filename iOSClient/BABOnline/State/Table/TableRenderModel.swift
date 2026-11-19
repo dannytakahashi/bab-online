@@ -33,6 +33,9 @@ struct TableRenderModel: Equatable {
         /// Why each card outside `legalIds` cannot be played now, in the web's words
         /// (GameScene.illegalReason): the toast a tap on a dimmed card shows, its VoiceOver hint.
         var blocked: [String: String] = [:]
+        /// My /help answer's card (AssistHint): its glow (CardSpriteNode.isSuggested), only while
+        /// the answer is up and live.
+        var suggestedId: String? = nil
     }
 
     /// The web's illegalReason sentences (client/src/phaser/scenes/GameScene.js).
@@ -147,7 +150,9 @@ struct TableRenderModel: Equatable {
                 else { why = Blocked.trickClearing }
                 for c in cards { blocked[c.id] = why }
             }
-            hand = Hand(cards: cards, legalIds: legal, interactive: myTurn == .choosing(.play), blocked: blocked)
+            var suggested: String?
+            if let h = s.table.assist, h.kind == .card, let c = h.card, cards.contains(c), AssistRules.isLive(h, s) { suggested = c.id }
+            hand = Hand(cards: cards, legalIds: legal, interactive: myTurn == .choosing(.play), blocked: blocked, suggestedId: suggested)
         } else {
             hand = nil
         }

@@ -184,6 +184,8 @@ final class AuthSocketHandler {
             self.gameState.reset()
             self.safetyState.reset()
             self.appState.screen = .signIn
+            // why the sign-in is back (the web's words), on the sign-in's own toast layer
+            self.socket.serverError = ServerErrorNotice(message: NoticeText.signedOut, kind: .info)
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 
 /// The table's renderer (GameSKScene), called synchronously after every commit.
 @MainActor
@@ -36,6 +37,9 @@ final class GameState: ObservableObject {
     /// `id` tells two equal lines apart.
     @Published private(set) var notice: TableNotice?
     private var noticeCount = 0
+
+    /// Said to VoiceOver (my /help answer); tests replace it.
+    var announce: (String) -> Void = { AccessibilityNotification.Announcement($0).post() }
 
     /// A notice from the table itself (a tap on a dimmed card: TableRenderModel.Hand.blocked).
     func postNotice(_ text: String, info: Bool = false) {
@@ -106,6 +110,8 @@ final class GameState: ObservableObject {
                 postNotice(text)
             case .infoNotice(let text):
                 postNotice(text, info: true)
+            case .announce(let text):
+                announce(text)
             #if DEBUG
             case .dropped(let event, let seq): print("[Table] dropped \(event) seq \(seq)")
             case .gap(let expected, let got): print("[Table] seq gap: expected \(expected), got \(got)")
@@ -257,6 +263,15 @@ final class GameState: ObservableObject {
     }
     /// Who is watching (the spectator badge).
     var watching: WatchingList { players.watching }
+
+    /// My /help answer on screen (AssistCardView), nil when none is up.
+    var assistHint: AssistHint? { table.assist.flatMap { AssistRules.isLive($0, state) ? $0 : nil } }
+    /// The suggested bid's ring on the bid panel (an answer of kind bid, still live).
+    var suggestedBid: String? { assistHint?.kind == .bid ? assistHint?.bid : nil }
+    /// The lightbulb by my hand shows (my own turn at my seat, no answer up or on its way).
+    var showsAssistAsk: Bool { AssistRules.showsAsk(state) }
+    /// The chat command list's /help line.
+    var helpDescription: String { AssistRules.helpDescription(table.assistUses) }
 
     var gameLog: [ChatMessage] { log.entries }
     var unreadChatCount: Int { log.unread }

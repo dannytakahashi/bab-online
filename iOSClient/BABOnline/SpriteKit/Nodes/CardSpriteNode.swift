@@ -7,6 +7,12 @@ class CardSpriteNode: SKSpriteNode {
         didSet { updateLegality() }
     }
     var isLifted: Bool = false
+    /// My /help answer's card (TableRenderModel.Hand.suggestedId): a gold ring round it
+    /// ("glow.suggested"), and VoiceOver reads "<card>, suggested".
+    var isSuggested: Bool = false {
+        didSet { if isSuggested != oldValue { updateSuggested() } }
+    }
+    private var suggestedRing: SKShapeNode?
     var onTap: ((Card) -> Void)?
     /// Why this card cannot be played now (dimmed; TableRenderModel.Hand.blocked): VoiceOver's
     /// hint, and what a tap on it says (`onBlockedTap`).
@@ -68,6 +74,32 @@ class CardSpriteNode: SKSpriteNode {
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    private func updateSuggested() {
+        accessibilityLabel = isSuggested ? "\(card.displayName), suggested" : card.displayName
+        if isSuggested {
+            guard suggestedRing == nil else { return }
+            // drawn inside the card's edge: the next card of the hand covers its right part, so the
+            // ring outlines just the strip of this card that shows (outside it, it ran along the
+            // neighbours' edges and read as a bracket round three cards)
+            let pad: CGFloat = -2
+            let ring = SKShapeNode(rect: CGRect(x: -size.width / 2 - pad, y: -size.height / 2 - pad,
+                                                width: size.width + 2 * pad, height: size.height + 2 * pad), cornerRadius: 6)
+            ring.role = "glow.suggested"
+            ring.hideFromAccessibility()
+            ring.fillColor = .clear
+            ring.strokeColor = Theme.SK.suggestedRing
+            ring.lineWidth = 3
+            ring.isUserInteractionEnabled = false
+            ring.zPosition = 0.5  // over the card, under the next card of the hand
+            CardAnimations.startPulseGlow(on: ring)
+            addChild(ring)
+            suggestedRing = ring
+        } else {
+            suggestedRing?.removeFromParent()
+            suggestedRing = nil
+        }
     }
 
     private func updateLegality() {

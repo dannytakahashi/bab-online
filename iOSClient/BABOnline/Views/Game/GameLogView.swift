@@ -43,20 +43,24 @@ struct GameLogPanel: View {
     @State private var reportTarget: String?
 
     private var availableCommands: [SlashCommand] {
-        Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome)
+        Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome,
+                      help: gameState.helpDescription)
     }
 
     /// The command list: a pure spectator (not lazy) only has /leave, which exits spectating;
-    /// at a seat /leave says what it will do (LeaveOutcome).
-    static func commands(pureSpectator: Bool, leave: LeaveOutcome) -> [SlashCommand] {
+    /// at a seat /leave says what it will do (LeaveOutcome) and /help how many free uses are
+    /// spent (`help`: AssistRules.helpDescription; nil leaves it out).
+    static func commands(pureSpectator: Bool, leave: LeaveOutcome, help: String? = nil) -> [SlashCommand] {
         if pureSpectator {
             return [SlashCommand(command: "/leave", description: "Exit spectating")]
         }
-        return [
+        var list = [
             SlashCommand(command: "/lazy", description: "Bot plays for you"),
             SlashCommand(command: "/active", description: "Take back control"),
             SlashCommand(command: "/leave", description: leave.commandHelp),
         ]
+        if let help { list.append(SlashCommand(command: AssistRules.command, description: help)) }
+        return list
     }
 
     private var filteredCommands: [SlashCommand] {
@@ -224,7 +228,8 @@ struct GameLogEntryView: View {
             if entry.type == .system {
                 Text(entry.message)
                     .font(.caption2)
-                    .foregroundColor(Theme.textDim)
+                    // a row only I see (my /help answer): dim, in the suggestion's gold
+                    .foregroundColor(entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim)
                     .italic()
             } else {
                 Text("\(entry.username):")
@@ -265,7 +270,8 @@ enum ChatCommand {
     /// Commands the server answers from anyone (server/socket/chatHandlers.js spectatorCommand):
     /// typed in full they are sent whatever the list shows. A spectator recorded as a seat's
     /// owner takes it back with `/active`, though a spectator's list shows only `/leave`.
-    static let server = ["/active", "/leave"]
+    /// `/help` too (the server answers a spectator "/help is for players only.").
+    static let server = ["/active", "/leave", "/help"]
 
     static func resolve(_ text: String, commands: [String]) -> Resolution {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)

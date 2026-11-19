@@ -33,6 +33,12 @@ enum LocalAction: Equatable {
     /// My socket left `.connected` (critic C4): no `stopped` can reach me, so the bid clock
     /// and its tune end here; the rejoin's snapshot brings the clock back if it still runs.
     case connectionLost
+    /// The lightbulb sent /help: it hides until the answer (or `assistAskLapsed`).
+    case assistAsked
+    /// No answer to the lightbulb's /help within AssistRules.askWait: it may show again.
+    case assistAskLapsed
+    /// The card's close button: my /help answer goes (the suggestion's glow and ring too).
+    case assistDismissed
 }
 
 enum TableEffect: Equatable {
@@ -53,6 +59,8 @@ enum TableEffect: Equatable {
     case dropped(event: String, seq: Int)
     case gap(expected: Int, got: Int)
     case cancelAck(reqId: UInt32)
+    /// Said to VoiceOver (my /help answer: AssistRules.announcement).
+    case announce(String)
 }
 
 enum TableAnimation: Equatable {
@@ -180,12 +188,15 @@ enum TableReducer {
         case .submitPlay(let card, let reqId):
             guard s.pending == nil, s.table.hand.contains(card) else { return }
             s.pending = PendingAction(submission: .play(card), reqId: reqId, key: currentKey(s))
+            // my card is on its way: the /help card (and its glow) is done
+            clearAssist(&s)
             // the card shows in its slot now (TableRenderModel), so it sounds now, not a round
             // trip later with the echo (which then stays quiet; a rollback is rare)
             if s.table.phase.kind == .playing { fx.append(.sound(.card)) }
         case .submitBid(let bid, let reqId):
             guard s.pending == nil, s.table.phase.isBidding else { return }
             s.pending = PendingAction(submission: .bid(bid.uppercased()), reqId: reqId, key: currentKey(s))
+            clearAssist(&s)
         case .ackTimeout(let reqId, let attempt):
             guard let p = s.pending, p.reqId == reqId else { return }
             if attempt < AckPolicy.maxResyncs {
@@ -215,6 +226,12 @@ enum TableReducer {
             checkLeave(&s, &fx)
         case .leaveClosed:
             s.players.leaveCheck = .idle
+        case .assistAsked:
+            s.table.assistAsking = true
+        case .assistAskLapsed:
+            s.table.assistAsking = false
+        case .assistDismissed:
+            clearAssist(&s)
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer
             // whichever request it was: a gap request suppressed behind this one

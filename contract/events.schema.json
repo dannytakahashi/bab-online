@@ -8230,13 +8230,15 @@
       "seq": false,
       "clientReads": {
         "web": [],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/assistHandlers.js:help",
         "server/socket/assistHandlers.js:sendStatus"
       ],
-      "notes": "New (2026-11-18, /help plan H2c; private, unsequenced, read by no client yet: web AssistCard (H3), iOS build 15 (H4)). Only to a socket that sent the clientHello cap assist ($defs.clientCapAssist), as the reply to its own /help or ?help (chatMessage); every other socket gets the same reply as private gameLogEntry lines. kind bid / card: the bid or card a Mary bot would choose in that seat (server/game/assist), with up to 2 reasons, up to 4 details (a 'Why?' expander), the confidence (UI labels: Only legal card, Sure thing, Clear choice, Close call, Any card works, Quick suggestion) and suggest; note carries the warning on the last free use or 'This game now counts as bot-assisted for you.' on the use that crosses it. kind status: no suggestion (headline is the whole reply: a bot plays the seat, the rate limit, nothing to suggest, the off-turn status line, an error, players only, once the game starts), never counted. source tutorial, kind tip, tipId and actions are reserved for the tutorial (not sent yet). Every text is at most 280 characters. Clear it on the next updateTurn, the player's own bidReceived / cardPlayed, hand end, or a turnKey that is not the current turn's."
+      "notes": "New (2026-11-18, /help plan H2c; private, unsequenced, read by no client yet: web AssistCard (H3), iOS build 15 (H4)). Only to a socket that sent the clientHello cap assist ($defs.clientCapAssist), as the reply to its own /help or ?help (chatMessage); every other socket gets the same reply as private gameLogEntry lines. kind bid / card: the bid or card a Mary bot would choose in that seat (server/game/assist), with up to 2 reasons, up to 4 details (a 'Why?' expander), the confidence (UI labels: Only legal card, Sure thing, Clear choice, Close call, Any card works, Quick suggestion) and suggest; note carries the warning on the last free use or 'This game now counts as bot-assisted for you.' on the use that crosses it. kind status: no suggestion (headline is the whole reply: a bot plays the seat, the rate limit, nothing to suggest, the off-turn status line, an error, players only, once the game starts), never counted. source tutorial, kind tip, tipId and actions are reserved for the tutorial (not sent yet). Every text is at most 280 characters. Clear it on the next updateTurn, the player's own bidReceived / cardPlayed, hand end, or a turnKey that is not the current turn's. iOS (the build after 1.2.3 (17)) sends the cap and reads it (GameSocketHandler; ServerEvent.assistHint decoded with seq nil, every field optional but kind and headline; TableReducer+Assist: AssistCardView above the hand or the bid panel, the suggested card's glow, the suggested bid's ring, the lightbulb by the hand); builds <= 17 never send the cap, so they keep the private lines."
     },
     "profileResponse": {
       "payload": {

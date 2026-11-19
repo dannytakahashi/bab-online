@@ -30,8 +30,17 @@ extension TableReducer {
         let sameGame = s.table.gameId == next.table.gameId
         if !sameGame && s.table.bidTuneLive { fx.append(.bidClock(.stop(.hard))) }
         let hadClock = sameGame && s.table.bidClock != nil
+        // /help: the same game keeps its answer (shown again if still live), a held one, the
+        // uses and an ask on its way; another game's are gone
+        if sameGame {
+            next.table.assist = s.table.assist
+            next.table.parkedAssist = s.table.parkedAssist
+            next.table.assistUses = s.table.assistUses
+            next.table.assistAsking = s.table.assistAsking
+        }
         s = next
         s.table.myTurn = s.myTurn
+        settleAssist(&s, abandon: false, &fx)
         fx.append(.animate(.sceneReset))
         if s.table.bidClock != nil { fx.append(.bidClock(.sync)) } else if hadClock { fx.append(.bidClock(.stop(.fade))) }
         catchUp(&fx) { fx in

@@ -158,6 +158,62 @@ enum WirePayload {
         var reason: Reason?
     }
 
+    /// assistHint (s2c, private, UNSEQUENCED: decoded with seq nil): my own /help answer, sent
+    /// only because this build's clientHello carries the cap `assist` (contract/src/s2c.js
+    /// assistHint; docs/claude/assist.md). Every field optional, so a newer server's shape never
+    /// fails the decode; one this build cannot show (v not 1, an unknown kind, no headline) is
+    /// dropped by AssistRules.
+    struct AssistHint: Decodable, Equatable {
+        /// `suggest`: {bid} or {card}.
+        struct Suggest: Decodable, Equatable { var bid: String?; var card: Card? }
+        var v: Int?
+        var source: String?
+        var kind: String?
+        var turnKey: String?
+        var headline: String?
+        var reasons: [String]?
+        var uses: Int?
+        var freeUses: Int?
+        var assisted: Bool?
+        var counted: Bool?
+        var details: [String]?
+        var confidence: String?
+        var suggest: Suggest?
+        var note: String?
+
+        enum CodingKeys: String, CodingKey {
+            case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note
+        }
+
+        init(v: Int? = 1, source: String? = "help", kind: String?, turnKey: String? = nil, headline: String?, reasons: [String]? = nil,
+             uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil, counted: Bool? = nil, details: [String]? = nil,
+             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil) {
+            self.v = v; self.source = source; self.kind = kind; self.turnKey = turnKey; self.headline = headline
+            self.reasons = reasons; self.uses = uses; self.freeUses = freeUses; self.assisted = assisted; self.counted = counted
+            self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note
+        }
+
+        /// Lenient: a field of the wrong type is absent (a card this build cannot read is no card).
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+            v = opt(Int.self, .v)
+            source = opt(String.self, .source)
+            kind = opt(String.self, .kind)
+            turnKey = opt(String.self, .turnKey)
+            headline = opt(String.self, .headline)
+            reasons = opt([String].self, .reasons)
+            uses = opt(Int.self, .uses)
+            freeUses = opt(Int.self, .freeUses)
+            assisted = opt(Bool.self, .assisted)
+            counted = opt(Bool.self, .counted)
+            details = opt([String].self, .details)
+            confidence = opt(String.self, .confidence)
+            suggest = opt(Suggest.self, .suggest)
+            note = opt(String.self, .note)
+        }
+    }
+
     struct SpectatorNotice: Decodable, Equatable { var username: String?; var spectatorCount: Int?; var seq: Int? }
 
     /// rejoinSuccess / restorePlayerState / the spectator full state: only the

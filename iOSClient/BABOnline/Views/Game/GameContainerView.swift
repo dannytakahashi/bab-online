@@ -219,11 +219,11 @@ private struct GameScreen: View {
         // the voice panel tip waits while an overlay covers the table (the spectator pill's
         // headphones are mounted under the draw and game-end scrims) or the log drawer its spot
         .onChange(of: tipCovered, initial: true) { _, covered in VoicePanelTip.shared.cover(.table, covered) }
-        // a refused bid or play: why, in the app's toast (non-blocking, read by VoiceOver)
+        // a refused bid or play: why, in the app's toast (non-blocking; SocketService.serverError
+        // announces every new toast to VoiceOver)
         .onChange(of: gameState.notice) { _, notice in
             guard let notice else { return }
             SocketService.shared.serverError = ServerErrorNotice(message: notice.text, kind: notice.info ? .info : .error)
-            AccessibilityNotification.Announcement(notice.text).post()
         }
         .onChange(of: gameState.leaveOutcome) { _, outcome in
             runLeave(leaveFlow.changed(outcome: outcome, check: gameState.players.leaveCheck))
@@ -478,6 +478,14 @@ private struct GameScreen: View {
                     // hidden under my bid panel's turn, as my seat's row (the panel may span its spot)
                     if showsTable && !showsBidOverlay && gameState.watching.count > 0 {
                         spectatorBadge(layout)
+                    }
+                    // /help: the lightbulb at my hand's right end on my play turn (on my bid turn
+                    // it is on the bid panel's corner: BidOverlayView), and my answer's card
+                    if showsTable && !showsBidOverlay && gameState.showsAssistAsk {
+                        assistAsk(layout)
+                    }
+                    if showsTable, let hint = gameState.assistHint {
+                        assistCard(layout, hint, full: full)
                     }
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
@@ -768,6 +776,65 @@ private struct GameScreen: View {
         }
     }
 
+    // MARK: - /help (AssistCardView): above my hand, or above the bid panel while I bid
+
+    /// My hand's box in the pane's points (its cards' width at the hand's scale, from its
+    /// baseline to the lifted cards' top): the card and the lightbulb are placed from it, so on
+    /// the Duo they follow the hand below the fold.
+    private func handBox(_ layout: TableLayout) -> CGRect {
+        let n = max(gameState.myCards.count, 1)
+        let width = TableLayout.cardSize.width * layout.handScale + layout.handOverlap(count: n) * CGFloat(n - 1)
+        let bottom = layout.handTop - TableLayout.cardSize.height * layout.handScale
+        return layout.window(CGRect(x: layout.handBaseline.x - width / 2, y: bottom, width: width, height: layout.liftTop - bottom))
+    }
+
+    /// The lightbulb: its right edge at my hand's right end, just above the lifted cards.
+    private func assistAsk(_ layout: TableLayout) -> some View {
+        let box = handBox(layout)
+        let size = AssistLayout.askSize
+        let hit = max(size, Theme.hitTarget)
+        return AssistAskButton(size: size, action: askHelp)
+            .frame(width: hit, height: hit)
+            .offset(x: max(0, box.maxX - hit + (hit - size) / 2), y: max(0, box.minY - hit + (hit - size) / 2 - 2))
+            .transition(.opacity)
+    }
+
+    private func askHelp() {
+        #if DEBUG
+        let connected = SocketService.shared.isConnected || UIFixture.isActive
+        #else
+        let connected = SocketService.shared.isConnected
+        #endif
+        if actions.askHelp(connected: connected) { HapticManager.selection() }
+    }
+
+    /// The card: centred on my hand, its bottom just above the lifted cards, or above the bid
+    /// panel while it shows; scrolls inside when the room up to the score bar is short.
+    private func assistCard(_ layout: TableLayout, _ hint: AssistHint, full: CGSize) -> some View {
+        let box = handBox(layout)
+        let bottom = showsBidOverlay ? layout.window(layout.bidBand).minY - AssistLayout.gap : box.minY - AssistLayout.gap
+        let top = paneSafeArea.top + scoreBarHeight + Theme.Space.s2
+        let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width, bottom: bottom, top: top,
+                                   safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
+        let card = AssistCardView(hint: hint, onClose: { gameState.apply(.local(.assistDismissed)) })
+        return VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            ViewThatFits(in: .vertical) {
+                card
+                ScrollView { card }.scrollBounceBehavior(.basedOnSize)
+            }
+            #if DEBUG
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                if UIFixture.isActive { TableDebugProbe.shared.assistFrame = r }
+            }
+            .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.assistFrame = nil } }
+            #endif
+        }
+        .frame(width: f.width, height: f.height)
+        .offset(x: f.minX, y: f.minY)
+        .transition(.opacity)
+    }
+
     // MARK: - Spectator badge (layout.spectatorBadge: by HSI / voice, a spectator's in the corner)
 
     private func spectatorBadge(_ layout: TableLayout) -> some View {
@@ -922,6 +989,27 @@ private struct GameScreen: View {
         let (next, ends) = leaveFlow.dismissed(check: gameState.players.leaveCheck)
         if ends { gameState.apply(.local(.leaveClosed)) }
         runLeave(next)
+    }
+}
+
+/// Where the /help card goes (pure, pane points): centred on my hand, at most `maxWidth` wide
+/// (and never under `minWidth` while the pane allows), kept 16 pt off the pane's safe sides; its
+/// box runs from `top` (under the score bar) down to `bottom` (just above the hand or the bid
+/// panel), the card at the box's bottom.
+enum AssistLayout {
+    static let maxWidth: CGFloat = 380
+    static let minWidth: CGFloat = 240
+    static let gap: CGFloat = 6
+    static let askSize: CGFloat = 36
+
+    static func frame(paneWidth: CGFloat, handMidX: CGFloat, handWidth: CGFloat, bottom: CGFloat, top: CGFloat,
+                      safeLeft: CGFloat = 0, safeRight: CGFloat = 0) -> CGRect {
+        let lo = safeLeft + Theme.Space.s4, hi = paneWidth - safeRight - Theme.Space.s4
+        let room = max(0, hi - lo)
+        let width = min(room, min(maxWidth, max(minWidth, handWidth)))
+        let x = min(max(handMidX - width / 2, lo), hi - width)
+        let height = max(0, bottom - top)
+        return CGRect(x: x, y: top, width: width, height: height)
     }
 }
 

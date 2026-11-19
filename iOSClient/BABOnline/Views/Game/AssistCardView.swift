@@ -1,0 +1,159 @@
+import SwiftUI
+
+/// The /help card (help plan 4.5; the web's ui/components/AssistCard.js; words and rules in
+/// State/Table/AssistHint.swift): my private answer to /help (s2c assistHint), drawn over the
+/// table just above my hand, or above the bid panel while I bid (GameContainerView places it
+/// from TableLayout, so on the Duo it follows the hand's container below the fold). Only I see it.
+///
+///   the confidence chip ("Clear choice") and the close button ("Dismiss suggestion")
+///   the headline ("Bid 4", "Lead A♣")
+///   up to 2 reasons
+///   the note (amber): the warning on the last free use, or "This game now counts as
+///     bot-assisted for you."
+///   "Why?" and up to 4 details
+///   the footer: "What our strongest bot would play · Help 2 of 3 free"
+///
+/// A status reply (off turn, a refusal) is the same card with the headline only. VoiceOver hears
+/// the headline and the main reason once (TableEffect.announce); the card never takes focus.
+struct AssistCardView: View {
+    let hint: AssistHint
+    var onClose: () -> Void
+
+    @State private var showsWhy = false
+
+    private var isStatus: Bool { hint.kind == .status }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s1) {
+            HStack(spacing: Theme.Space.s2) {
+                Image(systemName: "lightbulb.fill")
+                    .foregroundColor(Theme.gold)
+                    .accessibilityHidden(true)
+                if let label = AssistRules.confidenceLabel(hint) {
+                    Text(label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundColor(hint.confidence == "quick" ? Theme.warning : Theme.gold)
+                        .padding(.horizontal, Theme.Space.s2)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill((hint.confidence == "quick" ? Theme.warning : Theme.gold).opacity(0.18)))
+                        .accessibilityIdentifier("assist.confidence")
+                }
+                Spacer(minLength: Theme.Space.s2)
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(Theme.textSecondary)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
+                }
+                .accessibilityLabel(AssistRules.dismissLabel)
+                .accessibilityIdentifier("assist.close")
+            }
+            Text(hint.headline)
+                .font(isStatus ? .subheadline.weight(.medium) : .headline)
+                .foregroundColor(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("assist.headline")
+            if !isStatus {
+                ForEach(Array(hint.reasons.enumerated()), id: \.offset) { _, reason in
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {
+                        Text("\u{2022}").accessibilityHidden(true)
+                        Text(reason).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.footnote)
+                    .foregroundColor(Theme.textPrimary)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("assist.reason")
+                }
+            }
+            if let note = hint.note {
+                Text(note)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(Theme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, Theme.Space.s1)
+                    .accessibilityIdentifier("assist.note")
+            }
+            if !isStatus && !hint.details.isEmpty {
+                Button(action: { withAnimation(.easeInOut(duration: 0.2)) { showsWhy.toggle() } }) {
+                    HStack(spacing: 2) {
+                        Text(AssistRules.whyLabel)
+                        Image(systemName: showsWhy ? "chevron.down" : "chevron.right")
+                            .font(.caption2.weight(.semibold))
+                            .accessibilityHidden(true)
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(Theme.gold)
+                    .frame(minHeight: 28)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("assist.why")
+                .accessibilityValue(showsWhy ? "Expanded" : "Collapsed")
+                if showsWhy {
+                    ForEach(Array(hint.details.enumerated()), id: \.offset) { _, detail in
+                        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {
+                            Text("\u{2022}").accessibilityHidden(true)
+                            Text(detail).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("assist.detail")
+                    }
+                }
+            }
+            if let footer = AssistRules.footer(hint) {
+                Text(footer)
+                    .font(.caption)
+                    .foregroundColor(Theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, Theme.Space.s1)
+                    .accessibilityIdentifier("assist.footer")
+            }
+        }
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.top, Theme.Space.s1)
+        .padding(.bottom, Theme.Space.s3)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .fill(Theme.surface.opacity(0.96))
+                .elevation(Theme.Elevation.e2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(isStatus ? Theme.inputBorder : Theme.gold.opacity(0.55), lineWidth: 1)
+        )
+        // over the table: a few lines at most at the largest sizes (as the disconnect banner)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Suggestion")
+        .accessibilityIdentifier("assistCard")
+        // a new answer starts with its details closed
+        .onChange(of: hint) { showsWhy = false }
+    }
+}
+
+/// The lightbulb by my hand (the web's "?"): on my own bid or play turn at my seat while no
+/// answer is up or on its way (AssistRules.showsAsk); a tap sends /help (ActionCoordinator.askHelp).
+struct AssistAskButton: View {
+    var size: CGFloat = 36
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: size * 0.48, weight: .semibold))
+                .foregroundColor(Theme.gold)
+                .frame(width: size, height: size)
+                .background(Circle().fill(Theme.surface.opacity(0.9)))
+                .overlay(Circle().strokeBorder(Theme.gold.opacity(0.7), lineWidth: 1))
+                .elevation(Theme.Elevation.e1)
+                .frame(width: max(size, Theme.hitTarget), height: max(size, Theme.hitTarget))
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(AssistRules.askLabel)
+        .accessibilityHint("Sends /help. Only you see the answer; the table sees that you asked.")
+        .accessibilityIdentifier("assist.ask")
+        .accessibilityShowsLargeContentViewer()
+    }
+}

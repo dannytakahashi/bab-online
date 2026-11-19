@@ -225,6 +225,7 @@ enum UIFixture {
                 ] as [String: Any]])
             }
             seedTableExtras(store, snap, auth: auth)
+            seedAssist(store, auth: auth)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
                 seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
@@ -416,6 +417,8 @@ enum UIFixture {
         case SocketEvents.Client.chatMessage:
             guard let m = data["message"] as? String else { return }
             message = m
+            // -uiAssist YES: the server's private answer to /help (UIFixture+Assist)
+            if m == AssistRules.command { answerHelpLater() }
         case SocketEvents.Client.removeBot where name == "game-lobby-bots":
             message = "removeBot:\(data["botSocketId"] as? String ?? "-")"
         case SocketEvents.Client.addBot where name == "game-lobby-bots":
@@ -779,6 +782,19 @@ final class TableDebugProbe: ObservableObject {
     /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
     /// in a flight or a fade now, the deck up or not).
     @Published var tableDeal = "-"
+    /// My /help answer on the table (AssistCardView's hint, TableReducer+Assist):
+    /// "card=<id> bid=<b> frame=<x y w h>" from the scene's ringed hand card, the bid panel's
+    /// ringed bid and the card's frame in the pane's points ("-": none).
+    @Published var tableAssist = "card=- bid=- frame=-"
+    var assistParts = "card=- bid=-" { didSet { updateAssist() } }
+    /// The /help card's frame in the pane's points (GameContainerView).
+    var assistFrame: CGRect? { didSet { updateAssist() } }
+
+    private func updateAssist() {
+        let frame = assistFrame.map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
+        let text = "\(assistParts) frame=\(frame)"
+        if text != tableAssist { tableAssist = text }
+    }
     /// The bidder's countdown (BidClockPill) against the table, in the pane's points:
     /// "x y w h seats=ok|over:<what> fold=ok|over|-" ("-": no countdown shown).
     @Published var bidClock = "-"
@@ -859,6 +875,9 @@ final class TableDebugProbe: ObservableObject {
         if deal != tableDeal { tableDeal = deal }
         let zoom = String(format: "%.2f", L.zoom)
         if zoom != tableZoom { tableZoom = zoom }
+        let ringed = scene.handNode.sprites.values.filter(\.isSuggested).map(\.card.id).sorted().joined(separator: ",")
+        let assist = "card=\(ringed.isEmpty ? "-" : ringed) bid=\(scene.gameState?.suggestedBid ?? "-")"
+        if assist != assistParts { assistParts = assist }
     }
 }
 
@@ -876,6 +895,7 @@ struct FixtureProbes: View {
             dot("table.zoom", probe.tableZoom)
             dot("table.deal", probe.tableDeal)
             dot("table.bidClock", probe.bidClock)
+            dot("table.assist", probe.tableAssist)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -22,6 +22,8 @@ final class GameSocketHandler {
         SocketEvents.Server.leftGame, SocketEvents.Server.restorePlayerState, SocketEvents.Server.stateSnapshot,
         // unsequenced: ServerEvent decodes them with seq nil, so they go around the seq gate
         SocketEvents.Server.spectatorsUpdated, SocketEvents.Server.bidClock, SocketEvents.Server.seatLeft,
+        // my own /help answer (private; the clientHello cap `assist`)
+        SocketEvents.Server.assistHint,
     ]
 
     /// Snapshot carriers that open the game screen when they apply.
@@ -82,6 +84,12 @@ final class GameSocketHandler {
             // a seq'd abortGame behind a table this build could not show was dropped or
             // buffered, not applied: reset here so no stale retry or count outlives the game
             if gameState.table.snapshotTrouble != .none { gameState.reset() }
+            // why the table went (an info toast; a cancelled tournament says it itself, a
+            // restart's notice explains its own)
+            if !RestartNotices.shared.isRestarting,
+               let text = NoticeText.abortText((payload.first as? [String: Any])?["reason"] as? String) {
+                socket.serverError = ServerErrorNotice(message: text, kind: .info)
+            }
             if savedTournamentId != nil {
                 TournamentEmitter.returnToTournament()
             } else {
