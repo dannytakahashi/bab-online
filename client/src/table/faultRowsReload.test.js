@@ -7,7 +7,10 @@
  * with fault adds one red row; a later replay draws the server's rows again
  * (no duplicate). The snapshot's viewer.assist gives the chat autocomplete
  * the exact /help count ("(2 of 3 free used)") instead of the
- * unknown-count text.
+ * unknown-count text. The recording is a game with native bot seats, so
+ * there /help shows no count at all ("Ask a bot for advice", owner
+ * 2026-11-19); the count tests rewrite the bots' seats as human ones (the
+ * same snapshot of a game without a native bot seat).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
@@ -27,11 +30,18 @@ beforeAll(async () => {
 
 afterAll(() => vi.useRealTimers());
 
-/** The recorded rejoin, with the viewer's /help count set to `assist` (null: none, an older server). */
-function rejoinWith({ assist = { uses: 2, freeUses: 3, assisted: false } } = {}) {
+/**
+ * The recorded rejoin, with the viewer's /help count set to `assist` (null:
+ * none, an older server; 'recorded': as the server sent it) and, unless
+ * `bots`, its native bot seats rewritten as human seats.
+ */
+function rejoinWith({ assist = { uses: 2, freeUses: 3, assisted: false }, bots = false } = {}) {
   const rejoin = JSON.parse(JSON.stringify(rec.logs['seat1-rejoin'][0].data));
-  if (assist) rejoin.snapshot.viewer.assist = assist;
-  else delete rejoin.snapshot.viewer.assist;
+  if (assist === null) delete rejoin.snapshot.viewer.assist;
+  else if (assist !== 'recorded') rejoin.snapshot.viewer.assist = assist;
+  if (!bots) {
+    for (const st of rejoin.snapshot.seats) if (st.controller === 'bot') st.controller = 'human';
+  }
   return rejoin;
 }
 const storedFaults = () => rec.logs['seat1-rejoin'][0].data.snapshot.log.filter((e) => e.fault).map((e) => e.message);
@@ -69,7 +79,7 @@ describe('a reload after set hands', () => {
       expect(prev?.previousElementSibling?.previousElementSibling?.textContent).toContain('--- HAND COMPLETE ---');
     }
     // the snapshot's viewer.assist: exact, not "after 3 free ..."
-    expect(helpText()).toBe('Suggest a move (2 of 3 free used)');
+    expect(helpText()).toBe('Ask a bot for advice (2 of 3 free used)');
   });
 
   it('a live fault line adds one red row; a later replay shows the server\'s rows once', () => {
@@ -78,12 +88,26 @@ describe('a reload after set hands', () => {
     expect(redText()).toEqual([...storedFaults(), 'Fault: 🤖 Mary (bid 2, took 0)']);
     reconnectWith(rejoinWith({ assist: { uses: 3, freeUses: 3, assisted: false } }));
     expect(redText()).toEqual(storedFaults());
-    expect(helpText()).toBe('Suggest a move (the next one makes this game bot-assisted)');
+    expect(helpText()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
   });
 
   it('a snapshot without viewer.assist (an older server) keeps the count it had', () => {
     reconnectWith(rejoinWith({ assist: null }));
     expect(redText()).toEqual(storedFaults());
-    expect(helpText()).toBe('Suggest a move (the next one makes this game bot-assisted)');
+    expect(helpText()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+  });
+
+  it('the recorded game has native bot seats: /help names no count, from the snapshot or the seats alone', () => {
+    const recorded = rec.logs['seat1-rejoin'][0].data.snapshot;
+    expect(recorded.seats.filter((st) => st.controller === 'bot')).toHaveLength(3);
+    expect(recorded.viewer.assist).toMatchObject({ unlimited: true });
+    // the seats alone say so (no viewer.assist.unlimited seen yet), whatever the count
+    expect(helpText()).toBe('Ask a bot for advice (the next one makes this game bot-assisted)');
+    reconnectWith(rejoinWith({ assist: { uses: 5, freeUses: 3, assisted: false }, bots: true }));
+    expect(helpText()).toBe('Ask a bot for advice');
+    // and the snapshot as the server sent it
+    reconnectWith(rejoinWith({ assist: 'recorded', bots: true }));
+    expect(helpText()).toBe('Ask a bot for advice');
+    expect(redText()).toEqual(storedFaults());
   });
 });

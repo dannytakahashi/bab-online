@@ -462,6 +462,34 @@ describe('GameState', () => {
     });
   });
 
+  describe('a native bot seat (/help shows no limit there: state/assistHint.js helpIsUnlimited)', () => {
+    const seats = (controllers) => controllers.map((controller, i) => ({
+      position: i + 1, ownerUsername: `p${i + 1}`, controller, presence: 'here',
+    }));
+
+    it('from seating: positionUpdate.isBot (else the bot: prefix)', () => {
+      expect(state.nativeBotSeat).toBe(false);
+      state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: ['a', 'b', 'c', 'd'], isBot: [false, true, false, false], yourPosition: 1 });
+      expect(state.nativeBotSeat).toBe(true);
+      state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: ['a', 'b', 'c', 'd'], isBot: [false, false, false, false], yourPosition: 1 });
+      expect(state.nativeBotSeat).toBe(false);
+      state.applyPositionUpdate({ positions: [1, 2, 3, 4], usernames: ['a', 'b', 'c', 'd'], sockets: ['s1', 's2', 'bot:x', 's4'], yourPosition: 1 });
+      expect(state.nativeBotSeat).toBe(true);
+      state.reset();
+      expect(state.nativeBotSeat).toBe(false);
+    });
+
+    it('from a snapshot: seats[].controller bot, never a lazy or resign bot', () => {
+      state.applySnapshot({ gameId: 'g', stage: 'PLAYING', viewer: { role: 'seat', position: 1 }, seats: seats(['human', 'lazyBot', 'resignBot', 'human']) });
+      expect(state.nativeBotSeat).toBe(false);
+      state.applySnapshot({ gameId: 'g', stage: 'PLAYING', viewer: { role: 'seat', position: 1 }, seats: seats(['human', 'human', 'bot', 'lazyBot']) });
+      expect(state.nativeBotSeat).toBe(true);
+      // another game's snapshot without seats (its draw) forgets it
+      state.applySnapshot({ gameId: 'g2', stage: 'DRAWING', viewer: { role: 'entrant' }, entrants: [] });
+      expect(state.nativeBotSeat).toBe(false);
+    });
+  });
+
   describe('toJSON', () => {
     it('returns serializable snapshot', () => {
       state.setPlayer('id', 'Alice', 1);

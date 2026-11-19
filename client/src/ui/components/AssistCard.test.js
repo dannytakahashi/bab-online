@@ -104,6 +104,19 @@ describe('the /help card', () => {
     expect(q('.assist-card__foot').textContent).toBe('Not counted');
   });
 
+  it('a game with a native bot seat: the footer is just our strongest bot (hint or table), a forced move too', () => {
+    showAssistCard(hint({ uses: 5, unlimited: true }));
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    showAssistCard(hint({ counted: false, unlimited: true }));
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    showAssistCard(hint({ confidence: 'only', counted: false, details: [] }), { unlimited: true });
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    // the table knows before the hint says (GameState.nativeBotSeat)
+    showAssistCard(hint({ uses: 4, assisted: false }), { unlimited: true });
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    expect(q('.hud-assist').textContent).not.toMatch(/free|unlimited|bot-assisted/i);
+  });
+
   it('refuses what is not a hint', () => {
     expect(showAssistCard({ v: 1, kind: 'tip', headline: 'x' })).toBeNull();
     expect(q('.hud-assist')).toBeNull();
@@ -141,7 +154,7 @@ describe('the "?" button', () => {
     const onAsk = vi.fn();
     const btn = syncAssistButton({ visible: true, onAsk });
     expect(btn.parentElement.id).toBe('table-hud');
-    expect(btn.getAttribute('aria-label')).toBe('Suggest a move');
+    expect(btn.getAttribute('aria-label')).toBe('Ask a bot for advice');
     expect(btn.hidden).toBe(false);
     btn.click();
     expect(onAsk).toHaveBeenCalledTimes(1);
