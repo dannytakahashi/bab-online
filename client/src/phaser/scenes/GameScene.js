@@ -36,6 +36,8 @@ import { flyInMs, FLIP } from '../pacing.js';
 import { transitionGeneration, getTransitionOverlay, createTransitionOverlay, releaseTransitionOverlay, setOverlayState } from '../../ui/transitionOverlay.js';
 import { getTableDirector, sceneDelay, sceneTween, UI_READY_DELAY_MS, FLIP_AFTER_DEAL_MS, FLIP_AFTER_FADE_MS } from '../TableDirector.js';
 import { getMyAction } from '../../state/MyAction.js';
+import { NOTICE } from '../../state/noticeText.js';
+import { showNotice } from '../../ui/components/Toast.js';
 import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
@@ -1272,20 +1274,26 @@ export class GameScene extends Phaser.Scene {
     this.cardManager.setCardClickHandler((card, clickedSprite) => {
       console.log(`🃏 Card clicked: ${card.rank} of ${card.suit}`);
 
-      // Only allow playing if the card is marked as legal
+      // Only allow playing if the card is marked as legal; a dimmed card
+      // says why (iOS's table notice: "Must follow suit.", "Not your turn."...)
       if (!clickedSprite.getData('isLegal')) {
-        console.log('Illegal move - card is disabled!');
+        const why = scene.illegalReason(card);
+        if (why) showNotice(why);
         return;
       }
       // A dead socket would buffer the play and flush it ahead of the
       // rejoin, where the server drops it (cli-18): wait for the reconnect
       if (window.socket && window.socket.connected === false) {
-        console.log('Not connected: play ignored');
+        showNotice(NOTICE.RECONNECTING);
         return;
       }
 
-      // One outstanding action at a time (MyAction: pending until the echo)
-      if (!getMyAction().submitPlay(card, gameState.position)) return;
+      // One outstanding action at a time (MyAction: pending until the echo).
+      // A send it refused (reconnecting) told the player itself (onRefused)
+      if (!getMyAction().submitPlay(card, gameState.position)) {
+        if (getMyAction().isPending()) showNotice(NOTICE.CARD_ON_ITS_WAY);
+        return;
+      }
 
       // Capture the current (hovered) position before any operations that might reset it
       const startX = clickedSprite.x;
@@ -1373,16 +1381,21 @@ export class GameScene extends Phaser.Scene {
     this.cardManager.updateCardLegality(legalityChecker, canPlay);
   }
 
-  /** Why `card` can't be played right now, in words (the keyboard hand). */
+  /**
+   * Why `card` can't be played right now, in words (the toast of a click on
+   * a dimmed card, pointer or keyboard; iOS's words), or null for a
+   * spectator (no hand of their own to play).
+   */
   illegalReason(card) {
-    const s = this.state;
-    if (s.isLazy) return 'A bot is playing your seat.';
-    if (s.isBidding) return 'Bid first.';
-    if (s.currentTurn !== s.position) return 'Not your turn.';
-    if (s.hasPlayedCard || getMyAction().isPending()) return 'Your card is on its way.';
+    const s = this.state || getGameState();
+    if (s.isSpectator) return null;
+    if (s.isLazy) return NOTICE.BOT_PLAYING;
+    if (s.isBidding) return NOTICE.BID_FIRST;
+    if (s.currentTurn !== s.position) return NOTICE.NOT_YOUR_TURN;
+    if (s.hasPlayedCard || getMyAction().isPending()) return NOTICE.CARD_ON_ITS_WAY;
     const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
     if (!r.legal && r.reason) return `${r.reason}.`;
-    return 'Wait for the trick to clear.';
+    return NOTICE.TRICK_CLEARING;
   }
 
   /**

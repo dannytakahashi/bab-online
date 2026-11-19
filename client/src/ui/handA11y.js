@@ -137,7 +137,9 @@ function makeButton(key) {
   btn.tabIndex = -1;
   btn.addEventListener('click', () => {
     if (isPlayable(btn)) handlers.onActivate?.(key);
-    else announce(handlers.reasonFor?.(key) || 'You can\'t play that card now.');
+    // a dimmed card: the pointer's refusal (the table's toast, spoken once
+    // by the toast announcer), else said here
+    else if (!handlers.onRefuse?.(key)) announce(handlers.reasonFor?.(key) || 'You can\'t play that card now.');
   });
   btn.addEventListener('focus', () => {
     for (const b of buttons(btn.parentElement)) b.tabIndex = b === btn ? 0 : -1;
@@ -159,6 +161,9 @@ function makeButton(key) {
  * @param {Function} [o.onFocusCard] - (key)
  * @param {Function} [o.onBlurCard] - (key)
  * @param {Function} [o.reasonFor] - (key) why a dimmed card can't be played
+ * @param {Function} [o.onRefuse] - (key) => true when it handled a click on a
+ *   dimmed card (the pointer's refusal: GameScene's toast); else the
+ *   announcer says reasonFor
  * @param {boolean} [o.redraw] - an empty hand a render redraws in the same task
  */
 export function syncHand({ cards = [], cardW = 0, cardH = 0, lift = 0, redraw = false, ...rest } = {}) {

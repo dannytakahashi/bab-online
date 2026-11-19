@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { readClientFile } from '../../testing/files.js';
 import { createButton, createIconButton, createSwitch, setSwitch, createChip, createAvatar, setAvatarTurn, openModal, openModalCount, toast, clearToasts, toastQueueLength } from './index.js';
 import { setReducedMotionOverride } from '../motion.js';
+import { toastAnnouncers, ANNOUNCE_DELAY_MS, TOAST_SHORT } from './toast.js';
 
 const css = readClientFile('styles/kit.css');
 const key = (k, opts = {}) => new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true, ...opts });
@@ -284,12 +285,114 @@ describe('Toast: one queue', () => {
     expect(shown()).toEqual(['Info 2']);
   });
 
-  it('errors are announced assertively, the rest politely; all in one region above the table', () => {
+  it('errors are announced assertively, the rest politely, by a persistent announcer pair (the card has no live role); all in one region above the table', () => {
     const e = toast('Oops', { type: 'error' });
-    expect(e.getAttribute('role')).toBe('alert');
+    expect(e.getAttribute('role')).toBeNull();
+    expect(e.getAttribute('aria-live')).toBeNull();
     const region = document.getElementById('kit-toast-region');
     expect(region.contains(e)).toBe(true);
+    const { polite, assertive } = toastAnnouncers();
+    expect(assertive.getAttribute('role')).toBe('alert');
+    expect(assertive.getAttribute('aria-atomic')).toBe('true');
+    expect(polite.getAttribute('role')).toBe('status');
+    expect(polite.getAttribute('aria-live')).toBe('polite');
+    // set a moment after it was cleared, so the reader hears the change
+    expect(assertive.textContent).toBe('');
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(assertive.textContent).toBe('Oops');
+    expect(polite.textContent).toBe('');
+    // the same announcers, never a new pair per toast
+    vi.advanceTimersByTime(5200);
+    toast('Hello', { type: 'info' });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(toastAnnouncers().polite).toBe(polite);
+    expect(polite.textContent).toBe('Hello');
+    expect(assertive.textContent).toBe('');
+    expect(region.querySelectorAll('.kit-toast-announcer')).toHaveLength(2);
     expect(css).toMatch(/\.kit-toast-region \{[^}]*z-index: var\(--z-toast\)/);
+  });
+
+  it('{announce: false} shows the toast without speaking it', () => {
+    toast('Already said', { type: 'warning', announce: false });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(toastAnnouncers().polite.textContent).toBe('');
+    expect(shown()).toEqual(['Already said']);
+  });
+
+  it('each type has its aria-hidden icon before the text; the text is exactly the message, and replacing it keeps the icon', () => {
+    for (const type of ['info', 'success', 'warning', 'error']) {
+      clearToasts();
+      const t = toast(`${type} words`, { type });
+      const icon = t.querySelector('.kit-toast__icon');
+      expect(icon.getAttribute('aria-hidden')).toBe('true');
+      expect(icon.querySelector('svg')).toBeTruthy();
+      expect(t.firstElementChild).toBe(icon);
+      expect(t.textContent).toBe(`${type} words`);
+      expect(t.classList.contains(`toast-${type}`)).toBe(true);
+    }
+    const t = toast('newer error', { type: 'error' });
+    expect(t.querySelector('.kit-toast__icon')).toBeTruthy();
+    expect(t.textContent).toBe('newer error');
+  });
+
+  it('a tap dismisses the toast on screen and the next one shows', () => {
+    const first = toast('Tap me', { type: 'warning' });
+    toast('Waiting', { type: 'info' });
+    first.click();
+    vi.advanceTimersByTime(130);
+    expect(shown()).toEqual(['Waiting']);
+    expect(toastQueueLength()).toBe(1);
+  });
+
+  it('the same words again restart the timer, nudge the toast and say it again; five quick repeats leave one toast', () => {
+    const t = toast('Must follow suit.', { type: 'warning', duration: TOAST_SHORT });
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(toastAnnouncers().polite.textContent).toBe('Must follow suit.');
+    vi.advanceTimersByTime(2500);
+    for (let i = 0; i < 4; i++) toast('Must follow suit.', { type: 'warning', duration: TOAST_SHORT });
+    expect(toastQueueLength()).toBe(1);
+    expect(t.classList.contains('is-nudged')).toBe(true);
+    // cleared, then said again a moment later
+    expect(toastAnnouncers().polite.textContent).toBe('');
+    vi.advanceTimersByTime(ANNOUNCE_DELAY_MS);
+    expect(toastAnnouncers().polite.textContent).toBe('Must follow suit.');
+    // the 3 s started again at the last repeat
+    vi.advanceTimersByTime(2800);
+    expect(shown()).toEqual(['Must follow suit.']);
+    vi.advanceTimersByTime(400);
+    expect(shown()).toEqual([]);
+  });
+
+  it('a long message in a short slot stays long enough to read (about 1 s per 12 words)', () => {
+    const long = Array.from({ length: 60 }, (_, i) => `w${i}`).join(' ');
+    toast(long, { type: 'info', duration: TOAST_SHORT });
+    vi.advanceTimersByTime(4000);
+    expect(shown()).toEqual([long]);
+    vi.advanceTimersByTime(1200);
+    expect(shown()).toEqual([]);
+  });
+
+  it('kit.css: a pill at the top centre under the safe area (below the connection banner when it shows), no left border, reduced motion stops the slide and the nudge', () => {
+    const rule = (sel) => {
+      const i = css.indexOf(`${sel} {`);
+      expect(i, sel).toBeGreaterThan(-1);
+      return css.slice(i, css.indexOf('}', i));
+    };
+    expect(rule('.kit-toast-region')).toMatch(/top: calc\(env\(safe-area-inset-top, 0px\)/);
+    expect(rule('.kit-toast-region')).toMatch(/bottom: auto/);
+    expect(rule('body.has-connection-banner .kit-toast-region')).toMatch(/--connection-banner-h/);
+    expect(rule('.kit-toast')).not.toMatch(/border-left/);
+    expect(rule('.kit-toast')).toMatch(/border-radius: 22px/);
+    expect(rule('.kit-toast')).toMatch(/cursor: pointer/);
+    expect(rule('.kit-toast.toast-warning')).toMatch(/var\(--warning\)/);
+    expect(rule('.kit-toast.toast-error')).toMatch(/var\(--danger-text\)/);
+    expect(rule('.kit-toast')).toMatch(/--toast-accent: var\(--team-a\)/);
+    const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reduced).toMatch(/\.kit-toast,/);
+    expect(reduced).toMatch(/\.kit-toast\.is-nudged/);
+    expect(reduced).toMatch(/animation: none/);
+    // the slide comes from above
+    expect(css).toMatch(/@keyframes kit-toast-in \{\s*from \{ opacity: 0; transform: translateY\(-8px\); \}/);
   });
 
   it('under reduced motion the toast leaves without a fade', () => {

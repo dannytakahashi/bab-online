@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SocketManager } from '../../socket/SocketManager.js';
-import { installConnectionBanner, BANNER_ID, BANNER_TEXT, SHOW_DELAY_MS, RESTART_STALE_MS } from './ConnectionBanner.js';
+import { installConnectionBanner, BANNER_ID, BANNER_TEXT, SHOW_DELAY_MS, RESTART_STALE_MS, BANNER_BODY_CLASS } from './ConnectionBanner.js';
 
 // Socket + Manager emitters with the surface SocketManager uses. Socket.IO
 // v4 emits reconnect_* on the Manager (socket.io), connect/disconnect on the
@@ -73,6 +73,17 @@ describe('ConnectionBanner', () => {
     socket.fire('connect');
     expect(shown()).toBe(false);
     expect(el().textContent).toBe('');
+  });
+
+  it('while it shows, the body says so (toasts step below it at the top centre); gone with it', () => {
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    socket.fire('disconnect', 'transport close');
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    vi.advanceTimersByTime(SHOW_DELAY_MS);
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(true);
+    socket.fire('connect');
+    expect(document.body.classList.contains(BANNER_BODY_CLASS)).toBe(false);
+    expect(document.documentElement.style.getPropertyValue('--connection-banner-h')).toBe('');
   });
 
   it('never flashes for a drop shorter than the delay (iOS Safari forced reconnect)', () => {

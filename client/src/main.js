@@ -44,7 +44,8 @@ import { speakingSlotFor } from './voice/speakingSlot.js';
 import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
 
 // UI Components
-import { showError, showSuccess, showWarning, showInfo } from './ui/components/Toast.js';
+import { showToast, showError, showSuccess, showWarning, showInfo, showNotice, TOAST_SHORT } from './ui/components/Toast.js';
+import { NOTICE, serverErrorNotice } from './state/noticeText.js';
 import { showSignInScreen } from './ui/screens/SignIn.js';
 import { showRegisterScreen } from './ui/screens/Register.js';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom, updateMainRoomOnlineCount } from './ui/screens/MainRoom.js';
@@ -405,19 +406,17 @@ socket.on('deleteAccountResponse', (data) => {
 
 // ==================== END SESSION / RECONNECTION ====================
 
-/**
- * Show an error toast (the page's one toast queue: ui/kit/toast.js).
- */
-function showErrorToast(message, duration = 5000) {
-  showError(message, duration);
-}
-
 // Track retry attempts for joinMainRoom
 let joinMainRoomRetries = 0;
 const MAX_JOIN_RETRIES = 5;
 // joinTournament refusals the server answers with no main room (it leaves
 // the socket where it is: server tournamentHandlers STAYS_PUT)
 const STAYS_PUT_REFUSALS = new Set(['Already in a tournament', 'Already in a lobby', 'Already in game']);
+// A refused tournament re-entry, in the player's words (iOS RestoreRoute.swift)
+const TOURNAMENT_REENTRY_TEXT = Object.freeze({
+  'Tournament not found': 'The tournament closed while you were offline',
+  'Tournament is not accepting players': 'The tournament started without you',
+});
 
 // ==================== SERVER RESTART ====================
 
@@ -475,14 +474,13 @@ function explainRestartLoss() {
  *   game, the lobby or the tournament is gone): nothing went wrong
  */
 function handleSocketError(error, socket) {
-  let message = 'Something went wrong';
-
   // Re-spectating after a reconnect: the watched game ended meanwhile
   if (error.message === 'Game not found' && (session.pendingSpectate || session.isSpectator)) {
     console.log('Spectated game no longer exists, returning to main room');
-    session.takePendingSpectate();
+    const restoring = !!session.takePendingSpectate();
     session.exitTable(EXIT.SPECTATE_FAILED);
-    explainRestartLoss();
+    // a restore's re-spectate (iOS's words): unless a restart notice says why
+    if (!explainRestartLoss() && restoring) showInfo('The game ended while you were offline');
     return true;
   }
 
@@ -496,7 +494,7 @@ function handleSocketError(error, socket) {
     // previous socket until the server notices it dropped
     if (!explainRestartLoss()) {
       const gone = error.message === 'Lobby not found';
-      showErrorToast(afterGame
+      showWarning(afterGame
         ? (gone ? 'That lobby has closed' : "Couldn't get back into the lobby")
         : (gone ? 'The lobby closed while you were offline' : "Couldn't get back into the lobby"));
     }
@@ -510,7 +508,10 @@ function handleSocketError(error, socket) {
   if (pendingTournament) {
     console.log('Tournament re-entry failed:', error.message);
     getGameState().tournamentId = null;
-    if (!explainRestartLoss()) showErrorToast('The tournament is no longer available');
+    // iOS RestoreRoute's words: closed, started without me, or anything else
+    if (!explainRestartLoss()) {
+      showWarning(TOURNAMENT_REENTRY_TEXT[error.message] || "Couldn't get back into the tournament");
+    }
     if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
     // The server follows a failed joinTournament with the main room, except
     // when the socket belongs elsewhere ('Already in a tournament' / 'Already
@@ -539,36 +540,16 @@ function handleSocketError(error, socket) {
       console.log('Max joinMainRoom retries reached, showing sign-in screen');
       joinMainRoomRetries = 0;
       displaySignInScreen(EXIT.SIGN_OUT);
+      showError("Couldn't finish signing in. Try again.");
       return;
     }
   }
 
-  switch (error.type) {
-    case 'VALIDATION_ERROR':
-    case 'validation':
-      message = error.message || 'Invalid input';
-      break;
-    case 'AUTH_ERROR':
-      message = 'Please sign in again';
-      break;
-    case 'RATE_LIMIT_ERROR':
-    case 'rateLimit':
-      message = 'Too many requests. Please slow down.';
-      break;
-    case 'GAME_STATE_ERROR':
-      message = error.message || 'Game error occurred';
-      break;
-    case 'server':
-      message = 'Server error. Please try again.';
-      break;
-    default:
-      // Most handler errors are untyped ({ message: 'Lobby is full' }) and
-      // their text is meant for the player
-      message = error.message || 'Server error. Please try again.';
-      break;
-  }
-
-  showErrorToast(message);
+  // Severity (owner 2026-11-19): amber for a refusal, teal for information,
+  // red only for a real failure; Joi's text is never shown (logged only)
+  if (error.type === 'validation' || error.type === 'VALIDATION_ERROR') console.warn('Validation refused:', error.handler, error.message);
+  const notice = serverErrorNotice(error);
+  showToast(notice.message, { type: notice.type });
 }
 
 /**
@@ -601,7 +582,8 @@ function initializeApp() {
     connectionId: () => (socket.connected ? socket.id || 'connected' : null),
     // The emit gate's rule (SocketManager._send): no bid or play before the restore
     canSend: (event) => socketMgr.canSend(event),
-    onRefused: () => showInfo('Reconnecting. Try again in a moment.'),
+    // the card click's own offline check says the same (GameScene)
+    onRefused: () => showNotice(NOTICE.RECONNECTING),
   });
 
   // The emit gate's notices: a refusal (offline; a chat form keeps the
@@ -2083,7 +2065,7 @@ function initializeApp() {
         already_bid: 'You already bid',
         invalid_bid: "That bid isn't allowed",
       };
-      showWarning(reasons[data.reason] || 'Action not accepted');
+      showNotice(reasons[data.reason] || 'Action not accepted');
     },
     // Who is watching changed (GameState has applied it): the badge only,
     // at the table (a render draws it from the same state)
@@ -2100,7 +2082,7 @@ function initializeApp() {
     },
     // My own seat ran out of time: the server bid 0 for me
     onBidTimedOut: () => {
-      if (session.isAtTable) showInfo('Time ran out: you bid 0');
+      if (session.isAtTable) showInfo('Time ran out: you bid 0', TOAST_SHORT);
     },
     // A casual game's voice settings (spectator voice)
     onVoiceSettings: (data) => onVoiceSettings(data),

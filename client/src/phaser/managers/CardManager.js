@@ -109,6 +109,14 @@ export class CardManager {
         const sprite = this._spriteForKey(key);
         if (sprite) this._lowerCard(sprite);
       },
+      // a dimmed card from the keyboard: the same refusal as the pointer's
+      // click (GameScene's handler shows the toast)
+      onRefuse: (key) => {
+        const sprite = this._spriteForKey(key);
+        if (!sprite || !this._onCardClick) return false;
+        this._activate(sprite);
+        return true;
+      },
       reasonFor: (key) => {
         const sprite = this._spriteForKey(key);
         return sprite ? this._illegalReason?.(sprite.getData('card')) ?? null : null;

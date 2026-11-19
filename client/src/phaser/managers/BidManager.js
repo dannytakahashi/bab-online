@@ -28,6 +28,8 @@ import { motionMs } from '../../ui/motion.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 import { BORES, bidTotalsFor } from '../../rules/bids.js';
 import { getMyAction } from '../../state/MyAction.js';
+import { NOTICE } from '../../state/noticeText.js';
+import { showNotice } from '../../ui/components/Toast.js';
 import { announce } from '../../ui/handA11y.js';
 import {
   bidClockNow, countdownMs, secondsToBid, sameClock, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
@@ -143,7 +145,7 @@ export class BidManager {
     for (let i = 0; i <= handSize; i++) {
       const btn = this.createBidButton(i.toString(), () => {
         if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          console.warn('Not your turn to bid.');
+          showNotice(NOTICE.NOT_YOUR_TURN);
           return;
         }
         this.chooseBid(btn, i.toString(), onBidSelect);
@@ -162,7 +164,7 @@ export class BidManager {
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
         if (this.state.currentTurn !== this.state.position || !this.state.isBidding) {
-          console.warn('Not your turn to bid.');
+          showNotice(NOTICE.NOT_YOUR_TURN);
           return;
         }
         this.chooseBid(btn, bid, onBidSelect);

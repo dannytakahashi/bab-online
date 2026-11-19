@@ -83,6 +83,16 @@ describe('"User not registered yet": one joinMainRoom retry per failure', () => 
     await tick(150);
     expect(socket.emitted('joinMainRoom')).toHaveLength(1);
   });
+
+  it('the retries run out: the sign-in screen says so (red: signing in failed)', async () => {
+    const { clearToasts } = await import('./ui/kit/toast.js');
+    clearToasts();
+    for (let i = 0; i < 6; i++) fail({ message: 'User not registered yet', handler: 'joinMainRoom' });
+    expect(page.session.screen).toBe(SCREEN.SIGN_IN);
+    expect(document.querySelector('.kit-toast.toast-error').textContent).toBe("Couldn't finish signing in. Try again.");
+    clearToasts();
+    await tick(150);
+  });
 });
 
 describe('a refused play or bid resyncs the table at once, once', () => {

@@ -671,4 +671,135 @@ describe('GameScene handleDisplayHand (moved from main.js setGameScene)', () => 
       myAction.reset();
     }
   });
+
+  describe('a refused click says why (iOS\'s table notice: an amber toast for 3 s)', () => {
+    let clearToasts;
+    let myAction;
+    beforeAll(async () => {
+      ({ clearToasts } = await import('../../ui/kit/toast.js'));
+    });
+    beforeEach(async () => {
+      const { resetMyAction } = await import('../../state/MyAction.js');
+      myAction = resetMyAction();
+      clearToasts();
+      window.socket = { emit: vi.fn(), connected: true };
+    });
+    afterEach(() => {
+      delete window.socket;
+      myAction.reset();
+      clearToasts();
+      vi.useRealTimers();
+    });
+
+    const notice = () => {
+      const all = [...document.querySelectorAll('.kit-toast')];
+      expect(all.length).toBeLessThanOrEqual(1);
+      const t = all[0];
+      return t ? { text: t.textContent, warning: t.classList.contains('toast-warning') } : null;
+    };
+    const dimmed = { getData: () => false, x: 0, y: 0 };
+    const legal = { getData: () => true, x: 0, y: 0 };
+
+    /** My turn to follow (seat 2), with `hand`; trump spades. */
+    function following(hand, lead, { leadPosition = 1 } = {}) {
+      const state = getGameState();
+      state.position = 2;
+      state.currentTurn = 2;
+      state.isBidding = false;
+      state.trump = { suit: 'spades', rank: '5' };
+      state.trumpBroken = true;
+      state.playedCardIndex = 1;
+      state.leadCard = lead;
+      state.leadPosition = leadPosition;
+      state.setCards(hand);
+      const h = handScene();
+      h.scene.handleDisplayHand(hand, true);
+      return h;
+    }
+
+    it('the three rule reasons, word for word', () => {
+      let h = following([{ suit: 'hearts', rank: 'A' }, { suit: 'clubs', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      h.click({ suit: 'clubs', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Must follow suit.', warning: true });
+
+      clearToasts();
+      const state = getGameState();
+      h = following([{ suit: 'spades', rank: 'K' }, { suit: 'clubs', rank: 'A' }], null);
+      state.playedCardIndex = 0;
+      state.trumpBroken = false;
+      h.click({ suit: 'spades', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Cannot lead trump until trump is broken.', warning: true });
+
+      clearToasts();
+      h = following([{ suit: 'spades', rank: 'A' }, { suit: 'spades', rank: 'K' }], { suit: 'joker', rank: 'HI' });
+      h.click({ suit: 'spades', rank: 'K' }, dimmed);
+      expect(notice()).toEqual({ text: 'Must play highest trump when HI joker leads.', warning: true });
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('the turn states: bid first, not your turn, the card on its way, the trick clearing; a bot playing the seat', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      const state = getGameState();
+      const says = (text) => {
+        clearToasts();
+        h.click(card, dimmed);
+        expect(notice()).toEqual({ text, warning: true });
+      };
+      state.isBidding = true;
+      says('Bid first.');
+      state.isBidding = false;
+      state.currentTurn = 3;
+      says('Not your turn.');
+      state.currentTurn = 2;
+      state.hasPlayedCard = true;
+      says('Your card is on its way.');
+      state.hasPlayedCard = false;
+      // my turn, the card is legal by the rules, yet dimmed: the trick is clearing
+      says('Wait for the trick to clear.');
+      state.isLazy = true;
+      says('A bot is playing your seat.');
+      state.isLazy = false;
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('a spectator\'s click says nothing', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      getGameState().isSpectator = true;
+      h.click(card, dimmed);
+      expect(notice()).toBeNull();
+      getGameState().isSpectator = false;
+    });
+
+    it('five quick clicks on a dimmed card leave one toast (restarted, nudged)', () => {
+      vi.useFakeTimers();
+      const h = following([{ suit: 'hearts', rank: 'A' }, { suit: 'clubs', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      for (let i = 0; i < 5; i++) h.click({ suit: 'clubs', rank: 'K' }, dimmed);
+      expect(document.querySelectorAll('.kit-toast')).toHaveLength(1);
+      expect(document.querySelector('.kit-toast').classList.contains('is-nudged')).toBe(true);
+      vi.advanceTimersByTime(3200);
+      expect(document.querySelector('.kit-toast')).toBeNull();
+    });
+
+    it('a click while disconnected: "Reconnecting. Try again in a moment.", nothing sent', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card], { suit: 'hearts', rank: '9' });
+      window.socket.connected = false;
+      h.click(card, legal);
+      expect(notice()).toEqual({ text: 'Reconnecting. Try again in a moment.', warning: true });
+      expect(window.socket.emit).not.toHaveBeenCalled();
+    });
+
+    it('a second click while my card is pending: "Your card is on its way."', () => {
+      const card = { suit: 'hearts', rank: 'A' };
+      const h = following([card, { suit: 'hearts', rank: 'K' }], { suit: 'hearts', rank: '9' });
+      h.click(card, legal);
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(notice()).toBeNull();
+      h.click({ suit: 'hearts', rank: 'K' }, legal);
+      expect(window.socket.emit).toHaveBeenCalledTimes(1);
+      expect(notice()).toEqual({ text: 'Your card is on its way.', warning: true });
+    });
+  });
 });
