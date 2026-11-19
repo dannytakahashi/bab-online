@@ -51,6 +51,9 @@ struct PlayersSlice: Equatable {
     var spectatorCount = 0
     /// Who is watching (spectatorsUpdated, every snapshot's `watching`); a new game starts empty.
     var watching = WatchingList()
+    /// Before seating (a snapshot of the draw: no seats yet): the human entrants who have not
+    /// left, for the voice rule (VoiceCompany); nil once seats are known or nothing said.
+    var entrantHumans: [String]?
     /// Leave's snapshot check while its confirmation is up (`.idle` when it is not; LeaveCheck).
     var leaveCheck: LeaveCheck = .idle
 

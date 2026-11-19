@@ -196,6 +196,8 @@ extension TableReducer {
             s.players.watching = WatchingList(spectators: p.spectators ?? [], count: p.count ?? p.spectators?.count ?? 0)
         case .bidClock(let p):
             bidClockEvent(&s, p, &fx)
+        case .seatLeft(let p):
+            seatLeft(&s, p)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -324,6 +326,7 @@ extension TableReducer {
         }
         if let mine = Position.valid(p.yourPosition) { s.table.viewer.position = mine; s.table.viewer.role = .seat }
         if s.table.viewer.role == .seat { s.table.viewer.ownerView = "seat" }
+        if s.players.seats.count == 4 { s.players.entrantHumans = nil }  // the seats say who is here
         mutateDraw(&s) { $0.stage = .resolving }
     }
 
@@ -535,6 +538,19 @@ extension TableReducer {
 extension TableReducer {
     /// The timeout's notice to the bidder (`TableEffect.notice`, the web's toast words).
     static let bidTimeoutNotice = "Time ran out: you bid 0"
+
+    /// seatLeft (unsequenced, additive 2026-11-19): that seat's owner left the game for good
+    /// (/leave from the seat or from watching its bot): presence gone, so the voice rule no
+    /// longer counts them (VoiceCompany). The bot keeps the seat; nothing on screen changes (the
+    /// playerLazyMode before it already drew the bot). Another game's, another owner's or an
+    /// unknown seat's is ignored.
+    static func seatLeft(_ s: inout TableState, _ p: WirePayload.SeatLeft) {
+        if let gid = p.gameId, let mine = s.table.gameId, gid != mine { return }
+        guard let pos = Position.valid(p.position), var seat = s.players.seats[pos] else { return }
+        if let name = p.username, let owner = seat.ownerUsername, owner != name { return }
+        seat.presence = .gone
+        s.players.seats[pos] = seat
+    }
 
     /// bidClock (unsequenced): `running` sets the clock and starts or restates the tune;
     /// `stopped` clears it (the timeout lets the tune's end cue ring). Another game's event, an

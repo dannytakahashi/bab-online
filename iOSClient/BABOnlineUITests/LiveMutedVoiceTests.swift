@@ -1,8 +1,8 @@
 import XCTest
 
 /// Opt-in live check of the muted voice start against a local server (never production) and a
-/// second person in the lobby (a web tab): joining voice must not ask for the microphone, and
-/// the first unmute asks then (owner 2026-11-18). Run with a Debug build on a simulator whose
+/// second person in the lobby (a web tab): alone, no voice (owner 2026-11-19); once they join,
+/// voice starts without asking for the microphone, and the first unmute asks then (owner 2026-11-18). Run with a Debug build on a simulator whose
 /// microphone permission for the app is reset (`xcrun simctl privacy <udid> reset microphone
 /// com.bab-online.BABOnline`), and `TEST_RUNNER_BAB_LIVE_SERVER=http://localhost:<port>`,
 /// `TEST_RUNNER_BAB_LIVE_USER=<new name>`, `TEST_RUNNER_BAB_LIVE_PASS=<random>` (the account
@@ -62,14 +62,19 @@ final class LiveMutedVoiceTests: XCTestCase {
         wait(for: [enabled], timeout: 15)
         newGame.tap()
 
-        // the lobby: voice is on and muted, and nothing asked for the microphone
+        // alone in the lobby: no voice at all (owner 2026-11-19, no voice alone)
+        XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 20), "no game lobby")
+        sleep(3)
+        XCTAssertFalse(app.buttons["Unmute microphone"].exists, "voice started with nobody else here")
+        shot("1-lobby-alone")
+
+        // the other person joins: voice starts, muted, and nothing asked for the microphone;
+        // their call comes up (their row in the voice panel)
+        XCTAssertTrue(app.staticTexts[peer].waitForExistence(timeout: 240), "\(peer) never joined the lobby")
         let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.waitForExistence(timeout: 20), "the header's mic, muted")
         XCTAssertFalse(micAlert.exists, "joining voice asked for the microphone")
         shot("1-lobby-muted")
-
-        // the other person joins; their call comes up (their row in the voice panel)
-        XCTAssertTrue(app.staticTexts[peer].waitForExistence(timeout: 240), "\(peer) never joined the lobby")
         mic.press(forDuration: 1.0)
         let bar = app.navigationBars["Voice Chat"]
         XCTAssertTrue(bar.waitForExistence(timeout: 5))

@@ -114,6 +114,13 @@ enum WirePayload {
         var username: String?; var message: String?; var position: Int?; var type: String?; var isSpectator: Bool?; var seq: Int?
     }
 
+    /// seatLeft (additive 2026-11-19): a seat's owner left the game for good, UNSEQUENCED.
+    struct SeatLeft: Decodable, Equatable {
+        var gameId: String?
+        var position: Int?
+        var username: String?
+    }
+
     /// spectatorsUpdated: the whole list each time, UNSEQUENCED (never carries seq).
     struct SpectatorsUpdated: Decodable, Equatable {
         var gameId: String?

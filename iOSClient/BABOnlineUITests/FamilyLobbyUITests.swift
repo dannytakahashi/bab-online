@@ -39,7 +39,10 @@ final class FamilyLobbyUITests: XCTestCase {
         let app = launch("game-lobby-family")
         let count = any(app, "lobby.count")
         XCTAssertTrue(count.waitForExistence(timeout: 5))
-        XCTAssertEqual(count.label, "7 of 8 players, 2 of 4 ready")
+        // the ready count only (owner 2026-11-19: the rows show who is here)
+        XCTAssertEqual(count.label, "2 of 4 ready")
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Players '")).firstMatch.exists, "no \"Players 7/8\"")
+        XCTAssertTrue(app.staticTexts["Ready 2/4"].exists)
         // every member has a row (not the first 4), with Playing / Sitting out
         for name in ["ivy", "kim", "hal", "jon", "ora", "max", "🤖 Bot"] {
             XCTAssertTrue(app.staticTexts[name].exists, "\(name)'s row")
@@ -84,7 +87,7 @@ final class FamilyLobbyUITests: XCTestCase {
 
             let count = any(app, "lobby.count")
             XCTAssertTrue(count.waitForExistence(timeout: 5))
-            XCTAssertEqual(count.label, "7 of 8 players, 2 of 4 ready", "VoiceOver hears both counts in full")
+            XCTAssertEqual(count.label, "2 of 4 ready", "VoiceOver hears the ready count in full")
             let window = app.windows.firstMatch.frame
             XCTAssertTrue(window.insetBy(dx: -0.5, dy: -0.5).contains(count.frame), "\(tag): \(count.frame) leaves \(window)")
             let mic = any(app, "lobby.mic")
@@ -93,13 +96,12 @@ final class FamilyLobbyUITests: XCTestCase {
             let leave = app.buttons["Leave"]
             if leave.exists { XCTAssertFalse(count.frame.intersects(leave.frame), "\(tag): the count under Leave") }
 
-            // which form: never wrapped at the default size (one row where it fits; the count
-            // under the title on phones, the closed Duo and the iPad's 55% column), wrapped at
-            // accessibility sizes on a phone
+            // which form: never wrapped at the default size (one row where it fits: since the
+            // count is only "Ready 2/4" (2026-11-19) that is a 402 pt phone too; else the count
+            // under the title), wrapped at accessibility sizes on a phone
             let width = Fixture.windowSize(pose)?.width ?? 0
             if size == nil {
                 XCTAssertFalse(check.hasPrefix("wrapped"), "\(tag) at \(width) pt: \(check)")
-                if width < 500 { XCTAssertTrue(check.hasPrefix("stacked"), "\(tag) at \(width) pt: \(check)") }
             } else if width < 500 {
                 XCTAssertTrue(check.hasPrefix("wrapped"), "\(tag) at \(width) pt: \(check)")
             }
@@ -113,7 +115,7 @@ final class FamilyLobbyUITests: XCTestCase {
         let app = launch("game-lobby-family-full", env: ["UI_FIXTURE_LOBBY_NAME": "iosplay1's Game"])
         let check = headerCheck(app)
         XCTAssertTrue(check.hasSuffix(" ok"), check)
-        XCTAssertEqual(any(app, "lobby.count").label, "7 of 8 players, 4 of 4 ready")
+        XCTAssertEqual(any(app, "lobby.count").label, "4 of 4 ready")
         app.terminate()
     }
 
@@ -141,7 +143,7 @@ final class FamilyLobbyUITests: XCTestCase {
 
     func testTheTableFilledWithoutMe() {
         let app = launch("game-lobby-family-full")
-        XCTAssertEqual(any(app, "lobby.count").label, "7 of 8 players, 4 of 4 ready")
+        XCTAssertEqual(any(app, "lobby.count").label, "4 of 4 ready")
         XCTAssertEqual(any(app, "lobby.status.ivy").label, "Will watch")
         XCTAssertEqual(any(app, "lobby.status.max").label, "Will watch")
         XCTAssertEqual(any(app, "lobby.status.ora").label, "Playing")

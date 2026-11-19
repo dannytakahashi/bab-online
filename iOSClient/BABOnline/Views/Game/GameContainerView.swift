@@ -237,6 +237,7 @@ private struct GameScreen: View {
             if !gameState.isSpectator { VoiceChatManager.shared.ensureStarted() }
         }
         .onDisappear {
+            VoiceChatManager.shared.clearCompany(from: .table)
             // a SwiftUI alert went with the view; this UIKit one is dropped, and Leave starts over
             leaveAlert.discard()
             leaveFlow = LeaveAlertFlow()
@@ -246,6 +247,15 @@ private struct GameScreen: View {
             // play again (1.2.2 (12)): off to the lobby this game's end returned me to, voice
             // carries on (the server kept those calls); any other way off the table ends it
             LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
+        }
+        // no voice alone (owner 2026-11-19): who is here, for the voice gate (a child of its own,
+        // so the lobby kept behind the results is observed without rebuilding the table)
+        .background {
+            if let lobby = lobbyLink.state {
+                TableVoiceCompany(lobby: lobby)
+            } else {
+                TableVoiceCompany(lobby: nil)
+            }
         }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet(watching: Set(gameState.watching.spectators.map(\.username)),
@@ -963,5 +973,45 @@ struct HSIBadge: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Self.spoken(value))
             .accessibilityIdentifier(style == .table ? "hsi" : "bidOverlay.hsi")
+    }
+}
+
+/// Tells the voice gate who is at the table (VoiceCompany.tableScreen): seat owners not gone,
+/// spectators, and on a play-again score screen the reopened lobby's members. Draws nothing.
+private struct TableVoiceCompany: View {
+    @EnvironmentObject var gameState: GameState
+    let lobby: LobbyState?
+
+    var body: some View {
+        if let lobby {
+            Observed(lobby: lobby, gameState: gameState)
+        } else {
+            report(VoiceCompany.table(gameState.players, me: me))
+        }
+    }
+
+    private var me: String? { gameState.username ?? SocketService.shared.authState?.username }
+
+    private func report(_ company: Bool?) -> some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+            .onChange(of: company, initial: true) { _, c in VoiceChatManager.shared.setCompany(c, from: .table) }
+    }
+
+    private struct Observed: View {
+        @ObservedObject var lobby: LobbyState
+        @ObservedObject var gameState: GameState
+
+        var body: some View {
+            let me = gameState.username ?? SocketService.shared.authState?.username
+            let company = VoiceCompany.tableScreen(gameState.players, gameId: gameState.gameId,
+                                                   returnFromGameId: lobby.returnFromGameId, lobbyId: lobby.lobbyId,
+                                                   lobbyPlayers: lobby.players, me: me)
+            Color.clear
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+                .onChange(of: company, initial: true) { _, c in VoiceChatManager.shared.setCompany(c, from: .table) }
+        }
     }
 }

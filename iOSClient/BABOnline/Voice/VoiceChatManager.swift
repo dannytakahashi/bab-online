@@ -155,9 +155,16 @@ final class VoiceChatManager: ObservableObject {
     private var speakingLastActive: [String: Date] = [:]  // socketId|"self" → last above-threshold time
     private var speakingStates: [String: Bool] = [:]
 
-    // Buffered events (arrive before init completes)
+    // Buffered events (arrive before init completes, or while voice is not running: no other
+    // human was here yet, VoiceGate)
     private var pendingPeers: [(socketId: String, username: String)] = []
     private var pendingOffers: [(fromSocketId: String, offer: RTCSessionDescription, username: String)] = []
+    /// The trickled ICE candidates of a buffered offer, by peer (at most
+    /// `maxPendingCandidates` each), added right after that offer when voice starts: a
+    /// newcomer's offer that beats our start connects with its candidates, not only by
+    /// peer-reflexive ones or the 20 s restart.
+    private var pendingCandidates: [String: [RTCIceCandidate]] = [:]
+    static let maxPendingCandidates = 100
 
     // Background handling: the app is in the background (the mic stays off, also for a
     // track made then: a voiceSettings during the ~30 s keep-alive). App state, not the
@@ -189,13 +196,36 @@ final class VoiceChatManager: ObservableObject {
     /// Between the mic being ready and the ICE servers answering: peers and offers are buffered.
     private var awaitingIce = false
 
+    /// No voice alone (owner 2026-11-19; VoiceCompany.swift): the screens say they want voice
+    /// (`ensureStarted`) and who is here (`setCompany`); the gate starts the session only while
+    /// another human is here and suspends it `VoiceCompany.grace` after the last one left.
+    private(set) var gate: VoiceGate!
+    /// The `startGeneration` of a gate start still on its way through `initialize` (a Task):
+    /// not started twice. A shutdown or suspend bumps the generation, so that start no longer
+    /// counts (it gives up) and the next arrival starts afresh.
+    private var pendingStart: Int?
+    private var startPending: Bool { pendingStart == startGeneration }
+    /// The app's manager (WebRTC's own audio module) never starts under XCTest; the tests'
+    /// silent managers do.
+    private let startsUnderXCTest: Bool
+
     /// `hooks` / `iceStore` / `audioDevice`: the unit tests' (the app has one manager,
-    /// `shared`, with the defaults).
-    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil) {
+    /// `shared`, with the defaults). `after`: the gate's grace timer (tests run it by hand).
+    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil,
+         after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) {
         self.hooks = hooks
         self.factory = Self.makeFactory(audioDevice: audioDevice)
         self.iceStore = iceStore ?? IceServerStore(emit: { VoiceEmitter.getIceServers($0) })
+        self.startsUnderXCTest = audioDevice != nil
         self.iceStore.onChange = { [weak self] config in self?.applyIce(config) }
+        let isRunning: @MainActor () -> Bool = { [weak self] in self.map { $0.isActive || $0.startPending } ?? false }
+        let start: @MainActor () -> Void = { [weak self] in self?.startFromGate() }
+        let suspend: @MainActor () -> Void = { [weak self] in self?.suspend() }
+        if let after {
+            gate = VoiceGate(isRunning: isRunning, start: start, suspend: suspend, after: after)
+        } else {
+            gate = VoiceGate(isRunning: isRunning, start: start, suspend: suspend)
+        }
     }
 
     // MARK: - Lifecycle
@@ -263,12 +293,40 @@ final class VoiceChatManager: ObservableObject {
         pc.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
     }
 
-    /// Start voice if it is not running (idempotent): game entry as a seat and
-    /// rejoin (21.14). Peers that arrive during the permission prompt are
-    /// buffered in `pendingPeers` and connected once active. Never under XCTest.
+    /// This screen wants voice (idempotent): the game lobby, game entry as a seat, rejoin
+    /// (21.14), a voice spectator. It starts while another human is here (`setCompany`; owner
+    /// 2026-11-19, no voice alone), else when one arrives. Peers and offers that arrive before
+    /// it runs are buffered and connected once active. The app's manager never starts under XCTest.
     func ensureStarted() {
-        guard !isActive, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
-        Task { try? await initialize() }
+        gate.want()
+    }
+
+    /// The screen on show says who is here (VoiceCompany.lobby / .table; nil: not known yet).
+    func setCompany(_ company: Bool?, from source: VoiceGate.Source) {
+        gate.setCompany(company, from: source)
+    }
+
+    /// That screen went away.
+    func clearCompany(from source: VoiceGate.Source) {
+        gate.clearCompany(from: source)
+    }
+
+    /// The gate's start: muted, like every start.
+    private func startFromGate() {
+        guard !isActive, !startPending, !Self.voiceDisabled else { return }
+        if !startsUnderXCTest, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+        let generation = startGeneration
+        pendingStart = generation
+        Task { @MainActor in
+            defer { if self.pendingStart == generation { self.pendingStart = nil } }
+            // a shutdown or suspend before this ran: no start
+            guard self.startGeneration == generation else { return }
+            do {
+                try await self.initialize()
+            } catch {
+                print("[Voice] Start failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// No microphone (no permission prompt, no audio session) in Debug fixture
@@ -282,17 +340,31 @@ final class VoiceChatManager: ObservableObject {
         #endif
     }
 
-    /// Shut down all voice connections and clean up.
+    /// Shut down all voice connections and clean up: the screen no longer wants voice.
     func shutdown() {
+        gate.release()
+        teardown(keepSettings: false)
+    }
+
+    /// The last other human left and the grace ran out (VoiceGate): the session ends (no audio
+    /// session, no calls), still wanted, and this table's voice settings stay, so the next
+    /// arrival starts it again (muted, as every start).
+    func suspend() {
+        print("[Voice] Alone: voice stops")
+        teardown(keepSettings: true)
+    }
+
+    private func teardown(keepSettings: Bool) {
         startGeneration &+= 1  // an initialize() still awaiting the permission prompt gives up
         // buffered signals and the game's settings go whether or not voice ever started
         // (before 1.2.2 (12) an inactive shutdown returned first and the buffers grew forever)
         pendingPeers.removeAll()
         pendingOffers.removeAll()
+        pendingCandidates.removeAll()
         micRequestInFlight = false
         unmuteAfterPrompt = false
         micGranted = false
-        settings = nil
+        if !keepSettings { settings = nil }
         guard isActive else { return }
         isActive = false
         awaitingIce = false
@@ -328,6 +400,7 @@ final class VoiceChatManager: ObservableObject {
         speakingStates.removeAll()
         pendingPeers.removeAll()
         pendingOffers.removeAll()
+        pendingCandidates.removeAll()
         localUsername = nil
 
         isSelfMuted = true
@@ -389,6 +462,11 @@ final class VoiceChatManager: ObservableObject {
     func handleOffer(fromSocketId: String, offer: RTCSessionDescription, username: String) {
         guard isActive, !awaitingIce else {
             print("[Voice] Buffering handleOffer \(fromSocketId) \(username)")
+            // a newer offer from the same peer replaces the older one (and its candidates)
+            if pendingOffers.contains(where: { $0.fromSocketId == fromSocketId }) {
+                pendingOffers.removeAll { $0.fromSocketId == fromSocketId }
+                pendingCandidates[fromSocketId] = nil
+            }
             pendingOffers.append((fromSocketId: fromSocketId, offer: offer, username: username))
             return
         }
@@ -456,7 +534,14 @@ final class VoiceChatManager: ObservableObject {
 
     /// Handle an incoming ICE candidate.
     func handleIceCandidate(fromSocketId: String, candidate: RTCIceCandidate) {
-        guard let peer = peers[fromSocketId] else { return }
+        guard let peer = peers[fromSocketId] else {
+            // a buffered offer's candidate: kept until that offer is answered at the start
+            if pendingOffers.contains(where: { $0.fromSocketId == fromSocketId }),
+               pendingCandidates[fromSocketId, default: []].count < Self.maxPendingCandidates {
+                pendingCandidates[fromSocketId, default: []].append(candidate)
+            }
+            return
+        }
 
         peer.connection.add(candidate) { error in
             if let error {
@@ -465,8 +550,11 @@ final class VoiceChatManager: ObservableObject {
         }
     }
 
-    /// Remove a peer connection (peer left).
+    /// Remove a peer connection (peer left), and whatever it sent that is still buffered.
     func removePeer(_ socketId: String) {
+        pendingPeers.removeAll { $0.socketId == socketId }
+        pendingOffers.removeAll { $0.fromSocketId == socketId }
+        pendingCandidates[socketId] = nil
         closePeer(socketId)
     }
 
@@ -553,6 +641,8 @@ final class VoiceChatManager: ObservableObject {
     func savedMute(for username: String) -> Bool? { savedMutes[username] }
     /// For tests: peers and offers buffered until voice is up.
     var bufferedCount: Int { pendingPeers.count + pendingOffers.count }
+    /// For tests: the ICE candidates buffered with this peer's offer.
+    func bufferedCandidates(from socketId: String) -> Int { pendingCandidates[socketId]?.count ?? 0 }
     /// For tests: the signaling state of the call with this peer.
     func signalingState(of socketId: String) -> RTCSignalingState? { peers[socketId]?.connection.signalingState }
     /// For tests: the local track: nil (voice off), or whether it sends.
@@ -759,13 +849,19 @@ final class VoiceChatManager: ObservableObject {
         let offerPeerIds = Set(pendingOffers.map { $0.fromSocketId })
         let bufferedPeers = pendingPeers
         let bufferedOffers = pendingOffers
+        let bufferedCandidates = pendingCandidates
         pendingPeers.removeAll()
         pendingOffers.removeAll()
+        pendingCandidates.removeAll()
 
         print("[Voice] Flushing \(bufferedOffers.count) offers, \(bufferedPeers.count) peers")
 
         for offer in bufferedOffers {
             handleOffer(fromSocketId: offer.fromSocketId, offer: offer.offer, username: offer.username)
+            // right after the offer: WebRTC chains each add behind the remote description
+            for candidate in bufferedCandidates[offer.fromSocketId] ?? [] {
+                handleIceCandidate(fromSocketId: offer.fromSocketId, candidate: candidate)
+            }
         }
         for peer in bufferedPeers {
             if !offerPeerIds.contains(peer.socketId) {

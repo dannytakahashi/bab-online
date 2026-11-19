@@ -281,11 +281,16 @@ private struct GameLobbyScreen: View {
             syncReady()
         }
         .onChange(of: lobbyState.expected) { _, _ in releasing = [] }
+        // no voice alone (owner 2026-11-19): voice runs while another human member is here
+        .onChange(of: VoiceCompany.lobby(lobbyState.players, me: authState.username), initial: true) { _, company in
+            VoiceChatManager.shared.setCompany(company, from: .lobby)
+        }
         .sheet(isPresented: $showVoicePanel) {
             VoicePanelSheet()
                 .presentationDetents([.medium])
         }
         .onDisappear {
+            VoiceChatManager.shared.clearCompany(from: .lobby)
             // Only shut down voice if we're not transitioning to game
             // (game screen takes over voice lifecycle)
             if appState.screen != .game {
@@ -294,14 +299,10 @@ private struct GameLobbyScreen: View {
         }
     }
 
+    /// The lobby wants voice: it starts (muted) once another human is here (VoiceGate); a
+    /// session carried in from the table (play again) runs on.
     private func startVoice() {
-        Task {
-            do {
-                try await VoiceChatManager.shared.initialize()
-            } catch {
-                print("[Lobby] Voice init failed: \(error.localizedDescription)")
-            }
-        }
+        VoiceChatManager.shared.ensureStarted()
     }
 
     private func addRandomBot() {

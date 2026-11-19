@@ -135,16 +135,20 @@ final class FamilyLobbyTests: XCTestCase {
         let members = ["ivy", "kim", "hal", "jon"].enumerated().map { member($0.1, ready: $0.0 < 2, playing: $0.0 < 2) }
         state.applyPlayers(from: ["lobbyId": "l1", "players": members, "members": members, "host": "ivy", "capacity": 8,
                                   "settings": ["spectatorsCanTalk": true]], namesHeldSeats: true)
+        // the ready count only (owner 2026-11-19: "Players 4/8 ·" went; GameLobby.js's header)
         let count = LobbyCount(state)
-        XCTAssertEqual(count.text, "Players 4/8 \u{00B7} Ready 2/4", "GameLobby.js's header")
-        XCTAssertEqual(count.parts, ["Players 4/8", "Ready 2/4"])
-        XCTAssertEqual(count.spoken, "4 of 8 players, 2 of 4 ready")
+        XCTAssertEqual(count.text, "Ready 2/4", "GameLobby.js's header")
+        XCTAssertEqual(count.spoken, "2 of 4 ready")
+        XCTAssertFalse(count.text.contains("Players"))
 
-        // an older server (no family keys): the count alone, out of 4
+        // an older server (no family keys): the same, every ready member out of 4
         let legacy = LobbyState()
-        legacy.applyPlayers(from: ["lobbyId": "l1", "players": [member("ivy", ready: true, playing: nil)]], namesHeldSeats: true)
-        XCTAssertEqual(LobbyCount(legacy).text, "Players 1/4")
-        XCTAssertEqual(LobbyCount(legacy).spoken, "1 of 4 players")
+        legacy.applyPlayers(from: ["lobbyId": "l1", "players": [member("ivy", ready: true, playing: nil), member("kim", ready: false, playing: nil)]],
+                            namesHeldSeats: true)
+        XCTAssertEqual(LobbyCount(legacy).text, "Ready 1/4")
+        XCTAssertEqual(LobbyCount(legacy).spoken, "1 of 4 ready")
+        // never more than the table's 4
+        XCTAssertEqual(LobbyCount(ready: 4).text, "Ready 4/4")
     }
 
     func testTheHeaderProbeCatchesACutOffOrCoveredCount() {
