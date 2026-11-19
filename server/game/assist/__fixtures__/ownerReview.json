@@ -141,7 +141,7 @@
      "B.ev"
     ]
    },
-   "line": "Suggested (only you see this): Bid 4. Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 4. Your hand should win about 5 tricks: HI joker (about 1.0), A♥ (about 1.0), 9♥ (about 0.8). Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 4",
     "label": "Clear choice",
@@ -263,7 +263,7 @@
      "B.evFirst"
     ]
    },
-   "line": "Suggested (only you see this): Bid 1. Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 1. Your hand should win about 1.9 tricks: LO joker (about 1.0), K♥ (about 0.9). Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 1",
     "label": "Clear choice",
@@ -676,7 +676,7 @@
      "B.ev"
     ]
    },
-   "line": "Suggested (only you see this): Bid 4. Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 4. Your hand should win about 4 tricks: LO joker (about 1.0), 7♥ (about 0.9), 10♥ (about 0.9). Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 4",
     "label": "Clear choice",
@@ -854,7 +854,7 @@
      "B.ev"
     ]
    },
-   "line": "Suggested (only you see this): Bid 3. Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 3. Your hand should win about 4 tricks: HI joker (about 1.0), A♣ (about 0.9), K♥ (about 0.7). Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 3",
     "label": "Clear choice",
@@ -1021,7 +1021,7 @@
      "B.evFirst"
     ]
    },
-   "line": "Suggested (only you see this): Bid 2. Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 2. Your hand should win about 3 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6). Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 2",
     "label": "Clear choice",
@@ -1193,7 +1193,7 @@
      "B.evFirst"
     ]
    },
-   "line": "Suggested (only you see this): Bid 1. Alice (your partner) bids after you and adds their own tricks. Bid 1 is worth about +32 on average, bid 2 about +27. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 1. Your hand should win about 2.0 tricks: A♦ (about 0.9), Q♥ (about 0.6), Q♣ (about 0.3). Alice (your partner) bids after you and adds their own tricks. Bid 1 is worth about +32 on average, bid 2 about +27. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 1",
     "label": "Clear choice",
@@ -1905,7 +1905,7 @@
      "B.zero"
     ]
    },
-   "line": "Suggested (only you see this): Bid 0. Alice (your partner) bid 2. Bid 0 makes your combined 2 almost always (about 95%), worth about +20; bid 1 is worth about +18. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Bid 0. Your hand should win about 0.7 tricks: 9♠ (about 0.5). Alice (your partner) bid 2. Bid 0 makes your combined 2 almost always (about 95%), worth about +20; bid 1 is worth about +18. (Help 2 of 3 free)",
    "rich": {
     "headline": "Bid 0",
     "label": "Close call",
@@ -2555,7 +2555,7 @@
      "S.any"
     ]
    },
-   "line": "Suggested (only you see this): Throw 8♠. You have no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw 8♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. You have no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 8♠",
     "label": "Any card works",
@@ -2890,7 +2890,7 @@
      "D.keepWinner"
     ]
    },
-   "line": "Suggested (only you see this): Throw Q♦. Carol (your partner) is winning with the Q♠, so keep your trumps for later. Keep your K♥: no one else holds a higher heart. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw Q♦. You and Carol (your partner) need 4 more of the last 9 tricks. Carol is winning with the Q♠, so keep your trumps for later. Keep your K♥: no one else holds a higher heart. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw Q♦",
     "label": "Close call",
@@ -3402,7 +3402,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Throw 8♣. Bob (your partner) is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw 8♣. You and Bob (your partner) need 1 more of the last 2 tricks. Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 8♣",
     "label": "Close call",
@@ -3750,7 +3750,7 @@
      "D.voidShortest"
     ]
    },
-   "line": "Suggested (only you see this): Throw 7♣. Carol (your partner) is winning with the Q♦, so keep your trumps for later. It's your last club: after it you can trump club leads. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw 7♣. You and Carol (your partner) need 3 more of the last 8 tricks. Carol is winning with the Q♦, so keep your trumps for later. It's your last club: after it you can trump club leads. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 7♣",
     "label": "Close call",
@@ -4845,7 +4845,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Play J♠. Your partner Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Play J♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each. Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade. (Help 2 of 3 free)",
    "rich": {
     "headline": "Play J♠",
     "label": "Close call",
@@ -5054,7 +5054,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Play K♠. Your partner Carol's 8♠ could still be beaten by Alice. Your K♠ gives the trick the best chance. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Play K♠. You and Carol (your partner) need 1 more of the last 5 tricks. Carol's 8♠ could still be beaten by Alice. Your K♠ gives the trick the best chance. (Help 2 of 3 free)",
    "rich": {
     "headline": "Play K♠",
     "label": "Clear choice",
@@ -5507,7 +5507,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Play 6♥. Alice (your partner) is winning with the HI joker and nobody plays after you. Play low and keep the rest. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Play 6♥. You and Alice (your partner) need 2 more of the last 4 tricks. Alice is winning with the HI joker and nobody plays after you. Play low and keep the rest. (Help 2 of 3 free)",
    "rich": {
     "headline": "Play 6♥",
     "label": "Clear choice",
@@ -5690,7 +5690,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Trump with the LO joker. Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with the LO joker. You and Dan (your partner) need 2 more of the last 3 tricks. Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with the LO joker",
     "label": "Clear choice",
@@ -5976,7 +5976,7 @@
      "F.ruffForPartner"
     ]
    },
-   "line": "Suggested (only you see this): Trump with 5♥. Your partner Carol's 10♦ could still lose, and nobody after you has shown they're out of diamonds. A low trump makes sure of it. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with 5♥. You and Carol (your partner) need 5 more of the last 10 tricks. Carol's 10♦ could still lose, and nobody after you has shown they're out of diamonds. A low trump makes sure of it. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with 5♥",
     "label": "Close call",
@@ -6311,7 +6311,7 @@
      "S.anyWinner"
     ]
    },
-   "line": "Suggested (only you see this): Trump with K♠. You play last: the lowest trump that wins is enough. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with K♠. You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each. You play last: the lowest trump that wins is enough. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with K♠",
     "label": "Sure thing",
@@ -7085,7 +7085,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Trump with 8♥. You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with 8♥. You and Carol (your partner) need 2 more of the last 7 tricks. You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with 8♥",
     "label": "Close call",
@@ -7572,7 +7572,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Trump with Q♥. You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with Q♥. You and Alice (your partner) need 1 more of the last 2 tricks. You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with Q♥",
     "label": "Close call",
@@ -7742,7 +7742,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Trump with 8♦. Every trick counts, and your partner Dan's 2♥ could still lose. Trumping makes sure of it. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with 8♦. You and Dan (your partner) need every trick left (2 of 2). Every trick counts, and Dan's 2♥ could still lose. Trumping makes sure of it. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with 8♦",
     "label": "Clear choice",
@@ -8342,7 +8342,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Trump with 5♥. You can't beat the LO joker, and you only have trumps left: play the lowest. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Trump with 5♥. You and Carol (your partner) need 1 more of the last 5 tricks. You can't beat the LO joker, and you only have trumps left: play the lowest. (Help 2 of 3 free)",
    "rich": {
     "headline": "Trump with 5♥",
     "label": "Close call",
@@ -8870,7 +8870,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Play K♥. No one else holds a higher heart (A♥ is played): the cheapest card likely to win. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Play K♥. You and Dan (your partner) need 2 more of the last 3 tricks. No one else holds a higher heart (A♥ is played): the cheapest card likely to win. (Help 2 of 3 free)",
    "rich": {
     "headline": "Play K♥",
     "label": "Clear choice",
@@ -9284,7 +9284,7 @@
      "S.agrees"
     ]
    },
-   "line": "Suggested (only you see this): Lead A♣. No one else holds a higher trump (HI joker and LO joker are played): a sure trick that also pulls trump from Alice and Bob. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead A♣. You and Carol (your partner) need 1 more of the last 5 tricks. No one else holds a higher trump (HI joker and LO joker are played): a sure trick that also pulls trump from Alice and Bob. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead A♣",
     "label": "Close call",
@@ -9534,7 +9534,7 @@
      "L.cashBoss"
     ]
    },
-   "line": "Suggested (only you see this): Lead 10♦. No one else holds a higher diamond, and neither Bob nor Alice has shown they can trump diamonds: take it while you can. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 10♦. You and Dan (your partner) need 5 more of the last 10 tricks. No one else holds a higher diamond, and neither Bob nor Alice has shown they can trump diamonds: take it while you can. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 10♦",
     "label": "Clear choice",
@@ -10193,7 +10193,7 @@
      "L.lowTrump"
     ]
    },
-   "line": "Suggested (only you see this): Lead 7♥. You have 5 trumps but not the top one. Leading low draws Alice's and Bob's trump, and yours last longer. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 7♥. You and Carol (your partner) need 4 more of the last 9 tricks. You have 5 trumps but not the top one. Leading low draws Alice's and Bob's trump, and yours last longer. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 7♥",
     "label": "Close call",
@@ -10546,7 +10546,7 @@
      "S.close"
     ]
    },
-   "line": "Suggested (only you see this): Lead the HI joker. Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead the HI joker. You and Alice (your partner) need every trick left (2 of 2). Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead the HI joker",
     "label": "Close call",
@@ -11720,7 +11720,7 @@
      "S.any"
     ]
    },
-   "line": "Suggested (only you see this): Lead 4♠. You only have trump left: lead your lowest. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 4♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. You only have trump left: lead your lowest. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 4♠",
     "label": "Any card works",
@@ -12279,7 +12279,7 @@
      "S.setThem"
     ]
    },
-   "line": "Suggested (only you see this): Lead K♣. On a small hand the ace may not even have been dealt, so your K♣ has a good chance. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead K♣. Bob and Alice need 2 of the last 3. Two more for you or Dan (your partner) sets them. On a small hand the ace may not even have been dealt, so your K♣ has a good chance. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead K♣",
     "label": "Clear choice",
@@ -12474,7 +12474,7 @@
      "L.suitLow"
     ]
    },
-   "line": "Suggested (only you see this): Lead 5♦. Diamonds is your shortest suit: once it's gone you can trump diamond leads. It's your only diamond. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 5♦. You and Carol (your partner) need 6 more of the last 12 tricks. Diamonds is your shortest suit: once it's gone you can trump diamond leads. It's your only diamond. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 5♦",
     "label": "Close call",
@@ -13843,7 +13843,7 @@
      "S.overrides"
     ]
    },
-   "line": "Suggested (only you see this): Play 10♣. Usually you'd play the Q♣, but the 10♣ does better here: your bid makes more often than not (65%), against about half the time (55%). (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Play 10♣. You and Alice (your partner) need 3 more of the last 7 tricks. Usually you'd play the Q♣, but the 10♣ does better here: your bid makes more often than not (65%), against about half the time (55%). (Help 2 of 3 free)",
    "rich": {
     "headline": "Play 10♣",
     "label": "Clear choice",
@@ -14256,7 +14256,7 @@
      "S.overrides"
     ]
    },
-   "line": "Suggested (only you see this): Lead the LO joker. Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%). (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead the LO joker. You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each. Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%). (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead the LO joker",
     "label": "Clear choice",
@@ -14495,7 +14495,7 @@
      "S.overrides"
     ]
    },
-   "line": "Suggested (only you see this): Throw 4♣. Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Throw 4♣. You and Alice (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average. (Help 2 of 3 free)",
    "rich": {
     "headline": "Throw 4♣",
     "label": "Clear choice",
@@ -14840,7 +14840,7 @@
      "P.quick"
     ]
    },
-   "line": "Quick suggestion, rules only (only you see this): Lead 4♦. Dan (your partner) is out of diamonds and can trump diamond leads. It's your only diamond. (Help 2 of 3 free)",
+   "line": "Quick suggestion, rules only (only you see this): Lead 4♦. You and Dan (your partner) need 2 more of the last 7 tricks. Dan is out of diamonds and can trump diamond leads. It's your only diamond. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 4♦",
     "label": "Quick suggestion",
@@ -15083,7 +15083,7 @@
      }
     ]
    },
-   "line": "Suggested (only you see this): Lead 3♠. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠. (Help 2 of 3 free)",
+   "line": "Suggested (only you see this): Lead 3♠. Dan and Carol need 6 of the last 11. Six more for you or Alice (your partner) sets them. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠. (Help 2 of 3 free)",
    "rich": {
     "headline": "Lead 3♠",
     "label": "Close call",
