@@ -60,7 +60,7 @@ describe('copy helpers', () => {
         expect(C.clip(`${'word '.repeat(12)}against almost never (about 0%) with it.`, 90)).toBe(`${'word '.repeat(12)}against almost never…`);
     });
 
-    test('render: rich card and the ≤ 200-character line with the use count', () => {
+    test('render: rich card and the line (LINE_MAX, both reasons whenever they fit) with the use count', () => {
         const e = { headline: 'Play 4♦', reasons: ['You and Bob (your partner) need 2 more of the last 4 tricks.', 'Bob is winning.'], details: ['d'], confidence: 'clear', suggest: {}, codes: [] };
         expect(C.render(e)).toEqual({ headline: 'Play 4♦', label: 'Clear choice', reasons: e.reasons, details: ['d'], footer: C.FOOTER });
         expect(C.FOOTER).toMatch(/our strongest bot/);
@@ -71,7 +71,7 @@ describe('copy helpers', () => {
         expect(C.render({ ...e, confidence: 'quick' }).footer).toBe(C.QUICK_NOTE);
         expect(C.render({ ...e, confidence: 'quick' }, { style: 'line' })).toMatch(/^Quick suggestion, rules only/);
         // Too long for both: the main reason alone, the partner tag moved onto it
-        const big = { ...e, reasons: [`You and Bob (your partner) ${'need '.repeat(20)}tricks.`, `Bob's ${'x'.repeat(100)} could lose.`] };
+        const big = { ...e, reasons: [`You and Bob (your partner) ${'need '.repeat(80)}tricks.`, `Bob's ${'x'.repeat(100)} could lose.`] };
         Object.defineProperty(big, 'partnerName', { value: 'Bob' });
         const l2 = C.render(big, { style: 'line', uses: 1, freeUses: 3 });
         expect(l2.length).toBeLessThanOrEqual(C.LINE_MAX);
@@ -80,7 +80,7 @@ describe('copy helpers', () => {
 
     test('render: the moved partner tag goes on the name as a whole word, and no guess footer on a forced move', () => {
         const line = (partner, main) => {
-            const e = { headline: 'Play 4♦', reasons: [`You and ${partner} (your partner) ${'need '.repeat(25)}tricks.`, main], details: [], confidence: 'clear', suggest: {}, codes: [] };
+            const e = { headline: 'Play 4♦', reasons: [`You and ${partner} (your partner) ${'need '.repeat(90)}tricks.`, main], details: [], confidence: 'clear', suggest: {}, codes: [] };
             Object.defineProperty(e, 'partnerName', { value: partner });
             return C.render(e, { style: 'line' });
         };

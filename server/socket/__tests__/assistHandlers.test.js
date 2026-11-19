@@ -41,7 +41,7 @@ const SeatState = require('../../game/SeatState');
 const pacing = require('../../game/pacing');
 const { SEARCH } = require('../../game/bot/playSearch');
 const { Phase } = require('../../game/GamePhase');
-const { NAME_LINT, LINE_PREFIX } = require('../../game/assist/copy');
+const { NAME_LINT, LINE_PREFIX, LINE_MAX } = require('../../game/assist/copy');
 const { makeIo, makeSocket, events, legalCards, legalBids, mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { advanceUntil } = require('../../testUtils/tournamentDriver');
@@ -188,7 +188,7 @@ test('cap socket: assistHint; no-cap socket: private lines; nobody else gets eit
     expect(lines[0].data).not.toHaveProperty('seq');
     expect(lines[0].data.message.startsWith(LINE_PREFIX)).toBe(true);
     expect(lines[0].data.message).toMatch(/\(Help 1 of 3 free\)$/);
-    expect(lines[0].data.message.length).toBeLessThanOrEqual(200);
+    expect(lines[0].data.message.length).toBeLessThanOrEqual(LINE_MAX);
     expect(t.since(mark).filter((l) => l.to === game.roomName).map((l) => l.data.message)).toEqual([`${t.name(p2)} used /help.`]);
     // the private lines never went into the log
     expect(game.gameLog.some((e) => e.message.startsWith(LINE_PREFIX))).toBe(false);
