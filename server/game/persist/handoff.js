@@ -54,9 +54,9 @@
  *      After a failed successor read every table with a saved doc is
  *      released the same way (its final state where that write lands,
  *      else as saved; only tainted docs are deleted), and every one is
- *      'unknown' whatever was acknowledged: nobody may adopt it until a
- *      later boot (or the release never lands and the stale-owner wait
- *      applies). releaseKind stays 'handoff' (a SIGTERM, not a crash: it
+ *      'unknown' whatever was acknowledged: an 'on' successor may adopt
+ *      it, or nobody until a later boot (a release that never lands leaves
+ *      it to the stale-owner wait). releaseKind stays 'handoff' (a SIGTERM, not a crash: it
  *      must not count toward the adopter's crash-loop discard)
  *   outcomes: 'continue' (its release acknowledged), 'ended' (its doc is
  *   gone, or it never had one), 'unknown' (anything else: a release or a
