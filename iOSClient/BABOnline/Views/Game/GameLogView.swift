@@ -220,6 +220,28 @@ struct GameLogPanel: View {
     }
 }
 
+/// A set hand's fault line stands apart from the coral team's colour, as the web's
+/// .log-row.is-fault: a faint red ground, a solid red bar at the left, the full row's width.
+private struct FaultRowChrome: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .padding(.vertical, 2)
+                .padding(.horizontal, Theme.Space.s2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.danger.opacity(0.16))
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Theme.danger).frame(width: 3)
+                }
+                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: Theme.Radius.sm, topTrailingRadius: Theme.Radius.sm))
+        } else {
+            content
+        }
+    }
+}
+
 struct GameLogEntryView: View {
     let entry: ChatMessage
 
@@ -227,11 +249,12 @@ struct GameLogEntryView: View {
         HStack(alignment: .top, spacing: Theme.Space.s1) {
             if entry.type == .system {
                 Text(entry.message)
-                    .font(.caption2)
+                    .font(entry.isFault ? .caption2.weight(.semibold) : .caption2)
                     .foregroundColor(Self.systemColor(entry))
                     // a fault line is upright, as the web's .log-row.is-fault; other system rows italic
                     .italic(!entry.isFault)
                     .accessibilityIdentifier(entry.isFault ? "logFaultRow" : "")
+                    .modifier(FaultRowChrome(isOn: entry.isFault))
             } else {
                 Text("\(entry.username):")
                     .font(.caption2.bold())
