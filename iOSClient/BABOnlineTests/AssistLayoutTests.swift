@@ -171,7 +171,8 @@ final class AssistLayoutTests: XCTestCase {
                     XCTAssertLessThanOrEqual(f.minY, home.minY + 0.01, t)
                     XCTAssertGreaterThanOrEqual(f.minY, home.minY - AssistLayout.askReach - 0.01, t)
                     XCTAssertGreaterThanOrEqual(f.midX, k.hand.minX - 0.01, t)
-                    XCTAssertLessThanOrEqual(f.midX, k.hand.maxX + AssistLayout.askSize + 0.01, t)
+                    XCTAssertLessThanOrEqual(f.midX, k.hand.maxX + 0.01, t)
+                    XCTAssertLessThanOrEqual(f.minX, home.minX + 0.01, "\(t): never right of today's spot")
                     if f != home { moved += 1 }
                     checked += 1
                 }
@@ -236,7 +237,8 @@ final class AssistLayoutTests: XCTestCase {
     }
 
     /// With the voice button up (a game with another human), a full hand's spot is on it at the
-    /// phones' width: the lightbulb goes up over it, at the hand's right end.
+    /// phones' width: the lightbulb goes left of my seat's row at the same height, over my hand,
+    /// and stays there while the row is in the way (the same spot as the owner's short hand).
     func testAFullHandsLightbulbClearsTheVoiceButton() {
         let L = Self.pro18
         let k = AssistLayout.askKeeps(L, handCount: 13, pipSlots: 4, hsi: true, voice: true)
@@ -245,8 +247,117 @@ final class AssistLayoutTests: XCTestCase {
         let f = AssistLayout.askFrame(k)
         let voice = L.window(L.seatRow.voice)
         XCTAssertFalse(f.intersects(voice))
-        XCTAssertLessThanOrEqual(f.maxY, voice.minY + 0.01, "above the voice button")
-        XCTAssertEqual(f.minX, home.minX, accuracy: 0.01, "at the hand's right end")
+        XCTAssertEqual(f.minY, home.minY, "the same height")
+        let row = Self.row(L, pips: 4, hsi: true, voice: true).values.reduce(CGRect.null) { $0.union($1) }
+        XCTAssertLessThanOrEqual(AssistLayout.askButton(f).maxX, row.minX - AssistLayout.askGap + 0.01, "left of my seat's row")
+        XCTAssertGreaterThan(AssistLayout.askButton(f).minX, k.hand.minX, "over my hand")
+        guard case .left(let x)? = AssistLayout.askLane(k) else { return XCTFail("the lane left of the row") }
+        XCTAssertEqual(f.minX, x)
+        for n in 1...12 {
+            let kn = AssistLayout.askKeeps(L, handCount: n, pipSlots: 4, hsi: true, voice: true)
+            XCTAssertEqual(AssistLayout.askFrame(kn), f, "n=\(n): the same spot all hand")
+        }
+    }
+
+    /// Reviewer 2026-11-19: the lightbulb hopped right of HSI, then up between my pips and the
+    /// voice slot, then left of my pips, on consecutive turns as the hand shrank (and on the Duo
+    /// parked past my last card). Walking the hand down from 13 cards to 1 on every table and row
+    /// state: it never moves right, its centre stays over my hand, at most one move is more than
+    /// the hand's own step (a lift and a drop for the lane above the row: two), and it never
+    /// changes height more than to lift over the row and drop back.
+    func testTheLightbulbMovesSteadilyAsMyHandShrinks() {
+        var walked = 0, hopped = 0
+        for (tag, L) in Self.configs {
+            for (pips, hsi, voice, spectators) in Self.rowStates {
+                let badge = spectators ? L.window(L.spectatorBadge(spectating: false)) : nil
+                var last: (f: CGRect, home: CGRect)?
+                var big = 0, sideways = 0, heights: [CGFloat] = []
+                for n in stride(from: 13, through: 1, by: -1) {
+                    let k = AssistLayout.askKeeps(L, handCount: n, pipSlots: pips, hsi: hsi, voice: voice, spectatorBadge: badge)
+                    let f = AssistLayout.askFrame(k), home = AssistLayout.askHome(hand: k.hand)
+                    let t = "\(tag) pips=\(pips) hsi=\(hsi) voice=\(voice) badge=\(spectators) n=\(n): \(f)"
+                    XCTAssertLessThanOrEqual(f.midX, k.hand.maxX + 0.01, "\(t): its centre over my hand")
+                    XCTAssertLessThanOrEqual(AssistLayout.askButton(f).maxX, k.hand.maxX + 0.01, "\(t): never past my last card")
+                    if let last {
+                        let step = last.home.minX - home.minX, dx = f.minX - last.f.minX, dy = f.minY - last.f.minY
+                        XCTAssertLessThanOrEqual(dx, 0.01, "\(t): moved right from \(last.f)")
+                        if abs(dx) > step + 2 { sideways += 1 }
+                        if abs(dx) > step + 2 || abs(dy) > 0.01 { big += 1 }
+                    }
+                    if heights.last.map({ abs($0 - f.minY) > 0.01 }) ?? true { heights.append(f.minY) }
+                    last = (f, home)
+                }
+                let t = "\(tag) pips=\(pips) hsi=\(hsi) voice=\(voice) badge=\(spectators)"
+                XCTAssertLessThanOrEqual(big, sideways > 0 ? 1 : 2, "\(t): \(big) hops (\(sideways) sideways)")
+                // one height, or a move up or down, or up over the row and back down to today's
+                XCTAssertTrue(heights.count <= 2 || (heights.count == 3 && abs(heights[0] - heights[2]) <= 0.01 && heights[1] < heights[0]),
+                              "\(t): heights \(heights)")
+                if big > 0 { hopped += 1 }
+                walked += 1
+            }
+        }
+        XCTAssertEqual(walked, Self.configs.count * Self.rowStates.count)
+        XCTAssertGreaterThan(hopped, 0)
+    }
+
+    /// The owner's games with bots (HSI, a bid of 4, no voice) on the 18 Pro, 17e and the closed
+    /// Duo: today's spot while my hand ends past my seat's row, then one move left of the row,
+    /// where it stays to the last card.
+    func testTheOwnersHandMovesOnceAndStays() {
+        let phones = [("iPhone 18 Pro", Self.pro18)] + SeatRowTests.configs.filter { ["iPhone 17e", "Duo closed (measured)"].contains($0.0) }
+        XCTAssertEqual(phones.count, 3)
+        for (tag, L) in phones {
+            var frames: [CGRect] = [], homes: [CGRect] = []
+            for n in stride(from: 13, through: 1, by: -1) {
+                let k = AssistLayout.askKeeps(L, handCount: n, pipSlots: 4, hsi: true, voice: false)
+                frames.append(AssistLayout.askFrame(k))
+                homes.append(AssistLayout.askHome(hand: k.hand))
+            }
+            guard let first = frames.indices.first(where: { frames[$0] != homes[$0] }) else { XCTFail("\(tag): never moved"); continue }
+            XCTAssertGreaterThanOrEqual(13 - first, 2, "\(tag): the short hand moves (\(13 - first) cards)")
+            XCTAssertLessThanOrEqual(13 - first, 8, "\(tag): a full hand keeps today's spot")
+            XCTAssertEqual(Set(frames[first...].map { "\($0)" }).count, 1, "\(tag): one spot from \(13 - first) cards down: \(frames[first...])")
+            XCTAssertEqual(frames[first].minY, homes[first].minY, "\(tag): the same height")
+        }
+    }
+
+    /// The lanes round my seat's row on a made-up table: left of the row at the home's height
+    /// while that is clear for every hand size the row blocks; else (something on that spot)
+    /// straight up over the row at the hand's right end; else (both taken) the nearest clear spot.
+    func testTheLaneIsLeftOfTheRowElseOverIt() {
+        // hands 120...280 pt wide centred on x = 200, their lifted tops at y = 700
+        let hands = stride(from: CGFloat(120), through: 280, by: 40).map { CGRect(x: 200 - $0 / 2, y: 700, width: $0, height: 150) }
+        let hsi = CGRect(x: 230, y: 670, width: 74, height: 20)
+        var k = AssistLayout.AskKeeps(hand: hands[0], drawn: ["hsi": hsi], bounds: CGRect(x: 0, y: 100, width: 400, height: 800), hands: hands)
+        // every hand's home is on HSI
+        XCTAssertTrue(hands.allSatisfy { AssistLayout.askProblems(AssistLayout.askHome(hand: $0), k.with(hand: $0)) == ["hsi"] })
+        let left = hsi.minX - AssistLayout.askGap - AssistLayout.askSize - (AssistLayout.askHit - AssistLayout.askSize) / 2
+        XCTAssertEqual(AssistLayout.askLane(k), .left(left))
+        for h in hands {
+            let f = AssistLayout.askFrame(k.with(hand: h))
+            XCTAssertEqual(f, CGRect(x: left, y: AssistLayout.askHome(hand: h).minY, width: 44, height: 44))
+        }
+        // something on that spot: up over HSI, at each hand's right end
+        k.table = [CGRect(x: 150, y: 660, width: 60, height: 40)]
+        let above = hsi.minY - AssistLayout.askGap - AssistLayout.askSize - (AssistLayout.askHit - AssistLayout.askSize) / 2
+        XCTAssertEqual(AssistLayout.askLane(k), .lift(above))
+        for h in hands {
+            let f = AssistLayout.askFrame(k.with(hand: h))
+            XCTAssertEqual(f, CGRect(x: AssistLayout.askHome(hand: h).minX, y: above, width: 44, height: 44))
+            XCTAssertEqual(AssistLayout.askProblems(f, k.with(hand: h)), [])
+        }
+        // and over HSI too: no lane, the nearest clear spot (still clear, still on my hand)
+        k.table.append(CGRect(x: 200, y: 560, width: 150, height: 70))
+        XCTAssertNil(AssistLayout.askLane(k))
+        for h in hands {
+            let kh = k.with(hand: h), f = AssistLayout.askFrame(kh)
+            XCTAssertEqual(AssistLayout.askProblems(f, kh), [], "\(h)")
+            XCTAssertLessThanOrEqual(f.midX, h.maxX + 0.01)
+            XCTAssertGreaterThanOrEqual(f.midX, h.minX - 0.01)
+        }
+        // the row in nobody's way: no lane
+        XCTAssertNil(AssistLayout.askLane(AssistLayout.AskKeeps(hand: hands[0], drawn: ["hsi": hsi.offsetBy(dx: 0, dy: -300)],
+                                                                bounds: k.bounds, hands: hands)))
     }
 
     func testTheLightbulbsProblemsNameWhatItCovers() {

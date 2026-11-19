@@ -807,8 +807,9 @@ private struct GameScreen: View {
                                      hsi: gameState.myHSI != nil, voice: voice, spectatorBadge: badge)
     }
 
-    /// The lightbulb: its right edge at my hand's right end, just above the lifted cards, or the
-    /// nearest clear spot when that is on my seat's row (a short hand: AssistLayout.askFrame).
+    /// The lightbulb: its right edge at my hand's right end, just above the lifted cards, or, when
+    /// that is on my seat's row (a short hand, or the voice button), one spot left of the row for
+    /// as long as the row is in the way (AssistLayout.askFrame / askLane).
     private func assistAsk(_ layout: TableLayout) -> some View {
         let keeps = assistAskKeeps(layout)
         let f = AssistLayout.askFrame(keeps)
