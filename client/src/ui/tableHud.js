@@ -196,6 +196,23 @@ function applyRootVars(hud, L) {
   set('--bid-x', L.bidSheet.x);
   set('--bid-y', L.bidSheet.y);
   set('--bid-scale', String(L.bidSheet.scale));
+  // the /help card (ui/components/AssistCard.js): its bottom just above my
+  // hand's lifted cards, centred on the hand; a bid suggestion above the
+  // bid sheet instead (the sheet covers the felt while I bid); the "?" at
+  // the hand box's right end, at the same height (no hand, a spectator:
+  // never shown)
+  set('--assist-bid-x', L.bidSheet.x);
+  set('--assist-bid-y', L.bidSheet.rect.y - Math.max(4, 6 * L.s));
+  const h = L.hand;
+  if (h?.card) {
+    const cardsTop = h.y - h.card.h / 2 - (h.lift || 0);
+    set('--assist-x', h.cx);
+    set('--assist-y', cardsTop - Math.max(4, 6 * L.s));
+    set('--assist-w', Math.min(h.rect.w, 380));
+    set('--assist-ask-x', h.rect.x + h.rect.w);
+    set('--assist-ask-y', cardsTop);
+    set('--assist-ask', L.voice.button);
+  }
   const vr = L.voice.rect;
   set('--voice-x', vr.x);
   set('--voice-y', vr.y);

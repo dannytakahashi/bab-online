@@ -11,6 +11,7 @@ import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
+import { helpDescription, HELP_COMMAND } from '../../state/assistHint.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -187,7 +188,12 @@ export function createGameLog({ onChatSubmit } = {}) {
   // player is at the table (or may come back); when no one is, the server
   // ends the game (seatLifecycle.maybeAbort: "All players left"). The web
   // does not track the other seats' presence, so the text names both.
+  // /help (a suggested bid or card, private; state/assistHint.js): its line
+  // says this game's uses, read when the list is drawn ("Suggest a move
+  // (1 of 3 free used)"; after the free ones "the next one makes this game
+  // bot-assisted")
   const ALL_SLASH_COMMANDS = [
+    { command: HELP_COMMAND, description: () => helpDescription(getGameState().gameId) },
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },
@@ -232,7 +238,7 @@ export function createGameLog({ onChatSubmit } = {}) {
       name.textContent = cmd.command;
       const desc = document.createElement('span');
       desc.className = 'slash-item__desc';
-      desc.textContent = cmd.description;
+      desc.textContent = typeof cmd.description === 'function' ? cmd.description() : cmd.description;
       item.append(name, desc);
       item.addEventListener('mousedown', (e) => {
         e.preventDefault(); // Prevent blur from firing
@@ -359,6 +365,16 @@ export function createGameLog({ onChatSubmit } = {}) {
 
   const addSystemMessage = (message, _color = null, at = null) => {
     append(buildRow(message, null, at));
+  };
+
+  /**
+   * A dim row only this page shows (never sent, never stored: a replay of
+   * the server's log drops it), e.g. "Help: Play 9♦ (only you see this)".
+   */
+  const addPrivateMessage = (message) => {
+    const row = buildRow(message, null);
+    row.classList.add('is-private');
+    append(row);
   };
 
   const addTrickResult = (winner, teamTricks, oppTricks) => {
@@ -491,6 +507,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     container,
     addMessage,
     addSystemMessage,
+    addPrivateMessage,
     addGameMessage,
     addTrickResult,
     updateScores,

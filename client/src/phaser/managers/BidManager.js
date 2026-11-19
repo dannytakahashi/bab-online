@@ -60,6 +60,8 @@ export class BidManager {
 
     // Currently selected bid
     this.selectedBid = null;
+    // The /help suggestion (setSuggestedBid)
+    this.suggestedBid = null;
 
     // Trick indicator
     this.trickIndicators = [];
@@ -179,6 +181,9 @@ export class BidManager {
     // Update bore button states
     this.updateBoreButtonStates();
 
+    // the /help suggestion survives a rebuild of the sheet (a render)
+    this._markSuggested();
+
     // A clock already running for my turn (a rejoin, a rebuild, /active)
     this.syncClock();
 
@@ -209,6 +214,24 @@ export class BidManager {
     if (onBidSelect(bidValue) === false) this.clearSelection();
     // a bid on its way: no countdown (a rollback's render shows it again)
     this.syncClock();
+  }
+
+  /**
+   * The /help suggested bid ('4', 'B'; null for none): a gold ring on its
+   * button and "(suggested)" in its name. Kept across a rebuild.
+   */
+  setSuggestedBid(bid) {
+    this.suggestedBid = bid ? String(bid).toUpperCase() : null;
+    this._markSuggested();
+  }
+
+  _markSuggested() {
+    for (const b of this.allBidButtons || []) {
+      const on = !!this.suggestedBid && b.textContent === this.suggestedBid;
+      b.classList.toggle('is-suggested', on);
+      if (on) b.setAttribute('aria-label', `${b.textContent} (suggested)`);
+      else b.removeAttribute('aria-label');
+    }
   }
 
   /** No bid marked. */

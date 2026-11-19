@@ -53,6 +53,10 @@ import { uiTextStyle, refreshTextResolution } from '../text.js';
 import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
+import {
+  isAssistHint, hintIsLive, noteAssistUses, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
+} from '../../state/assistHint.js';
+import { showAssistCard, hideAssistCard, syncAssistButton } from '../../ui/components/AssistCard.js';
 
 /**
  * Main game scene class.
@@ -587,6 +591,9 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.updateBoreButtonStates();
     }
 
+    // my own bid: the /help card is done
+    if (data.position === this.state.position && !this.state.isSpectator) this.clearAssist();
+
     // Show bid bubble at the appropriate position
     const positionKey = this.getPositionKey(data.position);
     if (positionKey && this.bidManager) {
@@ -660,6 +667,8 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager) {
       this.bidManager.hideBidUI();
     }
+    // a bid suggestion is over with the bidding
+    this.clearAssist();
 
     // Update card legality now that bidding is over
     // The lead player can play any card, others are dimmed
@@ -718,6 +727,9 @@ export class GameScene extends Phaser.Scene {
     const myPosition = this.state.position;
     const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
 
+    // every turn change ends a /help answer (plan 4.4)
+    this.clearAssist();
+
     // the announcer: my turn, with the trick so far (before the hand takes focus)
     if (currentTurn === myPosition && !this.state.isSpectator && !this.state.isLazy) {
       announce(this.turnAnnouncement());
@@ -764,6 +776,7 @@ export class GameScene extends Phaser.Scene {
     if (this.bidManager && this.state.isBidding) {
       this.bidManager.updateVisibility();
     }
+    this.syncAssistButton();
   }
 
   /**
@@ -804,6 +817,9 @@ export class GameScene extends Phaser.Scene {
     const card = data.card;
 
     announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
+
+    // my own card: the /help card is done
+    if (playedPosition === myPosition && !this.state.isSpectator) this.clearAssist();
 
     // Update card legality when lead card is first played
     if (this.state.currentTrick.length === 1) {
@@ -1051,6 +1067,7 @@ export class GameScene extends Phaser.Scene {
 
     // Start trick animation immediately (before score processing)
     this._animateTricksAndTrumpAway();
+    this.clearAssist();
 
     const state = this.state;
     const myPosition = state.position || 1;
@@ -1182,6 +1199,7 @@ export class GameScene extends Phaser.Scene {
 
     // Clear hand and trick displays (the redeal's gameStart, sent in the
     // same server tick, deals the new hand)
+    this.clearAssist();
     this.cardManager?.clearHand();
     if (this.trickManager) {
       this.trickManager.clearAll();
@@ -1210,6 +1228,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   handlePlayerLazyMode(data) {
+    if (data.position === this.state?.position) this.clearAssist();
     this.showSeatDisplay(data.position);
   }
 
@@ -1294,6 +1313,8 @@ export class GameScene extends Phaser.Scene {
         if (getMyAction().isPending()) showNotice(NOTICE.CARD_ON_ITS_WAY);
         return;
       }
+      // my card is on its way: the /help card (and its "?") is done
+      scene.clearAssist();
 
       // Capture the current (hovered) position before any operations that might reset it
       const startX = clickedSprite.x;
@@ -1431,7 +1452,97 @@ export class GameScene extends Phaser.Scene {
 
   /** The bid panel's choice: MyAction sends it (one outstanding at a time). */
   submitBid(bid) {
-    return getMyAction().submitBid(bid, this.state.position);
+    const sent = getMyAction().submitBid(bid, this.state.position);
+    if (sent) this.clearAssist();
+    return sent;
+  }
+
+  // ============================================
+  // /help (plan H3): my private suggestion
+  // ============================================
+
+  /**
+   * assistHint (main.js, in table order through the director): my /help
+   * answer. Every reply leaves a dim local log row ("Help: Play 9♦ (only
+   * you see this)"); one for this turn shows the card above my hand, the
+   * suggested card or bid ringed, and the announcer says the headline and
+   * the main reason. A bid or card answer for a turn that is gone is
+   * dropped (its counts are still this game's).
+   * @param {Object} hint - s2c assistHint
+   */
+  handleAssistHint(hint) {
+    const s = this.state || getGameState();
+    if (!isAssistHint(hint)) return;
+    const watching = s.isSpectator && !s.isLazy;
+    // a spectator's reply ("players only") says nothing about my uses
+    if (!watching) noteAssistUses(hint, s.gameId);
+    if (!hintIsLive(hint, s, { pending: getMyAction().isPending() })) return;
+    window.addPrivateToGameFeed?.(assistLogLine(hint));
+    this._assistHint = hint;
+    showAssistCard(hint, { onClose: () => this.clearAssist() });
+    this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
+    this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
+    announce(assistAnnouncement(hint));
+    this.syncAssistButton();
+  }
+
+  /** Take my /help answer down (the card, the ring on a card or bid). */
+  clearAssist() {
+    const had = !!this._assistHint;
+    // focus in the card (its ✕, Escape, Why?) goes to the "?" when it comes back
+    const focused = had && typeof document !== 'undefined' && !!document.activeElement?.closest?.('.hud-assist');
+    this._assistHint = null;
+    if (had) hideAssistCard();
+    this.cardManager?.setSuggestedCard?.(null);
+    this.bidManager?.setSuggestedBid?.(null);
+    const ask = this.syncAssistButton();
+    if (focused && ask && !ask.hidden) ask.focus({ preventScroll: true });
+  }
+
+  /** The /help answer up now, or null. */
+  assistHint() {
+    return this._assistHint || null;
+  }
+
+  /**
+   * After a redraw (render): the answer up stays if it is still this
+   * turn's (its rings drawn again), else it goes.
+   */
+  syncAssist() {
+    const hint = this._assistHint;
+    if (hint && !hintIsLive(hint, this.state, { pending: getMyAction().isPending() })) {
+      this.clearAssist();
+      return;
+    }
+    if (hint) {
+      this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
+      this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
+    }
+    this.syncAssistButton();
+  }
+
+  /**
+   * Is it my own bid or play turn at my seat, with nothing of mine on its
+   * way (where the "?" shows)?
+   */
+  canAskHelp() {
+    const s = this.state;
+    if (!s || !s.position || s.isSpectator || s.isLazy) return false;
+    if (s.currentTurn !== s.position || !s.myCards?.length || getMyAction().isPending()) return false;
+    if (s.isBidding) return s.phase === 'bidding' && s.bids?.[s.position] === undefined;
+    return s.phase === 'playing' && !s.hasPlayedCard && s.stage === 'PLAYING';
+  }
+
+  /** The "?" by my hand: on my turn at my seat while no answer is up. */
+  syncAssistButton() {
+    return syncAssistButton({ visible: this.canAskHelp() && !this._assistHint, onAsk: () => this.requestHelp() });
+  }
+
+  /** The "?": send /help as the chat would (offline: the reconnecting notice). */
+  requestHelp() {
+    const socket = window.socket;
+    const sent = socket && socket.connected !== false ? socket.emit('chatMessage', { message: HELP_COMMAND }) : false;
+    if (sent === false) showNotice(NOTICE.RECONNECTING);
   }
 
   /**
@@ -1537,6 +1648,7 @@ export class GameScene extends Phaser.Scene {
       this.opponentManager?.clearDealerButton();
       // the draw for deal so far (a rejoin, or a spectator who comes in mid-draw)
       if (m.draw) this.drawManager?.renderDraw(m);
+      this.syncAssist();
       this.renderScoreHeader();
       return m;
     }
@@ -1572,6 +1684,7 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.showBidUI(m.hand.length, (bid) => this.submitBid(bid));
     }
 
+    this.syncAssist();
     this.renderScoreHeader();
     return m;
   }
@@ -1722,6 +1835,7 @@ export class GameScene extends Phaser.Scene {
    * flight runs its onCollected callbacks, which must find no hand.
    */
   cleanup() {
+    this.clearAssist();
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
     this.trickManager?.clearAll();

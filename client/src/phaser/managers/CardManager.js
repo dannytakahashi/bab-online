@@ -56,6 +56,23 @@ export class CardManager {
     this._illegalReason = fn;
   }
 
+  /**
+   * The /help suggested card ({suit, rank}, or null for none): a gold ring
+   * round its visible strip and "(suggested)" after its name (the keyboard
+   * hand, ui/handA11y.js). Kept across a redraw of the same hand.
+   */
+  setSuggestedCard(card) {
+    const key = card ? getCardImageKey(card) : null;
+    if (key === (this._suggestedKey ?? null)) return;
+    this._suggestedKey = key;
+    this._syncA11y();
+  }
+
+  /** The suggested card's key (getCardImageKey), or null. */
+  suggestedCardKey() {
+    return this._suggestedKey ?? null;
+  }
+
   /** A hand card was chosen (the pointer's pointerdown and the keyboard hand's click alike). */
   _activate(sprite) {
     if (this._onCardClick && sprite) this._onCardClick(sprite.getData('card'), sprite);
@@ -92,10 +109,12 @@ export class CardManager {
         const left = pos[i].x - card.w / 2;
         // the strip the next card leaves visible (rightmost cards sit on top)
         const right = i < sprites.length - 1 ? pos[i + 1].x - card.w / 2 : left + card.w;
+        const key = getCardImageKey(c);
         return {
-          key: getCardImageKey(c),
+          key,
           label: getCardDisplayName(c),
           legal: !!s.getData('isLegal'),
+          suggested: !!this._suggestedKey && key === this._suggestedKey,
           rect: { x: left, y: pos[i].y - card.h / 2, w: Math.max(1, right - left), h: card.h },
         };
       }),

@@ -421,6 +421,12 @@ body > .bid-sheet {
     color: var(--text-on-primary);
 }
 
+/* the /help suggestion (ui/components/AssistCard.js): a gold ring, the
+   lightbulb colour of the iOS card; a selected bid keeps its own fill */
+.bid-button.is-suggested {
+    box-shadow: 0 0 0 2px var(--gold), 0 0 10px 2px rgb(var(--gold-rgb) / 0.55);
+}
+
 /* ---------- Voice buttons: kit icon buttons sized by the layout ---------- */
 
 .voice-btn.kit-icon-btn {
@@ -820,6 +826,8 @@ body > .voice-btn {
 .log-row__text.is-team-b { color: var(--team-b); }
 .log-row__text.is-spectator { color: var(--success); }
 .log-row__text.is-system { color: var(--text-dim); }
+/* a /help reply only this page shows: dim, in the suggestion's gold */
+.log-row.is-private .log-row__text.is-system { color: rgb(var(--gold-rgb) / 0.75); }
 .log-row__name { font-weight: var(--weight-bold); }
 .log-trick { margin-bottom: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: rgb(var(--success-rgb) / 0.12); color: var(--success); }
 
@@ -1329,4 +1337,189 @@ body > .voice-btn {
     clip-path: inset(50%);
     white-space: nowrap;
     outline: none;
+}
+
+/* ---------- /help: the suggestion card, the "?" and the suggested card ---------- */
+
+/* the card (ui/components/AssistCard.js): its bottom just above my hand */
+.hud-assist {
+    position: absolute;
+    left: var(--assist-x, 50%);
+    top: var(--assist-y, 70%);
+    transform: translate(-50%, -100%);
+    box-sizing: border-box;
+    width: max-content;
+    max-width: min(var(--assist-w, 380px), calc(100% - 2 * var(--space-4)));
+    min-width: min(240px, calc(100% - 2 * var(--space-4)));
+    padding: var(--space-2) var(--space-3) var(--space-3);
+    border: 1px solid rgb(var(--gold-rgb) / 0.55);
+    border-radius: var(--radius-md);
+    background: rgb(var(--surface-1-rgb) / 0.96);
+    box-shadow: var(--elev-2);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: var(--type-sm);
+    line-height: 1.35;
+    text-align: left;
+    pointer-events: auto;
+    z-index: var(--z-panel);
+    animation: assist-in var(--dur-base) var(--ease-emphasized, ease-out);
+}
+
+.hud-assist[hidden] { display: none; }
+
+/* a bid suggestion: above the bid sheet (which covers the felt while I
+   bid), scrolling inside when the room above it is short */
+.hud-assist[data-kind="bid"] {
+    left: var(--assist-bid-x, 50%);
+    top: var(--assist-bid-y, 30%);
+    max-height: calc(var(--assist-bid-y, 30%) - var(--space-2));
+    overflow-y: auto;
+}
+.hud-assist.is-status { border-color: var(--line-strong); }
+
+.assist-card__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 24px;
+}
+
+.assist-card__chip {
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-pill);
+    background: rgb(var(--gold-rgb) / 0.18);
+    color: var(--gold);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+}
+
+.assist-card__chip.is-quick { background: rgb(var(--warning-rgb) / 0.18); color: var(--warning); }
+
+.assist-card__close {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 28px;
+    cursor: pointer;
+    position: relative;
+}
+
+/* 44 px hit targets round the small buttons (HIG) */
+.assist-card__close::before,
+.hud-assist-ask::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+}
+
+.hud-assist-ask::before { inset: min(-6px, calc((var(--assist-ask, 32px) - var(--hit-target, 44px)) / 2)); }
+
+.assist-card__close:hover { background: rgb(var(--text-primary-rgb) / 0.12); color: var(--text-primary); }
+.assist-card__close:focus-visible,
+.assist-card__why-toggle:focus-visible,
+.hud-assist-ask:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+.assist-card__head {
+    margin: var(--space-1) 0 0;
+    font-size: var(--type-md);
+    font-weight: var(--weight-bold);
+}
+
+.hud-assist.is-status .assist-card__head {
+    font-size: var(--type-sm);
+    font-weight: var(--weight-medium);
+}
+
+.assist-card__reasons,
+.assist-card__details {
+    margin: var(--space-1) 0 0;
+    padding-left: var(--space-4);
+}
+
+.assist-card__reasons li,
+.assist-card__details li { margin-top: 2px; }
+
+.assist-card__details { color: var(--text-secondary); font-size: var(--type-xs); }
+.assist-card__details[hidden] { display: none; }
+
+.assist-card__note {
+    margin: var(--space-2) 0 0;
+    color: var(--warning);
+    font-weight: var(--weight-semibold);
+}
+
+.assist-card__why-toggle {
+    margin-top: var(--space-1);
+    padding: 2px 0;
+    border: 0;
+    background: transparent;
+    color: var(--gold);
+    font: inherit;
+    font-weight: var(--weight-semibold);
+    cursor: pointer;
+}
+
+.assist-card__why-toggle::after { content: ' ▸'; }
+.assist-card__why-toggle[aria-expanded="true"]::after { content: ' ▾'; }
+
+.assist-card__foot {
+    margin: var(--space-2) 0 0;
+    color: var(--text-dim);
+    font-size: var(--type-xs);
+}
+
+/* the "?" (my turn at my seat): at the hand box's right end */
+.hud-assist-ask {
+    position: absolute;
+    left: var(--assist-ask-x, 70%);
+    top: var(--assist-ask-y, 70%);
+    transform: translate(-100%, -100%);
+    width: var(--assist-ask, 32px);
+    height: var(--assist-ask, 32px);
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid rgb(var(--gold-rgb) / 0.7);
+    border-radius: var(--radius-pill);
+    background: rgb(var(--surface-1-rgb) / 0.9);
+    color: var(--gold);
+    font-family: var(--font-ui);
+    font-size: calc(var(--assist-ask, 32px) * 0.5);
+    font-weight: var(--weight-bold);
+    box-shadow: var(--elev-1);
+    cursor: pointer;
+    pointer-events: auto;
+    z-index: var(--z-hud-badge);
+}
+
+.hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); }
+.hud-assist-ask[hidden] { display: none; }
+
+/* the suggested card (CardManager -> handA11y): a gold ring round its visible strip */
+.hud-hand__card.is-suggested::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: calc(var(--card-w) * 24 / 300);
+    box-shadow: 0 0 0 3px var(--gold), 0 0 14px 3px rgb(var(--gold-rgb) / 0.6);
+}
+
+@keyframes assist-in {
+    from { opacity: 0; transform: translate(-50%, calc(-100% + 6px)); }
+    to { opacity: 1; transform: translate(-50%, -100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-assist { animation: none; }
 }

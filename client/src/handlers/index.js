@@ -82,6 +82,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onSpectatorsUpdated,
     onBidClock,
     onBidTimedOut,
+    onAssistHint,
     // Chat callbacks
     onChatMessage,
     // Voice callbacks
@@ -181,6 +182,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onSpectatorsUpdated,
     onBidClock,
     onBidTimedOut,
+    onAssistHint,
   });
 
   // Register chat handlers

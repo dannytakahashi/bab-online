@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createGameLog, showGameLog } from './GameLog.js';
 import { getGameState, resetGameState } from '../../state/GameState.js';
 import { readClientFile } from '../../testing/files.js';
+import { resetAssistUses, forgetAssistUses, noteAssistUses } from '../../state/assistHint.js';
 
 describe('createGameLog', () => {
   let gameLog;
@@ -296,6 +297,67 @@ describe('slash command help for /leave', () => {
     getGameState().isSpectator = true;
     gameLog = createGameLog();
     expect(helpFor('/')).toEqual([{ cmd: '/leave', desc: 'Exit spectating' }]);
+  });
+});
+
+describe('/help in the autocomplete (plan H3)', () => {
+  let gameLog;
+  const helpFor = (text) => {
+    gameLog.chatInput.value = text;
+    gameLog.chatInput.dispatchEvent(new Event('input'));
+    return [...gameLog.container.querySelectorAll('.slash-item')].map((item) => ({
+      cmd: item.querySelector('.slash-item__cmd').textContent,
+      desc: item.querySelector('.slash-item__desc').textContent,
+    }));
+  };
+  const hint = (uses, assisted = false) => ({ v: 1, kind: 'card', headline: 'Play 9♦', uses, freeUses: 3, assisted });
+
+  beforeEach(() => {
+    resetGameState();
+    forgetAssistUses();
+  });
+  afterEach(() => {
+    gameLog?.destroy();
+    gameLog = null;
+    forgetAssistUses();
+    resetGameState();
+  });
+
+  it('is first in a seat\'s list, with this game\'s uses read each time the list is drawn', () => {
+    gameLog = createGameLog();
+    resetAssistUses();
+    expect(helpFor('/')[0]).toEqual({ cmd: '/help', desc: 'Suggest a move (0 of 3 free used)' });
+    noteAssistUses(hint(1));
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (1 of 3 free used)' }]);
+    noteAssistUses(hint(3));
+    expect(helpFor('/h')).toEqual([{ cmd: '/help', desc: 'Suggest a move (the next one makes this game bot-assisted)' }]);
+    noteAssistUses(hint(4, true));
+    expect(helpFor('/help')).toEqual([{ cmd: '/help', desc: 'Suggest a move (this game is bot-assisted for you)' }]);
+  });
+
+  it('unknown counts (a reload) say the free uses per game', () => {
+    gameLog = createGameLog();
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (3 free per game)' }]);
+  });
+
+  it('a partial /he sends /help; a spectator\'s list has no /help', () => {
+    const sent = [];
+    gameLog = createGameLog({ onChatSubmit: (m) => { sent.push(m); } });
+    gameLog.chatInput.value = '/he';
+    gameLog.chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+    expect(sent).toEqual(['/help']);
+    gameLog.destroy();
+    getGameState().isSpectator = true;
+    gameLog = createGameLog();
+    expect(helpFor('/h')).toEqual([]);
+  });
+
+  it('a private row: dim, the system style, marked is-private', () => {
+    gameLog = createGameLog();
+    gameLog.addPrivateMessage('Help: Play 9♦ (only you see this)');
+    const row = gameLog.container.querySelector('.log-row.is-private');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.querySelector('.log-row__text').textContent).toBe('Help: Play 9♦ (only you see this)');
   });
 });
 

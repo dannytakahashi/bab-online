@@ -136,6 +136,18 @@ describe('server event -> handler map', () => {
     expect(schema.s2c.bidClock.clientReads.web).toContain('client/src/handlers/gameHandlers.js:registerGameHandlers');
   });
 
+  it('assistHint (/help, 2026-11-19) has one handler, in the game module, outside the seq gate (private, unsequenced); web says the cap assist', async () => {
+    expect(managed.get('assistHint')).toBe(1);
+    expect((listeners.get('assistHint') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.assistHint.seq).toBeFalsy();
+    expect(schema.s2c.assistHint.clientReads.web).toEqual(['client/src/handlers/gameHandlers.js:registerGameHandlers']);
+    const { clientHello } = await import('./utils/avatar.js');
+    expect(clientHello('1.0.0', 'b').caps).toContain('assist');
+    expect(clientHello('1.0.0', 'b', false).caps).toContain('assist');
+  });
+
   it('lobbyReturn (play again, 2026-11-16) has one handler, in the lobby module (private, unsequenced); releaseLobbyHold is sent by web', () => {
     expect(managed.get('lobbyReturn')).toBe(1);
     expect((listeners.get('lobbyReturn') || []).length).toBe(1);
@@ -201,6 +213,8 @@ describe('server event -> handler map', () => {
       ['playerActiveMode', 'handlePlayerActiveMode', { position: 2, username: 'a' }],
       ['chatMessage', 'handleShowChatBubble', { username: 'a', position: 2, message: 'hi' }],
       ['abortGame', 'handleAbortGame', { reason: 'test' }],
+      // /help: the private answer reaches the scene (handlers/index.js passes onAssistHint)
+      ['assistHint', 'handleAssistHint', { v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: 'Nothing to suggest right now.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false }],
     ];
     const handlerNames = [...new Set(table.map(([, h]) => h).concat('handleAddToGameFeed'))];
     let spies;
@@ -224,8 +238,14 @@ describe('server event -> handler map', () => {
       const { getGameState } = await import('./state/GameState.js');
       getGameState().position = 1;
       mountScene();
+      // the /help answer is shown only at the table
+      const { getClientSession, SCREEN } = await import('./state/ClientSession.js');
+      const session = getClientSession();
+      const screen = session._screen;
+      if (event === 'assistHint') session._screen = SCREEN.TABLE;
 
       fire(event, data);
+      session._screen = screen;
 
       const calls = Object.fromEntries(handlerNames.map((n, i) => [n, spies[i].mock.calls.length]));
       const expected = Object.fromEntries(handlerNames.map((n) => [n, n === handler ? 1 : 0]));

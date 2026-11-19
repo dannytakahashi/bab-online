@@ -402,3 +402,40 @@ describe('a bid tap off my turn says so (iOS\'s words), on my turn it bids', () 
     expect(document.querySelector('.kit-toast')).toBeNull();
   });
 });
+
+describe('the /help suggested bid', () => {
+  let bm;
+  beforeEach(() => {
+    resetGameState();
+    bm = new BidManager({});
+  });
+  afterEach(() => {
+    bm.hideBidUI(false);
+    document.getElementById('bidContainer')?.remove();
+  });
+
+  const suggested = () => [...document.querySelectorAll('#bidContainer .bid-button.is-suggested')];
+
+  it('rings the suggested button (numbers and bores) and names it; null clears it', () => {
+    bm.showBidUI(5, () => true);
+    bm.setSuggestedBid('3');
+    expect(suggested().map((b) => b.textContent)).toEqual(['3']);
+    expect(suggested()[0].getAttribute('aria-label')).toBe('3 (suggested)');
+    bm.setSuggestedBid('b');
+    expect(suggested().map((b) => b.textContent)).toEqual(['B']);
+    bm.setSuggestedBid(null);
+    expect(suggested()).toEqual([]);
+    expect(document.querySelector('#bidContainer .bid-button[aria-label]')).toBeNull();
+  });
+
+  it('survives a rebuild of the sheet (a render)', () => {
+    bm.showBidUI(5, () => true);
+    bm.setSuggestedBid('2');
+    bm.showBidUI(5, () => true);
+    expect(suggested().map((b) => b.textContent)).toEqual(['2']);
+  });
+
+  it('the ring is CSS: a gold ring on .is-suggested', () => {
+    expect(rule('.bid-button.is-suggested')).toMatch(/var\(--gold\)/);
+  });
+});

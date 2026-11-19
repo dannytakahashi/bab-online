@@ -199,6 +199,7 @@ function withScene(fn, kind = 'table') {
 
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
+import { resetAssistUses, forgetAssistUses } from './state/assistHint.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -251,6 +252,12 @@ window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = n
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
+};
+
+// The /help reply row only this page shows (never sent or stored;
+// GameScene.handleAssistHint)
+window.addPrivateToGameFeed = function(message) {
+  if (message) gameLogInstance?.addPrivateMessage?.(message);
 };
 
 // Bridge for updating game log score display
@@ -897,6 +904,8 @@ function initializeApp() {
     director.reset();
     seqGate.reset();
     myAction.reset();
+    // this game's /help count is unknown from here (a rejoin learns it again)
+    forgetAssistUses();
     getTableSounds().reset();
     const scene = getGameScene();
 
@@ -1746,6 +1755,8 @@ function initializeApp() {
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
+      // a new game: no /help used yet (the autocomplete's count)
+      resetAssistUses();
       // Remove waiting screen and lobby/main room/tournament UI
       uiManager.removeWaitingScreen();
       removeMainRoom();
@@ -2079,6 +2090,11 @@ function initializeApp() {
     // countdown on the bid sheet (BidManager reads the state's clock)
     onBidClock: () => {
       getGameScene()?.bidManager?.syncClock?.();
+    },
+    // My /help answer (private): the card above my hand, in table order
+    onAssistHint: (data) => {
+      if (!session.isAtTable) return;
+      withScene((scene) => scene.handleAssistHint(data));
     },
     // My own seat ran out of time: the server bid 0 for me
     onBidTimedOut: () => {

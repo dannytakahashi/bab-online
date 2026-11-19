@@ -124,6 +124,26 @@ describe('CardManager', () => {
     });
   });
 
+  describe('the /help suggested card (setSuggestedCard)', () => {
+    const buttons = () => [...document.querySelectorAll('.hud-hand__card')];
+    beforeEach(() => document.body.replaceChildren());
+
+    it('marks it in the keyboard hand (ring and "(suggested)"), kept across a redraw, cleared by null', () => {
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      manager.setSuggestedCard({ suit: 'diamonds', rank: '9' });
+      expect(manager.suggestedCardKey()).toBe('9_diamonds');
+      const marked = () => buttons().filter((b) => b.classList.contains('is-suggested')).map((b) => b.dataset.key);
+      expect(marked()).toEqual(['9_diamonds']);
+      expect(buttons().find((b) => b.dataset.key === '9_diamonds').getAttribute('aria-label')).toMatch(/\(suggested\)$/);
+      // a redraw of the same hand (a render) keeps it
+      manager.displayHand([{ rank: 'A', suit: 'spades' }, { rank: '9', suit: 'diamonds' }], { animate: false });
+      expect(marked()).toEqual(['9_diamonds']);
+      manager.setSuggestedCard(null);
+      expect(marked()).toEqual([]);
+      expect(manager.suggestedCardKey()).toBeNull();
+    });
+  });
+
   describe('displayHand', () => {
     it('creates sprites for each card', () => {
       const cards = [

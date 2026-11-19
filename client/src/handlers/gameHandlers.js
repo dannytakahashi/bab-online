@@ -5,7 +5,7 @@
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
- *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock
+ *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint
  *
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
@@ -74,6 +74,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     // The bid clock (unsequenced): the clock changed; my own seat timed out
     onBidClock,
     onBidTimedOut,
+    // My /help answer (private, unsequenced)
+    onAssistHint,
   } = callbacks;
 
   const state = getGameState();
@@ -343,6 +345,15 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
       onBidTimedOut?.(data);
     }
     onBidClock?.(state.renderModel().bidClock);
+  });
+
+  // My /help answer (s2c assistHint, only to this socket: the clientHello
+  // cap assist; docs/claude/assist.md). Private and unsequenced: never in
+  // GameState; the scene shows it (GameScene.handleAssistHint), for this
+  // game only
+  socketManager.on(SERVER_EVENTS.ASSIST_HINT, (data) => {
+    if (!data || typeof data !== 'object') return;
+    onAssistHint?.(data);
   });
 
   // ==================== RESIGNATION & LAZY MODE ====================
