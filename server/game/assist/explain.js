@@ -293,8 +293,38 @@ function ruleConfidence(code) {
 
 // ------------------------------------------------------------ search
 
-/** The search part of a played card: {code, main, detail, confidence} or null. */
-function searchReason(decision, view, x) {
+/**
+ * Is this trick already decided for the seat? From the seat view alone: it
+ * plays last (the other three cards are on the table) and every legal card
+ * leaves the same pair winning it (tricks count per pair: overtaking the
+ * partner, or not, gives the trick to the same side).
+ */
+function trickDecided(view) {
+    if (view.stage !== 'play' || view.playedCards[view.position - 1]) return false;
+    let onTable = 0;
+    for (let p = 1; p <= 4; p++) if (view.playedCards[p - 1]) onTable++;
+    if (onTable !== 3 || !view.legal.length) return false;
+    let who = null;
+    for (const c of view.legal) {
+        const cards = view.playedCards.slice();
+        cards[view.position - 1] = c;
+        // The winner's pair: seats 1 and 3, or 2 and 4
+        const w = (getCurrentWinner(cards, view.leadPosition, view.trump).position - 1) % 2;
+        if (who === null) who = w;
+        else if (w !== who) return false;
+    }
+    return true;
+}
+
+/**
+ * The search part of a played card: {code, main, detail, confidence} or null.
+ * `calm` (the search agrees with a rule card on a decided trick, or with a
+ * sure rule code): a tight margin only means the cards come out about the
+ * same later in the hand, so it is not worded or labelled as a close call
+ * ('clear'). `decided` words it as the same later, the trick decided either
+ * way.
+ */
+function searchReason(decision, view, x, { calm = false, decided = false } = {}) {
     const t = decision.trace;
     const s = t.search;
     if (!s || !s.cands) return null;
@@ -373,6 +403,17 @@ function searchReason(decision, view, x) {
     else if (dp <= 1e-9) detail = `${split}: the ${X} and the ${Y} come out the same on average.`;
     else detail = `${split}: the ${X} and the ${Y} come out within a fraction of a point of each other on average.`;
 
+    if (tight && ruleIs && calm) {
+        // Not a close call (explainCard): the numbers alone, and on a decided
+        // trick that it is decided either way
+        if (!decided) return { code: 'S.close', main: null, detail, confidence: 'clear' };
+        const base = `${split}: the ${X} and the ${Y} come out about the same later in the hand`;
+        const end = ', and this trick is decided either way.';
+        const nums = metric === 'make' ? ` (your bid makes about ${pct5(mk)}% vs ${pct5(mo)}%)`
+            : metric === 'set' ? ` (you set ${them} about ${pct5(sk)}% vs ${pct5(so)}%)` : '';
+        const variants = nums ? [`${base}${nums}${end}`, `${base}${end}`] : [`${base}${end}`];
+        return { code: 'S.close', main: null, detail: x.fit(variants, C.DETAIL_MAX), confidence: 'clear' };
+    }
     if (tight) {
         const a = metric === 'make' ? [mk, mo] : metric === 'set' ? [sk, so] : null;
         const nums = a ? ` (about ${pct5(a[0])}% vs ${pct5(a[1])}%)` : '';
@@ -440,7 +481,12 @@ function explainCard(decision, view, mode, glossed) {
     const details = [];
     const ruleIs = same(card, t.ruleCard);
     const rule = ruleIs ? rulePlayReason(t.path || [], x) : null;
-    const sr = decision.source === 'quick' ? null : searchReason(decision, view, x);
+    // The rule card on a decided trick (or a sure rule code) is never a close
+    // call: a tight search margin there means the choice matters little later
+    // in the hand, not that it is hard (owner play-test 2026-11-19)
+    const decided = !!rule && trickDecided(view);
+    const calm = !!rule && (decided || R.SURE_CODES.has(rule.code) || R.CERTAIN_CODES.has(rule.code));
+    const sr = decision.source === 'quick' ? null : searchReason(decision, view, x, { calm, decided });
     let confidence;
 
     const cl = contractLine(view, t.contract);
@@ -476,6 +522,9 @@ function explainCard(decision, view, mode, glossed) {
         } else {
             confidence = ruleConfidence(rule.code);
         }
+        // A decided trick (or a sure rule code) is never a close call, with or
+        // without the search (a hand over SEARCH.maxCards has none)
+        if (calm && confidence === 'close') confidence = 'clear';
     }
     if (decision.source === 'quick') {
         confidence = 'quick';
@@ -808,4 +857,4 @@ function status(view) {
     return clip(spellNames([`${first}${second}`], cleanName(view.names[view.partner]))[0], C.LINE_MAX);
 }
 
-module.exports = { explain, status, contractLine, bidParts, verbFor, WIN_CODE };
+module.exports = { explain, status, contractLine, bidParts, verbFor, WIN_CODE, trickDecided };
