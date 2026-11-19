@@ -70,7 +70,8 @@ describe('recorded game: live play, a rejoin onto the live scene, play on', () =
     // The table is mid-trick and animated; the socket dies and comes back
     replay.advance(150);
     // the red fault rows this page wrote for set hands (rules/faults.js)
-    const faultRows = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault')].map((r) => r.textContent);
+    // (their words: a replayed row carries its hand's time, not the live one)
+    const faultRows = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault .log-row__text')].map((r) => r.textContent);
     const faultsBefore = faultRows();
     page.socket.reconnect('ios-h1-r1');
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });

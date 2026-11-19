@@ -231,6 +231,9 @@ describe('fault rows kept through a replay of the server log (rejoin, /active)',
       'F Fault: dan (bid 2, took 0)',
     ]);
     expect(out.filter((e) => e.fault).every((e) => e.position === null)).toBe(true);
+    // stamped with the hand line's time
+    const stamped = withFaultRows([{ message: HAND_COMPLETE_LINE, at: 1234 }, ...hand(-40, 13).slice(1)], [{ team1: -40, team2: 13, lines: ['Fault: ann (bid 3, took 1)'] }]);
+    expect(stamped.at(-1)).toEqual({ message: 'Fault: ann (bid 3, took 1)', position: null, at: 1234, fault: true });
     // nothing remembered: the log as it came
     expect(withFaultRows(log, [])).toBe(log);
   });

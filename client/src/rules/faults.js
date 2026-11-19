@@ -103,7 +103,7 @@ export function forgetFaults() {
  * The replayed log with this page's fault rows put back: after each
  * HAND_COMPLETE_LINE whose two team lines end with a remembered hand's
  * totals (in order; a hand cut from the replay is skipped), its rows as
- * {message, position: null, fault: true}.
+ * {message, position: null, at (the hand line's), fault: true}.
  * @param {Array<{message: string}>} entries
  * @param {Array<{team1: number, team2: number, lines: string[]}>} hands
  */
@@ -121,7 +121,9 @@ export function withFaultRows(entries, hands) {
     if (j === -1) continue;
     out.push(entries[i + 1], entries[i + 2]);
     i += 2;
-    for (const line of hands[j].lines) out.push({ message: line, position: null, fault: true });
+    // stamped with their hand's time (the team line's), not the replay's
+    const at = entries[i]?.at ?? entries[i - 2]?.at ?? null;
+    for (const line of hands[j].lines) out.push({ message: line, position: null, at, fault: true });
     next = j + 1;
   }
   return out;
