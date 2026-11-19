@@ -360,6 +360,11 @@ class GameState {
         return new Promise((resolve) => {
             const entry = { timer: null, resolve, at: Date.now() + ms, left: null, fire: null };
             entry.fire = () => {
+                // The store's self-fence check first ('on'): a pause that
+                // fires into a just-suspended game waits for the thaw
+                // (suspend() kept it in _pauses with 0 ms left)
+                persistHooks.beforeRun(this);
+                if (this._suspended) return;
                 this._pauses.delete(entry);
                 resolve(this.epoch === e);
             };
@@ -461,6 +466,13 @@ class GameState {
             this._timers.delete(key);
             meta.delete(key);
             if (this.epoch !== e || this.isTerminal()) return;
+            // The store's self-fence check first ('on'): a timer that fires
+            // into a just-suspended game is remembered for the thaw instead
+            persistHooks.beforeRun(this);
+            if (this._suspended) {
+                this._suspended.timers.set(key, { fn, ms: 0 });
+                return;
+            }
             Promise.resolve().then(fn).then(() => this.markTainted(false), (err) => {
                 this.markTainted(true);
                 gameLogger.error('Game timer failed', { gameId: this.gameId, key, error: err.message, stack: err.stack });

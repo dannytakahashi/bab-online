@@ -63,12 +63,14 @@ const db = () => mockDb.current;
 const liveUpdates = () => db().faults.calls.filter((c) => c.collection === 'liveGames' && c.op === 'updateOne' && c.outcome !== 'stalled').length;
 
 async function onTable({ humans = ['Hal'] } = {}) {
-    const store = kit.installOnStore(mockDb, { bootId: 'boot-A', getIo: () => io, monoNow: h.createMonoClock().now });
+    const mono = h.createMonoClock();
+    const store = kit.installOnStore(mockDb, { bootId: 'boot-A', getIo: () => io, monoNow: mono.now });
+    const startedAt = Date.now();
     await store.start({ io });
     const { game, sockets } = await kit.startGame(io, log, { humans });
     await db().users.updateOne({ username: 'Hal' }, { $set: { activeGameId: game.gameId } });
     await h.flushStore(store);
-    return { store, game, sockets, id: game.gameId };
+    return { store, game, sockets, id: game.gameId, mono, startedAt };
 }
 
 test('no acknowledged beat for 8 s: the table is suspended and not written; the next beat finds it still ours: unsuspended, the held change written', async () => {
@@ -174,4 +176,53 @@ test('a late heartbeat never moves beatSeq back', async () => {
     await expect(db().serverInstances.updateOne({ _id: 'boot-A', beatSeq: { $lt: seq - 1 } }, { $set: { beatSeq: seq - 1 } }, { upsert: true })).rejects.toMatchObject({ code: 11000 });
     expect(inst().beatSeq).toBe(seq);
     store.close();
+});
+
+describe('a frozen holder thaws: timers that came due before the 1 s self-fence check never run first', () => {
+    // A SIGSTOP of 20 s: no heartbeat acknowledged meanwhile (monotonic),
+    // then every overdue timer fires in due order. One that was due before
+    // the next self-fence check must find the table suspended, not act on it
+    async function thawed() {
+        const t = await onTable();
+        db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+        // Just after a self-fence check (they run every second from start())
+        const sinceTick = (Date.now() - t.startedAt) % 1000;
+        await jest.advanceTimersByTimeAsync(1000 - sinceTick + 1);
+        expect(t.store.selfFenced).toBe(false);
+        return t;
+    }
+
+    test.each([
+        ['a game timer (setTimer)', (game, fired) => game.setTimer('probe', 300, () => fired.push(game.isSuspended)), false],
+        ['a lifecycle pause', (game, fired) => game.pause(300).then((ok) => fired.push([ok, game.isSuspended])), [true, false]],
+        ['a bot action (BotController._arm)', (game, fired) => botController._arm(game, `${game.gameId}:probe`, 300, () => fired.push(game.isSuspended)), false]
+    ])('%s due before the check is held by the suspension and runs after the thaw', async (_name, arm, after) => {
+        const { store, game, id, mono } = await thawed();
+        const fired = [];
+        arm(game, fired);
+        const emitted = log.length;
+        mono.jump(20000);
+        // The probe is due now; the next check is ~700 ms away
+        await jest.advanceTimersByTimeAsync(400);
+        expect(fired).toEqual([]);
+        expect(store.selfFenced).toBe(true);
+        expect(store.suspendCalls).toEqual([['suspend', id]]);
+        expect(fired).toEqual([]);
+        expect(log.length).toBe(emitted);
+        db().faults.release();
+        await jest.advanceTimersByTimeAsync(liveStore.HEARTBEAT_MS + 10);
+        await h.flushStore(store);
+        expect(store.suspendCalls).toEqual([['suspend', id], ['unsuspend', id]]);
+        expect(fired).toEqual([after]);
+    });
+
+    test('write mode: the same timer runs at once (no self-fence, no hook)', async () => {
+        const store = kit.installStore(mockDb, { bootId: 'boot-A', getIo: () => io });
+        await store.start({ io });
+        const { game } = await kit.startGame(io, log, { humans: ['Hal'] });
+        const fired = [];
+        game.setTimer('probe', 300, () => fired.push(game.isSuspended));
+        await jest.advanceTimersByTimeAsync(301);
+        expect(fired).toEqual([false]);
+    });
 });

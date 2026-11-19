@@ -6,6 +6,7 @@
 const BotPlayer = require('./BotPlayer');
 const { gameLogger } = require('../../utils/logger');
 const { safeTimeout } = require('../../utils/safeTimer');
+const persistHooks = require('../persist/hooks');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
 const { safeBid: fallbackBid, HAND_PROGRESSION, nextHandSize } = require('../rules');
@@ -261,6 +262,15 @@ class BotController {
         const gameId = game.gameId;
         const arm = (ms) => {
             const fire = () => {
+                // The store's self-fence check first ('on'): if it suspends
+                // the game now, suspendGame has just held this action (0 ms
+                // left) for the thaw
+                persistHooks.beforeRun(game);
+                const held = this.suspended.get(gameId);
+                if (held) {
+                    if (!held.has(actionKey)) held.set(actionKey, { ms: 0, arm });
+                    return undefined;
+                }
                 this.pendingActions.delete(actionKey);
                 this.pendingMeta.delete(actionKey);
                 return run();

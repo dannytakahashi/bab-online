@@ -362,7 +362,12 @@ function createLiveStore({
 
     const listener = {
         game: (game) => markDirty(game),
-        tournament: (t) => markDirty(t)
+        tournament: (t) => markDirty(t),
+        // 'on': the self-fence check, synchronously, before a game timer,
+        // pause or bot action runs (a thawed process runs its overdue
+        // timers in due order, some before the 1 s check). Off / write:
+        // no listener
+        ...(mode === 'on' && { beforeRun: () => checkSelfFence() })
     };
 
     function collections() {
