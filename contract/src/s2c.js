@@ -600,11 +600,14 @@ const s2c = {
         notes: "isSpectator labels spectator chat: web (onChatMessage, the spectator bubble) and iOS 1.1.0 (TableReducer+Events: isSpectator ?? type == 'spectator', f05d264) read it; bot chat sends false. The `type` ('player' | 'spectator') copy, read only by the gated iOS 1.0.0, was dropped (V1_REMOVALS #12, 2026-11-11).",
     },
     gameLogEntry: {
-        payload: obj({ message: str(), type: konst('system') }),
-        status: 'active', to: 'room', seq: false,
+        payload: anyOf(
+            variant('room', obj({ message: str(), type: konst('system') })),
+            variant('private', obj({ message: str(), type: konst('system') })),
+        ),
+        status: 'active', to: ['room', 'socket'], seq: false,
         clientReads: reads(W.game, I.game('registerSpecialEvents')),
-        emittedFrom: ['server/socket/seatLifecycle.js:logEntry', 'server/socket/gameHandlers.js:handlePostBid', 'server/socket/gameHandlers.js:handleDrawComplete', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/queueHandlers.js:routeGameDisconnect', 'server/utils/shutdown.js:noticeGames'],
-        notes: "Reserved: a type other than 'system' must carry playerPosition (schemaMeta.test.js pins type to 'system' unless playerPosition is required).",
+        emittedFrom: ['server/socket/seatLifecycle.js:logEntry', 'server/socket/gameHandlers.js:handlePostBid', 'server/socket/gameHandlers.js:handleDrawComplete', 'server/socket/chatHandlers.js:handleDrawPhaseLeave', 'server/socket/queueHandlers.js:routeGameDisconnect', 'server/utils/shutdown.js:noticeGames', 'server/socket/assistHandlers.js:help', 'server/socket/assistHandlers.js:sendLine', 'server/socket/assistHandlers.js:gameEndLines'],
+        notes: "Reserved: a type other than 'system' must carry playerPosition (schemaMeta.test.js pins type to 'system' unless playerPosition is required). room: a system line stored in the game log and broadcast (sequenced), among them the /help notices \"<name> used /help.\" and, on the use that crosses the free limit, \"<name> used /help. This game now counts as bot-assisted for <name>.\" (2026-11-18). private (2026-11-18, /help; unsequenced, NEVER stored, so no snapshot or rejoin has it): a /help answer, refusal or status line for a socket without the clientHello cap assist (at most 2 per ask: the answer and, on the last free use, the warning), the 'players only' / 'once the game starts' line for a spectator or entrant, and the end-of-game line to a player the game counted as bot-assisted for. Split from the one room shape (additiveOnly S2C_SPLIT): the room variant is the old payload byte for byte; every shipped iOS build decodes seq as optional and applies an event without seq at once (TableReducer: guard let seq = ev.seq else apply), as the web SeqGate does.",
     },
 
     // ==================== Reconnection ====================
@@ -761,6 +764,33 @@ const s2c = {
         clientReads: reads(W.game, I.game('register')),
         emittedFrom: ['server/socket/bidClock.js:start', 'server/socket/bidClock.js:stop', 'server/socket/bidClock.js:resume'],
         notes: "The bid clock (owner 2026-11-18, every game; contract/README.md \"Bid clock\"): a human-controlled seat that has not bid 10 s (SeatState.BID_CLOCK_DELAY_MS) after its bid turn opened gets a 30 s clock (BID_CLOCK_MS, the length of bidclock.m4a, the tune the table plays); when it runs out the server bids '0' for the seat through the normal bid path, after the room log line \"<name> ran out of time.\". `running` carries the time left from emission (inMs) and the full length (durationMs): clients END-align the tune with the deadline and show the bidder a countdown with a small safety margin. `stopped` reasons: bid (the seat bid), timeout (the server is bidding 0 right after: let the tune's end cue ring), turn (the turn moved some other way, e.g. a new deal), controller (a bot took the seat: /lazy, AFK, resign, /leave). No stopped on gameEnd / abortGame (terminal games emit nothing): clients clear the clock on those and on every bidReceived / updateTurn / doneBidding / gameStart / destroyHands / snapshot without bidClock. A `running` is never sent before the 10 s pre-wait except on a same-turn resume (/active, reclaimSeat), which a client-side seq-gap replay of older events cannot clear. Bots never get one. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced), like spectatorsUpdated: the payload is absolute and every shipped iOS build (<= 1.2.3 (14)) registers no handler for it, so a sequenced form would open a gap in their seq gate on every clock start and stop; no clientHello cap (unknown unsequenced events are invisible to old clients). Timeouts in a row (BID_TIMEOUT_AFK_STRIKES, default 2): when a timeout is a connected seat's Nth in a row (casual tables, and tournament tables with no other owner present; not solo / AFK-exempt games, not with AFK_TIMEOUT_MS=0), a bot takes the seat in the same run: playerLazyMode and its \"was idle\" log line come after that bidReceived '0' and before the updateTurn / doneBidding / redeal it triggers. Shipped builds see only the log line and the ordinary bidReceived '0'; the next iOS build after 1.2.3 (14) registers it and routes it around its seq gate (ServerEvent.bidClock, decoded with seq nil: the tune, the bidder's countdown, the timeout toast). Snapshot v2 carries the running clock as the optional `bidClock`.",
+    },
+
+    // ==================== /help ====================
+    assistHint: {
+        payload: obj({
+            v: konst(1),
+            source: enm('help', 'tutorial'),
+            kind: enm('bid', 'card', 'tip', 'status'),
+            turnKey: str({ description: 'game.turnKey() when it was answered: a client drops a hint whose turnKey is not the current turn' }),
+            headline: str({ description: 'the suggestion ("Bid 4", "Lead A♣") or, for kind status, the whole reply (a refusal, the off-turn status line)' }),
+            reasons: arr(str(), { maxItems: 2 }),
+            uses: int({ minimum: 0, description: 'counted /help uses of this player this game, this one included' }),
+            freeUses: int({ minimum: 0, description: 'free uses per game (3); more makes the game bot-assisted for the player' }),
+            assisted: bool(),
+            counted: bool({ description: 'this answer was counted (false: a forced move, a re-ask on a turn already counted, a status reply)' }),
+            details: arr(str(), { maxItems: 4 }),
+            confidence: enm('only', 'certain', 'clear', 'close', 'any', 'quick'),
+            suggest: anyOf(obj({ bid: str() }), obj({ card: ref('card') })),
+            codes: arr(str()),
+            tipId: str(),
+            actions: arr(enm('keep', 'off')),
+            note: str(),
+        }, { optional: ['details', 'confidence', 'suggest', 'codes', 'tipId', 'actions', 'note'] }),
+        status: 'active', to: 'socket', seq: false,
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/assistHandlers.js:help', 'server/socket/assistHandlers.js:sendStatus'],
+        notes: "New (2026-11-18, /help plan H2c; private, unsequenced, read by no client yet: web AssistCard (H3), iOS build 15 (H4)). Only to a socket that sent the clientHello cap assist ($defs.clientCapAssist), as the reply to its own /help or ?help (chatMessage); every other socket gets the same reply as private gameLogEntry lines. kind bid / card: the bid or card a Mary bot would choose in that seat (server/game/assist), with up to 2 reasons, up to 4 details (a 'Why?' expander), the confidence (UI labels: Only legal card, Sure thing, Clear choice, Close call, Any card works, Quick suggestion) and suggest; note carries the warning on the last free use or 'This game now counts as bot-assisted for you.' on the use that crosses it. kind status: no suggestion (headline is the whole reply: a bot plays the seat, the rate limit, nothing to suggest, the off-turn status line, an error, players only, once the game starts), never counted. source tutorial, kind tip, tipId and actions are reserved for the tutorial (not sent yet). Every text is at most 280 characters. Clear it on the next updateTurn, the player's own bidReceived / cardPlayed, hand end, or a turnKey that is not the current turn's.",
     },
 
     // ==================== Profile ====================
@@ -1064,7 +1094,7 @@ function tournamentStateProps() {
 const SEQ_EVENTS = {
     startDraw: null, playerDrew: null, positionUpdate: null, teamsAnnounced: null, createUI: null,
     bidReceived: null, doneBidding: null, destroyHands: null, rainbow: null, cardPlayed: null,
-    trickComplete: null, handComplete: null, gameEnd: null, abortGame: null, gameLogEntry: null,
+    trickComplete: null, handComplete: null, gameEnd: null, abortGame: null, gameLogEntry: ['room'],
     playerReconnected: null, playerResigned: null, playerLazyMode: null, playerActiveMode: null,
     chatMessage: ['humanOrSpectator', 'bot'],
     gameStart: ['seat', 'spectator'],

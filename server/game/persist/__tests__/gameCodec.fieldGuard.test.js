@@ -7,7 +7,8 @@
  *   1. Object.keys of live objects mid-play (chaos runs and a real
  *      tournament with lazy seats): GameState, its seat records and their
  *      bot records, BotPlayer, a game log line, a lobby-born game's
- *      casualVoice and lobbyOrigin, TournamentState, its member
+ *      casualVoice and lobbyOrigin, each position's game.assist record
+ *      (/help), TournamentState, its member
  *      entries, rounds, round games and chat lines. Every key is in SAVED
  *      or DERIVED, and every saved nested value survives JSON unchanged.
  *   2. A static scan of server code: every `game.<x> =`, `t.<x> =` and
@@ -62,16 +63,17 @@ const SERVER = path.join(__dirname, '../../..');
 // was re-pinned (not bumped) when casualVoice and lobbyOrigin joined SAVED
 // (main's family lobbies and play again): no v1 doc had ever been written,
 // nothing calls serialize before the persist store (PR 4). From PR 4 on a
-// change bumps CODEC_V.
+// change bumps CODEC_V. Game v2: game.assist (/help, plan H2b); hydrate
+// still reads v1 (gameCodec.v1Hydrate.test.js).
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
-    game: { 1: '26ba3747585567ba' },
+    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac' },
     tournament: { 1: 'b361a440bd865499' },
 };
 
@@ -131,9 +133,10 @@ function keyCollector() {
         for (const e of g.gameLog.slice(-20)) add('logEntry', e);
         add('casualVoice', g.casualVoice);
         add('lobbyOrigin', g.lobbyOrigin);
+        for (const a of Object.values(g.assist || {})) add('assistSeat', a);
         // Saved values that are objects must be JSON values (no Map, Set,
         // class instance or undefined inside)
-        for (const k of ['bids', 'tricks', 'score', 'rainbows', 'handStats', 'playerStats', 'handTricks', 'hsiValues', 'trickHistory']) {
+        for (const k of ['bids', 'tricks', 'score', 'rainbows', 'handStats', 'playerStats', 'handTricks', 'hsiValues', 'trickHistory', 'assist']) {
             const v = g[k];
             if (v === undefined) continue;
             if (!isDeepStrictEqual(JSON.parse(JSON.stringify(v)), v)) nested.push(`game.${k}`);
@@ -177,7 +180,7 @@ describe('every live field is classified', () => {
         } finally {
             watch.stop();
         }
-        for (const kind of ['game', 'seat', 'seatBot', 'botPlayer', 'logEntry', 'casualVoice', 'lobbyOrigin']) expect(c.keys[kind]?.size).toBeGreaterThan(0);
+        for (const kind of ['game', 'seat', 'seatBot', 'botPlayer', 'logEntry', 'casualVoice', 'lobbyOrigin', 'assistSeat']) expect(c.keys[kind]?.size).toBeGreaterThan(0);
         expect(unclassified(c.keys, gameCodec)).toEqual({});
         expect(c.nested).toEqual([]);
     }, 300000);
@@ -199,7 +202,7 @@ describe('every live field is classified', () => {
         for (const kind of ['tournament', 'player', 'round', 'roundGame', 'message']) expect(c.keys[kind]?.size).toBeGreaterThan(0);
         expect(c.keys.seat.size).toBeGreaterThan(0);
         expect(unclassified({ tournament: c.keys.tournament, player: c.keys.player, round: c.keys.round, roundGame: c.keys.roundGame, message: c.keys.message }, tournamentCodec)).toEqual({});
-        expect(unclassified({ game: c.keys.game, seat: c.keys.seat, seatBot: c.keys.seatBot, botPlayer: c.keys.botPlayer }, gameCodec)).toEqual({});
+        expect(unclassified({ game: c.keys.game, seat: c.keys.seat, seatBot: c.keys.seatBot, botPlayer: c.keys.botPlayer, assistSeat: c.keys.assistSeat }, gameCodec)).toEqual({});
         expect(c.nested).toEqual([]);
     }, 300000);
 
@@ -374,6 +377,10 @@ function savedCoverage(game, doc, restored, getBot) {
             }
         }
     }
+    check('assist positions', () => sameKeys(doc.state.assist, ['1', '2', '3', '4']));
+    for (let pos = 1; pos <= 4; pos++) {
+        check(`assist ${pos} keys`, () => sameKeys(doc.state.assist?.[pos], gameCodec.SAVED.assistSeat));
+    }
     for (const kind of ['casualVoice', 'lobbyOrigin']) {
         const rec = doc.state[kind];
         check(`${kind} present`, () => expect(rec === null).toBe(!game[kind]));
@@ -418,6 +425,8 @@ function docShape(doc, acc) {
     }
     for (const b of doc.bots) merge(acc, 'bot', Object.keys(b));
     if (st.casualVoice) merge(acc, 'casualVoice', Object.keys(st.casualVoice));
+    merge(acc, 'assist', Object.keys(st.assist));
+    for (const a of Object.values(st.assist)) merge(acc, 'assistSeat', Object.keys(a));
     if (st.lobbyOrigin) {
         merge(acc, 'lobbyOrigin', Object.keys(st.lobbyOrigin));
         merge(acc, 'lobbyOriginSettings', Object.keys(st.lobbyOrigin.settings));
@@ -532,7 +541,7 @@ describe('SAVED is what serialize writes and hydrate reads back', () => {
         expect(docs).toBeGreaterThan(50);
         // Every kind of encoded object was seen: a shape from a partial
         // sample would pin too little
-        expect(sortedKeys(shape)).toEqual(['bot', 'card', 'casualVoice', 'doc', 'hands', 'lobbyOrigin', 'lobbyOriginBot',
+        expect(sortedKeys(shape)).toEqual(['assist', 'assistSeat', 'bot', 'card', 'casualVoice', 'doc', 'hands', 'lobbyOrigin', 'lobbyOriginBot',
             'lobbyOriginSettings', 'playedCards', 'playerBids', 'seat', 'seatBot', 'seats', 'state', 'trick']);
         expect({ v: gameCodec.CODEC_V, shape: shapeHash(shape) })
             .toEqual({ v: gameCodec.CODEC_V, shape: PINNED_SHAPE.game[gameCodec.CODEC_V] });

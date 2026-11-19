@@ -30,6 +30,10 @@ class RateLimiter {
 
             // Chat - moderate limits
             chatMessage: { max: 10, windowMs: 10000 }, // 10 per 10 seconds
+            // /help and ?help (checked inside assistHandlers.help, after the
+            // chatMessage limit): over it the private line "One moment: try
+            // /help again in a few seconds.", never counted
+            assist: { max: 4, windowMs: 10000 },
 
             // Game actions - reasonable limits for gameplay
             // An over-limit play gets `serverError {code: rateLimit}` and no

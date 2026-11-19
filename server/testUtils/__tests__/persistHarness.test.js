@@ -289,6 +289,12 @@ describe('authoritative', () => {
         };
         expect(drop(() => { game.dealSeq = null; })).not.toEqual(a);
         expect(drop(() => { game.seats[2].lastPersonality = null; })).not.toEqual(a);
+        // the /help counters (game codec v2): a restore that resets one is a different game
+        expect(a.assist).toEqual(JSON.parse(JSON.stringify(game.assist)));
+        const assist = JSON.parse(JSON.stringify(game.assist));
+        expect(drop(() => { game.assist[2].help = 3; })).not.toEqual(a);
+        expect(drop(() => { game.assist[2].lastHelpKey = 'x'; })).not.toEqual(a);
+        game.assist = assist;
         expect(drop((bot) => { bot.partnerHistory = []; })).not.toEqual(a);
         expect(h.authoritative(game)).toEqual(a);
         // Bots registered elsewhere (another instance): partnerHistory null

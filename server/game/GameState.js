@@ -34,6 +34,7 @@ const { isValidBid, isLegalPlay, firstLegalCard } = require('./rules');
 // The persist store's change hooks (persist/hooks.js): passive, one null
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
+const { defaultAssist, normalizeAssist } = require('./assistState');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -163,6 +164,9 @@ class GameState {
         // strike rule). Both DERIVED: never saved, fresh after a restore
         this.bidClock = null;
         this.bidTimeouts = {};
+        // /help per position (assistState.js): who asked, how many counted
+        // uses, the turn of the last one. SAVED (gameCodec CODEC_V 2)
+        this.assist = defaultAssist();
         this._seatHistory = this._history ? [] : null;
 
         // HSI values for current hand (position → hsi), stored for reconnection
@@ -1087,6 +1091,8 @@ class GameState {
             this.playerStats = clone(state.playerStats);
             this.handTricks = clone(state.handTricks);
             this.hsiValues = clone(state.hsiValues) || {};
+            // A CODEC_V 1 doc has none: every seat starts with no /help use
+            this.assist = normalizeAssist(state.assist);
             this.gameLog = (Array.isArray(log) ? log : []).slice(-this.maxLogEntries).map(e => ({ ...e }));
             if (logTotal != null) this.logTotal = logTotal;
             this.eventSeq = eventSeq;

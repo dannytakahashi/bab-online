@@ -19,6 +19,11 @@
  *     any rejoin today);
  *   - the doc stays under 64 KB (here, and with a full 500-line log of
  *     game lines below).
+ * Before each check the live game's game.assist (/help, CODEC_V 2) is
+ * stirred the way /help counts (stirAssist: the seat on turn's owner
+ * asks once per turn), plus the tutorial's reserved fields, so the round
+ * trip carries non-default records (nothing in game code reads them yet,
+ * so the run is unchanged).
  * The chaos run's own oracles (invariants, liveness, leaks, violations)
  * keep running: a check that broke the game would fail them.
  *
@@ -104,6 +109,33 @@ function comparable(snap) {
     return s;
 }
 
+/**
+ * game.assist as /help would leave it: the seat on turn's owner asks once
+ * per turn (counted once per turnKey), and every few points another seat's
+ * tutorial fields change. Deterministic in the run's own state.
+ */
+function stirAssist(game, n) {
+    if (!game.assist) return;
+    const pos = game.currentTurn;
+    const seat = game.seat(pos);
+    const a = game.assist[pos];
+    if (a && seat?.controller === 'human' && (game.stage === 'BIDDING' || game.stage === 'PLAYING')) {
+        if (a.user !== seat.ownerUsername) Object.assign(a, { user: seat.ownerUsername, help: 0, lastHelpKey: null });
+        const key = game.turnKey();
+        if (a.lastHelpKey !== key) {
+            a.help++;
+            a.lastHelpKey = key;
+        }
+    }
+    if (n % 5 === 0) {
+        const b = game.assist[1 + (n % 4)];
+        b.tutorial = !b.tutorial;
+        b.tutorialEver = true;
+        b.auto = n % 2 === 0;
+        b.tips = (b.tips * 2 + 1) % 4096;
+    }
+}
+
 /** Every check of one safe point; returns a failure description or null. */
 function checkSafePoint(game, stats) {
     const doc = codec.serialize(game);
@@ -184,6 +216,8 @@ async function runSeed(seed, stats) {
         // Only the run's live table (not the dummy table, not a restored copy)
         if (gameManager.getGameById(game.gameId) !== game || game.isDemo) return;
         stats.points++;
+        stirAssist(game, stats.points);
+        if (Object.values(game.assist).some((a) => a.help > 0)) stats.assistPoints++;
         try {
             const why = checkSafePoint(game, stats);
             if (why) failures.push(`${game.stage}: ${why}`);
@@ -204,7 +238,7 @@ async function runSeed(seed, stats) {
 
 describe('game codec round trip at every safe point of a chaos run', () => {
     test(`${SEEDS} seeds`, async () => {
-        const stats = { points: 0, docs: 0, snapshots: 0, maxBytes: 0, stages: new Set() };
+        const stats = { points: 0, docs: 0, snapshots: 0, maxBytes: 0, assistPoints: 0, stages: new Set() };
         const bad = [];
         for (let seed = 1; seed <= SEEDS; seed++) {
             const r = await runSeed(seed, stats);
@@ -217,6 +251,7 @@ describe('game codec round trip at every safe point of a chaos run', () => {
         if (bad.length) throw new Error(JSON.stringify(bad, null, 2).slice(0, 6000));
         expect(stats.docs).toBeGreaterThan(SEEDS * 5);
         expect(stats.snapshots).toBeGreaterThan(0);
+        expect(stats.assistPoints).toBeGreaterThan(SEEDS * 5);
         expect([...stats.stages].sort()).toEqual(['BIDDING', 'HAND_RESOLVING', 'PLAYING', 'TRICK_RESOLVING']);
         expect(stats.maxBytes).toBeLessThan(MAX_DOC_BYTES);
     }, 600000);
