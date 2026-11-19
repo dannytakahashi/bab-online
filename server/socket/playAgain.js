@@ -121,7 +121,8 @@ function originOf(lobby, io, extras = [], onTable = null) {
         name: lobby.name || `${humans[0]?.username || 'Unknown'}'s Game`,
         createdBy: lobby.createdBy ?? null,
         host: gameManager.lobbyHost(lobby),
-        settings: { spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false },
+        // always on (owner 2026-11-18: no switch); kept for the wire
+        settings: { spectatorsCanTalk: true },
         messages: (lobby.messages || []).slice(-gameManager.constructor.MAX_LOBBY_MESSAGES).map((m) => ({ ...m })),
         // Row order: usernames for humans, the bot socket id for the bots
         // that come back
@@ -172,7 +173,7 @@ function plan(game, io, { score = null, playerStats = null } = {}) {
             owners,
             watching,
             voice,
-            spectatorsCanTalk: game.casualVoice ? game.casualVoice.spectatorsCanTalk !== false : origin.settings.spectatorsCanTalk,
+            spectatorsCanTalk: true,
             lastGame: {
                 gameId: game.gameId,
                 score: score ? { team1: score.team1, team2: score.team2 } : { ...game.score },
@@ -320,7 +321,7 @@ function openLobby(io, p) {
         createdBy: origin.createdBy ?? undefined,
         host,
         hostProvisional: false,
-        settings: { spectatorsCanTalk: p.spectatorsCanTalk !== false },
+        settings: { spectatorsCanTalk: true },
         capable,
         botPersonalities,
         afterGame: {

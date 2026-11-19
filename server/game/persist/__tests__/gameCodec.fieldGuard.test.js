@@ -390,7 +390,7 @@ function savedCoverage(game, doc, restored, getBot) {
     // What hydrate sets up besides the saved settings: an empty voice room
     // (voice spectators re-spectate), no lobby chat
     if (game.casualVoice) {
-        check('voice room', () => expect([restored.voiceSpectators?.size, restored.voiceOfferDir?.size]).toEqual([0, 0]));
+        check('voice room', () => expect(restored.voiceSpectators?.size).toBe(0));
     }
     if (game.lobbyOrigin) check('lobby chat', () => expect(restored.lobbyOrigin.messages).toEqual([]));
     const botSeats = game.seatList().filter((s) => s.bot).map((s) => s.position);

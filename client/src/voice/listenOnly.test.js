@@ -1,15 +1,16 @@
 /**
- * VoiceChatManager's talk mode (family lobbies, owner 2026-11-16;
- * docs/claude/voice.md, Spectator voice): listen-only sessions (no
+ * VoiceChatManager's talk mode on the FALLBACK path (a browser with no
+ * AudioContext destination, as this file's fake: no silent sender track;
+ * the silent-track path, the muted start, is mutedStart.test.js;
+ * docs/claude/voice.md): listen-only sessions (no
  * microphone, recvonly offers, answers without a track), a refused
  * microphone falls back to listen-only and still flushes, the mode a
  * voiceSettings sets during the microphone prompt wins, setTalk re-offers
  * every call (a call waiting for its answer after it), per-person mute and
- * volume survive a re-created call, the forced mute holds against every
- * volume write (the noise gate too), and a blocked autoplay re-arms.
+ * volume survive a re-created call, and a blocked autoplay re-arms.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { VoiceChatManager, REOFFER_DELAY_MS } from './VoiceChatManager.js';
+import { VoiceChatManager, REOFFER_DELAY_MS, AUDIO_POOL_SIZE } from './VoiceChatManager.js';
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 
@@ -99,9 +100,9 @@ afterEach(() => {
   getGameState().username = null;
 });
 
-/** initialize() with the server answering TURN. */
-async function start(vm, sm) {
-  const p = vm.initialize(sm);
+/** initialize() with the server answering TURN (opts.talk: start with the microphone; default muted). */
+async function start(vm, sm, opts) {
+  const p = vm.initialize(sm, opts);
   await flush();
   const req = sm.requests().at(-1);
   if (req) vm.onIceServers({ ...TURN, requestId: req.data.requestId });
@@ -149,7 +150,7 @@ describe('listen-only', () => {
     await vm.connectToPeer('sock-b', 'bob');
     await vm.handleOffer('sock-c', OFFER, 'cat');
     expect(FakePC.all).toHaveLength(0);
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await flush();
     expect(vm.active).toBe(true);
     expect(vm.micDenied).toBe(true);
@@ -160,9 +161,9 @@ describe('listen-only', () => {
     expect(sm.offers().map((o) => o.data.targetSocketId)).toEqual(['sock-b']);
     expect(vm.peers.get('sock-b').connection.transceivers).toEqual([{ kind: 'audio', direction: 'recvonly' }]);
     vm.shutdown();
-    // a new session asks again
+    // a new session starts muted again, asking nothing until an unmute
     expect(vm.micDenied).toBe(false);
-    expect(vm.wantsTalk).toBe(true);
+    expect(vm.wantsTalk).toBe(false);
   });
 
   it('a voiceSettings during the microphone prompt: the latest mode wins (the granted mic is released)', async () => {
@@ -170,7 +171,7 @@ describe('listen-only', () => {
     navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((r) => { grant = r; }));
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    const p = vm.initialize(sm);
+    const p = vm.initialize(sm, { talk: true });
     await flush();
     vm.onIceServers({ ...TURN, requestId: sm.requests().at(-1).data.requestId });
     await vm.setTalk(false); // the prompt is still up
@@ -204,7 +205,7 @@ describe('setTalk on a running session', () => {
   it('re-offers every call in the new mode; a call waiting for its answer is re-offered after it', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     expect(vm.isTalking()).toBe(true);
     await vm.connectToPeer('sock-b', 'bob'); // stays have-local-offer
     await vm.connectToPeer('sock-c', 'cat');
@@ -246,7 +247,7 @@ describe('setTalk on a running session', () => {
   it('a pending re-offer whose answer never comes goes at the connect timeout', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.connectToPeer('sock-b', 'bob');
     sm.sent.length = 0;
     await vm.setTalk(false);
@@ -258,10 +259,10 @@ describe('setTalk on a running session', () => {
     vm.shutdown();
   });
 
-  it('a call that failed for good ("voice unavailable") is re-offered in the new mode too (else the server backstop tears it down)', async () => {
+  it('a call that failed for good ("voice unavailable") is re-offered in the new mode too (a retry)', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager('sock-a'); // the lower id: it restarts, then gives up
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.connectToPeer('sock-b', 'bob');
     await vm.handleAnswer('sock-b', ANSWER);
     vm.peers.get('sock-b').connection.connectionState = 'failed';
@@ -296,7 +297,7 @@ describe('mute and volume across a re-created call', () => {
   it('my mute and volume of a peer survive its replacement offer and my own re-offer', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.handleOffer('sock-b', OFFER, 'bob');
     track(vm, 'sock-b');
     vm.setPeerVolume('sock-b', 0.5);
@@ -320,36 +321,6 @@ describe('mute and volume across a re-created call', () => {
   });
 });
 
-describe('forced mute (a player while spectators may not talk)', () => {
-  it('holds against volume, unmute, a new track and the noise gate; lifting it restores the level', async () => {
-    const vm = new VoiceChatManager();
-    const sm = fakeSocketManager();
-    await start(vm, sm);
-    await vm.handleOffer('sock-b', OFFER, 'bob');
-    let el = track(vm, 'sock-b');
-    expect(el.volume).toBe(1);
-    vm.setForcedMute((_id, username) => username === 'bob');
-    expect(el.volume).toBe(0);
-    expect(vm.isForcedMuted('sock-b')).toBe(true);
-    expect(vm.isPeerMuted('sock-b')).toBe(false); // never shown as my own mute
-    vm.setPeerVolume('sock-b', 1.5);
-    expect(el.volume).toBe(0);
-    vm.unmutePeer('sock-b');
-    expect(el.volume).toBe(0);
-    await vm.handleOffer('sock-b', OFFER, 'bob');
-    el = track(vm, 'sock-b');
-    expect(el.volume).toBe(0);
-    // the noise gate opening (bob speaks) does not open it
-    vm._analysers.get('sock-b').analyser.getFloatTimeDomainData = (arr) => arr.fill(0.5);
-    await vi.advanceTimersByTimeAsync(150);
-    expect(vm.isSpeaking('sock-b')).toBe(true);
-    expect(el.volume).toBe(0);
-    vm.setForcedMute(null);
-    expect(el.volume).toBe(1);
-    vm.shutdown();
-  });
-});
-
 describe('autoplay blocked (a page that receives voice before any gesture)', () => {
   it('tells once, plays every call on the next gesture, and re-arms for a re-created call', async () => {
     let allow = false;
@@ -358,7 +329,7 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
       : Promise.reject(Object.assign(new Error('no gesture'), { name: 'NotAllowedError' }))));
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     const blocked = vi.fn();
     vm.onAutoplayBlocked(blocked);
     await vm.handleOffer('sock-b', OFFER, 'bob');
@@ -370,9 +341,11 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
     expect(vm.autoplayBlocked).toBe(true);
     allow = true;
     play.mockClear();
+    const callEls = [vm.peers.get('sock-b').audioEl, vm.peers.get('sock-c').audioEl];
     document.dispatchEvent(new Event('pointerdown'));
     await flush();
-    expect(play).toHaveBeenCalledTimes(2); // every call's element
+    // every call's element, once (and the unlocked spares)
+    expect(play.mock.contexts.filter((el) => callEls.includes(el))).toHaveLength(2);
     expect(vm.autoplayBlocked).toBe(false);
     // a re-created call blocked again: told again
     allow = false;
@@ -382,6 +355,63 @@ describe('autoplay blocked (a page that receives voice before any gesture)', () 
     expect(blocked).toHaveBeenCalledTimes(2);
     vm.shutdown();
     expect(vm.autoplayBlocked).toBe(false);
+  });
+});
+
+describe('audio unlocked at the first gesture (Safari: a muted start captures no microphone; review 2026-11-18)', () => {
+  it('the first pointerdown unlocks every call\'s element and a pool of spares; a replaced call and a new peer reuse unlocked elements', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play');
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await start(vm, sm);
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    const bEl = track(vm, 'sock-b');
+    expect(bEl._voiceUnlocked).toBeFalsy();
+    play.mockClear();
+    document.dispatchEvent(new Event('pointerdown'));
+    await flush();
+    expect(bEl._voiceUnlocked).toBe(true);
+    expect(play.mock.contexts).toContain(bEl);
+    const spares = [...document.querySelectorAll('audio')].filter((el) => el !== bEl);
+    expect(spares).toHaveLength(AUDIO_POOL_SIZE);
+    expect(spares.every((el) => el._voiceUnlocked && play.mock.contexts.includes(el))).toBe(true);
+    // only the first gesture (later ones change nothing)
+    play.mockClear();
+    document.dispatchEvent(new Event('pointerdown'));
+    expect(play).not.toHaveBeenCalled();
+    // bob's call replaced (a restart or a new offer): the same unlocked element
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    expect(vm.peers.get('sock-b').audioEl).toBe(bEl);
+    expect(bEl.id).toBe('voice-audio-sock-b');
+    // a new peer takes an unlocked spare, not a new (locked) element
+    await vm.handleOffer('sock-c', OFFER, 'cat');
+    const cEl = vm.peers.get('sock-c').audioEl;
+    expect(spares).toContain(cEl);
+    expect(cEl.id).toBe('voice-audio-sock-c');
+    expect(document.querySelectorAll('audio')).toHaveLength(AUDIO_POOL_SIZE + 1);
+    // cat leaves: its element goes back to the pool, nothing added
+    vm.removePeer('sock-c');
+    expect(cEl.isConnected).toBe(true);
+    expect(cEl.id).toBe('');
+    expect(document.querySelectorAll('audio')).toHaveLength(AUDIO_POOL_SIZE + 1);
+    vm.shutdown();
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
+  });
+
+  it('a refused unlock (no gesture after all) leaves the element locked; a new session arms again', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockImplementation(() => Promise.reject(Object.assign(new Error('no gesture'), { name: 'NotAllowedError' })));
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    document.dispatchEvent(new Event('keydown'));
+    await flush();
+    const els = [...document.querySelectorAll('audio')];
+    expect(els).toHaveLength(AUDIO_POOL_SIZE);
+    expect(els.some((el) => el._voiceUnlocked)).toBe(false);
+    vm.shutdown();
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
+    // no listener left behind
+    document.dispatchEvent(new Event('pointerdown'));
+    expect(document.querySelectorAll('audio')).toHaveLength(0);
   });
 });
 
@@ -461,8 +491,8 @@ describe('crossing offers (review 2026-11-16: two spectators change mode on one 
 
   it('and both losing talk at once (no microphone step): the same, one listen-only call', async () => {
     const { a, b } = pair();
-    await start(a.vm, a.sm);
-    await start(b.vm, b.sm);
+    await start(a.vm, a.sm, { talk: true });
+    await start(b.vm, b.sm, { talk: true });
     await a.vm.connectToPeer('sock-b', 'b');
     await vi.advanceTimersByTimeAsync(200);
     expectOneCall(a, b);
@@ -478,7 +508,7 @@ describe('crossing offers (review 2026-11-16: two spectators change mode on one 
   it('the lower end ignores an offer only while its own is unanswered; one that follows the answer is taken', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager('sock-a');
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.connectToPeer('sock-b', 'bob');
     const mine = vm.peers.get('sock-b').connection;
     await vm.handleOffer('sock-b', OFFER, 'bob');
@@ -502,7 +532,7 @@ describe('crossing offers (review 2026-11-16: two spectators change mode on one 
   it('the higher end answers a crossing offer and drops its own (its answer is in its current mode)', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager('sock-z');
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.connectToPeer('sock-b', 'bob');
     const mine = vm.peers.get('sock-b').connection;
     await vm.handleOffer('sock-b', OFFER, 'bob');
@@ -515,7 +545,7 @@ describe('crossing offers (review 2026-11-16: two spectators change mode on one 
   it('a call built in the new mode after the change is not re-offered', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     await vm.connectToPeer('sock-b', 'bob');
     await vm.handleAnswer('sock-b', ANSWER);
     await vm.setTalk(false);
@@ -534,7 +564,7 @@ describe('a call that ends while its peer speaks (review 2026-11-16)', () => {
   it('reports the peer as stopped: on leaving and on a replacement call', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
-    await start(vm, sm);
+    await start(vm, sm, { talk: true });
     const seen = [];
     vm.onSpeakingChange((id, on) => seen.push([id, on, vm.peers.get(id)?.username ?? null]));
     const speak = async (id) => {

@@ -66,8 +66,8 @@ final class LobbyParityUITests: XCTestCase {
 
     // MARK: - Game lobby: the header
 
-    /// A lobby from a server without the family keys: "Players 4/4", in full, VoiceOver
-    /// "4 of 4 players" (the family lobby's header: FamilyLobbyUITests).
+    /// A lobby from a server without the family keys: the ready count only, "Ready n/4", in
+    /// full (owner 2026-11-19; the family lobby's header: FamilyLobbyUITests).
     func testTheLegacyHeaderCountIsFullyVisible() {
         let app = Fixture.launch("game-lobby", extra: ["-uiVoice", "YES"], env: ["UI_FIXTURE_LOBBY_NAME": "iosplay1's Game"])
         XCTAssertTrue(Fixture.readyElement(app, "game-lobby").waitForExistence(timeout: 20))
@@ -75,7 +75,8 @@ final class LobbyParityUITests: XCTestCase {
         XCTAssertTrue(any(app, "lobby.mic").exists, "the header's mic")
         let count = any(app, "lobby.count")
         XCTAssertTrue(count.waitForExistence(timeout: 5))
-        XCTAssertEqual(count.label, "4 of 4 players")
+        XCTAssertTrue(count.label.hasSuffix(" of 4 ready"), count.label)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Players '")).firstMatch.exists, "no \"Players 4/4\"")
         var check = Fixture.probe(app, "lobby.headerCheck")
         for _ in 0..<10 where !check.hasSuffix(" ok") {
             Thread.sleep(forTimeInterval: 0.3)
@@ -306,6 +307,11 @@ final class LobbyParityUITests: XCTestCase {
         // (XCUITest's drag can land one 5% step short of the end on the iPad's long slider;
         // the exact ends of the range are LobbyParityTests')
         func percent() -> Int { Int((kim.value as? String ?? "").dropLast()) ?? -1 }
+        // everyone joins muted, so the muted note sits under my row and pushes kim's row below
+        // the iPad's medium sheet: scroll the list (on the note, never on a slider) until it shows
+        let note = app.staticTexts["voice.panel.note"]
+        for _ in 0..<3 where !kim.isHittable && note.exists { note.swipeUp() }
+        XCTAssertTrue(kim.isHittable, "kim's slider can be reached")
         kim.adjust(toNormalizedSliderPosition: 0)
         XCTAssertTrue((0...5).contains(percent()), "\(percent())%")
         kim.adjust(toNormalizedSliderPosition: 1)

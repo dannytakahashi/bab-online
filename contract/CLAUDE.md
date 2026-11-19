@@ -8,7 +8,7 @@ Loads automatically when Claude reads a file under `contract/`; the full rules a
 
 ## iOS build baselines (release step)
 
-- `contract/baselines/README.md`: iOS 1.2.0 (6), 1.2.1 (7), (8), (9) and 1.2.2 (10), (11), (12) and (13) and 1.2.3 (14), (15) and (16) are frozen (`ios-<version>-b<build>.schema.json` + `.decodes.json`). **When an iOS build is uploaded (TestFlight or review), freeze it from the commit it was archived from: `npm run contract:baseline -- --build <n> [--commit <sha>]`** (refuses a commit whose project is another build), add its row to the README and commit both files; 1.2.2 (10) is frozen (2026-11-16, from a805147) and (11) (2026-11-16, from the build 11 commit), and 1.2.2 (12) (2026-11-16, from e61e120), so 16 is next. Never regenerate a frozen file; a schema baseline is hand-edited only in a V1_REMOVALS PR re-checked against that build, a decode floor never (`npm run contract:baseline -- --check` re-derives them from git). When `MIN_IOS_BUILD` passes a build, delete its two files (`additiveOnly.test.js` fails until then)
+- `contract/baselines/README.md`: iOS 1.2.0 (6), 1.2.1 (7), (8), (9) and 1.2.2 (10), (11), (12) and (13) and 1.2.3 (14), (15), (16) and (17) are frozen (`ios-<version>-b<build>.schema.json` + `.decodes.json`). **When an iOS build is uploaded (TestFlight or review), freeze it from the commit it was archived from: `npm run contract:baseline -- --build <n> [--commit <sha>]`** (refuses a commit whose project is another build), add its row to the README and commit both files; 1.2.2 (10) is frozen (2026-11-16, from a805147) and (11) (2026-11-16, from the build 11 commit), and 1.2.2 (12) (2026-11-16, from e61e120), so 18 is next. Never regenerate a frozen file; a schema baseline is hand-edited only in a V1_REMOVALS PR re-checked against that build, a decode floor never (`npm run contract:baseline -- --check` re-derives them from git). When `MIN_IOS_BUILD` passes a build, delete its two files (`additiveOnly.test.js` fails until then)
 
 ## Snapshot v2
 
@@ -17,7 +17,7 @@ Loads automatically when Claude reads a file under `contract/`; the full rules a
 
 ## seq
 
-- `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none, and neither do the two UNSEQUENCED room events, `spectatorsUpdated` and `bidClock` (schema `seq: false`, `GameState.emitUnsequenced`; the contract guard checks both rules; contract/README.md "Bid clock"). Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests
+- `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none, and neither do the three UNSEQUENCED room events, `spectatorsUpdated`, `bidClock` and `seatLeft` (schema `seq: false`, `GameState.emitUnsequenced`; the contract guard checks both rules; contract/README.md "Bid clock"). Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests
 
 ## Upgrade gate
 

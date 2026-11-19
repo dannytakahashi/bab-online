@@ -76,17 +76,19 @@ final class LiveLobbyRejoinTests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
-    /// The header count ("lobby.count") reads `players` seated, whatever the server: its
-    /// VoiceOver label is "1 of 8 players, 0 of 4 ready" (family keys) or "1 of 4 players"
-    /// (a 1.2.2 and older server); the text on screen is "Players 1/8 · Ready 0/4".
+    /// `players` seated in a lobby of up to 4, whatever the server: the empty seats ("Waiting
+    /// for player...") are the rest (the header shows only "Ready n/4" since 2026-11-19).
     private func seated(_ app: XCUIApplication, _ players: Int) -> Bool {
-        let count = screen(app, "lobby.count")
-        return count.exists && count.label.hasPrefix("\(players) of ") && count.label.contains(" players")
+        screen(app, "lobby.count").exists && emptySeats(app) == 4 - players
+    }
+
+    private func emptySeats(_ app: XCUIApplication) -> Int {
+        app.staticTexts.matching(NSPredicate(format: "label == %@", "Waiting for player...")).count
     }
 
     private func countLabel(_ app: XCUIApplication) -> String {
         let count = screen(app, "lobby.count")
-        return count.exists ? count.label : "no lobby.count"
+        return count.exists ? "\(count.label), \(emptySeats(app)) empty seats" : "no lobby.count"
     }
 
     /// Into the main room: the saved session restores, or sign in, or (first use) register.

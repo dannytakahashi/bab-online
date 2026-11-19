@@ -461,8 +461,10 @@ class GameManager {
             messages: [],
             createdAt: Date.now(),
             createdBy: user.username,
-            // The host (owner 2026-11-16): sets "Spectators can talk"; the
-            // role moves on when they leave (_reassignHost)
+            // The host (owner 2026-11-16; play again's "Don't wait"); the
+            // role moves on when they leave (_reassignHost). settings is
+            // fixed: spectators always may talk (owner 2026-11-18), the
+            // field stays for the clients that read it
             host: user.username,
             settings: { spectatorsCanTalk: true },
             // Sockets that announced casualSpectators (lobbyCapacity)
@@ -995,7 +997,9 @@ class GameManager {
         const out = { members };
         const host = this.lobbyHost(lobby);
         if (host != null) out.host = host;
-        out.settings = { spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false };
+        // Always on (owner 2026-11-18: no switch); kept on the wire for
+        // shipped iOS 12-15 and cached web tabs
+        out.settings = { spectatorsCanTalk: true };
         out.capacity = this.lobbyCapacity(lobby);
         // Play again: older-app players of the last game whose place is
         // saved (a reservation, no row)
@@ -1245,7 +1249,6 @@ class GameManager {
         // tournament table or the ambient demo: they never come through here)
         gameVoice().initCasualVoice(game, {
             host: this.lobbyHost(lobby),
-            spectatorsCanTalk: lobby.settings?.spectatorsCanTalk !== false,
             io,
             lobbyExtras: extras.map(e => e.username)
         });

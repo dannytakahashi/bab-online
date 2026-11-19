@@ -191,23 +191,38 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(socket.emitted('lobbyReturnSeen')).toEqual([{}]);
   });
 
-  it('the forced mute of the table (spectators may not talk) ends at lobbyReturn, the modal still up: extras back in the lobby are heard', async () => {
+  it('voice runs on through lobbyReturn and Return, muted again in the lobby (the next game starts muted; an old server\'s switch-off settings mute nobody)', async () => {
     await seated();
+    // muted at the start; I unmute at the table
+    expect(page.voice.isMuted()).toBe(true);
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn')).not.toBeNull());
+    document.getElementById('voice-mute-btn').click();
+    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    socket.clearEmits();
     socket.fire('voiceSettings', { gameId: 'g1', host: 'me', spectatorsCanTalk: false, role: 'player', canTalk: true, canChange: true });
-    expect(page.voice.forcedMute).not.toBeNull();
     socket.fire('gameEnd', gameEnd());
     const before = modal();
     socket.fire('lobbyReturn', lobbyReturn());
-    // the results stay exactly as they were; only the voice rules went
-    expect(page.voice.forcedMute).toBeNull();
+    // the results stay exactly as they were
     expect(page.session.screen).toBe('gameEnd');
     expect(modal()).toBe(before);
     expect(page.voice.active).toBe(true);
     expect(page.voice.shutdown).not.toHaveBeenCalled();
     expect(socket.emittedNames()).toEqual([]);
+    // still unmuted on the results (the game's own call)
+    expect(page.voice.isMuted()).toBe(false);
+    page.voice.setTalk.mockClear();
     returnButton().click();
-    expect(page.voice.forcedMute).toBeNull();
+    // the same call, muted again: the microphone is kept (a later unmute asks nothing)
     expect(page.voice.isTalking()).toBe(true);
+    expect(page.voice.isMuted()).toBe(true);
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    expect(page.voice.shutdown).not.toHaveBeenCalled();
+    const btn = document.querySelector('#lobbyVoiceSlot #voice-mute-btn');
+    expect(btn.getAttribute('aria-label')).toBe('Unmute microphone (M)');
+    btn.click();
+    await vi.waitFor(() => expect(page.voice.isMuted()).toBe(false));
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
   });
 
   it('Return puts the keyboard on Ready, kept across the server\'s lobbyCreated re-render (and a chat draft too)', async () => {
@@ -365,28 +380,29 @@ function createdForSpectator(gameId) {
 }
 
 describe('a lobby extra who watched the game', () => {
-  it('back in the lobby with its microphone (it was listen-only while spectators could not talk)', async () => {
+  it('back in the lobby with its mute as it was (the same call: muted stays muted, nothing asked)', async () => {
     socket.fire('lobbyCreated', { ...lobby({ names: ['ann', 'bob', 'cat', 'dan', 'me'] }), lobbyId: 'L6', name: 'Family', messages: [] });
-    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    await vi.waitFor(() => expect(page.voice.active).toBe(true));
+    expect(page.voice.isMuted()).toBe(true);
     socket.fire('spectatorJoined', createdForSpectator('g9'));
     expect(page.session.role).toBe('spectator');
-    socket.fire('voiceSettings', { gameId: 'g9', host: 'ann', spectatorsCanTalk: false, role: 'spectator', canTalk: false, canChange: false });
-    await vi.waitFor(() => expect(page.voice.isListenOnly()).toBe(true));
+    page.voice.setTalk.mockClear();
+    socket.fire('voiceSettings', { gameId: 'g9', host: 'ann', spectatorsCanTalk: true, role: 'spectator', canTalk: true, canChange: false });
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
     socket.fire('gameEnd', gameEnd());
     expect(modal().textContent).toMatch(/GAME OVER/);
     socket.fire('lobbyReturn', lobbyReturn({ gameId: 'g9', position: null, names: ['ann', 'bob', 'cat', 'dan', 'me'] }));
     expect(page.session.screen).toBe('gameEnd');
-    expect(page.voice.isListenOnly()).toBe(true);
     socket.clearEmits();
-    page.voice.setTalk.mockClear();
     returnButton().click();
     expect(page.session.screen).toBe('lobby');
-    expect(page.voice.setTalk).toHaveBeenCalledWith(true);
-    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    expect(page.voice.isMuted()).toBe(true);
     expect(page.voice.shutdown).not.toHaveBeenCalled();
     const mute = document.querySelector('#lobbyVoiceSlot #voice-mute-btn');
     expect(mute).not.toBeNull();
     expect(mute.hasAttribute('aria-disabled')).toBe(false);
+    expect(mute.getAttribute('aria-label')).toBe('Unmute microphone (M)');
   });
 });
 

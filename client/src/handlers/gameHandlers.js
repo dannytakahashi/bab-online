@@ -5,7 +5,8 @@
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
- *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint
+ *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint,
+ *          seatLeft
  *
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
@@ -332,6 +333,13 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Who is watching (the spectator badge): the whole list, unsequenced
   socketManager.on(SERVER_EVENTS.SPECTATORS_UPDATED, (data) => {
     if (state.applySpectators(data)) onSpectatorsUpdated?.(state.renderModel().watching);
+  });
+
+  // A seat's owner left for good (unsequenced, additive 2026-11-19): they no
+  // longer count as a human here (the voice rule, voice/voiceCompany.js;
+  // GameState tells its company observers)
+  socketManager.on(SERVER_EVENTS.SEAT_LEFT, (data) => {
+    state.applySeatLeft(data);
   });
 
   // The bid clock (contract/README.md "Bid clock"): unsequenced, applied on

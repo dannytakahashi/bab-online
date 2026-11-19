@@ -10,8 +10,8 @@ import Combine
 ///
 /// ICE servers (1.2, V1_REMOVALS "iOS TURN"): asked from the server
 /// (`IceServerStore`: getVoiceIceServers -> voiceIceServers, Cloudflare TURN
-/// credentials or the public STUN pair) in parallel with the microphone
-/// prompt and awaited before the first peer connection, at most 4 s, else
+/// credentials or the public STUN pair) at every voice start and awaited
+/// before the first peer connection, at most 4 s, else
 /// STUN. A TURN answer is reused for the session and refreshed 30 min before
 /// it expires (`setConfiguration` on the open connections); a STUN answer is
 /// asked again on every voice start and restart. A connection that fails (or
@@ -29,7 +29,10 @@ final class VoiceChatManager: ObservableObject {
     // MARK: - Published State
 
     @Published var isActive = false
-    @Published var isSelfMuted = false
+    /// Every voice session starts muted (owner 2026-11-18: "by default the mic should be muted
+    /// and you can click to unmute / activate mic"); the first unmute asks for the microphone.
+    @Published var isSelfMuted = true
+    /// The microphone was refused: voice listens only (headphones; a tap asks again).
     @Published var micPermissionDenied = false
     @Published var isSelfSpeaking = false
     @Published var speakingPeers = Set<String>()  // socket IDs currently speaking
@@ -54,35 +57,38 @@ final class VoiceChatManager: ObservableObject {
     /// socket (a reconnect, the next game) keeps theirs while the app runs.
     private var savedVolumes: [String: Double] = [:]
     /// The per-person mutes, by username (1.2.2 (12)): kept across any re-created call (a
-    /// spectator's listen-only re-offer, a reconnect on a new socket) while the app runs.
+    /// restart, a reconnect on a new socket) while the app runs.
     private var savedMutes: [String: Bool] = [:]
 
-    // MARK: - Talk mode (1.2.2, build 12: spectator voice; docs/claude/voice.md "Spectator voice")
+    // MARK: - Muted start (build 16; docs/claude/voice.md "Spectator voice", iOS client)
 
-    /// What the server allows (voiceSettings.canTalk; a player and a lobby member always).
-    @Published private(set) var talkAllowed = true
-    /// This person wants to send their voice: a player, and a lobby extra who already held a
-    /// mic; a main-room spectator only after "Tap to talk".
-    @Published private(set) var wantsMic = true
-    /// Voice runs with no microphone track: offers are recvonly, answers carry no track, so
-    /// nothing is sent (the mic was refused, the host turned spectator talk off, or a
-    /// spectator has not tapped to talk).
-    @Published private(set) var isListenOnly = false
-    /// The casual game's voice settings for this socket (voiceSettings), nil elsewhere.
+    /// Listening only: the microphone was refused (headphones; a tap asks again). Before the
+    /// first unmute the mic is not allowed yet either, but that is muted, not listen-only.
+    var isListenOnly: Bool { micPermissionDenied }
+    /// This session's first unmute got the microphone (asked again in each session: iOS
+    /// answers at once, with no prompt, once the person has answered it).
+    private var micGranted = false
+    /// The casual game's voice settings for this socket (voiceSettings), nil elsewhere. Only
+    /// the role is acted on (spectators always may talk since 2026-11-18).
     @Published var settings: VoiceSettings?
-    /// The "Spectators can talk" value sent from the voice panel, until voiceSettings answers.
-    @Published var switchPending: Bool?
-    /// Usernames muted for me whatever I chose (a player's backstop while spectators may not
-    /// talk: the spectators in my voice room). A per-person mute is kept underneath.
-    @Published private(set) var forcedMuted: Set<String> = []
-
-    /// Talk when allowed and wanted; the mic itself may still be missing (refused).
-    var wantsToTalk: Bool { talkAllowed && wantsMic }
+    /// The casual game whose voice room this socket was told of (any voiceSettings for it).
+    /// Only such a table admits spectators into voice (a lobby-born casual game,
+    /// server/voice/gameVoice.js), so only there do its watchers count as company
+    /// (`VoiceCompany.table(_:me:spectators:)`): a tournament table's watchers can never be a
+    /// peer. Kept through a shutdown or suspend (unlike `settings`); the table compares it
+    /// with its own gameId.
+    @Published var casualVoiceGameId: String?
+    /// The first unmute's microphone prompt is up.
+    @Published private(set) var micRequestInFlight = false
+    /// The unmute that asked for the mic still wants to talk when the prompt answers (a mute
+    /// meanwhile wins).
+    private var unmuteAfterPrompt = false
 
     /// What the manager talks to outside itself, replaced by the unit tests (two managers
     /// negotiating real WebRTC offers in-process, a permission prompt held open). The tests'
     /// hooks never touch AVAudioSession (`BABOnlineTests/Support/SilentVoice.swift`).
     struct Hooks {
+        /// Asked on the first unmute only, never at a voice start.
         var requestRecordPermission: @MainActor () async -> Bool
         var configureAudioSession: @MainActor () throws -> Void
         /// shutdown(): drop our activation (WebRTC drops its own when its audio unit stops; the
@@ -90,6 +96,8 @@ final class VoiceChatManager: ObservableObject {
         var deactivateAudioSession: @MainActor () -> Void
         var sendOffer: @MainActor (_ target: String, _ offer: RTCSessionDescription, _ username: String?) -> Void
         var sendAnswer: @MainActor (_ target: String, _ answer: RTCSessionDescription) -> Void
+        /// An info toast (a refused microphone).
+        var notify: @MainActor (_ message: String) -> Void = { _ in }
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
@@ -98,14 +106,10 @@ final class VoiceChatManager: ObservableObject {
             configureAudioSession: { try VoiceAudioSession.shared.activate() },
             deactivateAudioSession: { VoiceAudioSession.shared.deactivate() },
             sendOffer: { VoiceEmitter.sendOffer(targetSocketId: $0, offer: $1, username: $2) },
-            sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) })
+            sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) },
+            notify: { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) })
     }
     private let hooks: Hooks
-    /// A mic permission prompt for a mode change is up (no second one).
-    private var modeChangeInFlight = false
-    /// Peers whose re-offer waits for the answer to the offer in flight (never re-offer a
-    /// call in have-local-offer: answers carry no generation, so a stale one would apply).
-    private var reofferPending = Set<String>()
 
     // MARK: - Private State
 
@@ -158,9 +162,16 @@ final class VoiceChatManager: ObservableObject {
     private var speakingLastActive: [String: Date] = [:]  // socketId|"self" → last above-threshold time
     private var speakingStates: [String: Bool] = [:]
 
-    // Buffered events (arrive before init completes)
+    // Buffered events (arrive before init completes, or while voice is not running: no other
+    // human was here yet, VoiceGate)
     private var pendingPeers: [(socketId: String, username: String)] = []
     private var pendingOffers: [(fromSocketId: String, offer: RTCSessionDescription, username: String)] = []
+    /// The trickled ICE candidates of a buffered offer, by peer (at most
+    /// `maxPendingCandidates` each), added right after that offer when voice starts: a
+    /// newcomer's offer that beats our start connects with its candidates, not only by
+    /// peer-reflexive ones or the 20 s restart.
+    private var pendingCandidates: [String: [RTCIceCandidate]] = [:]
+    static let maxPendingCandidates = 100
 
     // Background handling: the app is in the background (the mic stays off, also for a
     // track made then: a voiceSettings during the ~30 s keep-alive). App state, not the
@@ -171,9 +182,6 @@ final class VoiceChatManager: ObservableObject {
         let connection: RTCPeerConnection
         let username: String
         var remoteTrack: RTCAudioTrack?
-        /// Built with no mic track (listen-only): a mode change re-offers only the calls
-        /// built in the other mode.
-        var listenOnly: Bool
     }
 
     // Constraints
@@ -195,53 +203,73 @@ final class VoiceChatManager: ObservableObject {
     /// Between the mic being ready and the ICE servers answering: peers and offers are buffered.
     private var awaitingIce = false
 
+    /// No voice alone (owner 2026-11-19; VoiceCompany.swift): the screens say they want voice
+    /// (`ensureStarted`) and who is here (`setCompany`); the gate starts the session only while
+    /// another human is here and suspends it `VoiceCompany.grace` after the last one left.
+    private(set) var gate: VoiceGate!
+    /// The `startGeneration` of a gate start still on its way through `initialize` (a Task):
+    /// not started twice. A shutdown or suspend bumps the generation, so that start no longer
+    /// counts (it gives up) and the next arrival starts afresh.
+    private var pendingStart: Int?
+    private var startPending: Bool { pendingStart == startGeneration }
+    /// The app's manager (WebRTC's own audio module) never starts under XCTest; the tests'
+    /// silent managers do.
+    private let startsUnderXCTest: Bool
+
     /// `hooks` / `iceStore` / `audioDevice`: the unit tests' (the app has one manager,
-    /// `shared`, with the defaults).
-    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil) {
+    /// `shared`, with the defaults). `after`: the gate's grace timer (tests run it by hand).
+    init(hooks: Hooks = .live, iceStore: IceServerStore? = nil, audioDevice: RTCAudioDevice? = nil,
+         after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) {
         self.hooks = hooks
         self.factory = Self.makeFactory(audioDevice: audioDevice)
         self.iceStore = iceStore ?? IceServerStore(emit: { VoiceEmitter.getIceServers($0) })
+        self.startsUnderXCTest = audioDevice != nil
         self.iceStore.onChange = { [weak self] config in self?.applyIce(config) }
+        let isRunning: @MainActor () -> Bool = { [weak self] in self.map { $0.isActive || $0.startPending } ?? false }
+        let start: @MainActor () -> Void = { [weak self] in self?.startFromGate() }
+        let suspend: @MainActor () -> Void = { [weak self] in self?.suspend() }
+        if let after {
+            gate = VoiceGate(isRunning: isRunning, start: start, suspend: suspend, after: after)
+        } else {
+            gate = VoiceGate(isRunning: isRunning, start: start, suspend: suspend)
+        }
     }
 
     // MARK: - Lifecycle
 
-    /// Initialize voice chat: request mic, configure audio session, start capture.
-    /// A session that may not or does not want to talk (`wantsToTalk` false: a main-room
-    /// spectator) starts listen-only with no permission prompt. A refused mic no longer
-    /// leaves voice off (1.2.2 (12)): the session listens only and still hears everyone.
+    /// Start voice chat, muted, with no microphone prompt (owner 2026-11-18). The audio session
+    /// and the calls play everyone else at once. Every call carries the local audio track from
+    /// its first offer or answer, DISABLED (WebRTC sends silence for a disabled track, the mute
+    /// muted players have always used), so the first unmute (`unmute()`) only asks for the mic
+    /// and enables the track: no new offer, nothing re-created.
+    ///
+    /// Never a sending transceiver without a track: WebRTC starts an audio send stream with no
+    /// source and feeds it the audio device's capture unmuted (seen 2026-11-18 on the simulator:
+    /// a web peer's inbound audio energy rose while this side showed muted with no track), and
+    /// never the old recvonly listen-only calls, which would need a re-offer at the unmute.
     func initialize() async throws {
         guard !isActive, !Self.voiceDisabled else { return }
         let generation = startGeneration
 
-        // ICE servers in parallel with the permission prompt (re-asked on every start unless TURN is reusable)
+        // ICE servers (re-asked on every start unless TURN is reusable)
         let username = SocketService.shared.authState?.username
         let iceReady = Task { @MainActor in await self.iceStore.ensure(username: username) }
 
-        // Request mic permission (only to talk)
-        var granted = false
-        if wantsToTalk {
-            granted = await hooks.requestRecordPermission()
-            if !granted { micPermissionDenied = true }
-        }
-        // Another initialize() may have finished while we awaited the permission
-        // prompt, or shutdown() ran meanwhile (the player left the game): no mic then
-        guard !isActive, generation == startGeneration else { return }
-
-        // Configure audio session (.playAndRecord also in listen-only: WebRTC's one VoIP
-        // audio unit plays and records together, so the mic dot may show; nothing is sent)
+        // Configure audio session (.playAndRecord before any mic: WebRTC's one VoIP audio unit
+        // plays and records together)
         try hooks.configureAudioSession()
-
-        // Create local audio track, unless a voiceSettings during the prompt asked for listen-only
-        // (a fresh session starts unmuted; off while the app is in the background)
-        if granted, wantsToTalk { createLocalTrack(enabled: !isBackgrounded) }
 
         localUsername = SocketService.shared.authState?.username
 
         isActive = true
-        isSelfMuted = false
-        if granted { micPermissionDenied = false }
-        isListenOnly = localAudioTrack == nil
+        // a new session starts muted, whatever the last one did (the same session carries its
+        // choice on: lobby into its game, an extra into watching, play again's return)
+        isSelfMuted = true
+        micPermissionDenied = false
+        micGranted = false
+        unmuteAfterPrompt = false
+        // the track every call carries, disabled until an unmute the microphone was allowed for
+        createLocalTrack()
 
         // Start speaking detection (main run loop, since we're on the main actor)
         startSpeakingDetection()
@@ -256,137 +284,56 @@ final class VoiceChatManager: ObservableObject {
         // Flush buffered events
         flushPendingEvents()
 
-        print("[Voice] Initialized, username: \(localUsername ?? "nil")\(isListenOnly ? ", listen-only" : "")")
-        // a talk mode asked for after the start began (a spectator allowed to talk meanwhile)
-        reconcileMode()
+        print("[Voice] Initialized (muted), username: \(localUsername ?? "nil")")
     }
 
-    /// `enabled`: whether the mic sends at once. The self-mute is the caller's: only a fresh
-    /// session (initialize) and an explicit "Tap to talk" start unmuted; a mode change back to
-    /// talking keeps the person's own mute (and the background's privacy mute).
-    private func createLocalTrack(enabled: Bool) {
+    /// Made at the start, disabled: an allowed unmute enables it. Making it asks for nothing.
+    private func createLocalTrack() {
         let audioSource = factory.audioSource(with: mediaConstraints)
         let audioTrack = factory.audioTrack(with: audioSource, trackId: "audio0")
-        audioTrack.isEnabled = enabled
+        audioTrack.isEnabled = false
         localAudioTrack = audioTrack
     }
 
-    // MARK: - Talk mode
-
-    /// voiceSettings (VoiceSocketHandler.applyVoiceSettings): `canTalk` is the server's word,
-    /// `wantsMic` this person's. A running session changes mode at once and re-offers its
-    /// calls; a start in flight reads the fields before it makes its track (no second start).
-    func setDesiredMode(canTalk: Bool, wantsMic: Bool) {
-        if talkAllowed != canTalk { talkAllowed = canTalk }
-        if self.wantsMic != wantsMic { self.wantsMic = wantsMic }
-        reconcileMode()
+    /// Every live audio transceiver of a call (one per call: ours, or the offer's).
+    private static func audioTransceivers(_ pc: RTCPeerConnection) -> [RTCRtpTransceiver] {
+        pc.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
     }
 
-    /// "Tap to talk" on a listen-only mic button: asks for the mic again (also after a refusal:
-    /// the player may have allowed it in Settings since). Returns why not when talking is not
-    /// possible now (the toast), nil when the mic is on its way.
-    @discardableResult
-    func tapToTalk() -> String? {
-        guard talkAllowed else {
-            // the host's switch only when it is off: a stranger at an all-legacy table may not
-            // talk with the switch on (server mayTalk: no capable controller)
-            return settings?.spectatorsCanTalk == false ? VoiceCopy.talkOff : VoiceCopy.listenOnlyHere
-        }
-        if micPermissionDenied { micPermissionDenied = false }
-        if !wantsMic { wantsMic = true }
-        if isSelfMuted { isSelfMuted = false }  // the person asked to talk
-        reconcileMode()
-        return nil
-    }
-
-    /// Bring the running session to the mode the fields ask for: drop the mic and re-offer
-    /// listen-only, or ask for the mic, make the track and re-offer with it.
-    func reconcileMode() {
-        guard isActive, !modeChangeInFlight else { return }
-        let listen = !wantsToTalk || micPermissionDenied
-        guard listen != (localAudioTrack == nil) else {
-            if isListenOnly != listen { isListenOnly = listen }
-            return
-        }
-        if listen {
-            localAudioTrack?.isEnabled = false
-            localAudioTrack = nil
-            isListenOnly = true
-            print("[Voice] Listen-only: re-offering every call without the mic")
-            reofferAll()
-            return
-        }
-        modeChangeInFlight = true
-        let generation = startGeneration
-        Task { @MainActor in
-            let granted = await self.hooks.requestRecordPermission()
-            self.modeChangeInFlight = false
-            guard self.isActive, generation == self.startGeneration else { return }
-            if !granted {
-                self.micPermissionDenied = true
-                self.isListenOnly = true
-                print("[Voice] Mic refused: listening only")
-                return
-            }
-            if self.wantsToTalk, self.localAudioTrack == nil {
-                self.createLocalTrack(enabled: !self.isSelfMuted && !self.isBackgrounded)
-                self.isListenOnly = false
-                print("[Voice] Talking: re-offering every call with the mic")
-                self.reofferAll()
-            }
-            self.reconcileMode()  // the mode may have changed again during the prompt
-        }
-    }
-
-    /// Re-offer every call built in the other mode through the restart path (the receiver
-    /// replaces the call and keeps its mute and volume); a call with an offer in flight waits
-    /// for its answer.
-    private func reofferAll() {
-        let listen = localAudioTrack == nil
-        for (socketId, peer) in peers where peer.listenOnly != listen {
-            if peer.connection.signalingState == .haveLocalOffer {
-                reofferPending.insert(socketId)
-            } else {
-                reoffer(socketId)
-            }
-        }
-    }
-
-    private func reoffer(_ socketId: String) {
-        guard isActive, let peer = peers[socketId] else { return }
-        reofferPending.remove(socketId)
-        guard peer.listenOnly != (localAudioTrack == nil) else { return }
-        let username = peer.username
-        closePeer(socketId, keepRecovery: true)
-        connectToPeer(socketId, username: username)
-    }
-
-    /// The spectators a player hears no more while spectator talk is off (a backstop: the
-    /// server already drops their audio). `watching`: the table's spectator names.
-    func applyForcedMutes(watching: [String]) {
-        let names: Set<String>
-        if let s = settings, s.role == .player, !s.spectatorsCanTalk { names = Set(watching) } else { names = [] }
-        setForcedMuted(names)
-    }
-
-    func setForcedMuted(_ names: Set<String>) {
-        guard names != forcedMuted else { return }
-        forcedMuted = names
-        for (socketId, peer) in peers { peer.remoteTrack?.isEnabled = !isEffectivelyMuted(socketId) }
-    }
-
-    /// My mute of this peer or the forced one.
-    func isEffectivelyMuted(_ socketId: String) -> Bool {
-        let info = peerInfos[socketId]
-        return info?.isMuted == true || (info.map { forcedMuted.contains($0.username) } ?? false)
-    }
-
-    /// Start voice if it is not running (idempotent): game entry as a seat and
-    /// rejoin (21.14). Peers that arrive during the permission prompt are
-    /// buffered in `pendingPeers` and connected once active. Never under XCTest.
+    /// This screen wants voice (idempotent): the game lobby, game entry as a seat, rejoin
+    /// (21.14), a voice spectator. It starts while another human is here (`setCompany`; owner
+    /// 2026-11-19, no voice alone), else when one arrives. Peers and offers that arrive before
+    /// it runs are buffered and connected once active. The app's manager never starts under XCTest.
     func ensureStarted() {
-        guard !isActive, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
-        Task { try? await initialize() }
+        gate.want()
+    }
+
+    /// The screen on show says who is here (VoiceCompany.lobby / .table; nil: not known yet).
+    func setCompany(_ company: Bool?, from source: VoiceGate.Source) {
+        gate.setCompany(company, from: source)
+    }
+
+    /// That screen went away.
+    func clearCompany(from source: VoiceGate.Source) {
+        gate.clearCompany(from: source)
+    }
+
+    /// The gate's start: muted, like every start.
+    private func startFromGate() {
+        guard !isActive, !startPending, !Self.voiceDisabled else { return }
+        if !startsUnderXCTest, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
+        let generation = startGeneration
+        pendingStart = generation
+        Task { @MainActor in
+            defer { if self.pendingStart == generation { self.pendingStart = nil } }
+            // a shutdown or suspend before this ran: no start
+            guard self.startGeneration == generation else { return }
+            do {
+                try await self.initialize()
+            } catch {
+                print("[Voice] Start failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     /// No microphone (no permission prompt, no audio session) in Debug fixture
@@ -400,21 +347,31 @@ final class VoiceChatManager: ObservableObject {
         #endif
     }
 
-    /// Shut down all voice connections and clean up.
+    /// Shut down all voice connections and clean up: the screen no longer wants voice.
     func shutdown() {
+        gate.release()
+        teardown(keepSettings: false)
+    }
+
+    /// The last other human left and the grace ran out (VoiceGate): the session ends (no audio
+    /// session, no calls), still wanted, and this table's voice settings stay, so the next
+    /// arrival starts it again (muted, as every start).
+    func suspend() {
+        print("[Voice] Alone: voice stops")
+        teardown(keepSettings: true)
+    }
+
+    private func teardown(keepSettings: Bool) {
         startGeneration &+= 1  // an initialize() still awaiting the permission prompt gives up
-        // buffered signals and the game's talk mode go whether or not voice ever started
+        // buffered signals and the game's settings go whether or not voice ever started
         // (before 1.2.2 (12) an inactive shutdown returned first and the buffers grew forever)
         pendingPeers.removeAll()
         pendingOffers.removeAll()
-        reofferPending.removeAll()
-        modeChangeInFlight = false
-        talkAllowed = true
-        wantsMic = true
-        isListenOnly = false
-        settings = nil
-        switchPending = nil
-        forcedMuted = []
+        pendingCandidates.removeAll()
+        micRequestInFlight = false
+        unmuteAfterPrompt = false
+        micGranted = false
+        if !keepSettings { settings = nil }
         guard isActive else { return }
         isActive = false
         awaitingIce = false
@@ -450,9 +407,11 @@ final class VoiceChatManager: ObservableObject {
         speakingStates.removeAll()
         pendingPeers.removeAll()
         pendingOffers.removeAll()
+        pendingCandidates.removeAll()
         localUsername = nil
 
-        isSelfMuted = false
+        isSelfMuted = true
+        micPermissionDenied = false
         isSelfSpeaking = false
         speakingPeers.removeAll()
         peerInfos.removeAll()
@@ -480,14 +439,9 @@ final class VoiceChatManager: ObservableObject {
 
         let pc = createPeerConnection(socketId: socketId, username: username)
 
-        // Add local audio track; listen-only: a recvonly audio transceiver (never a sendrecv
-        // with no track, which the server's SDP gate refuses for a spectator)
+        // The local track (made at the start, disabled while muted): an ordinary sendrecv offer
         if let track = localAudioTrack {
             pc.add(track, streamIds: ["stream0"])
-        } else {
-            let recv = RTCRtpTransceiverInit()
-            recv.direction = .recvOnly
-            pc.addTransceiver(of: .audio, init: recv)
         }
 
         // Create and send offer
@@ -515,6 +469,11 @@ final class VoiceChatManager: ObservableObject {
     func handleOffer(fromSocketId: String, offer: RTCSessionDescription, username: String) {
         guard isActive, !awaitingIce else {
             print("[Voice] Buffering handleOffer \(fromSocketId) \(username)")
+            // a newer offer from the same peer replaces the older one (and its candidates)
+            if pendingOffers.contains(where: { $0.fromSocketId == fromSocketId }) {
+                pendingOffers.removeAll { $0.fromSocketId == fromSocketId }
+                pendingCandidates[fromSocketId] = nil
+            }
             pendingOffers.append((fromSocketId: fromSocketId, offer: offer, username: username))
             return
         }
@@ -522,19 +481,17 @@ final class VoiceChatManager: ObservableObject {
         print("[Voice] handleOffer from \(fromSocketId) \(username)")
 
         // If we already have a connection, close it and recreate (a restart keeps its count;
-        // the peer is trying again, so it is no longer "unavailable"). A spectator's mode
-        // change arrives this way too (a replacement offer): mute and volume are kept.
+        // the peer is trying again, so it is no longer "unavailable"). An older build's
+        // listen-only re-offer arrives this way too (a replacement offer): mute and volume are kept.
         if peers[fromSocketId] != nil {
             closePeer(fromSocketId, keepRecovery: true)
         }
-        // the answer below is in the current mode: nothing left to re-offer to this peer
-        reofferPending.remove(fromSocketId)
         recovery.offered(fromSocketId)
         restartTimers.removeValue(forKey: fromSocketId)?.cancel()
 
         let pc = createPeerConnection(socketId: fromSocketId, username: username)
 
-        // Add local audio track (listen-only: none, so the answer receives only)
+        // Add local audio track (matched to the offer's audio when it is set)
         if let track = localAudioTrack {
             pc.add(track, streamIds: ["stream0"])
         }
@@ -546,7 +503,6 @@ final class VoiceChatManager: ObservableObject {
                 print("[Voice] Failed to set remote description: \(error.localizedDescription)")
                 return
             }
-
             pc.answer(for: answerConstraints) { sdp, error in
                 guard let sdp = sdp else {
                     print("[Voice] Failed to create answer: \(error?.localizedDescription ?? "unknown")")
@@ -576,22 +532,23 @@ final class VoiceChatManager: ObservableObject {
 
         print("[Voice] handleAnswer from \(fromSocketId)")
         let pc = peer.connection
-        pc.setRemoteDescription(answer) { [weak self] error in
+        pc.setRemoteDescription(answer) { error in
             if let error {
                 print("[Voice] Failed to set remote answer: \(error.localizedDescription)")
-            }
-            // a mode change waited for this answer: re-offer now (the call is stable)
-            DispatchQueue.main.async {
-                guard let self, self.peers[fromSocketId]?.connection === pc,
-                      self.reofferPending.contains(fromSocketId) else { return }
-                self.reoffer(fromSocketId)
             }
         }
     }
 
     /// Handle an incoming ICE candidate.
     func handleIceCandidate(fromSocketId: String, candidate: RTCIceCandidate) {
-        guard let peer = peers[fromSocketId] else { return }
+        guard let peer = peers[fromSocketId] else {
+            // a buffered offer's candidate: kept until that offer is answered at the start
+            if pendingOffers.contains(where: { $0.fromSocketId == fromSocketId }),
+               pendingCandidates[fromSocketId, default: []].count < Self.maxPendingCandidates {
+                pendingCandidates[fromSocketId, default: []].append(candidate)
+            }
+            return
+        }
 
         peer.connection.add(candidate) { error in
             if let error {
@@ -600,17 +557,69 @@ final class VoiceChatManager: ObservableObject {
         }
     }
 
-    /// Remove a peer connection (peer left).
+    /// Remove a peer connection (peer left), and whatever it sent that is still buffered.
     func removePeer(_ socketId: String) {
+        pendingPeers.removeAll { $0.socketId == socketId }
+        pendingOffers.removeAll { $0.fromSocketId == socketId }
+        pendingCandidates[socketId] = nil
         closePeer(socketId)
     }
 
     // MARK: - Mute Controls
 
-    /// Toggle self-mute (disable/enable local audio track).
+    /// The mic button, M-less: mute, or unmute (the first unmute asks for the microphone). A
+    /// tap while that prompt is up is a mute, and it wins over the unmute that asked.
     func toggleSelfMute() {
-        isSelfMuted.toggle()
-        localAudioTrack?.isEnabled = !isSelfMuted
+        if isSelfMuted && !micRequestInFlight { unmute() } else { mute() }
+    }
+
+    func mute() {
+        unmuteAfterPrompt = false
+        isSelfMuted = true
+        localAudioTrack?.isEnabled = false
+    }
+
+    /// Talk: with the mic already allowed this session, enable the track at once (off while in
+    /// the background; the foreground turns it on). Otherwise ask for it first (the session's
+    /// first unmute, or again after a refusal: the person may have allowed it in Settings
+    /// since). Allowed: the track every call already carries is enabled, no renegotiation.
+    /// Refused: muted and listen-only, with the toast.
+    func unmute() {
+        guard isActive else {
+            isSelfMuted = false  // voice is not running (fixture buttons): nothing to send
+            return
+        }
+        if micGranted {
+            unmuteAfterPrompt = false
+            isSelfMuted = false
+            localAudioTrack?.isEnabled = !isBackgrounded
+            return
+        }
+        unmuteAfterPrompt = true
+        guard !micRequestInFlight else { return }
+        micRequestInFlight = true
+        let generation = startGeneration
+        Task { @MainActor in
+            let granted = await self.hooks.requestRecordPermission()
+            self.micRequestInFlight = false
+            // shutdown() meanwhile (the person left): no mic for a session that is gone
+            guard self.isActive, generation == self.startGeneration else { return }
+            guard granted else {
+                self.unmuteAfterPrompt = false
+                self.micPermissionDenied = true
+                self.hooks.notify(VoiceCopy.micDenied)
+                print("[Voice] Mic refused: listening only")
+                return
+            }
+            self.micPermissionDenied = false
+            self.micGranted = true
+            print("[Voice] Mic allowed")
+            if self.unmuteAfterPrompt {
+                self.unmuteAfterPrompt = false
+                self.isSelfMuted = false
+                self.localAudioTrack?.isEnabled = !self.isBackgrounded
+            }
+        }
     }
 
     /// Mute a specific peer's remote audio.
@@ -620,11 +629,11 @@ final class VoiceChatManager: ObservableObject {
         peers[socketId]?.remoteTrack?.isEnabled = false
     }
 
-    /// Unmute a specific peer's remote audio (a forced mute stays: spectator talk is off).
+    /// Unmute a specific peer's remote audio.
     func unmutePeer(_ socketId: String) {
         peerInfos[socketId]?.isMuted = false
         if let name = peerInfos[socketId]?.username { savedMutes[name] = false }
-        peers[socketId]?.remoteTrack?.isEnabled = !isEffectivelyMuted(socketId)
+        peers[socketId]?.remoteTrack?.isEnabled = true
     }
 
     /// Sign-out: the next account on this device starts every player at 100%, unmuted.
@@ -639,12 +648,31 @@ final class VoiceChatManager: ObservableObject {
     func savedMute(for username: String) -> Bool? { savedMutes[username] }
     /// For tests: peers and offers buffered until voice is up.
     var bufferedCount: Int { pendingPeers.count + pendingOffers.count }
+    /// For tests: the ICE candidates buffered with this peer's offer.
+    func bufferedCandidates(from socketId: String) -> Int { pendingCandidates[socketId]?.count ?? 0 }
     /// For tests: the signaling state of the call with this peer.
     func signalingState(of socketId: String) -> RTCSignalingState? { peers[socketId]?.connection.signalingState }
-    /// For tests: a re-offer to this peer waits for an answer.
-    func isReofferPending(_ socketId: String) -> Bool { reofferPending.contains(socketId) }
-    /// For tests: the local mic track: nil (listen-only), or whether it sends.
+    /// For tests: the local track: nil (voice off), or whether it sends.
     var localTrackEnabled: Bool? { localAudioTrack?.isEnabled }
+    /// For tests: the call with this peer carries the local track on its audio sender.
+    func sendsMic(to socketId: String) -> Bool {
+        guard let pc = peers[socketId]?.connection, let track = localAudioTrack else { return false }
+        return Self.audioTransceivers(pc).contains { $0.sender.track?.trackId == track.trackId }
+    }
+    /// For tests: audio senders that may send with no track (WebRTC would feed such a send
+    /// stream the capture, unmuted): must always be 0.
+    func trackLessAudioSenders(_ socketId: String) -> Int {
+        guard let pc = peers[socketId]?.connection else { return 0 }
+        return Self.audioTransceivers(pc).filter {
+            $0.sender.track == nil && ($0.direction == .sendRecv || $0.direction == .sendOnly)
+        }.count
+    }
+    /// For tests: the call's audio transceivers' directions.
+    func audioDirections(of socketId: String) -> [RTCRtpTransceiverDirection] {
+        peers[socketId].map { Self.audioTransceivers($0.connection).map(\.direction) } ?? []
+    }
+    /// For tests: the peer's audio reached us as a track (didAdd stream).
+    func hasRemoteTrack(_ socketId: String) -> Bool { peers[socketId]?.remoteTrack != nil }
 
     /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
     /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
@@ -694,7 +722,7 @@ final class VoiceChatManager: ObservableObject {
         // Store delegate to keep it alive (stored on the peer state, referenced via associated object)
         objc_setAssociatedObject(pc, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
-        peers[socketId] = PeerState(connection: pc, username: username, listenOnly: localAudioTrack == nil)
+        peers[socketId] = PeerState(connection: pc, username: username)
         // this socket's row (a replaced call), else my mute of this person on any socket
         let muted = peerInfos[socketId]?.isMuted ?? savedMutes[username] ?? false
         let volume = peerInfos[socketId]?.volume ?? savedVolumes[username] ?? VoiceVolume.normal
@@ -710,7 +738,6 @@ final class VoiceChatManager: ObservableObject {
         connectTimers.removeValue(forKey: socketId)?.cancel()
         restartTimers.removeValue(forKey: socketId)?.cancel()
         recovery.closed(socketId, keepRecovery: keepRecovery)
-        if !keepRecovery { reofferPending.remove(socketId) }
         guard let peer = peers.removeValue(forKey: socketId) else {
             if !keepRecovery { peerInfos.removeValue(forKey: socketId) }
             return
@@ -829,13 +856,19 @@ final class VoiceChatManager: ObservableObject {
         let offerPeerIds = Set(pendingOffers.map { $0.fromSocketId })
         let bufferedPeers = pendingPeers
         let bufferedOffers = pendingOffers
+        let bufferedCandidates = pendingCandidates
         pendingPeers.removeAll()
         pendingOffers.removeAll()
+        pendingCandidates.removeAll()
 
         print("[Voice] Flushing \(bufferedOffers.count) offers, \(bufferedPeers.count) peers")
 
         for offer in bufferedOffers {
             handleOffer(fromSocketId: offer.fromSocketId, offer: offer.offer, username: offer.username)
+            // right after the offer: WebRTC chains each add behind the remote description
+            for candidate in bufferedCandidates[offer.fromSocketId] ?? [] {
+                handleIceCandidate(fromSocketId: offer.fromSocketId, candidate: candidate)
+            }
         }
         for peer in bufferedPeers {
             if !offerPeerIds.contains(peer.socketId) {
@@ -942,9 +975,9 @@ final class VoiceChatManager: ObservableObject {
     func setRemoteTrack(_ track: RTCAudioTrack, for socketId: String) {
         peers[socketId]?.remoteTrack = track
         // a new track (first connect, a restart, a replacement offer) takes this player's
-        // mute (or the forced one) and volume
+        // mute and volume
         if let info = peerInfos[socketId] {
-            track.isEnabled = !isEffectivelyMuted(socketId)
+            track.isEnabled = !info.isMuted
             track.source.volume = info.volume
         }
     }
