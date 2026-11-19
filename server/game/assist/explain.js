@@ -296,7 +296,8 @@ function ruleConfidence(code) {
 /**
  * Is this trick already decided for the seat? From the seat view alone: it
  * plays last (the other three cards are on the table) and every legal card
- * leaves the same seat winning it.
+ * leaves the same pair winning it (tricks count per pair: overtaking the
+ * partner, or not, gives the trick to the same side).
  */
 function trickDecided(view) {
     if (view.stage !== 'play' || view.playedCards[view.position - 1]) return false;
@@ -307,7 +308,8 @@ function trickDecided(view) {
     for (const c of view.legal) {
         const cards = view.playedCards.slice();
         cards[view.position - 1] = c;
-        const w = getCurrentWinner(cards, view.leadPosition, view.trump).position;
+        // The winner's pair: seats 1 and 3, or 2 and 4
+        const w = (getCurrentWinner(cards, view.leadPosition, view.trump).position - 1) % 2;
         if (who === null) who = w;
         else if (w !== who) return false;
     }

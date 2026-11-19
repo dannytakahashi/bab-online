@@ -373,7 +373,7 @@ describe('a decided trick is never a close call (owner play-test 2026-11-19)', (
         return [rich.label, rich.headline, ...rich.reasons, ...rich.details, rich.footer, C.render(e, { style: 'line', uses: 1, freeUses: 3 })].join('\n');
     };
 
-    test('the seat view decides it: last to play, every legal card leaves the same winner', () => {
+    test('the seat view decides it: last to play, every legal card leaves the same pair winning', () => {
         expect(trickDecided(ownerView())).toBe(true);
         // Last to play, but the Q♦ wins and the 9♦ does not
         const open = seatView(tableAt({
@@ -456,6 +456,60 @@ describe('a decided trick is never a close call (owner play-test 2026-11-19)', (
         expect(o.codes).toContain('S.close');
         expect(o.confidence).toBe('close');
         expect(o.reasons[1]).toBe('Close call: the Q♦ and the 9♦ do about equally well.');
+    });
+
+    test('the player could overtake the partner: the same pair takes the trick, so still a clear choice', () => {
+        // The owner's table with Carol winning with the 10♦: the Q♦ moves the
+        // trick from Carol's seat to Dan's, but tricks count per pair
+        const v = seatView(tableAt({
+            handSize: 12, trump: 'Jc', stage: 'play',
+            hands: { 4: ['9d', 'Qd', '6s', 'Js', 'Qs', '9h', '10h', '4c', '9c'] },
+            bids: ['4', '4', '1', '0'], turn: 4, trumpBroken: true,
+            tricks: [{ lead: 1, cards: ['As', '2s', '3s', '4s'] }, { lead: 1, cards: ['Ah', '2h', '3h', '4h'] }, { lead: 1, cards: ['Ad', '2d', '3d', '4d'] }],
+            open: { lead: 1, cards: ['5d', '10d', '8d'] }
+        }), 4);
+        expect(trickDecided(v)).toBe(true);
+        const d = advise(v);
+        expect(d.source).toBe('rules');
+        const e = explain(d, v);
+        expect(e.headline).toBe('Play 9♦');
+        expect(e.codes).toEqual(['C.normal', 'F.partnerWinsLow']);
+        expect(e.reasons[1]).toBe('Carol is winning with the 10♦ and nobody plays after you. Play low and keep the rest.');
+        expect(e.confidence).toBe('clear');
+        expect(C.render(e).label).toBe('Clear choice');
+        expect(rendered(e)).not.toMatch(/close call/i);
+        // A tight search agreeing: worded as decided, not "Close call:"
+        const s = explain(withSearch(d, ['9d', 'Qd'], { totals: [314, 310], makes: [40, 40], sets: [14, 14] }), v);
+        expect(s.confidence).toBe('clear');
+        expect(s.details).toEqual(['Checked over 64 likely ways the hidden cards could be split: the 9♦ and the Q♦ come out about the same later in the hand, and this trick is decided either way.']);
+        expect(rendered(s)).not.toMatch(/close call/i);
+
+        // 11 cards (no search), Carol winning with the Q♥, Dan holding the K♥
+        const h = seatView(tableAt({
+            handSize: 13, trump: 'Jc', stage: 'play',
+            hands: { 4: ['Kh', '9h', '6s', 'Js', 'Qs', '5d', '10d', '4c', '9c', '7d', '8s'] },
+            bids: ['4', '4', '1', '0'], turn: 4, trumpBroken: true,
+            tricks: [{ lead: 1, cards: ['As', '2s', '3s', '4s'] }],
+            open: { lead: 1, cards: ['2h', 'Qh', '7h'] }
+        }), 4);
+        expect(trickDecided(h)).toBe(true);
+        const he = explain(advise(h), h);
+        expect(he.headline).toBe('Play 9♥');
+        expect(he.codes).toContain('F.partnerWinsLow');
+        expect(C.render(he).label).toBe('Clear choice');
+        expect(rendered(he)).not.toMatch(/close call/i);
+
+        // A real 3-card search: Dan holding the Q♦ and the 2♦ under Carol's 10♦
+        const r = seatView(tableAt({
+            handSize: 3, trump: 'Jc', stage: 'play',
+            hands: { 1: ['5s', '6h'], 2: ['5h', '7s'], 3: ['3h', '8s'], 4: ['Qd', '2d', '6s'] },
+            bids: ['1', '1', '0', '0'], turn: 4, trumpBroken: true, open: { lead: 1, cards: ['5d', '10d', '8d'] }
+        }), 4);
+        expect(trickDecided(r)).toBe(true);
+        const re = explain(advise(r), r);
+        expect(re.headline).toBe('Play 2♦');
+        expect(re.confidence).not.toBe('close');
+        expect(rendered(re)).not.toMatch(/close call/i);
     });
 
     test('a sure rule code is never turned into a close call by a tight search', () => {
