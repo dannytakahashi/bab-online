@@ -6,8 +6,10 @@
  * Pure: reads the game, never writes it, and returns a deep copy that is
  * JSON-safe and holds NO socket ids. Every key is always present, in a
  * fixed order (the committed fixtures depend on it). It deliberately
- * requires only rules / GamePhase / SeatState (never GameState or
- * GameManager): tournament info is passed in through opts.
+ * requires only rules / GamePhase / SeatState / assistState (never
+ * GameState or GameManager): tournament info is passed in through opts.
+ * Optional keys (absent when they do not apply): bidClock, viewer.assist
+ * (the viewer's own seat only) and a log item's fault.
  */
 
 'use strict';
@@ -16,6 +18,7 @@ const { calculateMultiplier, determineDrawPosition, HAND_PROGRESSION } = require
 const { Phase } = require('./GamePhase');
 const { Controller, isBotSocket, seatDisplay } = require('./SeatState');
 const { spectatorsWire } = require('./spectatorWire');
+const { assistTally } = require('./assistState');
 
 const SNAPSHOT_VERSION = 2;
 const HAND_SEQUENCE = HAND_PROGRESSION;
@@ -183,6 +186,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             type: e.type,
             position: e.playerPosition ?? null,
             at: e.timestamp,
+            // additive (2026-11-19): a hand's fault line {position, bid, took}
+            ...(e.fault && { fault: { position: e.fault.position, bid: e.fault.bid, took: e.fault.took } }),
         }));
     } else {
         partial.push('log');
@@ -209,6 +214,10 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             ownerView,
             canAct: role === 'seat' && !!turn && turn.position === ownPos &&
                 (turn.action === 'bid' ? byPosition[ownPos - 1] == null : !game.playedCards[ownPos - 1]),
+            // additive (2026-11-19): the viewer's own /help count this game
+            // (assistState; the assistHint's uses / freeUses / assisted), only
+            // for a seat owner, so a reload shows the exact count
+            ...(ownSeat && { assist: assistTally(game.assist?.[ownPos], ownSeat.ownerUsername ?? null) }),
         },
         hand,
         deal,

@@ -1489,8 +1489,11 @@ class GameState {
      * @param {Object} [meta]
      * @param {string} [meta.from] - a chat line's sender (the username its
      *   chatMessage broadcast carried). Internal, never on the wire.
+     * @param {{position: number, bid: number, took: number}} [meta.fault] -
+     *   a hand's fault line (gameHandlers.handleHandComplete): on the wire
+     *   in the snapshot's log item (optional `fault`)
      */
-    addLogEntry(message, playerPosition = null, type = 'system', { from } = {}) {
+    addLogEntry(message, playerPosition = null, type = 'system', { from, fault } = {}) {
         const entry = {
             message,
             playerPosition,
@@ -1498,6 +1501,7 @@ class GameState {
             timestamp: Date.now()
         };
         if (typeof from === 'string') entry.from = from;
+        if (fault && typeof fault === 'object') entry.fault = { position: fault.position, bid: fault.bid, took: fault.took };
 
         this.gameLog.push(entry);
         this.logTotal++;

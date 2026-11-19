@@ -38,10 +38,13 @@
  * extras' reload redirect into a just-started game) and every lobby,
  * play-again holds and reservations included (they live on lobbies).
  *
- * Versions: CODEC_V 2 added state.assist. hydrate reads v1 and v2 (a v1
- * doc, written before /help, restores every seat with the default assist:
- * no use yet) and serialize always writes CODEC_V; any other v is a
- * CodecError('version').
+ * Versions: CODEC_V 2 added state.assist; CODEC_V 3 (2026-11-19) a log
+ * entry's optional `fault` {position, bid, took} (a hand's fault line,
+ * gameHandlers.handleHandComplete; the snapshot's log item carries it).
+ * hydrate reads v1, v2 and v3 (a v1 doc, written before /help, restores
+ * every seat with the default assist: no use yet; a v1 or v2 doc has no
+ * fault lines, nothing to convert) and serialize always writes CODEC_V; any
+ * other v is a CodecError('version').
  *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
@@ -89,14 +92,14 @@ const { isStockPic } = require('../../avatar/stockAvatars');
 const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
-const CODEC_V = 2;
+const CODEC_V = 3;
 
 /**
  * The versions hydrate reads. A new version keeps the old ones readable
  * (restoreFrom fills the defaults), so a game saved by the process before
  * a deploy survives it.
  */
-const READ_VERSIONS = Object.freeze([1, 2]);
+const READ_VERSIONS = Object.freeze([1, 2, 3]);
 
 /** A hydrated game's eventSeq continues this far past the saved one. */
 const EVENT_SEQ_OFFSET = 1000;
@@ -130,7 +133,8 @@ const SAVED = deepFreeze({
     seat: ['controller', 'presence', 'ownerUsername', 'ownerPic', 'bot', 'lastPersonality', 'resignedAt', 'leftAt'],
     seatBot: ['socketId', 'username', 'pic', 'personality'],
     botPlayer: ['socketId', 'username', 'personality', 'position', 'pic', 'partnerHistory'],
-    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from'],
+    // fault (CODEC_V 3): a hand's fault line {position, bid, took}
+    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from', 'fault'],
     // gameVoice.initCasualVoice's settings, by username: a restored family
     // game keeps its host, "Spectators can talk" and which watchers came
     // from the lobby (hydrate re-runs initCasualVoice with them)

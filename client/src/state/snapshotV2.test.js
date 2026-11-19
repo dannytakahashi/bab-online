@@ -384,3 +384,24 @@ describe('unknown enum values from a newer server (later #17: as iOS, .unknown(r
     expect(parseSnapshotV2(shape).ok).toBe(false);
   });
 });
+
+describe('the optional per-viewer and per-line extras (2026-11-19)', () => {
+  it('viewer.assist: a seat owner\'s fixture has it, a spectator\'s has none; a malformed one is dropped with a warning', () => {
+    expect(parsed('hand-resolving').viewer.assist).toEqual({ uses: 0, freeUses: 3, assisted: false });
+    expect(parsed('spectator-mid-hand').viewer).not.toHaveProperty('assist');
+    const raw = load('hand-resolving').snapshot;
+    const bad = parseSnapshotV2({ ...raw, viewer: { ...raw.viewer, assist: { uses: -1, freeUses: 3, assisted: false } } });
+    expect(bad.ok).toBe(true);
+    expect(bad.snapshot.viewer).not.toHaveProperty('assist');
+    expect(bad.warnings.some((w) => w.startsWith('$.viewer.assist'))).toBe(true);
+  });
+
+  it('a log item\'s fault is kept as sent', () => {
+    const raw = load('hand-resolving').snapshot;
+    const fault = { position: 2, bid: 3, took: 1 };
+    const log = [...raw.log, { message: 'Fault: bob (bid 3, took 1)', type: 'system', position: null, at: 1, fault }];
+    const r = parseSnapshotV2({ ...raw, log }, { strict: true });
+    expect(r.ok).toBe(true);
+    expect(r.snapshot.log.at(-1).fault).toEqual(fault);
+  });
+});

@@ -16,9 +16,11 @@
  *    scene clears the card on an updateTurn that ends it, on my own bid or
  *    card, at hand end, a redeal, game end and when a bot takes my seat.
  *  - The /help uses of this game (uses / freeUses / assisted) come from the
- *    latest hint and reset when a game starts (createUI); after a reload
- *    or a rejoin they are unknown until the next hint. The chat autocomplete
- *    describes /help from them (helpDescription).
+ *    latest hint or snapshot (viewer.assist, 2026-11-19: a seat owner's
+ *    own count, state/tableSync.js) and reset when a game starts (createUI);
+ *    so after a reload or a rejoin they are exact again. Unknown only before
+ *    either arrives (or from a server without viewer.assist). The chat
+ *    autocomplete describes /help from them (helpDescription).
  *
  * Names only in every text (never team numbers, "your team", "opponents");
  * the hint's own texts come from the server, which lints them.
@@ -64,7 +66,7 @@ export function forgetAssistUses() {
   uses = { gameId: null, known: false, uses: 0, freeUses: DEFAULT_FREE_USES, assisted: false };
 }
 
-/** A hint arrived: its counts are this game's. */
+/** A hint (or a snapshot's viewer.assist) arrived: its counts are this game's. */
 export function noteAssistUses(hint, gameId = null) {
   if (!hint || typeof hint !== 'object') return;
   uses = {
@@ -92,8 +94,8 @@ export function assistUses(gameId = null) {
  *   "Suggest a move (the next one makes this game bot-assisted)"
  *   "Suggest a move (this game is bot-assisted for you)"
  *   "Suggest a move (after 3 free, this game counts as bot-assisted)"
- *        (unknown: a reload, a rejoin; the warning stays, since the uses
- *        so far may be spent)
+ *        (unknown: no hint or snapshot with viewer.assist yet; the warning
+ *        stays, since the uses so far may be spent)
  */
 export function helpDescription(gameId = null) {
   const u = assistUses(gameId);

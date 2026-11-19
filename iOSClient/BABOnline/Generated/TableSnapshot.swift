@@ -145,6 +145,7 @@ struct TableSnapshot: Codable, Equatable {
         var position: Int?
         var ownerView: OwnerView?
         var canAct: Bool
+        var assist: ViewerAssist?
     }
 
     enum Role: Codable, Equatable, Hashable {
@@ -224,6 +225,12 @@ struct TableSnapshot: Codable, Equatable {
             var c = encoder.singleValueContainer()
             try c.encode(rawValue)
         }
+    }
+
+    struct ViewerAssist: Codable, Equatable {
+        var uses: Int
+        var freeUses: Int
+        var assisted: Bool
     }
 
     struct Deal: Codable, Equatable {
@@ -491,6 +498,7 @@ struct TableSnapshot: Codable, Equatable {
         var type: LogType
         var position: Int?
         var at: Int
+        var fault: LogFault?
     }
 
     enum LogType: Codable, Equatable, Hashable {
@@ -538,6 +546,12 @@ struct TableSnapshot: Codable, Equatable {
             var c = encoder.singleValueContainer()
             try c.encode(rawValue)
         }
+    }
+
+    struct LogFault: Codable, Equatable {
+        var position: Int
+        var bid: Int
+        var took: Int
     }
 
     struct Resume: Codable, Equatable {

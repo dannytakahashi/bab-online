@@ -200,7 +200,6 @@ function withScene(fn, kind = 'table') {
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
 import { resetAssistUses, forgetAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
-import { rememberFault, rememberedFaults, withFaultRows } from './rules/faults.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -261,13 +260,11 @@ window.addPrivateToGameFeed = function(message) {
   if (message) gameLogInstance?.addPrivateMessage?.(message);
 };
 
-// A set hand's red fault row (GameScene.handleHandComplete; computed here,
-// never sent or stored): remembered by its hand's totals, so a replay of
-// the server's log puts it back (renderTable, rules/faults.js withFaultRows)
-window.addFaultToGameFeed = function(message, { score = null } = {}) {
-  if (!message) return;
-  gameLogInstance?.addFaultMessage?.(message);
-  rememberFault(getGameState().gameId, score, message);
+// A set hand's red fault row: the server's stored gameLogEntry with
+// `fault` (gameHandlers.handleHandComplete; onGameLogEntry). A replay of
+// the snapshot log draws it again from the entry's fault (renderTable)
+window.addFaultToGameFeed = function(message) {
+  if (message) gameLogInstance?.addFaultMessage?.(message);
 };
 
 // Bridge for updating game log score display
@@ -1269,8 +1266,8 @@ function initializeApp() {
     scene.render(model);
     const feed = ensureGameLog();
     if (log && feed?.replaceMessages) {
-      const entries = log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null }));
-      feed.replaceMessages(withFaultRows(entries, rememberedFaults(gameState.gameId)));
+      // a hand's fault line (server-stored, optional `fault`) is drawn red
+      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault })));
     }
     if (suffix) window.addToGameFeedFromLegacy(suffix);
     if (model.live && model.handSize) {
@@ -1850,14 +1847,11 @@ function initializeApp() {
     },
     // Hand & game end - call GameScene handlers
     onHandComplete: (data) => {
-      // The hand's bids, each seat's tricks and its size, for its log
-      // lines and fault lines (GameState resets them next)
+      // The hand's bids, for its log lines (GameState resets them next)
       const bids = { ...gameState.bids };
-      const tricksByPosition = { ...gameState.tricksByPosition };
-      const handSize = gameState.currentHand;
       withScene((scene) => {
         director.settleDeal();
-        scene.handleHandComplete(data, { bids, tricksByPosition, handSize });
+        scene.handleHandComplete(data, { bids });
       });
       // Hide game log trick indicator at end of hand
       if (gameLogInstance && gameLogInstance.hideTrickIndicator) {
@@ -2139,6 +2133,14 @@ function initializeApp() {
       });
     },
     onGameLogEntry: (data) => {
+      // A hand's fault line (the server's, after handComplete): red, and
+      // queued behind the scene like handComplete, so it lands after that
+      // hand's lines even while the scene is not ready yet ('draw': a log
+      // row only, nothing to settle the table on)
+      if (data.fault) {
+        withScene(() => window.addFaultToGameFeed?.(data.message), 'draw');
+        return;
+      }
       if (data.type === 'system') {
         window.addToGameFeedFromLegacy?.(data.message, null);
       } else if (data.playerPosition !== undefined) {

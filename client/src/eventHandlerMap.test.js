@@ -256,8 +256,8 @@ describe('server event -> handler map', () => {
   });
 });
 
-describe('fault lines: the hand reaches the scene before GameState resets it (owner 2026-11-19)', () => {
-  it('handComplete passes the bids, each seat\'s tricks (from the trickComplete winners) and the hand size', async () => {
+describe('fault lines are the server\'s (owner 2026-11-19; gameLogEntry with fault)', () => {
+  it('handComplete passes the hand\'s bids (copied before GameState resets them); no seat tricks or size are needed any more', async () => {
     const spies = ['handleTrickComplete', 'handleHandComplete'].map((n) => vi.spyOn(GameScene.prototype, n).mockImplementation(() => {}));
     try {
       const { getGameState } = await import('./state/GameState.js');
@@ -265,7 +265,6 @@ describe('fault lines: the hand reaches the scene before GameState resets it (ow
       state.position = 1;
       state.currentHand = 2;
       state.bids = { 1: '2', 2: '0', 3: '0', 4: '1' };
-      state.tricksByPosition = { 1: 0, 2: 0, 3: 0, 4: 0 };
       const scene = new GameScene();
       scene.scene = { restart: vi.fn() };
       scene.children = { removeAll: vi.fn() };
@@ -277,26 +276,26 @@ describe('fault lines: the hand reaches the scene before GameState resets it (ow
       fire('handComplete', { score: { team1: -20, team2: 10 }, team1Tricks: 1, team2Tricks: 1, team1OldScore: 0, team2OldScore: 0 });
 
       const [, hand] = spies[1].mock.calls.at(-1);
-      expect(hand).toEqual({ bids: { 1: '2', 2: '0', 3: '0', 4: '1' }, tricksByPosition: { 1: 1, 2: 0, 3: 0, 4: 1 }, handSize: 2 });
-      // copies: the reset for the next hand does not reach them
-      expect(state.tricksByPosition).toEqual({ 1: 0, 2: 0, 3: 0, 4: 0 });
-      const { formatFaultMessages } = await import('./ui/components/ScoreModal.js');
-      expect(formatFaultMessages({ myPosition: 1, playerData: null, ...hand, team1Tricks: 1, team2Tricks: 1 }))
-        .toEqual(['Fault: P1 (bid 2, took 1)']);
+      expect(hand).toEqual({ bids: { 1: '2', 2: '0', 3: '0', 4: '1' } });
     } finally {
       spies.forEach((s) => s.mockRestore());
     }
   });
 
-  it('window.addFaultToGameFeed writes a red is-fault row into the game log and remembers it by the hand\'s totals (a replay puts it back)', async () => {
-    const { rememberedFaults, forgetFaults } = await import('./rules/faults.js');
-    forgetFaults();
+  it('a gameLogEntry with fault is one red is-fault row; a plain system line is not red; the page computes none itself', async () => {
     window.createGameFeedFromLegacy(true);
-    window.addFaultToGameFeed('Fault: ann (bid 3, took 1)', { score: { team1: -40, team2: 13 } });
-    const rows = [...document.querySelectorAll('#gameFeed .log-row.is-fault')];
-    expect(rows.at(-1)?.textContent).toContain('Fault: ann (bid 3, took 1)');
-    const { getGameState } = await import('./state/GameState.js');
-    expect(rememberedFaults(getGameState().gameId)).toEqual([{ team1: -40, team2: 13, lines: ['Fault: ann (bid 3, took 1)'] }]);
-    forgetFaults();
+    const red = () => [...document.querySelectorAll('#gameFeed .log-row.is-fault')].map((r) => r.textContent);
+    const before = red().length;
+    fire('gameLogEntry', { message: 'Fault: ann (bid 3, took 1)', type: 'system', fault: { position: 1, bid: 3, took: 1 } });
+    fire('gameLogEntry', { message: 'bob used /help.', type: 'system' });
+    const rows = red();
+    expect(rows.length - before).toBe(1);
+    expect(rows.at(-1)).toContain('Fault: ann (bid 3, took 1)');
+    const last = [...document.querySelectorAll('#gameFeed .log-row')].at(-1);
+    expect(last.textContent).toContain('bob used /help.');
+    expect(last.classList.contains('is-fault')).toBe(false);
+    // the client-side rule and its replay bookkeeping are gone
+    expect(existsSync(resolve(__dirname, 'rules/faults.js'))).toBe(false);
+    expect(mainSource).not.toMatch(/rememberFault|withFaultRows|formatFaultMessages/);
   });
 });

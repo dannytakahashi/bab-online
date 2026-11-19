@@ -64,16 +64,17 @@ const SERVER = path.join(__dirname, '../../..');
 // (main's family lobbies and play again): no v1 doc had ever been written,
 // nothing calls serialize before the persist store (PR 4). From PR 4 on a
 // change bumps CODEC_V. Game v2: game.assist (/help, plan H2b); hydrate
-// still reads v1 (gameCodec.v1Hydrate.test.js).
+// still reads v1 (gameCodec.v1Hydrate.test.js). Game v3: a log entry's
+// optional fault (a hand's fault line, 2026-11-19).
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '213d07164b4c1a9c' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
-    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac' },
+    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: '8ff2c04e4dd526ac' },
     tournament: { 1: 'b361a440bd865499' },
 };
 

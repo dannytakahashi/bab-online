@@ -15,6 +15,7 @@ const {
     determineDrawPosition,
     calculateHSI,
     calculateScore,
+    handFaults,
     nextHandSize: handSizeAfter,
     BID_RANKS
 } = require('../game/rules');
@@ -875,42 +876,15 @@ async function handleHandComplete(game, io) {
         game.handStats.team2SetPoints = (game.handStats.team2SetPoints || 0) + team2SetPoints;
     }
 
-    // Track set responsibility per player
-    // A player is responsible for a set if their team was set AND they bid more than they took
-    if (game.playerStats && game.handTricks) {
-        const getBidValue = (bid) => {
-            const bidStr = String(bid);
-            return bidStr.includes('B') ? 0 : parseInt(bidStr, 10) || 0;
-        };
-
-        // Team 1 set check (positions 1 and 3)
-        if (game.tricks.team1 < game.bids.team1) {
-            const p1Bid = getBidValue(game.playerBids[0]); // Position 1
-            const p3Bid = getBidValue(game.playerBids[2]); // Position 3
-            const p1Tricks = game.handTricks[1] || 0;
-            const p3Tricks = game.handTricks[3] || 0;
-
-            if (p1Bid > p1Tricks && game.playerStats[1]) {
-                game.playerStats[1].setsCaused++;
-            }
-            if (p3Bid > p3Tricks && game.playerStats[3]) {
-                game.playerStats[3].setsCaused++;
-            }
-        }
-
-        // Team 2 set check (positions 2 and 4)
-        if (game.tricks.team2 < game.bids.team2) {
-            const p2Bid = getBidValue(game.playerBids[1]); // Position 2
-            const p4Bid = getBidValue(game.playerBids[3]); // Position 4
-            const p2Tricks = game.handTricks[2] || 0;
-            const p4Tricks = game.handTricks[4] || 0;
-
-            if (p2Bid > p2Tricks && game.playerStats[2]) {
-                game.playerStats[2].setsCaused++;
-            }
-            if (p4Bid > p4Tricks && game.playerStats[4]) {
-                game.playerStats[4].setsCaused++;
-            }
+    // Track set responsibility per player (rules.handFaults: a player on a
+    // set team who took fewer tricks than they bid, a bore counting as 0;
+    // the same list writes the hand's fault lines below)
+    const faults = game.handTricks ? handFaults({
+        teamBids: game.bids, teamTricks: game.tricks, playerBids: game.playerBids, handTricks: game.handTricks
+    }) : [];
+    if (game.playerStats) {
+        for (const f of faults) {
+            if (game.playerStats[f.position]) game.playerStats[f.position].setsCaused++;
         }
     }
 
@@ -943,6 +917,18 @@ async function handleHandComplete(game, io) {
         team1OldScore,
         team2OldScore
     });
+
+    // Then one stored, sequenced line per fault (owner 2026-11-19), after
+    // the hand's lines: "Fault: <name> (bid N, took M)", with the optional
+    // fault {position, bid, took} (clients draw it red; a snapshot's log
+    // carries it, so a rejoin, reload or spectator replays it in place)
+    for (const f of faults) {
+        const name = game.getPlayerByPosition(f.position)?.username || `P${f.position}`;
+        const message = `Fault: ${name} (bid ${f.bid}, took ${f.took})`;
+        const fault = { position: f.position, bid: f.bid, took: f.took };
+        game.addLogEntry(message, null, 'system', { fault });
+        game.broadcast(io, 'gameLogEntry', { message, type: 'system', fault });
+    }
 
     // Bot personality hooks: update Zach's partner tracking, trigger chat reactions
     botController.updatePartnerHistory(game);

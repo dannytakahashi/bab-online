@@ -416,7 +416,15 @@ order is fixed, no socket ids appear. One documented exception: `bidClock`
 otherwise ("Bid clock" above), so every snapshot and recording taken
 without a running clock is unchanged; shipped iOS decodes `TableSnapshot`
 with Codable, which ignores an unknown key, and the generated Swift makes
-it Optional.
+it Optional. Two more optional keys (additive 2026-11-19), absent where
+they do not apply, Optional in the generated Swift and ignored by every
+shipped build's Codable decoder (frozen floors list neither): `viewer.assist
+{uses, freeUses, assisted}` (`$defs.viewerAssist`), the receiving seat
+owner's own /help count, only for role seat / lazyWatcher, so a client
+shows the exact count after a reload; and a `log[]` item's `fault
+{position, bid, took}` (`$defs.logFault`), only on a hand's fault line
+("Fault: <name> (bid N, took M)", the s2c gameLogEntry room variant's same
+optional `fault`), so a replay draws it red in place.
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
 actionRejected (no log) and the spectator full state;
