@@ -224,15 +224,23 @@ final class AssistHintTests: XCTestCase {
         XCTAssertEqual(AssistRules.helpDescription(AssistUses(uses: 2)), "Suggest a move (2 of 3 free used)")
         XCTAssertEqual(AssistRules.helpDescription(AssistUses(uses: 3)), "Suggest a move (the next one makes this game bot-assisted)")
         XCTAssertEqual(AssistRules.helpDescription(AssistUses(uses: 4, assisted: true)), "Suggest a move (this game is bot-assisted for you)")
-        // another game's snapshot forgets them; the same game's keeps them
+        // another game's snapshot forgets them; the same game's keeps them (a snapshot without
+        // viewer.assist: an older server; with it, the snapshot's count: FaultRowsTests)
+        let noAssist: (inout [String: Any]) -> Void = { raw in
+            var v = raw["viewer"] as? [String: Any] ?? [:]
+            v.removeValue(forKey: "assist")
+            raw["viewer"] = v
+        }
         var t = myBidTurn()
         TableReducer.reduce(&t, hint("bid", uses: 2))
-        let same = try? T.snapshot("bidding-mid") { $0["gameId"] = "g1" }
+        let same = try? T.snapshot("bidding-mid") { noAssist(&$0); $0["gameId"] = "g1" }
         if let same { TableReducer.reduce(&t, .snapshot(same, .requested("x"), hints: nil)) }
         XCTAssertEqual(t.table.assistUses?.uses, 2)
-        if let other = try? T.snapshot("bidding-mid") { TableReducer.reduce(&t, .snapshot(other, .rejoin, hints: nil)) }
+        if let other = try? T.snapshot("bidding-mid", edit: noAssist) { TableReducer.reduce(&t, .snapshot(other, .rejoin, hints: nil)) }
         XCTAssertNil(t.table.assistUses)
         XCTAssertNil(t.table.assist)
+        if let other = try? T.snapshot("bidding-mid") { TableReducer.reduce(&t, .snapshot(other, .rejoin, hints: nil)) }
+        XCTAssertEqual(t.table.assistUses, AssistUses(uses: 0, freeUses: 3, assisted: false), "the snapshot's viewer.assist")
     }
 
     // MARK: - The lightbulb

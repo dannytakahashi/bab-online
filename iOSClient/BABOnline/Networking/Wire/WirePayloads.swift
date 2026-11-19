@@ -108,7 +108,14 @@ enum WirePayload {
         var position: Int?; var username: String?; var pic: PicWire?; var avatarUrl: String?; var seq: Int?
     }
 
-    struct GameLogEntry: Decodable, Equatable { var message: String?; var type: String?; var playerPosition: Int?; var seq: Int? }
+    /// gameLogEntry. `fault` (additive 2026-11-19, the room variant): a set hand's fault line
+    /// "Fault: <name> (bid N, took M)" from server rules.handFaults, drawn red in the log.
+    struct GameLogEntry: Decodable, Equatable {
+        /// The seat that fell short, its own bid (a bore as the server counts it) and its tricks.
+        struct Fault: Decodable, Equatable { var position: Int?; var bid: Int?; var took: Int? }
+        var message: String?; var type: String?; var playerPosition: Int?; var seq: Int?
+        var fault: Fault?
+    }
 
     struct Chat: Decodable, Equatable {
         var username: String?; var message: String?; var position: Int?; var type: String?; var isSpectator: Bool?; var seq: Int?
@@ -284,5 +291,21 @@ enum Position {
     static func valid(_ v: Int?) -> Int? {
         guard let v, (1...4).contains(v) else { return nil }
         return v
+    }
+}
+
+extension WirePayload.GameLogEntry {
+    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault }
+
+    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault` this
+    /// build cannot read leaves a plain system row, never a dropped line).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+        message = opt(String.self, .message)
+        type = opt(String.self, .type)
+        playerPosition = opt(Int.self, .playerPosition)
+        seq = opt(Int.self, .seq)
+        fault = opt(Fault.self, .fault)
     }
 }

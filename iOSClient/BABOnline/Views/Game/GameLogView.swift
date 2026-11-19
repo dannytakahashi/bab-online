@@ -228,9 +228,10 @@ struct GameLogEntryView: View {
             if entry.type == .system {
                 Text(entry.message)
                     .font(.caption2)
-                    // a row only I see (my /help answer): dim, in the suggestion's gold
-                    .foregroundColor(entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim)
-                    .italic()
+                    .foregroundColor(Self.systemColor(entry))
+                    // a fault line is upright, as the web's .log-row.is-fault; other system rows italic
+                    .italic(!entry.isFault)
+                    .accessibilityIdentifier(entry.isFault ? "logFaultRow" : "")
             } else {
                 Text("\(entry.username):")
                     .font(.caption2.bold())
@@ -240,6 +241,14 @@ struct GameLogEntryView: View {
                     .foregroundColor(Theme.textPrimary)
             }
         }
+    }
+
+    /// A system row's colour: a set hand's fault line red (danger.text, the web's
+    /// .log-row.is-fault), a row only I see (my /help answer) dim in the suggestion's gold,
+    /// any other dim.
+    static func systemColor(_ entry: ChatMessage) -> Color {
+        if entry.isFault { return Theme.error }
+        return entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim
     }
 
     private var usernameColor: Color {

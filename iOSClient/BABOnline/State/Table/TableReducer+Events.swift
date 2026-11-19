@@ -187,7 +187,9 @@ extension TableReducer {
         // MARK: log / chat / spectators
         case .gameLogEntry(let p):
             let type = ChatMessage.MessageType(rawValue: p.type ?? "system") ?? .system
-            s.log.entries.append(ChatMessage(username: "System", message: p.message ?? "", type: type))
+            var row = ChatMessage(username: "System", message: p.message ?? "", type: type)
+            row.isFault = p.fault != nil
+            s.log.entries.append(row)
         case .chatMessage(let p, let blocked, let mine):
             guard !blocked else { break }
             // 21.8: `isSpectator` routes (the server drops `type` with V1_REMOVALS #12); `type` only for an older server

@@ -169,6 +169,7 @@ enum UIFixture {
                 (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
+            editFaults(&snapDict)
             let snap = try TableSnapshot.decode(snapDict, strict: true)
             seededSnapshot = snapDict
             let me = snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
@@ -226,6 +227,7 @@ enum UIFixture {
             }
             seedTableExtras(store, snap, auth: auth)
             seedAssist(store, auth: auth)
+            seedFaults(store, snap)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
                 seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
@@ -378,7 +380,7 @@ enum UIFixture {
     static let leaveDrive: String? = isActive ? UserDefaults.standard.string(forKey: "uiLeaveDrive") : nil
     private static var leaveDriven = false
     /// The seeded snapshot, from which the `settle` reply is made.
-    private static var seededSnapshot: [String: Any]?
+    static var seededSnapshot: [String: Any]?
 
     /// GameContainerView: the Leave alert opened.
     @MainActor

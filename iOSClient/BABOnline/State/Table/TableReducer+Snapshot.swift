@@ -35,7 +35,7 @@ extension TableReducer {
         if sameGame {
             next.table.assist = s.table.assist
             next.table.parkedAssist = s.table.parkedAssist
-            next.table.assistUses = s.table.assistUses
+            next.table.assistUses = next.table.assistUses ?? s.table.assistUses
             next.table.assistAsking = s.table.assistAsking
         }
         s = next
@@ -65,6 +65,12 @@ extension TableReducer {
 
         s.table.viewer = ViewerState(role: role(snap.viewer.role), position: Position.valid(snap.viewer.position),
                                      ownerView: snap.viewer.ownerView?.rawValue)
+        // /help: my own seat's uses this game (snapshot viewer.assist, additive 2026-11-19; a
+        // seat or a lazy watcher only), so the chat list's "(n of 3 free used)" is exact after a
+        // relaunch or rejoin. Absent (a spectator, an older server): unknown, or what this game had.
+        if let a = snap.viewer.assist {
+            s.table.assistUses = AssistUses(uses: max(0, a.uses), freeUses: max(0, a.freeUses), assisted: a.assisted)
+        }
         s.table.hand = snap.hand ?? []
         s.table.deal = snap.deal.map {
             DealState(handNo: $0.handNo, handSize: $0.handSize, dealer: $0.dealer, bidder: $0.bidder, dealSeq: $0.dealSeq ?? 0,
@@ -115,8 +121,11 @@ extension TableReducer {
             s.log = prev.log
         } else {
             s.log.entries = snap.log.map { entry in
-                ChatMessage(username: "System", message: entry.message, type: ChatMessage.MessageType(rawValue: entry.type.rawValue) ?? .system,
-                            position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
+                var row = ChatMessage(username: "System", message: entry.message, type: ChatMessage.MessageType(rawValue: entry.type.rawValue) ?? .system,
+                                      position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
+                // the stored fault line replays red, in place, once (the server's, never recomputed here)
+                row.isFault = entry.fault != nil
+                return row
             }
         }
 

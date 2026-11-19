@@ -10,6 +10,9 @@ struct ChatMessage: Identifiable, Equatable {
     /// A row only this device shows (never sent or stored): my /help answer's "Help: ... (only
     /// you see this)" (TableReducer+Assist), drawn dim in the suggestion's gold.
     var isPrivate = false
+    /// A set hand's fault line "Fault: <name> (bid N, took M)": the server's stored log line
+    /// that carries `fault` (live gameLogEntry or the snapshot log), drawn in red.
+    var isFault = false
 
     enum MessageType: String, Equatable {
         case player
