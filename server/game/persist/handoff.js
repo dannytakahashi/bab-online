@@ -230,8 +230,11 @@ function createHandoff({
 
         if (!successor) {
             // 4a. delete, never release
+            // An adoption claim still settling is not this process's table:
+            // adopt.js hands that doc straight back (never deleted here)
+            const claiming = s.adopter?.inFlightIds?.() || [];
             const del = await bounded(Promise.all([
-                liveGames ? liveGames.deleteMany({ owner: me }) : null,
+                liveGames ? liveGames.deleteMany(claiming.length ? { owner: me, _id: { $nin: claiming } } : { owner: me }) : null,
                 liveTournaments ? liveTournaments.deleteMany({ owner: me }) : null
             ]), NO_SUCCESSOR_DELETE_MS);
             const deleted = !failedOrTimedOut(del);
@@ -272,6 +275,9 @@ function createHandoff({
         // owner: me, leaves it alone)
         const asIs = entries.filter((e) => e.suspended && e.info.inserted && !acked.includes(e));
         const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
+        // An adoption claim still settling (past the settle bound): adopt.js
+        // hands that doc straight back, so the delete leaves it alone
+        const keepIds = [...releaseIds, ...(s.adopter?.inFlightIds?.() || [])];
         const releasedAt = new Date(now());
         const left = Math.max(0, FLUSH_MS - (monoNow() - flushStart));
         const [rel, del] = await Promise.all([
@@ -281,7 +287,7 @@ function createHandoff({
                     { $set: { released: true, releasedAt, releaseKind: 'handoff' } })
                 : null, left),
             bounded(Promise.all([
-                liveGames ? liveGames.deleteMany({ owner: me, kind: 'live', released: false, _id: { $nin: releaseIds } }) : null,
+                liveGames ? liveGames.deleteMany({ owner: me, kind: 'live', released: false, _id: { $nin: keepIds } }) : null,
                 liveTournaments ? liveTournaments.deleteMany({ owner: me }) : null
             ]), left)
         ]);

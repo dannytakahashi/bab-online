@@ -467,6 +467,57 @@ describe('over a recording io (fake timers)', () => {
         expect(lineOf(id)).toEqual([require('../game/persist/adopt').RESUMED_LINE, shutdown.CONTINUE_NOTICE]);
     });
 
+    describe('an adoption claim that lands only after the settle bound (the store closed)', () => {
+        async function lateClaim({ withSuccessor = true, stallGiveBack = false } = {}) {
+            const { store: first } = await bootA({ bootId: 'boot-Old' });
+            const { id } = await table(first);
+            await db().liveGames.updateOne({ _id: id }, { $set: { released: true, releasedAt: new Date(), releaseKind: 'handoff' } });
+            first.close();
+            for (const s of SIGNALS) for (const fn of process.listeners(s)) if (!before[s].includes(fn)) process.removeListener(s, fn);
+            gameManager._resetForTests();
+            botController._resetForTests();
+            await jest.advanceTimersByTimeAsync(1000);
+            db().faults.stall({ collections: 'liveGames', ops: 'findOneAndUpdate' });
+            const { store } = await bootA();
+            await jest.advanceTimersByTimeAsync(5);
+            expect(db().faults.stalledCount()).toBe(1);
+            if (withSuccessor) successor();
+            // The claim lands (and is answered) just before the handoff's delete
+            const coll = db().liveGames;
+            const deleteMany = coll.deleteMany.bind(coll);
+            let landed = false;
+            coll.deleteMany = async (...args) => {
+                if (!landed) {
+                    landed = true;
+                    if (stallGiveBack) db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+                    db().faults.release();
+                    if (stallGiveBack) db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+                    for (let i = 0; i < 50; i++) await Promise.resolve();
+                }
+                return deleteMany(...args);
+            };
+            signal('SIGTERM');
+            await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 1000);
+            expect(landed).toBe(true);
+            expect(store.adoptCalls).toHaveLength(0);
+            return { id };
+        }
+
+        test.each([[true], [false]])('successor %s: the claimed doc is handed straight back (released), never deleted', async (withSuccessor) => {
+            const { id } = await lateClaim({ withSuccessor });
+            expect(doc(id)).toMatchObject({ owner: 'boot-A', kind: 'live', released: true, releaseKind: 'handoff' });
+            db().faults.release();
+        });
+
+        test('the give-back still in flight at the delete: the doc is not deleted either', async () => {
+            const { id } = await lateClaim({ stallGiveBack: true });
+            expect(doc(id)).toMatchObject({ owner: 'boot-A', kind: 'live' });
+            db().faults.release();
+            await jest.advanceTimersByTimeAsync(10);
+            expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff' });
+        });
+    });
+
     test('a rejoinGame whose auth await spans SIGTERM clears no pointer and sends no failure', async () => {
         const { store } = await bootA();
         const { id } = await table(store);

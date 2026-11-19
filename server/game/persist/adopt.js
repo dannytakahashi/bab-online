@@ -469,10 +469,22 @@ function createAdopter(ctx) {
         );
         if (!claimed) return { state: 'lost' };
         // Ours now. A handoff that already froze this process's tables must
-        // not get a new one: the doc stays ours, unreleased (the handoff's
-        // cleanup deletes it, or the next instance adopts it once this one
-        // is seen dead)
-        if (isClosed()) return { state: 'pending' };
+        // not get a new one: the doc goes straight back, released as its
+        // previous owner left it (the next instance adopts it). Until this
+        // op settles its id is in inFlight(), which the handoff's deletes
+        // leave alone; a give-back that fails leaves it ours, unreleased,
+        // for adoption once this process is seen dead
+        if (isClosed()) {
+            try {
+                await coll.updateOne(
+                    { _id: env._id, owner: me, rev: claimed.rev },
+                    { $set: { released: true, releasedAt: new Date(now()), releaseKind: 'handoff' } }
+                );
+            } catch (err) {
+                logFailure('adopt give-back', null, err, { gameId: env._id });
+            }
+            return { state: 'pending' };
+        }
         const doc = screenDoc({ ...full, ...claimed, gameId: env._id }, { goneOwners, scrubbed, now: now() });
         let game;
         try {
@@ -692,6 +704,8 @@ function createAdopter(ctx) {
             }
         },
         inFlight: () => [...adopting.values()],
+        /** Ids with an adopt / discard / tombstone op not settled yet (the handoff's deletes skip them). */
+        inFlightIds: () => [...adopting.keys()],
         liveness,
         readInstances,
         get bootSwept() { return bootSwept; },
