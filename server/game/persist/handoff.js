@@ -42,7 +42,10 @@
  *      (released: true, releasedAt, releaseKind 'handoff'), and the
  *      delete of every other live doc this process owns (and its
  *      tournaments' docs), cut at FLUSH_MS. A tainted or serialize-null
- *      table is deleted, never released
+ *      table is deleted, never released, except one the holder self-fence
+ *      suspended (game.isSuspended: it took no input or timer since, so its
+ *      saved doc is a restore point): that doc is released as it is, with
+ *      outcome 'unknown' (it may be a move behind, or another instance's)
  *   outcomes: 'continue' (its release acknowledged), 'ended' (its doc is
  *   gone, or it never had one), 'unknown' (anything else: a release or a
  *   delete not acknowledged, an insert that may still land; the doc may
@@ -197,7 +200,10 @@ function createHandoff({
             } catch (err) {
                 logger.warn('Handoff serialize failed', { gameId: game.gameId, error: err?.name });
             }
-            return { game, doc, info: s.docInfo(game) || { inserted: false, insertPending: false } };
+            // Suspended by the holder self-fence (a Mongo blip): serialize
+            // refuses it, but it took no input or timer since, so its last
+            // saved doc is a valid restore point (released as it is in 4b)
+            return { game, doc, suspended: game.isSuspended === true, info: s.docInfo(game) || { inserted: false, insertPending: false } };
         });
         s.close({ keepHeartbeat: true });
         for (const e of entries) {
@@ -255,16 +261,22 @@ function createHandoff({
         const acks = await Promise.all(writes);
         const acked = entries.filter((e, i) => acks[i]);
         const ackedIds = acked.map((e) => e.game.gameId);
+        // A suspended table's saved doc is released as it is (never
+        // deleted). Its outcome is UNKNOWN: the doc may be a move behind,
+        // or another instance may own it already (then the release, on
+        // owner: me, leaves it alone)
+        const asIs = entries.filter((e) => e.suspended && e.info.inserted && !acked.includes(e));
+        const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
         const releasedAt = new Date(now());
         const left = Math.max(0, FLUSH_MS - (monoNow() - flushStart));
         const [rel, del] = await Promise.all([
             bounded(liveGames
                 ? liveGames.updateMany(
-                    { owner: me, $or: [{ _id: { $in: ackedIds } }, { kind: 'ended' }] },
+                    { owner: me, $or: [{ _id: { $in: releaseIds } }, { kind: 'ended' }] },
                     { $set: { released: true, releasedAt, releaseKind: 'handoff' } })
                 : null, left),
             bounded(Promise.all([
-                liveGames ? liveGames.deleteMany({ owner: me, kind: 'live', released: false, _id: { $nin: ackedIds } }) : null,
+                liveGames ? liveGames.deleteMany({ owner: me, kind: 'live', released: false, _id: { $nin: releaseIds } }) : null,
                 liveTournaments ? liveTournaments.deleteMany({ owner: me }) : null
             ]), left)
         ]);
@@ -273,6 +285,7 @@ function createHandoff({
         for (const e of entries) {
             let outcome;
             if (acked.includes(e)) outcome = releasedOk ? 'continue' : 'unknown';
+            else if (asIs.includes(e)) outcome = 'unknown';
             else if (!mayHaveDoc(e) && !e.insertSent) outcome = 'ended';
             // An insert that may still land after the delete, or a delete not acknowledged
             else if (e.info.insertPending || (e.insertSent && e.writeTimedOut) || !deletedOk) outcome = 'unknown';

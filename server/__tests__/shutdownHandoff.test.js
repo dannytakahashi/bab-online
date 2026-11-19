@@ -283,6 +283,45 @@ describe('over a recording io (fake timers)', () => {
         expect(db().faults.calls.filter((c) => c.op === 'replaceOne')).toEqual([]);
     });
 
+    test('a table the holder self-fence suspended (a Mongo blip at SIGTERM) keeps its saved doc: released as it is, never deleted, UNKNOWN', async () => {
+        const { store } = await bootA();
+        const { game, id } = await table(store);
+        // No heartbeat acknowledged for 8 s: the table is suspended (not saveable)
+        db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+        await jest.advanceTimersByTimeAsync(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
+        expect(game.isSuspended).toBe(true);
+        await h.flushStore(store);
+        const saved = kit.comparable(doc(id));
+        const revBefore = doc(id).rev;
+        expect(gameCodec.serialize(game)).toBeNull();
+        successor();
+        signal('SIGTERM');
+        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+        expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff', rev: revBefore });
+        expect(kit.comparable(doc(id))).toEqual(saved);
+        expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+        expect(db().faults.calls.filter((c) => c.op === 'replaceOne')).toEqual([]);
+        // The settle step waited out its bound (the stalled shutting-down mark)
+        await jest.advanceTimersByTimeAsync(handoffMod.HANDOFF_SETTLE_MS);
+        expect(exit).toHaveBeenCalledWith(0);
+        db().faults.release();
+    });
+
+    test('a suspended table whose doc another instance adopted meanwhile: the release leaves that doc alone', async () => {
+        const { store } = await bootA();
+        const { game, id } = await table(store);
+        db().faults.stall({ collections: 'serverInstances', ops: 'updateOne' });
+        await jest.advanceTimersByTimeAsync(liveStore.SELF_FENCE_MS + liveStore.HEARTBEAT_MS);
+        expect(game.isSuspended).toBe(true);
+        db().liveGames.docs.find((d) => d._id === id).owner = 'boot-C';
+        successor();
+        signal('SIGTERM');
+        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+        expect(doc(id)).toMatchObject({ owner: 'boot-C', released: false });
+        expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+        db().faults.release();
+    });
+
     test('an insert in flight at SIGTERM is awaited in the settle step, then handed off', async () => {
         const { store } = await bootA();
         db().faults.stall({ collections: 'liveGames', ops: 'insertOne' });
