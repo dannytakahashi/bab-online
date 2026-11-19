@@ -93,7 +93,8 @@ class CardSpriteNode: SKSpriteNode {
             ring.lineWidth = 3
             ring.isUserInteractionEnabled = false
             ring.zPosition = 0.5  // over the card, under the next card of the hand
-            CardAnimations.startPulseGlow(on: ring)
+            // steady, not the turn glow's pulse: at its low point (live, 2026-11-19) the ring read
+            // as no ring on the white card
             addChild(ring)
             suggestedRing = ring
         } else {

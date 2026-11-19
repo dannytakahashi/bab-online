@@ -6,7 +6,8 @@ import XCTest
 /// a hand card reads "<card>, suggested". Run with a Debug build and
 /// `TEST_RUNNER_BAB_LIVE_SERVER=http://localhost:<port>`, `TEST_RUNNER_BAB_LIVE_USER=<new name>`
 /// and `TEST_RUNNER_BAB_LIVE_PASS=<random>` (the account is created by the test; keep the
-/// password out of logs and the repo). `TEST_RUNNER_BAB_SHOTS=<folder>` saves PNGs.
+/// password out of logs and the repo; `TEST_RUNNER_BAB_LIVE_EXISTING=YES`: the account exists,
+/// sign in). `TEST_RUNNER_BAB_SHOTS=<folder>` saves PNGs.
 final class LiveAssistTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -43,29 +44,52 @@ final class LiveAssistTests: XCTestCase {
         app.launchArguments = ["-serverURL", server]
         app.launch()
 
-        // register (a fresh account)
-        let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
-        XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Create Account on the sign-in screen")
-        toRegister.tap()
-        let name = app.textFields["Username"]
-        XCTAssertTrue(name.waitForExistence(timeout: 10))
-        name.tap(); name.typeText(user)
-        app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
-        app.secureTextFields["Confirm Password"].tap(); app.secureTextFields["Confirm Password"].typeText(pass)
         let newGame = app.buttons["New Game"]
-        for _ in 0..<3 where !newGame.exists {
-            sleep(1)
-            app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch.tap()
-            _ = newGame.waitForExistence(timeout: 8)
+        if env["BAB_LIVE_EXISTING"] == "YES" {
+            // an account made beforehand on the local server (a simulator whose new-password
+            // fields drop typed characters: Password AutoFill's strong-password sheet)
+            let name = app.textFields["Username"]
+            // the Keychain outlives a reinstall on the simulator: a restored session skips this
+            XCTAssertTrue(wait(30) { name.exists || newGame.exists || app.buttons["Add Bot"].exists })
         }
-        XCTAssertTrue(newGame.waitForExistence(timeout: 20), "not in the main room after registering")
-        XCTAssertTrue(wait(15) { newGame.isEnabled })
-        newGame.tap()
+        if env["BAB_LIVE_EXISTING"] == "YES", app.textFields["Username"].exists {
+            let name = app.textFields["Username"]
+            name.tap()
+            if let old = name.value as? String, !old.isEmpty, old != "Username" {
+                name.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: old.count))
+            }
+            name.typeText(user)
+            app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
+            app.buttons.matching(NSPredicate(format: "label == %@", "Sign In")).firstMatch.tap()
+        } else if env["BAB_LIVE_EXISTING"] != "YES" {
+            // register (a fresh account)
+            let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
+            XCTAssertTrue(toRegister.waitForExistence(timeout: 30), "no Create Account on the sign-in screen")
+            toRegister.tap()
+            let name = app.textFields["Username"]
+            XCTAssertTrue(name.waitForExistence(timeout: 10))
+            name.tap(); name.typeText(user)
+            app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
+            app.secureTextFields["Confirm Password"].tap(); app.secureTextFields["Confirm Password"].typeText(pass)
+            for _ in 0..<3 where !newGame.exists {
+                sleep(1)
+                app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch.tap()
+                _ = newGame.waitForExistence(timeout: 8)
+            }
+        }
+        // iOS's "Save Password?" over the main room after a sign-in: not now
+        let notNow = app.buttons["Not Now"]
+        if notNow.waitForExistence(timeout: 4) { notNow.tap(); _ = notNow.waitForNonExistence(timeout: 5) }
+        if !app.buttons["Add Bot"].exists {  // (a lobby left by an earlier run is reused)
+            XCTAssertTrue(newGame.waitForExistence(timeout: 20), "not in the main room after registering")
+            XCTAssertTrue(wait(15) { newGame.isEnabled })
+            newGame.tap()
+        }
 
         // three bots, ready, the draw
         let addBot = app.buttons["Add Bot"]
         XCTAssertTrue(addBot.waitForExistence(timeout: 15), "no game lobby")
-        for n in 1...3 {
+        for n in stride(from: app.buttons.matching(identifier: "lobby.removeBot").count + 1, through: 3, by: 1) {
             XCTAssertTrue(wait(10) { addBot.exists && addBot.isEnabled }, "Add Bot \(n)")
             addBot.tap()
             XCTAssertTrue(wait(10) { app.buttons.matching(identifier: "lobby.removeBot").count == n }, "bot \(n)")
