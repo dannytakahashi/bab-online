@@ -45,9 +45,12 @@
  * bid clock keeps its deadline; its timeout bid of 0 is not a /help use).
  * Pure reads of the game except the counter and the notice.
  *
- * Spectators get "/help is for players only." and entrants (the draw, before
- * seats exist) "/help works once the game starts.", for /help and ?help
- * alike. At the end of a finished game each player the game counted as
+ * Spectators get "/help is for players only." (a seat owner watching as a
+ * spectator gets chatHandlers' line for its seat instead: a bot holds it,
+ * /active first) and entrants (the draw, before seats exist) "Suggestions
+ * are available once the game starts.", for /help and ?help alike. Lines
+ * that tell a player to wait never name /help: shipped iOS builds can only
+ * ask with ?help. At the end of a finished game each player the game counted as
  * bot-assisted for gets one private line (gameEndLines).
  */
 
@@ -81,11 +84,11 @@ const ordinal = (n) => {
 const TEXT = Object.freeze({
     botSeat: 'A bot is playing your seat. Type /active first.',
     tournament: '/help isn\'t available in tournament games.',
-    rateLimited: 'One moment: try /help again in a few seconds.',
+    rateLimited: 'One moment: try again in a few seconds.',
     nothing: 'Nothing to suggest right now.',
     error: 'No suggestion this time.',
     spectator: '/help is for players only.',
-    entrant: '/help works once the game starts.',
+    entrant: 'Suggestions are available once the game starts.',
     warning: `That's your ${ordinal(ASSIST_FREE_HELP)} free /help. The next one makes this game count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.`,
     notice: (name) => `${name} used /help.`,
     crossedNote: 'This game now counts as bot-assisted for you.',
@@ -207,10 +210,13 @@ function isHelpCommand(command) {
 /**
  * /help or ?help from any game socket (chatHandlers.resolveSender's role):
  * a seat owner is answered (help), a spectator or entrant gets its line.
+ * `spectatorLine` replaces "players only" for a spectator whose recorded
+ * user owns a seat here (chatHandlers.helpRequest).
  */
-function request(socket, io, { game, role, pos }) {
+function request(socket, io, { game, role, pos }, { spectatorLine = null } = {}) {
     if (role === 'owner') help(socket, io, game, pos);
-    else sendStatus(io, game, socket.id, null, role === 'entrant' ? TEXT.entrant : TEXT.spectator);
+    else if (role === 'entrant') sendStatus(io, game, socket.id, null, TEXT.entrant);
+    else sendStatus(io, game, socket.id, null, spectatorLine || TEXT.spectator);
 }
 
 /**

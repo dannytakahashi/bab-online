@@ -135,10 +135,12 @@ describe('/support', () => {
         expect(html).not.toContain('Chat is not saved');
     });
 
-    test('the /help answer (assistHandlers: ?help for older iOS, 3 free uses, the 4th makes it a bot game)', async () => {
+    test('the /help answer (assistHandlers: ?help in the iOS app, 3 free uses, the 4th makes it a bot game)', async () => {
         const html = await page('/support');
         expect(html).toContain('<summary>Can I get a hint during a game?</summary>');
-        expect(html).toMatch(/type <strong>\/help<\/strong> in the game chat \(in older versions of the iOS app, type <strong>\?help<\/strong>\)/);
+        expect(html).toMatch(/type <strong>\/help<\/strong> in the game chat \(in the iOS app, type <strong>\?help<\/strong>; newer versions also accept \/help\)/);
+        // every App Store build refuses /help on the device: never "older versions" only
+        expect(html).not.toMatch(/older versions of the iOS app, type <strong>\?help/);
         expect(html).toContain('Each game you get 3 free uses; if you use /help a 4th time, that game counts as bot-assisted for you');
     });
 });

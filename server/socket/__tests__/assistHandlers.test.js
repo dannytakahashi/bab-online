@@ -10,7 +10,8 @@
  *    limit are not counted; the 3rd use warns, the 4th crosses (and says so
  *    once); the defensive reset
  *  - ?help is intercepted exactly ("?help me" stays chat); spectators and
- *    entrants get their private line
+ *    entrants get their private line (a seat owner watching as a spectator
+ *    gets its seat's line: a bot holds it, /active first)
  *  - the searched-answer budget (Quick suggestion, /health assist.quick),
  *    the error path
  *  - the bid clock: /help never stops, resets or delays it, and its timeout
@@ -428,7 +429,55 @@ test('spectators and entrants: a private line, never chat, never counted', async
     await Promise.all(t.pending);
 });
 
-test('an entrant during the draw: "/help works once the game starts."', async () => {
+test('a seat owner in the spectator role: told about its seat (a bot holds it: /active first), never "players only"', async () => {
+    const reconnectHandlers = require('../reconnectHandlers');
+    const t = await lobbyGame('so');
+    const pos = t.game.currentTurn === 2 ? 3 : 2;
+    const name = t.name(pos);
+    const phone = t.owner(pos);
+    t.say(phone, '/lazy');                                   // seat view, a bot plays
+    const laptop = t.w.user('so-laptop', name);
+    await reconnectHandlers.rejoinGame(laptop, t.w.io, { gameId: t.game.gameId, username: name });
+    expect(t.game.seat(pos).ownerSocketId).toBe(laptop.id);
+    expect(t.game.isSpectator(phone.id)).toBe(true);         // the phone was demoted
+    const linesTo = (s, mark) => privateTo(t, mark).filter((l) => l.to === s.id).map((l) => l.data.message);
+
+    // a newer socket holds the seat: the stale shadow is told so, both forms
+    let mark = t.w.log.length;
+    t.say(phone, '/help');
+    t.say(phone, '?help');
+    expect(linesTo(phone, mark)).toEqual([
+        'Your seat is controlled from another connection. Reconnect to take it back.',
+        'Your seat is controlled from another connection. Reconnect to take it back.',
+    ]);
+
+    // the newer socket goes: the seat is away with a bot on it, /active takes it back
+    await t.w.kill(laptop);
+    expect(t.game.seat(pos)).toMatchObject({ presence: 'away' });
+    expect(t.game.seat(pos).controller).not.toBe('human');
+    mark = t.w.log.length;
+    t.say(phone, '?help');
+    t.say(phone, '/help');
+    expect(linesTo(phone, mark)).toEqual([TEXT.botSeat, TEXT.botSeat]);
+    expect(t.since(mark).filter((l) => l.event === 'chatMessage' || l.event === 'serverError' || l.to === t.game.roomName)).toEqual([]);
+    expect(t.game.assist[pos].help).toBe(0);
+    t.say(phone, '/active');
+    expect(t.game.seat(pos)).toMatchObject({ controller: 'human', ownerSocketId: phone.id });
+
+    // a pure spectator (and one signed in as someone else) still gets "players only"
+    const fan = t.w.user('so-fan', 'so_fan');
+    mainRoomHandlers.joinAsSpectator(fan, t.w.io, { gameId: t.game.gameId });
+    mark = t.w.log.length;
+    t.say(fan, '?help');
+    expect(linesTo(fan, mark)).toEqual([TEXT.spectator]);
+    await Promise.all(t.pending);
+});
+
+test('lines that tell a player to wait never name /help (shipped iOS can only send ?help)', () => {
+    for (const k of ['rateLimited', 'entrant', 'nothing', 'error', 'botSeat']) expect(TEXT[k]).not.toMatch(/\/help/);
+});
+
+test('an entrant during the draw: "Suggestions are available once the game starts."', async () => {
     // an entrant during the draw
     Math.random = mulberry32(3);
     const w = world('en');

@@ -2,7 +2,9 @@
  * /help across a kill and restore (plan H2b row, "once H2c lands"; section
  * 10 item 6): a real 4-human game where one player has used /help 3 times,
  * the 3rd on the turn that is open when the process dies. The game is
- * saved (gameCodec.serialize), the process's module state goes (the advice
+ * saved, twice over: by gameCodec.serialize, and through the live store's
+ * write path (a LIVE_PERSIST=write store over a liveDb: the liveGames doc
+ * it wrote, the doc a restore reads). Then the process's module state goes (the advice
  * cache, the budget, the rate limits: assistHandlers._resetForTests,
  * GameManager / bots reset) and the doc is adopted in its place
  * (restoreKit.adoptForTest); the players rejoin on new sockets.
@@ -15,14 +17,12 @@
  *  - the record built at the end routes that seat to botStats
  */
 
-const { createMemoryDb } = require('../../../testUtils/memoryDb');
-
 const mockDb = { current: null };
-jest.mock('../../../database', () => ({
-    getUsersCollection: () => mockDb.current.users,
-    getGameRecordsCollection: () => mockDb.current.gameRecords,
-    getReportsCollection: () => mockDb.current.reports,
-}));
+jest.mock('../../../database', () => require('../../../testUtils/persistHarness').databaseMock(mockDb));
+
+const h = require('../../../testUtils/persistHarness');
+const kit = require('../../../testUtils/liveStoreKit');
+const liveStore = require('../liveStore');
 
 const gameManager = require('../../GameManager');
 const { botController } = require('../../bot');
@@ -47,7 +47,7 @@ const realRandom = Math.random;
 
 beforeEach(() => {
     jest.useFakeTimers();
-    mockDb.current = createMemoryDb({ users: [] });
+    mockDb.current = h.liveDb();
     assistHandlers._resetForTests();
     for (const l of [gameLogger, socketLogger, authLogger, logger]) {
         for (const m of ['error', 'warn', 'info', 'debug']) jest.spyOn(l, m).mockImplementation(() => {});
@@ -57,6 +57,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    liveStore._resetForTests();
     for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
     for (const id of Array.from(gameManager.lobbies.keys())) gameManager.lobbies.delete(id);
     gameManager._resetForTests();
@@ -68,7 +69,8 @@ afterEach(() => {
 });
 afterAll(() => rateLimiter.shutdown());
 
-test('kill and restore after 3 uses: a re-ask on the restored turn is free, the 4th crosses and says so once', async () => {
+test.each(['serialize', 'store'])('kill and restore after 3 uses (%s): a re-ask on the restored turn is free, the 4th crosses and says so once', async (path) => {
+    const store = path === 'store' ? kit.installStore(mockDb) : null;
     Math.random = mulberry32(17);
     const w = world('ar');
     const names = ['ar_ann', 'ar_bob', 'ar_cat', 'ar_dan'];
@@ -112,9 +114,17 @@ test('kill and restore after 3 uses: a re-ask on the restored turn is free, the 
     expect(game.assist[asker]).toMatchObject({ user: askerName, help: 3, lastHelpKey: killedKey });
 
     // ---- the process dies; its saved doc is adopted by a fresh one
-    const doc = JSON.parse(JSON.stringify(codec.serialize(game, { tournamentId: null, getBot: () => null })));
-    expect(doc.state.assist[asker]).toMatchObject({ help: 3, lastHelpKey: killedKey });
     const gameId = game.gameId;
+    let doc = JSON.parse(JSON.stringify(codec.serialize(game, { tournamentId: null, getBot: () => null })));
+    if (store) {
+        // what the store wrote is what a restore reads: the counters went through it
+        await h.flushStore(store);
+        const stored = kit.savedGame(mockDb.current, gameId);
+        expect(kit.comparable(stored)).toEqual(kit.comparable(doc));
+        doc = { ...JSON.parse(JSON.stringify(stored)), gameId };
+        liveStore._resetForTests(); // the process (and its store) dies
+    }
+    expect(doc.state.assist[asker]).toMatchObject({ help: 3, lastHelpKey: killedKey });
     gameManager.abortGame(gameId);
     gameManager._resetForTests();
     botController._resetForTests();

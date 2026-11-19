@@ -496,7 +496,8 @@ const json = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
  * What must survive a restart, keyed by position: every field the plan's
  * game codec saves that changes behaviour (2.2 "Saved"): stage, dealSeq
  * (stale-deal guard, the snapshot's `deal`), deal and bidding state, the
- * table, the score and stats, every hand; per seat its controller, owner
+ * table, the score and stats, every hand, the /help counters per position
+ * (game.assist: uses, the user they belong to, lastHelpKey); per seat its controller, owner
  * (username, ownerPic as stored), gone, lastPersonality (the bot a /lazy
  * seat gets), resignedAt and leftAt, and its bot (socketId: persisted and
  * restored as is; username, pic, personality, and the registered
@@ -570,6 +571,7 @@ function authoritative(game, { presence = false, log = false, gameManager = null
         playerStats: json(game.playerStats),
         handTricks: json(game.handTricks),
         hsiValues: json(game.hsiValues),
+        assist: json(game.assist),
         hands,
         seats,
     };
