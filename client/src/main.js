@@ -693,6 +693,13 @@ function initializeApp() {
   // spectator at the table (GameState.otherHumans). Alone with bots it is
   // never started; the last other human leaving stops it 30 s later
   let lobbyOthers = new Set();
+  // The casual game whose voice room this tab was told of (any voiceSettings
+  // for it). Only such a table admits spectators into voice (a lobby-born
+  // casual game, server/voice/gameVoice.js), so only there do its watchers
+  // count: a tournament table's watchers can never be a peer. Kept through
+  // a stop or suspend (teardownVoice clears voiceSettings), compared with
+  // the table's gameId
+  let casualVoiceGameId = null;
 
   /** A lobby payload of my lobby (or the reopened one, play again): who else is in it. */
   function noteLobbyCompany(data) {
@@ -713,7 +720,8 @@ function initializeApp() {
     // reopened lobby, whose members are my voice room now (play again)
     if (screen === SCREEN.GAME_END && session.lobbyReturn) return lobbyOthers.size > 0;
     if (session.hasTable) {
-      const { known, names } = gameState.otherHumans();
+      const spectatorsInVoice = !!casualVoiceGameId && casualVoiceGameId === gameState.gameId;
+      const { known, names } = gameState.otherHumans({ spectators: spectatorsInVoice });
       if (names.size > 0) return true;
       // a lobby's table before its seating (no positionUpdate or snapshot
       // yet): the lobby's people came along
@@ -826,15 +834,21 @@ function initializeApp() {
     // admitting this socket as a watcher: onSpectatorJoined stops that)
     if (session.screen === SCREEN.GAME_END) return;
     const prev = voiceSettings?.gameId === data.gameId ? voiceSettings : null;
-    if (data.role === 'none' && session.isSpectator && (voiceManager.active || voiceLifecycle.starting)) {
+    if (data.role === 'none' && session.isSpectator && (voiceGate.wanted || voiceManager.active || voiceLifecycle.starting)) {
       // a watcher with no voice place: no voice session (it would hear
-      // nobody). First: the stop resets this table's voice state
+      // nobody), and no wish for one either (a watcher waiting for company
+      // or suspended alone would start at the next arrival). First: the
+      // stop resets this table's voice state
       stopVoice();
     }
+    if (data.gameId) casualVoiceGameId = data.gameId;
     voiceSettings = { ...data };
     voiceFull = data.role === 'none';
     if (data.role === 'none' && prev?.role !== 'none') showInfo('Voice is full (8 people). You can still watch and chat.');
     applyVoiceSettings();
+    // this table's watchers count from now on (a player alone with bots
+    // and a watcher)
+    voiceGate.update();
   }
 
   function showVoiceControls() {
@@ -1422,6 +1436,7 @@ function initializeApp() {
       }
       console.log('Joined main room, showing UI');
       forgetLobbyCompany();
+      casualVoiceGameId = null;
       // Hide replayed chat history from blocked users
       if (data.messages) {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));

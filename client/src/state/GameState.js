@@ -219,14 +219,17 @@ export class GameState {
    * The other humans at this table (owner 2026-11-19, voice/voiceCompany.js):
    * human seat owners not gone (before seating: human entrants not left)
    * and the spectators, without my own name.
+   * @param {{spectators?: boolean}} [opts] spectators false: the watchers
+   *   do not count (a table with no casual voice, e.g. a tournament table,
+   *   never admits a spectator into voice)
    * @returns {{known: boolean, names: Set<string>}} known: seating or a
    *   snapshot said who sits here (else only the spectators are known)
    */
-  otherHumans() {
+  otherHumans({ spectators = true } = {}) {
     const names = new Set();
     for (const n of Object.values(this.humanOwners)) if (n) names.add(n);
     for (const n of this.entrantHumans) names.add(n);
-    for (const w of this.watching?.spectators || []) if (w?.username) names.add(w.username);
+    if (spectators) for (const w of this.watching?.spectators || []) if (w?.username) names.add(w.username);
     if (this.username) names.delete(this.username);
     return { known: this.humansKnown, names };
   }

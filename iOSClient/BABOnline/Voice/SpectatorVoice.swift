@@ -74,6 +74,7 @@ extension VoiceSocketHandler {
             return
         }
         manager.settings = s
+        manager.casualVoiceGameId = s.gameId
         if s.role == .spectator, !manager.isActive { start(manager) }
         print("[Voice] voiceSettings: \(s.role.rawValue)")
     }

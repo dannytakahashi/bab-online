@@ -977,16 +977,20 @@ struct HSIBadge: View {
 }
 
 /// Tells the voice gate who is at the table (VoiceCompany.tableScreen): seat owners not gone,
-/// spectators, and on a play-again score screen the reopened lobby's members. Draws nothing.
+/// spectators (only at a casual game this socket got voiceSettings for: a tournament table's
+/// watchers never join voice), and on a play-again score screen the reopened lobby's members.
+/// Draws nothing.
 private struct TableVoiceCompany: View {
     @EnvironmentObject var gameState: GameState
+    @ObservedObject private var voice = VoiceChatManager.shared
     let lobby: LobbyState?
 
     var body: some View {
+        let spectators = VoiceCompany.spectatorsInVoice(gameId: gameState.gameId, casualVoiceGameId: voice.casualVoiceGameId)
         if let lobby {
-            Observed(lobby: lobby, gameState: gameState)
+            Observed(lobby: lobby, gameState: gameState, spectators: spectators)
         } else {
-            report(VoiceCompany.table(gameState.players, me: me))
+            report(VoiceCompany.table(gameState.players, me: me, spectators: spectators))
         }
     }
 
@@ -1002,12 +1006,13 @@ private struct TableVoiceCompany: View {
     private struct Observed: View {
         @ObservedObject var lobby: LobbyState
         @ObservedObject var gameState: GameState
+        let spectators: Bool
 
         var body: some View {
             let me = gameState.username ?? SocketService.shared.authState?.username
             let company = VoiceCompany.tableScreen(gameState.players, gameId: gameState.gameId,
                                                    returnFromGameId: lobby.returnFromGameId, lobbyId: lobby.lobbyId,
-                                                   lobbyPlayers: lobby.players, me: me)
+                                                   lobbyPlayers: lobby.players, me: me, spectators: spectators)
             Color.clear
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)

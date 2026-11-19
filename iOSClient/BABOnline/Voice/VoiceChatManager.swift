@@ -71,6 +71,13 @@ final class VoiceChatManager: ObservableObject {
     /// The casual game's voice settings for this socket (voiceSettings), nil elsewhere. Only
     /// the role is acted on (spectators always may talk since 2026-11-18).
     @Published var settings: VoiceSettings?
+    /// The casual game whose voice room this socket was told of (any voiceSettings for it).
+    /// Only such a table admits spectators into voice (a lobby-born casual game,
+    /// server/voice/gameVoice.js), so only there do its watchers count as company
+    /// (`VoiceCompany.table(_:me:spectators:)`): a tournament table's watchers can never be a
+    /// peer. Kept through a shutdown or suspend (unlike `settings`); the table compares it
+    /// with its own gameId.
+    @Published var casualVoiceGameId: String?
     /// The first unmute's microphone prompt is up.
     @Published private(set) var micRequestInFlight = false
     /// The unmute that asked for the mic still wants to talk when the prompt answers (a mute

@@ -159,11 +159,13 @@ skips exact repeats of a validated (event, target kind, payload).
 
 - **R1.** `seq` is per gameId, starts at 0 and only increases. Each room
   broadcast (`game:<id>`) carries previous+1 and reaches every room member,
-  except the two UNSEQUENCED room events, `spectatorsUpdated` and `bidClock`
-  (schema `seq: false` with `to: room`; `GameState.emitUnsequenced`; no seq
-  on the wire, no bump). Each payload is an absolute state (the whole
-  spectator list; a running clock with its deadline, or stopped), so order
-  against other events does not matter, and shipped builds register no
+  except the three UNSEQUENCED room events, `spectatorsUpdated`, `bidClock`
+  and `seatLeft` (schema `seq: false` with `to: room`;
+  `GameState.emitUnsequenced`; no seq on the wire, no bump). Each payload is
+  an absolute state (the whole spectator list; a running clock with its
+  deadline, or stopped; a seat's owner gone for good, which is absorbing and
+  a later snapshot shows), so order against other events does not matter,
+  and shipped builds register no
   handler for them: a sequenced form would open a gap in their gate (a
   requestSnapshot) on every change. The guard holds both rules.
   gameStart bumps it once per deal and is sent to every connected seat owner

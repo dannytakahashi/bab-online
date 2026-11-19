@@ -9,7 +9,10 @@
  * not a session.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { loadPage, spectatorState, mainRoomPayload } from '../testing/fakePage.js';
+import { REPO_ROOT } from '../testing/files.js';
 import { clearToasts } from '../ui/kit/index.js';
 
 vi.mock('../vendor.js', () => ({}));
@@ -154,5 +157,35 @@ describe('a main-room spectator in a casual game\'s voice', () => {
     expect(page.voice.active).toBe(false);
     await vi.waitFor(() => expect(pill()).toMatch(/Voice is full \(8 people\)$/));
     expect(toasts()).toMatch(/Voice is full/);
+    clearToasts();
+  });
+
+  it('a watcher waiting for company told "none" no longer wants voice: a later arrival starts nothing (review 2026-11-19)', async () => {
+    const { socket } = page;
+    socket.fire('leftGame');
+    socket.fire('mainRoomJoined', mainRoomPayload());
+    socket.emit('joinAsSpectator', { gameId: 'g4' });
+    // every seat a bot (a v2 snapshot): nobody to talk to yet
+    const fx = JSON.parse(readFileSync(resolve(REPO_ROOT, 'contract/fixtures/v2/spectator-mid-hand.json'), 'utf8')).snapshot;
+    const snapshot = {
+      ...fx,
+      gameId: 'g4',
+      seats: fx.seats.map((st) => ({ ...st, username: `🤖 Bot${st.position}`, ownerUsername: null, controller: 'bot', presence: 'none', isBot: true })),
+      watching: { spectators: [{ username: 'me', pic: 1 }], count: 1 },
+    };
+    socket.fire('spectatorJoined', { gameId: 'g4', players: [], trump: null, snapshot });
+    await vi.waitFor(() => expect(document.getElementById('spectating-indicator')).not.toBeNull());
+    expect(page.gameState.otherHumans().names.size).toBe(0);
+    page.voice.initialize.mockClear();
+    socket.fire('voiceSettings', settings({ gameId: 'g4' }));
+    await Promise.resolve();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    // a newer tab of mine took the slot
+    socket.fire('voiceSettings', settings({ gameId: 'g4', role: 'none', canTalk: false }));
+    socket.fire('spectatorsUpdated', { gameId: 'g4', spectators: [{ username: 'me', pic: 1 }, { username: 'zed', pic: 2 }], count: 2 });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    expect(page.voice.active).toBe(false);
+    clearToasts();
   });
 });

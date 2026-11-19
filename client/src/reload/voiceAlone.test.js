@@ -172,15 +172,17 @@ function tableSnapshot(others = {}) {
   return snap;
 }
 
-async function rejoinWith(snapshot) {
+async function rejoinWith(snapshot, { tournamentId = null } = {}) {
   socket.reconnect(nextSocketId());
   socket.fire('restoreSessionResponse', { success: true, username: ME, activeGameId: GAME, blockedUsers: [] });
-  socket.fire('rejoinSuccess', { snapshot, tournamentId: null });
+  socket.fire('rejoinSuccess', { snapshot, tournamentId });
   await vi.waitFor(() => expect(page.session.screen).toBe('table'));
   await settle();
 }
 
 const spectators = (names) => ({ gameId: GAME, spectators: names.map((username) => ({ username, pic: 2 })), count: names.length });
+/** A casual (lobby-born) game's voiceSettings for my seat: its watchers can join voice. */
+const playerVoice = (gameId = GAME) => ({ gameId, host: ME, spectatorsCanTalk: true, role: 'player', canTalk: true, canChange: false });
 
 describe('a table', () => {
   beforeEach(async () => {
@@ -189,6 +191,8 @@ describe('a table', () => {
 
   it('a solo game with bots never starts voice; a spectator joining starts it for us both; their leaving stops it after 30 s', async () => {
     await rejoinWith(tableSnapshot());
+    socket.fire('voiceSettings', playerVoice());
+    await settle();
     expect(page.voice.initialize).not.toHaveBeenCalled();
     expect(page.voice.active).toBe(false);
     expect(muteButton()).toBeNull();
@@ -208,8 +212,32 @@ describe('a table', () => {
     expect(page.session.screen).toBe('table');
   });
 
+  it('a table with no casual voice (a tournament table: no voiceSettings) never counts its watchers', async () => {
+    await rejoinWith(tableSnapshot(), { tournamentId: 'T1' });
+    socket.fire('spectatorsUpdated', spectators(['ann', 'bob']));
+    await settle();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    expect(page.voice.active).toBe(false);
+    expect(muteButton()).toBeNull();
+    // another game's voiceSettings does not make this table's watchers count
+    socket.fire('voiceSettings', playerVoice('other-game'));
+    await settle();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+  });
+
+  it('a casual table\'s watcher counts once its voiceSettings arrives (after the watcher)', async () => {
+    await rejoinWith(tableSnapshot());
+    socket.fire('spectatorsUpdated', spectators(['ann']));
+    await settle();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    socket.fire('voiceSettings', playerVoice());
+    await vi.waitFor(() => expect(page.voice.active).toBe(true));
+    expect(page.voice.isMuted()).toBe(true);
+  });
+
   it('my own name in the watchers (my other tab is not company) starts nothing', async () => {
     await rejoinWith(tableSnapshot());
+    socket.fire('voiceSettings', playerVoice());
     socket.fire('spectatorsUpdated', spectators([ME]));
     await settle();
     expect(page.voice.initialize).not.toHaveBeenCalled();

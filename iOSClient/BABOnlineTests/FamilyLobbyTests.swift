@@ -299,6 +299,23 @@ final class VoiceSettingsRoutingTests: XCTestCase {
         XCTAssertEqual(m.settings?.gameId, "g1")
     }
 
+    /// Any voiceSettings marks its game as one with casual voice (its watchers count as company,
+    /// VoiceCompany.spectatorsInVoice); a shutdown keeps that, another game's copy does not set it.
+    func testVoiceSettingsMarkTheCasualVoiceGame() {
+        let m = manager(), store = GameState()
+        store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        XCTAssertNil(m.casualVoiceGameId)
+        VoiceSocketHandler.applyVoiceSettings(settings("spectator", game: "g9"), manager: m, gameState: store,
+                                              start: { _ in XCTFail("another game's settings") })
+        XCTAssertNil(m.casualVoiceGameId, "another game's copy")
+        VoiceSocketHandler.applyVoiceSettings(settings("player", game: "g1"), manager: m, gameState: store,
+                                              start: { _ in XCTFail("a player's voice is started by the table") })
+        XCTAssertEqual(m.casualVoiceGameId, "g1")
+        m.shutdown()
+        XCTAssertNil(m.settings)
+        XCTAssertEqual(m.casualVoiceGameId, "g1", "kept: the table still admits watchers")
+    }
+
     func testShutdownForgetsTheGameAndItsBuffers() {
         let m = manager()
         m.connectToPeer("s1", username: "kim")  // voice is not up: buffered

@@ -205,6 +205,20 @@ describe('GameState.otherHumans (who counts at a table)', () => {
     expect([...v.otherHumans().names]).toEqual(['me']);
   });
 
+  it('spectators false (a table with no casual voice, e.g. a tournament table): its watchers never count, its owners still do', () => {
+    const s = new GameState();
+    s.username = 'me';
+    s.applySnapshot(snap([seat(1, { ownerUsername: 'me' }), bot(2), bot(3), bot(4)]));
+    s.applySpectators({ gameId: 'g1', spectators: [{ username: 'ann', pic: 2 }], count: 1 });
+    expect([...s.otherHumans({ spectators: false }).names]).toEqual([]);
+    expect(s.otherHumans({ spectators: false }).known).toBe(true);
+    const t = new GameState();
+    t.username = 'me';
+    t.applySnapshot(snap([seat(1, { ownerUsername: 'me' }), seat(2, { ownerUsername: 'kim' }), bot(3), bot(4)]));
+    t.applySpectators({ gameId: 'g1', spectators: [{ username: 'ann', pic: 2 }], count: 1 });
+    expect([...t.otherHumans({ spectators: false }).names]).toEqual(['kim']);
+  });
+
   it('seatLeft: that owner no longer counts; another game\'s, another name\'s or a bot seat\'s is ignored', () => {
     const s = new GameState();
     s.username = 'me';

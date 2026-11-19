@@ -115,6 +115,31 @@ final class VoiceCompanyTests: XCTestCase {
         XCTAssertEqual(VoiceCompany.table(early.players, me: "me"), true)
     }
 
+    /// Review 2026-11-19: only a casual game admits watchers into voice, so a tournament table
+    /// (one human, three bots) watched by someone never starts voice for the player.
+    func testWatchersCountOnlyWhereVoiceAdmitsThem() {
+        var s = seated(humanPartner: false)
+        TableReducer.reduce(&s, T.ev("spectatorsUpdated", ["gameId": "g1", "spectators": [["username": "lou"]], "count": 1]))
+        XCTAssertEqual(VoiceCompany.table(s.players, me: "me", spectators: false), false, "a watcher of a tournament table")
+        XCTAssertEqual(VoiceCompany.table(s.players, me: "me", spectators: true), true)
+        var many = seated(humanPartner: false)
+        TableReducer.reduce(&many, T.ev("spectatorsUpdated", ["gameId": "g1", "spectators": [["username": "me"]], "count": 2]))
+        XCTAssertEqual(VoiceCompany.table(many.players, me: "me", spectators: false), false, "an unnamed watcher neither")
+        var early = TableState()
+        TableReducer.reduce(&early, .local(.enterGameContext(gameId: "g1", tournamentId: "t1")))
+        TableReducer.reduce(&early, T.ev("spectatorsUpdated", ["gameId": "g1", "spectators": [["username": "lou"]], "count": 1]))
+        XCTAssertNil(VoiceCompany.table(early.players, me: "me", spectators: false), "the seats unknown: hold")
+        // a human partner still counts
+        XCTAssertEqual(VoiceCompany.table(seated().players, me: "me", spectators: false), true)
+        XCTAssertEqual(VoiceCompany.tableScreen(s.players, gameId: "g1", returnFromGameId: nil, lobbyId: "", lobbyPlayers: [],
+                                                me: "me", spectators: false), false)
+        // the table's own voiceSettings says it has casual voice
+        XCTAssertTrue(VoiceCompany.spectatorsInVoice(gameId: "g1", casualVoiceGameId: "g1"))
+        XCTAssertFalse(VoiceCompany.spectatorsInVoice(gameId: "g1", casualVoiceGameId: nil), "no voiceSettings: a tournament table")
+        XCTAssertFalse(VoiceCompany.spectatorsInVoice(gameId: "g1", casualVoiceGameId: "g0"), "another game's")
+        XCTAssertFalse(VoiceCompany.spectatorsInVoice(gameId: nil, casualVoiceGameId: "g1"))
+    }
+
     func testSnapshots() throws {
         // the draw: no seats yet, the human entrants (3 humans and a bot)
         let draw = try T.state(fixture: "draw-in-progress")

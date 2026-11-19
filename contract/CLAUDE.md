@@ -17,7 +17,7 @@ Loads automatically when Claude reads a file under `contract/`; the full rules a
 
 ## seq
 
-- `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none, and neither do the two UNSEQUENCED room events, `spectatorsUpdated` and `bidClock` (schema `seq: false`, `GameState.emitUnsequenced`; the contract guard checks both rules; contract/README.md "Bid clock"). Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests
+- `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none, and neither do the three UNSEQUENCED room events, `spectatorsUpdated`, `bidClock` and `seatLeft` (schema `seq: false`, `GameState.emitUnsequenced`; the contract guard checks both rules; contract/README.md "Bid clock"). Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests
 
 ## Upgrade gate
 
