@@ -322,6 +322,62 @@ describe('over a recording io (fake timers)', () => {
         db().faults.release();
     });
 
+    test('a routine update still in flight past the settle bound cannot land over the final write: the released doc is the final state, no line twice', async () => {
+        const { store } = await bootA();
+        const { game, id } = await table(store);
+        successor();
+        // A routine update goes out and stalls (a slow primary)
+        db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+        game.addLogEntry('a line in flight at SIGTERM', null, 'system');
+        await jest.advanceTimersByTimeAsync(5);
+        expect(db().faults.stalledCount()).toBe(1);
+        const finalState = gameCodec.serialize(game);
+        // It applies late: right after the handoff's final write, before the release
+        const coll = db().liveGames;
+        const replaceOne = coll.replaceOne.bind(coll);
+        coll.replaceOne = async (...args) => {
+            const r = await replaceOne(...args);
+            db().faults.release();
+            for (let i = 0; i < 50; i++) await Promise.resolve();
+            return r;
+        };
+        signal('SIGTERM');
+        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+        expect(db().faults.calls.some((c) => c.collection === 'liveGames' && c.op === 'updateOne' && c.outcome === 'ok')).toBe(true);
+        const saved = doc(id);
+        expect(saved).toMatchObject({ released: true, releaseKind: 'handoff' });
+        expect(kit.comparable(saved)).toEqual(kit.comparable(finalState));
+        const lines = saved.log.map((e) => JSON.stringify(e));
+        expect(new Set(lines).size).toBe(lines.length);
+        expect(lineOf(id)).toEqual([shutdown.CONTINUE_NOTICE]);
+        expect(store).toBeTruthy();
+    });
+
+    test('a routine update that applies only after the release changes nothing and fences nothing (no early engine-close)', async () => {
+        const { store } = await bootA();
+        const { game, sockets, id } = await table(store);
+        successor();
+        db().faults.stall({ collections: 'liveGames', ops: 'updateOne' });
+        game.addLogEntry('a line in flight at SIGTERM', null, 'system');
+        await jest.advanceTimersByTimeAsync(5);
+        const finalState = gameCodec.serialize(game);
+        const coll = db().liveGames;
+        const updateMany = coll.updateMany.bind(coll);
+        coll.updateMany = async (...args) => {
+            const r = await updateMany(...args);
+            db().faults.release();
+            for (let i = 0; i < 50; i++) await Promise.resolve();
+            return r;
+        };
+        signal('SIGTERM');
+        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+        expect(kit.comparable(doc(id))).toEqual(kit.comparable(finalState));
+        expect(doc(id)).toMatchObject({ released: true });
+        expect(lineOf(id)).toEqual([shutdown.CONTINUE_NOTICE]);
+        expect(sockets[0].conn.close).not.toHaveBeenCalled();
+        expect(store.logs.some((l) => /fenced/.test(l.msg))).toBe(false);
+    });
+
     test('an insert in flight at SIGTERM is awaited in the settle step, then handed off', async () => {
         const { store } = await bootA();
         db().faults.stall({ collections: 'liveGames', ops: 'insertOne' });

@@ -35,7 +35,9 @@
  *      UNKNOWN
  *   4b. successor (<= 4 s in all): each table with a doc gets its final
  *      write, the whole doc at the next rev, still released: false
- *      (replaceOne {_id, owner: me, released: false}; insertOne for a
+ *      (replaceOne {_id, owner: me, released: false, rev: {$lt: its rev}}:
+ *      a routine update still in flight after the settle bound, rev-
+ *      monotonic too, can then never land over it; insertOne for a
  *      table never written yet), all in parallel, cut at FLUSH_WRITE_MS;
  *      then, in parallel, ONE release updateMany for exactly the ids whose
  *      final write was acknowledged plus this process's ENDED tombstones
@@ -249,7 +251,10 @@ function createHandoff({
             const replacement = s.finalDoc(e.game, e.doc);
             if (!replacement) return Promise.resolve(false);
             const op = e.info.inserted
-                ? liveGames.replaceOne({ _id: e.game.gameId, owner: me, released: false }, replacement).then((r) => !!r && r.matchedCount === 1)
+                // rev $lt: a routine update still in flight (past the settle
+                // bound) matches nothing once this lands (its filter is
+                // rev-monotonic too), so the released doc is this state
+                ? liveGames.replaceOne({ _id: e.game.gameId, owner: me, released: false, rev: { $lt: replacement.rev } }, replacement).then((r) => !!r && r.matchedCount === 1)
                 : liveGames.insertOne(replacement).then(() => true);
             e.writeSent = true;
             e.insertSent = !e.info.inserted;

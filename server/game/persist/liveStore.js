@@ -35,7 +35,8 @@
  *     tainted, invalid, terminal) keeps the last good doc
  *   - the first write is insertOne; once one is acknowledged the id is
  *     never inserted or upserted again: later writes are
- *     updateOne({_id, owner: me, released: false}) with $set of the state
+ *     updateOne({_id, owner: me, released: false}) ('on' adds rev: {$lt:
+ *     the new rev}, so a late write never lands over a newer one) with $set of the state
  *     and $push {$each: new log lines, $slice: -500}; after a failed or
  *     ambiguous write, a chat scrub or a sender rename, the next one $sets
  *     the whole log (still an update). E11000 on the insert (an ambiguous
@@ -657,8 +658,14 @@ function createLiveStore({
         }
         let res;
         const update = updateFor(st, doc, at, fullLog);
+        // 'on': rev-monotonic, so an update that applies late (after the
+        // handoff's final write, or a self-fence re-take) never lands over
+        // a newer doc; one that matches nothing for it is read back as ours
+        const filter = mode === 'on'
+            ? { _id: st.id, owner: bootId, released: false, rev: { $lt: st.rev } }
+            : { _id: st.id, owner: bootId, released: false };
         try {
-            res = await coll.updateOne({ _id: st.id, owner: bootId, released: false }, update);
+            res = await coll.updateOne(filter, update);
         } catch (err) {
             failed(st, 'update', err);
             return;
@@ -751,6 +758,14 @@ function createLiveStore({
     function lost(st, why) {
         if (st.done) return;
         if (fences(st)) {
+            if (closed) {
+                // After close() (the handoff, the crash release) the
+                // shutdown owns every table's outcome: a late write that
+                // finds its doc released retires nothing and closes no
+                // socket before the notice
+                forget(st);
+                return;
+            }
             fence(st, why);
             return;
         }
