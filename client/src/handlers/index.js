@@ -80,6 +80,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onActionRejected,
     onStateSnapshot,
     onSpectatorsUpdated,
+    onBidClock,
+    onBidTimedOut,
     // Chat callbacks
     onChatMessage,
     // Voice callbacks
@@ -177,6 +179,8 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onActionRejected,
     onStateSnapshot,
     onSpectatorsUpdated,
+    onBidClock,
+    onBidTimedOut,
   });
 
   // Register chat handlers

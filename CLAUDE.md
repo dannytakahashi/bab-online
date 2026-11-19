@@ -92,7 +92,7 @@ bab-online/
 1. **Auth**: `signIn`/`signUp` → `signInResponse` (includes `blockedUsers`; `deleteAccount` → `deleteAccountResponse` for in-app account deletion, refused mid-game, the name then held 30 days; `changePassword` → `changePasswordResponse`, other devices signed out); `restoreSession` resumes a saved per-device token without a password (a failure with `retryable: true` keeps the token: `docs/claude/server-accounts.md`)
 2. **Lobby**: `createLobby` / `joinLobby` → `lobbyCreated` → `playerReadyUpdate` → `allPlayersReady`
 3. **Draw**: `startDraw` → `draw` → `playerDrew` → `teamsAnnounced`
-4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal)
+4. **Bidding**: `gameStart` → `updateTurn` → `playerBid` → `bidReceived` → `doneBidding` (if both teams bid 0 there is no `doneBidding`: the server sends a log entry, `destroyHands` and a fresh `gameStart` for the redeal). A human bid turn idle for 10 s gets the bid clock (`bidClock`, unsequenced; the table plays a 30 s tune) and at 40 s the server bids 0 for the seat ("<name> ran out of time."; `server/CLAUDE.md`, Bid clock)
 5. **Play**: `updateTurn` → `playCard` → `cardPlayed` → `trickComplete` → `handComplete`
 6. **End**: `gameEnd` (payload always includes `tournamentId`, null for casual games)
 7. **Resync (snapshot v2)**: `requestSnapshot {requestId?, customPics?, log?}` → `stateSnapshot {snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game'}` (any seat owner, entrant or spectator; custom pictures only with `customPics: true`; `snapshot.partial` lists what was left out and the client keeps it — `mergeSnapshot`; `seq` on room broadcasts tells a v2 client when it missed something)
@@ -119,7 +119,7 @@ npm run dev:client   # Client Vite dev server (port 5173; serves client/index.ht
 npm run build:client # Production build: client/dist (index.html + hashed assets/); Express serves / from it
 npm run build:avatars # Re-encode stock avatar art from the fcdd885 masters (scripts/build-avatars.js)
 npm run build:icons  # favicon.ico (16/32/48), assets/icons/icon-192.png + apple-touch-icon.png, assets/app-icon.webp (the phone gate's) from the iOS app icon (scripts/build-icons.js)
-npm run build:sounds # Table sound effects (macOS + numpy): client/assets/sounds/*.m4a and the same files in iOSClient/BABOnline/Resources/Sounds/ from sounds-src/ (scripts/build-sounds.py; sounds:check = stale check, run by CI)
+npm run build:sounds # Table sound effects (macOS + numpy): client/assets/sounds/*.m4a and the same files in iOSClient/BABOnline/Resources/Sounds/ from sounds-src/ (scripts/build-sounds.py, incl. the synthesized bid clock tune bidclock.m4a; `-- --only bidclock[,name]` rebuilds just those and keeps every other file and manifest entry: AAC encodes differ across macOS versions; sounds:check = stale check, run by CI)
 
 npm test             # Server tests (Jest)
 npm run test:client  # Client tests (Vitest)
@@ -181,7 +181,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Web client architecture | `docs/claude/web-client.md`, Architecture | ClientSession screen FSM, SocketManager ping, reconnect order |
 | Web stay signed in, delivery, screens, phone gate | `docs/claude/web-client.md` | session storage, `staticAssets.js` + CSP + restart notice, `.screen--full`, phone gate |
 | Web table, layout, design system | `docs/claude/web-table.md` | GameState one writer, SeqGate, TableDirector, MyAction; `computeTableLayout`, `GameScene.relayout()` and its tests (`computeTableLayout.test.js`, `relayout.test.js` mid-deal / mid-trick); tokens + kit; keyboard card play (`ui/handA11y.js`: hand toolbar, announcer) |
-| Web table sound effects | `docs/claude/web-table.md`, Web table sound | `audio/SoundManager.js` (own AudioContext, gesture unlock, `bab.sound` mute, throttle), `audio/tableSounds.js` event map, silent on snapshot / SeqGate replay, `SoundToggle` in the voice row + main room |
+| Web table sound effects | `docs/claude/web-table.md`, Web table sound | `audio/SoundManager.js` (own AudioContext, gesture unlock, `bab.sound` mute, throttle), `audio/tableSounds.js` event map, silent on snapshot / SeqGate replay (the bid clock's tune excepted: `_syncTune`, end-aligned, rings out on a timeout), `SoundToggle` in the voice row + main room; the bidder's countdown is `BidManager.syncClock` (`state/bidClock.js`) |
 
 ## Common Files to Check
 

@@ -4,9 +4,14 @@
  * before a gesture or while the tab is hidden, the throttle and the card
  * variants, failures that are logged once and never thrown, a failed load
  * retried by a later gesture, and the context suspended off the table.
+ * start(): the bid clock's tune from an offset, the same refusals as
+ * play(), a stop that fades, the handle that clears on its end, and the
+ * ready notification.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { SoundManager, SOUND_URLS, CARD_VARIANTS, DEFAULT_VOLUME, STORAGE_KEY, THROTTLE_MS, LOAD_TRIES, LOAD_RETRY_MS } from './SoundManager.js';
+import {
+  SoundManager, SOUND_URLS, CARD_VARIANTS, DEFAULT_VOLUME, STORAGE_KEY, THROTTLE_MS, LOAD_TRIES, LOAD_RETRY_MS, STOP_FADE_S,
+} from './SoundManager.js';
 
 /** A minimal AudioContext: buffers are {name}, start() is recorded. */
 function fakeAudio({ failSource = false, startRunning = false } = {}) {
@@ -18,6 +23,7 @@ function fakeAudio({ failSource = false, startRunning = false } = {}) {
       this.currentTime = 10;
       this.destination = { node: 'destination' };
       this.started = [];
+      this.sources = [];
       this.gains = [];
       contexts.push(this);
     }
@@ -30,24 +36,41 @@ function fakeAudio({ failSource = false, startRunning = false } = {}) {
       return Promise.resolve();
     }
     createGain() {
-      const g = { gain: { value: 1 }, connect: vi.fn() };
+      const ramps = [];
+      const g = {
+        gain: {
+          value: 1,
+          ramps,
+          cancelScheduledValues: vi.fn(),
+          setValueAtTime: vi.fn(),
+          linearRampToValueAtTime: vi.fn((v, t) => ramps.push({ v, t })),
+        },
+        connect: vi.fn(),
+      };
       this.gains.push(g);
       return g;
     }
     createBufferSource() {
       if (failSource) throw new Error('no source');
       const ctx = this;
-      return {
+      const src = {
         buffer: null,
+        onended: null,
+        stoppedAt: null,
         connect: vi.fn(),
-        start(t) {
-          ctx.started.push({ name: this.buffer.name, t });
+        start(t, offset) {
+          ctx.started.push({ name: this.buffer.name, t, ...(offset !== undefined && { offset }) });
+          ctx.sources.push(src);
+        },
+        stop(t) {
+          src.stoppedAt = t === undefined ? 'now' : t;
         },
       };
+      return src;
     }
     decodeAudioData(data) {
       if (data.bad) return Promise.reject(new Error('undecodable'));
-      return Promise.resolve({ name: data.name });
+      return Promise.resolve({ name: data.name, duration: data.name === 'bidclock' ? 30.02 : 0.4 });
     }
   }
   return { FakeContext, contexts };
@@ -154,8 +177,8 @@ describe('defaults and the context', () => {
     expect(m.play('deal')).toBe(false);
   });
 
-  it('every sound is a bundled file (11 of them)', () => {
-    expect(Object.keys(SOUND_URLS).sort()).toEqual(['card-1', 'card-2', 'card-3', 'deal', 'gameend', 'made', 'overtrump', 'set', 'trick', 'trick-ours', 'turn']);
+  it('every sound is a bundled file (12 of them, the bid clock\'s tune included)', () => {
+    expect(Object.keys(SOUND_URLS).sort()).toEqual(['bidclock', 'card-1', 'card-2', 'card-3', 'deal', 'gameend', 'made', 'overtrump', 'set', 'trick', 'trick-ours', 'turn']);
     for (const url of Object.values(SOUND_URLS)) expect(url).toMatch(/\.m4a$/);
   });
 });
@@ -409,5 +432,114 @@ describe('off the table', () => {
     expect(m.ctx.state).toBe('suspended');
     m.setMuted(false);
     expect(m.ctx.state).toBe('running');
+  });
+});
+
+describe('start(): a sound that runs on (the bid clock\'s tune)', () => {
+  const tune = (m) => m.ctx.started.filter((x) => x.name === 'bidclock');
+  const srcs = (m) => m.ctx.sources.filter((x) => x.buffer.name === 'bidclock');
+
+  it('starts the file at an offset through its own gain into the master, and reports where it plays', async () => {
+    const m = await ready();
+    expect(m.duration('bidclock')).toBe(30.02);
+    expect(m.duration('nope')).toBe(null);
+    const h = m.start('bidclock', { offset: 12.5 });
+    expect(h).toBeTruthy();
+    expect(h.playing).toBe(true);
+    expect(tune(m)).toHaveLength(1);
+    expect(tune(m)[0]).toMatchObject({ t: 10, offset: 12.5 });
+    const g = m.ctx.gains[1];
+    expect(g.connect).toHaveBeenCalledWith(m.ctx.gains[0]);
+    expect(h.position).toBe(12.5);
+    m.ctx.currentTime = 13;
+    expect(h.position).toBe(15.5);
+    // no throttle: the next start is another tune
+    expect(m.start('bidclock', { offset: 1 })).toBeTruthy();
+  });
+
+  it('refuses as play() does: muted, volume 0, a hidden tab, off the table, not ready, not loaded, an offset past the end', async () => {
+    const before = make();
+    expect(before.start('bidclock')).toBe(null);
+    const m = await ready();
+    m.setMuted(true);
+    expect(m.start('bidclock')).toBe(null);
+    m.setMuted(false);
+    m.setVolume(0);
+    expect(m.start('bidclock')).toBe(null);
+    m.setVolume(0.5);
+    doc.hidden = true;
+    expect(m.start('bidclock')).toBe(null);
+    doc.hidden = false;
+    m.setActive(false);
+    expect(m.start('bidclock')).toBe(null);
+    m.setActive(true);
+    await Promise.resolve();
+    expect(m.start('nope')).toBe(null);
+    expect(m.start('bidclock', { offset: 31 })).toBe(null);
+    expect(m.start('bidclock', { offset: 3 })).toBeTruthy();
+  });
+
+  it('stop() fades the gain to 0 and stops the source at the fade\'s end; stop(0) at once; twice is a no-op', async () => {
+    const m = await ready();
+    const h = m.start('bidclock', { offset: 2 });
+    const g = m.ctx.gains[1];
+    const src = srcs(m)[0];
+    h.stop();
+    expect(h.playing).toBe(false);
+    expect(g.gain.ramps).toEqual([{ v: 0, t: 10 + STOP_FADE_S }]);
+    expect(src.stoppedAt).toBe(10 + STOP_FADE_S);
+    h.stop();
+    expect(g.gain.ramps).toHaveLength(1);
+    const h2 = m.start('bidclock', { offset: 2 });
+    h2.stop(0);
+    expect(srcs(m)[1].stoppedAt).toBe('now');
+  });
+
+  it('the handle clears when the file ends on its own', async () => {
+    const m = await ready();
+    const h = m.start('bidclock', { offset: 29 });
+    srcs(m)[0].onended();
+    expect(h.playing).toBe(false);
+  });
+
+  it('mute and volume reach a playing tune through the master gain', async () => {
+    const m = await ready();
+    const h = m.start('bidclock');
+    m.setMuted(true);
+    expect(m.ctx.gains[0].gain.value).toBe(0);
+    expect(h.playing).toBe(true);
+    m.setMuted(false);
+    expect(m.ctx.gains[0].gain.value).toBe(DEFAULT_VOLUME);
+  });
+
+  it('a failing context is logged once and returns null', async () => {
+    audio = fakeAudio({ failSource: true });
+    const m = await ready();
+    expect(m.start('bidclock')).toBe(null);
+    expect(m.start('bidclock')).toBe(null);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('onReady fires when the files are decoded and when the context runs again', async () => {
+    const m = make();
+    const fn = vi.fn();
+    const off = m.onReady(fn);
+    m.unlock();
+    await m._loading;
+    await Promise.resolve();
+    expect(fn).toHaveBeenCalled();
+    const n = fn.mock.calls.length;
+    m.ctx.state = 'suspended';
+    m.unlock();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fn.mock.calls.length).toBeGreaterThan(n);
+    off();
+    const k = fn.mock.calls.length;
+    m.ctx.state = 'suspended';
+    m.unlock();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(fn.mock.calls.length).toBe(k);
   });
 });

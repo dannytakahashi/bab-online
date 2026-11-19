@@ -162,6 +162,7 @@ export const SERVER_EVENTS = {
   RESTORE_PLAYER_STATE: 'restorePlayerState',
   SPECTATOR_JOINED: 'spectatorJoined',
   SPECTATORS_UPDATED: 'spectatorsUpdated',
+  BID_CLOCK: 'bidClock',
 
   // Connection
   CONNECT: 'connect',

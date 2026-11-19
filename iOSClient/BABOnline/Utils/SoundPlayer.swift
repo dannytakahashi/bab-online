@@ -18,6 +18,32 @@ protocol SoundPlaying: AnyObject {
     func play(_ kind: SoundKind)
 }
 
+/// The bid clock's tune (BidClockTune): one long file, END-aligned with the clock's deadline.
+@MainActor
+protocol TunePlaying: AnyObject {
+    /// Time until the playing tune ends (s); nil when it is not playing (stopped, fading out,
+    /// interrupted, never started).
+    var tuneTimeLeft: TimeInterval? { get }
+    /// The tune file's decoded length (s; C11: AAC priming makes it differ from 30.000 by tens
+    /// of ms), nil until it is loaded.
+    var tuneDuration: TimeInterval? { get }
+    /// Plays the tune from `duration - remaining` so that it ends in `remaining` s. False when
+    /// refused (sound off, volume 0, the app not active, the session) or the file is missing.
+    @discardableResult
+    func startTune(endingIn remaining: TimeInterval) -> Bool
+    func stopTune(fade: TimeInterval)
+}
+
+/// The tune's own player (the app: AVAudioPlayer; tests: a recorder).
+@MainActor
+protocol TuneOutput: AnyObject {
+    var timeLeft: TimeInterval? { get }
+    var duration: TimeInterval? { get }
+    func start(endingIn remaining: TimeInterval, volume: Float) -> Bool
+    func setVolume(_ volume: Float)
+    func stop(fade: TimeInterval)
+}
+
 /// Plays bundle files (the app: AVAudioPlayer; tests: a recorder).
 @MainActor
 protocol SoundOutput: AnyObject {
@@ -41,7 +67,7 @@ enum SoundSessionPolicy {
 }
 
 @MainActor
-final class SoundPlayer: ObservableObject, SoundPlaying {
+final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
     static let enabledKey = "soundEnabled"
     static let volumeKey = "soundVolume"
     /// Quiet: the files sit at -24 dBFS (cues -26), so this is well under the voice chat.
@@ -57,23 +83,37 @@ final class SoundPlayer: ObservableObject, SoundPlaying {
         #endif
         // hosted unit tests and UI fixtures never play or touch the session
         if silent || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return SoundPlayer(output: SilentSoundOutput(), session: InertSoundSession())
+            return SoundPlayer(output: SilentSoundOutput(), session: InertSoundSession(), tune: SilentTuneOutput())
         }
-        return SoundPlayer(output: AudioPlayerPool(), session: SystemSoundSession())
+        return SoundPlayer(output: AudioPlayerPool(), session: SystemSoundSession(), tune: AudioTuneOutput())
     }()
 
     @Published var isEnabled: Bool {
-        didSet { defaults.set(isEnabled, forKey: Self.enabledKey) }
+        didSet {
+            defaults.set(isEnabled, forKey: Self.enabledKey)
+            // the tune follows at once: off stops it, on lets BidClockTune pick it up where it is
+            if isEnabled != oldValue {
+                if isEnabled { tuneResync.send() } else { tune.stop(fade: BidClockTune.fade) }
+            }
+        }
     }
     @Published var volume: Float {
         didSet {
             let v = min(max(volume, 0), 1)
-            if v != volume { volume = v }
+            if v != volume { volume = v; return }
             defaults.set(v, forKey: Self.volumeKey)
+            if v == 0 { tune.stop(fade: BidClockTune.fade) } else { tune.setVolume(v * Self.tuneGain) }
+            if v > 0 && oldValue <= 0 { tuneResync.send() }
         }
     }
+    /// The tune's level against the player's volume (its file sits at -30 dBFS, under the cues).
+    static let tuneGain: Float = 1
+    /// Sound turned back on (or the volume up from 0): BidClockTune restarts a running clock's
+    /// tune at its place.
+    let tuneResync = PassthroughSubject<Void, Never>()
 
     private let output: SoundOutput
+    private let tune: TuneOutput
     private let session: SoundSession
     private let defaults: UserDefaults
     private let isAppActive: @MainActor () -> Bool
@@ -82,12 +122,13 @@ final class SoundPlayer: ObservableObject, SoundPlaying {
     private var lastPlayed: [SoundKind: TimeInterval] = [:]
     private var takes: [SoundKind: Int] = [:]
 
-    init(output: SoundOutput, session: SoundSession, defaults: UserDefaults = .standard,
+    init(output: SoundOutput, session: SoundSession, tune: TuneOutput? = nil, defaults: UserDefaults = .standard,
          isAppActive: (@MainActor () -> Bool)? = nil, isVoiceActive: (@MainActor () -> Bool)? = nil,
          // the wall clock, not systemUptime (a required-reason API): a jump forward costs one
          // throttled sound at most, and a jump back counts as outside the window
          now: @escaping () -> TimeInterval = { Date().timeIntervalSinceReferenceDate }) {
         self.output = output
+        self.tune = tune ?? SilentTuneOutput()
         self.session = session
         self.defaults = defaults
         self.isAppActive = isAppActive ?? { UIApplication.shared.applicationState == .active }
@@ -115,6 +156,21 @@ final class SoundPlayer: ObservableObject, SoundPlaying {
         output.play(file: file, volume: volume * kind.gain)
         return file
     }
+
+    // MARK: - The bid clock's tune
+
+    var tuneTimeLeft: TimeInterval? { tune.timeLeft }
+    var tuneDuration: TimeInterval? { tune.duration }
+
+    /// As a sound: never muted, at volume 0, with the app not active (a background tune would be
+    /// a surprise) or without the ambient session.
+    @discardableResult
+    func startTune(endingIn remaining: TimeInterval) -> Bool {
+        guard isEnabled, volume > 0, isAppActive(), prepareSession() else { return false }
+        return tune.start(endingIn: remaining, volume: volume * Self.tuneGain)
+    }
+
+    func stopTune(fade: TimeInterval) { tune.stop(fade: fade) }
 
     /// The session policy above, applied before every sound (cheap: a category read).
     /// False when the session could not be made ambient: a sound in the launch default
@@ -163,6 +219,69 @@ final class AudioPlayerPool: SoundOutput {
             }
         }
     }
+}
+
+/// The tune's own AVAudioPlayer, outside the two-per-file pool (a 30 s file, made on the first
+/// start, after the session is ambient). A stop fades the volume out, then stops; a start
+/// meanwhile cancels that stop.
+@MainActor
+final class AudioTuneOutput: TuneOutput {
+    static let file = "bidclock"
+    private var player: AVAudioPlayer?
+    private var stopping: DispatchWorkItem?
+
+    private func loaded() -> AVAudioPlayer? {
+        if player == nil, let url = Bundle.main.url(forResource: Self.file, withExtension: "m4a") {
+            player = try? AVAudioPlayer(contentsOf: url)
+            player?.prepareToPlay()
+        }
+        return player
+    }
+
+    var duration: TimeInterval? { player?.duration }
+
+    var timeLeft: TimeInterval? {
+        guard let p = player, p.isPlaying, stopping == nil else { return nil }
+        return max(0, p.duration - p.currentTime)
+    }
+
+    func start(endingIn remaining: TimeInterval, volume: Float) -> Bool {
+        guard let p = loaded() else { return false }
+        stopping?.cancel()
+        stopping = nil
+        p.stop()
+        p.currentTime = max(0, p.duration - remaining)
+        p.setVolume(volume, fadeDuration: 0)
+        return p.play()
+    }
+
+    func setVolume(_ volume: Float) {
+        guard stopping == nil else { return }
+        player?.setVolume(volume, fadeDuration: 0)
+    }
+
+    func stop(fade: TimeInterval) {
+        guard let p = player, p.isPlaying, stopping == nil else { return }
+        guard fade > 0 else { p.stop(); return }
+        p.setVolume(0, fadeDuration: fade)
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.player?.stop()
+                self?.stopping = nil
+            }
+        }
+        stopping = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + fade, execute: work)
+    }
+}
+
+@MainActor
+final class SilentTuneOutput: TuneOutput {
+    var timeLeft: TimeInterval? { nil }
+    var duration: TimeInterval? { nil }
+    func start(endingIn remaining: TimeInterval, volume: Float) -> Bool { false }
+    func setVolume(_ volume: Float) {}
+    func stop(fade: TimeInterval) {}
 }
 
 @MainActor

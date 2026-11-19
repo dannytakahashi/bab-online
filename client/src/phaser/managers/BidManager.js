@@ -9,6 +9,17 @@
  * Its look, hover and pop-in are CSS (classes and motion tokens); the only
  * values set here are the layout's box model (BID_SHEET, BID_CHIP) as CSS
  * variables, so the sheet the overlap check models is the one drawn.
+ *
+ * The bid clock's countdown (owner 2026-11-18; state/bidClock.js): once the
+ * server's clock runs for MY bid turn, the title row shows the whole
+ * seconds left, on the right of "Bid!" (absolutely placed: the sheet's box
+ * does not change), in the warning colour for the last BID_CLOCK_LOW_S. It
+ * counts to deadline - BID_CLOCK_UI_MARGIN_MS; at 0 it goes and the bid is
+ * no longer offered (the sheet is marked expired: the server bids 0 for me
+ * next; BID_CLOCK_EXPIRED_GRACE_MS later with no word it is offered again).
+ * Shown only for the bidder (a seat that acts: not a spectator, not lazy),
+ * on my bid turn with no bid of mine made or pending. Screen readers hear
+ * it once when it appears and once at 10 s (the number itself is not live).
  */
 
 import { getGameState } from '../../state/GameState.js';
@@ -16,6 +27,11 @@ import { getHud } from '../../ui/tableHud.js';
 import { motionMs } from '../../ui/motion.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
 import { BORES, bidTotalsFor } from '../../rules/bids.js';
+import { getMyAction } from '../../state/MyAction.js';
+import { announce } from '../../ui/handA11y.js';
+import {
+  bidClockNow, countdownMs, secondsToBid, sameClock, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
+} from '../../state/bidClock.js';
 
 /** The layout's sheet box model on the sheet (CSS variables). */
 function applySheetModel(sheet) {
@@ -47,6 +63,14 @@ export class BidManager {
     this.trickIndicators = [];
     this.indicatorRow = null;
     this.handSize = 0;
+
+    // The bid clock's countdown (syncClock)
+    this.titleRow = null;
+    this.clockEl = null;
+    this._clockTimer = null;
+    this._clockSeen = null; // {position, deadline} of the clock last shown (sameClock)
+    this._clockSaid = new Set();
+    this.expired = false;
   }
 
   /** Is it my turn to bid (the sheet shows)? */
@@ -87,11 +111,12 @@ export class BidManager {
       setTimeout(reveal, 50);
     }
 
-    // Header
+    // Header (the bid clock's countdown joins it on the right: syncClock)
     const header = document.createElement('div');
     header.className = 'bid-sheet__title';
     header.textContent = 'Bid!';
     this.bidContainer.appendChild(header);
+    this.titleRow = header;
 
     // Trick indicator: one chip per trick (the sheet's width: an overbid's
     // chips shrink to fit instead of sticking out past the sheet)
@@ -152,6 +177,9 @@ export class BidManager {
     // Update bore button states
     this.updateBoreButtonStates();
 
+    // A clock already running for my turn (a rejoin, a rebuild, /active)
+    this.syncClock();
+
     console.log('✅ BidManager: Bid UI created');
   }
 
@@ -173,8 +201,12 @@ export class BidManager {
    * again, so the sheet never shows a bid that was not sent.
    */
   chooseBid(btn, bidValue, onBidSelect) {
+    // the clock ran out here: the server's bid 0 for me is on its way
+    if (this.expired) return;
     this.selectButton(btn, bidValue);
     if (onBidSelect(bidValue) === false) this.clearSelection();
+    // a bid on its way: no countdown (a rollback's render shows it again)
+    this.syncClock();
   }
 
   /** No bid marked. */
@@ -225,6 +257,8 @@ export class BidManager {
     }
 
     this.updateTrickIndicator();
+    // a bid came in (mine ends my clock)
+    this.syncClock();
   }
 
   /**
@@ -286,6 +320,119 @@ export class BidManager {
     if (!this.bidContainer) return;
     // the class's transition pops it in or out (visibility follows the fade)
     this.bidContainer.classList.toggle('is-open', this._myTurn());
+    this.syncClock();
+  }
+
+  // ---------- the bid clock's countdown ----------
+
+  /** The running clock, when it is mine to see: my bid turn, my bid neither made nor pending. */
+  _myClock() {
+    const s = this.state;
+    const clock = s.bidClock;
+    if (!clock || !this.bidContainer || !s.position || s.isSpectator || s.isLazy) return null;
+    if (clock.position !== s.position || !this._myTurn()) return null;
+    if (s.bids?.[s.position] !== undefined) return null;
+    if (getMyAction().isPending('bid')) return null;
+    return clock;
+  }
+
+  /**
+   * Show, update or remove the countdown from the state's clock (the
+   * bidClock event, a snapshot's render, my bid, the turn moving on).
+   */
+  syncClock() {
+    // the clock went (stopped, my socket dropped) or is another seat's: the
+    // next one for me is new, even at the same deadline (/lazy then /active)
+    const live = this.state.bidClock;
+    if (!live || live.position !== this._clockSeen?.position) this._clockSeen = null;
+    const clock = this._myClock();
+    if (!clock) {
+      this._removeClock();
+      return;
+    }
+    if (!sameClock(this._clockSeen, clock)) {
+      // a new clock (or a resume's top-up): announced afresh, offered again
+      this._clockSaid = new Set();
+      this._setExpired(false);
+    }
+    // a restatement (a snapshot rebuilds the deadline from its receipt):
+    // follow its deadline, say nothing again
+    this._clockSeen = { position: clock.position, deadline: clock.deadline };
+    this._tickClock();
+  }
+
+  _tickClock() {
+    this._clearClockTimer();
+    const clock = this._myClock();
+    if (!clock) {
+      this._removeClock();
+      return;
+    }
+    const ms = countdownMs(clock, bidClockNow());
+    if (ms <= 0) {
+      // 0: the countdown goes and the bid is not offered (the server bids
+      // 0 next); offered again if nothing came after the grace
+      this._removeClockEl();
+      if (ms > -BID_CLOCK_EXPIRED_GRACE_MS) {
+        this._setExpired(true);
+        this._clockTimer = setTimeout(() => this._tickClock(), BID_CLOCK_EXPIRED_GRACE_MS + ms + 1);
+      } else {
+        this._setExpired(false);
+      }
+      return;
+    }
+    const secs = Math.ceil(ms / 1000);
+    if (!this.clockEl && this.titleRow) {
+      const el = document.createElement('span');
+      el.className = 'bid-sheet__clock';
+      el.setAttribute('role', 'timer');
+      this.titleRow.appendChild(el);
+      this.clockEl = el;
+    }
+    if (this.clockEl) {
+      this.clockEl.textContent = String(secs);
+      this.clockEl.setAttribute('aria-label', secondsToBid(secs));
+      this.clockEl.classList.toggle('bid-sheet__clock--low', secs <= BID_CLOCK_LOW_S);
+    }
+    // once when it appears, once at BID_CLOCK_LOW_S (one announcement if it appears below that)
+    if (!this._clockSaid.has('shown')) {
+      this._clockSaid.add('shown');
+      if (secs <= BID_CLOCK_LOW_S) this._clockSaid.add('low');
+      announce(secondsToBid(secs));
+    } else if (secs <= BID_CLOCK_LOW_S && !this._clockSaid.has('low')) {
+      this._clockSaid.add('low');
+      announce(secondsToBid(BID_CLOCK_LOW_S));
+    }
+    // the next whole second (a hidden tab's throttled timer just lands later)
+    const next = ms - (secs - 1) * 1000;
+    this._clockTimer = setTimeout(() => this._tickClock(), Math.max(1, Math.ceil(next)));
+  }
+
+  _setExpired(on) {
+    this.expired = !!on;
+    this.bidContainer?.classList.toggle('bid-sheet--expired', this.expired);
+    for (const b of this.allBidButtons || []) {
+      if (this.expired) b.setAttribute('aria-disabled', 'true');
+      else b.removeAttribute('aria-disabled');
+    }
+  }
+
+  _clearClockTimer() {
+    if (this._clockTimer !== null) clearTimeout(this._clockTimer);
+    this._clockTimer = null;
+  }
+
+  _removeClockEl() {
+    this.clockEl?.remove();
+    this.clockEl = null;
+  }
+
+  _removeClock() {
+    this._clearClockTimer();
+    this._removeClockEl();
+    if (this.expired) this._setExpired(false);
+    // _clockSeen and what was said stay: the same clock on a rebuilt
+    // sheet is not announced again
   }
 
   /**
@@ -293,6 +440,7 @@ export class BidManager {
    * @param {boolean} animate - Whether to animate out (default true)
    */
   hideBidUI(animate = true) {
+    this._removeClock();
     if (this.bidContainer) {
       const container = this.bidContainer;
       container.classList.remove('is-open');
@@ -309,6 +457,7 @@ export class BidManager {
     this.selectedBid = null;
     this.trickIndicators = [];
     this.indicatorRow = null;
+    this.titleRow = null;
     this.handSize = 0;
   }
 

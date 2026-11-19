@@ -42,14 +42,18 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { createEventRecorder, serialize } = require('../../testUtils/eventRecorder');
-const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament } = require('../../testUtils/iosScenarios');
+const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock } = require('../../testUtils/iosScenarios');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const DIR = path.resolve(ROOT, process.env.IOS_FIXTURE_DIR || 'iOSClient/BABOnlineTests/Fixtures/events');
 const UPDATE = process.env.UPDATE_IOS_FIXTURES === '1';
 const realRandom = Math.random;
 
-function setup(seed) {
+function setup(seed, { bidClock = false } = {}) {
+    // Only the bidclock recording runs with the bid clock: the others idle
+    // human bid turns to test other mechanisms (a 61 s grace) and predate it
+    if (bidClock) delete process.env.BID_CLOCK;
+    else process.env.BID_CLOCK = 'off';
     require('uuid').__reset();
     jest.useFakeTimers();
     jest.setSystemTime(Date.UTC(2026, 0, 1, 12));
@@ -64,6 +68,7 @@ function teardown() {
     jest.clearAllTimers();
     jest.useRealTimers();
     Math.random = realRandom;
+    delete process.env.BID_CLOCK;
 }
 
 beforeEach(() => {
@@ -82,7 +87,7 @@ afterEach(() => {
 afterAll(() => require('../errorHandler').rateLimiter.shutdown());
 
 async function record(name, scenario, seed) {
-    setup(seed);
+    setup(seed, { bidClock: scenario === scenarioBidClock });
     const w = world(`ios-${name}`);
     let game = null;
     const rec = createEventRecorder(w, { getGame: () => game || [...gameManager.games.values()][0] });
@@ -107,7 +112,7 @@ async function recordHumans(name, from) {
     throw new Error('no rainbow in 40 seeds');
 }
 
-const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament };
+const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament, bidclock: scenarioBidClock };
 
 test.each([
     ['events-bots-s12', 'bots', 12],
@@ -115,6 +120,7 @@ test.each([
     ['events-humans-s13', 'humans', 13],
     ['events-presence-s21', 'presence', 21],
     ['events-tournament-s15', 'tournament', 15],
+    ['events-bidclock-s16', 'bidclock', 16],
 ])('%s matches the committed iOS fixture (run npm run ios:fixtures)', async (name, kind, seed) => {
     const rec = kind === 'humans' ? await recordHumans(name, seed) : (await record(name, SCENARIOS[kind], seed)).rec;
     // Sanity: every open viewer reached gameEnd with a final snapshot, and there are checkpoints
@@ -125,6 +131,19 @@ test.each([
         for (const e of ['destroyHands', 'actionRejected', 'restorePlayerState', 'serverError', 'rejoinSuccess', 'playerLazyMode', 'playerActiveMode', 'playerResigned', 'rainbow']) {
             expect({ e, present: hasEvent(rec, e) }).toEqual({ e, present: true });
         }
+    } else if (kind === 'bidclock') {
+        expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
+        const clock = (label) => rec.logs[label].filter((e) => e.event === 'bidClock').map((e) => (e.data.running ? 'running' : e.data.reason));
+        // seat1: the timeout, the mid-tune bid, the clock it dropped in; the
+        // rejoin's own bid stops the clock its snapshot carried
+        expect(clock('seat1').slice(0, 5)).toEqual(['running', 'timeout', 'running', 'bid', 'running']);
+        expect(clock('seat1-rejoin')[0]).toBe('bid');
+        expect(clock('spectator').slice(0, 5)).toEqual(['running', 'timeout', 'running', 'bid', 'running']);
+        expect(rec.logs.seat1.some((e) => e.event === 'gameLogEntry' && / ran out of time\.$/.test(e.data.message))).toBe(true);
+        const rejoin = rec.logs['seat1-rejoin'].find((e) => e.event === 'rejoinSuccess');
+        expect(rejoin.data.snapshot.bidClock).toMatchObject({ inMs: expect.any(Number), durationMs: 30000 });
+        expect(rejoin.data.snapshot.bidClock.inMs).toBeGreaterThan(11000);
+        expect(rejoin.data.snapshot.bidClock.inMs).toBeLessThanOrEqual(12000);
     } else if (kind === 'bots') {
         expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
     } else if (kind === 'presence') {
@@ -139,6 +158,8 @@ test.each([
         expect(rec.checkpoints.every((c) => c.snapshot.tournament && c.snapshot.tournament.tournamentId)).toBe(true);
         expect(rec.logs.seat1.filter((e) => e.event === 'tournamentGameAssignment')).toHaveLength(2);
     }
+    // the clock is off for the legacy recordings: none may carry it
+    if (kind !== 'bidclock') expect(hasEvent(rec, 'bidClock')).toBe(false);
     // the draw phase is checkpointed too
     expect(rec.checkpoints.some((c) => c.snapshot.stage === 'DRAWING')).toBe(true);
     const content = serialize(rec);

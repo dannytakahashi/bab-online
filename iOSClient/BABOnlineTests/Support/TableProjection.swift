@@ -51,6 +51,7 @@ struct TableProjection: Equatable {
     var draw: [String]               // "drawOrder username card", draw stages only
     var tournamentId: String?
     var seq: Int?
+    var bidClock: Int?               // the running bid clock's seat (its times are relative)
 
     static func phaseName(stage: TableSnapshot.Stage, hasDeal: Bool) -> String {
         switch stage {
@@ -97,6 +98,7 @@ struct TableProjection: Equatable {
         draw = drawStage ? (s.draw?.drawn ?? []).sorted { $0.drawOrder < $1.drawOrder }.map { "\($0.drawOrder) \($0.username ?? "-") \($0.card.id)" } : []
         tournamentId = s.tournament?.tournamentId
         seq = s.seq
+        bidClock = s.bidClock?.position
     }
 
     init(state t: TableState) {
@@ -137,6 +139,7 @@ struct TableProjection: Equatable {
         }
         tournamentId = t.table.tournamentId
         seq = t.sync.lastSeq
+        bidClock = t.table.bidClock?.position
     }
 
     static func watching(_ w: WatchingList) -> String {

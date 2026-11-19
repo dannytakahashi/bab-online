@@ -100,6 +100,11 @@ A "bore" is a double-or-nothing bet that your team will win ALL tricks.
 - If one team bids 0 total, any tricks they win are worth 1 point each (no risk of being set)
 - If BOTH teams bid 0, the hand is redealt with the same dealer
 
+### Bid Timer
+
+- If you have not bid 10 seconds into your turn, a 30-second timer (with music) starts; when it runs out you bid 0 (which can complete an all-zero redeal)
+- Running out of time twice in a row (without bidding or playing a card yourself in between) counts as idle: a bot takes over your seat as after a turn timeout (at a tournament table the others are offered to replace you instead; never in a solo game)
+
 ---
 
 ## Play

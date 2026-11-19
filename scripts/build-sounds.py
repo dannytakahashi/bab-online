@@ -6,11 +6,18 @@ BABOnline folder, flat at the bundle root). The names below are the contract
 the web and iOS players use.
 
   npm run build:sounds    rebuild both copies and sounds-src/sounds.json
+  npm run build:sounds -- --only bidclock[,turn]
+                          rebuild only the named sounds; every other output
+                          file and manifest entry stays as it is (AAC encodes
+                          are not bit-reproducible across macOS versions, so a
+                          full rebuild on another machine rewrites every file)
   npm run sounds:check    exit 1 when an output is missing, edited, or older
                           than its recipe or source (no decoding: plain python)
 
 Sources are the few Kenney "Casino Audio" 1.1 samples (CC0) committed in
-sounds-src/kenney-casino-audio/; the chimes are synthesized here. Each sound:
+sounds-src/kenney-casino-audio/; the chimes and the bid clock tune
+(bidclock, an original composition: BIDCLOCK_SCORE below) are synthesized
+here. Each sound:
 decode (afconvert), mono, window, optional pitch shift / low-pass / layer,
 trim silence (10 ms RMS frames under -50 dBFS, 10 ms pre-roll), 3 ms fade-in
 and a short fade-out, then one gain so the active RMS (frames within 30 dB of
@@ -48,10 +55,114 @@ FADE_IN = 0.003
 PEAK_CAP_DB = -3.0
 CARD_DB = -24.0  # table sounds
 CUE_DB = -26.0   # chimes, chips and flourishes: heard less often, kept quieter
+# The bid clock's 30 s bed sits under the table sounds (players add their own
+# master volume on top)
+TUNE_DB = -30.0
 
 # G5, B5 (a major third) for the turn cue; C5 E5 G5 for game end, a lower
 # register so the two are not confused
 G5, B5, C5, E5 = 783.99, 987.77, 523.25, 659.26
+
+
+# --- the bid clock tune -------------------------------------------------------
+#
+# bidclock.m4a: the "thinking music" the table hears while a human bidder's
+# 30-second bid clock runs (server/socket/bidClock.js; the server bids 0 when
+# it ends, so the file's length IS the clock: SeatState.BID_CLOCK_MS, pinned
+# by a Jest test against this manifest's duration). An ORIGINAL composition
+# in the playful game-show "tiptoe / thinking" style: a stepwise, syncopated
+# marimba line over a walking pizzicato bass with a soft clock tick that gets
+# busier toward the end, then a short friendly "time's up" bell cue that
+# resolves to the tonic. It does not quote or paraphrase any existing tune
+# (no alternating fifth-to-tonic leap figure, no lullaby AABA phrase).
+# F major, 4/4, 120 BPM (beat 0.5 s, bar 2 s), 15 bars = exactly 30.000 s:
+# bars 1-14 music, bar 15 the cue, ending on the deadline.
+
+def _hz(name):
+    """'Bb4' -> Hz (12-TET, A4 = 440)."""
+    steps = {'C': -9, 'D': -7, 'E': -5, 'F': -4, 'G': -2, 'A': 0, 'B': 2}
+    letter, rest = name[0], name[1:]
+    acc = 0
+    while rest and rest[0] in 'b#':
+        acc += -1 if rest[0] == 'b' else 1
+        rest = rest[1:]
+    n = steps[letter] + acc + 12 * (int(rest) - 4)
+    return round(440.0 * 2 ** (n / 12), 3)
+
+
+BEAT, BAR = 0.5, 2.0
+# Melody per bar: (offset in beats from the bar's start, pitch, length in beats)
+_MEL = {
+    1: [(1.0, 'A4', .5), (1.5, 'Bb4', .5), (2.0, 'C5', 1), (3.0, 'A4', 1)],
+    2: [(1.0, 'Bb4', .5), (1.5, 'C5', .5), (2.0, 'D5', 1), (3.0, 'Bb4', 1)],
+    3: [(0, 'C5', .5), (.5, 'D5', .5), (1.0, 'C5', .5), (1.5, 'A4', .5), (2.0, 'F4', 1)],
+    4: [(0, 'E4', .5), (.5, 'G4', .5), (1.0, 'Bb4', .5), (1.5, 'G4', .5), (2.0, 'C5', 2)],
+    8: [(0, 'Bb4', .5), (.5, 'A4', .5), (1.0, 'G4', .5), (1.5, 'E4', .5), (2.0, 'F4', 2)],
+    13: [(0, 'G4', .5), (.5, 'A4', .5), (1.0, 'Bb4', .5), (1.5, 'C5', .5), (2.0, 'D5', 1), (3.0, 'Bb4', 1)],
+    14: [(0, 'C5', .5), (.5, 'E5', .5), (1.0, 'G5', .5), (1.5, 'Bb5', .5), (2.0, 'C6', 1)],
+}
+for _b in (5, 6, 7):
+    _MEL[_b] = _MEL[_b - 4]
+for _b in (9, 10, 11, 12):
+    _MEL[_b] = _MEL[_b - 8]
+# bars 9-12: a second voice a diatonic third below
+_THIRD = {'A4': 'F4', 'Bb4': 'G4', 'C5': 'A4', 'D5': 'Bb4', 'F4': 'D4', 'E4': 'C4', 'G4': 'E4'}
+_BASS = {
+    'F': ['F2', 'A2', 'C3', 'A2'], 'Bb': ['Bb2', 'D3', 'F3', 'D3'], 'C7': ['C3', 'E3', 'G3', 'Bb2'],
+    'Gm7': ['G2', 'Bb2', 'D3', 'F3'], 'C7b': ['C3', 'E3', 'G3', 'E3'],
+}
+_CHORDS = {1: 'F', 2: 'Bb', 3: 'F', 4: 'C7', 5: 'F', 6: 'Bb', 7: 'F', 8: 'C7',
+           9: 'F', 10: 'Bb', 11: 'F', 12: 'C7', 13: 'Gm7', 14: 'C7b'}
+TICK, TOCK = 1750.0, 1500.0
+
+
+def _bidclock_score():
+    """Plain data (so the fingerprint sees every note): per instrument a list
+    of [Hz, start s, length s, amplitude, tau s] plus the timbres' numbers."""
+    marimba, bass, wood, bell = [], [], [], []
+    for bar in range(1, 15):
+        t0 = (bar - 1) * BAR
+        amp = 1.1 if bar >= 9 else 1.0
+        for off, pitch, length in _MEL[bar]:
+            tau = 0.30 if length <= 0.5 else 0.45
+            note = [t0 + off * BEAT, length * BEAT, tau]
+            marimba.append([_hz(pitch), note[0], note[1], amp, tau])
+            if 9 <= bar <= 12:
+                marimba.append([_hz(_THIRD[pitch]), note[0], note[1], 0.6, tau])
+        for beat, pitch in enumerate(_BASS[_CHORDS[bar]]):
+            bass.append([_hz(pitch), t0 + beat * BEAT, BEAT, 0.7, 0.18])
+        if bar <= 8:
+            ticks = [1.0, 3.0]
+        elif bar <= 12:
+            ticks = [0.0, 1.0, 2.0, 3.0]
+        else:
+            ticks = [k * 0.5 for k in range(8)]
+        for k, off in enumerate(ticks):
+            wood.append([TICK if k % 2 == 0 else TOCK, t0 + off * BEAT, 0.040, 0.2, 0.010])
+    # bar 15, the "time's up" cue (28.000 s): two short C6 strikes, then a
+    # soft F major bell chord over the bass F2 and a low marimba F3, ringing
+    # to the end (the render's 50 ms fade-out closes it)
+    cue, end = 14 * BAR, 15 * BAR
+    bell.append([_hz('C6'), cue, 0.18, 0.9, 0.12])
+    bell.append([_hz('C6'), cue + 0.20, 0.25, 0.9, 0.12])
+    for pitch in ('F5', 'A5', 'C6'):
+        bell.append([_hz(pitch), cue + 0.50, end - cue - 0.50, 0.9 / 3 * 1.6, 0.6])
+    bass.append([_hz('F2'), cue + 0.50, end - cue - 0.50, 0.7, 0.18 * 3])
+    marimba.append([_hz('F3'), cue + 0.50, end - cue - 0.50, 0.8, 0.6])
+    r = lambda notes: [[round(v, 4) for v in n] for n in notes]
+    return {
+        'tracks': {'marimba': r(marimba), 'bass': r(bass), 'wood': r(wood), 'bell': r(bell)},
+        'timbres': {
+            # partial: [ratio, amplitude, decay divisor of tau (0 = the note's own envelope)]
+            'marimba': {'partials': [[1, 1, 0], [3.93, 0.18, 4], [9.2, 0.05, 10]], 'attack': 0.003, 'release': 0.060},
+            'bass': {'partials': [[1, 1, 0], [2, 0.35, 'x0.08'], [3, 0.12, 'x0.05']], 'attack': 0.004, 'release': 0.060},
+            'wood': {'partials': [[1, 1, 0], [1.51, 0.5, 0]], 'attack': 0.001, 'release': 0.0},
+            'bell': {'partials': [[1, 1, 0], [2.76, 0.5, 2], [5.4, 0.25, 3]], 'attack': 0.002, 'release': 0.060},
+        },
+    }
+
+
+BIDCLOCK_SCORE = _bidclock_score()
 
 SOUNDS = {
     # card-fan-1: 0.72 s, power centroid ~1.1 kHz; the riffle (card-shuffle) is 5-7 kHz
@@ -78,6 +189,9 @@ SOUNDS = {
                 'target': CUE_DB, 'fade': 0.020},
     # the one short bright snap (centroid ~3.6 kHz vs ~1.1 kHz for card-N)
     'overtrump': {'src': 'card-slide-4', 'max': 0.20, 'target': CARD_DB, 'fade': 0.010},
+    # the bid clock's tune (30.000 s exactly, never trimmed); tune_v: bump
+    # when render_tune changes (the fingerprint only sees recipe data)
+    'bidclock': {'tune': BIDCLOCK_SCORE, 'tune_v': 1, 'length': 30.0, 'target': TUNE_DB, 'fade': 0.050},
 }
 
 
@@ -190,7 +304,43 @@ def synth(notes, dur, np):
     return y
 
 
+def render_tune(score, length, np):
+    """The bid clock score -> exactly round(length * SR) samples. Each note:
+    raised-cosine attack, e^(-t/tau) body, partials that may decay faster
+    (tau / divisor, or a fixed 'x<seconds>' time constant), raised-cosine
+    release over its last `release` seconds."""
+    n_total = int(round(length * SR))
+    y = np.zeros(n_total)
+    for inst, notes in score['tracks'].items():
+        tim = score['timbres'][inst]
+        for f, start, dur, amp, tau in notes:
+            a = int(round(start * SR))
+            n = min(int(round(dur * SR)), n_total - a)
+            if n <= 0:
+                continue
+            t = np.arange(n) / SR
+            tone = np.zeros(n)
+            for ratio, pamp, dec in tim['partials']:
+                part = pamp * np.sin(2 * np.pi * f * ratio * t)
+                if isinstance(dec, str):
+                    part *= np.exp(-t / float(dec[1:]))
+                elif dec:
+                    part *= np.exp(-t / (tau / dec))
+                tone += part
+            env = np.exp(-t / tau)
+            at = tim['attack']
+            env *= np.where(t < at, 0.5 - 0.5 * np.cos(np.pi * t / at), 1.0)
+            rel = tim['release']
+            if rel > 0:
+                r0 = dur - rel
+                env *= np.where(t > r0, 0.5 + 0.5 * np.cos(np.pi * np.clip((t - r0) / rel, 0, 1)), 1.0)
+            y[a:a + n] += amp * env * tone
+    return y
+
+
 def render_part(recipe, tmp, np, cache):
+    if 'tune' in recipe:
+        return render_tune(recipe['tune'], recipe['length'], np)
     if 'synth' in recipe:
         return synth(recipe['synth'], recipe['max'], np)
     name = recipe['src']
@@ -221,7 +371,12 @@ def render(recipe, tmp, np, cache):
         if off + len(y) > len(x):
             x = np.concatenate([x, np.zeros(off + len(y) - len(x))])
         x[off:off + len(y)] += y
-    x = trim(x, np)[:int(recipe['max'] * SR)].copy()
+    if 'tune' in recipe:
+        # never trimmed: its length is the bid clock's length
+        n = int(round(recipe['length'] * SR))
+        x = np.concatenate([x, np.zeros(max(0, n - len(x)))])[:n].copy()
+    else:
+        x = trim(x, np)[:int(recipe['max'] * SR)].copy()
     fi, fo = int(FADE_IN * SR), int(recipe['fade'] * SR)
     x[:fi] *= 0.5 - 0.5 * np.cos(np.pi * np.arange(fi) / fi)
     x[-fo:] *= 0.5 + 0.5 * np.cos(np.pi * np.arange(fo) / fo)
@@ -253,17 +408,32 @@ def strip_times(blob):
     return bytes(b)
 
 
-def build():
+def build(only=None):
+    """Render every sound, or with `only` (a list of names) just those: the
+    other outputs and their manifest entries are kept as they are."""
     import numpy as np
+    if only:
+        unknown = [n for n in only if n not in SOUNDS]
+        if unknown:
+            sys.exit(f'--only: not in SOUNDS: {", ".join(unknown)}')
+        with open(MANIFEST) as f:
+            old = json.load(f)
+        kept = old.get('sounds', {})
+        if old.get('pipeline') != PIPELINE:
+            sys.exit('--only: the manifest is from another PIPELINE; run a full build')
     for d in OUT_DIRS:
         os.makedirs(d, exist_ok=True)
+        if only:
+            continue
         for old in os.listdir(d):
             if old.endswith('.m4a') and old[:-4] not in SOUNDS:
                 os.remove(os.path.join(d, old))
-    manifest = {'pipeline': PIPELINE, 'sounds': {}}
+    built = {}
     cache = {}
     with tempfile.TemporaryDirectory() as tmp:
         for name, recipe in SOUNDS.items():
+            if only and name not in only:
+                continue
             x, gain = render(recipe, tmp, np, cache)
             wav, m4a = os.path.join(tmp, name + '.wav'), os.path.join(tmp, name + '.m4a')
             # measure what players will hear, the AAC decoded again; AAC can
@@ -293,15 +463,21 @@ def build():
                 'sha256': hashlib.sha256(blob).hexdigest(),
                 'recipe': fingerprint(recipe),
             }
-            manifest['sounds'][name] = entry
+            built[name] = entry
             print(f"{name + '.m4a':16s} {entry['duration']:.3f}s  rms {entry['rms_dbfs']:6.1f}  "
                   f"peak {entry['peak_dbfs']:5.1f}  centroid {entry['centroid_hz']:5d} Hz  "
                   f"gain {entry['gain_db']:+5.1f} dB  {entry['bytes']:6d} B  <- {entry['source']}")
+    manifest = {'pipeline': PIPELINE, 'sounds': {}}
+    for name in SOUNDS:
+        entry = built.get(name) or (kept.get(name) if only else None)
+        if entry:
+            manifest['sounds'][name] = entry
     with open(MANIFEST, 'w') as f:
         json.dump(manifest, f, indent=2)
         f.write('\n')
     total = sum(e['bytes'] for e in manifest['sounds'].values())
-    print(f'{len(SOUNDS)} sounds, {total} bytes per copy; wrote {os.path.relpath(MANIFEST, ROOT)}')
+    print(f'{len(built)} built, {len(manifest["sounds"])} sounds, {total} bytes per copy; '
+          f'wrote {os.path.relpath(MANIFEST, ROOT)}')
 
 
 # --- check (plain python) ----------------------------------------------------
@@ -344,6 +520,13 @@ def check():
 
 
 if __name__ == '__main__':
-    if '--check' in sys.argv[1:]:
+    args = sys.argv[1:]
+    if '--check' in args:
         sys.exit(check())
-    build()
+    only = None
+    if '--only' in args:
+        i = args.index('--only')
+        if i + 1 >= len(args):
+            sys.exit('--only needs a name (e.g. --only bidclock)')
+        only = [n for n in args[i + 1].split(',') if n]
+    build(only)

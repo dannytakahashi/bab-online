@@ -11,6 +11,8 @@ protocol TableRenderer: AnyObject {
 struct TableNotice: Equatable, Identifiable {
     let id: Int
     let text: String
+    /// `.info`: news (the bid clock's timeout), not a refusal.
+    var info = false
 }
 
 /// The table store: four published slices over the pure TableReducer.
@@ -36,9 +38,9 @@ final class GameState: ObservableObject {
     private var noticeCount = 0
 
     /// A notice from the table itself (a tap on a dimmed card: TableRenderModel.Hand.blocked).
-    func postNotice(_ text: String) {
+    func postNotice(_ text: String, info: Bool = false) {
         noticeCount += 1
-        notice = TableNotice(id: noticeCount, text: text)
+        notice = TableNotice(id: noticeCount, text: text, info: info)
     }
 
     /// The idle-seat offer I answered with Wait: hidden until the server asks again (a new
@@ -47,6 +49,13 @@ final class GameState: ObservableObject {
     func waitOnOffer() { waitedOffer = players.resignationOffer }
     /// The presence banner has something to show: an absent player, or an offer.
     var showsPresenceBanner: Bool { !players.disconnected.isEmpty || resignationOffer != nil }
+
+    /// The running bid clock on this store's monotonic clock (`clockNow`): its deadline is
+    /// set when the reducer's `.bidClock(.sync)` lands (receipt + inMs), nil whenever the
+    /// reducer has no clock. The bidder's countdown and the tune read it.
+    @Published private(set) var bidCountdown: BidCountdown?
+    /// The bid clock's time source (tests and fixtures replace it).
+    var clockNow: () -> TimeInterval = BidClockTime.now
 
     weak var renderer: TableRenderer?
     /// Non-animation effects (requestSnapshot / cancelAck / haptic / sound) for ActionCoordinator.
@@ -75,6 +84,14 @@ final class GameState: ObservableObject {
         if log != s.log { log = s.log }
         // the offer I waited on is gone (withdrawn, resigned, a snapshot, a reset): forget it
         if waitedOffer != nil, s.players.resignationOffer == nil { waitedOffer = nil }
+        // the bid clock's deadline, measured from now (receipt), before the tune reads it
+        if let c = s.table.bidClock {
+            if effects.contains(.bidClock(.sync)) || bidCountdown == nil {
+                bidCountdown = BidCountdown(position: c.position, deadline: clockNow() + TimeInterval(c.inMs) / 1000, durationMs: c.durationMs)
+            }
+        } else if bidCountdown != nil {
+            bidCountdown = nil
+        }
 
         effectObserver?(effects)
         let animations = effects.animations
@@ -87,6 +104,8 @@ final class GameState: ObservableObject {
             case .animate: break
             case .notice(let text):
                 postNotice(text)
+            case .infoNotice(let text):
+                postNotice(text, info: true)
             #if DEBUG
             case .dropped(let event, let seq): print("[Table] dropped \(event) seq \(seq)")
             case .gap(let expected, let got): print("[Table] seq gap: expected \(expected), got \(got)")

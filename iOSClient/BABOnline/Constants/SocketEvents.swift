@@ -162,6 +162,7 @@ enum SocketEvents {
         static let restorePlayerState = "restorePlayerState"
         static let spectatorJoined = "spectatorJoined"
         static let spectatorsUpdated = "spectatorsUpdated"
+        static let bidClock = "bidClock"
 
         // Tournament
         static let tournamentCreated = "tournamentCreated"

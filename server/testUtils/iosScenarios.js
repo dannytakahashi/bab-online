@@ -25,6 +25,20 @@
  *                                 allPlayersReady, a fresh seq per table, the
  *                                 snapshot's tournament field); a spectator
  *                                 watches round 1 via spectateTournamentGame
+ *   scenarioBidClock(w, rec, seed) 1 human + 3 lobby bots and a spectator,
+ *                                 the bid clock on (bidClock.js): the human
+ *                                 sits out its first bid turn (running at
+ *                                 T0+10 s, stopped {timeout}, "ran out of
+ *                                 time.", bid 0); on the next deal bids at
+ *                                 T0+15 s (stopped {bid}); on the deal after,
+ *                                 drops at T0+20 s and rejoins at T0+28 s
+ *                                 (rejoinSuccess.snapshot.bidClock), then
+ *                                 bids at once and plays on to the end
+ *
+ * Every scenario but scenarioBidClock runs with the bid clock off
+ * (BID_CLOCK=off, iosEventLogs.test.js): their long waits on human bid
+ * turns (61 s for a grace to run out) test other mechanisms, and their
+ * recordings predate the clock.
  *
  * Checkpoints are dense: every loop step that changed a viewer's log (draw
  * phase, bot turns, trick resolving, presence moments), except between a
@@ -462,5 +476,71 @@ async function scenarioTournament(w, rec, seed) {
     return { game, usernames };
 }
 
-module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, iosActions };
+async function scenarioBidClock(w, rec, seed) {
+    const pick = mulberry32(seed * 7919 + 6);
+    const a = iosActions(w, rec);
+    const name = 'ios_kai';
+    const human = w.user('ios-k1', name, { pic: 16 });
+    const usernames = { [human.id]: name };
+    rec.watch('seat1', human.id, 'seat');
+    const game = await lobbyStart(w, rec, [human], { bots: 3 });
+    await playDraw(a, rec, game, [human], () => {
+        const spec = w.user('ios-kspec', 'ios_lia', { pic: 17 });
+        usernames[spec.id] = 'ios_lia';
+        rec.watch('spectator', spec.id, 'spectator');
+        mainRoomHandlers.joinAsSpectator(spec, w.io, { gameId: game.gameId });
+    });
+
+    const pos = game.seatByUsername(name);
+    const myBidTurn = (sid) => game.stage === Phase.BIDDING && turnOpen(game, rec) && game.currentTurn === pos &&
+        game.seat(pos).ownerSocketId === sid && game.playerBids[pos - 1] == null;
+    // T0 of the open bid turn: the clock's start minus its pre-wait
+    const sinceT0 = () => Date.now() - (game.bidClock.startAt - require('../game/SeatState').bidClockDelayMs());
+    const advanceTo = (ms) => advanceDense(rec, game, () => sinceT0() >= ms, 60000);
+    const done = {};
+    let me = human;
+    let guard = 0;
+    while (!game.isTerminal() && guard++ < 20000) {
+        const hands = game.handStats.totalHands;
+        if (hands === 0 && !done.timeout && myBidTurn(me.id)) {
+            done.timeout = true;
+            await advanceDense(rec, game, () => game.playerBids[pos - 1] != null, 60000);
+            continue;
+        }
+        if (hands === 1 && !done.midTune && myBidTurn(me.id)) {
+            done.midTune = true;
+            await advanceTo(15000);
+            act(w, a, game, pick);
+            await tick();
+            dense(rec, game);
+            continue;
+        }
+        if (hands === 2 && !done.rejoin && myBidTurn(me.id)) {
+            done.rejoin = true;
+            await advanceTo(20000);
+            rec.close('seat1');
+            await w.kill(me);
+            await advanceTo(28000);
+            me = w.user('ios-k1-r1', name, { db: false });
+            usernames[me.id] = name;
+            rec.watch('seat1-rejoin', me.id, 'rejoin');
+            await reconnectHandlers.rejoinGame(me, w.io, { gameId: game.gameId, username: name });
+            await tick();
+            dense(rec, game);
+            continue;
+        }
+        loopCheckpoint(rec, game, me.id, hands <= 2);
+        if (turnOpen(game, rec) && game.seat(game.currentTurn).ownerSocketId === me.id && humanAt(game, game.currentTurn)) {
+            act(w, a, game, pick);
+            await tick();
+            continue;
+        }
+        await jest.advanceTimersByTimeAsync(250);
+    }
+    if (!done.timeout || !done.midTune || !done.rejoin) throw new Error('bid clock scenario: scripted steps missing ' + JSON.stringify(done));
+    await finish(w, rec, game);
+    return { game, usernames };
+}
+
+module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, iosActions };
 

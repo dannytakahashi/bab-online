@@ -11,7 +11,8 @@
  *   - each human seat's hand sits under restored:<gameId>:<pos>;
  *   - once every owner who was connected is back on the restored copy,
  *     each one's snapshotV2 equals the live game's, ignoring seq,
- *     serverTime, resume, watching / spectatorCount (spectators are not
+ *     serverTime, resume, bidClock (DERIVED: the restore kick arms a fresh
+ *     one), watching / spectatorCount (spectators are not
  *     restored), and per seat presence, graceDeadline, resignableAt,
  *     offered (offers are re-made) and avatarUrl; and the viewer's
  *     ownerView (a lazy owner back on a restored game watches, as after
@@ -89,6 +90,7 @@ function comparable(snap) {
     delete s.seq;
     delete s.serverTime;
     delete s.resume;
+    delete s.bidClock;
     delete s.watching;
     delete s.spectatorCount;
     delete s.viewer.ownerView;

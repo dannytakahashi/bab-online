@@ -66,12 +66,17 @@ final class ReplayHarness {
     let clock = ManualClock()
     let renderer = RecordingRenderer()
     let appState = AppState()
-    lazy var actions = ActionCoordinator(store: store, emitter: emitter, clock: clock)
+    /// The bid clock's tune player (silent unless a test passes a recorder).
+    let tunePlayer: TunePlaying?
+    lazy var actions = ActionCoordinator(store: store, emitter: emitter, clock: clock, tunePlayer: tunePlayer)
     lazy var handler = GameSocketHandler(socket: SocketService.shared, gameState: store, appState: appState)
     var effects: [TableEffect] = []
     private var reqId: UInt32 = 1000
 
-    init(viewer: RecordedGame.Viewer? = nil) {
+    init(viewer: RecordedGame.Viewer? = nil, tunePlayer: TunePlaying? = nil) {
+        self.tunePlayer = tunePlayer
+        // the bid clock's deadline on the recording's clock
+        store.clockNow = { [clock] in clock.now }
         store.renderer = renderer
         store.effectObserver = { [unowned self] in self.effects += $0 }
         _ = actions

@@ -730,7 +730,14 @@ function goActive(io, game, pos, socket, { voice = true } = {}) {
     }
     // Back on its own turn: what is left of this turn's clock (no-op on
     // anyone else's turn)
-    if (game.currentTurn === pos) armAfk(io, game, pos, { resume: true });
+    if (game.currentTurn === pos) {
+        armAfk(io, game, pos, { resume: true });
+        // The bid clock of this same open bid turn goes on from where it was
+        // (bidClock.resume; a later turn's clock is armed by its own trigger)
+        require('./bidClock').onTurn(io, game);
+    }
+    // Back in control: earlier timeouts in a row no longer count
+    require('./bidClock').clearStrikes(game, pos);
     maybeAbort(io, game);
     return true;
 }
@@ -825,6 +832,9 @@ module.exports = {
     AFK_TIMEOUT_MS,
     armAfk,
     clearAfk,
+    afkExempt,
+    idleOfferHolders,
+    offerIdle,
     idleOfferStands,
     replaceIdleSeat,
     withdrawIdleOffer,

@@ -222,7 +222,7 @@ private struct GameScreen: View {
         // a refused bid or play: why, in the app's toast (non-blocking, read by VoiceOver)
         .onChange(of: gameState.notice) { _, notice in
             guard let notice else { return }
-            SocketService.shared.serverError = ServerErrorNotice(message: notice.text)
+            SocketService.shared.serverError = ServerErrorNotice(message: notice.text, kind: notice.info ? .info : .error)
             AccessibilityNotification.Announcement(notice.text).post()
         }
         .onChange(of: gameState.leaveOutcome) { _, outcome in
@@ -475,7 +475,30 @@ private struct GameScreen: View {
                     }
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
+                .coordinateSpace(name: BidClockPill.paneSpace)
+                #if DEBUG
+                .onChange(of: bidClockKeeps(layout), initial: true) { _, keeps in
+                    guard UIFixture.isActive else { return }
+                    TableDebugProbe.shared.tableKeeps = keeps
+                    TableDebugProbe.shared.tableFold = layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window)
+                }
+                #endif
     }
+
+    #if DEBUG
+    /// The table the bidder's countdown keeps off (fixture probe "table.bidClock"), in the pane's points.
+    private func bidClockKeeps(_ layout: TableLayout) -> [String: CGRect] {
+        var out: [String: CGRect] = [:]
+        let model = TableRenderModel(gameState.state)
+        let fans = layout.fans(spectating: model.hand == nil) ?? [:]
+        for o in model.opponents {
+            out["seat\(o.position)"] = layout.window(layout.seatFootprint(o.rel))
+            out["bubble\(o.position)"] = layout.window(TableLayout.rect(layout.bubbleAnchor(o.rel), TableLayout.bubbleSize))
+            if let fan = fans[o.rel] { out["fan\(o.position)"] = layout.window(fan) }
+        }
+        return out
+    }
+    #endif
 
     /// The table's chrome, derived from the measured inputs (0 when hidden).
     private var chrome: TableChrome {

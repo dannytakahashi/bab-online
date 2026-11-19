@@ -32,7 +32,8 @@ enum FixtureLoader {
         return try XCTUnwrap(try json(url: url) as? [String: Any])
     }
 
-    static let eventLogNames = ["events-bots-s12", "events-bots-s14", "events-humans-s13", "events-presence-s21", "events-tournament-s15"]
+    static let eventLogNames = ["events-bots-s12", "events-bots-s14", "events-humans-s13", "events-presence-s21", "events-tournament-s15",
+                                "events-bidclock-s16"]
 
     /// A recording kept by hand (Fixtures/kept, never regenerated): the same
     /// format as the live event logs, with a B + 2B hand the current bots no

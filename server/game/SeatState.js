@@ -53,6 +53,56 @@ function afkTimeoutMs(env = process.env) {
     return Number.isFinite(n) && n >= 0 ? Math.floor(n) : AFK_TIMEOUT_MS;
 }
 
+// Bid clock (owner, 2026-11-18: every game, casual and tournament): a
+// human-controlled seat that has not bid BID_CLOCK_DELAY_MS into its bid
+// turn gets a BID_CLOCK_MS clock (the table plays the tune bidclock.m4a,
+// exactly this long: a Jest test pins it to sounds-src/sounds.json); when it
+// runs out the server bids '0' for the seat (socket/bidClock.js). A rule
+// timer like AFK, not a presentation delay, so not in pacing.js.
+const BID_CLOCK_DELAY_MS = 10000;
+const BID_CLOCK_MS = 30000;
+// A seat back under human control on the same open bid turn (/active,
+// reclaimSeat) gets what is left of the same clock, topped up once per turn
+// to this (never more than the clock itself)
+const BID_CLOCK_RESUME_MIN_MS = 10000;
+// This many timeouts in a row (no bid or card of the seat's own between
+// them) count as idle: the AFK action runs (socket/bidClock.js strike rule),
+// since the clock always bids before the 90 s AFK watchdog could fire
+const BID_TIMEOUT_AFK_STRIKES = 2;
+
+/** ms from env[name]: unset/empty -> fallback, garbage -> fallback, >= 0 floored. */
+function envMs(env, name, fallback) {
+    const raw = env[name];
+    if (raw === undefined || raw === '') return fallback;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
+}
+
+/** The bid clock's pre-wait (env BID_CLOCK_DELAY_MS overrides, read at every arm; 0 disables the clock). */
+function bidClockDelayMs(env = process.env) {
+    return envMs(env, 'BID_CLOCK_DELAY_MS', BID_CLOCK_DELAY_MS);
+}
+
+/** The bid clock's length (env BID_CLOCK_MS overrides, read at every arm; 0 disables the clock). */
+function bidClockMs(env = process.env) {
+    return envMs(env, 'BID_CLOCK_MS', BID_CLOCK_MS);
+}
+
+/** Timeouts in a row that count as idle (env BID_TIMEOUT_AFK_STRIKES; 0 disables the rule). */
+function bidTimeoutAfkStrikes(env = process.env) {
+    return envMs(env, 'BID_TIMEOUT_AFK_STRIKES', BID_TIMEOUT_AFK_STRIKES);
+}
+
+/**
+ * The bid clock runs: false when env BID_CLOCK is off/false/0/disabled/no
+ * (kill switch, read at every arm and firing) or either length is 0.
+ */
+function bidClockEnabled(env = process.env) {
+    const flag = String(env.BID_CLOCK ?? '').trim().toLowerCase();
+    if (['off', 'false', '0', 'disabled', 'no'].includes(flag)) return false;
+    return bidClockDelayMs(env) > 0 && bidClockMs(env) > 0;
+}
+
 const Controller = Object.freeze({
     HUMAN: 'human',
     LAZY_BOT: 'lazyBot',
@@ -274,6 +324,14 @@ module.exports = {
     AFK_TIMEOUT_MS,
     AFK_RESUME_MIN_MS,
     afkTimeoutMs,
+    BID_CLOCK_DELAY_MS,
+    BID_CLOCK_MS,
+    BID_CLOCK_RESUME_MIN_MS,
+    BID_TIMEOUT_AFK_STRIKES,
+    bidClockDelayMs,
+    bidClockMs,
+    bidClockEnabled,
+    bidTimeoutAfkStrikes,
     Controller,
     Presence,
     LEGAL,

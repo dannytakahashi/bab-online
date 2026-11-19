@@ -47,6 +47,18 @@
  * adopter does that, then the restore kick (gameHandlers.resumeTrick /
  * handleHandComplete, tableView.openTrick for the bots' card memory).
  *
+ * The bid clock (socket/bidClock.js: game.bidClock, game.bidTimeouts) is
+ * DERIVED: a deadline is an instant on the old process, and every restored
+ * human seat starts in reconnect grace, so the fair rule is a fresh clock
+ * (T0 = adoption; at most one extra full clock per restart) and no strikes.
+ * PR 5 must: (a) kick a restored BIDDING game through
+ * gameHandlers.triggerBotIfNeeded(io, game, 'bid') (its first line is
+ * bidClock.onTurn), as testUtils/restoreKit.kickRestored does, so a human
+ * bidder gets that fresh clock (otherwise a restored table whose bidder
+ * never returns waits on grace + resign again); (b) in the reversible
+ * holder self-fence, re-arm 'bidClock' from game.bidClock through
+ * bidClock.onTurn (its same-turn resume), never drop it.
+ *
  * Field guard (gameCodec.fieldGuard.test.js): every key of a live game,
  * seat record, seat bot record and BotPlayer is in SAVED or DERIVED, every
  * `game.<x> =` in server code names one of them, and the SAVED lists hash
@@ -121,6 +133,7 @@ const DERIVED = deepFreeze({
         '_history', '_seatHistory', '_debugMode', 'maxLogEntries',
         'entrants', 'drawCards', 'drawIDs', 'drawIndex', 'drawNames', 'deck', // pre-deal only
         'offerPos', 'idleOffer', 'afkClock',          // offers re-made, a fresh AFK clock
+        'bidClock', 'bidTimeouts',                    // a fresh bid clock (the restore kick's trigger) and no strikes
         'spectators',                                 // people re-spectate
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved

@@ -224,7 +224,8 @@
           "leftGame",
           "restorePlayerState",
           "spectatorJoined",
-          "spectatorsUpdated"
+          "spectatorsUpdated",
+          "bidClock"
         ]
       },
       {
@@ -532,7 +533,8 @@
           "leftGame",
           "restorePlayerState",
           "spectatorJoined",
-          "spectatorsUpdated"
+          "spectatorsUpdated",
+          "bidClock"
         ]
       },
       {

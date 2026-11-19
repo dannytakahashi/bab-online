@@ -7,9 +7,11 @@
  * trick-ours by seat parity, made / set from my team's bid, the game end
  * after the last made / set; spectators and lazy seats; nothing while the
  * gate replays or flushes buffered events, and a snapshot is the turn
- * baseline.
+ * baseline. The bid clock's tune: end-aligned, kept / sought / stopped by
+ * the clock's state, ringing out on a timeout, started by a snapshot or by
+ * sound coming back, heard by spectators and lazy watchers.
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { SocketManager } from '../socket/SocketManager.js';
 import { registerGameHandlers } from '../handlers/gameHandlers.js';
 import { resetGameState, getGameState } from '../state/GameState.js';
@@ -17,11 +19,12 @@ import { resetSeqGate } from '../state/SeqGate.js';
 import { resetMyAction } from '../state/MyAction.js';
 import { resetTableDirector } from '../phaser/TableDirector.js';
 import {
-  resetTableSounds, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_IDLE_MS, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
+  resetTableSounds, installTableSoundSync, OVER_TRUMP_DELAY_S, OVER_TRUMP_GAIN, TURN_IDLE_MS, GAME_END_AFTER_HAND_S, SPECTATOR_HAND_END_GAIN,
   DRAW_GAIN, DRAW_SPACING_MS,
 } from './tableSounds.js';
 import { SERVER_EVENTS as E } from '../constants/events.js';
 import { applyTableSnapshot } from '../state/tableSync.js';
+import { setBidClockNow, BID_CLOCK_SOUND, TUNE_FADE_S } from '../state/bidClock.js';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -48,6 +51,10 @@ let played;
 let seq;
 let clock;
 let timers;
+// the bid clock's tune: every start() and the decoded file's length
+let tunes;
+let decoded;
+let refuse;
 
 const c = (rank, suit) => ({ rank, suit });
 const fire = (event, data = {}) => socket.fire(event, { ...data, seq: ++seq });
@@ -85,8 +92,34 @@ beforeEach(() => {
     clear(t) { this.list = this.list.filter((x) => x !== t); },
   };
   gate = resetSeqGate({ requestSnapshot: vi.fn(), setTimer: () => 1, clearTimer: () => {} });
+  tunes = [];
+  decoded = 30.02;
+  refuse = false;
+  setBidClockNow(() => clock);
+  const fakeSound = {
+    play: (name, opts) => (played.push({ name, opts }), true),
+    duration: (name) => (name === BID_CLOCK_SOUND ? decoded : null),
+    start: (name, { offset = 0 } = {}) => {
+      if (refuse) return null;
+      const startedAt = clock;
+      const h = {
+        name,
+        offset,
+        playing: true,
+        stops: [],
+        get position() { return offset + (clock - startedAt) / 1000; },
+        stop(fade) {
+          if (!h.playing) return;
+          h.playing = false;
+          h.stops.push(fade);
+        },
+      };
+      tunes.push(h);
+      return h;
+    },
+  };
   sounds = resetTableSounds({
-    sound: () => ({ play: (name, opts) => (played.push({ name, opts }), true) }),
+    sound: () => fakeSound,
     now: () => clock,
     timers,
   });
@@ -95,6 +128,8 @@ beforeEach(() => {
   manager.setGate(gate);
   registerGameHandlers(manager, {});
 });
+
+afterAll(() => setBidClockNow(null));
 
 describe('the table\'s moments', () => {
   it('a deal sounds when its cards go down, once', () => {
@@ -535,5 +570,238 @@ describe('the draw for deal', () => {
     seq = fixture.snapshot.seq;
     drew(3, 'B2');
     expect(names()).toEqual(['draw']);
+  });
+});
+
+describe('the bid clock\'s tune', () => {
+  const G = 'g1';
+  const running = (position, inMs, durationMs = 30000) => socket.fire(E.BID_CLOCK, { gameId: G, position, running: true, inMs, durationMs });
+  const stopped = (position, reason) => socket.fire(E.BID_CLOCK, { gameId: G, position, running: false, reason });
+  /** A deal, then seat `pos`'s bid turn. */
+  const turnOf = (pos) => {
+    deal();
+    fire(E.UPDATE_TURN, { currentTurn: pos });
+  };
+  const last = () => tunes.at(-1);
+
+  it('starts END-aligned with the clock (the decoded file\'s length minus the time left), for every seat\'s clock', () => {
+    turnOf(2);
+    running(2, 30000);
+    expect(tunes).toHaveLength(1);
+    expect(last().name).toBe('bidclock');
+    expect(last().offset).toBeCloseTo(0.02, 5);
+    expect(sounds.tunePlaying).toBe(true);
+    // a resent running for the same deadline keeps it (no restart)
+    clock += 400;
+    running(2, 29600);
+    expect(tunes).toHaveLength(1);
+    // a shortened clock (tests, a resume) starts part-way
+    stopped(2, 'controller');
+    running(2, 12000);
+    expect(tunes).toHaveLength(2);
+    expect(last().offset).toBeCloseTo(18.02, 5);
+    // the countdown's scale is never assumed: no decoded file yet uses durationMs
+    decoded = null;
+    stopped(2, 'controller');
+    running(2, 5000, 20000);
+    expect(last().offset).toBeCloseTo(15, 5);
+  });
+
+  it('less than a second left: nothing starts', () => {
+    turnOf(2);
+    running(2, 900);
+    expect(tunes).toEqual([]);
+    expect(getGameState().bidClock).toBeTruthy();
+  });
+
+  const clears = {
+    'bid (the seat\'s bidReceived)': () => fire(E.BID_RECEIVED, { position: 2, bid: '1' }),
+    'stopped bid': () => stopped(2, 'bid'),
+    'stopped controller (a bot took the seat)': () => stopped(2, 'controller'),
+    'stopped turn': () => stopped(2, 'turn'),
+    'the turn moving to another seat': () => fire(E.UPDATE_TURN, { currentTurn: 3 }),
+    'doneBidding': () => fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 }),
+    'a deal (gameStart)': () => deal(),
+    'destroyHands (the all-zero redeal)': () => fire(E.DESTROY_HANDS, {}),
+    'gameEnd': () => fire(E.GAME_END, { score: { team1: 0, team2: 0 } }),
+    'abortGame': () => fire(E.ABORT_GAME, {}),
+    'leftGame': () => fire(E.LEFT_GAME, {}),
+    'my socket dropping': () => sounds.disconnected(),
+    'reset (the table torn down)': () => sounds.reset(),
+  };
+  for (const [what, act] of Object.entries(clears)) {
+    it(`stops (a short fade) on ${what}`, () => {
+      turnOf(2);
+      running(2, 30000);
+      clock += 5000;
+      const h = last();
+      act();
+      expect(h.playing).toBe(false);
+      expect(h.stops).toEqual([TUNE_FADE_S]);
+      expect(sounds.tunePlaying).toBe(false);
+    });
+  }
+
+  it('another seat\'s bid or a repeated updateTurn to the bidder does not stop it', () => {
+    turnOf(2);
+    running(2, 30000);
+    fire(E.UPDATE_TURN, { currentTurn: 2 });
+    fire(E.BID_RECEIVED, { position: 1, bid: '1' });
+    stopped(3, 'bid');
+    expect(last().playing).toBe(true);
+  });
+
+  it('a timeout lets its end ring: the bid 0 and the updateTurn after it do not cut it; gameEnd does', () => {
+    turnOf(2);
+    running(2, 30000);
+    clock += 29600;
+    const h = last();
+    stopped(2, 'timeout');
+    fire(E.GAME_LOG_ENTRY, { message: 'kai ran out of time.', type: 'system' });
+    fire(E.BID_RECEIVED, { position: 2, bid: '0' });
+    fire(E.UPDATE_TURN, { currentTurn: 3 });
+    expect(h.playing).toBe(true);
+    expect(getGameState().bidClock).toBe(null);
+    fire(E.GAME_END, { score: { team1: 0, team2: 0 } });
+    expect(h.playing).toBe(false);
+  });
+
+  it('a ringing end is cut by a new clock, and by a timeout still far from its end locally', () => {
+    turnOf(2);
+    running(2, 30000);
+    clock += 29500;
+    const ringing = last();
+    stopped(2, 'timeout');
+    fire(E.BID_RECEIVED, { position: 2, bid: '0' });
+    fire(E.UPDATE_TURN, { currentTurn: 3 });
+    running(3, 30000);
+    expect(ringing.playing).toBe(false);
+    expect(last().playing).toBe(true);
+    // this page's clock thinks 5 s are left: no ringing, a stop
+    clock += 25000;
+    const early = last();
+    stopped(3, 'timeout');
+    expect(early.playing).toBe(false);
+  });
+
+  it('a spectator and a lazy watcher hear it too (the countdown is the bidder\'s only)', () => {
+    turnOf(2);
+    getGameState().isSpectator = true;
+    running(2, 30000);
+    expect(tunes).toHaveLength(1);
+    stopped(2, 'bid');
+    getGameState().isSpectator = false;
+    getGameState().applyMyLazy(true);
+    running(2, 20000);
+    expect(tunes).toHaveLength(2);
+    expect(last().playing).toBe(true);
+  });
+
+  it('a clearing event replayed from the gap buffer still stops it (before any live gate)', () => {
+    turnOf(2);
+    running(2, 30000);
+    const h = last();
+    const at = seq;
+    seq = at + 1; // one lost
+    fire(E.BID_RECEIVED, { position: 2, bid: '3' }); // buffered
+    expect(h.playing).toBe(true);
+    gate.onSnapshot({ seq: at + 1, gameId: G });
+    expect(getGameState().bids[2]).toBe('3');
+    expect(h.playing).toBe(false);
+  });
+
+  it('a snapshot is state: it starts the tune at its offset, keeps it within 750 ms, seeks beyond, and stops it when absent', () => {
+    // contract/fixtures/v2 bid-clock-running: seat 1 watches seat 2's clock, 15 s left
+    const fixture = JSON.parse(readFileSync(resolve(ROOT, 'contract/fixtures/v2/bid-clock-running.json'), 'utf8'));
+    const snap = fixture.snapshot;
+    expect(snap.bidClock).toEqual({ position: 2, inMs: 15000, durationMs: 30000 });
+    applyTableSnapshot({ snapshot: snap }, { source: 'rejoin' });
+    expect(getGameState().bidClock).toEqual({ position: 2, deadline: clock + 15000, durationMs: 30000 });
+    expect(tunes).toHaveLength(1);
+    expect(last().offset).toBeCloseTo(15.02, 5);
+    // a resync 300 ms later that says 14.6 s left: within 750 ms, no restart
+    clock += 300;
+    applyTableSnapshot({ snapshot: { ...snap, bidClock: { ...snap.bidClock, inMs: 14600 } } }, { source: 'gap' });
+    expect(tunes).toHaveLength(1);
+    // one that says 10 s: it seeks
+    applyTableSnapshot({ snapshot: { ...snap, bidClock: { ...snap.bidClock, inMs: 10000 } } }, { source: 'gap' });
+    expect(tunes).toHaveLength(2);
+    expect(tunes[0].playing).toBe(false);
+    expect(last().offset).toBeCloseTo(20.02, 5);
+    // the pre-wait or a stopped clock: the key is absent
+    const { bidClock: _gone, ...without } = snap;
+    applyTableSnapshot({ snapshot: without }, { source: 'gap' });
+    expect(last().playing).toBe(false);
+    expect(getGameState().bidClock).toBe(null);
+  });
+
+  it('a tune that fell behind (a suspended context) is sought on the next sync', () => {
+    turnOf(2);
+    running(2, 30000);
+    const h = last();
+    // the handle's own clock stood still for 2 s while this page's moved on
+    Object.defineProperty(h, 'position', { get: () => 0.02 });
+    clock += 2000;
+    sounds.syncTune();
+    expect(h.playing).toBe(false);
+    expect(last().offset).toBeCloseTo(2.02, 5);
+  });
+
+  it('refused at first (muted, a hidden tab, files not decoded): sound coming back starts it at the current offset', () => {
+    const listeners = { ready: new Set(), change: new Set() };
+    const fakeManager = {
+      onReady: (fn) => (listeners.ready.add(fn), () => listeners.ready.delete(fn)),
+      onChange: (fn) => (listeners.change.add(fn), () => listeners.change.delete(fn)),
+    };
+    const doc = new EventTarget();
+    doc.hidden = true;
+    const uninstall = installTableSoundSync({ sound: fakeManager, doc, sounds: () => sounds });
+    refuse = true;
+    turnOf(2);
+    running(2, 30000);
+    expect(tunes).toEqual([]);
+    refuse = false;
+    clock += 4000;
+    // unmute (onChange)
+    listeners.change.forEach((fn) => fn({ muted: false, volume: 0.35 }));
+    expect(tunes).toHaveLength(1);
+    expect(last().offset).toBeCloseTo(4.02, 5);
+    stopped(2, 'bid');
+    // the files decoded / the context running (onReady)
+    refuse = true;
+    fire(E.UPDATE_TURN, { currentTurn: 3 });
+    running(3, 30000);
+    refuse = false;
+    clock += 1000;
+    listeners.ready.forEach((fn) => fn());
+    expect(last().offset).toBeCloseTo(1.02, 5);
+    stopped(3, 'bid');
+    // the tab coming back (visibilitychange; a hidden one does nothing)
+    refuse = true;
+    fire(E.UPDATE_TURN, { currentTurn: 4 });
+    running(4, 30000);
+    refuse = false;
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(tunes).toHaveLength(2);
+    doc.hidden = false;
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(tunes).toHaveLength(3);
+    uninstall();
+    stopped(4, 'bid');
+    refuse = true;
+    running(4, 30000);
+    refuse = false;
+    listeners.change.forEach((fn) => fn({}));
+    doc.dispatchEvent(new Event('visibilitychange'));
+    expect(tunes).toHaveLength(3);
+  });
+
+  it('another game\'s clock, or a malformed one, is ignored', () => {
+    turnOf(2);
+    socket.fire(E.BID_CLOCK, { gameId: 'other', position: 2, running: true, inMs: 30000, durationMs: 30000 });
+    socket.fire(E.BID_CLOCK, { gameId: G, position: 7, running: true, inMs: 30000, durationMs: 30000 });
+    socket.fire(E.BID_CLOCK, { gameId: G, position: 2, running: true, inMs: -1, durationMs: 30000 });
+    expect(tunes).toEqual([]);
+    expect(getGameState().bidClock).toBe(null);
   });
 });

@@ -121,6 +121,36 @@ enum WirePayload {
         var count: Int?
     }
 
+    /// bidClock (contract/README.md "Bid clock"): UNSEQUENCED (decoded with seq nil). `running`
+    /// carries the time left from emission (`inMs`, relative: measured from receipt) and the
+    /// clock's full length; `stopped` says why (`reason`). Fields optional but the two the
+    /// reducer cannot do without, so a newer server's shape never fails the decode.
+    struct BidClock: Decodable, Equatable {
+        /// Why a clock stopped; a reason this build does not know is `.unknown` (treated as `turn`).
+        enum Reason: Equatable, Decodable {
+            case bid, timeout, turn, controller
+            case unknown(String)
+
+            init(from decoder: Decoder) throws {
+                let raw = try decoder.singleValueContainer().decode(String.self)
+                switch raw {
+                case "bid": self = .bid
+                case "timeout": self = .timeout
+                case "turn": self = .turn
+                case "controller": self = .controller
+                default: self = .unknown(raw)
+                }
+            }
+        }
+
+        var gameId: String?
+        var position: Int
+        var running: Bool
+        var inMs: Int?
+        var durationMs: Int?
+        var reason: Reason?
+    }
+
     struct SpectatorNotice: Decodable, Equatable { var username: String?; var spectatorCount: Int?; var seq: Int? }
 
     /// rejoinSuccess / restorePlayerState / the spectator full state: only the

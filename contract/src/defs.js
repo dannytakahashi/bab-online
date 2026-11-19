@@ -343,7 +343,15 @@ const defs = {
             kind: enm('countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'),
             inMs: int({ minimum: 0, description: 'ms the server still holds the table, from serverTime (relative: never compare with a client clock)' }),
         })),
-    }),
+        // additive (2026-11-18, the bid clock): present ONLY while a bid clock
+        // runs (as bidClock running sent it), absent otherwise: an exception
+        // to "every key always present" (contract/README.md, Snapshot v2)
+        bidClock: obj({
+            position: ref('position'),
+            inMs: int({ minimum: 0, description: 'ms until the server bids 0 for the seat, from serverTime (relative: never compare with a client clock)' }),
+            durationMs: int({ minimum: 1 }),
+        }),
+    }, { optional: ['bidClock'] }),
     viewerV2: obj({
         role: enm('seat', 'lazyWatcher', 'spectator', 'entrant', 'none'),
         position: orNull(ref('position')),

@@ -11,6 +11,7 @@
 
 import { team, rotate } from '../utils/positions.js';
 import { parseWatching } from './snapshotV2.js';
+import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 
 // Game phases
 export const PHASE = {
@@ -164,6 +165,9 @@ export class GameState {
     // Who is watching (spectatorsUpdated / snapshot.watching): the badge
     this.watching = { spectators: [], count: 0 };
     this.resume = null;
+    // A seat's running bid clock (bidClock / snapshot bidClock; state/bidClock.js):
+    // {position, deadline (bidClockNow ms), durationMs} or null
+    this.bidClock = null;
     this._redealPending = false;
     // Bumped by every applied change (renderers compare it)
     this.version = 0;
@@ -600,6 +604,7 @@ export class GameState {
 
     // Clear rainbows
     this.rainbows = [];
+    this.bidClock = null;
 
     this._emit('newHandReset');
   }
@@ -757,6 +762,7 @@ export class GameState {
     this.phase = PHASE.BIDDING;
     this.stage = 'BIDDING';
     this.currentTurn = null;
+    this.bidClock = null;
     this.bids = {};
     this.teamBids = null;
     this.oppBids = null;
@@ -804,6 +810,8 @@ export class GameState {
     this.tempBids.push(bid);
     if (data.team1Mult !== undefined) this.team1Mult = data.team1Mult;
     if (data.team2Mult !== undefined) this.team2Mult = data.team2Mult;
+    // that seat's clock is over (the timeout's own bid 0 included)
+    if (this.bidClock?.position === data.position) this.bidClock = null;
     this._changed();
     this._emit('bidReceived', { position: data.position, bid });
   }
@@ -811,6 +819,7 @@ export class GameState {
   /** doneBidding: play opens at the lead. */
   applyDoneBidding(data) {
     this.isBidding = false;
+    this.bidClock = null;
     this.phase = PHASE.PLAYING;
     this.stage = 'PLAYING';
     this._clearTrickState();
@@ -831,6 +840,8 @@ export class GameState {
   applyTurn(data) {
     const turn = data.currentTurn ?? data.turn;
     if (turn !== undefined) this.currentTurn = turn;
+    // the turn moved to another seat: the clock was the last seat's
+    if (this.bidClock && this.bidClock.position !== this.currentTurn) this.bidClock = null;
     this.hasPlayedCard = false;
     if (this.stage === 'TRICK_RESOLVING' || this.stage === 'DEALING') this.stage = this.isBidding ? 'BIDDING' : 'PLAYING';
     this._changed();
@@ -897,6 +908,7 @@ export class GameState {
   /** destroyHands: the all-zero redeal (its gameStart deals the same hand again). */
   applyDestroyHands() {
     this.myCards = [];
+    this.bidClock = null;
     this.bids = {};
     this.teamBids = null;
     this.oppBids = null;
@@ -916,6 +928,7 @@ export class GameState {
       this.oppScore = theirs;
     }
     this.stage = 'ENDED';
+    this.bidClock = null;
     this.setPhase(PHASE.ENDED);
     this._changed();
   }
@@ -962,6 +975,36 @@ export class GameState {
     const watching = parseWatching(data);
     if (!watching) return false;
     this.watching = watching;
+    this._changed();
+    return true;
+  }
+
+  /**
+   * bidClock (unsequenced, applied on arrival): `running` sets this seat's
+   * clock, its deadline measured from now on this page's monotonic clock;
+   * `stopped` clears it when it is that seat's. Another game's, or a
+   * malformed one, is ignored (contract/README.md "Bid clock").
+   * @param {Object} data
+   * @param {number} [now] - bidClockNow() at receipt
+   * @returns {boolean} whether it changed the state
+   */
+  applyBidClock(data, now = bidClockNow()) {
+    const ev = parseBidClockEvent(data);
+    if (!ev || (ev.gameId && this.gameId && ev.gameId !== this.gameId)) return false;
+    if (ev.running) {
+      this.bidClock = clockFrom(ev, now);
+    } else {
+      if (this.bidClock?.position !== ev.position) return false;
+      this.bidClock = null;
+    }
+    this._changed();
+    return true;
+  }
+
+  /** My socket dropped: the clock is not known any more (the rejoin snapshot brings it back if it still runs). */
+  clearBidClock() {
+    if (!this.bidClock) return false;
+    this.bidClock = null;
     this._changed();
     return true;
   }
@@ -1085,6 +1128,8 @@ export class GameState {
     this.seatCards = { 1: 0, 2: 0, 3: 0, 4: 0 };
     for (const s of this.seats) this.seatCards[s.position] = s.cardsInHand || 0;
     this.resume = snap.resume || null;
+    // the clock is in a snapshot only while it runs (inMs from receipt)
+    this.bidClock = snap.bidClock ? clockFrom(snap.bidClock) : null;
     this._changed();
     this._emit('stateRestored', snap);
   }
@@ -1225,6 +1270,7 @@ export class GameState {
         ? { drawn: this.draw.drawn.map((d) => ({ ...d, card: d.card ? { ...d.card } : null })), viewerDrawOrder: this.draw.viewerDrawOrder, hasDrawn: !!this.hasDrawn }
         : null,
       watching: { spectators: this.watching.spectators.map((w) => ({ ...w })), count: this.watching.count },
+      bidClock: this.bidClock ? { ...this.bidClock } : null,
     };
   }
 

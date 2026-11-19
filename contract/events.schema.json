@@ -1723,6 +1723,29 @@
             "inMs"
           ],
           "additionalProperties": false
+        },
+        "bidClock": {
+          "type": "object",
+          "properties": {
+            "position": {
+              "$ref": "#/$defs/position"
+            },
+            "inMs": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "ms until the server bids 0 for the seat, from serverTime (relative: never compare with a client clock)"
+            },
+            "durationMs": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "position",
+            "inMs",
+            "durationMs"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -7907,6 +7930,92 @@
         "server/game/spectatorRoster.js:flush"
       ],
       "notes": "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS 1.1.0 reads nothing; iOS 1.2.0 routes it around its seq gate (ServerEvent.spectators) and shows the badge (V1_REMOVALS \"iOS spectator badge\")."
+    },
+    "bidClock": {
+      "payload": {
+        "anyOf": [
+          {
+            "variant": "running",
+            "type": "object",
+            "properties": {
+              "gameId": {
+                "type": "string"
+              },
+              "position": {
+                "$ref": "#/$defs/position"
+              },
+              "running": {
+                "const": true
+              },
+              "inMs": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "ms from emission until the server bids 0 for the seat (relative: measure from receipt with a monotonic clock, never compare with a wall clock)"
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "the clock's full length (30000 by default), the countdown's scale"
+              }
+            },
+            "required": [
+              "gameId",
+              "position",
+              "running",
+              "inMs",
+              "durationMs"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "variant": "stopped",
+            "type": "object",
+            "properties": {
+              "gameId": {
+                "type": "string"
+              },
+              "position": {
+                "$ref": "#/$defs/position"
+              },
+              "running": {
+                "const": false
+              },
+              "reason": {
+                "enum": [
+                  "bid",
+                  "timeout",
+                  "turn",
+                  "controller"
+                ]
+              }
+            },
+            "required": [
+              "gameId",
+              "position",
+              "running",
+              "reason"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "status": "active",
+      "to": "room",
+      "seq": false,
+      "clientReads": {
+        "web": [
+          "client/src/handlers/gameHandlers.js:registerGameHandlers"
+        ],
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/GameSocketHandler.swift:register"
+        ]
+      },
+      "emittedFrom": [
+        "server/socket/bidClock.js:start",
+        "server/socket/bidClock.js:stop",
+        "server/socket/bidClock.js:resume"
+      ],
+      "notes": "The bid clock (owner 2026-11-18, every game; contract/README.md \"Bid clock\"): a human-controlled seat that has not bid 10 s (SeatState.BID_CLOCK_DELAY_MS) after its bid turn opened gets a 30 s clock (BID_CLOCK_MS, the length of bidclock.m4a, the tune the table plays); when it runs out the server bids '0' for the seat through the normal bid path, after the room log line \"<name> ran out of time.\". `running` carries the time left from emission (inMs) and the full length (durationMs): clients END-align the tune with the deadline and show the bidder a countdown with a small safety margin. `stopped` reasons: bid (the seat bid), timeout (the server is bidding 0 right after: let the tune's end cue ring), turn (the turn moved some other way, e.g. a new deal), controller (a bot took the seat: /lazy, AFK, resign, /leave). No stopped on gameEnd / abortGame (terminal games emit nothing): clients clear the clock on those and on every bidReceived / updateTurn / doneBidding / gameStart / destroyHands / snapshot without bidClock. A `running` is never sent before the 10 s pre-wait except on a same-turn resume (/active, reclaimSeat), which a client-side seq-gap replay of older events cannot clear. Bots never get one. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced), like spectatorsUpdated: the payload is absolute and every shipped iOS build (<= 1.2.3 (14)) registers no handler for it, so a sequenced form would open a gap in their seq gate on every clock start and stop; no clientHello cap (unknown unsequenced events are invisible to old clients). Timeouts in a row (BID_TIMEOUT_AFK_STRIKES, default 2): when a timeout is a connected seat's Nth in a row (casual tables, and tournament tables with no other owner present; not solo / AFK-exempt games, not with AFK_TIMEOUT_MS=0), a bot takes the seat in the same run: playerLazyMode and its \"was idle\" log line come after that bidReceived '0' and before the updateTurn / doneBidding / redeal it triggers. Shipped builds see only the log line and the ordinary bidReceived '0'; the next iOS build after 1.2.3 (14) registers it and routes it around its seq gate (ServerEvent.bidClock, decoded with seq nil: the tune, the bidder's countdown, the timeout toast). Snapshot v2 carries the running clock as the optional `bidClock`."
     },
     "profileResponse": {
       "payload": {

@@ -5,7 +5,7 @@ import XCTest
 final class TableSnapshotDecodingTests: XCTestCase {
     func testEveryV2FixtureDecodesStrictly() throws {
         let names = try FixtureLoader.v2Names()
-        XCTAssertEqual(names.count, 14)
+        XCTAssertEqual(names.count, 15)  // bid-clock-running (the bid clock) is the 15th
         for name in names {
             let raw = try FixtureLoader.v2Snapshot(name)
             do {

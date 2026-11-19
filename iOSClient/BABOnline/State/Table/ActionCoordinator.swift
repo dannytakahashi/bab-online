@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UIKit
 
 /// Sends my plays and bids and keeps each one acknowledged: confirmed by
 /// cardPlayed / bidReceived, rolled back by actionRejected (its snapshot is
@@ -58,6 +59,8 @@ final class ActionCoordinator: ObservableObject {
     private let clock: AckClock
     /// Table sounds, spaced (TableSoundCues) and played by SoundPlayer.shared (tests inject a recorder).
     private let cues: TableSoundCues
+    /// The bid clock's tune (BidClockTune over SoundPlayer.shared; tests inject a fake player).
+    let tune: BidClockTune
     private var reqId: UInt32 = 0
     private var timers: [UInt32: AckCancellable] = [:]
     private var cancellables = Set<AnyCancellable>()
@@ -70,15 +73,51 @@ final class ActionCoordinator: ObservableObject {
 
     /// `soundClock` is not `clock`: the ack tests count that clock's timers.
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock(),
-         sounds: SoundPlaying? = nil, soundClock: AckClock = DispatchAckClock()) {
+         sounds: SoundPlaying? = nil, soundClock: AckClock = DispatchAckClock(), tunePlayer: TunePlaying? = nil,
+         notifications: NotificationCenter = .default) {
         self.store = store
         self.emitter = emitter
         self.clock = clock
         cues = TableSoundCues(clock: soundClock, sounds: sounds ?? SoundPlayer.shared,
                               isMyChoice: { [weak store] in store?.state.myTurn.isChoosing == true },
                               epoch: { [weak store] in store.map { "\($0.sceneResets) \($0.state.table.gameId ?? "")" } ?? "" })
+        tune = BidClockTune(player: tunePlayer ?? SoundPlayer.shared,
+                            remaining: { [weak store] in
+                                guard let store, let c = store.bidCountdown else { return nil }
+                                return c.deadline - store.clockNow()
+                            })
         store.ioRequests
             .sink { [weak self] fx in self?.handle(fx) }
+            .store(in: &cancellables)
+        // the tune follows the app and the sound setting: nothing unless the app is active
+        // (Notification Center, Control Center or the app switcher make it inactive, not
+        // background: SoundPlayer.isAppActive would not have started it there either), back at
+        // its place when the app is active again or the sound comes back on
+        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+            notifications.publisher(for: name)
+                .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.backgrounded() } }
+                .store(in: &cancellables)
+        }
+        notifications.publisher(for: UIApplication.didBecomeActiveNotification)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.sync() } }
+            .store(in: &cancellables)
+        if tunePlayer == nil {
+            SoundPlayer.shared.tuneResync
+                .sink { [weak self] in self?.tune.sync() }
+                .store(in: &cancellables)
+        }
+    }
+
+    /// My socket's connection (SocketService.isConnected): a drop ends the bid clock and its
+    /// tune here (critic C4: no `stopped` can reach me), the rejoin's snapshot brings it back.
+    func watchConnection<P: Publisher>(_ connected: P) where P.Output == Bool, P.Failure == Never {
+        connected
+            .removeDuplicates()
+            .filter { !$0 }
+            .sink { [weak self] _ in
+                guard let self, self.store.state.table.bidClock != nil || self.store.state.table.bidTuneLive else { return }
+                self.store.apply(.local(.connectionLost))
+            }
             .store(in: &cancellables)
     }
 
@@ -148,6 +187,8 @@ final class ActionCoordinator: ObservableObject {
             HapticManager.error()
         case .sound(let kind):
             cues.cue(kind)
+        case .bidClock(let cue):
+            tune.handle(cue)
         default:
             break
         }

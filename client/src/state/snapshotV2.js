@@ -13,6 +13,7 @@
  */
 
 import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
+import { validBidClock } from './bidClock.js';
 
 export const SNAPSHOT_VERSION = 2;
 export const STAGES = Object.freeze(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED', 'DEALING', 'BIDDING',
@@ -219,6 +220,17 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
   // malformed or absent (an older server): left out
   const watching = 'watching' in raw ? parseWatching(raw.watching) : null;
   if (watching) copy.watching = watching;
+  // bidClock (2026-11-18): present only while a seat's bid clock runs
+  // {position, inMs, durationMs}, inMs relative to receipt (contract/README.md
+  // "Bid clock"); malformed: dropped with a warning, the snapshot still applies
+  if (raw.bidClock !== undefined && raw.bidClock !== null) {
+    if (validBidClock(raw.bidClock)) {
+      const { position, inMs, durationMs } = raw.bidClock;
+      copy.bidClock = { position, inMs, durationMs };
+    } else {
+      c.warnings.push(`$.bidClock: malformed ${JSON.stringify(raw.bidClock)}, dropped`);
+    }
+  }
   return { ok: true, snapshot: deepFreeze(copy), warnings: c.warnings };
 }
 

@@ -24,7 +24,7 @@ const parsed = (name) => {
 describe('every server fixture parses', () => {
   it('has the fixtures the contract promises', () => {
     expect(index.snapshotVersion).toBe(SNAPSHOT_VERSION);
-    expect(index.fixtures.map((f) => f.name).sort()).toEqual(['action-rejected', 'between-tricks', 'bidding-mid',
+    expect(index.fixtures.map((f) => f.name).sort()).toEqual(['action-rejected', 'between-tricks', 'bid-clock-running', 'bidding-mid',
       'created-countdown', 'draw-in-progress', 'hand-resolving', 'lazy-at-seat', 'lazy-watcher', 'presence-mixed',
       'spectator-mid-hand', 'teams-announced', 'tournament-game', 'trick-mid-lead3', 'trick-resolving']);
   });

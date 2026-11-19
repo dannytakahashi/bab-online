@@ -100,6 +100,13 @@ describe('chaos', () => {
         const onError = (err) => processErrors.push(err);
         process.on('unhandledRejection', onError);
         process.on('uncaughtException', onError);
+        // The bid clock stays on here (bidClock.js): count what the runs reach
+        const clock = {};
+        const stopClockCount = contractCheck.onEmit((entry, wire) => {
+            if (entry.event !== 'bidClock') return;
+            const k = wire.running ? 'running' : wire.reason;
+            clock[k] = (clock[k] || 0) + 1;
+        });
         try {
             const failures = [];
             let deep = 0;
@@ -121,7 +128,10 @@ describe('chaos', () => {
             expect(processErrors).toEqual([]);
             // Coverage: a good share of runs get past the first hand
             if (SEEDS >= 20) expect(deep).toBeGreaterThanOrEqual(Math.floor(SEEDS / 4));
+            // ...and the bid clock starts, runs out and is cut by a bid
+            if (SEEDS >= 20) expect(clock).toMatchObject({ running: expect.any(Number), timeout: expect.any(Number), bid: expect.any(Number) });
         } finally {
+            stopClockCount();
             process.off('unhandledRejection', onError);
             process.off('uncaughtException', onError);
         }

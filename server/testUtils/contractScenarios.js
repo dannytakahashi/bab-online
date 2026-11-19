@@ -160,8 +160,26 @@ function cardNotIn(hand) {
  * the resigned owner, a spectator with chat, bot chat, /leave, a refused
  * rejoin during DRAWING and an accepted one during TEAMS_ANNOUNCED.
  * `hooks.onStep(w, game)` runs every loop step (snapshot requests etc.).
+ *
+ * Runs with the bid clock off (BID_CLOCK=off, restored after): its 61 s
+ * wait on a bid turn tests grace and resign, and wireCompat / passiveHooks
+ * pin what it emits. The clock's own contract coverage is contract.test.js
+ * "(b2) bid clock".
  */
-async function playF1({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
+async function playF1(opts = {}) {
+    const saved = process.env.BID_CLOCK;
+    process.env.BID_CLOCK = 'off';
+    try {
+        const out = await playF1Inner(opts);
+        expect(events(out.w.log, 'bidClock')).toEqual([]);
+        return out;
+    } finally {
+        if (saved === undefined) delete process.env.BID_CLOCK;
+        else process.env.BID_CLOCK = saved;
+    }
+}
+
+async function playF1Inner({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
     Math.random = mulberry32(seed);
     const w = world('f1');
     if (hooks.onWorld) hooks.onWorld(w);

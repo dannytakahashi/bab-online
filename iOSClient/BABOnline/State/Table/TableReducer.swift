@@ -30,6 +30,9 @@ enum LocalAction: Equatable {
     case leaveAsked
     /// Leave's confirmation closed (Leave or Cancel): the check ends.
     case leaveClosed
+    /// My socket left `.connected` (critic C4): no `stopped` can reach me, so the bid clock
+    /// and its tune end here; the rejoin's snapshot brings the clock back if it still runs.
+    case connectionLost
 }
 
 enum TableEffect: Equatable {
@@ -40,7 +43,13 @@ enum TableEffect: Equatable {
     case haptic(HapticKind)
     /// A short line over the table (GameState.notice, shown in the server-error toast): why a bid or play was refused.
     case notice(String)
+    /// The same toast with the neutral (info) look: news for me, not a refusal (the bid clock's
+    /// "Time ran out: you bid 0").
+    case infoNotice(String)
     case sound(SoundKind)
+    /// The bid clock's tune (BidClockTune): unlike `.sound`, a snapshot may start it (state, not
+    /// news) and catch-up keeps it (a replayed clear must still stop it).
+    case bidClock(BidClockCue)
     case dropped(event: String, seq: Int)
     case gap(expected: Int, got: Int)
     case cancelAck(reqId: UInt32)
@@ -143,9 +152,14 @@ enum TableReducer {
             if let username { s.table.me.username = username }
             s.table.me.playerId = playerId ?? s.table.me.playerId
         case .reset:
+            let live = s.table.bidTuneLive
             s = .fresh(keeping: s.table.me)
             fx.append(.animate(.sceneReset))
+            if live { fx.append(.bidClock(.stop(.hard))) }
+        case .connectionLost:
+            stopBidClock(&s, .hard, &fx)
         case .enterLobby(let lobbyId):
+            if s.table.bidTuneLive { fx.append(.bidClock(.stop(.hard))) }
             s = .fresh(keeping: s.table.me)
             s.table.gameId = lobbyId  // as today: the lobby id stands in until the game's id arrives
         case .enterGameContext(let gameId, let tournamentId):
@@ -154,6 +168,7 @@ enum TableReducer {
             // keeps what it has, tournamentId included
             if gameId != s.table.gameId || s.table.phase.kind == .none || s.table.phase.kind == .ended {
                 let keepTournament = gameId == s.table.gameId ? s.table.tournamentId : nil
+                if s.table.bidTuneLive { fx.append(.bidClock(.stop(.hard))) }
                 s = .fresh(keeping: s.table.me)
                 s.table.gameId = gameId
                 s.table.tournamentId = tournamentId ?? keepTournament

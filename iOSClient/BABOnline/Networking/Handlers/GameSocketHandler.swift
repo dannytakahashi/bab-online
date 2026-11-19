@@ -20,8 +20,8 @@ final class GameSocketHandler {
         SocketEvents.Server.gameLogEntry, SocketEvents.Server.rejoinSuccess, SocketEvents.Server.rejoinFailed,
         SocketEvents.Server.spectatorJoined, SocketEvents.Server.playerLazyMode, SocketEvents.Server.playerActiveMode,
         SocketEvents.Server.leftGame, SocketEvents.Server.restorePlayerState, SocketEvents.Server.stateSnapshot,
-        // unsequenced: ServerEvent decodes it with seq nil, so it goes around the seq gate
-        SocketEvents.Server.spectatorsUpdated,
+        // unsequenced: ServerEvent decodes them with seq nil, so they go around the seq gate
+        SocketEvents.Server.spectatorsUpdated, SocketEvents.Server.bidClock,
     ]
 
     /// Snapshot carriers that open the game screen when they apply.
