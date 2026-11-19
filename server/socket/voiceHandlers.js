@@ -27,10 +27,9 @@
  *     (rateLimiter keys voiceOffer, voiceAnswer, voiceIceCandidate;
  *     checked here, so the wrapper stays safeHandler);
  *   - the payload passes its Joi schema (validators.schemas.voiceOffer,
- *     ... ; V1_REMOVALS #18), also checked here;
- *   - offers and answers only: a voice spectator who may not talk sends
- *     listen-only SDP (gameVoice.gateSignal, server/voice/sdpDirection.js).
- *     Players are never gated.
+ *     ... ; V1_REMOVALS #18), also checked here.
+ * (Until 2026-11-18 a voice spectator who might not talk was relayed only
+ * listen-only SDP; spectators always may talk now, so nothing is gated.)
  * Anything else is dropped silently: the contract has no rejection event
  * for voice and both clients treat a lost signal as a peer that never
  * answers.
@@ -42,7 +41,6 @@ const { rateLimiter } = require('./errorHandler');
 const { validate } = require('./validators');
 const turnCredentials = require('../voice/turnCredentials');
 const gameVoice = require('../voice/gameVoice');
-const { emitError } = require('./serverError');
 
 /**
  * Has `sock`'s user blocked `username`? Each side is checked against its
@@ -138,7 +136,6 @@ function voiceOffer(socket, io, data) {
     if (!targetSocketId || !offer) return;
     if (!authorize(socket, io, 'voiceOffer', targetSocketId)) return;
     if (!checked(socket, 'voiceOffer', data)) return;
-    if (!gameVoice.gateSignal(io, socket.id, targetSocketId, offer.sdp)) return;
 
     // Look up username server-side — don't trust client payload
     const user = gameManager.getUserBySocketId(socket.id);
@@ -155,7 +152,6 @@ function voiceAnswer(socket, io, data) {
     if (!targetSocketId || !answer) return;
     if (!authorize(socket, io, 'voiceAnswer', targetSocketId)) return;
     if (!checked(socket, 'voiceAnswer', data)) return;
-    if (!gameVoice.gateSignal(io, socket.id, targetSocketId, answer.sdp)) return;
 
     io.to(targetSocketId).emit('voiceAnswer', {
         fromSocketId: socket.id,
@@ -208,27 +204,22 @@ async function getVoiceIceServers(socket, io, data) {
 
 /**
  * setSpectatorsCanTalk {spectatorsCanTalk} (Joi + rate limit in the
- * wrapper): "Spectators can talk", default on (owner 2026-11-16). In a
- * lobby only its host may set it (lobbyHandlers.setLobbySpectatorsCanTalk;
- * every member gets the new settings). In a casual game the host while
- * seated, connected and capable, else any connected capable player (owner
- * Q3 default; gameVoice.canChange); coalesced per game
- * (gameVoice.requestSpectatorsCanTalk) and announced with voiceSettings.
- * Anything else: serverError 'rejected'.
+ * wrapper): accepted and ignored since 2026-11-18 (owner: "we don't need
+ * the spectator voice host toggle, just having it default on is good").
+ * Spectators always may talk; shipped iOS 12-15 and cached web tabs still
+ * show a switch and send this. The sender gets the unchanged settings back,
+ * so its switch snaps back on and never shows an error: in a lobby a
+ * playerReadyUpdate with settings {spectatorsCanTalk: true} to it alone
+ * (lobbyHandlers.setLobbySpectatorsCanTalk), in a casual game its
+ * voiceSettings (spectatorsCanTalk true, canChange false: those clients
+ * then hide the in-game switch). Anywhere else: dropped (debug log).
  */
 function setSpectatorsCanTalk(socket, io, data) {
-    const value = data.spectatorsCanTalk === true;
-    if (require('./lobbyHandlers').setLobbySpectatorsCanTalk(socket, io, value)) return;
-    const game = gameManager.getPlayerGame(socket.id);
-    if (!game || !game.casualVoice || game.isTerminal()) {
-        emitError(socket, { message: 'Spectator talk can only be set in a lobby or a casual game' }, 'setSpectatorsCanTalk');
-        return;
-    }
-    if (!gameVoice.canChange(game, socket.id, io)) {
-        emitError(socket, { message: 'Only the host can change this' }, 'setSpectatorsCanTalk');
-        return;
-    }
-    gameVoice.requestSpectatorsCanTalk(io, game, value);
+    socketLogger.debug('setSpectatorsCanTalk ignored (spectators always may talk)', { socketId: socket.id, asked: data?.spectatorsCanTalk });
+    if (require('./lobbyHandlers').setLobbySpectatorsCanTalk(socket, io)) return;
+    const watched = gameManager.spectatorGames.get(socket.id);
+    const game = gameManager.getPlayerGame(socket.id) ?? (watched !== undefined ? gameManager.games.get(watched) : null);
+    gameVoice.answerSpectatorsCanTalk(io, game, socket.id);
 }
 
 /** Remember the signed-in user's block list on the socket (voice checks it per message). */

@@ -319,10 +319,13 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
 - `casualSpectators` (`$defs.clientCapCasualSpectators`, its own const:
   `$defs.clientCap`'s enum is frozen byte for byte by the baselines;
   2026-11-16, family lobbies): the client can show a lobby of up to 8
-  (`members`, `capacity`), its host switch "Spectators can talk"
-  (`settings`, c2s `setSpectatorsCanTalk`), being an extra who watches the
-  game from its start (spectatorJoined at CREATED, never allPlayersReady),
-  and spectator voice (`voiceSettings`, listen-only offers). Only for such a
+  (`members`, `capacity`), its lobby `settings` (`spectatorsCanTalk`,
+  always true since 2026-11-18: the host switch and c2s
+  `setSpectatorsCanTalk` are gone from the web and from iOS after build 15;
+  the server ignores the event and answers with the unchanged settings),
+  being an extra who watches the game from its start (spectatorJoined at
+  CREATED, never allPlayersReady), and spectator voice (`voiceSettings`;
+  every voice spectator may talk). Only for such a
   socket does the server: count it toward a lobby of more than 4 (a lobby
   holds more than 4 only while EVERY human in it sent the cap; a legacy
   joiner is refused at 4, a legacy takeover above 4); add `members` /

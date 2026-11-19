@@ -85,42 +85,66 @@ export function createFakeVoice() {
   return {
     active: false,
     peers: new Map(),
-    // talk mode (listen-only for a spectator; VoiceChatManager.setTalk)
+    // the microphone (VoiceChatManager: none until the first unmute;
+    // setTalk), the mute (muted at the start, owner 2026-11-18)
     talking: false,
-    wantTalk: true,
+    wantTalk: false,
     micDenied: false,
-    forcedMute: null,
+    // the next getUserMedia is refused (tests set it)
+    refuseMic: false,
+    selfMuted: true,
+    localStream: null,
     modeCallbacks: [],
     get wantsTalk() { return this.wantTalk; },
     initialize: vi.fn(async function initialize(_sm, { talk } = {}) {
       if (typeof talk === 'boolean') this.wantTalk = talk;
       this.active = true;
-      this.talking = this.wantTalk;
+      this.talking = this.wantTalk && !this.refuseMic;
+      if (this.wantTalk && this.refuseMic) this.micDenied = true;
+      this.localStream = this.talking ? {} : null;
+      this.selfMuted = !this.talking;
     }),
     shutdown: vi.fn(function shutdown() {
       this.active = false;
       this.talking = false;
-      this.wantTalk = true;
+      this.wantTalk = false;
       this.micDenied = false;
-      this.forcedMute = null;
+      this.selfMuted = true;
+      this.localStream = null;
       this.modeCallbacks = [];
     }),
     setTalk: vi.fn(async function setTalk(talk) {
       this.wantTalk = !!talk;
       if (!this.active) return false;
       const was = this.talking;
-      this.talking = !!talk && !this.micDenied;
-      if (was !== this.talking) this.modeCallbacks.forEach((cb) => cb({ talking: this.talking, micDenied: this.micDenied }));
+      if (talk && !this.talking) {
+        if (this.refuseMic) this.micDenied = true;
+        else { this.micDenied = false; this.talking = true; }
+      } else if (!talk) {
+        this.talking = false;
+      }
+      this.localStream = this.talking ? {} : null;
+      if (!this.talking) this.selfMuted = true;
+      if (was !== this.talking || (talk && this.micDenied)) this.modeCallbacks.forEach((cb) => cb({ talking: this.talking, micDenied: this.micDenied }));
       return this.talking;
     }),
     isTalking() { return this.active && this.talking; },
     isListenOnly() { return this.active && !this.talking; },
+    isMuted() { return this.selfMuted || !this.talking; },
+    setMuted: vi.fn(async function setMuted(muted) {
+      if (muted) {
+        this.selfMuted = true;
+        return true;
+      }
+      this.selfMuted = false;
+      if (!this.talking) await this.setTalk(true);
+      if (!this.talking) this.selfMuted = true;
+      return this.isMuted();
+    }),
     onModeChange: vi.fn(function onModeChange(cb) { this.modeCallbacks.push(cb); }),
     onAutoplayBlocked: vi.fn(),
-    setForcedMute: vi.fn(function setForcedMute(fn) { this.forcedMute = typeof fn === 'function' ? fn : null; }),
-    isForcedMuted: vi.fn(() => false),
     onSpeakingChange: vi.fn(),
-    toggleSelfMute: vi.fn(() => false),
+    toggleSelfMute: vi.fn(function toggleSelfMute() { return this.setMuted(!this.isMuted()); }),
     connectToPeer: vi.fn(),
     removePeer: vi.fn(),
     handleOffer: vi.fn(),
@@ -131,7 +155,6 @@ export function createFakeVoice() {
     getPeers: vi.fn(() => []),
     isSpeaking: vi.fn(() => false),
     isPeerMuted: vi.fn(() => false),
-    selfMuted: false,
   };
 }
 

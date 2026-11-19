@@ -633,10 +633,10 @@ const PROCESS_RESETS = [
     // Every bot timer (bid / play / draw / chat), registrations, counters,
     // the "he sends a boy" cooldowns and quip roll
     ['botController', (m) => m._resetForTests()],
-    // The spectator-voice SDP gate drop count (the per-game voice state
-    // dies with the games above; play-again holds and reservations are
-    // GameManager's lobbyGrace / lobby timers, cancelled there)
-    ['gameVoice', (m) => m._resetForTests()],
+    // (The per-game voice state dies with the games above; play-again holds
+    // and reservations are GameManager's lobbyGrace / lobby timers,
+    // cancelled there. gameVoice keeps no module state since its SDP gate
+    // went, 2026-11-18.)
     // shuttingDown, the drain deadline and in-flight set; pending retry
     // waits (profileHandlers' end-of-game backoff) never end, so a dead
     // process's write is never retried

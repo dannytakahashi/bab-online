@@ -1,11 +1,12 @@
 /**
  * A family lobby's extra (owner 2026-11-16: lobbies of up to 8, the first 4
  * to tap Ready play, the rest watch the game in its chat and voice). One
- * page load: the lobby of 6 with its host switch and rows, then the start
- * as an extra (spectatorJoined at CREATED, never allPlayersReady), the
- * room's startDraw that must not seat it, the voice that carries over and
- * follows the host's "Spectators can talk", and the M key while it may
- * only listen.
+ * page load: the lobby of 6 with its rows and its one voice line (owner
+ * 2026-11-18: no host switch, spectators always may talk), lobby voice
+ * starting muted (no microphone prompt), an unmute in the lobby, then the
+ * start as an extra (spectatorJoined at CREATED, never allPlayersReady),
+ * the room's startDraw that must not seat it, and the voice that carries
+ * over with the person's own mute as it was.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -62,7 +63,7 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     expect(hello.caps).toContain('casualSpectators');
   });
 
-  it('every member has a row, the header counts n/8 and Ready r/4, the host is marked; the switch is read-only', async () => {
+  it('every member has a row, the header counts n/8 and Ready r/4, the host is marked; no switch, one voice line', async () => {
     page.socket.fire('lobbyCreated', { ...lobbyPayload(), name: 'Family', messages: [] });
     expect(page.session.screen).toBe('lobby');
     expect(document.querySelectorAll('#lobbyPlayersList .seat-row:not(.seat-row--empty)')).toHaveLength(6);
@@ -70,14 +71,26 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 0/4');
     expect(rowOf('ann').querySelector('.seat-row__name').textContent).toBe('ann (host)');
     expect(document.getElementById('lobbySpectatorsCanTalk')).toBeNull();
-    expect(document.getElementById('lobbySpectatorsCanTalkValue').textContent).toMatch(/On/);
-    expect(document.getElementById('lobbyVoiceHint').textContent).toMatch(/can talk/);
-    // lobby voice starts as always (with the microphone)
+    expect(document.getElementById('lobbySpectatorsCanTalkValue')).toBeNull();
+    expect(document.getElementById('lobbyVoiceHint').textContent).toBe('The first 4 to tap Ready play; everyone else watches and can talk.');
+    // lobby voice starts muted: no microphone until I unmute
     await vi.waitFor(() => expect(page.voice.active).toBe(true));
-    expect(page.voice.isTalking()).toBe(true);
+    expect(page.voice.initialize.mock.calls.at(-1)[1]).toEqual({});
+    expect(page.voice.isTalking()).toBe(false);
+    const mute = await vi.waitFor(() => {
+      const b = document.getElementById('voice-mute-btn');
+      expect(b).not.toBeNull();
+      return b;
+    });
+    expect(mute.getAttribute('aria-label')).toBe('Unmute microphone (M)');
+    // I unmute in the lobby: the microphone is asked for now
+    mute.click();
+    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    expect(page.voice.isMuted()).toBe(false);
   });
 
   it('four others ready first: they show Playing, I show Will watch, my Ready is "Table full"', () => {
+    // (an old server's settings off changes nothing on the page)
     page.socket.fire('playerReadyUpdate', lobbyPayload({ ready: ['ann', 'bob', 'cat', 'dan'], on: false }));
     expect(rowOf('ann').dataset.role).toBe('playing');
     expect(rowOf('me').dataset.role).toBe('watching');
@@ -85,8 +98,7 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     const ready = document.getElementById('lobbyReadyBtn');
     expect(ready.disabled).toBe(true);
     expect(ready.textContent).toBe('Table full — you\'ll watch');
-    expect(document.getElementById('lobbySpectatorsCanTalkValue').textContent).toMatch(/Off/);
-    expect(document.getElementById('lobbyVoiceHint').textContent).toMatch(/only listen/);
+    expect(document.getElementById('lobbyVoiceHint').textContent).toBe('The first 4 to tap Ready play; everyone else watches and can talk.');
   });
 
   it('the start: spectatorJoined at CREATED puts me at the table as a spectator; voice is not shut down', () => {
@@ -99,16 +111,17 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     expect(page.voice.active).toBe(true);
   });
 
-  it('voiceSettings with the switch off: listen-only (the mic goes), the pill says so', async () => {
+  it('voiceSettings as a spectator: the lobby call carries on, still unmuted (the same call); the pill adds nothing', async () => {
     page.voice.setTalk.mockClear();
-    page.socket.fire('voiceSettings', voiceSettings({ spectatorsCanTalk: false, canTalk: false }));
-    expect(page.voice.setTalk).toHaveBeenCalledWith(false);
-    await vi.waitFor(() => expect(page.voice.isListenOnly()).toBe(true));
-    await vi.waitFor(() => expect(document.getElementById('spectating-indicator')?.textContent).toMatch(/\(listening only\)$/));
-    const mute = document.getElementById('voice-mute-btn');
-    expect(mute.getAttribute('aria-disabled')).toBe('true');
-    expect(mute.disabled).toBe(false);
-    expect(mute.getAttribute('aria-label')).toBe('Listening only (M)');
+    page.voice.initialize.mockClear();
+    page.socket.fire('voiceSettings', voiceSettings());
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    expect(page.voice.initialize).not.toHaveBeenCalled();
+    expect(page.voice.isTalking()).toBe(true);
+    expect(page.voice.isMuted()).toBe(false);
+    await vi.waitFor(() => expect(document.getElementById('spectating-indicator')).not.toBeNull());
+    expect(document.getElementById('spectating-indicator').textContent).not.toMatch(/listening only/);
+    expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Mute microphone (M)');
   });
 
   it('the room\'s startDraw never makes me a player (no draw button of mine)', () => {
@@ -118,21 +131,14 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     expect(page.socket.emitted('draw')).toEqual([]);
   });
 
-  it('M while I may not talk: says why, asks for no microphone', () => {
+  it('M mutes me (the microphone is kept); an old server\'s switch-off voiceSettings changes nothing and toasts nothing', async () => {
     page.voice.setTalk.mockClear();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+    expect(page.voice.setMuted).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Unmute microphone (M)'));
+    page.socket.fire('voiceSettings', voiceSettings({ spectatorsCanTalk: false, canTalk: false }));
     expect(page.voice.setTalk).not.toHaveBeenCalled();
-    expect(toasts().join(' ')).toMatch(/turned off spectator talk/);
-  });
-
-  it('the host turns it back on: a lobby extra talks again (its microphone comes back), with a toast', async () => {
-    page.socket.fire('voiceSettings', voiceSettings());
-    expect(page.voice.setTalk).toHaveBeenLastCalledWith(true);
-    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
-    expect(toasts().join(' ')).toMatch(/Spectators can talk again/);
-    const mute = document.getElementById('voice-mute-btn');
-    expect(mute.hasAttribute('aria-disabled')).toBe(false);
-    expect(document.getElementById('spectating-indicator').textContent).not.toMatch(/listening only/);
+    expect(toasts().join(' ')).not.toMatch(/spectator talk/);
   });
 
   it('another table\'s late voiceSettings is ignored', () => {

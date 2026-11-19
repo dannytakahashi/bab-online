@@ -1,9 +1,10 @@
 /**
  * Spectator voice in casual games (family lobbies, owner 2026-11-16;
  * server/voice/gameVoice.js): who is admitted to a game's voice room, who
- * may signal whom, the "Spectators can talk" switch (coalesced, SDP gate,
- * backstop), and every way a voice spectator leaves it. Signaling between
- * players is unchanged (voiceSignaling.test.js).
+ * may signal whom, spectators always talking (owner 2026-11-18: no
+ * "Spectators can talk" switch; setSpectatorsCanTalk from shipped iOS
+ * 12-15 and cached web tabs is ignored), and every way a voice spectator
+ * leaves it. Signaling between players is unchanged (voiceSignaling.test.js).
  *
  * Real handlers on the in-memory DB fake, stub io/sockets, fake timers.
  */
@@ -87,7 +88,7 @@ function user(tag, { capable = true, blocked = [] } = {}) {
 const nameOf = (s) => gameManager.getUserBySocketId(s.id).username;
 
 /** A seated casual game in PLAYING (4 human seats); returns the seat sockets. capable: one flag, or one per seat. */
-function casualGame(tags, { capable = true, on = true, casual = true } = {}) {
+function casualGame(tags, { capable = true, casual = true } = {}) {
     const socks = tags.map((t, i) => user(t, { capable: Array.isArray(capable) ? capable[i] : capable }));
     const game = gameManager.createGame(socks.map((s) => s.id));
     socks.forEach((s, i) => game.addPlayer(s.id, nameOf(s), i + 1, 1, false));
@@ -96,7 +97,7 @@ function casualGame(tags, { capable = true, on = true, casual = true } = {}) {
     socks.forEach((s, i) => game.setHand(s.id, [C(String(i + 2), 'hearts')]));
     game.trump = C('A', 'spades');
     game.forcePhase('PLAYING');
-    if (casual) gameVoice.initCasualVoice(game, { host: nameOf(socks[0]), spectatorsCanTalk: on, io });
+    if (casual) gameVoice.initCasualVoice(game, { host: nameOf(socks[0]), io });
     return { game, socks };
 }
 
@@ -212,205 +213,128 @@ describe('admission', () => {
     });
 });
 
-describe('who may talk', () => {
-    test('an all-legacy table: a main-room spectator listens only (nobody could switch it off); a lobby extra still talks', () => {
+const SETTINGS_ON = { spectatorsCanTalk: true, canChange: false };
+
+describe('spectators always may talk (owner 2026-11-18)', () => {
+    test('an all-legacy table: a main-room spectator talks too; a lobby extra talks', () => {
         const { game } = casualGame(['a', 'b', 'c', 'd'], { capable: false });
         const x = user('x');
         spectate(game, x);
-        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: false });
-        expect(gameVoice.mayTalk(game, x.id, io)).toBe(false);
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true, ...SETTINGS_ON });
+        expect(gameVoice.mayTalk(game, x.id)).toBe(true);
         const extra = user('e');
         spectate(game, extra, { fromLobby: true });
-        expect(last(extra, 'voiceSettings')).toMatchObject({ canTalk: true });
+        expect(last(extra, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true, ...SETTINGS_ON });
     });
 
-    test('the host controls the switch while seated, connected and capable; otherwise any capable player', async () => {
+    test('nobody controls a switch: every player gets canChange false, the host included', () => {
         const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        expect(gameVoice.canChange(game, socks[0].id, io)).toBe(true);
-        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(false);
-        io.sockets.sockets.delete(socks[0].id);
-        await queueHandlers.handleDisconnect(socks[0], io);
-        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
-        // the others hear about it (voiceSettings on the host dropping)
-        expect(last(socks[2], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+        gameVoice.refreshVoice(io, game);
+        for (const s of socks) expect(last(s, 'voiceSettings')).toEqual({ gameId: game.gameId, host: nameOf(socks[0]), role: 'player', canTalk: true, ...SETTINGS_ON });
+        expect(game.casualVoice.spectatorsCanTalk).toBe(true);
+    });
+
+    test('no SDP gate: a spectator\'s sendrecv / sendonly offers and answers are relayed', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        voice.voiceOffer(x, io, { targetSocketId: socks[0].id, offer: OFFER('sendrecv') });
+        voice.voiceAnswer(x, io, { targetSocketId: socks[1].id, answer: ANSWER('sendonly') });
+        voice.voiceOffer(x, io, { targetSocketId: socks[2].id, offer: OFFER('recvonly') });
+        expect(relayed('voiceOffer').map((l) => l.to)).toEqual([socks[0].id, socks[2].id]);
+        expect(relayed('voiceAnswer').map((l) => l.to)).toEqual([socks[1].id]);
+    });
+
+    test('spectators hear each other: the later one lists the earlier one', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        const y = user('y');
+        spectate(game, x);
+        spectate(game, y);
+        expect(last(y, 'voicePeerList').peers.map((p) => p.socketId)).toEqual([...socks.map((s) => s.id), x.id]);
+        expect(last(x, 'voicePeerJoined')).toEqual({ socketId: y.id, username: nameOf(y) });
     });
 
     // Review 2026-11-16: every way a seat owner leaves the voice room
-    // recomputes and announces who controls the switch and who may talk
-    test('the host /leaves: another capable player gets canChange true', () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+    // re-sends voiceSettings; with no switch nothing in them changes and no
+    // spectator call is ever torn down
+    test('the only capable player /leaves a legacy table: a main-room spectator keeps canTalk true, its calls are never torn down', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd'], { capable: [true, false, false, false] });
+        const x = user('x');
+        spectate(game, x);
+        voice.voiceOffer(x, io, { targetSocketId: socks[1].id, offer: OFFER('sendrecv') });
+        const mark = log.length;
+        // the only capable player /leaves a legacy table
         chatHandlers.chatMessage(socks[0], io, { message: '/leave' });
-        expect(game.seat(1).presence).toBe('gone');
-        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
-        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
-        // with the host gone any connected capable player controls it (Q3)
-        expect(last(socks[2], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true, ...SETTINGS_ON });
+        voice.voiceOffer(x, io, { targetSocketId: socks[2].id, offer: OFFER('sendrecv') });
+        expect(relayed('voiceOffer', mark).map((l) => l.to)).toEqual([socks[2].id]);
+        await jest.advanceTimersByTimeAsync(20000);
+        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId).filter((id) => id !== socks[0].id)).toEqual([]);
+        for (const s of socks.slice(1)) expect(to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).not.toContain(x.id);
     });
 
-    test('a lazy host (at its seat) disconnecting: another capable player gets canChange true', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        chatHandlers.chatMessage(socks[0], io, { message: '/lazy' });
-        expect(game.seat(1).ownerView).toBe('seat');
-        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(false);
-        io.sockets.sockets.delete(socks[0].id);
-        await queueHandlers.handleDisconnect(socks[0], io);
-        expect(gameVoice.canChange(game, socks[1].id, io)).toBe(true);
-        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
-    });
-
-    test('a lazy host demoted by a newer socket that watches the seat: another capable player gets canChange true', () => {
+    test('a lazy host demoted by a newer socket, or dropping: the others\' voiceSettings stay canChange false', async () => {
         const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
         chatHandlers.chatMessage(socks[0], io, { message: '/lazy' });
         const host = nameOf(socks[0]);
         const tab = makeSocket(`sv${seq}-tab`, log, io);
         gameManager.registerUser(tab.id, host);
         clientInfo.handle(tab, io, { client: 'web', version: '1', caps: ['casualSpectators'] });
-        expect(seatLifecycle.watchSeat(io, game, 1, tab, host, { via: 'spectate' })).toBe(true);
-        expect(game.seat(1)).toMatchObject({ ownerSocketId: tab.id, ownerView: 'watch' });
-        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true });
-    });
-
-    test('the last capable player /leaves a legacy table: a main-room spectator loses canTalk and the backstop tears its calls down', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd'], { capable: [true, false, false, false] });
-        const x = user('x');
-        spectate(game, x);
-        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true });
-        voice.voiceOffer(x, io, { targetSocketId: socks[1].id, offer: OFFER('sendrecv') });
-        expect(relayed('voiceOffer').map((l) => l.to)).toEqual([socks[1].id]);
-        chatHandlers.chatMessage(socks[0], io, { message: '/leave' });
-        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: false, canChange: false });
-        expect(game.voiceSpectators.get(x.id).gateSince).not.toBeNull();
-        // a new sendrecv offer is refused now
-        const before = relayed('voiceOffer').length;
-        voice.voiceOffer(x, io, { targetSocketId: socks[2].id, offer: OFFER('sendrecv') });
-        expect(relayed('voiceOffer')).toHaveLength(before);
         const mark = log.length;
-        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
-        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[1].id, socks[2].id, socks[3].id]);
-        for (const s of socks.slice(1)) expect(to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
+        expect(seatLifecycle.watchSeat(io, game, 1, tab, host, { via: 'spectate' })).toBe(true);
+        expect(to(socks[1], 'voiceSettings', mark).length).toBeGreaterThan(0);
+        expect(last(socks[1], 'voiceSettings')).toMatchObject({ role: 'player', canTalk: true, ...SETTINGS_ON });
+        io.sockets.sockets.delete(socks[2].id);
+        await queueHandlers.handleDisconnect(socks[2], io);
+        expect(last(socks[3], 'voiceSettings')).toMatchObject({ role: 'player', canTalk: true, ...SETTINGS_ON });
     });
 });
 
-describe('the SDP gate', () => {
-    test('a spectator who may not talk relays listen-only SDP only; one who may relays anything; players are never gated', () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd'], { on: false });
-        const x = user('x');
-        spectate(game, x);
-        expect(last(x, 'voiceSettings').canTalk).toBe(false);
-        voice.voiceOffer(x, io, { targetSocketId: socks[0].id, offer: OFFER('sendrecv') });
-        voice.voiceAnswer(x, io, { targetSocketId: socks[0].id, answer: ANSWER('sendonly') });
-        expect(relayed('voiceOffer')).toEqual([]);
-        expect(relayed('voiceAnswer')).toEqual([]);
-        voice.voiceOffer(x, io, { targetSocketId: socks[0].id, offer: OFFER('recvonly') });
-        voice.voiceAnswer(x, io, { targetSocketId: socks[1].id, answer: ANSWER('inactive') });
-        expect(relayed('voiceOffer')).toHaveLength(1);
-        expect(relayed('voiceAnswer')).toHaveLength(1);
-        voice.voiceOffer(socks[0], io, { targetSocketId: x.id, offer: OFFER('sendrecv') });
-        expect(relayed('voiceOffer')).toHaveLength(2);
-        game.casualVoice.spectatorsCanTalk = true;
-        voice.voiceOffer(x, io, { targetSocketId: socks[2].id, offer: OFFER('sendrecv') });
-        expect(relayed('voiceOffer')).toHaveLength(3);
-        expect(gameVoice._gateDrops()).toBeGreaterThanOrEqual(2);
-    });
-});
-
-describe('the switch in a game', () => {
-    test('coalesced: 5 toggles in 2 s apply one change; the re-offers that follow are within the limits', async () => {
+describe('setSpectatorsCanTalk is accepted and ignored (shipped iOS 12-15, cached web tabs)', () => {
+    test('in a game, from the host, another player or a spectator: the sender alone gets its unchanged voiceSettings, never an error', async () => {
         const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
         const x = user('x');
         spectate(game, x);
+        for (const [sender, role] of [[socks[0], 'player'], [socks[1], 'player'], [x, 'spectator']]) {
+            const mark = log.length;
+            voice.setSpectatorsCanTalk(sender, io, { spectatorsCanTalk: false });
+            expect(to(sender, 'voiceSettings', mark).map((l) => l.data)).toEqual([
+                { gameId: game.gameId, host: nameOf(socks[0]), role, canTalk: true, ...SETTINGS_ON },
+            ]);
+            expect(relayed('serverError', mark)).toEqual([]);
+            // nobody else is told anything, no call is dropped, later either
+            expect(log.slice(mark).filter((l) => l.to !== sender.id && l.to !== `self:${sender.id}`)).toEqual([]);
+            await jest.advanceTimersByTimeAsync(10000);
+            expect(relayed('voicePeerLeft', mark)).toEqual([]);
+        }
+        expect(game.casualVoice.spectatorsCanTalk).toBe(true);
+        expect(gameVoice.mayTalk(game, x.id)).toBe(true);
+    });
+
+    test('5 toggles in 2 s change nothing; the wrapper limit (4 / 30 s) is unchanged', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
         const mark = log.length;
         for (const v of [false, true, false, true, false]) {
             voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: v });
             await jest.advanceTimersByTimeAsync(400);
         }
-        await jest.advanceTimersByTimeAsync(3000);
-        expect(game.casualVoice.spectatorsCanTalk).toBe(false);
-        const toX = to(x, 'voiceSettings', mark).map((l) => l.data.spectatorsCanTalk);
-        expect(toX).toEqual([false]);
-        // the spectator re-offers every call listen-only: all relayed
-        for (const s of socks) voice.voiceOffer(x, io, { targetSocketId: s.id, offer: OFFER('recvonly') });
-        expect(relayed('voiceOffer', mark)).toHaveLength(4);
-        // nothing torn down by the backstop: every pair re-offered listen-only
-        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
-        expect(relayed('voicePeerLeft', mark)).toEqual([]);
+        expect(game.casualVoice.spectatorsCanTalk).toBe(true);
+        expect(to(socks[0], 'voiceSettings', mark).map((l) => l.data.spectatorsCanTalk)).toEqual([true, true, true, true, true]);
+        expect(rateLimiter.limits.setSpectatorsCanTalk).toEqual({ max: 4, windowMs: 30000 });
     });
 
-    test('a non-controller is refused; a tournament table refuses it too', () => {
-        const { socks } = casualGame(['a', 'b', 'c', 'd']);
-        voice.setSpectatorsCanTalk(socks[1], io, { spectatorsCanTalk: false });
-        expect(to(socks[1], 'serverError').map((l) => l.data.message)).toEqual(['Only the host can change this']);
+    test('a tournament / non-casual table or the main room: nothing at all (no error toast)', () => {
         const t = casualGame(['ta', 'tb', 'tc', 'td'], { casual: false });
+        const mark = log.length;
         voice.setSpectatorsCanTalk(t.socks[0], io, { spectatorsCanTalk: false });
-        expect(to(t.socks[0], 'serverError').map((l) => l.data.message)).toEqual(['Spectator talk can only be set in a lobby or a casual game']);
-    });
-
-    test('the backstop: 8 s after OFF, a spectator that kept a sendrecv call is torn down both ways and announced again', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        const x = user('x');
-        spectate(game, x);
-        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
-        // x re-offers to seat 1 only
-        voice.voiceOffer(x, io, { targetSocketId: socks[0].id, offer: OFFER('recvonly') });
-        const mark = log.length;
-        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
-        const left = relayed('voicePeerLeft', mark);
-        expect(left.filter((l) => l.to === x.id).map((l) => l.data.socketId)).toEqual([socks[1].id, socks[2].id, socks[3].id]);
-        for (const s of socks.slice(1)) {
-            expect(to(s, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
-            expect(to(s, 'voicePeerJoined', mark).map((l) => l.data.socketId)).toEqual([x.id]);
-        }
-        expect(to(socks[0], 'voicePeerLeft', mark)).toEqual([]);
-        expect(to(x, 'voicePeerList', mark).map((l) => l.data.peers[0].socketId)).toEqual([socks[1].id, socks[2].id, socks[3].id]);
-    });
-
-    test('a spectator that only ever listened (never tapped to talk) keeps its calls after OFF: nothing to re-offer, no backstop', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        const x = user('x');
-        spectate(game, x);
-        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true });
-        // its calls (listen-only from the start) are up before the switch moves
-        for (const s of socks) voice.voiceOffer(x, io, { targetSocketId: s.id, offer: OFFER('recvonly') });
-        await jest.advanceTimersByTimeAsync(1000);
-        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
-        expect(last(x, 'voiceSettings')).toMatchObject({ canTalk: false });
-        const mark = log.length;
-        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
-        expect(relayed('voicePeerLeft', mark)).toEqual([]);
-        expect(relayed('voicePeerList', mark)).toEqual([]);
-    });
-
-    test('a spectator whose last signal to a player was sendrecv is still torn down at the backstop (an old listen-only call does not excuse a later talking one)', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        const x = user('x');
-        spectate(game, x);
-        for (const s of socks) voice.voiceOffer(x, io, { targetSocketId: s.id, offer: OFFER('recvonly') });
-        // it tapped to talk: re-offered seat 2 with its microphone
-        voice.voiceOffer(x, io, { targetSocketId: socks[1].id, offer: OFFER('sendrecv') });
-        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
-        const mark = log.length;
-        await jest.advanceTimersByTimeAsync(gameVoice.BACKSTOP_MS + 100);
-        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[1].id]);
-        expect(to(socks[1], 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
-    });
-
-    test('spectator pairs: OFF drops them both ways; ON announces the later one the earlier ones', async () => {
-        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
-        const x = user('x');
-        const y = user('y');
-        spectate(game, x);
-        spectate(game, y);
-        expect(last(y, 'voicePeerList').peers.map((p) => p.socketId)).toContain(x.id);
-        let mark = log.length;
-        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: false });
-        expect(to(x, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([y.id]);
-        expect(to(y, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([x.id]);
-        await jest.advanceTimersByTimeAsync(gameVoice.COALESCE_MS + 10);
-        mark = log.length;
-        voice.setSpectatorsCanTalk(socks[0], io, { spectatorsCanTalk: true });
-        expect(to(y, 'voicePeerList', mark).pop().data.peers.map((p) => p.socketId)).toEqual([x.id]);
-        expect(to(x, 'voicePeerJoined', mark).map((l) => l.data.socketId)).toEqual([y.id]);
-        expect(last(x, 'voiceSettings')).toMatchObject({ spectatorsCanTalk: true, canTalk: true });
+        const loner = user('loner');
+        mainRoomHandlers.joinMainRoom(loner, io);
+        const mark2 = log.length;
+        voice.setSpectatorsCanTalk(loner, io, { spectatorsCanTalk: true });
+        expect(to(t.socks[0], 'serverError', mark)).toEqual([]);
+        expect(to(t.socks[0], 'voiceSettings', mark)).toEqual([]);
+        expect(log.slice(mark2)).toEqual([]);
     });
 });
 
@@ -527,7 +451,7 @@ describe('leaving the voice room', () => {
 });
 
 describe('through a real lobby start', () => {
-    test('switch OFF, during DRAWING: a main-room spectator lists the 4 entrants and listens only; an entrant leaving tells it', async () => {
+    test('the host\'s old switch sent OFF in the lobby changes nothing; during DRAWING a main-room spectator lists the 4 entrants and may talk; an entrant leaving tells it', async () => {
         const socks = ['a', 'b', 'c', 'd'].map((t) => user(t));
         for (const s of socks) mainRoomHandlers.joinMainRoom(s, io);
         mainRoomHandlers.createLobby(socks[0], io, {});
@@ -538,13 +462,13 @@ describe('through a real lobby start', () => {
         await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS + pacing().PREDRAW_COUNTDOWN_MS + 10);
         const game = gameManager.getPlayerGame(socks[0].id);
         expect(game.stage).toBe(Phase.DRAWING);
-        // the players were told they are players (capable), host may switch
-        expect(last(socks[0], 'voiceSettings')).toMatchObject({ role: 'player', canChange: true, spectatorsCanTalk: false });
+        // the players were told they are players (capable); nobody may switch
+        expect(last(socks[0], 'voiceSettings')).toMatchObject({ role: 'player', canTalk: true, ...SETTINGS_ON });
         const m = user('m');
         mainRoomHandlers.joinMainRoom(m, io);
         mainRoomHandlers.joinAsSpectator(m, io, { gameId: game.gameId });
         expect(last(m, 'voicePeerList').peers.map((p) => p.socketId).sort()).toEqual(socks.map((s) => s.id).sort());
-        expect(last(m, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: false, spectatorsCanTalk: false });
+        expect(last(m, 'voiceSettings')).toMatchObject({ role: 'spectator', canTalk: true, ...SETTINGS_ON });
         const mark = log.length;
         chatHandlers.chatMessage(socks[3], io, { message: '/leave' });
         expect(to(m, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([socks[3].id]);

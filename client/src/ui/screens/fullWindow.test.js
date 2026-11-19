@@ -376,7 +376,7 @@ function tournament() {
 const SCREENS = {
   'main room': { open: mainRoom, chatId: 'mainRoomChatMessages', inputId: 'mainRoomChatInput', chatLabel: 'Global chat', mainLabel: 'Game lobbies', mainIds: ['mainRoomLobbyList'] },
   'game lobby': { open: lobby, chatId: 'lobbyChatArea', inputId: 'lobbyChatInput', chatLabel: 'Lobby chat', mainLabel: 'Seats', mainIds: ['lobbyPlayersList', 'lobbyReadyBtn', 'lobbyAddBotBtn'] },
-  'family lobby of 8': { open: familyLobby, chatId: 'lobbyChatArea', inputId: 'lobbyChatInput', chatLabel: 'Lobby chat', mainLabel: 'Seats', mainIds: ['lobbyPlayersList', 'lobbyVoiceSettings', 'lobbySpectatorsCanTalk', 'lobbyReadyBtn', 'lobbyAddBotBtn'] },
+  'family lobby of 8': { open: familyLobby, chatId: 'lobbyChatArea', inputId: 'lobbyChatInput', chatLabel: 'Lobby chat', mainLabel: 'Seats', mainIds: ['lobbyPlayersList', 'lobbyVoiceSettings', 'lobbyVoiceHint', 'lobbyReadyBtn', 'lobbyAddBotBtn'] },
   tournament: { open: tournament, chatId: 'tournamentChatArea', inputId: 'tournamentChatInput', chatLabel: 'Tournament chat', mainLabel: 'Standings', mainIds: ['tournamentScoreboardContainer', 'tournamentActiveGames', 'tournamentPlayersList', 'tournamentButtonRow', 'tournamentReadyBtn', 'tournamentBeginBtn', 'tournamentCancelBtn'] },
 };
 

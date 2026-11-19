@@ -25,11 +25,11 @@
  * personality, position, pic, partnerHistory}: the registered BotPlayer's
  * partnerHistory feeds Zach's bids).
  * A game a lobby started (GameManager.startGameFromLobby) also saves, in
- * `state`, its voice settings (casualVoice: host, spectatorsCanTalk, the
- * lobby extras) and what play again reopens at its end (lobbyOrigin,
- * without the lobby chat), both by username; null for any other game. Not
- * saved: the voice spectators and their relayed SDP directions (socket
- * keyed: spectators re-spectate and are admitted again), and process state
+ * `state`, its voice settings (casualVoice: host, spectatorsCanTalk (always
+ * true), the lobby extras) and what play again reopens at its end
+ * (lobbyOrigin, without the lobby chat), both by username; null for any
+ * other game. Not saved: the voice spectators (socket keyed: spectators
+ * re-spectate and are admitted again), and process state
  * outside the game: BotController's "he sends a boy" cooldown (a restored
  * table may quip one cooldown sooner), GameManager.startedLobbies (the
  * extras' reload redirect into a just-started game) and every lobby,
@@ -115,8 +115,10 @@ const SAVED = deepFreeze({
     botPlayer: ['socketId', 'username', 'personality', 'position', 'pic', 'partnerHistory'],
     logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from'],
     // gameVoice.initCasualVoice's settings, by username: a restored family
-    // game keeps its host, "Spectators can talk" and which watchers came
-    // from the lobby (hydrate re-runs initCasualVoice with them)
+    // game keeps its host and which watchers came from the lobby (hydrate
+    // re-runs initCasualVoice with them). spectatorsCanTalk is always
+    // written true and never read back (always true since 2026-11-18; a
+    // doc saved with false before that restores as true)
     casualVoice: ['host', 'spectatorsCanTalk', 'lobbyExtras'],
     // playAgain.originOf, by username and bot id (no human socket id):
     // a restored game still returns its players to their lobby at its end.
@@ -138,17 +140,16 @@ const DERIVED = deepFreeze({
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
         'frozen', '_tainted',                         // a frozen or tainted game is never saved
-        'voiceSpectators', 'voiceOfferDir'            // socket-keyed: voice spectators re-spectate and re-join
+        'voiceSpectators'                             // socket-keyed: voice spectators re-spectate and re-join
     ],
     seat: ['position', 'ownerSocketId', 'ownerView', 'seatSocketId', 'absentSince', 'graceDeadline', 'resignableAt'],
     seatBot: [],
     botPlayer: ['gameId', 'cardMemory'],              // card memory: replayCardMemory from trickHistory
     logEntry: [],
     // lastIo: the adopter's io (gameVoice.ioFor sets it on the next call
-    // with one); a pending coalesced talk change and its timer are dropped
-    // (the applied spectatorsCanTalk is saved); the admission counter
-    // restarts with the re-admitted spectators
-    casualVoice: ['lastIo', 'requested', 'lastAppliedAt', 'order'],
+    // with one); the admission counter restarts with the re-admitted
+    // spectators
+    casualVoice: ['lastIo', 'order'],
     // Lobby chat is not saved (lobbies are not persisted, plan 2.8): the
     // lobby a restored game reopens starts with no chat
     lobbyOrigin: ['messages']
@@ -184,7 +185,7 @@ function encodeCasualVoice(cv) {
     if (!cv) return null;
     return {
         host: cv.host ?? null,
-        spectatorsCanTalk: cv.spectatorsCanTalk !== false,
+        spectatorsCanTalk: true,
         lobbyExtras: list(cv.lobbyExtras)
     };
 }
@@ -197,7 +198,7 @@ function encodeLobbyOrigin(o) {
         name: o.name ?? null,
         createdBy: o.createdBy ?? null,
         host: o.host ?? null,
-        settings: { spectatorsCanTalk: o.settings?.spectatorsCanTalk !== false },
+        settings: { spectatorsCanTalk: true },
         order: list(o.order),
         bots: Array.from(o.bots || [], ([id, personality]) => [id, personality ?? null]),
         playAgainUsers: list(o.playAgainUsers),
@@ -214,7 +215,7 @@ function decodeLobbyOrigin(d) {
         name: d.name ?? null,
         createdBy: d.createdBy ?? null,
         host: d.host ?? null,
-        settings: { spectatorsCanTalk: d.settings?.spectatorsCanTalk !== false },
+        settings: { spectatorsCanTalk: true },
         messages: [],
         order: strings(d.order),
         bots: new Map((Array.isArray(d.bots) ? d.bots : [])
@@ -377,7 +378,6 @@ function hydrate(doc, { now = Date.now(), onGraceExpire = null } = {}) {
     if (state.casualVoice && typeof state.casualVoice === 'object') {
         require('../../voice/gameVoice').initCasualVoice(game, {
             host: state.casualVoice.host ?? null,
-            spectatorsCanTalk: state.casualVoice.spectatorsCanTalk !== false,
             io: null,
             lobbyExtras: strings(state.casualVoice.lobbyExtras)
         });
@@ -435,6 +435,10 @@ function expectedAfterRestore(doc) {
         else if (s.controller === Controller.BOT) s.presence = Presence.NONE;
         else s.presence = s.gone ? Presence.GONE : Presence.AWAY;
     }
+    // Spectator talk is always on since 2026-11-18: a doc saved with it off
+    // comes back on
+    if (out.state.casualVoice) out.state.casualVoice.spectatorsCanTalk = true;
+    if (out.state.lobbyOrigin) out.state.lobbyOrigin.settings = { spectatorsCanTalk: true };
     return out;
 }
 

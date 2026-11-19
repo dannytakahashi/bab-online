@@ -11,8 +11,9 @@
  * `members` (everyone, with `playing` and `reconnecting`), `host`,
  * `settings` {spectatorsCanTalk} and `capacity` next to the frozen 4-entry
  * `players`; a payload without `members` (an older server) renders as
- * before. The host's "Spectators can talk" switch (setSpectatorsCanTalk)
- * shows its value once the server echoes it; the others see it read-only.
+ * before. Spectators always may talk (owner 2026-11-18: the host's
+ * "Spectators can talk" switch is gone, `settings` is always on), so the
+ * family lobby's voice section is one line saying so.
  *
  * Play again (owner 2026-11-16): a lobby reopened after its game keeps a
  * place for the last game's players who are not back yet. A held row
@@ -28,7 +29,7 @@
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
-import { el, createButton, createIconButton, createPanel, createSwitch, setSwitch } from '../kit/index.js';
+import { el, createButton, createIconButton, createPanel } from '../kit/index.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 
 /** The lobby header's voice slot (VoiceChatUI.js places the voice buttons in it). */
@@ -36,8 +37,6 @@ export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
 
 /** The table's size: the first 4 to tap Ready play. */
 const TABLE = 4;
-/** A switch change shows again after this long without its echo (a refusal, a drop). */
-export const SWITCH_ECHO_TIMEOUT_MS = 5000;
 
 /**
  * Module state.
@@ -64,10 +63,6 @@ let onResults = new Set();
 let lobbyView = null;
 let lastMemberCount = 0;
 let tableFullForMe = false;
-// The lobby's socket (the host switch emits on it)
-let lobbySocket = null;
-// The host switch's change in flight: {value, timer} until its echo
-let switchPending = null;
 
 const REMOVE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/></svg>';
 
@@ -302,16 +297,15 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   const addBotBtn = document.getElementById('lobbyAddBotBtn');
   if (addBotBtn) addBotBtn.hidden = members.length + saved.length >= TABLE;
 
-  renderVoiceSettings(currentUsername);
+  renderVoiceSettings();
 }
 
 /**
- * The lobby's "Voice" section (a family-lobby payload only): the host's
- * "Spectators can talk" switch, or the same value read-only, and the hint.
- * The switch is kept across updates (focus stays on it) and replaced only
- * when the host changes.
+ * The lobby's voice line (a family-lobby payload only): everyone who does
+ * not get a seat watches the game and is in its voice chat, and may talk
+ * (owner 2026-11-18: no host switch).
  */
-function renderVoiceSettings(currentUsername) {
+function renderVoiceSettings() {
   const section = document.getElementById('lobbyVoiceSettings');
   if (!section) return;
   if (!lobbyView || !lobbyView.settings) {
@@ -320,55 +314,10 @@ function renderVoiceSettings(currentUsername) {
     return;
   }
   section.hidden = false;
-  const on = lobbyView.settings.spectatorsCanTalk;
-  if (switchPending && switchPending.value === on) clearSwitchPending();
-  const amHost = !!currentUsername && lobbyView.host === currentUsername;
-  const mode = amHost ? 'host' : 'member';
-  if (section.dataset.mode !== mode) {
-    section.dataset.mode = mode;
-    section.replaceChildren(el('h2', { className: 'section-title section-title--sm', text: 'Voice' }));
-    if (amHost) {
-      const sw = createSwitch({
-        label: 'Spectators can talk',
-        checked: on,
-        id: 'lobbySpectatorsCanTalk',
-        onChange: (next) => requestSpectatorsCanTalk(next),
-      });
-      section.appendChild(sw);
-    } else {
-      section.appendChild(el('p', { className: 'lobby-voice-setting', attrs: { id: 'lobbySpectatorsCanTalkValue' } }));
-    }
-    section.appendChild(el('p', { className: 'lobby-voice-hint', attrs: { id: 'lobbyVoiceHint' } }));
+  if (!section.querySelector('#lobbyVoiceHint')) {
+    section.replaceChildren(el('p', { className: 'lobby-voice-hint', attrs: { id: 'lobbyVoiceHint' } }));
   }
-  const sw = section.querySelector('#lobbySpectatorsCanTalk');
-  if (sw) setSwitch(sw, { checked: switchPending ? sw.getAttribute('aria-checked') === 'true' : on, disabled: !!switchPending });
-  const value = section.querySelector('#lobbySpectatorsCanTalkValue');
-  if (value) value.textContent = `Spectators can talk: ${on ? 'On' : 'Off'} (the host decides)`;
-  section.querySelector('#lobbyVoiceHint').textContent = on
-    ? 'The first 4 to tap Ready play; everyone else watches and can talk.'
-    : 'The first 4 to tap Ready play; everyone else watches and can only listen.';
-}
-
-function clearSwitchPending() {
-  if (switchPending?.timer) clearTimeout(switchPending.timer);
-  switchPending = null;
-}
-
-/** The host flipped the switch: ask the server; the switch waits for the echo. */
-function requestSpectatorsCanTalk(next) {
-  if (!lobbySocket || switchPending) return;
-  const sw = document.getElementById('lobbySpectatorsCanTalk');
-  setSwitch(sw, { disabled: true });
-  switchPending = {
-    value: next,
-    timer: setTimeout(() => {
-      // no echo (refused, dropped): show what the server last said
-      switchPending = null;
-      const cur = document.getElementById('lobbySpectatorsCanTalk');
-      setSwitch(cur, { checked: lobbyView?.settings?.spectatorsCanTalk !== false, disabled: false });
-    }, SWITCH_ECHO_TIMEOUT_MS),
-  };
-  lobbySocket.emit('setSpectatorsCanTalk', { spectatorsCanTalk: next });
+  section.querySelector('#lobbyVoiceHint').textContent = 'The first 4 to tap Ready play; everyone else watches and can talk.';
 }
 
 /**
@@ -382,8 +331,6 @@ export function showGameLobby(lobbyData, socket, username) {
   console.log('Showing game lobby...', lobbyData);
   currentLobbyId = lobbyData.lobbyId;
   isPlayerReady = false;
-  lobbySocket = socket;
-  clearSwitchPending();
 
   // Remove any existing game lobby (a re-render: a reconnect's lobbyJoined
   // keeps the voice running, so its buttons move to the new header)
@@ -417,8 +364,8 @@ export function showGameLobby(lobbyData, socket, username) {
 
   // Players list
   const playersDiv = el('div', { className: 'screen-section seat-list', attrs: { id: 'lobbyPlayersList' } });
-  // The family lobby's voice setting, under the seats (hidden without one)
-  const voiceSettings = el('div', { className: 'screen-section lobby-voice-settings', attrs: { id: 'lobbyVoiceSettings', role: 'group', 'aria-label': 'Voice settings' } });
+  // The family lobby's voice line, under the seats (hidden without one)
+  const voiceSettings = el('div', { className: 'screen-section lobby-voice-settings', attrs: { id: 'lobbyVoiceSettings', role: 'note', 'aria-label': 'Voice' } });
   voiceSettings.hidden = true;
   // Delegated click handler for bot remove buttons and "Don't wait"
   playersDiv.addEventListener('click', (e) => {
@@ -571,8 +518,6 @@ export function removeGameLobby() {
   lobbyView = null;
   lastMemberCount = 0;
   tableFullForMe = false;
-  lobbySocket = null;
-  clearSwitchPending();
 }
 
 /**

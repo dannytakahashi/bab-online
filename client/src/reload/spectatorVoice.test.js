@@ -1,10 +1,12 @@
 /**
- * Spectator voice for a main-room spectator (owner 2026-11-16; owner Q1:
- * strangers listen until they tap to talk). One page load: a reload while
- * spectating re-spectates, voiceSettings starts voice LISTEN-ONLY (no
- * microphone prompt), "Tap to talk" (the button, or M) asks for the
- * microphone; voice full ("none") is a pill, not a session; a refused
- * microphone stays listen-only with a toast.
+ * Spectator voice for a main-room spectator (owner 2026-11-16), muted at
+ * the start (owner 2026-11-18: "by default the mic should be muted and you
+ * can click to unmute / activate mic"; spectators always may talk). One
+ * page load: a reload while spectating re-spectates, voiceSettings starts
+ * voice MUTED (no microphone prompt), the first unmute (the button, or M)
+ * asks for the microphone; a refused microphone stays muted, listening
+ * only, with a toast, and a tap asks again; voice full ("none") is a pill,
+ * not a session.
  */
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { loadPage, spectatorState, mainRoomPayload } from '../testing/fakePage.js';
@@ -34,65 +36,78 @@ describe('a main-room spectator in a casual game\'s voice', () => {
     expect(page.voice.initialize).not.toHaveBeenCalled();
   });
 
-  it('voiceSettings (may talk): voice starts listen-only, no microphone prompt; the button says Tap to talk', async () => {
+  it('voiceSettings: voice starts muted, no microphone prompt; the button shows the muted mic', async () => {
     page.socket.fire('voiceSettings', settings());
     await vi.waitFor(() => expect(page.voice.active).toBe(true));
     expect(page.voice.initialize).toHaveBeenCalledTimes(1);
-    expect(page.voice.initialize.mock.calls[0][1]).toEqual({ talk: false });
-    expect(page.voice.isListenOnly()).toBe(true);
+    expect(page.voice.initialize.mock.calls[0][1]).toEqual({});
+    expect(page.voice.isTalking()).toBe(false);
+    expect(page.voice.isMuted()).toBe(true);
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
     const mute = await vi.waitFor(() => {
       const b = document.getElementById('voice-mute-btn');
       expect(b).not.toBeNull();
       return b;
     });
-    expect(mute.getAttribute('aria-disabled')).toBe('true');
-    expect(mute.getAttribute('aria-label')).toBe('Tap to talk (M)');
-    expect(mute.classList.contains('can-talk')).toBe(true);
-    expect(pill()).toMatch(/\(listening only\)$/);
-  });
-
-  it('tap to talk: the button asks for the microphone; then it is a mute button again', async () => {
-    document.getElementById('voice-mute-btn').click();
-    expect(page.voice.setTalk).toHaveBeenLastCalledWith(true);
-    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
-    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Mute microphone (M)'));
+    expect(mute.hasAttribute('aria-disabled')).toBe(false);
+    expect(mute.getAttribute('aria-label')).toBe('Unmute microphone (M)');
+    expect(mute.getAttribute('aria-pressed')).toBe('true');
     expect(pill()).not.toMatch(/listening only/);
   });
 
-  it('the host turns it off: listen-only with a toast; back on, a main-room spectator taps again', async () => {
-    page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: false, canTalk: false }));
-    expect(page.voice.setTalk).toHaveBeenLastCalledWith(false);
-    expect(toasts()).toMatch(/turned off spectator talk/);
-    page.socket.fire('voiceSettings', settings());
-    expect(page.voice.setTalk).toHaveBeenLastCalledWith(false);
-    await vi.waitFor(() => expect(page.voice.isListenOnly()).toBe(true));
-    expect(toasts()).toMatch(/tap the mic to talk/);
+  it('unmute: the button asks for the microphone; then it reads Mute', async () => {
+    document.getElementById('voice-mute-btn').click();
+    expect(page.voice.setMuted).toHaveBeenLastCalledWith(false);
+    expect(page.voice.setTalk).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Mute microphone (M)'));
+    expect(page.voice.isMuted()).toBe(false);
+    expect(pill()).not.toMatch(/listening only/);
   });
 
-  it('M while listen-only and allowed: asks for the microphone (a refusal stays listen-only, with a toast)', async () => {
-    page.voice.micDenied = true; // the fake refuses from now on
+  it('M mutes again and keeps the microphone (no new prompt)', async () => {
+    page.voice.setTalk.mockClear();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
+    expect(page.voice.setMuted).toHaveBeenLastCalledWith(true);
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Unmute microphone (M)'));
+    expect(page.voice.isTalking()).toBe(true);
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+  });
+
+  it('voiceSettings with an old server\'s values (spectatorsCanTalk / canTalk false) changes nothing: no toast, the mode stays', async () => {
+    page.voice.setTalk.mockClear();
+    page.socket.fire('voiceSettings', settings({ spectatorsCanTalk: false, canTalk: false }));
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    expect(toasts()).not.toMatch(/spectator talk/);
+    expect(page.voice.isTalking()).toBe(true);
+    page.socket.fire('voiceSettings', settings());
+    expect(page.voice.setTalk).not.toHaveBeenCalled();
+    clearToasts();
+  });
+
+  it('a refused microphone on unmute: stays muted, listening only, with a toast; a tap asks again', async () => {
+    // back to no microphone (a fresh session would be the same)
+    await page.voice.setTalk(false);
+    page.voice.refuseMic = true;
     page.voice.setTalk.mockClear();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true }));
     expect(page.voice.setTalk).toHaveBeenCalledWith(true);
-    await vi.waitFor(() => expect(toasts()).toMatch(/Microphone access denied/));
+    await vi.waitFor(() => expect(toasts()).toMatch(/Microphone access denied\. You can still listen\./));
     expect(page.voice.isListenOnly()).toBe(true);
-    page.voice.micDenied = false;
+    expect(page.voice.isMuted()).toBe(true);
+    const mute = document.getElementById('voice-mute-btn');
+    await vi.waitFor(() => expect(mute.getAttribute('aria-label')).toBe('Tap to talk (no mic access yet) (M)'));
+    expect(mute.getAttribute('aria-disabled')).toBe('true');
+    expect(mute.classList.contains('can-talk')).toBe(true);
+    expect(pill()).toMatch(/\(listening only\)$/);
     clearToasts();
-  });
-
-  it('no capable player could silence it: listen-only, and a tap only says why (the overlay opens)', async () => {
-    page.voice.setTalk.mockClear();
-    page.socket.fire('voiceSettings', settings({ canTalk: false }));
-    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Listening only (M)'));
-    page.voice.getPeers.mockReturnValue([]);
-    page.voice.getPeerVolume = vi.fn(() => 1);
-    page.voice.setTalk.mockClear();
-    document.getElementById('voice-mute-btn').click();
-    expect(page.voice.setTalk).not.toHaveBeenCalled();
-    expect(toasts()).toMatch(/nobody at this table can let spectators talk/);
-    expect(document.getElementById('voice-overlay')).not.toBeNull();
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    clearToasts();
+    // allowed this time
+    page.voice.refuseMic = false;
+    mute.click();
+    await vi.waitFor(() => expect(page.voice.isTalking()).toBe(true));
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn').getAttribute('aria-label')).toBe('Mute microphone (M)'));
+    expect(pill()).not.toMatch(/listening only/);
+    expect(toasts()).toBe('');
   });
 
   it('running voice told "none" (no place in voice): the session stops and the pill says voice is full', async () => {

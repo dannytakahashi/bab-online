@@ -10,19 +10,19 @@
  *    log, and the global 44 px button rule pushed it off centre)
  * B. Voice overlay (hold `) - player list with speaking indicators and per-player mute
  *
- * Spectator voice (family lobbies, 2026-11-16; docs/claude/voice.md): main.js
- * describes the talk mode with setVoiceTalkView. Listen-only, the mute
- * button is a headphones button marked aria-disabled (never `disabled`: it
- * stays focusable and clickable): "Tap to talk" while talking is allowed
- * (a click asks for the microphone), else "Listening only" (a click opens
- * the overlay and says why). The overlay marks watchers "(watching)" (and
- * "listening only" while spectators may not talk), keeps per-person volume
- * and mute for everyone, and shows the "Spectators can talk" switch to a
- * player who may change it (voiceSettings.canChange).
+ * Muted at the start (owner 2026-11-18; docs/claude/voice.md): everyone
+ * joins voice with the mute button showing the muted mic ("Unmute
+ * microphone (M)"); a click (or M, or the overlay's own row) runs main.js's
+ * onToggleMute (setVoiceTalkView), whose first unmute asks for the
+ * microphone. A refused microphone is the one listen-only state: a
+ * headphones button marked aria-disabled (never `disabled`: it stays
+ * focusable and clickable) reading "Tap to talk (no mic access yet)"; a
+ * click asks again. The overlay marks watchers "(watching)" and keeps
+ * per-person volume and mute for everyone. There is no "Spectators can
+ * talk" switch any more (owner 2026-11-18: spectators always may talk).
  *
- * Without a keyboard (a tablet) the gear button is the way in: its menu
- * holds that switch too, and "Voice chat panel" opens the overlay by
- * click (a Close button; it stays until closed).
+ * Without a keyboard (a tablet) the gear button is the way in: "Voice chat
+ * panel" opens the overlay by click (a Close button; it stays until closed).
  */
 
 import { getVoiceChatManager } from '../../voice/VoiceChatManager.js';
@@ -30,7 +30,7 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { getGameState } from '../../state/GameState.js';
 import { hudVoiceSlot, hudLayout } from '../tableHud.js';
 import { getClientSession, SCREEN } from '../../state/ClientSession.js';
-import { el, createButton, createIconButton, createSwitch, setSwitch, openModal } from '../kit/index.js';
+import { el, createButton, createIconButton, openModal } from '../kit/index.js';
 import { LOBBY_VOICE_SLOT_ID } from '../screens/GameLobby.js';
 
 /*
@@ -41,39 +41,39 @@ import { LOBBY_VOICE_SLOT_ID } from '../screens/GameLobby.js';
  */
 
 /**
- * The talk mode as main.js sees it (voiceSettings + the manager's mode):
- *   listenOnly   - the session sends nothing (a spectator's mode, a refused mic)
- *   mayTalk      - a tap on the button asks for the microphone ("Tap to talk")
- *   micDenied    - the microphone was refused ("no mic access")
- *   onListenOnly - the button's click (and M) while listen-only
+ * What main.js tells the voice controls:
+ *   micDenied    - the microphone was refused: the listen-only button ("no mic access")
+ *   onToggleMute - () => Promise<boolean>: mute / unmute (the first unmute asks for the mic)
  *   isWatcher    - (username) => is a watcher, not a player ("(watching)")
- *   spectatorsCanTalk - the game's switch (watchers marked "listening only" when off)
- *   switchView   - {checked, pending, onChange} while I may change it, else null
  */
 const DEFAULT_TALK_VIEW = Object.freeze({
-  listenOnly: false,
-  mayTalk: true,
   micDenied: false,
-  onListenOnly: null,
+  onToggleMute: null,
   isWatcher: null,
-  spectatorsCanTalk: true,
-  switchView: null,
 });
 let talkView = { ...DEFAULT_TALK_VIEW };
 
-/** The gear menu's "Spectators can talk" box. */
-const POPOVER_SWITCH_BOX_ID = 'voice-popover-settings';
+/** My mute as the manager has it (muted, or no microphone held). */
+function managerMuted() {
+  const vm = getVoiceChatManager();
+  return typeof vm.isMuted === 'function' ? vm.isMuted() : !!vm.selfMuted;
+}
+
+/** Listen-only: the microphone was refused and none is held. */
+function isListenOnlyView() {
+  const vm = getVoiceChatManager();
+  return !!talkView.micDenied && !vm.localStream;
+}
 
 /**
- * Update the talk mode the voice controls show (merged into the current
- * one); the mute button and an open overlay follow at once.
+ * Update what the voice controls show (merged into the current view); the
+ * mute button and an open overlay follow at once.
  */
 export function setVoiceTalkView(partial = {}) {
   talkView = { ...talkView, ...partial };
   const btn = document.getElementById('voice-mute-btn');
-  if (btn) showMuted(btn, !!getVoiceChatManager().selfMuted);
+  if (btn) showMuted(btn, managerMuted());
   if (document.getElementById('voice-overlay-players')) updateOverlayPlayers();
-  updateSwitchBox(document.getElementById(POPOVER_SWITCH_BOX_ID));
 }
 
 /** Back to a player's defaults (voice stopped, a new table). */
@@ -86,24 +86,22 @@ export function getVoiceTalkView() {
   return talkView;
 }
 
-/** The listen-only button's words. */
-export function listenOnlyLabel(view = talkView) {
-  if (view.mayTalk) return view.micDenied ? 'Tap to talk (no mic access yet)' : 'Tap to talk';
-  return view.micDenied ? 'Listening only (no mic access)' : 'Listening only';
+/** The listen-only button's words (a refused microphone; a tap asks again). */
+export function listenOnlyLabel() {
+  return 'Tap to talk (no mic access yet)';
 }
 
 /** Show the mute state on the button (icon, pressed state, label); listen-only, the headphones. */
 function showMuted(btn, muted) {
   if (!btn) return;
-  if (talkView.listenOnly) {
+  if (isListenOnlyView()) {
     const label = listenOnlyLabel();
     btn.innerHTML = getHeadphonesIcon();
     btn.removeAttribute('aria-pressed');
     btn.setAttribute('aria-disabled', 'true');
     btn.setAttribute('aria-label', `${label} (M)`);
     btn.title = label;
-    btn.classList.add('is-listen-only');
-    btn.classList.toggle('can-talk', !!talkView.mayTalk);
+    btn.classList.add('is-listen-only', 'can-talk');
     return;
   }
   btn.classList.remove('is-listen-only', 'can-talk');
@@ -174,26 +172,32 @@ export function setMuteButtonState(muted) {
 }
 
 /**
+ * Mute / unmute from a control: main.js's onToggleMute (it tells a refused
+ * microphone), else the manager's own toggle. The button follows.
+ */
+function toggleMute() {
+  const run = talkView.onToggleMute
+    ? talkView.onToggleMute()
+    : getVoiceChatManager().toggleSelfMute();
+  return Promise.resolve(run).then((muted) => {
+    setMuteButtonState(typeof muted === 'boolean' ? muted : managerMuted());
+    return muted;
+  });
+}
+
+/**
  * Create the voice mute toggle button.
  */
 export function createMuteButton() {
   removeMuteButton();
 
-  const voiceManager = getVoiceChatManager();
-  const btn = createIconButton({ icon: getMicIcon(false), label: 'Mute microphone (M)', className: 'voice-btn', pressed: false });
+  // muted at the start (owner 2026-11-18): the first click asks for the mic
+  const btn = createIconButton({ icon: getMicIcon(true), label: 'Unmute microphone (M)', className: 'voice-btn', pressed: true });
   btn.id = 'voice-mute-btn';
   btn.title = 'Toggle microphone (M)';
 
-  btn.addEventListener('click', () => {
-    // listen-only: "Tap to talk" asks for the microphone, else main.js says
-    // why (and opens the overlay: per-person volume and mute stay reachable)
-    if (talkView.listenOnly) {
-      talkView.onListenOnly?.({ source: 'button' });
-      return;
-    }
-    showMuted(btn, voiceManager.toggleSelfMute());
-  });
-  showMuted(btn, !!voiceManager.selfMuted);
+  btn.addEventListener('click', () => { toggleMute(); });
+  showMuted(btn, managerMuted());
 
   // The table's voice slot, else the page's corner
   _positionMuteButton(btn);
@@ -280,12 +284,6 @@ async function toggleDevicePopover() {
 
   const popover = el('div', { className: 'voice-popover', attrs: { id: 'voice-device-popover', role: 'menu' } });
 
-  // The "Spectators can talk" switch (a player who may change it): here
-  // too, so a host without a keyboard reaches it
-  const switchBox = el('div', { className: 'voice-popover__settings', attrs: { id: POPOVER_SWITCH_BOX_ID } });
-  popover.appendChild(switchBox);
-  updateSwitchBox(switchBox);
-
   for (const device of devices) {
     const isActive = device.deviceId === activeId;
     // (hover is CSS: .voice-popover__item:hover)
@@ -326,8 +324,8 @@ async function toggleDevicePopover() {
   });
   popover.appendChild(testBtn);
 
-  // The voice overlay (everyone in voice, per-person volume and mute, the
-  // switch): the hold-` key's panel, by click
+  // The voice overlay (everyone in voice, per-person volume and mute): the
+  // hold-` key's panel, by click
   const panelBtn = el('div', { className: 'voice-popover__item', attrs: { role: 'menuitem', tabindex: '0', id: 'voice-panel-item' } });
   const people = el('span', { className: 'voice-popover__mark' });
   people.innerHTML = getPeopleIcon();
@@ -444,15 +442,12 @@ export function showVoiceOverlay({ byClick = false } = {}) {
   const voiceManager = getVoiceChatManager();
   if (!voiceManager.active) return;
 
-  // The "Spectators can talk" switch (a player who may change it)
-  const settings = el('div', { className: 'voice-overlay__settings', attrs: { id: 'voice-overlay-settings' } });
-  settings.hidden = true;
   const playerList = el('div', { attrs: { id: 'voice-overlay-players' } });
   const hint = el('p', { className: 'voice-overlay__hint', text: byClick ? 'Press Escape or Close to close' : 'Release ` to close' });
   voiceModal = openModal({
     id: 'voice-overlay',
     title: 'Voice Chat',
-    body: [settings, playerList, hint],
+    body: [playerList, hint],
     dismissible: true,
     // opened by click (a tablet has no Escape): a Close button
     closable: !!byClick,
@@ -474,42 +469,9 @@ const SPEAKING_POLL_UI = 100;
 // Track overlay rows so we update in-place instead of recreating
 let _overlayRows = new Map(); // id → { row, muteBtn, slider, unavailableBadge }
 
-/**
- * A "Spectators can talk" switch box (the overlay's, the gear menu's):
- * shown while I may change it, its value and pending state kept current.
- */
-function updateSwitchBox(box) {
-  if (!box) return;
-  const view = talkView.switchView;
-  if (!view) {
-    box.hidden = true;
-    box.replaceChildren();
-    return;
-  }
-  box.hidden = false;
-  const id = box.id === POPOVER_SWITCH_BOX_ID ? 'voice-popover-spectators-can-talk' : 'voice-spectators-can-talk';
-  let sw = box.querySelector(`#${id}`);
-  if (!sw) {
-    sw = createSwitch({
-      label: 'Spectators can talk',
-      checked: !!view.checked,
-      id,
-      onChange: (next) => talkView.switchView?.onChange?.(next),
-    });
-    box.appendChild(sw);
-  }
-  setSwitch(sw, { checked: !!view.checked, disabled: !!view.pending });
-}
-
-/** The overlay's switch row. */
-function updateOverlaySettings() {
-  updateSwitchBox(document.getElementById('voice-overlay-settings'));
-}
-
 function updateOverlayPlayers() {
   const container = document.getElementById('voice-overlay-players');
   if (!container) return;
-  updateOverlaySettings();
 
   const voiceManager = getVoiceChatManager();
   const socketManager = getSocketManager();
@@ -574,7 +536,7 @@ function updateOverlayPlayers() {
       const muteBtn = createButton({ label: 'Mute', variant: 'secondary', size: 'sm' });
       muteBtn.addEventListener('click', () => {
         if (isSelf) {
-          showMuted(document.getElementById('voice-mute-btn'), voiceManager.toggleSelfMute());
+          toggleMute().then(() => updateOverlayPlayers());
         } else if (voiceManager.isPeerMuted(entryId)) {
           voiceManager.unmutePeer(entryId);
         } else {
@@ -590,7 +552,7 @@ function updateOverlayPlayers() {
     // Update dynamic state (speaking, muted) on existing elements
     const els = _overlayRows.get(entry.id);
     const isSpeaking = voiceManager.isSpeaking(entry.id);
-    const isMuted = entry.isSelf ? voiceManager.selfMuted : voiceManager.isPeerMuted(entry.id);
+    const isMuted = entry.isSelf ? managerMuted() : voiceManager.isPeerMuted(entry.id);
 
     els.row.classList.toggle('is-speaking', !!isSpeaking);
     els.row.classList.toggle('is-muted', !!isMuted);
@@ -602,9 +564,10 @@ function updateOverlayPlayers() {
     els.row.classList.toggle('is-unavailable', unavailable);
     els.unavailableBadge.classList.toggle('is-on', unavailable);
 
-    // Watchers (a casual game's spectators in voice) and who only listens
+    // Watchers (a casual game's spectators in voice); "listening only": my
+    // own row while the microphone is refused
     const watcher = !!talkView.isWatcher?.(entry.username);
-    const listening = entry.isSelf ? !!talkView.listenOnly : watcher && !talkView.spectatorsCanTalk;
+    const listening = entry.isSelf && isListenOnlyView();
     const tagText = [watcher ? '(watching)' : '', listening ? 'listening only' : ''].filter(Boolean).join(' · ');
     if (els.tags.textContent !== tagText) els.tags.textContent = tagText;
     els.row.classList.toggle('is-watcher', watcher);

@@ -273,7 +273,7 @@ function disconnectOwner(io, game, pos, sid) {
         game.broadcast(io, 'playerDisconnected', { position: pos, username });
         game.broadcast(io, 'voicePeerLeft', { socketId: sid });
         logEntry(io, game, `${username} disconnected. Waiting for reconnection...`);
-        // Who controls spectator talk (and so who may talk) can change
+        // The voice room changed: its capable sockets get voiceSettings again
         gameVoice.refreshVoice(io, game);
     } else {
         const view = seat.ownerView;
@@ -285,8 +285,8 @@ function disconnectOwner(io, game, pos, sid) {
         });
         if (view === 'seat') {
             logEntry(io, game, `${username} disconnected. Bot continues playing.`);
-            // A lazy owner at its seat was in the voice room: who controls
-            // spectator talk (and so who may talk) can change
+            // A lazy owner at its seat was in the voice room: voiceSettings
+            // again to the rest
             gameVoice.refreshVoice(io, game);
         }
     }
@@ -425,8 +425,7 @@ function watchSeat(io, game, pos, socket, username, { via }) {
             }
         }
         unmap(game, prev);
-        // It was in the voice room: who controls spectator talk (and so
-        // who may talk) can change
+        // It was in the voice room: voiceSettings again to the rest
         if (voiceBefore.has(prev)) gameVoice.refreshVoice(io, game);
         // A parked socket (sessionIdentity: superseded by this one) is not
         // watching anything: it leaves like a gone one
@@ -779,9 +778,7 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     unmap(game, socket.id);
-    // Out of the voice room for good: who controls spectator talk (and so
-    // whether a main-room spectator may still talk) can change; a spectator
-    // that just lost the right arms the backstop
+    // Out of the voice room for good: voiceSettings again to the rest
     gameVoice.refreshVoice(io, game);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
