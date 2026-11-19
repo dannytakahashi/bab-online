@@ -824,9 +824,18 @@ body > .voice-btn {
 .log-row__text.is-system { color: var(--text-dim); }
 /* a /help reply only this page shows: dim, in the suggestion's gold */
 .log-row.is-private .log-row__text.is-system { color: rgb(var(--gold-rgb) / 0.75); }
-/* a set hand's fault line ("Fault: ann (bid 3, took 1)"): red, upright */
-.log-row.is-fault { font-style: normal; }
-.log-row.is-fault .log-row__text.is-system { color: var(--danger-text); }
+/* a set hand's fault line ("Fault: ann (bid 3, took 1)"): upright, semibold red on a
+   faint red ground with a solid red bar at the left, so it doesn't read as the coral
+   team's colour; one hand's lines sit together as a block */
+.log-row.is-fault {
+    padding: 2px var(--space-2);
+    border-left: 3px solid var(--danger-solid);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: rgb(var(--danger-solid-rgb) / 0.16);
+    font-style: normal;
+}
+.log-row.is-fault:has(+ .log-row.is-fault) { margin-bottom: 2px; }
+.log-row.is-fault .log-row__text.is-system { color: var(--danger-text); font-weight: var(--weight-semibold); }
 .log-row__name { font-weight: var(--weight-bold); }
 .log-trick { margin-bottom: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: rgb(var(--success-rgb) / 0.12); color: var(--success); }
 
