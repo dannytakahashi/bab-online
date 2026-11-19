@@ -25,6 +25,10 @@ beforeAll(async () => {
   const log = rec.logs['seat1-rejoin'];
   page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
   page.socket.fire('rejoinSuccess', JSON.parse(JSON.stringify(log[0].data)));
+  // As the server does right after a casual-game rejoin (seatLifecycle
+  // announceOwnerVoice -> gameVoice.refreshVoice): this table has voice, so
+  // its watcher counts as company and voice starts (no voice alone)
+  page.socket.fire('voiceSettings', { gameId: rec.gameId, host: 'ios_ann', spectatorsCanTalk: true, role: 'player', canTalk: true, canChange: false });
   replay.advance(100);
 });
 
