@@ -1,7 +1,7 @@
 name: CI/CD
 
 # Railway deploys a push to main once these checks pass (checkSuites,
-# .railway/railway.ts; Nixpacks, `node server/index.js`), so
+# .railway/railway.ts; Railpack, `npm start` = `node server/index.js`), so
 # this workflow is the only gate in front of production
 
 on:
@@ -30,13 +30,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      # Same major as production: Nixpacks picks Node from package.json
-      # engines ("24.x") before .nvmrc; keep both, this and Dockerfile.local
+      # Same major as production: Railpack picks Node from package.json
+      # engines ("26.x") before .nvmrc; keep both, this and Dockerfile.local
       # on one major (server/__tests__/nodeVersion.test.js)
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '24'
+          node-version: '26'
           cache: 'npm'
 
       - name: Install dependencies
