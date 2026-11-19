@@ -16,6 +16,7 @@ const { botController, BotPlayer, personalities } = require('../game/bot');
 const liveness = require('./tournamentLiveness');
 const { systemLine } = liveness;
 const { recordTableScores } = require('../game/tournamentScoring');
+const pointerResolve = require('./pointerResolve');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
 /**
@@ -121,7 +122,13 @@ async function joinTournament(socket, io, data) {
         }
         const failedUser = gameManager.getUserBySocketId(socket.id);
         if (failedUser && !gameManager.getTournamentById(tournamentId)) {
-            await gameManager.clearActiveTournament(failedUser.username);
+            if (pointerResolve.active()) {
+                // LIVE_PERSIST=on: scoped (a pointer to another tournament
+                // stays), and never while this process hands off
+                if (!pointerResolve.holdsPointers()) await gameManager.clearActiveTournament(failedUser.username, tournamentId);
+            } else {
+                await gameManager.clearActiveTournament(failedUser.username);
+            }
         }
         sendToMainRoom(socket);
         return;
@@ -779,7 +786,7 @@ function spectateTournament(socket, io, data) {
 /**
  * Spectate a specific game within a tournament
  */
-function spectateTournamentGame(socket, io, data) {
+function spectateTournamentGame(socket, io, data, { resolved = false } = {}) {
     require('./playAgain').endLingering(io, socket.id, 'spectateTournamentGame');
     const { gameId } = data;
 
@@ -788,6 +795,16 @@ function spectateTournamentGame(socket, io, data) {
     const user = gameManager.getUserBySocketId(socket.id);
     const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
+        // LIVE_PERSIST=on: as joinAsSpectator (pointerResolve). Spectating
+        // only: a tournament table is adopted with its tournament (PR 6);
+        // until then another live instance's table answers pending, and a
+        // doc nobody can adopt is gone once its owner is
+        if (!resolved && user && pointerResolve.active() && !gameManager.getGameById(gameId)) {
+            return pointerResolve.resolveThen(socket, gameId, 'spectateTournamentGame', {
+                onGame: () => spectateTournamentGame(socket, io, data, { resolved: true }),
+                onGone: () => emitError(socket, { message: 'Game not found' }, 'spectateTournamentGame')
+            });
+        }
         emitError(socket, { message: 'Game not found' }, 'spectateTournamentGame');
         return;
     }
@@ -1043,7 +1060,8 @@ module.exports = {
     startNextRound,
     tournamentChat,
     spectateTournament,
-    spectateTournamentGame,
+    // Counted as a restore in flight for requestSnapshot's deferral (LIVE_PERSIST=on)
+    spectateTournamentGame: pointerResolve.tracked(spectateTournamentGame),
     returnToTournament,
     broadcastRoundOutcome,
     handleAbortedTournamentGame,

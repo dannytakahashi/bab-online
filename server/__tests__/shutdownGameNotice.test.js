@@ -15,7 +15,8 @@ const GameState = require('../game/GameState');
 const { Phase } = require('../game/GamePhase');
 const { makeIo, events } = require('../testUtils/gameDriver');
 const { logger } = require('../utils/logger');
-const { noticeGames, GAME_NOTICE, CRASH_NOTICE, setupGracefulShutdown } = require('../utils/shutdown');
+const shutdown = require('../utils/shutdown');
+const { noticeGames, GAME_NOTICE, CRASH_NOTICE, setupGracefulShutdown } = shutdown;
 
 const SIGNALS = ['SIGTERM', 'SIGINT', 'uncaughtException', 'unhandledRejection'];
 
@@ -44,6 +45,35 @@ describe('noticeGames', () => {
         expect(ended.getGameLog().some((e) => e.message === GAME_NOTICE)).toBe(false);
         expect(GAME_NOTICE).toBe("This game was interrupted by a server update. It won't count toward stats.");
         expect(CRASH_NOTICE).toBe("This game was interrupted by a server restart. It won't count toward stats.");
+    });
+
+    test("the handoff's lines are the owner's exact wording (2026-11-16)", () => {
+        expect(shutdown.CONTINUE_NOTICE).toBe('The server is updating. This game will continue in a few seconds.');
+        expect(shutdown.UNKNOWN_NOTICE).toBe("This game was interrupted by a server update. If it isn't back in a few seconds, it won't count toward stats.");
+        expect(shutdown.CRASH_RELEASED_NOTICE).toBe('The server hit an error and is restarting. This game should continue in a moment, possibly a move earlier.');
+        expect(shutdown.CRASH_UNKNOWN_NOTICE).toBe("This game was interrupted by a server restart. If it isn't back in a moment, it won't count toward stats.");
+        expect(shutdown.OUTCOME_NOTICE).toEqual({
+            continue: shutdown.CONTINUE_NOTICE, ended: GAME_NOTICE, unknown: shutdown.UNKNOWN_NOTICE,
+            crashContinue: shutdown.CRASH_RELEASED_NOTICE, crashUnknown: shutdown.CRASH_UNKNOWN_NOTICE, crashEnded: CRASH_NOTICE
+        });
+    });
+
+    test('a line per table (message as a function); a frozen table gets the next seq, nothing stored', () => {
+        const log = [];
+        const io = makeIo(log);
+        const live = new GameState('g-live2');
+        const frozen = new GameState('g-frozen');
+        frozen.eventSeq = 41;
+        frozen.freeze();
+        const skipped = new GameState('g-none');
+        const lines = new Map([[live, 'line A'], [frozen, 'line B']]);
+        expect(noticeGames(io, () => [live, frozen, skipped], (g) => lines.get(g) || null)).toBe(2);
+        expect(events(log, 'gameLogEntry').map((l) => [l.to, l.data])).toEqual([
+            ['game:g-live2', { message: 'line A', type: 'system', seq: expect.any(Number) }],
+            ['game:g-frozen', { message: 'line B', type: 'system', seq: 42 }],
+        ]);
+        expect(live.getGameLog().at(-1).message).toBe('line A');
+        expect(frozen.getGameLog().some((e) => e.message === 'line B')).toBe(false);
     });
 
     test('a game that throws is logged and the rest are still told', () => {
@@ -96,7 +126,10 @@ describe('the deploy notice over a real Socket.IO server', () => {
         io.on('connection', (socket) => {
             if (!seated) { seated = true; socket.join(game.roomName); }
         });
-        const handlers = setupGracefulShutdown(server, io, { games: () => [game], noticeMs: 200, settleMs: 50 });
+        // A handoff that is not enabled (LIVE_PERSIST off or write, or 'on'
+        // without the unique index) leaves today's path exactly as it was
+        const handoff = { enabled: () => false, run: jest.fn(), crash: jest.fn() };
+        const handlers = setupGracefulShutdown(server, io, { games: () => [game], noticeMs: 200, settleMs: 50, handoff });
         expect(typeof handlers.shutdown).toBe('function');
 
         const seen = { table: [], room: [] };
@@ -119,5 +152,7 @@ describe('the deploy notice over a real Socket.IO server', () => {
         expect(exit).toHaveBeenCalledWith(code);
         expect(seen.table).toEqual([['gameLogEntry', notice], ['serverShutdown'], ['disconnect', 'transport close']]);
         expect(seen.room).toEqual([['serverShutdown'], ['disconnect', 'transport close']]);
+        expect(handoff.run).not.toHaveBeenCalled();
+        expect(handoff.crash).not.toHaveBeenCalled();
     }, 20000);
 });

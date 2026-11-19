@@ -106,6 +106,10 @@ test('no DB: /health still 200 with db "disconnected"; /ready is 503', async () 
 test("/ready: 200 once the DB answers a ping; the first 200 is logged once, with its time (deploy measurement)", async () => {
     const { logger } = require('../utils/logger');
     const info = jest.spyOn(logger, 'info').mockImplementation(() => {});
+    // Today's /ready, whatever LIVE_PERSIST this run has (an 'on' store not
+    // started would answer 503 sweeping: the describe below)
+    const liveStore = require('../game/persist/liveStore');
+    liveStore._setForTests(liveStore.createLiveStore({ mode: 'off', getCollections: () => ({}) }));
     mockDbState.db = { admin: () => ({ ping: async () => ({ ok: 1 }) }) };
     const first = await get('/ready');
     expect(first.status).toBe(200);
@@ -116,6 +120,7 @@ test("/ready: 200 once the DB answers a ping; the first 200 is logged once, with
     const lines = info.mock.calls.filter(([msg]) => msg === 'Ready: first 200');
     expect(lines).toHaveLength(1);
     expect(lines[0][1].at).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/);
+    liveStore._resetForTests();
 });
 
 test('a count that throws never fails /health: that count is null', async () => {
@@ -157,7 +162,7 @@ describe('persist block (deploy survival: LIVE_PERSIST and the unique gameId ind
     test.each([
         ['off', 'off'],
         ['write', 'write'],
-        // Handoff and adoption are PR 5: 'on' runs as 'write'
+        // 'on' without the unique gameId index (null: not probed yet) runs as 'write'
         ['on', 'write'],
     ])('LIVE_PERSIST=%s: mode and effectiveMode %s, counts only, no instance id', async (mode, effectiveMode) => {
         const store = liveStore.createLiveStore({
@@ -189,10 +194,103 @@ describe('persist block (deploy survival: LIVE_PERSIST and the unique gameId ind
         expect((await get('/health')).body.persist.uniqueGameIdIndex).toBe(true);
     });
 
+    test("'on': effectiveMode 'on' only with the unique gameId index (else 'write'); after the boot sweep adopted, lastSweepAt, bootSwept", async () => {
+        const h = require('../testUtils/persistHarness');
+        const db = h.liveDb();
+        for (const [unique, effective] of [[false, 'write'], [null, 'write'], [true, 'on']]) {
+            const store = liveStore.createLiveStore({
+                mode: 'on', bootId: 'boot-on', getCollections: () => db, gameIdIndexUnique: () => unique,
+                logger: { info() {}, warn() {} }
+            });
+            liveStore._setForTests(store);
+            await store.start();
+            await store.whenBootSwept();
+            const { body } = await get('/health');
+            expect(body.persist).toMatchObject({ mode: 'on', effectiveMode: effective, uniqueGameIdIndex: unique });
+            if (effective === 'on') {
+                expect(body.persist).toMatchObject({ adopted: 0, bootSwept: true, lastSweepAt: expect.stringMatching(/^\d{4}-\d\d-\d\dT/) });
+            } else {
+                expect(body.persist).toMatchObject({ bootSwept: false, lastSweepAt: null });
+            }
+            store.close();
+        }
+    });
+
     test('a store that throws never fails /health: persist is null', async () => {
         liveStore._setForTests({ health: () => { throw new Error('broken'); }, install() {}, close() {} });
         const { status, body } = await get('/health');
         expect(status).toBe(200);
         expect(body.persist).toBeNull();
+    });
+});
+
+describe("/ready with LIVE_PERSIST=on (deploy survival PR 5): 503 until the boot sweep's first pass, 200 by 20 s", () => {
+    const liveStore = require('../game/persist/liveStore');
+    const h = require('../testUtils/persistHarness');
+
+    afterEach(() => liveStore._resetForTests());
+
+    function onStore(db, { mono }) {
+        const warns = [];
+        const store = liveStore.createLiveStore({
+            mode: 'on', bootId: 'boot-ready', getCollections: () => db, gameIdIndexUnique: () => true,
+            monoNow: () => mono.t, logger: { info() {}, warn: (msg) => warns.push(msg) }
+        });
+        store.warns = warns;
+        liveStore._setForTests(store);
+        return store;
+    }
+
+    test('sweeping: 503 {database ok, liveGames sweeping}; 200 once swept; never waits on a live owner\'s doc', async () => {
+        mockDbState.db = { admin: () => ({ ping: async () => ({ ok: 1 }) }) };
+        jest.spyOn(require('../utils/logger').logger, 'info').mockImplementation(() => {});
+        const db = h.liveDb();
+        // A live owner's unreleased doc: pending, never waited on
+        db.serverInstances._insert({ _id: 'boot-live', mode: 'on', startedAt: new Date(), beatAt: new Date(), beatSeq: 1 });
+        db.liveGames._insert({ _id: 'g-live', owner: 'boot-live', ownerMode: 'on', kind: 'live', released: false, rev: 1, v: 3 });
+        const release = db.faults.stall({ collections: 'liveGames', ops: 'find' });
+        const mono = { t: 0 };
+        const store = onStore(db, { mono });
+        // Before start: not ready either
+        expect((await get('/ready')).status).toBe(503);
+        await store.start();
+        const sweeping = await get('/ready');
+        expect(sweeping.status).toBe(503);
+        expect(sweeping.body).toEqual({ status: 'not ready', checks: { database: 'ok', liveGames: 'sweeping' } });
+        release();
+        await store.whenBootSwept();
+        const ready = await get('/ready');
+        expect(ready.status).toBe(200);
+        expect(ready.body).toEqual({ status: 'ready', checks: { database: 'ok' } });
+        expect(db.liveGames.docs.find((d) => d._id === 'g-live')).toMatchObject({ owner: 'boot-live', released: false });
+        store.close();
+    });
+
+    test('a boot sweep that never finishes: 503 until 20 s after start, then 200 with one log line', async () => {
+        mockDbState.db = { admin: () => ({ ping: async () => ({ ok: 1 }) }) };
+        jest.spyOn(require('../utils/logger').logger, 'info').mockImplementation(() => {});
+        const db = h.liveDb();
+        db.faults.stall({ collections: 'liveGames', ops: 'find' });
+        const mono = { t: 1000 };
+        const store = onStore(db, { mono });
+        await store.start();
+        mono.t += liveStore.BOOT_SWEEP_CAP_MS - 1;
+        expect((await get('/ready')).status).toBe(503);
+        mono.t += 1;
+        expect((await get('/ready')).status).toBe(200);
+        expect((await get('/ready')).status).toBe(200);
+        expect(liveStore.BOOT_SWEEP_CAP_MS).toBe(20000);
+        expect(store.warns.filter((m) => /Ready without the boot sweep/.test(m))).toHaveLength(1);
+        store.close();
+        db.faults.release();
+    });
+
+    test('write and off: /ready is today\'s (no sweep to wait for)', async () => {
+        mockDbState.db = { admin: () => ({ ping: async () => ({ ok: 1 }) }) };
+        jest.spyOn(require('../utils/logger').logger, 'info').mockImplementation(() => {});
+        for (const mode of ['off', 'write']) {
+            liveStore._setForTests(liveStore.createLiveStore({ mode, getCollections: () => ({}), logger: { info() {}, warn() {} } }));
+            expect((await get('/ready')).status).toBe(200);
+        }
     });
 });

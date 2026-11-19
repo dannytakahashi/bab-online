@@ -16,6 +16,15 @@
  *   comparable(doc)             a codec doc's saved part, for "the stored
  *                               doc equals serialize(game)"
  *   advanceUntil(pred)          fake time in 100 ms steps until pred()
+ *   installOnStore(holder, opts) an 'on' store (the unique gameId index
+ *                               present) with the PR 5 GAME side stubbed
+ *                               behind its interface: stubAdoptGame for
+ *                               restoreGame.adoptGame, a test-controlled
+ *                               isGated, and suspend / unsuspend spies
+ *   stubAdoptGame(calls)        restoreGame.adoptGame's stand-in:
+ *                               restoreKit.adoptForTest (hydrate, register,
+ *                               bots with card memory) plus the resumed
+ *                               line; every call recorded
  *
  * Server modules are required lazily (tests mock ../database first).
  */
@@ -113,4 +122,51 @@ function comparable(doc) {
     return plain({ stage: doc.stage, tournamentId: doc.tournamentId ?? null, state: doc.state, log: doc.log, logTotal: doc.logTotal, bots: doc.bots });
 }
 
-module.exports = { recordingLogger, installStore, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };
+/**
+ * STUB of restoreGame.adoptGame(io, doc, {now, abandonMs}) (deploy survival
+ * PR 5, the GAME builder's module, not in this tree yet): what the
+ * interface promises that the store's tests rely on (a registered game
+ * with its bots, card memory replayed, one stored and broadcast "resumed"
+ * line), without the gate and the abandon timer. Each call is pushed to
+ * `calls` as {doc, opts}.
+ */
+function stubAdoptGame(calls = []) {
+    return (io, doc, opts = {}) => {
+        calls.push({ doc: plain(doc), opts: { ...opts } });
+        const { adoptForTest } = require('./restoreKit');
+        const { RESUMED_LINE } = require('../game/persist/adopt');
+        const game = adoptForTest(doc, { io, now: opts.now });
+        game.addLogEntry(RESUMED_LINE, null, 'system');
+        if (io) game.broadcast(io, 'gameLogEntry', { message: RESUMED_LINE, type: 'system' });
+        return game;
+    };
+}
+
+/**
+ * An 'on' store over holder.current, made the process's store, with the
+ * GAME side stubbed: store.adoptCalls (stubAdoptGame), store.openGates (a
+ * Set of gameIds whose restore gate is open: isGated is true for every
+ * other game, as for an adopted table nobody has returned to),
+ * store.suspendCalls ([['suspend'|'unsuspend', gameId]]). opts go to
+ * createLiveStore (opts.adoption merges over the stubs).
+ */
+function installOnStore(holder, opts = {}) {
+    const calls = [];
+    const open = new Set();
+    const suspendCalls = [];
+    const { adoption = {}, ...rest } = opts;
+    const store = installStore(holder, {
+        mode: 'on',
+        gameIdIndexUnique: () => true,
+        suspendGame: (g) => { suspendCalls.push(['suspend', g.gameId]); },
+        unsuspendGame: (g) => { suspendCalls.push(['unsuspend', g.gameId]); },
+        ...rest,
+        adoption: { adoptGame: stubAdoptGame(calls), isGated: (g) => !open.has(g.gameId), ...adoption }
+    });
+    store.adoptCalls = calls;
+    store.openGates = open;
+    store.suspendCalls = suspendCalls;
+    return store;
+}
+
+module.exports = { recordingLogger, installStore, installOnStore, stubAdoptGame, advanceUntil, startGame, savedGame, savedTournament, comparable, plain };

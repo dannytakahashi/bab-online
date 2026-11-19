@@ -15,6 +15,7 @@
 
 const gameManager = require('../game/GameManager');
 const avatarWire = require('../avatar/avatarWire');
+const pointerResolve = require('./pointerResolve');
 
 /** Tournament context of a game for the snapshot, or null. */
 function tournamentInfo(gameId) {
@@ -158,6 +159,29 @@ function gameOf(socketId) {
 function requestSnapshot(socket, io, data) {
     const req = data && typeof data === 'object' ? data : {};
     const game = gameOf(socket.id);
+    // LIVE_PERSIST=on (deploy survival PR 5, the plan's 2.6): a socket in no
+    // game may be mid-restore (its sign-in or rejoin in flight, or its
+    // game pending on another instance / adoptable here). Every iOS build
+    // reads not_in_game as "your game ended", so that reply waits (at most
+    // 8 s) and then tells the truth: a snapshot if the rejoin seated it
+    if (!game && pointerResolve.active()) {
+        pointerResolve.deferSnapshot(socket, {
+            seated: () => {
+                const g = gameOf(socket.id);
+                return Boolean(g && !g.isTerminal());
+            },
+            userOf: () => gameManager.getUserBySocketId(socket.id),
+            answer: () => answerSnapshot(socket, req, gameOf(socket.id))
+        }).catch(() => {
+            if (pointerResolve.isLive(socket)) answerSnapshot(socket, req, gameOf(socket.id));
+        });
+        return;
+    }
+    answerSnapshot(socket, req, game);
+}
+
+/** The stateSnapshot reply for `game` (null or ended: not_in_game). */
+function answerSnapshot(socket, req, game) {
     const reply = {
         snapshot: game && !game.isTerminal()
             ? snapshotFor(game, socket.id, { log: req.log !== false, hideChatFrom: hideChatFrom(socket) })

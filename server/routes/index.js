@@ -250,9 +250,27 @@ router.get('/.well-known/apple-app-site-association', (req, res) => {
 // state and live counts (routes/health.js)
 router.get('/health', healthHandler);
 
+/**
+ * Deploy survival (LIVE_PERSIST=on, persist/liveStore.js ready()): false
+ * while the store's boot sweep (adopting the tables the old instance
+ * released) has not finished its first pass, at most 20 s after it
+ * started; true otherwise (off, write, 'on' without the unique index) and
+ * if the store cannot be read.
+ */
+function liveGamesReady() {
+    try {
+        return require('../game/persist/liveStore').getLiveStore().ready() !== false;
+    } catch {
+        return true;
+    }
+}
+
 // Readiness check - is the server ready to accept traffic? 200 once connectDB
 // has connected and Mongo answers a ping: the Railway deploy healthcheck
-// (.railway/railway.ts)
+// (.railway/railway.ts). With LIVE_PERSIST=on, also once the boot sweep is
+// done (503 {checks: {database: 'ok', liveGames: 'sweeping'}} until then,
+// 20 s at most), so the new deploy takes traffic with the released tables
+// already adopted; it never waits on a table another live instance holds
 router.get('/ready', async (req, res) => {
     try {
         // Check database connection
@@ -262,6 +280,17 @@ router.get('/ready', async (req, res) => {
         }
 
         await db.admin().ping();
+
+        if (!liveGamesReady()) {
+            res.status(503).json({
+                status: 'not ready',
+                checks: {
+                    database: 'ok',
+                    liveGames: 'sweeping'
+                }
+            });
+            return;
+        }
 
         if (!readyLogged) {
             readyLogged = true;
