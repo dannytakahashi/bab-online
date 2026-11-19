@@ -54,7 +54,7 @@ import { COLOR, hex, alpha } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
 import {
-  isAssistHint, hintIsLive, noteAssistUses, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
+  isAssistHint, hintIsLive, noteAssistUses, helpIsUnlimited, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
   parseTurnKey, ASSIST_LATE_LINE,
 } from '../../state/assistHint.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
@@ -1523,7 +1523,9 @@ export class GameScene extends Phaser.Scene {
   _showAssist(hint) {
     window.addPrivateToGameFeed?.(assistLogLine(hint));
     this._assistHint = hint;
-    showAssistCard(hint, { onClose: () => this.clearAssist() });
+    // no count in a game with a native bot seat (the hint says, or the table)
+    const unlimited = helpIsUnlimited(this.state || getGameState(), hint);
+    showAssistCard(hint, { onClose: () => this.clearAssist(), unlimited });
     this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
     this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
     announce(assistAnnouncement(hint));

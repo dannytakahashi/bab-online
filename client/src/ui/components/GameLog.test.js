@@ -368,18 +368,63 @@ describe('/help in the autocomplete (plan H3)', () => {
   it('is first in a seat\'s list, with this game\'s uses read each time the list is drawn', () => {
     gameLog = createGameLog();
     resetAssistUses();
-    expect(helpFor('/')[0]).toEqual({ cmd: '/help', desc: 'Suggest a move (0 of 3 free used)' });
+    expect(helpFor('/')[0]).toEqual({ cmd: '/help', desc: 'Ask a bot for advice (0 of 3 free used)' });
     noteAssistUses(hint(1));
-    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (1 of 3 free used)' }]);
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (1 of 3 free used)' }]);
     noteAssistUses(hint(3));
-    expect(helpFor('/h')).toEqual([{ cmd: '/help', desc: 'Suggest a move (the next one makes this game bot-assisted)' }]);
+    expect(helpFor('/h')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (the next one makes this game bot-assisted)' }]);
     noteAssistUses(hint(4, true));
-    expect(helpFor('/help')).toEqual([{ cmd: '/help', desc: 'Suggest a move (this game is bot-assisted for you)' }]);
+    expect(helpFor('/help')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (this game is bot-assisted for you)' }]);
   });
 
   it('unknown counts (a reload) say the free uses per game', () => {
     gameLog = createGameLog();
-    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Suggest a move (after 3 free, this game counts as bot-assisted)' }]);
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (after 3 free, this game counts as bot-assisted)' }]);
+  });
+
+  it('a game with a native bot seat: just "Ask a bot for advice", from the hint, the snapshot or the table', () => {
+    gameLog = createGameLog();
+    resetAssistUses();
+    noteAssistUses({ ...hint(4), unlimited: true });
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice' }]);
+    // a snapshot's viewer.assist after a reload
+    forgetAssistUses();
+    noteAssistUses({ uses: 9, freeUses: 3, assisted: false, unlimited: true });
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice' }]);
+    // before any hint or snapshot: a native bot seat at seating
+    forgetAssistUses();
+    getGameState().applyPositionUpdate({
+      positions: [1, 2, 3, 4], usernames: ['Ann', 'Bob', 'Mary', 'Dan'], isBot: [false, false, true, false],
+      nativeBot: [false, false, true, false], yourPosition: 1,
+    });
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice' }]);
+  });
+
+  it('a draw-phase leaver\'s resign bot keeps the count and the warning (isBot without nativeBot)', () => {
+    gameLog = createGameLog();
+    getGameState().applyPositionUpdate({
+      positions: [1, 2, 3, 4], usernames: ['Ann', 'Bob', 'Rusty', 'Dan'], sockets: ['s1', 's2', 'bot:r', 's4'],
+      isBot: [false, false, true, false], nativeBot: [false, false, false, false], yourPosition: 1,
+    });
+    expect(getGameState().nativeBotSeat).toBe(false);
+    resetAssistUses();
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (0 of 3 free used)' }]);
+    noteAssistUses(hint(3));
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (the next one makes this game bot-assisted)' }]);
+  });
+
+  it('a lazy bot in a seat keeps the count (only a native bot seat lifts it)', () => {
+    gameLog = createGameLog();
+    getGameState().applySnapshot({
+      gameId: 'g1', stage: 'PLAYING', viewer: { role: 'seat', position: 1 },
+      seats: [1, 2, 3, 4].map((position) => ({
+        position, ownerUsername: `p${position}`, controller: position === 3 ? 'lazyBot' : 'human', presence: 'here',
+      })),
+    });
+    expect(getGameState().nativeBotSeat).toBe(false);
+    resetAssistUses('g1');
+    noteAssistUses(hint(2), 'g1');
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice (2 of 3 free used)' }]);
   });
 
   it('a partial /he sends /help; a spectator\'s list has no /help', () => {

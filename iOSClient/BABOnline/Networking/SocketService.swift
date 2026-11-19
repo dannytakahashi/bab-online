@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import SwiftUI
 import SocketIO
 import Combine
 
@@ -13,6 +14,34 @@ struct ServerErrorNotice: Equatable {
     let id = UUID()
     let message: String
     var kind: Kind = .error
+    /// VoiceOver says it at high priority (the play-again "Back in" line, posted as its screen
+    /// changes: the new screen's own speech would cut a default one off).
+    var urgent = false
+    /// VoiceOver hears it this long after it is posted (0: at once): a notice posted in the same
+    /// tick as a screen change (forceLogout's sign-in, abortGame's main room) waits for the new
+    /// screen, as the play-again line does (LobbyReturn.announceDelay), so the screen's own
+    /// speech does not cut it off.
+    var announceDelay: TimeInterval = 0
+    /// The wait for a notice posted with a screen change (ContentView animates it over 0.3 s).
+    static let screenChangeDelay: TimeInterval = 0.6
+    /// When it was posted: a toast layer mounted just after (the sign-in's, after forceLogout)
+    /// still shows a notice this recent (ServerErrorToast.fresh).
+    let at = Date()
+
+    /// What VoiceOver hears for a new notice (every toast: server refusals, restore, tournament,
+    /// voice, admin and table notices), posted once per notice by SocketService.serverError.
+    static var announce: (ServerErrorNotice) -> Void = { notice in
+        var text = AttributedString(notice.message)
+        if notice.urgent { text.accessibilitySpeechAnnouncementPriority = .high }
+        let said = text
+        if notice.announceDelay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + notice.announceDelay) {
+                AccessibilityNotification.Announcement(said).post()
+            }
+        } else {
+            AccessibilityNotification.Announcement(said).post()
+        }
+    }
 }
 
 /// The server sends one failure twice while V1_REMOVALS #1 is in phase A: the
@@ -73,7 +102,11 @@ final class SocketService: ObservableObject {
     @Published var connectionError: String?
     /// The one toast slot (ServerErrorToast): a server refusal, or a neutral `.info` notice
     /// (a new tournament host, a cancelled tournament). The latest one replaces the one showing.
-    @Published var serverError: ServerErrorNotice?
+    @Published var serverError: ServerErrorNotice? {
+        // VoiceOver hears every new toast once (toast audit 2026-11-18: only table notices were
+        // announced; a toast is no focus target, so the rest went unheard)
+        didSet { if let n = serverError, n.id != oldValue?.id { ServerErrorNotice.announce(n) } }
+    }
 
     private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
     private(set) var isBackgroundTaskActive = false
@@ -247,7 +280,8 @@ final class SocketService: ObservableObject {
         if claimServerError?(dict) == true || claimTournamentServerError?(dict) == true || claimProfileServerError?(dict) == true { return }
         // the admin request limit: the open panel says it (AdminApi fails what waits)
         if claimAdminServerError?(dict) == true { return }
-        serverError = ServerErrorNotice(message: msg)
+        // the player's words and look (NoticeText.serverError: never Joi's text; the web's)
+        serverError = NoticeText.serverError(dict)
         print("[Socket] Server error: \(msg)")
         if let store = gameState { Self.routeTableError(dict, to: store) }
     }

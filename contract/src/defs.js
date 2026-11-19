@@ -366,14 +366,20 @@ const defs = {
         canAct: bool(),
         // additive (2026-11-19): the viewer's own /help count this game,
         // as s2c assistHint sends it; present only for a seat owner (role
-        // seat or lazyWatcher), absent for everyone else
+        // seat or lazyWatcher), absent for everyone else. Read by the web
+        // (tableSync) and iOS after 1.2.3 (17) (TableReducer+Snapshot: the
+        // chat list's "(n of 3 free used)" after a rejoin); its additive
+        // unlimited (2026-11-19) marks a game with a native bot seat (no
+        // count shown, so clients know after a reload)
         assist: ref('viewerAssist'),
     }, { optional: ['assist'] }),
     viewerAssist: obj({
         uses: int({ minimum: 0, description: 'counted /help uses of this player this game' }),
         freeUses: int({ minimum: 0, description: 'free uses per game (3); more makes the game bot-assisted for the player' }),
         assisted: bool({ description: 'this game counts as bot-assisted for the player' }),
-    }),
+        // additive (2026-11-19, owner): as s2c assistHint's unlimited
+        unlimited: bool({ description: 'true only in a game with a native bot seat (assistState.isFreeHelpGame): /help has no limit there and clients show no count or free/limit words; absent otherwise' }),
+    }, { optional: ['unlimited'] }),
     // A hand's fault line (2026-11-19, owner): a player on a SET team (fewer
     // tricks than its combined bid) who took fewer tricks than they bid (a
     // bore counts as 0). Rule: server/game/rules.js handFaults (the

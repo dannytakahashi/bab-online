@@ -28,7 +28,7 @@ class HandNode: SKNode {
     /// `arriving`: ids just adopted from elsewhere, animated into their slot.
     /// `interactive`: taps may play now (my play turn, no collect in flight).
     func apply(cards: [Card], legalIds: Set<String>, blocked: [String: String] = [:], layout: TableLayout, interactive: Bool = false,
-               arriving: Set<String> = [], animator: Animator = InstantAnimator()) {
+               arriving: Set<String> = [], suggestedId: String? = nil, animator: Animator = InstantAnimator()) {
         let ids = Set(cards.map(\.id))
         for (id, s) in sprites where !ids.contains(id) {
             s.removeFromParent()
@@ -58,6 +58,7 @@ class HandNode: SKNode {
             s.zPosition = CGFloat(i)
             s.isLegal = legalIds.contains(card.id)
             s.blockedReason = s.isLegal ? nil : blocked[card.id]
+            s.isSuggested = card.id == suggestedId
             s.isUserInteractionEnabled = true
             s.isLifted = card.id == liftedCardId
             let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
@@ -113,6 +114,7 @@ class HandNode: SKNode {
     func detach(_ id: String) -> CardSpriteNode? {
         guard let s = sprites.removeValue(forKey: id) else { return nil }
         s.finishDeal()  // its deal flight is in this node's units: land it before it changes parent
+        s.isSuggested = false  // the ring is the hand's: never on the table
         if liftedCardId == id { liftedCardId = nil }
         s.isLifted = false
         return s

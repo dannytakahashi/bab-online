@@ -55,8 +55,10 @@ enum ClientHello {
     /// in-game switch). `playAgain` (1.2.2, build 12): at the end of a casual game a lobby
     /// started, the server moves this socket back into that lobby (`lobbyReturn`); the app keeps
     /// the score screen up and enters the lobby on its Return to Lobby (`LobbyReturn`). Builds
-    /// 6 to 11 sent only avatarUrl and stay "legacy" to the server.
-    static let caps = ["avatarUrl", "casualSpectators", "playAgain"]
+    /// 6 to 11 sent only avatarUrl and stay "legacy" to the server. `assist` (the build after
+    /// 1.2.3 (17)): the server answers this socket's /help with the private s2c `assistHint`
+    /// (AssistCardView) instead of private plain-text game-log lines; builds <= 17 keep the lines.
+    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist"]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

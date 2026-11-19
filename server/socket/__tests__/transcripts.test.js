@@ -312,8 +312,9 @@ describe('seat transcripts (wire characterization)', () => {
             // got one each here; the seat comes from positionUpdate)
             'room:gameLogEntry{message,type}',
             // CHANGED (V1_REMOVALS #14): playerDrew without socketId (above);
-            // +isBot (additive), usernames[] without socketId
-            'room:positionUpdate{isBot,pics,positions,sockets,usernames}',
+            // +isBot (additive), usernames[] without socketId; +nativeBot
+            // (additive 2026-11-19: native bot seats, never a resign bot)
+            'room:positionUpdate{isBot,nativeBot,pics,positions,sockets,usernames}',
             'room:playerDisconnected{position,username}@p',
             // CHANGED (pacing resume holds, additive): +resumeInMs (TEAMS_MS)
             'room:teamsAnnounced{resumeInMs,team1,team2}',

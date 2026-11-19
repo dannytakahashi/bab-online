@@ -18,6 +18,9 @@ struct BidOverlayView: View {
     /// The table's zoom (TableLayout.zoom; 1 on a phone): the cells and the bottom row grow
     /// with the table's bid band; the type stays Dynamic Type.
     var zoom: CGFloat = 1
+    /// The countdown pill's frame in the pane (`BidClockPill.paneSpace`), each time it is laid
+    /// out: the /help card keeps its bottom above it while my clock runs (GameContainerView.assistCard).
+    var onClockFrame: (CGRect) -> Void = { _ in }
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -26,6 +29,9 @@ struct BidOverlayView: View {
 
     /// Sent, waiting for bidReceived (or a reject): no second submit.
     private var isSubmitted: Bool { gameState.myTurn.isSubmitted }
+
+    /// My /help answer's bid ("4", "B"): ringed in gold (the web's .bid-button.is-suggested).
+    private var suggested: String? { gameState.suggestedBid }
 
     private var maxBid: Int {
         gameState.myCards.count
@@ -108,10 +114,12 @@ struct BidOverlayView: View {
                             .background(selectedBid == bidStr ? Theme.primary : Theme.surfaceLight)
                             .foregroundColor(selectedBid == bidStr ? Theme.buttonForeground : Theme.textPrimary)
                             .cornerRadius(Theme.Radius.sm)
+                            .modifier(SuggestedBidRing(on: suggested == bidStr, radius: Theme.Radius.sm))
                             .frame(width: cellSize, height: cellSize)
                             .contentShape(Rectangle())
                     }
                     .accessibilityShowsLargeContentViewer()
+                    .accessibilityValue(suggested == bidStr ? "Suggested" : "")
                 }
             }
             .padding(.horizontal, 6)
@@ -129,9 +137,11 @@ struct BidOverlayView: View {
                                 .background(selectedBid == level ? Theme.danger : Theme.surfaceLight)
                                 .foregroundColor(selectedBid == level ? Theme.dangerForeground : Theme.textPrimary)
                                 .cornerRadius(Theme.Radius.sm)
+                                .modifier(SuggestedBidRing(on: suggested == level, radius: Theme.Radius.sm))
                                 .contentShape(Rectangle().inset(by: -2))
                         }
                         .accessibilityShowsLargeContentViewer()
+                        .accessibilityValue(suggested == level ? "Suggested" : "")
                     }
                 }
 
@@ -191,11 +201,12 @@ struct BidOverlayView: View {
                 .frame(height: 0)
                 .overlay(alignment: .bottomTrailing) {
                     if case .seconds(let n, let low) = clock {
-                        BidClockPill(seconds: n, low: low, zoom: zoom)
+                        BidClockPill(seconds: n, low: low, zoom: zoom, onFrame: onClockFrame)
                             .padding(.trailing, Theme.Space.s3)
                             .offset(y: 1)
                     }
                 }
+
         }
         .onChange(of: Self.announcement(clock, of: myClock), initial: true) { _, said in
             if let said { AccessibilityNotification.Announcement(said.text).post() }
@@ -208,6 +219,17 @@ struct BidOverlayView: View {
         #if DEBUG
         .accessibilityValue(selectedBid ?? "-")  // the fixture UI tests read the selection
         #endif
+        // /help's lightbulb on my bid turn: just above the panel's leading corner, over the felt
+        // (the countdown keeps the trailing one); hidden while an answer is up or on its way.
+        // Outside the panel's accessibility container, so "bidOverlay" keeps the panel's frame
+        .overlay(alignment: .topLeading) {
+            if gameState.showsAssistAsk {
+                AssistAskButton(size: AssistLayout.askSize, action: askHelp)
+                    .padding(.leading, Theme.Space.s2 + Theme.Space.s1)
+                    .offset(y: -Theme.hitTarget + (Theme.hitTarget - AssistLayout.askSize) / 2 - 2)
+                    .transition(.opacity)
+            }
+        }
     }
 
     /// VoiceOver hears the countdown twice per clock: when it appears and when it reaches
@@ -231,6 +253,15 @@ struct BidOverlayView: View {
         return Announcement(position: countdown.position, deadline: countdown.deadline, low: low, text: BidCountdownModel.announcement(n))
     }
 
+    private func askHelp() {
+        #if DEBUG
+        let connected = SocketService.shared.isConnected || UIFixture.isActive
+        #else
+        let connected = SocketService.shared.isConnected
+        #endif
+        if actions.askHelp(connected: connected) { HapticManager.selection() }
+    }
+
     private func submitBid() {
         guard let bid = selectedBid else { return }
         // the countdown reached 0: the server is bidding 0 for me (C2's margin)
@@ -238,6 +269,25 @@ struct BidOverlayView: View {
         if actions.bid(bid) {
             HapticManager.mediumImpact()
             selectedBid = nil
+        }
+    }
+}
+
+/// The gold ring round the /help answer's bid (the lightbulb's colour), outside the face.
+struct SuggestedBidRing: ViewModifier {
+    let on: Bool
+    let radius: CGFloat
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if on {
+                RoundedRectangle(cornerRadius: radius + 2)
+                    .strokeBorder(Theme.gold, lineWidth: 2)
+                    .padding(-2)
+                    .shadow(color: Theme.gold.opacity(0.55), radius: 4)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
         }
     }
 }
@@ -352,6 +402,9 @@ struct BidClockPill: View {
     let seconds: Int
     let low: Bool
     var zoom: CGFloat = 1
+    /// Its frame in the pane, each time it is laid out (never cleared: a removal's onDisappear
+    /// may come after a new pill's frame): the /help card stays above it.
+    var onFrame: (CGRect) -> Void = { _ in }
 
     var body: some View {
         HStack(spacing: 3 * zoom) {
@@ -376,12 +429,17 @@ struct BidClockPill: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(BidCountdownModel.label(seconds))
         .accessibilityIdentifier("bidClock")
+        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.paneSpace)) }) { f in
+            onFrame(f)
+            #if DEBUG
+            if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = f }
+            #endif
+        }
+        #if DEBUG
+        .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = nil } }
+        #endif
         #if DEBUG
         .accessibilityValue(low ? "\(seconds) low" : "\(seconds)")  // the fixture UI tests read it
-        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(Self.paneSpace)) }) { f in
-            if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = f }
-        }
-        .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.bidClockFrame = nil } }
         #endif
     }
 }

@@ -121,6 +121,9 @@ struct AdminTypedConfirm: Equatable {
 enum AdminCopy {
     static let forbiddenToast = "Admin access is not available on this connection."
     static let noLongerAdmin = "You are no longer an admin."
+    /// The toast's look when the panel closes: losing access is a refusal (amber), removing my own
+    /// admin flag is news I asked for (teal, as the web's showInfo).
+    static func toastKind(_ message: String) -> ServerErrorNotice.Kind { message == noLongerAdmin ? .info : .error }
     static let rateLimited = "Too many admin requests in a minute. Wait a moment and try again."
     static let noAnswer = "No answer from the server. Check the connection and try again."
 

@@ -43,20 +43,24 @@ struct GameLogPanel: View {
     @State private var reportTarget: String?
 
     private var availableCommands: [SlashCommand] {
-        Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome)
+        Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome,
+                      help: gameState.helpDescription)
     }
 
     /// The command list: a pure spectator (not lazy) only has /leave, which exits spectating;
-    /// at a seat /leave says what it will do (LeaveOutcome).
-    static func commands(pureSpectator: Bool, leave: LeaveOutcome) -> [SlashCommand] {
+    /// at a seat /leave says what it will do (LeaveOutcome) and /help how many free uses are
+    /// spent (`help`: AssistRules.helpDescription; nil leaves it out).
+    static func commands(pureSpectator: Bool, leave: LeaveOutcome, help: String? = nil) -> [SlashCommand] {
         if pureSpectator {
             return [SlashCommand(command: "/leave", description: "Exit spectating")]
         }
-        return [
+        var list = [
             SlashCommand(command: "/lazy", description: "Bot plays for you"),
             SlashCommand(command: "/active", description: "Take back control"),
             SlashCommand(command: "/leave", description: leave.commandHelp),
         ]
+        if let help { list.append(SlashCommand(command: AssistRules.command, description: help)) }
+        return list
     }
 
     private var filteredCommands: [SlashCommand] {
@@ -216,6 +220,28 @@ struct GameLogPanel: View {
     }
 }
 
+/// A set hand's fault line stands apart from the coral team's colour, as the web's
+/// .log-row.is-fault: a faint red ground, a solid red bar at the left, the full row's width.
+private struct FaultRowChrome: ViewModifier {
+    let isOn: Bool
+
+    func body(content: Content) -> some View {
+        if isOn {
+            content
+                .padding(.vertical, 2)
+                .padding(.horizontal, Theme.Space.s2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.danger.opacity(0.16))
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(Theme.danger).frame(width: 3)
+                }
+                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: Theme.Radius.sm, topTrailingRadius: Theme.Radius.sm))
+        } else {
+            content
+        }
+    }
+}
+
 struct GameLogEntryView: View {
     let entry: ChatMessage
 
@@ -223,9 +249,12 @@ struct GameLogEntryView: View {
         HStack(alignment: .top, spacing: Theme.Space.s1) {
             if entry.type == .system {
                 Text(entry.message)
-                    .font(.caption2)
-                    .foregroundColor(Theme.textDim)
-                    .italic()
+                    .font(entry.isFault ? .caption2.weight(.semibold) : .caption2)
+                    .foregroundColor(Self.systemColor(entry))
+                    // a fault line is upright, as the web's .log-row.is-fault; other system rows italic
+                    .italic(!entry.isFault)
+                    .accessibilityIdentifier(entry.isFault ? "logFaultRow" : "")
+                    .modifier(FaultRowChrome(isOn: entry.isFault))
             } else {
                 Text("\(entry.username):")
                     .font(.caption2.bold())
@@ -235,6 +264,14 @@ struct GameLogEntryView: View {
                     .foregroundColor(Theme.textPrimary)
             }
         }
+    }
+
+    /// A system row's colour: a set hand's fault line red (danger.text, the web's
+    /// .log-row.is-fault), a row only I see (my /help answer) dim in the suggestion's gold,
+    /// any other dim.
+    static func systemColor(_ entry: ChatMessage) -> Color {
+        if entry.isFault { return Theme.error }
+        return entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim
     }
 
     private var usernameColor: Color {
@@ -265,7 +302,8 @@ enum ChatCommand {
     /// Commands the server answers from anyone (server/socket/chatHandlers.js spectatorCommand):
     /// typed in full they are sent whatever the list shows. A spectator recorded as a seat's
     /// owner takes it back with `/active`, though a spectator's list shows only `/leave`.
-    static let server = ["/active", "/leave"]
+    /// `/help` too (the server answers a spectator "/help is for players only.").
+    static let server = ["/active", "/leave", "/help"]
 
     static func resolve(_ text: String, commands: [String]) -> Resolution {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)

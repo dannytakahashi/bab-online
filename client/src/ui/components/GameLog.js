@@ -11,7 +11,7 @@ import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
-import { helpDescription, HELP_COMMAND } from '../../state/assistHint.js';
+import { helpDescription, helpIsUnlimited, HELP_COMMAND } from '../../state/assistHint.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -189,11 +189,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   // ends the game (seatLifecycle.maybeAbort: "All players left"). The web
   // does not track the other seats' presence, so the text names both.
   // /help (a suggested bid or card, private; state/assistHint.js): its line
-  // says this game's uses, read when the list is drawn ("Suggest a move
-  // (1 of 3 free used)"; after the free ones "the next one makes this game
-  // bot-assisted")
+  // says this game's uses, read when the list is drawn ("Ask a bot for
+  // advice (1 of 3 free used)"; after the free ones "the next one makes
+  // this game bot-assisted"; just "Ask a bot for advice" in a game with a
+  // native bot seat: helpIsUnlimited)
   const ALL_SLASH_COMMANDS = [
-    { command: HELP_COMMAND, description: () => helpDescription(getGameState().gameId) },
+    {
+      command: HELP_COMMAND,
+      description: () => {
+        const gs = getGameState();
+        return helpDescription(gs.gameId, { unlimited: helpIsUnlimited(gs) });
+      },
+    },
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },

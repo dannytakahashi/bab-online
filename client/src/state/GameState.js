@@ -177,6 +177,15 @@ export class GameState {
     this.humanOwners = {};
     this.entrantHumans = [];
     this.humansKnown = false;
+    // A seat played by a native bot (controller 'bot': a lobby's Add Bot, a
+    // tournament filler, a solo game; never a lazy or resign bot, which is a
+    // human's seat): set at seating (positionUpdate.nativeBot; never isBot
+    // alone, which a draw-phase leaver's resign bot has too) and by every
+    // snapshot with seats (seats[].controller). Such a game has no /help
+    // limit and shows none (state/assistHint.js helpIsUnlimited; server
+    // assistState.isFreeHelpGame); native bots never leave, so within a game
+    // it only turns true
+    this.nativeBotSeat = false;
     this.resume = null;
     // A seat's running bid clock (bidClock / snapshot bidClock; state/bidClock.js):
     // {position, deadline (bidClockNow ms), durationMs} or null
@@ -1072,8 +1081,10 @@ export class GameState {
       }
       this.entrantHumans = [];
       this.humansKnown = true;
+      this.nativeBotSeat = snap.seats.some((st) => st?.controller === 'bot');
     } else if (Array.isArray(snap.entrants)) {
       this.humanOwners = {};
+      this.nativeBotSeat = false;
       this.entrantHumans = snap.entrants
         .filter((e) => e && !e.isBot && e.presence !== 'left' && typeof e.username === 'string' && e.username)
         .map((e) => e.username);
@@ -1148,6 +1159,9 @@ export class GameState {
 
     this._seatsToPlayerData(snap.seats || [], players);
     this.seats = Array.isArray(snap.seats) ? snap.seats.map((s) => ({ ...s })) : [];
+    // another game's native bot seats are not this one's (a snapshot with
+    // seats says again below)
+    if (!sameGame) this.nativeBotSeat = false;
     this._humansFromSnapshot(snap);
 
     const deal = snap.deal;
@@ -1274,14 +1288,23 @@ export class GameState {
       if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
     });
     // The human seats (the voice rule): isBot[] per seat, else the bot:
-    // prefix of the seat socket id (a server before isBot)
+    // prefix of the seat socket id (a server before isBot). A native bot
+    // seat (/help has no limit): nativeBot[] (additive 2026-11-19), since
+    // isBot is also true for a draw-phase leaver's resign bot; a server
+    // before nativeBot: every bot seat, as before
     this.humanOwners = {};
+    this.nativeBotSeat = false;
     positions.forEach((pos, i) => {
       if (typeof names[i] !== 'string') return;
       const bot = Array.isArray(d.isBot) && typeof d.isBot[i] === 'boolean'
         ? d.isBot[i]
         : typeof d.sockets?.[i] === 'string' && d.sockets[i].startsWith('bot:');
-      if (!bot) this.humanOwners[pos] = names[i];
+      if (!bot) {
+        this.humanOwners[pos] = names[i];
+        return;
+      }
+      const native = Array.isArray(d.nativeBot) ? d.nativeBot[i] === true : true;
+      if (native) this.nativeBotSeat = true;
     });
     this.entrantHumans = [];
     if (positions.length) this.humansKnown = true;

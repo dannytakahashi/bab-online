@@ -134,13 +134,14 @@ function v1Projection(event, data, seatIds = new Map()) {
     // #14 socket ids: playerDrew.socketId, positionUpdate.usernames[].socketId
     // and the legacy states' players[].socketId are put back (in their
     // fcdd885 key order) from positionUpdate.sockets, which stays, so the
-    // golden still pins every id; isBot (additive) is dropped
+    // golden still pins every id; isBot and nativeBot (additive) are dropped
     if (event === 'playerDrew' && !('socketId' in d)) {
         const { username, card, drawOrder, ...rest } = d;
         return { username, card, drawOrder, socketId: seatIds.get(username), ...rest };
     }
     if (event === 'positionUpdate') {
         delete d.isBot;
+        delete d.nativeBot;
         if (Array.isArray(d.usernames)) d.usernames = d.usernames.map((u, i) => ('socketId' in u ? u : { username: u.username, socketId: d.sockets[i] }));
     }
     // #19 inline avatar images: nothing to undo here (these games hold no custom

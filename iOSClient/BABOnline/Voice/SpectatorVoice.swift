@@ -67,12 +67,15 @@ extension VoiceSocketHandler {
     /// A copy for another game than the table's (a late one after leaving) is ignored.
     @MainActor
     static func applyVoiceSettings(_ dict: [String: Any], manager: VoiceChatManager, gameState: GameState,
-                                   start: @MainActor (VoiceChatManager) -> Void = { $0.ensureStarted() }) {
+                                   start: @MainActor (VoiceChatManager) -> Void = { $0.ensureStarted() },
+                                   notify: @MainActor (String) -> Void = { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) }) {
         guard let s = VoiceSettings.from(dict) else { return }
         if let gameId = gameState.gameId, gameId != s.gameId {
             print("[Voice] voiceSettings for another game (\(s.gameId)): ignored")
             return
         }
+        // voice is full (role none): one info toast when it becomes so (the pill keeps saying it)
+        if s.role == .none, manager.settings?.role != VoiceSettings.Role.none { notify(NoticeText.voiceFull) }
         manager.settings = s
         manager.casualVoiceGameId = s.gameId
         if s.role == .spectator, !manager.isActive { start(manager) }

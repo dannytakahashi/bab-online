@@ -113,6 +113,8 @@ describe('#14 socket ids on the wire', () => {
         expect(d.isBot.filter(Boolean)).toHaveLength(2);
         // isBot lines up with the seats: a human's name is never marked a bot
         d.usernames.forEach((u, i) => expect(d.isBot[i]).toBe(!t.names.includes(u.username)));
+        // nativeBot (additive 2026-11-19): these bots are native (lobby bots), so the same flags
+        expect(d.nativeBot).toEqual(d.isBot);
     });
 
     test('rejoinSuccess, restorePlayerState and the spectator full state: players[] without socketId', async () => {

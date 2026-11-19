@@ -43,6 +43,9 @@ enum ServerEvent: Equatable {
     /// seatLeft: UNSEQUENCED too (decoded with seq nil): a seat's owner left for good (the
     /// voice rule, VoiceCompany); never opens or fills a gap
     case seatLeft(WirePayload.SeatLeft)
+    /// assistHint: my own /help answer, private and UNSEQUENCED (decoded with seq nil);
+    /// never opens or fills a gap (TableReducer+Assist)
+    case assistHint(WirePayload.AssistHint)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -188,6 +191,9 @@ extension ServerEvent {
                 seq = nil
             case "seatLeft":
                 event = .seatLeft(try d(WirePayload.SeatLeft.self))
+                seq = nil
+            case "assistHint":
+                event = .assistHint(try d(WirePayload.AssistHint.self))
                 seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else

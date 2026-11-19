@@ -780,6 +780,13 @@ describe('12. departures during the lobby countdown (CREATED)', () => {
         expect(resigned.map((st) => st.ownerUsername)).toEqual([`user_${ids[0]}`]);
         expect(resigned[0].presence).toBe('gone');
         expect(game.isBot(game.positions[resigned[0].position])).toBe(true);
+        // positionUpdate: isBot is true for the resign bot (a bot: socket), nativeBot is not, so
+        // clients keep the /help limit there (assistState.isFreeHelpGame: native bots only)
+        const [upd] = events(log, 'positionUpdate').map((l) => l.data);
+        const i = upd.positions.indexOf(resigned[0].position);
+        expect(upd.isBot[i]).toBe(true);
+        expect(upd.nativeBot).toEqual([false, false, false, false]);
+        expect(require('../../game/assistState').isFreeHelpGame(game)).toBe(false);
         expect(log.some((l) => (l.to === ids[0] || l.to === `self:${ids[0]}`) && l.event === 'gameStart')).toBe(false);
         expect(nullPositionEvents(log)).toEqual([]);
     });
