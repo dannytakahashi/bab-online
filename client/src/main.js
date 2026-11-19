@@ -16,6 +16,7 @@ import { getPlayerName } from './utils/positions.js';
 import { adoptSavedSession, forgetSession, clearAllSessionData, isDeviceSignedOut, SAVED_SESSION_KEY } from './utils/sessionPersistence.js';
 import { safeSessionStorage } from './utils/safeStorage.js';
 import { createVoiceLifecycle } from './voice/voiceLifecycle.js';
+import { createVoiceGate, lobbyOthers as lobbyOthersOf } from './voice/voiceCompany.js';
 import { installContextLossHandling } from './phaser/webglContext.js';
 import { installAvatarSupport } from './utils/avatar.js';
 import { getClientErrorReporter } from './telemetry/clientErrors.js';
@@ -686,8 +687,69 @@ function initializeApp() {
     teardown: () => teardownVoice(),
   });
 
-  function startVoice(opts) {
-    return voiceLifecycle.start(opts);
+  // ---------- No voice alone (owner 2026-11-19; voice/voiceCompany.js) ----------
+  // Voice runs only while another human shares my room: a lobby member
+  // (lobbyOthers, from every lobby payload), a seat owner not gone or a
+  // spectator at the table (GameState.otherHumans). Alone with bots it is
+  // never started; the last other human leaving stops it 30 s later
+  let lobbyOthers = new Set();
+
+  /** A lobby payload of my lobby (or the reopened one, play again): who else is in it. */
+  function noteLobbyCompany(data) {
+    lobbyOthers = lobbyOthersOf(data, gameState.username);
+    voiceGate.update();
+  }
+
+  /** Not in a lobby any more (the main room, a lobby left): no lobby company. */
+  function forgetLobbyCompany() {
+    lobbyOthers = new Set();
+    voiceGate.update();
+  }
+
+  function hasVoiceCompany() {
+    const screen = session.screen;
+    if (screen === SCREEN.LOBBY) return lobbyOthers.size > 0;
+    // the score modal of a lobby-born game: the server moved me into the
+    // reopened lobby, whose members are my voice room now (play again)
+    if (screen === SCREEN.GAME_END && session.lobbyReturn) return lobbyOthers.size > 0;
+    if (session.hasTable) {
+      const { known, names } = gameState.otherHumans();
+      if (names.size > 0) return true;
+      // a lobby's table before its seating (no positionUpdate or snapshot
+      // yet): the lobby's people came along
+      return !known && lobbyOthers.size > 0;
+    }
+    return false;
+  }
+
+  const voiceGate = createVoiceGate({
+    hasCompany: () => hasVoiceCompany(),
+    isRunning: () => voiceManager.active || voiceLifecycle.starting,
+    start: () => { voiceLifecycle.start(); },
+    suspend: () => suspendVoice(),
+    stop: () => voiceLifecycle.stop(),
+  });
+  gameState.onCompanyChange(() => voiceGate.update());
+  session.onScreenChange(() => voiceGate.update());
+
+  /** This screen wants voice (muted at the start): it runs while another human is here. */
+  function startVoice() {
+    voiceGate.want();
+  }
+
+  /**
+   * The last other human left 30 s ago: voice stops (no audio context, no
+   * calls, no controls) but this table's voice role stays, so the next
+   * human's arrival starts it again (muted).
+   */
+  function suspendVoice() {
+    const settings = voiceSettings;
+    const full = voiceFull;
+    voiceLifecycle.stop();
+    voiceSettings = settings;
+    voiceFull = full;
+    refreshTalkView();
+    refreshSpectatingIndicator();
   }
 
   // ---------- Voice: muted at the start, spectator voice (docs/claude/voice.md) ----------
@@ -958,7 +1020,7 @@ function initializeApp() {
   });
 
   function stopVoice() {
-    voiceLifecycle.stop();
+    voiceGate.release();
   }
 
   /**
@@ -1025,6 +1087,7 @@ function initializeApp() {
     const name = r.data.name;
     const landed = session.returnToReopenedLobby(lobbyScreenData(r.data));
     if (landed === SCREEN.LOBBY) {
+      noteLobbyCompany(r.data);
       if (!carryVoiceIntoLobby()) startVoice();
       // The modal's button had focus and went with the table: the lobby's
       // Ready (or its chat while Ready is disabled) takes it
@@ -1358,6 +1421,7 @@ function initializeApp() {
         return;
       }
       console.log('Joined main room, showing UI');
+      forgetLobbyCompany();
       // Hide replayed chat history from blocked users
       if (data.messages) {
         data.messages = data.messages.filter(m => !isUserBlocked(m.username));
@@ -1386,7 +1450,8 @@ function initializeApp() {
       session.transition(SCREEN.LOBBY, lobbyScreenData(data));
       session.noteLobby(data.lobbyId);
       restartNotice.clear();
-      // Start voice chat when entering a lobby
+      // Voice in the lobby: it runs once another human is in it
+      noteLobbyCompany(data);
       startVoice();
     },
     onLobbyReturn: (data) => {
@@ -1396,8 +1461,10 @@ function initializeApp() {
       // there (returnToReopenedLobby). The lobby is only remembered here
       if (session.noteLobbyReturn(data)) {
         // Voice keeps running through the results: the table's voice
-        // rules (forced mute, switch) end with its game
+        // rules (forced mute, switch) end with its game. My voice room is
+        // the reopened lobby's people now
         endTableVoiceRules();
+        noteLobbyCompany(data);
         return;
       }
       if (session.screen === SCREEN.MAIN_ROOM) {
@@ -1413,6 +1480,7 @@ function initializeApp() {
     },
     onPlayerReadyUpdate: (data) => {
       followReturnedLobby(data);
+      noteLobbyCompany(data);
       // Every playerReadyUpdate names the held seats while there are any
       updateLobbyPlayersList(null, data.players, gameState.username, { reconnecting: data.reconnecting || [], lobby: data });
     },
@@ -1423,10 +1491,12 @@ function initializeApp() {
     },
     onLobbyPlayerLeft: (data) => {
       followReturnedLobby(data);
+      noteLobbyCompany(data);
       updateLobbyPlayersList(null, data.players, gameState.username, { lobby: data });
     },
     onLobbyPlayerJoined: (data) => {
       followReturnedLobby(data);
+      noteLobbyCompany(data);
       updateLobbyPlayersList(null, data.players, gameState.username, { returned: data.newPlayer?.username, lobby: data });
     },
     onLeftLobby: () => {
@@ -1436,6 +1506,7 @@ function initializeApp() {
       // was still on the results: playAgain.leftOnResults): its Return goes
       // to the main room, as before
       session.forgetLobbyReturn();
+      forgetLobbyCompany();
       // The lobby's exit hook stops voice and removes it (a late reply at a
       // table changes nothing)
       if (session.hasTable) return;

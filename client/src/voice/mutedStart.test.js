@@ -55,7 +55,7 @@ class FakePC {
     this.remoteDescription = d;
     if (this.signalingState !== 'closed') this.signalingState = d.type === 'offer' ? 'have-remote-offer' : 'stable';
   }
-  async addIceCandidate() {}
+  async addIceCandidate(c) { (this.candidates ||= []).push({ c, afterRemote: !!this.remoteDescription }); }
   getSenders() { return this.senders; }
   getConfiguration() { return { ...this.config }; }
   setConfiguration(c) { this.config = c; }
@@ -415,5 +415,63 @@ describe('choosing a microphone before the first unmute (review 2026-11-18)', ()
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
     expect(vm2.micDenied).toBe(true);
     vm2.shutdown();
+  });
+});
+
+// No voice alone (owner 2026-11-19): a page whose voice is not running
+// (alone until now) starts it when a newcomer arrives, and the newcomer's
+// offer and its trickled candidates can come first
+describe('signals before voice runs (no voice alone)', () => {
+  const CAND = (n) => ({ candidate: `candidate:${n} 1 udp 1 192.0.2.1 ${5000 + n} typ host`, sdpMid: '0', sdpMLineIndex: 0 });
+
+  it('an offer and its candidates that came before the start are answered at the start, the candidates after the offer', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    await vm.handleIceCandidate('sock-b', CAND(1));
+    await vm.handleIceCandidate('sock-b', CAND(2));
+    // a candidate from someone with no offer waiting is dropped
+    await vm.handleIceCandidate('sock-z', CAND(9));
+    expect(FakePC.all).toHaveLength(0);
+    await start(vm, sm);
+    await flush();
+    expect(FakePC.all).toHaveLength(1);
+    const pc = vm.peers.get('sock-b').connection;
+    expect(pc.candidates.map((x) => x.c.candidate)).toEqual([CAND(1).candidate, CAND(2).candidate]);
+    expect(pc.candidates.every((x) => x.afterRemote)).toBe(true);
+    expect(sm.answers()).toHaveLength(1);
+    vm.shutdown();
+  });
+
+  it('a newer offer from the same peer replaces the older one and its candidates', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    await vm.handleIceCandidate('sock-b', CAND(1));
+    await vm.handleOffer('sock-b', { type: 'offer', sdp: 'v=0 offer 2' }, 'bob');
+    await vm.handleIceCandidate('sock-b', CAND(2));
+    await start(vm, sm);
+    await flush();
+    expect(FakePC.all).toHaveLength(1);
+    const pc = vm.peers.get('sock-b').connection;
+    expect(pc.remoteDescription.sdp).toBe('v=0 offer 2');
+    expect(pc.candidates.map((x) => x.c.candidate)).toEqual([CAND(2).candidate]);
+    vm.shutdown();
+  });
+
+  it('a peer that left before the start (voicePeerLeft) is neither answered nor called', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    await vm.handleOffer('sock-b', OFFER, 'bob');
+    await vm.handleIceCandidate('sock-b', CAND(1));
+    await vm.connectToPeer('sock-c', 'cat');
+    vm.removePeer('sock-b');
+    vm.removePeer('sock-c');
+    await start(vm, sm);
+    await flush();
+    expect(FakePC.all).toHaveLength(0);
+    expect(sm.answers()).toHaveLength(0);
+    expect(sm.offers()).toHaveLength(0);
+    vm.shutdown();
   });
 });

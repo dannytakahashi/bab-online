@@ -163,6 +163,7 @@ export const SERVER_EVENTS = {
   SPECTATOR_JOINED: 'spectatorJoined',
   SPECTATORS_UPDATED: 'spectatorsUpdated',
   BID_CLOCK: 'bidClock',
+  SEAT_LEFT: 'seatLeft',
   ASSIST_HINT: 'assistHint',
 
   // Connection

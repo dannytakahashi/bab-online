@@ -446,10 +446,10 @@ describe('lobby controls keep their behaviour on the kit', () => {
     for (const b of document.querySelectorAll('#gameLobbyContainer button')) expect(b.getAttribute('style'), b.textContent).toBeNull();
   });
 
-  it('a legacy payload (players only, no members) renders as before: Players (n/4), empty slots, no voice section', () => {
+  it('a legacy payload (players only, no members): the header "Ready r/4", empty slots, no voice section', () => {
     showGameLobby({ lobbyId: 'L1', players: [{ socketId: 's1', username: 'me', ready: false }, { socketId: 's2', username: 'ann', ready: true }], messages: [] }, socket, 'me');
     const list = document.getElementById('lobbyPlayersList');
-    expect(list.querySelector('.section-label').textContent).toBe('Players (2/4):');
+    expect(list.querySelector('.section-label').textContent).toBe('Ready 1/4');
     expect(list.querySelectorAll('.seat-row--empty')).toHaveLength(2);
     expect(list.querySelector('.seat-row__role')).toBeNull();
     expect(list.textContent).not.toContain('(host)');
@@ -521,11 +521,11 @@ describe('family lobbies (up to 8; owner 2026-11-16)', () => {
   const roleOf = (name) => rowOf(name).querySelector('.seat-row__role')?.textContent ?? null;
   const update = (data) => updateLobbyPlayersList(null, data.players, 'me', { lobby: data });
 
-  it('6 members: a row each, no empty slot, the header "Players 6/8 · Ready r/4", the host marked', () => {
+  it('6 members: a row each, no empty slot, the header only "Ready r/4" (owner 2026-11-19: no "Players n/8"), the host marked', () => {
     showGameLobby(family(['me', 'ann', 'bob', 'cat', 'dan', 'eve'], { playing: [] }), socket, 'me');
     expect(rows()).toHaveLength(6);
     expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(0);
-    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 0/4');
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Ready 0/4');
     expect(rowOf('me').querySelector('.seat-row__name').textContent).toBe('me (host)');
     expect(rowOf('me').querySelector('.seat-row__name').classList.contains('is-host')).toBe(true);
     expect(document.getElementById('lobbyAddBotBtn').hidden).toBe(true);
@@ -538,7 +538,7 @@ describe('family lobbies (up to 8; owner 2026-11-16)', () => {
     showGameLobby(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', playing: [] }), socket, 'me');
     update(family(['ann', 'bob', 'cat', 'dan', 'eve', 'me'], { host: 'ann', ready: ['ann', 'bob', 'cat', 'dan'], playing: ['ann', 'bob', 'cat', 'dan'] }));
     expect(['ann', 'bob', 'cat', 'dan', 'eve', 'me'].map(roleOf)).toEqual(['Playing', 'Playing', 'Playing', 'Playing', 'Will watch', 'Will watch']);
-    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 4/4');
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Ready 4/4');
     const ready = document.getElementById('lobbyReadyBtn');
     expect(ready.disabled).toBe(true);
     expect(ready.textContent).toBe('Table full — you\'ll watch');
@@ -583,9 +583,9 @@ describe('family lobbies (up to 8; owner 2026-11-16)', () => {
     expect(socket.emitted('setSpectatorsCanTalk')).toEqual([]);
   });
 
-  it('a lobby of 4 with a member on an older app (capacity 4): the header says /4', () => {
+  it('a lobby of 4 with a member on an older app (capacity 4): the header is the ready count only', () => {
     showGameLobby(family(['me', 'ann', 'bob'], { capacity: 4 }), socket, 'me');
-    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 3/4 · Ready 0/4');
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Ready 0/4');
     expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(1);
   });
 

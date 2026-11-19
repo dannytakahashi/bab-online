@@ -68,7 +68,7 @@ describe('a family lobby of 6, seen by a member who is not the host', () => {
     expect(page.session.screen).toBe('lobby');
     expect(document.querySelectorAll('#lobbyPlayersList .seat-row:not(.seat-row--empty)')).toHaveLength(6);
     expect(document.querySelectorAll('#lobbyPlayersList .seat-row--empty')).toHaveLength(0);
-    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Players 6/8 · Ready 0/4');
+    expect(document.querySelector('#lobbyPlayersList .section-label').textContent).toBe('Ready 0/4');
     expect(rowOf('ann').querySelector('.seat-row__name').textContent).toBe('ann (host)');
     expect(document.getElementById('lobbySpectatorsCanTalk')).toBeNull();
     expect(document.getElementById('lobbySpectatorsCanTalkValue')).toBeNull();

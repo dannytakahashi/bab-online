@@ -65,6 +65,8 @@ export const CONNECT_TIMEOUT_MS = 20000;
 const SPEAKING_THRESHOLD = 0.005;
 const SPEAKING_POLL_INTERVAL = 100;
 const SPEAKING_HOLD_MS = 400; // Keep gate open after speech stops
+// Candidates kept per buffered offer while voice is not running yet
+const MAX_PENDING_CANDIDATES = 100;
 
 /** A setTalk's re-offers wait this long (the server's voicePeerLeft for a pair it drops lands first). */
 export const REOFFER_DELAY_MS = 300;
@@ -146,9 +148,13 @@ export class VoiceChatManager {
     // Local username for offer relay
     this._localUsername = null;
 
-    // Buffered events received before initialization completes
+    // Buffered events received before initialization completes (or while
+    // voice is not running: no voice alone, owner 2026-11-19, a newcomer's
+    // offer reaches a page whose voice starts on its arrival): the offers,
+    // the peers to call and each offer's trickled candidates
     this._pendingPeers = [];
     this._pendingOffers = [];
+    this._pendingCandidates = new Map(); // socketId -> [candidate]
 
     // ICE servers: { username, iceServers, turn, expiresAt (ms) | null, fallback };
     // kept across shutdown; a TURN answer is reused for the session (per
@@ -224,12 +230,17 @@ export class VoiceChatManager {
     const offerPeerIds = new Set(this._pendingOffers.map(o => o.fromSocketId));
     const pendingPeers = this._pendingPeers;
     const pendingOffers = this._pendingOffers;
+    const pendingCandidates = this._pendingCandidates;
     this._pendingPeers = [];
     this._pendingOffers = [];
+    this._pendingCandidates = new Map();
 
     console.log('[Voice] flushing', pendingOffers.length, 'offers,', pendingPeers.length, 'peers');
     for (const o of pendingOffers) {
+      // handleOffer sets the remote description before its first await, so
+      // the candidates that came with the offer queue behind it
       this.handleOffer(o.fromSocketId, o.offer, o.username);
+      for (const c of pendingCandidates.get(o.fromSocketId) || []) this.handleIceCandidate(o.fromSocketId, c);
     }
     for (const p of pendingPeers) {
       if (!offerPeerIds.has(p.socketId)) {
@@ -601,6 +612,9 @@ export class VoiceChatManager {
   async handleOffer(fromSocketId, offer, username) {
     if (!this.active) {
       console.log('[Voice] buffering handleOffer', fromSocketId, username);
+      // a newer offer from the same peer replaces the older one (and its candidates)
+      this._pendingOffers = this._pendingOffers.filter((o) => o.fromSocketId !== fromSocketId);
+      this._pendingCandidates.delete(fromSocketId);
       this._pendingOffers.push({ fromSocketId, offer, username });
       return;
     }
@@ -678,7 +692,15 @@ export class VoiceChatManager {
    */
   async handleIceCandidate(fromSocketId, candidate) {
     const peer = this.peers.get(fromSocketId);
-    if (!peer) return;
+    if (!peer) {
+      // a buffered offer's candidates wait with it (at most 100 per peer)
+      if (!this.active && this._pendingOffers.some((o) => o.fromSocketId === fromSocketId)) {
+        const list = this._pendingCandidates.get(fromSocketId) || [];
+        if (list.length < MAX_PENDING_CANDIDATES) list.push(candidate);
+        this._pendingCandidates.set(fromSocketId, list);
+      }
+      return;
+    }
 
     try {
       await peer.connection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -691,6 +713,10 @@ export class VoiceChatManager {
    * Remove a peer connection (peer left).
    */
   removePeer(socketId) {
+    // a peer that left before voice started: nothing of it is flushed later
+    this._pendingPeers = this._pendingPeers.filter((p) => p.socketId !== socketId);
+    this._pendingOffers = this._pendingOffers.filter((o) => o.fromSocketId !== socketId);
+    this._pendingCandidates.delete(socketId);
     this._closePeer(socketId);
   }
 
@@ -1093,6 +1119,7 @@ export class VoiceChatManager {
     this._peerVolumes.clear();
     this._pendingPeers = [];
     this._pendingOffers = [];
+    this._pendingCandidates = new Map();
     this._localUsername = null;
     // The next session starts muted again (owner 2026-11-18)
     this.selfMuted = true;

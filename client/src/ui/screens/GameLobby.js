@@ -197,13 +197,10 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   const hostAway = !host || reconnecting.has(host) || returning.has(host) || !present.has(host);
   const mayRelease = !!currentUsername && (host === currentUsername || hostAway);
 
-  // Header with player count
-  if (lobbyView) {
-    const ready = Math.min(TABLE, members.filter((m) => m.ready).length);
-    container.appendChild(el('div', { className: 'section-label', text: `Players ${members.length}/${lobbyView.capacity} · Ready ${ready}/${TABLE}` }));
-  } else {
-    container.appendChild(el('div', { className: 'section-label', text: `Players (${members.length}/4):` }));
-  }
+  // Header: the ready count only (owner 2026-11-19: "Ready n/4"; the rows
+  // show who is here, so "Players n/8" went), a legacy payload too
+  const ready = Math.min(TABLE, members.filter((m) => m.ready).length);
+  container.appendChild(el('div', { className: 'section-label', text: `Ready ${ready}/${TABLE}` }));
 
   // Show existing players
   members.forEach((player) => {

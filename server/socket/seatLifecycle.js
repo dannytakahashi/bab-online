@@ -777,6 +777,12 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
+    // The room learns the owner is gone for good (additive, unsequenced,
+    // 2026-11-19): before, only a snapshot showed it, so a client could not
+    // tell a /leave from a /lazy owner still watching. The clients' voice
+    // runs only while another human is present (docs/claude/voice.md,
+    // "No voice alone"); shipped iOS builds register no handler for it
+    game.emitUnsequenced(io, 'seatLeft', { gameId: game.gameId, position: pos, username: seat.ownerUsername });
     unmap(game, socket.id);
     // Out of the voice room for good: voiceSettings again to the rest
     gameVoice.refreshVoice(io, game);
