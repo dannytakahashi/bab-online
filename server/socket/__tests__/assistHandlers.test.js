@@ -644,3 +644,38 @@ test('game end: the assisted player (and only they) get the private line before 
     expect(TEXT.gameEnd(4)).toBe('This game counted as bot-assisted for you (4 /help uses), so it\'s in your bot-game stats.');
     await Promise.all(t.pending);
 }, 60000);
+
+test('snapshot viewer.assist (2026-11-19): the viewer\'s own count only, exact after a reload; never for a spectator', async () => {
+    const t = await lobbyGame('va');
+    const { game } = t;
+    const p1 = game.currentTurn;
+    const p2 = (p1 % 4) + 1;
+    const snapOf = (s) => {
+        const mark = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, {});
+        return t.since(mark).find((l) => l.event === 'stateSnapshot' && l.to === `self:${s.id}`).data.snapshot;
+    };
+    // Before any use: 0 of 3 for every seat owner
+    expect(snapOf(t.owner(p1)).viewer.assist).toEqual({ uses: 0, freeUses: 3, assisted: false });
+    clientInfo.handle(t.owner(p1), t.w.io, CAP_HELLO);
+    t.say(t.owner(p1), '/help');
+    // The asker's count is 1, the same as the hint said; another seat's own is still 0
+    const hint = events(t.w.log, 'assistHint').at(-1).data;
+    const mine = snapOf(t.owner(p1)).viewer.assist;
+    expect(mine).toEqual({ uses: 1, freeUses: 3, assisted: false });
+    expect(mine).toEqual({ uses: hint.uses, freeUses: hint.freeUses, assisted: hint.assisted });
+    expect(snapOf(t.owner(p2)).viewer.assist).toEqual({ uses: 0, freeUses: 3, assisted: false });
+    // A re-ask on the same turn is not counted: still 1
+    t.say(t.owner(p1), '/help');
+    expect(snapOf(t.owner(p1)).viewer.assist.uses).toBe(1);
+    // The carrier snapshots carry it too (per receiving socket)
+    expect(game.getSnapshotV2(t.owner(p1).id).viewer.assist).toEqual({ uses: 1, freeUses: 3, assisted: false });
+    // A spectator: no key
+    const spec = t.w.user('va-spec', 'va_fan');
+    mainRoomHandlers.joinAsSpectator(spec, t.w.io, { gameId: game.gameId });
+    expect(snapOf(spec).viewer).not.toHaveProperty('assist');
+    // The over-the-limit flag follows assistState
+    game.assist[p1].help = 4;
+    expect(snapOf(t.owner(p1)).viewer.assist).toEqual({ uses: 4, freeUses: 3, assisted: true });
+    await Promise.all(t.pending);
+});

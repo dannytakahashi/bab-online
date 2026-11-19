@@ -1,6 +1,6 @@
 /**
- * Codec v2 (/help, plan H2b) against the docs written before it. CODEC_V
- * 2 added state.assist (game.assist, assistState.js); a game the old
+ * Codec v2 (/help, plan H2b) and v3 (a log entry's fault, 2026-11-19)
+ * against the docs written before them. CODEC_V 2 added state.assist (game.assist, assistState.js); a game the old
  * process saved as v1 must survive the deploy that brings v2:
  *
  *   - __fixtures__/gameDoc.v1.json holds real v1 docs, written by the v1
@@ -13,7 +13,9 @@
  *   - That v2 doc hydrates again to the same doc (v2 is stable).
  *   - A v2 doc's assist is normalized on the way in: missing positions,
  *     wrong types, negative counts and unknown keys become the defaults.
- *   - Any version but 1 and 2 is a CodecError('version').
+ *   - A v3 log entry's fault {position, bid, took} round-trips; a v1 or v2
+ *     doc's log has none (nothing to convert).
+ *   - Any version but 1, 2 and 3 is a CodecError('version').
  *   - A fresh GameState has the default assist (and serialize writes it).
  */
 
@@ -90,9 +92,9 @@ describe('the v1 fixture', () => {
     });
 });
 
-describe('a v1 doc hydrates under CODEC_V 2', () => {
+describe('a v1 doc hydrates under the current CODEC_V (3)', () => {
     test.each(V1_DOCS.map((d) => [d.stage, d]))('%s', (stage, doc) => {
-        expect(codec.CODEC_V).toBe(2);
+        expect(codec.CODEC_V).toBe(3);
         const { game, again } = restore(doc);
         expect(game.stage).toBe(stage);
         expect(game.validateGameState().errors).toEqual([]);
@@ -103,13 +105,13 @@ describe('a v1 doc hydrates under CODEC_V 2', () => {
         // The bid clock is DERIVED: a fresh one comes with the restore kick
         expect(game.bidClock).toBeNull();
         expect(game.bidTimeouts).toEqual({});
-        // Written back as v2: the same doc with the default assist
-        expect(again.v).toBe(2);
+        // Written back as v3: the same doc with the default assist
+        expect(again.v).toBe(3);
         expect(again.state.assist).toEqual(defaultAssist());
         expect(again).toEqual(codec.expectedAfterRestore(doc));
     });
 
-    test('the v2 doc it becomes hydrates again to itself', () => {
+    test('the v3 doc it becomes hydrates again to itself', () => {
         for (const doc of V1_DOCS) {
             const first = restore(doc).again;
             const second = restore(first).again;
@@ -121,7 +123,7 @@ describe('a v1 doc hydrates under CODEC_V 2', () => {
         const doc = V1_DOCS[0];
         const out = codec.expectedAfterRestore(doc);
         const { v, state: { assist, ...state }, ...rest } = out;
-        expect(v).toBe(2);
+        expect(v).toBe(3);
         expect(assist).toEqual(defaultAssist());
         const plainRestore = json(doc);
         plainRestore.state.eventSeq += codec.EVENT_SEQ_OFFSET;
@@ -174,14 +176,40 @@ describe('a v2 doc carries game.assist', () => {
     });
 });
 
+describe('a v3 doc carries a log entry\'s fault (2026-11-19)', () => {
+    test('a fault line round-trips with its fault, the other lines without one, and a snapshot replays it', () => {
+        const base = restore(V1_DOCS[1]).again;
+        const fault = { position: 3, bid: 4, took: 1 };
+        const line = { message: 'Fault: s2_u3 (bid 4, took 1)', playerPosition: null, type: 'system', timestamp: NOW - 5, fault };
+        const doc = { ...base, log: [...base.log, line], logTotal: base.logTotal + 1 };
+        const { game, again } = restore(doc);
+        expect(game.gameLog.at(-1)).toEqual(line);
+        expect(game.gameLog.slice(0, -1).every((e) => !('fault' in e))).toBe(true);
+        expect(again.log.at(-1)).toEqual(line);
+        expect(again).toEqual(codec.expectedAfterRestore(doc));
+        const snapLog = game.getSnapshotV2(null).log;
+        expect(snapLog.at(-1)).toEqual({ message: line.message, type: 'system', position: null, at: line.timestamp, fault });
+        expect(snapLog.filter((e) => e.fault)).toHaveLength(1);
+    });
+
+    test('a v1 / v2 doc (no fault anywhere) hydrates with no fault on any line', () => {
+        for (const v of [1, 2]) {
+            const doc = { ...json(V1_DOCS[3]), v };
+            const { game } = restore(doc);
+            expect(game.gameLog.some((e) => 'fault' in e)).toBe(false);
+            expect(game.getSnapshotV2(null).log.some((e) => 'fault' in e)).toBe(false);
+        }
+    });
+});
+
 describe('versions', () => {
-    test('hydrate reads 1 and 2, and nothing else', () => {
-        expect(codec.READ_VERSIONS).toEqual([1, 2]);
+    test('hydrate reads 1, 2 and 3, and nothing else', () => {
+        expect(codec.READ_VERSIONS).toEqual([1, 2, 3]);
         const doc = json(V1_DOCS[0]);
-        for (const v of [0, 3, codec.CODEC_V + 1, '1', '2', null, undefined, 1.5]) {
+        for (const v of [0, 4, codec.CODEC_V + 1, '1', '2', '3', null, undefined, 1.5]) {
             expect(() => codec.hydrate({ ...doc, v })).toThrow(expect.objectContaining({ reason: 'version' }));
         }
-        for (const v of [1, 2]) restoredGames.push(codec.hydrate({ ...doc, v }, { now: NOW }).game);
+        for (const v of [1, 2, 3]) restoredGames.push(codec.hydrate({ ...doc, v }, { now: NOW }).game);
     });
 });
 

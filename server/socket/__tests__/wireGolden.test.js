@@ -33,6 +33,10 @@
  * line (BotController.handleHandDealtChat, the final hand with a 100+
  * lead): oneHuman 1 more chatMessage emit, twoHumans unchanged; hands,
  * trumps and pictures unchanged (same Math.random-free roll).
+ * Re-recorded 2026-11-19 for the fault lines (handleHandComplete: one
+ * room gameLogEntry with `fault` per player short on a set team, after
+ * handComplete; rules.handFaults draws no Math.random): oneHuman 3 more
+ * emits, collidingPics 1 more; hands, trumps and pictures unchanged.
  */
 
 const fs = require('fs');

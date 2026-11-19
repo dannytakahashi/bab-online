@@ -402,7 +402,7 @@ describe('/help in the autocomplete (plan H3)', () => {
     expect(row.querySelector('.log-row__text').textContent).toBe('Help: Play 9♦ (only you see this)');
   });
 
-  it('a fault row: a system row marked is-fault (table.css draws it red); a replay draws only the ones it is given (entry.fault)', () => {
+  it('a fault row (the server\'s gameLogEntry with fault): a system row marked is-fault (table.css draws it red); a replay draws only the ones it is given (entry.fault)', () => {
     gameLog = createGameLog();
     gameLog.addFaultMessage('Fault: ann (bid 3, took 1)');
     const row = gameLog.container.querySelector('.log-row.is-fault');

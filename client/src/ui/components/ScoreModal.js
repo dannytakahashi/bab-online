@@ -4,7 +4,6 @@
 
 import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
-import { handFaults } from '../../rules/faults.js';
 
 /** A seat's username in playerData, or null (not seated / not known yet). */
 function seatUsername(playerData, pos) {
@@ -142,33 +141,6 @@ export function formatHandCompleteMessages(options) {
     `${named(teamName)}Bid ${getBid(myBidIdx)}/${getBid(partnerBidIdx)}, Won ${teamTricks}, ${teamChangeStr} → ${teamScore}`,
     `${named(oppName)}Bid ${getBid(opp1BidIdx)}/${getBid(opp2BidIdx)}, Won ${oppTricks}, ${oppChangeStr} → ${oppScore}`,
   ];
-}
-
-/**
- * The hand's fault lines (rules/faults.js; owner 2026-11-19), shown in red
- * right after its two hand lines: "Fault: <name> (bid N, took M)" for each
- * player on a set team who took fewer tricks than they bid (a bore counts
- * as 0), in the hand lines' order (me, partner, opp1, opp2; a spectator's
- * seats from 1). None when both teams made their bids or a set team's
- * per-seat tricks are not known. A seat whose name is missing reads P<seat>,
- * as the hand lines do.
- *
- * @param {Object} options
- * @param {number} options.myPosition - the viewer's seat (a spectator: 1)
- * @param {Object} options.playerData - { position: [], username: [{username}] }
- * @param {Object|Array} options.bids - the hand's bids by position
- * @param {Object|Array|null} options.tricksByPosition - tricks each seat won this hand
- * @param {number} [options.team1Tricks] - handComplete's counts
- * @param {number} [options.team2Tricks]
- * @param {number} options.handSize - the deal's size
- * @returns {string[]}
- */
-export function formatFaultMessages(options = {}) {
-  const { myPosition, playerData, bids, tricksByPosition, team1Tricks, team2Tricks, handSize } = options;
-  const me = [1, 2, 3, 4].includes(Number(myPosition)) ? Number(myPosition) : 1;
-  const order = [me, team(me), rotate(me), rotate(rotate(rotate(me)))];
-  return handFaults({ bids, tricksByPosition, team1Tricks, team2Tricks, handSize, order })
-    .map(({ position, bid, took }) => `Fault: ${seatUsername(playerData, position) || `P${position}`} (bid ${bid}, took ${took})`);
 }
 
 /**

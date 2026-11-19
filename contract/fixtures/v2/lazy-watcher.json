@@ -14,7 +14,12 @@
       "role": "lazyWatcher",
       "position": 2,
       "ownerView": "watch",
-      "canAct": false
+      "canAct": false,
+      "assist": {
+        "uses": 0,
+        "freeUses": 3,
+        "assisted": false
+      }
     },
     "hand": [
       {
