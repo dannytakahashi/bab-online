@@ -455,9 +455,10 @@ class GameState {
     setTimer(key, ms, fn) {
         this.clearTimer(key);
         if (this.isTerminal() || this.frozen) return false;
-        // Suspended (self-fence): remembered, armed with its full time on thaw
+        // Suspended (self-fence): remembered, armed with its full time on
+        // thaw (`since`: its time starts then, not at the suspension)
         if (this._suspended) {
-            this._suspended.timers.set(key, { fn, ms });
+            this._suspended.timers.set(key, { fn, ms, since: Date.now() });
             return true;
         }
         const e = this.epoch;
@@ -644,11 +645,15 @@ class GameState {
         }
         if (this.afkClock && this.afkClock === s.afkClock) this.afkClock.deadline += dt;
         // A seat's grace is RECONNECT_GRACE_MS of unsuspended time: its
-        // deadline and the absence it counts from move together
+        // deadline and the absence it counts from move together, by the
+        // suspended time it lived through (a grace begun while suspended,
+        // armed with its full time now: from when it began)
         for (const seat of this.seatList()) {
-            if (seat.graceDeadline == null || !s.timers.has('grace:' + seat.position)) continue;
-            seat.graceDeadline += dt;
-            if (seat.absentSince != null) seat.absentSince += dt;
+            const grace = s.timers.get('grace:' + seat.position);
+            if (seat.graceDeadline == null || !grace) continue;
+            const shift = Math.max(0, now - (grace.since ?? s.at));
+            seat.graceDeadline += shift;
+            if (seat.absentSince != null) seat.absentSince += shift;
         }
         // Everything stopped, back in due order (ties: timers, pauses, bots)
         const due = [];

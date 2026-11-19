@@ -101,9 +101,11 @@ function recordRoomMembers(io, log) {
  * watches on the new io are its own (onIo ran for the first io only).
  * @param {number} seed
  * @param {Function} onIo
- * @param {{errorLogs: Array, extraActions?: Function, instance?: {io: Object, log: Array}}} opts
+ * opts.maxSteps: the step budget (default MAX_STEPS); a test pins a run
+ * that ends on its budget with it.
+ * @param {{errorLogs: Array, extraActions?: Function, instance?: {io: Object, log: Array}, maxSteps?: number}} opts
  */
-async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instance = null } = {}) {
+async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instance = null, maxSteps = MAX_STEPS } = {}) {
     errorLogs.length = 0;
     GamePhase.resetViolations();
     const rand = mulberry32(seed);
@@ -547,7 +549,7 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
 
     let steps = 0;
     const trail = [];
-    while (gameManager.getGameById(gameId) && steps < MAX_STEPS) {
+    while (gameManager.getGameById(gameId) && steps < maxSteps) {
         steps++;
         await jest.advanceTimersByTimeAsync(randInt(0, 2500));
         if (!gameManager.getGameById(gameId)) break;
@@ -565,7 +567,18 @@ async function runSeedInner(seed, onIo, { errorLogs, extraActions = null, instan
         if (asyncErrors.length) return fail('async error', { error: asyncErrors[0].stack });
     }
     // Still running after the step budget: tear it down to check teardown
-    if (gameManager.getGameById(gameId)) await gameLifecycle.abortGame(io, game, 'chaos-end');
+    if (gameManager.getGameById(gameId)) {
+        await gameLifecycle.abortGame(io, game, 'chaos-end');
+        // A suspended table (deploy survival, GameState.suspend) aborts at
+        // its thaw (gameLifecycle.abortGame defers it, never while ownership
+        // is in doubt): the terminal event is the one the thaw sends. Only
+        // then is it looked for. No action runs meanwhile; an unsuspended
+        // run (chaos.test.js) advances nothing here, its stream unchanged
+        if (game.isSuspended) {
+            for (let i = 0; i < 120 && game.isSuspended; i++) await jest.advanceTimersByTimeAsync(1000);
+            await jest.advanceTimersByTimeAsync(0);   // the deferred abort (a microtask after the thaw)
+        }
+    }
 
     const terminalIdx = log.findIndex((l) => l.to === game.roomName && (l.event === 'gameEnd' || l.event === 'abortGame'));
     for (let i = 0; i < 30; i++) {

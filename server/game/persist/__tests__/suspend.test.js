@@ -330,6 +330,32 @@ describe('while suspended', () => {
         t.done();
     });
 
+    // Chaos seeds 43, 76, 82, ... ("seat N resignable after 59740ms"): a
+    // grace started while suspended was shortened by how long the table had
+    // already been suspended when the owner dropped
+    test('an owner who drops while suspended gets the full 60 s of grace from the thaw', async () => {
+        const t = await atHumanBid(37);
+        const { game, io, socks } = t;
+        const pos = game.seatList().find((s) => s.controller === 'human').position;
+        expect(game.suspend()).toBe(true);
+        await jest.advanceTimersByTimeAsync(10000);
+        const queueHandlers = require('../../../socket/queueHandlers');
+        await queueHandlers.handleDisconnect(socks[0], io);
+        const seat = game.seat(pos);
+        expect(seat.presence).toBe('grace');
+        await jest.advanceTimersByTimeAsync(5000);
+        const thawAt = Date.now();
+        game.unsuspend(io);
+        expect(seat.absentSince).toBe(thawAt);
+        expect(seat.graceDeadline).toBe(thawAt + 60000);
+        await jest.advanceTimersByTimeAsync(60000 - 10);
+        expect(seat.presence).toBe('grace');
+        await jest.advanceTimersByTimeAsync(20);
+        expect(seat.presence).toBe('resignable');
+        expect(seat.resignableAt - seat.absentSince).toBe(60000);
+        t.done();
+    });
+
     test('a frozen game: abortGame emits, retires and clears nothing', async () => {
         const t = await atHumanBid(36);
         const { game, io, log } = t;
@@ -368,4 +394,36 @@ describe('chaos runs with random suspensions keep every chaos oracle', () => {
         }
         expect(failures).toEqual([]);
     }, 600000);
+
+    // CI run 44594999016 (seed 6 on Node 24; seeds 142 and 246 on Node 26):
+    // the step budget ran out while the table was suspended, so the run's
+    // own 'chaos-end' abort was deferred to the thaw (as the plan says: an
+    // abort never runs while ownership is in doubt). The table's one
+    // abortGame came a moment later; the oracle must find it there
+    test('the step budget runs out on a suspended table: the chaos-end abort waits for the thaw and is the terminal event', async () => {
+        for (const seed of [7, 8]) {
+            let seqWatch = null;
+            mockDb.current = require('../../../testUtils/memoryDb').createMemoryDb({ users: [] });
+            // Every draw picks the suspension (its weight dwarfs the built-in actions); the thaw comes 1.5 s later
+            const extraActions = (ctx) => [[1e9, () => {
+                const g = ctx.game;
+                if (!g || g.isTerminal() || g.isSuspended || !g.suspend()) return;
+                const io = ctx.io;
+                setTimeout(() => g.unsuspend(io), 1500);
+            }]];
+            const abort = jest.spyOn(gameLifecycle, 'abortGame');
+            const result = await runSeedInner(seed, (io) => { seqWatch = watchSeq(io); }, { errorLogs, extraActions, maxSteps: 1 });
+            const seq = seqWatch.stop();
+            // The pinned interleaving: the budget's abort met a suspended table and was deferred
+            const end = abort.mock.calls.findIndex((c) => c[2] === 'chaos-end');
+            expect(end).toBeGreaterThanOrEqual(0);
+            await expect(abort.mock.results[end].value).resolves.toBe(false);
+            abort.mockRestore();
+            expect(result).toMatchObject({ ok: true, steps: 1 });
+            expect(seq.failures).toEqual([]);
+            for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+            GamePhase.resetViolations();
+            jest.clearAllTimers();
+        }
+    });
 });
