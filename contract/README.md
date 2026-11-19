@@ -125,7 +125,13 @@ accepts what it accepted": the `joi` key is unchanged, no documented key
 disappears, and every baseline example still validates (the schema may
 tighten toward Joi). For s2c, a baseline property that was a bare open
 object may be spelled out (narrowing only adds promises) only when listed
-in `S2C_REFINED` (today: `recordsResponse.records`). A baseline `$def` is
+in `S2C_REFINED` (today: `recordsResponse.records`). A baseline payload
+that was one object may become named variants only when listed in
+`S2C_SPLIT` with the variant that keeps the old shape (checked as the old
+payload) and why every frozen build reads the new forms (today:
+`gameLogEntry`, 2026-11-18: its `room` variant is the old sequenced line,
+`private` the unsequenced /help line; every shipped iOS build decodes
+`seq` as optional and applies a seq-less event at once). A baseline `$def` is
 held the same way as a payload, recursively: it may gain optional
 properties (e.g. `tournamentChatLine.system` / `.type`, the tournament
 server notice), never lose, retype or un-require one.
@@ -163,7 +169,8 @@ skips exact repeats of a validated (event, target kind, payload).
   gameStart bumps it once per deal and is sent to every connected seat owner
   and every spectator, all with the same value. Private game events (replays,
   rejoin/restore/actionRejected, youDrew, the private
-  updateTurn) are unsequenced. Events that carry it: see `seq: true` in
+  updateTurn, assistHint and the private /help gameLogEntry lines) are
+  unsequenced. Events that carry it: see `seq: true` in
   `events.schema.json` (only the room variant where a private form exists).
 - **R2.** Keep `lastSeq`. `seq === lastSeq + 1`: apply. `seq <= lastSeq`:
   drop. `seq > lastSeq + 1`: a GAP - buffer the event, send `requestSnapshot`,
@@ -370,6 +377,18 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   clientHello variants; docs/claude/web-client.md, Play again); iOS 1.2.2 (12)
   (build 12) with `casualSpectators` (`ClientHello.caps`; iOSClient/CLAUDE.md,
   "Play again"). Both send `releaseLobbyHold` ("Don't wait").
+- `assist` (`$defs.clientCapAssist`, its own const for the same reason;
+  2026-11-18, /help): the client renders the private s2c `assistHint`, the
+  answer to its own `/help` or `?help` (a suggestion card with reasons,
+  details, confidence, the suggested bid or card, and the use count; kind
+  `status` for a reply with no suggestion). Without the cap the same reply
+  comes as private, unsequenced, never stored `gameLogEntry {message, type:
+  'system'}` lines (at most 2 per ask), which every shipped iOS build shows
+  as a dim System line (it applies an event with no `seq` at once). No client
+  sends it yet: web from H3, iOS from build 15 (H4). Everything else about
+  /help is the same with or without it: the counter, the room notice
+  "<name> used /help.", the stats marker (server/socket/assistHandlers.js;
+  docs/claude/assist.md).
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

@@ -15,6 +15,7 @@ const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
+const { isAssistedSeat, helpUses } = require('../game/assistState');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -271,7 +272,8 @@ const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
  *   1. the gameRecords entry goes in first, carrying `statsDeltas` (the
  *      bucket and each human seat's 12 counters, by position: no names;
  *      the reader also honours a per-seat `bucketByPosition`, seatBucket,
- *      which nothing writes yet) and
+ *      written for a seat whose /help use made the game bot-assisted for
+ *      that player, buildGameEndRecord) and
  *      `statsPending` ([{position, username}] still to apply). The unique
  *      gameId index (database.ensureGameIdIndex) makes a second insert fail
  *      with E11000, and the write then reuses the stored entry
@@ -614,6 +616,20 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * and a persisted ENDED tombstone (deploy survival) insert the same
  * record. No I/O: it reads the game, gameManager.deletedUsernames and the
  * clock (completedAt).
+ *
+ * /help (plan section 6, D11): a seat whose owner made more than
+ * ASSIST_FREE_HELP counted /help uses (assistState.isAssistedSeat) played a
+ * bot-assisted game, for that player only:
+ *   - `statsDeltas.bucketByPosition {<pos>: 'botStats'}` for each such seat
+ *     when the whole-game bucket is 'stats' (a game that is a bot game
+ *     anyway needs none); the other seats stay in the whole-game bucket
+ *   - `withBots: true` (+ `team1Bots` / `team2Bots`, empty for human seats)
+ *     so the game's team records move to the "with bots" Records scope, and
+ *     `assistedTeams: [1|2]` (server-only: no Records projection sends it)
+ * and every seat with counted uses (assisted or not) is listed in
+ * `statsDeltas.assist {<pos>: {help}}` (by position, never by name). A game
+ * nobody used /help in gives exactly the document it gave before /help
+ * (assistRecords.test.js holds it byte for byte).
  * @param {Object} game - a finished game
  * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
  */
@@ -639,8 +655,24 @@ function buildGameEndRecord(game) {
         .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
         .map(({ position, player }) => ({ position, username: player.username }));
 
-    const doc = buildGameRecord(game, { withBots });
+    // /help: the evidence (counted uses) and who it made a bot game for
+    const assist = {};
+    const assisted = [];
+    for (const { position } of players) {
+        const a = game.assist?.[position];
+        const owner = game.seat(position).ownerUsername;
+        const help = helpUses(a, owner);
+        if (help > 0) assist[position] = { help };
+        if (isAssistedSeat(a, owner)) assisted.push(position);
+    }
+
+    const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });
     doc.statsDeltas = { bucket, byPosition };
+    if (assisted.length > 0 && bucket !== 'botStats') {
+        doc.statsDeltas.bucketByPosition = Object.fromEntries(assisted.map((pos) => [pos, 'botStats']));
+    }
+    if (Object.keys(assist).length > 0) doc.statsDeltas.assist = assist;
+    if (assisted.length > 0) doc.assistedTeams = [...new Set(assisted.map((pos) => (pos % 2 === 1 ? 1 : 2)))].sort();
     if (statsPending.length > 0) doc.statsPending = statsPending;
     return doc;
 }

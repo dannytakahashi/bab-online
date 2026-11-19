@@ -70,9 +70,12 @@ test('reserved keys are absent from their event unless activated', () => {
     // cardPlayed: trumpBroken is a Bool; the old trump Bool is gone (V1_REMOVALS #10)
     expect(schema.s2c.cardPlayed.payload.properties.trumpBroken.type).toBe('boolean');
     expect(schema.s2c.cardPlayed.payload.properties.trump).toBeUndefined();
-    // gameLogEntry: only 'system' entries may omit playerPosition
+    // gameLogEntry: only 'system' entries may omit playerPosition (every
+    // variant: the room line and the private, unstored one)
     const gle = schema.s2c.gameLogEntry.payload;
-    expect(gle.properties.type.const === 'system' || (gle.required || []).includes('playerPosition')).toBe(true);
+    for (const v of gle.anyOf || [gle]) {
+        expect(v.properties.type.const === 'system' || (v.required || []).includes('playerPosition')).toBe(true);
+    }
 });
 
 test('added keys: declared on the payload, and activated when a shipped client reads them', () => {

@@ -71,6 +71,24 @@ const fail = (b, problems) => {
 const S2C_REFINED = {
     's2c.recordsResponse|success.records': 'the documented allTime / thisYear / thisMonth periods (review fix: records content was never checked)',
 };
+/**
+ * s2c payloads that were one object and are now named variants: the variant
+ * named here must keep everything the old object promised (checked as if
+ * it were the old payload), and the others are new forms. Allowed only
+ * here, named, with the reason every frozen build still reads both. Today:
+ *   gameLogEntry (2026-11-18, /help): the room line keeps its shape (seq
+ *   required) and a 'private' form without seq is new, the unstored /help
+ *   lines for sockets without the assist cap. Every shipped iOS build
+ *   (b6 to b14, checked at each frozen commit) decodes
+ *   WirePayload.GameLogEntry with `seq: Int?` and applies an event with no
+ *   seq at once (TableReducer `guard let seq = ev.seq else { return apply }`),
+ *   as the web SeqGate does (unsequenced events apply in arrival order); the
+ *   decode floors below hold message / type.
+ */
+const S2C_SPLIT = {
+    's2c.gameLogEntry': { keeps: 'room', why: 'private /help lines without seq (assistHandlers); shipped builds apply seq-less events' },
+};
+
 const isBareOpenObject = (s) => s && s.type === 'object' && s.additionalProperties === true &&
     Object.keys(s.properties || {}).length === 0 && !(s.required || []).length;
 
@@ -87,6 +105,17 @@ const show = (v) => JSON.stringify(v);
  */
 function schemaKeeps(base, cur, where, out) {
     if (deepEqual(base, cur)) return;
+    const split = S2C_SPLIT[where];
+    if (split && base && !base.anyOf && cur && cur.anyOf) {
+        const kept = cur.anyOf.find((v) => v.variant === split.keeps);
+        if (!kept) {
+            out.push(`${where}: split, but the '${split.keeps}' variant is gone`);
+            return;
+        }
+        const { variant, ...rest } = kept;
+        schemaKeeps(base, rest, `${where}|${split.keeps}`, out);
+        return;
+    }
     if (cur === undefined) {
         out.push(`${where}: removed`);
         return;
@@ -282,6 +311,20 @@ test('the s2c refinement exception is narrow: only named properties, only while 
         's2c.recordsResponse|success.records: refined, but no longer an open object',
         "s2c.other|success.records: 'additionalProperties' changed from true to false",
     ]);
+});
+
+test('the s2c split exception is narrow: only named payloads, and the named variant must keep the old shape', () => {
+    const base = { type: 'object', properties: { message: { type: 'string' }, seq: { $ref: '#/$defs/seq' } }, required: ['message', 'seq'], additionalProperties: false };
+    const room = { variant: 'room', ...base };
+    const priv = { variant: 'private', type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false };
+    const run = (where, cur) => { const out = []; schemaKeeps(base, cur, where, out); return out; };
+    expect(run('s2c.gameLogEntry', { anyOf: [room, priv] })).toEqual([]);
+    // another event may not do the same
+    expect(run('s2c.other', { anyOf: [room, priv] })).toContain('s2c.other: became an anyOf');
+    // the named variant must exist and keep everything (seq still required)
+    expect(run('s2c.gameLogEntry', { anyOf: [priv] })).toEqual(["s2c.gameLogEntry: split, but the 'room' variant is gone"]);
+    const loose = { ...room, required: ['message'] };
+    expect(run('s2c.gameLogEntry', { anyOf: [loose, priv] })).toEqual(['s2c.gameLogEntry|room.seq: no longer required']);
 });
 
 describe('fault injection: what the per-build guards catch', () => {

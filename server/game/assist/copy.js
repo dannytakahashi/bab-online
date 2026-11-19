@@ -22,7 +22,10 @@ const SUIT_ONE = Object.freeze({ spades: 'spade', hearts: 'heart', diamonds: 'di
 const HEADLINE_MAX = 60;
 const REASON_MAX = 140;
 const DETAIL_MAX = 200;
-const LINE_MAX = 200;
+// The plain-text line (shipped iOS, web until its card): the headline, BOTH reasons and the
+// use count always fit (60 + 2 x 140 + the prefix and tail is under 440), so a game-log line,
+// which wraps, is never cut short (owner 2026-11-19: some answers ended in "…" at 200).
+const LINE_MAX = 440;
 /** Every text the server sends in an assistHint stays under this (plan §7). */
 const TEXT_MAX = 280;
 const MAX_REASONS = 2;

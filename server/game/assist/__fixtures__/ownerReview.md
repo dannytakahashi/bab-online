@@ -16,7 +16,7 @@ Alice, 8-card hand, trump 5♥. Hand: HI joker A♥ 9♥ 4♥ A♣ K♣ 7♦ 3�
 > - Why: On average: bid 4 about +58, bid 3 about +52, bid 5 about +51.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 4. Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 4. Your hand should win about 5 tricks: HI joker (about 1.0), A♥ (about 1.0), 9♥ (about 0.8). Bob (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +58; bid 3 is worth about +52. (Help 2 of 3 free)
 
 Codes: B.ev
 
@@ -32,7 +32,7 @@ Alice, 3-card hand, trump 5♥. Hand: LO joker K♥ 8♠. Bids: Alice -, Carol -
 > - Why: On average: bid 1 about +17, bid 0 about +11, bid 2 about +6.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 1. Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 1. Your hand should win about 1.9 tricks: LO joker (about 1.0), K♥ (about 0.9). Bob (your partner) bids after you and adds their own tricks. Bid 1 is worth about +17 on average, bid 0 about +11. (Help 2 of 3 free)
 
 Codes: B.evFirst
 
@@ -78,7 +78,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 7♥ 8♠ J♠ 5♥ 7♠ 10♥ 9♥ 7�
 > - Why: On average: bid 4 about +54, bid 3 about +51, bid 2 about +43.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 4. Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 4. Your hand should win about 4 tricks: LO joker (about 1.0), 7♥ (about 0.9), 10♥ (about 0.9). Carol (your partner) bid 2. Bid 4 makes your combined 6 almost always (about 95%), worth about +54; bid 3 is worth about +51. (Help 2 of 3 free)
 
 Codes: B.ev
 
@@ -95,7 +95,7 @@ Alice, 12-card hand, trump 2♥. Hand: 6♣ A♣ Q♠ 8♦ J♦ 3♣ HI joker 8�
 > - Why: On average: bid 3 about +37, bid 2 about +32, bid 4 about +29.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 3. Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 3. Your hand should win about 4 tricks: HI joker (about 1.0), A♣ (about 0.9), K♥ (about 0.7). Bob (your partner) bid 1. Bid 3 makes your combined 4 almost always (about 95%), worth about +37; bid 2 is worth about +32. (Help 2 of 3 free)
 
 Codes: B.ev
 
@@ -111,7 +111,7 @@ Carol, 12-card hand, trump 2♥. Hand: 5♠ 10♦ A♥ Q♦ A♠ J♥ 4♦ 5♣ 
 > - Why: On average: bid 2 about +41, bid 1 about +36, bid 3 about +32.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 2. Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 2. Your hand should win about 3 tricks: A♠ (about 0.9), A♥ (about 0.8), K♦ (about 0.6). Dan (your partner) bids after you and adds their own tricks. Bid 2 is worth about +41 on average, bid 1 about +36. (Help 2 of 3 free)
 
 Codes: B.evFirst
 
@@ -127,7 +127,7 @@ Bob, 12-card hand, trump 2♥. Hand: 6♦ 10♣ 4♣ 10♠ Q♥ 6♥ Q♣ 3♠ A
 > - Why: On average: bid 1 about +32, bid 2 about +27, bid 0 about +27.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 1. Alice (your partner) bids after you and adds their own tricks. Bid 1 is worth about +32 on average, bid 2 about +27. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 1. Your hand should win about 2.0 tricks: A♦ (about 0.9), Q♥ (about 0.6), Q♣ (about 0.3). Alice (your partner) bids after you and adds their own tricks. Bid 1 is worth about +32 on average, bid 2 about +27. (Help 2 of 3 free)
 
 Codes: B.evFirst
 
@@ -217,7 +217,7 @@ Bob, 8-card hand, trump J♠. Hand: 10♣ 10♥ Q♦ 9♥ 8♥ 3♣ 5♣ 9♠. B
 > - Why: On average: bid 0 about +20, bid 1 about +18, bid 2 about −2.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Bid 0. Alice (your partner) bid 2. Bid 0 makes your combined 2 almost always (about 95%), worth about +20; bid 1 is worth about +18. (Help 2 of 3 free)
+Line: Suggested (only you see this): Bid 0. Your hand should win about 0.7 tricks: 9♠ (about 0.5). Alice (your partner) bid 2. Bid 0 makes your combined 2 almost always (about 95%), worth about +20; bid 1 is worth about +18. (Help 2 of 3 free)
 
 Codes: B.zero
 
@@ -251,7 +251,7 @@ Alice, 13-card hand, trump 2♣. Hand: 9♠ 8♠. Bids: Alice 2, Carol 1, Bob 2,
 > - Why: Every card you can play here does as well in all 64 likely deals checked.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Throw 8♠. You have no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)
+Line: Suggested (only you see this): Throw 8♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. You have no trump, so you can't win this one. All your cards could win later: throw the lowest. (Help 2 of 3 free)
 
 Codes: C.made, D.noTrump, D.allWinners, S.any
 
@@ -266,7 +266,7 @@ Dan, 13-card hand, trump 2♣. Hand: 10♣ Q♦ 4♣ 6♣ K♦ A♣ K♥ HI joke
 > Carol is winning with the Q♠, so keep your trumps for later. Keep your K♥: no one else holds a higher heart.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Throw Q♦. Carol (your partner) is winning with the Q♠, so keep your trumps for later. Keep your K♥: no one else holds a higher heart. (Help 2 of 3 free)
+Line: Suggested (only you see this): Throw Q♦. You and Carol (your partner) need 4 more of the last 9 tricks. Carol is winning with the Q♠, so keep your trumps for later. Keep your K♥: no one else holds a higher heart. (Help 2 of 3 free)
 
 Codes: C.normal, D.partnerWins, D.keepWinner
 
@@ -282,7 +282,7 @@ Alice, 12-card hand, trump 2♥. Hand: Q♠ 8♣. Bids: Alice 3, Carol 2, Bob 1,
 > - Why: Close call: the 8♣ and the Q♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 8♣ and the Q♠ come out within a fraction of a point of each other on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Throw 8♣. Bob (your partner) is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)
+Line: Suggested (only you see this): Throw 8♣. You and Bob (your partner) need 1 more of the last 2 tricks. Bob is winning with the Q♥, so throw a card. Keep your winners and suits covered: throw your lowest card. (Help 2 of 3 free)
 
 Codes: C.normal, D.partnerWins, D.lowest, S.close
 
@@ -297,7 +297,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 8♠ 7♠ 10♥ 9♥ 7♣ 8♥ LO joke
 > Carol is winning with the Q♦, so keep your trumps for later. It's your last club: after it you can trump club leads.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Throw 7♣. Carol (your partner) is winning with the Q♦, so keep your trumps for later. It's your last club: after it you can trump club leads. (Help 2 of 3 free)
+Line: Suggested (only you see this): Throw 7♣. You and Carol (your partner) need 3 more of the last 8 tricks. Carol is winning with the Q♦, so keep your trumps for later. It's your last club: after it you can trump club leads. (Help 2 of 3 free)
 
 Codes: C.normal, D.partnerWins, D.voidShortest
 
@@ -359,7 +359,7 @@ Alice, 10-card hand, trump J♦. Hand: 9♠ J♠. Bids: Alice 0, Carol 3, Bob 2,
 > - Why: Close call: the J♠ and the 9♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the J♠ comes out about 1 point a hand better than the 9♠ on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Play J♠. Your partner Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade. (Help 2 of 3 free)
+Line: Suggested (only you see this): Play J♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each. Bob's 5♠ could still be beaten by Carol. Take it with your J♠: no one else holds a higher spade. (Help 2 of 3 free)
 
 Codes: C.made, F.overtake, S.close
 
@@ -375,7 +375,7 @@ Dan, 6-card hand, trump 10♦. Hand: 3♥ 9♠ K♠ 9♦ Q♣. Bids: Alice 0, Ca
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the K♠ you and Carol make your bid almost always (about 100%); with the 9♠, usually (about 90%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Play K♠. Your partner Carol's 8♠ could still be beaten by Alice. Your K♠ gives the trick the best chance. (Help 2 of 3 free)
+Line: Suggested (only you see this): Play K♠. You and Carol (your partner) need 1 more of the last 5 tricks. Carol's 8♠ could still be beaten by Alice. Your K♠ gives the trick the best chance. (Help 2 of 3 free)
 
 Codes: C.normal, F.overtakeFight, S.agrees
 
@@ -391,7 +391,7 @@ Bob, 12-card hand, trump 2♥. Hand: 4♣ Q♥ 6♥ 2♣. Bids: Alice 3, Carol 2
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the 6♥ you and Alice make your bid almost always (about 100%); with the Q♥, more often than not (about 70%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Play 6♥. Alice (your partner) is winning with the HI joker and nobody plays after you. Play low and keep the rest. (Help 2 of 3 free)
+Line: Suggested (only you see this): Play 6♥. You and Alice (your partner) need 2 more of the last 4 tricks. Alice is winning with the HI joker and nobody plays after you. Play low and keep the rest. (Help 2 of 3 free)
 
 Codes: C.normal, F.partnerWinsLow, S.agrees
 
@@ -407,7 +407,7 @@ Carol, 3-card hand, trump A♦. Hand: 6♠ 10♠ LO joker. Bids: Alice 1, Carol 
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the LO joker you and Dan make your bid more often than not (about 75%); with the 6♠, about half the time (about 45%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with the LO joker. Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with the LO joker. You and Dan (your partner) need 2 more of the last 3 tricks. Alice trumped with the 10♦. Your LO joker beats it, but Bob could still hold the one higher trump not yet seen. (Help 2 of 3 free)
 
 Codes: C.normal, F.ruffFight, S.agrees
 
@@ -422,7 +422,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 7♥ 8♠ 5♥ 7♠ 10♥ 9♥ 7♣ 8�
 > Carol's 10♦ could still lose, and nobody after you has shown they're out of diamonds. A low trump makes sure of it.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with 5♥. Your partner Carol's 10♦ could still lose, and nobody after you has shown they're out of diamonds. A low trump makes sure of it. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with 5♥. You and Carol (your partner) need 5 more of the last 10 tricks. Carol's 10♦ could still lose, and nobody after you has shown they're out of diamonds. A low trump makes sure of it. (Help 2 of 3 free)
 
 Codes: C.normal, F.ruffForPartner
 
@@ -438,7 +438,7 @@ Carol, 8-card hand, trump J♠. Hand: A♠ 5♦ K♠. Bids: Alice 2, Carol 2, Bo
 > - Why: Any card that wins this trick does as well in all 64 likely deals checked.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with K♠. You play last: the lowest trump that wins is enough. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with K♠. You and Dan (your partner) have made your bid. Extra tricks are worth 1 point each. You play last: the lowest trump that wins is enough. (Help 2 of 3 free)
 
 Codes: C.made, F.ruffLast, S.anyWinner
 
@@ -470,7 +470,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 8♠ 7♠ 10♥ 9♥ 8♥ LO joker. Bi
 > - Why: Close call: the 8♥ and the 10♥ do about equally well. Checked over 17 likely ways the hidden cards could be split: the 8♥ and the 10♥ come out the same on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with 8♥. You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with 8♥. You and Carol (your partner) need 2 more of the last 7 tricks. You're out of clubs, and Alice, last to play, hasn't shown they're out of them: a low trump is enough. (Help 2 of 3 free)
 
 Codes: C.normal, F.ruffLow3rd, S.close
 
@@ -486,7 +486,7 @@ Bob, 12-card hand, trump 2♥. Hand: 4♣ Q♥. Bids: Alice 3, Carol 2, Bob 1, D
 > - Why: Close call: the Q♥ and the 4♣ do about equally well. Checked over 64 likely ways the hidden cards could be split: the Q♥ and the 4♣ come out within a fraction of a point of each other on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with Q♥. You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with Q♥. You and Alice (your partner) need 1 more of the last 2 tricks. You're out of diamonds, and from what's been played Dan can't beat your Q♥: the cheapest safe trump. (Help 2 of 3 free)
 
 Codes: C.normal, F.ruffLowSafe, S.close
 
@@ -502,7 +502,7 @@ Carol, 2-card hand, trump 5♦. Hand: K♣ 8♦. Bids: Alice 1, Carol 1, Bob 0, 
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the 8♦ you and Dan make your bid about half the time (about 40%); with the K♣, rarely (about 5%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with 8♦. Every trick counts, and your partner Dan's 2♥ could still lose. Trumping makes sure of it. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with 8♦. You and Dan (your partner) need every trick left (2 of 2). Every trick counts, and Dan's 2♥ could still lose. Trumping makes sure of it. (Help 2 of 3 free)
 
 Codes: C.max, F.ruffMaxPartner, S.agrees
 
@@ -533,7 +533,7 @@ Dan, 9-card hand, trump A♥. Hand: 7♥ J♥ 5♥ 10♥ 8♥. Bids: Alice 2, Ca
 > - Why: Close call: the 5♥ and the 7♥ do about equally well. Checked over 64 likely ways the hidden cards could be split: the 5♥ and the 7♥ come out the same on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Trump with 5♥. You can't beat the LO joker, and you only have trumps left: play the lowest. (Help 2 of 3 free)
+Line: Suggested (only you see this): Trump with 5♥. You and Carol (your partner) need 1 more of the last 5 tricks. You can't beat the LO joker, and you only have trumps left: play the lowest. (Help 2 of 3 free)
 
 Codes: C.normal, F.underTrump, S.close
 
@@ -564,7 +564,7 @@ Carol, 9-card hand, trump HI joker. Hand: K♥ K♦ 10♥. Bids: Alice 3, Carol 
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the K♥ you and Dan make your bid almost always (about 100%); with the 10♥, rarely (about 15%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Play K♥. No one else holds a higher heart (A♥ is played): the cheapest card likely to win. (Help 2 of 3 free)
+Line: Suggested (only you see this): Play K♥. You and Dan (your partner) need 2 more of the last 3 tricks. No one else holds a higher heart (A♥ is played): the cheapest card likely to win. (Help 2 of 3 free)
 
 Codes: C.normal, F.winSure, S.agrees
 
@@ -580,7 +580,7 @@ Dan, 13-card hand, trump 2♣. Hand: 10♣ 6♣ A♣ K♥ 7♣. Bids: Alice 2, C
 > - Why: Checked over 64 likely ways the hidden cards could be split: the A♣ comes out about 2 points a hand better than the 6♣ on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead A♣. No one else holds a higher trump (HI joker and LO joker are played): a sure trick that also pulls trump from Alice and Bob. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead A♣. You and Carol (your partner) need 1 more of the last 5 tricks. No one else holds a higher trump (HI joker and LO joker are played): a sure trick that also pulls trump from Alice and Bob. (Help 2 of 3 free)
 
 Codes: C.normal, L.bossTrump, S.agrees
 
@@ -595,7 +595,7 @@ Carol, 12-card hand, trump 2♥. Hand: 5♠ 10♦ A♥ Q♦ J♥ 4♦ 5♣ 9♣ 
 > No one else holds a higher diamond, and neither Bob nor Alice has shown they can trump diamonds: take it while you can.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead 10♦. No one else holds a higher diamond, and neither Bob nor Alice has shown they can trump diamonds: take it while you can. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead 10♦. You and Dan (your partner) need 5 more of the last 10 tricks. No one else holds a higher diamond, and neither Bob nor Alice has shown they can trump diamonds: take it while you can. (Help 2 of 3 free)
 
 Codes: C.normal, L.cashBoss
 
@@ -626,7 +626,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 7♥ 8♠ 7♠ 10♥ 9♥ 7♣ 8♥ LO
 > You have 5 trumps but not the top one. Leading low draws Alice's and Bob's trump, and yours last longer.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead 7♥. You have 5 trumps but not the top one. Leading low draws Alice's and Bob's trump, and yours last longer. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead 7♥. You and Carol (your partner) need 4 more of the last 9 tricks. You have 5 trumps but not the top one. Leading low draws Alice's and Bob's trump, and yours last longer. (Help 2 of 3 free)
 
 Codes: C.normal, L.lowTrump
 
@@ -658,7 +658,7 @@ Bob, 4-card hand, trump K♠. Hand: HI joker A♠. Bids: Alice 1, Carol 0, Bob 2
 > - Why: Close call: the HI joker and the A♠ do about equally well. Checked over 64 likely ways the hidden cards could be split: the HI joker comes out about 1 point a hand better than the A♠ on average.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead the HI joker. Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead the HI joker. You and Alice (your partner) need every trick left (2 of 2). Nothing beats it, and Dan and Carol must each play their highest trump. (Help 2 of 3 free)
 
 Codes: C.max, L.maxHi, S.close
 
@@ -706,7 +706,7 @@ Alice, 10-card hand, trump 2♠. Hand: 4♠ 6♠. Bids: Alice 3, Carol 1, Bob 1,
 > - Why: Every card you can play here does as well in all 64 likely deals checked.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead 4♠. You only have trump left: lead your lowest. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead 4♠. You and Bob (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. You only have trump left: lead your lowest. (Help 2 of 3 free)
 
 Codes: C.made, L.onlyTrump, S.any
 
@@ -738,7 +738,7 @@ Carol, 4-card hand, trump 5♠. Hand: K♣ 6♣ K♠. Bids: Alice 1, Carol 1, Bo
 > - Why: Checked over 64 likely ways the hidden cards could be split: with the K♣ you set Bob and Alice more often than not (about 70%); with the 6♣, more often than not (about 65%).
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead K♣. On a small hand the ace may not even have been dealt, so your K♣ has a good chance. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead K♣. Bob and Alice need 2 of the last 3. Two more for you or Dan (your partner) sets them. On a small hand the ace may not even have been dealt, so your K♣ has a good chance. (Help 2 of 3 free)
 
 Codes: C.setThem, L.suitKing, S.setThem
 
@@ -753,7 +753,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 7♥ 8♠ J♠ 5♥ 7♠ 10♥ 9♥ 7�
 > Diamonds is your shortest suit: once it's gone you can trump diamond leads. It's your only diamond.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead 5♦. Diamonds is your shortest suit: once it's gone you can trump diamond leads. It's your only diamond. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead 5♦. You and Carol (your partner) need 6 more of the last 12 tricks. Diamonds is your shortest suit: once it's gone you can trump diamond leads. It's your only diamond. (Help 2 of 3 free)
 
 Codes: C.normal, L.suit, L.suitLow
 
@@ -811,7 +811,7 @@ Bob, 12-card hand, trump 2♥. Hand: 10♣ 4♣ 10♠ Q♥ 6♥ Q♣ 2♣. Bids:
 > - Why: Checked over 18 likely ways the hidden cards could be split.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Play 10♣. Usually you'd play the Q♣, but the 10♣ does better here: your bid makes more often than not (65%), against about half the time (55%). (Help 2 of 3 free)
+Line: Suggested (only you see this): Play 10♣. You and Alice (your partner) need 3 more of the last 7 tricks. Usually you'd play the Q♣, but the 10♣ does better here: your bid makes more often than not (65%), against about half the time (55%). (Help 2 of 3 free)
 
 Codes: C.normal, S.overrides
 
@@ -827,7 +827,7 @@ Dan, 12-card hand, trump 2♥. Hand: 4♠ 8♠ 10♥ LO joker. Bids: Alice 3, Ca
 > - Why: Checked over 64 likely ways the hidden cards could be split.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead the LO joker. Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%). (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead the LO joker. You and Carol (your partner) have made your bid. Extra tricks are worth 1 point each. Usually you'd lead the 4♠, but the LO joker sets Alice and Bob sometimes (25%) here, against sometimes (20%). (Help 2 of 3 free)
 
 Codes: C.made, S.overrides
 
@@ -843,7 +843,7 @@ Bob, 6-card hand, trump 10♦. Hand: 9♣ K♦ 7♦ 4♣. Bids: Alice 0, Carol 1
 > - Why: Checked over 64 likely ways the hidden cards could be split.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Throw 4♣. Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average. (Help 2 of 3 free)
+Line: Suggested (only you see this): Throw 4♣. You and Alice (your partner) have made your bid. Extra tricks are worth 1 point each, so save strong cards. Usually you'd trump with the 7♦, but here the 4♣ comes out about 3 points a hand better on average. (Help 2 of 3 free)
 
 Codes: C.made, S.overrides
 
@@ -858,7 +858,7 @@ Carol, 12-card hand, trump 2♥. Hand: 5♠ J♥ 4♦ 5♣ 9♣ 4♥ 6♠. Bids:
 > Dan is out of diamonds and can trump diamond leads. It's your only diamond.
 > *Quick suggestion: rules only, the server is busy.*
 
-Line: Quick suggestion, rules only (only you see this): Lead 4♦. Dan (your partner) is out of diamonds and can trump diamond leads. It's your only diamond. (Help 2 of 3 free)
+Line: Quick suggestion, rules only (only you see this): Lead 4♦. You and Dan (your partner) need 2 more of the last 7 tricks. Dan is out of diamonds and can trump diamond leads. It's your only diamond. (Help 2 of 3 free)
 
 Codes: C.normal, L.suit, L.suitLow, P.quick
 
@@ -876,7 +876,7 @@ Bob, 12-card hand, trump 2♥. Hand: 6♦ 10♣ 4♣ 10♠ Q♥ 6♥ Q♣ 3♠ 2
 > - *lead*: Playing the first card of a trick. The others must follow its suit if they can.
 > *What our strongest bot would play. A strong guess, not a guarantee.*
 
-Line: Suggested (only you see this): Lead 3♠. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠. (Help 2 of 3 free)
+Line: Suggested (only you see this): Lead 3♠. Dan and Carol need 6 of the last 11. Six more for you or Alice (your partner) sets them. Spades is your shortest suit: once it's gone you can trump spade leads. Lead low and save your 10♠. (Help 2 of 3 free)
 
 Codes: C.setThem, L.suit, L.suitLow
 

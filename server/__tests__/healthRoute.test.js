@@ -78,8 +78,11 @@ test('shape: 200 with status, db and live counts, nothing that names anyone', as
 
     const { status, body } = await get('/health');
     expect(status).toBe(200);
-    expect(Object.keys(body).sort()).toEqual(['db', 'live', 'memory', 'persist', 'status', 'timestamp', 'uptime']);
+    expect(Object.keys(body).sort()).toEqual(['assist', 'db', 'live', 'memory', 'persist', 'status', 'timestamp', 'uptime']);
     expect(body.status).toBe('ok');
+    // /help counts since boot (assistHandlers.assistHealth): numbers only
+    expect(Object.keys(body.assist).sort()).toEqual(['answered', 'errors', 'quick']);
+    expect(Object.values(body.assist).every((n) => Number.isInteger(n) && n >= 0)).toBe(true);
     expect(body.db).toBe('connected');
     expect(body.live).toEqual({ sockets: 3, games: 3, tournaments: 2, lobbies: 1 });
     expect(body.memory).toMatchObject({ unit: 'MB' });

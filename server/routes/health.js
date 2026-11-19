@@ -53,7 +53,20 @@ function persistHealth() {
     }
 }
 
-function healthBody({ io = ioRef, gameManager, dbState = safeDbState, persist = persistHealth } = {}) {
+/**
+ * /help (server/socket/assistHandlers.js): {answered, quick (rules-only
+ * answers because the searched-answer budget was spent), errors} since
+ * boot. Counts only. null if unreadable.
+ */
+function assistHealth() {
+    try {
+        return require('../socket/assistHandlers').assistHealth();
+    } catch {
+        return null;
+    }
+}
+
+function healthBody({ io = ioRef, gameManager, dbState = safeDbState, persist = persistHealth, assist = assistHealth } = {}) {
     const mem = process.memoryUsage();
     return {
         status: 'ok',
@@ -66,7 +79,8 @@ function healthBody({ io = ioRef, gameManager, dbState = safeDbState, persist = 
         },
         db: dbState(),
         live: liveCounts(io, gameManager),
-        persist: persist()
+        persist: persist(),
+        assist: assist()
     };
 }
 
@@ -82,4 +96,4 @@ function healthHandler(req, res) {
     res.json(healthBody());
 }
 
-module.exports = { setHealthIo, healthHandler, healthBody, liveCounts, persistHealth };
+module.exports = { setHealthIo, healthHandler, healthBody, liveCounts, persistHealth, assistHealth };

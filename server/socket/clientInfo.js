@@ -36,8 +36,11 @@ const { socketLogger } = require('../utils/logger');
  *                     moved back into that lobby (lobbyReturn), a place is
  *                     held if it is away, its offline hold is claimed on
  *                     joinMainRoom (server/socket/playAgain.js)
+ *   assist            renders the private s2c assistHint (/help answers);
+ *                     without it the answer comes as private system lines
+ *                     (server/socket/assistHandlers.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

@@ -28,12 +28,20 @@
  * `state`, its voice settings (casualVoice: host, spectatorsCanTalk (always
  * true), the lobby extras) and what play again reopens at its end
  * (lobbyOrigin, without the lobby chat), both by username; null for any
- * other game. Not saved: the voice spectators (socket keyed: spectators
- * re-spectate and are admitted again), and process state
+ * other game. `state.assist` is game.assist (assistState.js: each
+ * position's /help owner, counted uses and the turn of the last one, plus
+ * the tutorial's reserved fields), all four positions, normalized. Not
+ * saved: the voice spectators (socket keyed: spectators re-spectate and
+ * are admitted again), and process state
  * outside the game: BotController's "he sends a boy" cooldown (a restored
  * table may quip one cooldown sooner), GameManager.startedLobbies (the
  * extras' reload redirect into a just-started game) and every lobby,
  * play-again holds and reservations included (they live on lobbies).
+ *
+ * Versions: CODEC_V 2 added state.assist. hydrate reads v1 and v2 (a v1
+ * doc, written before /help, restores every seat with the default assist:
+ * no use yet) and serialize always writes CODEC_V; any other v is a
+ * CodecError('version').
  *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
@@ -78,9 +86,17 @@ const GameState = require('../GameState');
 const { Phase } = require('../GamePhase');
 const { Controller, Presence } = require('../SeatState');
 const { isStockPic } = require('../../avatar/stockAvatars');
+const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
-const CODEC_V = 1;
+const CODEC_V = 2;
+
+/**
+ * The versions hydrate reads. A new version keeps the old ones readable
+ * (restoreFrom fills the defaults), so a game saved by the process before
+ * a deploy survives it.
+ */
+const READ_VERSIONS = Object.freeze([1, 2]);
 
 /** A hydrated game's eventSeq continues this far past the saved one. */
 const EVENT_SEQ_OFFSET = 1000;
@@ -108,7 +124,8 @@ const SAVED = deepFreeze({
         'handStats', 'playerStats', 'handTricks', 'hsiValues',
         'hands', 'seats', 'gameLog', 'logTotal',
         'players',                                    // only its key order, as state.seatOrder (the deal order)
-        'casualVoice', 'lobbyOrigin'                  // a lobby-born casual game (null otherwise): below
+        'casualVoice', 'lobbyOrigin',                 // a lobby-born casual game (null otherwise): below
+        'assist'                                      // /help per position (CODEC_V 2): assistSeat below
     ],
     seat: ['controller', 'presence', 'ownerUsername', 'ownerPic', 'bot', 'lastPersonality', 'resignedAt', 'leftAt'],
     seatBot: ['socketId', 'username', 'pic', 'personality'],
@@ -124,7 +141,9 @@ const SAVED = deepFreeze({
     // a restored game still returns its players to their lobby at its end.
     // Maps and Sets as arrays (bots as [botId, personality] entries)
     lobbyOrigin: ['lobbyId', 'name', 'createdBy', 'host', 'settings', 'order', 'bots',
-        'playAgainUsers', 'casualUsers', 'extras']
+        'playAgainUsers', 'casualUsers', 'extras'],
+    // game.assist[pos] (assistState.js), by position and owner username
+    assistSeat: ASSIST_SEAT_KEYS
 });
 
 /** Not saved: rebuilt, reset or set fresh on restore (or never restored). */
@@ -152,7 +171,10 @@ const DERIVED = deepFreeze({
     casualVoice: ['lastIo', 'order'],
     // Lobby chat is not saved (lobbies are not persisted, plan 2.8): the
     // lobby a restored game reopens starts with no chat
-    lobbyOrigin: ['messages']
+    lobbyOrigin: ['messages'],
+    // The advice cache, the budget and the tip queue are module state, not
+    // fields of a record
+    assistSeat: []
 });
 
 class CodecError extends Error {
@@ -322,7 +344,8 @@ function serialize(game, { tournamentId, getBot } = {}) {
         // The players index's order: dealHand deals to getSocketIds() in it
         seatOrder: Array.from(game.players.values(), (p) => p.position),
         casualVoice: encodeCasualVoice(game.casualVoice),
-        lobbyOrigin: encodeLobbyOrigin(game.lobbyOrigin)
+        lobbyOrigin: encodeLobbyOrigin(game.lobbyOrigin),
+        assist: normalizeAssist(game.assist)
     };
     return {
         v: CODEC_V,
@@ -349,7 +372,7 @@ function serialize(game, { tournamentId, getBot } = {}) {
  */
 function hydrate(doc, { now = Date.now(), onGraceExpire = null } = {}) {
     if (!doc || typeof doc !== 'object') throw new CodecError('no doc');
-    if (doc.v !== CODEC_V) throw new CodecError('version', { v: doc.v, expected: CODEC_V });
+    if (!READ_VERSIONS.includes(doc.v)) throw new CodecError('version', { v: doc.v, expected: READ_VERSIONS });
     if (typeof doc.gameId !== 'string' || !doc.gameId) throw new CodecError('gameId');
     if (!SAVE_STAGES.has(doc.stage)) throw new CodecError('stage', { stage: doc.stage });
     const state = doc.state;
@@ -425,10 +448,13 @@ function serializeEnded(game, record, { tournamentId } = {}) {
  * What serialize(hydrate(doc)) gives back for `doc` (the round-trip
  * oracle): eventSeq EVENT_SEQ_OFFSET later and each seat's presence as
  * restoreSeats maps it (human -> grace, lazy / resign -> away or gone,
- * native bot -> none). Everything else is identical.
+ * native bot -> none), and an older version's doc as CODEC_V writes it
+ * (v1: the default assist). Everything else is identical.
  */
 function expectedAfterRestore(doc) {
     const out = json(doc);
+    out.v = CODEC_V;
+    out.state.assist = normalizeAssist(out.state.assist);
     out.state.eventSeq += EVENT_SEQ_OFFSET;
     for (const s of Object.values(out.state.seats)) {
         if (s.controller === Controller.HUMAN) s.presence = Presence.GRACE;
@@ -444,6 +470,7 @@ function expectedAfterRestore(doc) {
 
 module.exports = {
     CODEC_V,
+    READ_VERSIONS,
     EVENT_SEQ_OFFSET,
     SAVE_STAGES,
     SAVED,

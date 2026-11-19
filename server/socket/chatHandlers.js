@@ -1,6 +1,6 @@
 /**
- * Chat socket event handlers (in-game chat and the /lazy /active /leave
- * slash commands).
+ * Chat socket event handlers (in-game chat, the /lazy /active /leave /help
+ * slash commands and the ?help keyword).
  *
  * The sender's role decides what a message may do:
  *   owner      the socket in a seat's ownerSocketId (human at the seat, or the
@@ -10,6 +10,10 @@
  *   spectator  a pure spectator (gameManager.spectatorGames), incl. a stale
  *              shadow demoted when a newer socket took the seat
  * Anything else that is mapped (a bot or stale socket) is ignored.
+ *
+ * /help and the exact line ?help (shipped iOS cannot send an unknown /
+ * command) go to assistHandlers for every role and are never chat: a seat
+ * owner gets a suggestion, a spectator or entrant a private line.
  */
 
 const gameManager = require('../game/GameManager');
@@ -18,6 +22,7 @@ const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { serverErrorOf } = require('./serverError');
 const { deletedSince } = require('../admin/accountDelete');
+const assistHandlers = require('./assistHandlers');
 
 /** @returns {{game, role, pos}|null} */
 function resolveSender(socketId) {
@@ -43,6 +48,13 @@ function sendError(io, game, socket, message) {
 function ownerCommand(socket, io, game, pos, message) {
     const command = message.trim().toLowerCase();
     const seat = game.seat(pos);
+
+    // /help: a suggestion at a human seat; at a bot-controlled one (either
+    // view) the line "A bot is playing your seat. Type /active first."
+    if (assistHandlers.isHelpCommand(command)) {
+        assistHandlers.help(socket, io, game, pos);
+        return;
+    }
 
     if (seat.controller === Controller.HUMAN) {
         if (command === '/lazy') {
@@ -72,15 +84,64 @@ function ownerCommand(socket, io, game, pos, message) {
     // Watch view: /lazy and unknown commands are ignored (spectator-shaped client)
 }
 
+/** The lines a seat owner in the spectator role gets when /active (or /help) can't act from here. */
+const RECORDED_SEAT_LINES = Object.freeze({
+    left: 'You left this game. You can keep watching or type /leave.',
+    elsewhere: 'Your seat is controlled from another connection. Reconnect to take it back.',
+    reconnect: 'Reconnect to take your seat back.'
+});
+
 /**
- * A pure spectator: /leave stops spectating. /active takes back the seat of
- * the user this spectator was recorded as (server-side, at joinAsSpectator
- * or when a newer socket demoted it) if that seat is bot-controlled with no
- * owner socket attached; otherwise the owner is told why not. Everything else
- * is ignored.
+ * The seat of the user this spectator socket was recorded as (server-side,
+ * at joinAsSpectator or when a newer socket demoted it), or null for an
+ * ordinary spectator (no recorded user, a socket signed in as someone else,
+ * an account deleted since the game began: accountDelete.deletedSince).
+ * `state` is 'reclaim' when /active takes the seat back (bot-controlled, no
+ * owner socket attached), otherwise the RECORDED_SEAT_LINES key saying why not.
+ * @returns {{username: string, pos: number, seat: Object, state: string}|null}
+ */
+function recordedSeat(socket, game) {
+    const username = game.spectators.get(socket.id)?.username;
+    const authed = gameManager.getUserBySocketId(socket.id);
+    if (!username || (authed && authed.username !== username)) return null;
+    const pos = deletedSince(username, game.createdAt) ? null : game.seatByUsername(username);
+    const seat = pos ? game.seat(pos) : null;
+    if (!seat) return null;
+    let state;
+    if (seat.controller !== Controller.HUMAN && seat.presence === Presence.AWAY) state = 'reclaim';
+    else if (seat.presence === Presence.GONE) state = 'left';
+    else if (seat.ownerSocketId) state = 'elsewhere'; // a stale shadow socket
+    else state = 'reconnect'; // human seat in grace/resignable with no socket attached
+    return { username, pos, seat, state };
+}
+
+/**
+ * /help or ?help from a game socket (resolveSender's `sender`). A spectator
+ * whose recorded user owns a seat here is told why it can't ask from this
+ * socket (a bot holds the seat: /active first) rather than "players only".
+ */
+function helpRequest(socket, io, sender) {
+    let spectatorLine = null;
+    if (sender.role === 'spectator') {
+        const owned = recordedSeat(socket, sender.game);
+        if (owned) spectatorLine = owned.state === 'reclaim' ? assistHandlers.TEXT.botSeat : RECORDED_SEAT_LINES[owned.state];
+    }
+    assistHandlers.request(socket, io, sender, { spectatorLine });
+}
+
+/**
+ * A spectator: /leave stops spectating. /active takes back the seat of the
+ * user this spectator was recorded as (recordedSeat) if that seat is
+ * bot-controlled with no owner socket attached; otherwise the owner is told
+ * why not. /help gets its private line (helpRequest). Everything else is
+ * ignored.
  */
 function spectatorCommand(socket, io, game, message) {
     const command = message.trim().toLowerCase();
+    if (assistHandlers.isHelpCommand(command)) {
+        helpRequest(socket, io, { game, role: 'spectator', pos: null });
+        return;
+    }
     if (command === '/leave') {
         gameManager.leaveSpectating(io, socket.id);
         // leftGame only: both clients go back to the main room on it (the
@@ -89,22 +150,12 @@ function spectatorCommand(socket, io, game, message) {
         return;
     }
     if (command !== '/active') return;
-    const username = game.spectators.get(socket.id)?.username;
-    const authed = gameManager.getUserBySocketId(socket.id);
-    if (!username || (authed && authed.username !== username)) return;
-    // A seat of an account deleted since the game began is nobody's (accountDelete.deletedSince)
-    const pos = deletedSince(username, game.createdAt) ? null : game.seatByUsername(username);
-    const seat = pos ? game.seat(pos) : null;
-    if (!seat) return; // an ordinary spectator
-    if (seat.controller !== Controller.HUMAN && seat.presence === Presence.AWAY) {
-        seatLifecycle.reclaimSeat(io, game, pos, socket, username);
-    } else if (seat.presence === Presence.GONE) {
-        sendError(io, game, socket, 'You left this game. You can keep watching or type /leave.');
-    } else if (seat.ownerSocketId) {
-        sendError(io, game, socket, 'Your seat is controlled from another connection. Reconnect to take it back.');
+    const owned = recordedSeat(socket, game);
+    if (!owned) return; // an ordinary spectator
+    if (owned.state === 'reclaim') {
+        seatLifecycle.reclaimSeat(io, game, owned.pos, socket, owned.username);
     } else {
-        // Human seat in grace/resignable with no socket attached
-        sendError(io, game, socket, 'Reconnect to take your seat back.');
+        sendError(io, game, socket, RECORDED_SEAT_LINES[owned.state]);
     }
 }
 
@@ -161,15 +212,25 @@ function chatMessage(socket, io, data) {
     const { game, role, pos } = sender;
     const isCommand = data.message.startsWith('/');
 
+    // ?help (the exact line): /help for shipped iOS. Before the profanity
+    // filter and the log: never broadcast, never stored as chat
+    if (!isCommand && assistHandlers.isHelpKeyword(data.message)) {
+        helpRequest(socket, io, sender);
+        return;
+    }
+
     if (role === 'spectator') {
         if (isCommand) {
             spectatorCommand(socket, io, game, data.message);
             return;
         }
     } else if (role === 'entrant') {
-        // Before seats exist only /leave does anything
-        if (isCommand && data.message.trim().toLowerCase() === '/leave') {
+        // Before seats exist only /leave does anything (and /help says when it will)
+        const command = data.message.trim().toLowerCase();
+        if (isCommand && command === '/leave') {
             handleDrawPhaseLeave(socket, io, game);
+        } else if (isCommand && assistHandlers.isHelpCommand(command)) {
+            helpRequest(socket, io, sender);
         } else {
             socketLogger.debug('Chat rejected: no position', { socketId: socket.id });
         }

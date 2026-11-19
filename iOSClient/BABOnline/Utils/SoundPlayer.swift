@@ -177,7 +177,14 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
     /// (soloAmbient) would stop the user's music, so it is skipped.
     @discardableResult
     func prepareSession() -> Bool {
-        guard SoundSessionPolicy.action(voiceActive: isVoiceActive(), category: session.category) == .setAmbient else { return true }
+        // Voice owns the session: no AVAudioSession read at all (owner 2026-11-18, build 15 on an
+        // iPhone Air: every sound froze the table ~1 s with voice on; a session getter is a
+        // synchronous call into the audio server, which is busy while WebRTC runs).
+        if isVoiceActive() { return true }
+        let started = ProcessInfo.processInfo.systemUptime
+        let category = session.category
+        SoundStall.check("category read", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: false)
+        guard SoundSessionPolicy.action(voiceActive: false, category: category) == .setAmbient else { return true }
         do {
             try session.useAmbient()
             return true
@@ -192,21 +199,66 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
 
 // MARK: - The app's output and session
 
+/// A sound that took long on the audio path is reported once per launch per step (clientError
+/// `soundStall`), so a device shows where the time went (owner 2026-11-18: table sounds froze
+/// the table on an iPhone Air with voice on). Thread-safe.
+enum SoundStall {
+    static let threshold: TimeInterval = 0.1
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var reported: Set<String> = []
+
+    static func check(_ step: String, seconds: TimeInterval, voiceActive: Bool) {
+        guard seconds >= threshold else { return }
+        lock.lock()
+        let first = reported.insert(step).inserted
+        lock.unlock()
+        guard first else { return }
+        let message = "\(step) took \(Int(seconds * 1000)) ms (voice \(voiceActive ? "on" : "off"))"
+        print("[Sound] \(message)")
+        ErrorReporter.shared.report(kind: "soundStall", message: message)
+    }
+}
+
+/// The serial queue every AVAudioPlayer call runs on: starting a player can block for a long time
+/// while voice holds the audio hardware, and on the main thread that froze the table at each
+/// sound (owner 2026-11-18). A slow start now only delays its own sound.
+enum SoundQueue {
+    static let queue = DispatchQueue(label: "bab.sound", qos: .userInitiated)
+}
+
 /// Two players per file, created on the first sound (after the session is ambient: an
 /// AVAudioPlayer prepared at launch would take the hardware in the default soloAmbient).
+/// Every player call runs on `SoundQueue`; the main thread only hands the request over.
 @MainActor
 final class AudioPlayerPool: SoundOutput {
+    private let engine = PoolEngine()
+
+    func play(file: String, volume: Float) {
+        let voiceActive = VoiceChatManager.shared.isActive
+        let engine = self.engine
+        SoundQueue.queue.async { engine.play(file: file, volume: volume, voiceActive: voiceActive) }
+    }
+}
+
+/// The pool's players, touched only on `SoundQueue`.
+private final class PoolEngine: @unchecked Sendable {
     private var players: [String: [AVAudioPlayer]] = [:]
     private static let perFile = 2
 
-    func play(file: String, volume: Float) {
-        if players.isEmpty { preloadAll() }
+    func play(file: String, volume: Float, voiceActive: Bool) {
+        if players.isEmpty {
+            let started = ProcessInfo.processInfo.systemUptime
+            preloadAll()
+            SoundStall.check("preload", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: voiceActive)
+        }
         guard let pool = players[file], !pool.isEmpty else { return }
         // a free player, else restart the oldest one (never a third copy)
         let player = pool.first { !$0.isPlaying } ?? pool[0]
+        let started = ProcessInfo.processInfo.systemUptime
         player.currentTime = 0
         player.volume = volume
         player.play()
+        SoundStall.check("play", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: voiceActive)
     }
 
     private func preloadAll() {
@@ -240,39 +292,65 @@ final class AudioTuneOutput: TuneOutput {
 
     var duration: TimeInterval? { player?.duration }
 
+    /// When the playing tune ends (systemUptime), kept on main: the player itself is started on
+    /// `SoundQueue` and may not have begun yet when the clock asks.
+    private var endsAt: TimeInterval?
+    private var nowUptime: TimeInterval { ProcessInfo.processInfo.systemUptime }
+
     var timeLeft: TimeInterval? {
-        guard let p = player, p.isPlaying, stopping == nil else { return nil }
-        return max(0, p.duration - p.currentTime)
+        guard let end = endsAt, stopping == nil else { return nil }
+        let left = end - nowUptime
+        return left > 0 ? left : nil
     }
 
     func start(endingIn remaining: TimeInterval, volume: Float) -> Bool {
         guard let p = loaded() else { return false }
         stopping?.cancel()
         stopping = nil
-        p.stop()
-        p.currentTime = max(0, p.duration - remaining)
-        p.setVolume(volume, fadeDuration: 0)
-        return p.play()
+        // on the sound queue, as the pool's players (a start can block while voice holds the
+        // hardware); the clock reads timeLeft from the player afterwards
+        let box = PlayerBox(p)
+        let voiceActive = VoiceChatManager.shared.isActive
+        endsAt = nowUptime + min(remaining, p.duration)
+        SoundQueue.queue.async {
+            let started = ProcessInfo.processInfo.systemUptime
+            box.player.stop()
+            box.player.currentTime = max(0, box.player.duration - remaining)
+            box.player.setVolume(volume, fadeDuration: 0)
+            box.player.play()
+            SoundStall.check("tune play", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: voiceActive)
+        }
+        return true
     }
 
     func setVolume(_ volume: Float) {
-        guard stopping == nil else { return }
-        player?.setVolume(volume, fadeDuration: 0)
+        guard stopping == nil, let p = player else { return }
+        let box = PlayerBox(p)
+        SoundQueue.queue.async { box.player.setVolume(volume, fadeDuration: 0) }
     }
 
     func stop(fade: TimeInterval) {
-        guard let p = player, p.isPlaying, stopping == nil else { return }
-        guard fade > 0 else { p.stop(); return }
-        p.setVolume(0, fadeDuration: fade)
+        guard let p = player, endsAt != nil, stopping == nil else { return }
+        endsAt = nil
+        let box = PlayerBox(p)
+        guard fade > 0 else {
+            SoundQueue.queue.async { box.player.stop() }
+            return
+        }
+        SoundQueue.queue.async { box.player.setVolume(0, fadeDuration: fade) }
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated {
-                self?.player?.stop()
-                self?.stopping = nil
-            }
+            MainActor.assumeIsolated { self?.stopping = nil }
+            SoundQueue.queue.async { box.player.stop() }
         }
         stopping = work
         DispatchQueue.main.asyncAfter(deadline: .now() + fade, execute: work)
     }
+}
+
+/// Hands an AVAudioPlayer to `SoundQueue` (AVAudioPlayer is not Sendable).
+private final class PlayerBox: @unchecked Sendable {
+    let player: AVAudioPlayer
+    init(_ player: AVAudioPlayer) { self.player = player }
 }
 
 @MainActor

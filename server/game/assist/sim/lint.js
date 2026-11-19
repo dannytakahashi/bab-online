@@ -52,7 +52,8 @@ function lintExplanation(e, view, { line, rich } = {}) {
     if (!C.CONFIDENCE_LABEL[e.confidence]) bad.push(`confidence ${e.confidence}`);
     if (!Array.isArray(e.codes) || e.codes.length === 0) bad.push('no codes');
     for (const t of texts) {
-        if (t.length > C.TEXT_MAX) bad.push(`text over ${C.TEXT_MAX}`);
+        // the plain-text line has its own cap (LINE_MAX, checked above); TEXT_MAX is the card's
+        if (t !== line && t.length > C.TEXT_MAX) bad.push(`text over ${C.TEXT_MAX}`);
         if (/undefined|NaN|\bnull\b|\[object|Infinity|\?\s|\s{2}/.test(t)) bad.push(`junk in: ${t}`);
         if (C.NAME_LINT.test(t)) bad.push(`team words in: ${t}`);
         if (/optimal/i.test(t)) bad.push(`"optimal" in: ${t}`);
