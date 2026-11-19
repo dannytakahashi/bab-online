@@ -300,6 +300,48 @@ describe('slash command help for /leave', () => {
   });
 });
 
+describe('autocomplete after a quick blur and refocus', () => {
+  let gameLog;
+  afterEach(() => {
+    vi.useRealTimers();
+    gameLog?.destroy();
+    gameLog = null;
+    resetGameState();
+  });
+
+  it('a focus within the blur wait keeps the list open for the next typing', () => {
+    vi.useFakeTimers();
+    resetGameState();
+    gameLog = createGameLog();
+    const input = gameLog.chatInput;
+    input.value = '/';
+    input.dispatchEvent(new Event('input'));
+    const dropdown = gameLog.container.querySelector('.slash-item').parentElement;
+    // click away and back within the 150 ms wait, without typing yet
+    input.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(50);
+    input.dispatchEvent(new Event('focus'));
+    vi.advanceTimersByTime(500);
+    expect(dropdown.hidden).toBe(false);
+  });
+
+  it('a plain blur still hides it after the wait', () => {
+    vi.useFakeTimers();
+    resetGameState();
+    gameLog = createGameLog();
+    const input = gameLog.chatInput;
+    input.value = '/';
+    input.dispatchEvent(new Event('input'));
+    const dropdown = gameLog.container.querySelector('.slash-item').parentElement;
+    expect(dropdown.hidden).toBe(false);
+    input.dispatchEvent(new Event('blur'));
+    vi.advanceTimersByTime(149);
+    expect(dropdown.hidden).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(dropdown.hidden).toBe(true);
+  });
+});
+
 describe('/help in the autocomplete (plan H3)', () => {
   let gameLog;
   const helpFor = (text) => {

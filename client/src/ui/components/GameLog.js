@@ -276,12 +276,22 @@ export function createGameLog({ onChatSubmit } = {}) {
   chatInput.onkeypress = (e) => {
     if (e.key === 'Enter') submitChat();
   };
+  // The blur's hide waits so a click on an autocomplete item fires first; focus or typing
+  // within that wait cancels it, or the list would vanish under a fast click-away-and-back
+  let blurHideTimer = null;
+  const cancelBlurHide = () => {
+    if (blurHideTimer !== null) clearTimeout(blurHideTimer);
+    blurHideTimer = null;
+  };
   chatInput.addEventListener('input', () => {
+    cancelBlurHide();
     updateAutocomplete(chatInput.value);
   });
+  chatInput.addEventListener('focus', cancelBlurHide);
   chatInput.addEventListener('blur', () => {
-    // Small delay so click events on autocomplete items fire first
-    setTimeout(() => {
+    cancelBlurHide();
+    blurHideTimer = setTimeout(() => {
+      blurHideTimer = null;
       autocompleteDropdown.hidden = true;
     }, 150);
   });
