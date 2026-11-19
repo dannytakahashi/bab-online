@@ -27,8 +27,11 @@
  *      unique index too: same database), a later startedAt, another
  *      bootId, not shutting down. Fresh: its beatAt within
  *      SUCCESSOR_FRESH_MS of this process's clock (coarse, the one
- *      wall-clock comparison here). A failed read is no successor
- *   4a. no successor (or an 'off' / 'write' one): deleteMany {owner: me}
+ *      wall-clock comparison here). A read that fails or times out (a
+ *      Mongo blip at SIGTERM) is NOT "no successor": an 'on' successor may
+ *      well be up, so it goes to 4b with nothing restorable deleted
+ *   4a. a read that finds no successor (or an 'off' / 'write' one):
+ *      deleteMany {owner: me}
  *      on both collections (<= 2 s), never a release. ENDED for every
  *      table once acknowledged; a table whose doc may still be there
  *      (delete not acknowledged, or an insert still unanswered) is
@@ -47,7 +50,14 @@
  *      table is deleted, never released, except one the holder self-fence
  *      suspended (game.isSuspended: it took no input or timer since, so its
  *      saved doc is a restore point): that doc is released as it is, with
- *      outcome 'unknown' (it may be a move behind, or another instance's)
+ *      outcome 'unknown' (it may be a move behind, or another instance's).
+ *      After a failed successor read every table with a saved doc is
+ *      released the same way (its final state where that write lands,
+ *      else as saved; only tainted docs are deleted), and every one is
+ *      'unknown' whatever was acknowledged: nobody may adopt it until a
+ *      later boot (or the release never lands and the stale-owner wait
+ *      applies). releaseKind stays 'handoff' (a SIGTERM, not a crash: it
+ *      must not count toward the adopter's crash-loop discard)
  *   outcomes: 'continue' (its release acknowledged), 'ended' (its doc is
  *   gone, or it never had one), 'unknown' (anything else: a release or a
  *   delete not acknowledged, an insert that may still land; the doc may
@@ -222,13 +232,15 @@ function createHandoff({
         const me = s.bootId;
         const mayHaveDoc = (e) => e.info.inserted || e.info.insertPending;
 
-        // 3. successor, before anything is released
+        // 3. successor, before anything is released. A read that failed or
+        // timed out says nothing: an 'on' successor may be up (4b, UNKNOWN)
         let successor = null;
         const found = await bounded(findSuccessor(s), SUCCESSOR_MS);
-        if (!failedOrTimedOut(found)) successor = found;
+        const successorUnknown = failedOrTimedOut(found);
+        if (!successorUnknown) successor = found;
         out.successor = !!successor;
 
-        if (!successor) {
+        if (!successor && !successorUnknown) {
             // 4a. delete, never release
             // An adoption claim still settling is not this process's table:
             // adopt.js hands that doc straight back (never deleted here)
@@ -247,7 +259,7 @@ function createHandoff({
             return out;
         }
 
-        // 4b. final writes, then release + delete
+        // 4b. final writes, then release + delete (a successor, or the read failed)
         const flushStart = monoNow();
         const writes = entries.map((e) => {
             if (!e.doc || e.info.insertPending || !liveGames) return Promise.resolve(false);
@@ -273,7 +285,9 @@ function createHandoff({
         // deleted). Its outcome is UNKNOWN: the doc may be a move behind,
         // or another instance may own it already (then the release, on
         // owner: me, leaves it alone)
-        const asIs = entries.filter((e) => e.suspended && e.info.inserted && !acked.includes(e));
+        // After a failed successor read, likewise every saved doc whose final
+        // write did not land (a tainted table's is still deleted)
+        const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
         const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
         // An adoption claim still settling (past the settle bound): adopt.js
         // hands that doc straight back, so the delete leaves it alone
@@ -295,7 +309,7 @@ function createHandoff({
         const deletedOk = !failedOrTimedOut(del);
         for (const e of entries) {
             let outcome;
-            if (acked.includes(e)) outcome = releasedOk ? 'continue' : 'unknown';
+            if (acked.includes(e)) outcome = releasedOk && !successorUnknown ? 'continue' : 'unknown';
             else if (asIs.includes(e)) outcome = 'unknown';
             else if (!mayHaveDoc(e) && !e.insertSent) outcome = 'ended';
             // An insert that may still land after the delete, or a delete not acknowledged
@@ -305,7 +319,7 @@ function createHandoff({
         }
         for (const game of others) out.tables.push({ game, outcome: 'ended' });
         s.stopHeartbeat();
-        logger.info('Handoff: live docs released', {
+        logger.info(successorUnknown ? 'Handoff: successor read failed; live docs released' : 'Handoff: live docs released', {
             tables: entries.length,
             released: releasedOk ? acked.length : 0,
             continued: out.tables.filter((t) => t.outcome === 'continue').length,

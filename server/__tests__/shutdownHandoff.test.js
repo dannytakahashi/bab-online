@@ -11,7 +11,8 @@
  *   over a recording io (fake timers), every bullet of the plan's list:
  *   released at the last rev and only for acknowledged ids, no write as A
  *   after the release, no seatDisconnect for a frozen table, the successor
- *   check before any release, one table's final write failing, a tainted
+ *   check before any release (a read that fails or times out releases,
+ *   UNKNOWN; one that finds none deletes), one table's final write failing, a tainted
  *   table, an insert in flight at SIGTERM (awaited; or never released
  *   unacknowledged), a stalled replaceOne cut at the flush bound, no
  *   successor / an 'off' or 'write' one (today's line, docs deleted), no
@@ -197,19 +198,90 @@ describe('over a recording io (fake timers)', () => {
         expect(doc(id).released).toBe(true);
     });
 
-    test('the successor check comes before any release: its read fails -> nothing released, docs deleted, today\'s line', async () => {
-        const { store } = await bootA();
-        const { id } = await table(store);
-        successor();
-        db().faults.fail({ collections: 'serverInstances', ops: 'find' });
-        signal('SIGTERM');
-        await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
-        expect(db().faults.calls.filter((c) => c.collection === 'liveGames' && ['updateMany', 'replaceOne'].includes(c.op))).toEqual([]);
-        expect(doc(id)).toBeNull();
-        expect(lineOf(id)).toEqual([shutdown.GAME_NOTICE]);
-        expect(exit).toHaveBeenCalledWith(0);
+    // The successor read failing or timing out (a Mongo blip at SIGTERM)
+    // is not "no successor": an 'on' successor may well be up, so nothing
+    // restorable is deleted. The docs are released (the final state where
+    // its write lands, else as saved) with the UNKNOWN line; the adopter
+    // takes them like any handoff release (or, if the release never lands,
+    // after the stale-owner wait)
+    describe('the successor read fails or times out: released, never deleted, UNKNOWN', () => {
+        const adoptable = (d) => require('../game/persist/adopt').classify(d, {
+            ownerState: 'alive', ownerInst: null, me: 'boot-B', myStartedAt: new Date(), myDeploymentId: 'dep-B',
+            now: Date.now(), readVersions: [d.v]
+        }).act;
+
+        test.each([
+            ['fails', () => db().faults.fail({ collections: 'serverInstances', ops: 'find' })],
+            ['times out', () => db().faults.stall({ collections: 'serverInstances', ops: 'find' })],
+        ])('the read %s: the final state released, UNKNOWN, adoptable', async (_why, fault) => {
+            const { store } = await bootA();
+            const { game, id } = await table(store);
+            successor();
+            const finalState = gameCodec.serialize(game);
+            const revBefore = doc(id).rev;
+            fault();
+            const t0 = Date.now();
+            signal('SIGTERM');
+            let closedAt = null;
+            io.close.mockImplementation((cb) => { closedAt = Date.now(); order.push('io.close'); cb?.(); });
+            await jest.advanceTimersByTimeAsync(shutdown.HANDOFF_SPAN_MS + shutdown.SETTLE_MS + 100);
+            const saved = doc(id);
+            expect(saved).toMatchObject({ owner: 'boot-A', ownerMode: 'on', released: true, releaseKind: 'handoff', rev: revBefore + 1 });
+            expect(kit.comparable(saved)).toEqual(kit.comparable(finalState));
+            expect(adoptable(saved)).toBe('adopt');
+            expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+            // The pointer stays for whoever adopts it
+            expect(db().users.docs.find((u) => u.username === 'Hal').activeGameId).toBe(id);
+            expect(closedAt - t0).toBeLessThanOrEqual(shutdown.HANDOFF_SPAN_MS);
+            expect(exit).toHaveBeenCalledWith(0);
+            db().faults.release();
+        });
+
+        test('the read fails and the final write fails too: the saved doc is released as it is, UNKNOWN', async () => {
+            const { store } = await bootA();
+            const { id } = await table(store);
+            const saved = kit.comparable(doc(id));
+            const revBefore = doc(id).rev;
+            db().faults.fail({ collections: 'serverInstances', ops: 'find' });
+            db().faults.fail({ collections: 'liveGames', ops: 'replaceOne' });
+            signal('SIGTERM');
+            await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+            expect(doc(id)).toMatchObject({ owner: 'boot-A', released: true, releaseKind: 'handoff', rev: revBefore });
+            expect(kit.comparable(doc(id))).toEqual(saved);
+            expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+            expect(exit).toHaveBeenCalledWith(0);
+        });
+
+        test('the read fails and the release is not acknowledged: still UNKNOWN, the doc left for the stale-owner wait (never deleted)', async () => {
+            const { store } = await bootA();
+            const { id } = await table(store);
+            db().faults.fail({ collections: 'serverInstances', ops: 'find' });
+            db().faults.fail({ collections: 'liveGames', ops: 'updateMany' });
+            signal('SIGTERM');
+            await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+            expect(doc(id)).toMatchObject({ owner: 'boot-A', kind: 'live', released: false });
+            expect(lineOf(id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+            expect(exit).toHaveBeenCalledWith(0);
+        });
+
+        test('the read fails: a tainted table is still deleted (today\'s line), a pre-deal table gets today\'s line', async () => {
+            const { store } = await bootA();
+            const { game, id } = await table(store);
+            const other = await table(store, ['Ann']);
+            const { game: preDeal } = await kit.startGame(io, log, { humans: ['Cy'], until: () => true });
+            game.markTainted(true);
+            db().faults.fail({ collections: 'serverInstances', ops: 'find' });
+            signal('SIGTERM');
+            await jest.advanceTimersByTimeAsync(shutdown.NOTICE_MS + shutdown.SETTLE_MS + 100);
+            expect(doc(id)).toBeNull();
+            expect(lineOf(id)).toEqual([shutdown.GAME_NOTICE]);
+            expect(lineOf(preDeal.gameId)).toEqual([shutdown.GAME_NOTICE]);
+            expect(doc(other.id)).toMatchObject({ released: true });
+            expect(lineOf(other.id)).toEqual([shutdown.UNKNOWN_NOTICE]);
+        });
     });
 
+    // A read that succeeds and finds no eligible successor: deleted as before
     test.each([
         ['no successor', () => {}],
         ["an 'off' successor (no instance doc)", () => {}],
