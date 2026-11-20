@@ -164,6 +164,78 @@ export function replayPips(page, rec, label) {
   return { results, bad: results.filter((r) => !same(r.live, r.want) || !same(r.piles, r.wantPiles)) };
 }
 
+/**
+ * The game log's bid chips row (#gameFeed .log-tricks) a snapshot calls
+ * for, worked out from the server's own bids: 'hidden' outside a dealt hand
+ * and once its handComplete came (`handOver`: the live log hides the row
+ * then; the server is HAND_RESOLVING from the last trick on, a second
+ * before it, and a rebuild in that stage shows the row); else one
+ * character per chip, the viewer's team first
+ * (a spectator's: seats 1/3, as the score header), 'a' team A (seats 1/3,
+ * blue), 'b' team B (seats 2/4, coral), '.' not bid, upper case past the
+ * hand size (an overbid). A bore counts as the hand; each team is capped
+ * at the hand size; at most 16 chips.
+ */
+export function expectedChips(snap, { handOver = false } = {}) {
+  if (handOver || !snap?.deal || !['BIDDING', 'PLAYING', 'TRICK_RESOLVING', 'HAND_RESOLVING'].includes(snap.stage)) return 'hidden';
+  const size = snap.deal.handSize;
+  const bids = snap.bids.byPosition;
+  const tricksOf = (b) => (b == null ? 0 : ['B', '2B', '3B', '4B'].includes(b) ? size : Math.min(Number(b), size));
+  const t1 = Math.min(size, tricksOf(bids[0]) + tricksOf(bids[2]));
+  const t2 = Math.min(size, tricksOf(bids[1]) + tricksOf(bids[3]));
+  const seat = snap.viewer.role === 'spectator' ? 1 : snap.viewer.position;
+  const [mine, opp, m, o] = seat % 2 === 1 ? [t1, t2, 'a', 'b'] : [t2, t1, 'b', 'a'];
+  const total = Math.min(Math.max(mine + opp, size), 16);
+  let out = '';
+  for (let i = 0; i < total; i++) {
+    const c = i < mine ? m : i < mine + opp ? o : '.';
+    out += i >= size ? c.toUpperCase() : c;
+  }
+  return out;
+}
+
+/** The same row on the page ('hidden', or the chips as expectedChips spells them). */
+export function liveChips() {
+  const section = document.querySelector('#gameFeed .log-tricks');
+  if (!section || section.hidden) return 'hidden';
+  return [...section.querySelectorAll('.log-chip')].map((chip) => {
+    const c = chip.classList.contains('is-team-a') ? 'a' : chip.classList.contains('is-team-b') ? 'b' : '.';
+    return chip.classList.contains('is-overbid') ? c.toUpperCase() : c;
+  }).join('');
+}
+
+/**
+ * Replay one viewer's log and compare the bid chips row with expectedChips
+ * at every live-table checkpoint (BIDDING, PLAYING, TRICK_RESOLVING,
+ * HAND_RESOLVING), just before the entry it precedes; a deal still waiting
+ * for the first hand's fade or the whisk is skipped (not on the table yet).
+ * @returns {{results: Array, bad: Array}}
+ */
+export function replayChips(page, rec, label, { from = 0 } = {}) {
+  const byIndex = new Map(tableCheckpoints(rec, label).map((c) => [c.afterIndex, c]));
+  const results = [];
+  // a handComplete fired for this deal (the next deal or a rebuild clears it)
+  let handOver = false;
+  const check = (i) => {
+    const cp = byIndex.get(i);
+    if (!cp || page.scene.director.waiting > 0) return;
+    results.push({ i, stage: cp.snapshot.stage, handNo: cp.snapshot.deal?.handNo ?? null, live: liveChips(), want: expectedChips(cp.snapshot, { handOver }) });
+  };
+  const REBUILDS = ['gameStart', 'rejoinSuccess', 'restorePlayerState', 'spectatorJoined', 'actionRejected'];
+  replayLog(page, rec.logs[label], {
+    from,
+    before: (e) => {
+      check(e.i);
+      if (e.dir !== 's2c') return;
+      if (e.event === 'handComplete') handOver = true;
+      else if (REBUILDS.includes(e.event)) handOver = false;
+    },
+  });
+  advance(50);
+  check(rec.logs[label].length);
+  return { results, bad: results.filter((r) => r.live !== r.want) };
+}
+
 /** Game-log rows on the page. */
 export function logRows() {
   return document.getElementById('gameFeedMessages')?.childElementCount ?? 0;
