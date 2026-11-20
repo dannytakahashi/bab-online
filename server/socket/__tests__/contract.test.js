@@ -840,8 +840,11 @@ describe('(e) non-game handlers', () => {
         await authHandlers.deleteAccount(c, w.io, { password: 'wrong' });
         await authHandlers.deleteAccount(c, w.io, { password: 'pw2-longer' });
         const online = gameManager.getOnlineUsernames().length;
+        // Only d's own: the device kicks above (b by a's password sign-in, c's
+        // restore) already sent e_alice's (onlinePresence)
+        const fromKill = w.log.length;
         await w.kill(d);
-        const left = events(w.log, 'mainRoomPlayerLeft');
+        const left = events(w.log.slice(fromKill), 'mainRoomPlayerLeft');
         expect(left).toHaveLength(1);
         expect(left[0]).toMatchObject({ to: 'mainRoom', data: { username: 'e_dora', onlineCount: online - 1 } });
         expect(left[0].data.onlineUsers).not.toContain('e_dora');

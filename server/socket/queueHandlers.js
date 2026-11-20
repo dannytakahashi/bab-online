@@ -10,6 +10,7 @@ const { disconnectOwner } = require('./seatLifecycle');
 const { lobbySeatSuspended, lobbySeatExpired, tableBotsReadied } = require('./lobbyHandlers');
 const sessionIdentity = require('./sessionIdentity');
 const playAgain = require('./playAgain');
+const onlinePresence = require('./onlinePresence');
 
 /**
  * A socket disconnected: drop it from the main room / lobby / tournament /
@@ -34,7 +35,7 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     // An older app still on a score screen: its lingering calls with the
     // players back in the lobby end (play again)
     playAgain.endLingering(io, socket.id, 'disconnect');
-    const onlineBefore = gameManager.getOnlineUsernames().length;
+    const wasOnline = onlinePresence.isOnline(user?.username);
     const result = gameManager.handleDisconnect(socket.id, {
         lobbyGrace,
         onLobbyGraceExpire: (expired) => lobbySeatExpired(io, expired)
@@ -87,16 +88,11 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     gameManager.removeUserSocket(socket.id);
 
     // The user's last socket is gone: the main room's online count and list
-    // shrink (new event; current clients keep their stale count, ctr-21). A
-    // sign-out that keeps the socket open is not covered.
-    const onlineUsers = gameManager.getOnlineUsernames();
-    if (user && onlineUsers.length < onlineBefore) {
-        io.to('mainRoom').emit('mainRoomPlayerLeft', {
-            username: user.username,
-            onlineCount: onlineUsers.length,
-            onlineUsers
-        });
-    }
+    // shrink (new event; current clients keep their stale count, ctr-21).
+    // A forced sign-out outside a game dropped the entry already and is
+    // announced by authHandlers.signOutSocket; an account switch on the
+    // socket comes through here (releaseIdentity)
+    if (user) onlinePresence.announceOffline(io, user.username, wasOnline);
 }
 
 /** Route an in-game socket's disconnect to its entrant or seat-owner transition. */

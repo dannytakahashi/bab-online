@@ -17,6 +17,7 @@ const { rememberBlockList } = require('./voiceHandlers');
 const playAgain = require('./playAgain');
 const { eraseAccount, forgetAccount, isNameHold } = require('../admin/accountDelete');
 const pointerResolve = require('./pointerResolve');
+const onlinePresence = require('./onlinePresence');
 const { checkPasswordRule, revokeOpenResetLinks, PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const {
     belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded,
@@ -101,7 +102,13 @@ function signOutSocket(io, socketId) {
     const sock = io?.sockets?.sockets?.get(socketId);
     if (!sock) return false;
     sock.emit('forceLogout');
+    const username = gameManager.getUserBySocketId(socketId)?.username;
+    const wasOnline = onlinePresence.isOnline(username);
     gameManager.handleDisconnect(socketId);
+    // Outside a game handleDisconnect drops the entry here, so the
+    // disconnect below finds no user and announces nothing: this does
+    // (in a game the entry stays and the disconnect announces it)
+    onlinePresence.announceOffline(io, username, wasOnline);
     sock.disconnect();
     return true;
 }
@@ -473,6 +480,9 @@ async function signIn(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        // Back online (e.g. a reconnect straight into a game, which never
+        // joins the main room): the main room's list hears it now
+        onlinePresence.announceOnline(io, username, previousEntry != null);
         await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);
@@ -753,7 +763,9 @@ async function signUp(socket, io, data) {
         gameManager.deletedUsernames.delete(username);
 
         // Auto-login: register with game manager (same as signIn)
+        const wasOnline = onlinePresence.isOnline(username);
         gameManager.registerUser(socket.id, username);
+        onlinePresence.announceOnline(io, username, wasOnline);
         clearSuperseded(socket, io);
         rememberBlockList(socket, []);
         rememberTutorialFlag(socket, { tutorial: 'pending' });
@@ -905,6 +917,9 @@ async function restoreSession(socket, io, data) {
             return;
         }
         claim = null; // signed in: the name stays claimed
+        // Back online (e.g. a reconnect straight into a game, which never
+        // joins the main room): the main room's list hears it now
+        onlinePresence.announceOnline(io, username, previousEntry != null);
         await clearResetNotice(usersCollection, username, user);
         clearSuperseded(socket, io);
         confirmSupersede(io, parked, socket);

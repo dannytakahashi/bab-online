@@ -5198,9 +5198,10 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/mainRoomHandlers.js:joinMainRoom"
+        "server/socket/mainRoomHandlers.js:joinMainRoom",
+        "server/socket/onlinePresence.js:announceOnline"
       ],
-      "notes": "socket.to(mainRoom): everyone in the main room but the joiner."
+      "notes": "A refresh of the online count and list (both clients: no chat line). Sent (1) on joinMainRoom, socket.to(mainRoom): everyone in the main room but the joiner; (2) since 2026-11-20, io.to(mainRoom) when a sign-in, sign-up, restoreSession or token rejoin brings a name online that was not (a player reconnecting straight into a game or tournament never sends joinMainRoom); a second socket of a user already online sends none. A client that then joins the main room causes (1) too: one more identical refresh."
     },
     "mainRoomPlayerLeft": {
       "payload": {
@@ -5234,9 +5235,9 @@
         "ios": []
       },
       "emittedFrom": [
-        "server/socket/queueHandlers.js:handleDisconnect"
+        "server/socket/onlinePresence.js:announceOffline"
       ],
-      "notes": "New: the user's last socket disconnected (the online list shrank). Counterpart of mainRoomPlayerJoined. A sign-out that keeps the socket open is not covered. Current builds ignore it and keep a stale count (ctr-21)."
+      "notes": "New: a name went offline (the online list shrank): its last socket disconnected (queueHandlers.handleDisconnect, also an account switch on the socket) or it was signed out (authHandlers.signOutSocket: sign out everywhere, a password reset, an admin action). Counterpart of mainRoomPlayerJoined. Current builds ignore it and keep a stale count (ctr-21)."
     },
     "lobbiesUpdated": {
       "payload": {
