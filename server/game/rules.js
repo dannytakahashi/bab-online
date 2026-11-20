@@ -336,6 +336,22 @@ function handFaults({ teamBids, teamTricks, playerBids, handTricks } = {}) {
 }
 
 /**
+ * One seat's bags in a hand (superlatives, owner 2026-11-20): the tricks it
+ * took over its own bid, never below 0. A bore bid counts as bidding every
+ * trick of the hand (as GameState.recordBid totals it), so a bore never
+ * bags.
+ * @param {string|number} bid - the seat's bid ('0'..'13', 'B', '2B', ...)
+ * @param {number} took - tricks the seat won this hand
+ * @param {number} handSize - cards dealt this hand
+ * @returns {number}
+ */
+function seatBags(bid, took, handSize) {
+    const s = String(bid ?? '');
+    const bidValue = s.includes('B') ? (Number(handSize) || 0) : parseInt(s, 10) || 0;
+    return Math.max(0, (Number(took) || 0) - bidValue);
+}
+
+/**
  * Find the index of the highest bidder starting from a position
  * @param {number} startPosition - Position to start checking from (1-4)
  * @param {Array} bids - Array of bid strings
@@ -506,6 +522,7 @@ module.exports = {
     calculateScore,
     personalBidValue,
     handFaults,
+    seatBags,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,

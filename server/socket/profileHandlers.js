@@ -13,9 +13,10 @@ const avatarStore = require('../avatar/avatarStore');
 const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
-const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
+const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
+const { DELETED_NAME } = require('../admin/nameHold');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -389,7 +390,12 @@ function buildGameRecord(game, { withBots = false } = {}) {
     };
 }
 
-/** The 12 counters one human seat adds to its bucket for this game. */
+/**
+ * One human seat's counters for this game: the 12 it adds to its bucket
+ * (STAT_KEYS) plus `totalBags` (tricks over its own bid, summed per hand:
+ * superlatives' Bag Boy; record-only, never $inc'd into users.stats /
+ * botStats, see applyPendingStats).
+ */
 function seatStatsDelta(game, position) {
     const team1Won = game.score.team1 > game.score.team2;
     const isTie = game.score.team1 === game.score.team2;
@@ -411,7 +417,8 @@ function seatStatsDelta(game, position) {
         // Points lost to sets - for the "drag" stat
         totalSetPoints: isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0),
         totalFaults: playerStats.setsCaused || 0,
-        totalHSI: playerStats.totalHSI || 0
+        totalHSI: playerStats.totalHSI || 0,
+        totalBags: playerStats.totalBags || 0
     };
 }
 
@@ -519,8 +526,12 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
             return;
         }
         const bucket = seatBucket(record.statsDeltas, entry.position);
+        // Only the bucket's 12 fields: record-only counters (totalBags)
+        // stay in the record, so a profile's raw bucket keeps its shape
         const $inc = {};
-        for (const [field, value] of Object.entries(delta)) $inc[`${bucket}.${field}`] = value;
+        for (const field of STAT_KEYS) {
+            if (delta[field] !== undefined) $inc[`${bucket}.${field}`] = delta[field];
+        }
         try {
             const res = await withRetry('stats', gameId, () => users.updateOne(
                 {
@@ -617,6 +628,13 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * record. No I/O: it reads the game, gameManager.deletedUsernames and the
  * clock (completedAt).
  *
+ * `statsDeltas.names {<pos>: username}` (superlatives, 2026-11-20): the
+ * seat -> player map the Records superlatives read, durable (statsPending
+ * is unset once the stats are applied): every seat in byPosition, by its
+ * record name ('[deleted]' for a player deleted mid-game, as in
+ * teamNPlayers); humans only. Kept in step with teamNPlayers by
+ * server/admin/accountRename.js, accountMerge.js and accountDelete.js.
+ *
  * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
  * made more than ASSIST_FREE_HELP counted /help uses or played with the
  * tutorial (a.tutorialEver; assistState.isAssistedSeat) played a
@@ -631,7 +649,8 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * `statsDeltas.assist {<pos>: {help}}` (by position, never by name; a
  * tutorial seat `{help, tutorial: true}`). A game
  * nobody used /help or the tutorial in gives exactly the document it gave before /help
- * (assistRecords.test.js holds it byte for byte).
+ * (plus the superlatives' totalBags and names since 2026-11-20;
+ * assistRecords.test.js holds it byte for byte).
  * @param {Object} game - a finished game
  * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
  */
@@ -650,7 +669,11 @@ function buildGameEndRecord(game) {
     const bucket = withBots ? 'botStats' : 'stats';
 
     const byPosition = {};
-    for (const { position } of players) byPosition[position] = seatStatsDelta(game, position);
+    const names = {};
+    for (const { position, player } of players) {
+        byPosition[position] = seatStatsDelta(game, position);
+        names[position] = gameManager.deletedUsernames.has(player.username) ? DELETED_NAME : player.username;
+    }
     // A player who deleted their account mid-game has nothing to credit, and
     // their name must not go into the record
     const statsPending = players
@@ -671,7 +694,7 @@ function buildGameEndRecord(game) {
     }
 
     const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });
-    doc.statsDeltas = { bucket, byPosition };
+    doc.statsDeltas = { bucket, byPosition, names };
     if (assisted.length > 0 && bucket !== 'botStats') {
         doc.statsDeltas.bucketByPosition = Object.fromEntries(assisted.map((pos) => [pos, 'botStats']));
     }

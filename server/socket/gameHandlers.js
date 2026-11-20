@@ -16,6 +16,7 @@ const {
     calculateHSI,
     calculateScore,
     handFaults,
+    seatBags,
     nextHandSize: handSizeAfter,
     BID_RANKS
 } = require('../game/rules');
@@ -914,6 +915,16 @@ async function handleHandComplete(game, io) {
         for (const f of faults) {
             if (game.playerStats[f.position]) game.playerStats[f.position].setsCaused++;
         }
+        // Bags per seat (superlatives: Bag Boy): tricks over the seat's own
+        // bid this hand, a bore never bags (rules.seatBags). Server-only:
+        // the gameEnd playerStats leave it out
+        if (game.handTricks && Array.isArray(game.playerBids)) {
+            for (const pos of [1, 2, 3, 4]) {
+                const ps = game.playerStats[pos];
+                if (!ps) continue;
+                ps.totalBags = (ps.totalBags || 0) + seatBags(game.playerBids[pos - 1], game.handTricks[pos], game.currentHand);
+            }
+        }
     }
 
     gameLogger.debug('Score update', {
@@ -983,9 +994,12 @@ async function handleHandComplete(game, io) {
         const totalHands = game.handStats.totalHands;
         for (let pos = 1; pos <= 4; pos++) {
             const player = game.getPlayerByPosition(pos);
+            // totalBags is server-only (the record's statsDeltas), not in
+            // the gameEnd schema
+            const { totalBags: _bags, ...wireStats } = game.playerStats[pos];
             playerStatsWithNames[pos] = {
                 username: player?.username || `P${pos}`,
-                ...game.playerStats[pos],
+                ...wireStats,
                 avgHSI: totalHands > 0 ? Math.round(game.playerStats[pos].totalHSI / totalHands) : 0
             };
         }
