@@ -1333,17 +1333,17 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(q('.hud-assist').hidden).toBe(true);
   });
 
-  it('the welcome\'s ✕ says Keep too; Turn off sends /tutorial off', () => {
+  it('the welcome\'s ✕ sends /tutorial close (not Keep); Turn off sends /tutorial off', () => {
     on(true);
     const { scene } = mySeat();
     scene.handleAssistHint(welcome());
     q('.assist-tip__close').click();
-    expect(sent()).toEqual(['/tutorial keep']);
+    expect(sent()).toEqual(['/tutorial close']);
     scene.handleAssistHint({ ...welcome() });
     const off = q('.assist-tip__action.is-off');
     expect(off.textContent).toBe('Turn off');
     off.click();
-    expect(sent()).toEqual(['/tutorial keep', '/tutorial off']);
+    expect(sent()).toEqual(['/tutorial close', '/tutorial off']);
     expect(titles()).toEqual([]);
   });
 
@@ -1385,9 +1385,9 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     scene.handleAssistHint(tip('T.handScore', 'Hand score', 'This hand, you and Bob (your partner) bid 2 and won 2: 2 × 10 = +20.'));
     scene.clearAssist();
     expect(titles()).toEqual(['Hand score']);
-    scene.handleAssistHint(tip('T.done', 'Tutorial complete', 'Tutorial complete. Type /help any time for a suggestion.'));
+    scene.handleAssistHint(tip('T.done', 'Tutorial complete', 'Thanks for playing with the tutorial. Type /help any time for a suggestion.'));
     expect(titles()).toEqual(['Hand score']);
-    expect(rows.at(-1)).toBe('Tip: Tutorial complete. Type /help any time for a suggestion.');
+    expect(rows.at(-1)).toBe('Tip: Thanks for playing with the tutorial. Type /help any time for a suggestion.');
   });
 
   it('the chip: only while on, at my own seat; its switch sends /tutorial off once and waits', () => {

@@ -65,7 +65,10 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(welcome.staticTexts["tip.text"].label.hasPrefix("Tips will appear above your cards. Only you see them."))
         XCTAssertTrue(app.buttons["tip.keep"].exists)
         XCTAssertTrue(app.buttons["tip.off"].exists)
-        XCTAssertFalse(element(app, "tutorialTip").exists, "the rule tip waits for the welcome")
+        // the rule tip under the welcome (each tip comes once a game: never hidden behind it)
+        let tip = element(app, "tutorialTip")
+        XCTAssertTrue(tip.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(tip.frame.minY, welcome.frame.maxY - 1, "tip \(tip.frame) welcome \(welcome.frame)")
         // the advice: the /help card, never counted
         XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
         XCTAssertEqual(element(app, "assist.headline").label, "Bid 2")
@@ -85,11 +88,10 @@ final class TutorialUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(welcome.frame.minY, app.buttons["leave"].frame.maxY, "welcome \(welcome.frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
         shot(app, "welcome")
-        // Keep: /tutorial keep, and the rule tip shows
+        // Keep: /tutorial keep, and the rule tip stays
         app.buttons["tip.keep"].tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial keep"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))
-        let tip = element(app, "tutorialTip")
         XCTAssertTrue(tip.waitForExistence(timeout: 3))
         XCTAssertEqual(tip.staticTexts["tip.title"].label, "Bidding")
         XCTAssertTrue(tip.staticTexts["tip.text"].label.hasPrefix("Bid how many tricks you expect to win."))
@@ -146,6 +148,19 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
         XCTAssertFalse(element(app, "tutorialTip").exists, "off: the waiting tip goes too")
         XCTAssertTrue(app.staticTexts["Tips off. /help still works any time."].waitForExistence(timeout: 3))
+    }
+
+    func testTheWelcomesCloseSendsItsOwnLine() {
+        let app = launch("bidding-mid")
+        let welcome = element(app, "tutorialWelcome")
+        XCTAssertTrue(welcome.waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "tutorialTip").waitForExistence(timeout: 5))
+        welcome.buttons["tip.close"].tap()
+        XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial close"), Fixture.probe(app, "fixture.sent"))
+        XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial keep"), "× is not Keep")
+        XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element(app, "tutorialTip").exists, "the rule tip stays")
+        XCTAssertTrue(element(app, "tutorial.chip").exists, "the tutorial stays on")
     }
 
     func testTheChatListOffersTheTutorial() {

@@ -18,6 +18,8 @@ import SwiftUI
 /// the headline and the main reason once (TableEffect.announce); the card never takes focus.
 struct AssistCardView: View {
     let hint: AssistHint
+    /// My tutorial is on: a /help answer then is never counted (AssistRules.footer).
+    var tutorialOn = false
     var onClose: () -> Void
 
     @State private var showsWhy = false
@@ -103,7 +105,7 @@ struct AssistCardView: View {
                     }
                 }
             }
-            if let footer = AssistRules.footer(hint) {
+            if let footer = AssistRules.footer(hint, tutorial: tutorialOn) {
                 Text(footer)
                     .font(.caption)
                     .foregroundColor(Theme.textDim)

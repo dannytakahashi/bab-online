@@ -160,8 +160,11 @@ enum AssistRules {
     ///   "Ask a bot for advice (after 3 free, this game counts as bot-assisted)" (unknown: a
     ///   relaunch, a rejoin; the warning stays, since the uses so far may be spent)
     ///   "Ask a bot for advice" in a game with a native bot seat (`free`, or the uses' `unlimited`)
-    static func helpDescription(_ u: AssistUses?, free: Bool = false) -> String {
+    /// While my tutorial is on (`tutorial`) /help is never counted: just "Ask a bot for advice",
+    /// or "(this game is bot-assisted for you)" once the server says so (web helpDescription).
+    static func helpDescription(_ u: AssistUses?, free: Bool = false, tutorial: Bool = false) -> String {
         if free || u?.unlimited == true { return askLabel }
+        if tutorial { return u?.assisted == true ? "\(askLabel) (this game is bot-assisted for you)" : askLabel }
         guard let u else { return "\(askLabel) (after \(defaultFreeUses) free, this game counts as bot-assisted)" }
         if u.assisted || u.uses > u.freeUses { return "\(askLabel) (this game is bot-assisted for you)" }
         if u.uses >= u.freeUses { return "\(askLabel) (the next one makes this game bot-assisted)" }
@@ -200,10 +203,13 @@ enum AssistRules {
     /// In a game with a native bot seat (`unlimited`) no count: just "What our strongest bot
     /// would play" (a forced move and a re-ask too), or the Quick note alone.
     /// The tutorial's advice (never counted) has no count either: "What our strongest bot would
-    /// play", or the Quick note.
-    static func footer(_ h: AssistHint) -> String? {
+    /// play", or the Quick note; nor a /help answer while my tutorial is on (`tutorial`: the
+    /// server never counts it then), as the web's assistFooter.
+    static func footer(_ h: AssistHint) -> String? { footer(h, tutorial: false) }
+
+    static func footer(_ h: AssistHint, tutorial: Bool) -> String? {
         guard h.kind != .status, h.kind != .tip else { return nil }
-        if h.unlimited || h.isTutorial { return h.confidence == "quick" ? footerQuick : footerBot }
+        if h.unlimited || h.isTutorial || (tutorial && !h.counted) { return h.confidence == "quick" ? footerQuick : footerBot }
         if h.confidence == "only" { return "Not counted" }
         let lead = h.confidence == "quick" ? footerQuick : footerBot
         let tail: String

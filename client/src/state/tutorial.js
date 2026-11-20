@@ -14,9 +14,11 @@
  *    rule tips (kind tip: headline = the tip's title, reasons = [its text],
  *    tipId). A tip and the advice of the same decision arrive tip first, so
  *    the card shows both: the tip above the advice.
- *  - T.welcome carries actions ['keep', 'off']: Keep sends `/tutorial keep`,
- *    Turn off `/tutorial off`, its ✕ `/tutorial keep` too (the server marks
- *    an auto-started account dismissed either way).
+ *  - T.welcome carries actions ['keep', 'off']: Keep sends `/tutorial keep`
+ *    (an acknowledgement: the account stays as it is), Turn off `/tutorial
+ *    off`, its ✕ `/tutorial close` (the server marks an auto-started
+ *    account dismissed for those two, plan 5.2; the tutorial stays on
+ *    after a close).
  *  - Whether it is on: s2c assistState {tutorial, auto, ...} on every change
  *    and after a rejoin, and a snapshot's viewer.assist.tutorial / .auto
  *    (present only while on) after a reload. Reset when a game starts
@@ -31,10 +33,11 @@
 /** The clientHello cap that asks for tips, assistState and the auto-start. */
 export const TUTORIAL_CAP = 'tutorial';
 
-/** The chat command (toggles); `/tutorial on|off|keep` set it. */
+/** The chat command (toggles); `/tutorial on|off` set it; keep / close answer the welcome tip. */
 export const TUTORIAL_COMMAND = '/tutorial';
 export const TUTORIAL_OFF_COMMAND = '/tutorial off';
 export const TUTORIAL_KEEP_COMMAND = '/tutorial keep';
+export const TUTORIAL_CLOSE_COMMAND = '/tutorial close';
 
 /** The chat autocomplete's line for /tutorial, off and on. */
 export const TUTORIAL_ON_DESCRIPTION = 'Tutorial: tips and advice every turn';

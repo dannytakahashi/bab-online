@@ -131,7 +131,7 @@ describe('tips', () => {
     expect(isWelcomeTip(welcome())).toBe(true);
     expect(isWelcomeTip(tip({ actions: ['keep'] }))).toBe(true);
     expect(isWelcomeTip(tip())).toBe(false);
-    expect(isRowOnlyTip(tip({ tipId: 'T.done', headline: 'Tutorial complete', reasons: ['Tutorial complete. Type /help any time for a suggestion.'] }))).toBe(true);
+    expect(isRowOnlyTip(tip({ tipId: 'T.done', headline: 'Tutorial complete', reasons: ['Thanks for playing with the tutorial. Type /help any time for a suggestion.'] }))).toBe(true);
     expect(isRowOnlyTip(tip())).toBe(false);
   });
 

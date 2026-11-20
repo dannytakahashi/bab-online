@@ -68,8 +68,9 @@
  *
  * The tutorial (the LEAN scope of 2026-11-19 with the fade-out;
  * docs/claude/assist.md, The tutorial): `/tutorial` toggles, `/tutorial
- * on|off` sets, `/tutorial keep` (sent by a client when the welcome tip is
- * kept or closed) only acknowledges it; all through chatMessage. While on,
+ * on|off` sets, `/tutorial keep` (the welcome tip's Keep) only acknowledges
+ * it and `/tutorial close` (its ✕) dismisses an auto-start; all through
+ * chatMessage. While on and the seat's owner socket has the cap `tutorial`,
  * tutorTick (after every updateTurn, in a setImmediate: the turn event is
  * never delayed) pushes on each of the seat's own non-forced decisions the
  * same answer /help gives (same cache, source 'tutorial', never counted, no
@@ -85,7 +86,7 @@
 
 'use strict';
 
-const { Controller } = require('../game/SeatState');
+const { Controller, Presence } = require('../game/SeatState');
 const { seatView } = require('../game/assist/seatView');
 const { advise, searchEligible } = require('../game/assist/advise');
 const { explain, status } = require('../game/assist/explain');
@@ -151,8 +152,12 @@ let cache = new WeakMap();
 /**
  * The tutor's per-seat window (DERIVED, never saved: a restore starts it
  * empty, so at worst one tip window is reopened): game -> {pos: {lastKey,
- * windowUsed}}. lastKey: the turnKey the seat was last ticked at;
- * windowUsed: a rule tip was shown since the seat's last own decision.
+ * windowUsed, graduateUnsent}}. lastKey: the turnKey the seat was last
+ * ticked at; windowUsed: a rule tip was shown since the seat's last own
+ * decision (only that decision reopens it, never a hand end);
+ * graduateUnsent: T.graduate's bit was set at the end of the 2-card hand
+ * while the seat could not be told (away, lazy, no cap): the next tick
+ * with a socket that has the cap sends it.
  */
 let tutor = new WeakMap();
 /** Process counters for /health (counts only). */
@@ -470,14 +475,32 @@ function sendAdvice(io, game, sid, pos, answer) {
 function tutorSeat(game, pos) {
     let m = tutor.get(game);
     if (!m) tutor.set(game, (m = {}));
-    return m[pos] || (m[pos] = { lastKey: null, windowUsed: false });
+    return m[pos] || (m[pos] = { lastKey: null, windowUsed: false, graduateUnsent: false });
+}
+
+/** Is the tutorial on in seat `pos`'s record (its owner's own record), whoever plays the seat now? */
+function tutorialRecordOn(game, pos) {
+    const seat = game.seat(pos);
+    const a = game.assist?.[pos];
+    return !!seat && !!seat.ownerUsername && !!a && a.tutorial === true && a.user === seat.ownerUsername;
 }
 
 /** Is the tutorial on for seat `pos` (its owner's own record, a human seat)? */
 function tutorialOn(game, pos) {
-    const seat = game.seat(pos);
-    const a = game.assist?.[pos];
-    return !!seat && seat.controller === Controller.HUMAN && !!a && a.tutorial === true && a.user === seat.ownerUsername;
+    return tutorialRecordOn(game, pos) && game.seat(pos).controller === Controller.HUMAN;
+}
+
+/**
+ * The socket the tutor may push to for seat `pos`: the owner socket of a
+ * human seat with the tutorial on, and only one with the cap `tutorial`
+ * (an app without it, e.g. a shipped iOS build that took the seat over by
+ * a rejoin, renders no tip and cannot send /tutorial off: its pushes pause
+ * until a socket with the cap owns the seat again). Null otherwise.
+ */
+function tutorSocket(io, game, pos) {
+    if (!tutorialOn(game, pos)) return null;
+    const sid = game.seat(pos).ownerSocketId;
+    return sid && hasTutorialCap(io, sid) ? sid : null;
 }
 
 const anyTutorial = (game) => !!game.assist && [1, 2, 3, 4].some((p) => game.assist[p] && game.assist[p].tutorial === true);
@@ -489,7 +512,7 @@ const anyTutorial = (game) => !!game.assist && [1, 2, 3, 4].some((p) => game.ass
  */
 function welcome(io, game, pos, sid) {
     const a = game.assist[pos];
-    if (curriculum.has(a.tips, 'T.welcome')) return false;
+    if (curriculum.has(a.tips, 'T.welcome') || !hasTutorialCap(io, sid)) return false;
     const tip = curriculum.systemTip('T.welcome');
     sendTip(io, game, sid, pos, tip, { actions: ['keep', 'off'], line: curriculum.systemTip('T.welcome', { line: true }).text });
     a.tips = curriculum.withTip(a.tips, 'T.welcome');
@@ -508,10 +531,10 @@ function welcome(io, game, pos, sid) {
  * decision instead: so a decision never gets two).
  */
 function tickSeat(io, game, pos, { rejoin = false } = {}) {
-    if (!tutorialOn(game, pos)) return;
+    // Away (its rejoin re-pushes), lazy, or a socket without the cap: nothing
+    const sid = tutorSocket(io, game, pos);
+    if (!sid) return;
     const seat = game.seat(pos);
-    const sid = seat.ownerSocketId;
-    if (!sid) return; // away: its rejoin re-pushes
     const key = game.turnKey();
     const st = tutorSeat(game, pos);
     const fresh = st.lastKey !== key;
@@ -521,6 +544,11 @@ function tickSeat(io, game, pos, { rejoin = false } = {}) {
     const before = a.tips;
     let changed = false;
     welcome(io, game, pos, sid);
+    if (st.graduateUnsent) {
+        // The graduation this seat missed at the end of the 2-card hand
+        st.graduateUnsent = false;
+        sendTip(io, game, sid, pos, curriculum.systemTip('T.graduate'));
+    }
     const view = seatView(game, pos);
     const own = !!view && view.currentTurn === pos &&
         (view.stage === 'bid' ? view.playerBids[pos - 1] == null : !view.playedCards[pos - 1]);
@@ -656,13 +684,16 @@ function turnOff(io, game, pos, sid) {
 
 /**
  * /tutorial from the owner socket of seat `pos`: '/tutorial' toggles,
- * '/tutorial on' / '/tutorial off' set, '/tutorial keep' acknowledges the
- * welcome tip (Keep or its close: silent; after an auto-start the account
- * is marked dismissed, so no later game auto-starts). Refused like /help
- * at a bot-controlled seat; allowed at tournament tables (never
- * auto-started there).
+ * '/tutorial on' / '/tutorial off' set, '/tutorial keep' (the welcome
+ * tip's Keep) acknowledges it (silent; the account stays as it is, so a
+ * kept auto-start in a game that is then left or aborted still
+ * auto-starts the next one), '/tutorial close' (the welcome's ✕: silent;
+ * while auto-started the account is marked dismissed, plan 5.2, so no
+ * later game auto-starts; the tutorial stays on). Refused like /help at a
+ * bot-controlled seat; allowed at tournament tables (never auto-started
+ * there).
  * @param {string} command - trimmed, lower case
- * @returns {string} 'botSeat' | 'rateLimited' | 'usage' | 'already' | 'on' | 'off' | 'keep'
+ * @returns {string} 'botSeat' | 'rateLimited' | 'usage' | 'already' | 'on' | 'off' | 'keep' | 'close'
  */
 function tutorialCommand(socket, io, game, pos, command) {
     const sid = socket.id;
@@ -673,10 +704,11 @@ function tutorialCommand(socket, io, game, pos, command) {
     }
     const arg = command.slice('/tutorial'.length).trim();
     const on = tutorialOn(game, pos);
-    if (arg === 'keep') {
+    if (arg === 'keep') return 'keep';
+    if (arg === 'close') {
         // Once: the socket's flag turns 'dismissed' with the write
         if (on && game.assist[pos].auto && socket.data?.tutorialFlag === 'pending') setAccountFlag(io, [seat.ownerUsername], 'dismissed');
-        return 'keep';
+        return 'close';
     }
     if (arg !== '' && arg !== 'on' && arg !== 'off') {
         sendStatus(io, game, sid, pos, TEXT.tutorialUsage, 'tutorial');
@@ -716,19 +748,31 @@ function autoStart(io, game) {
 
 /**
  * After handComplete (and its fault lines): T.handScore after hands 1-3
- * and T.graduate after the 2-card hand, to each tutorial seat; a new tip
- * window opens.
+ * and T.graduate after the 2-card hand, to each tutorial seat the tutor
+ * can push to. The tip window stays as it is (only the seat's own decision
+ * reopens it: plan 5.3, one rule tip between two decisions). T.graduate's
+ * bit is set at the end of the 2-card hand for EVERY seat whose record has
+ * the tutorial on (away, lazy or without the cap too), so the fade-out
+ * starts anyway; such a seat is sent the tip at its next tick with a
+ * capable socket (graduateUnsent). A missed T.handScore is not caught up
+ * (its numbers belong to that hand).
  */
 function tutorHandEnd(io, game) {
     if (!anyTutorial(game)) return;
     try {
         let changed = false;
         for (let pos = 1; pos <= 4; pos++) {
-            if (!tutorialOn(game, pos)) continue;
-            const seat = game.seat(pos);
+            if (!tutorialRecordOn(game, pos)) continue;
             const a = game.assist[pos];
-            tutorSeat(game, pos).windowUsed = false;
-            if (!seat.ownerSocketId) continue;
+            const sid = tutorSocket(io, game, pos);
+            if (!sid) {
+                if (game.currentHand === curriculum.GRADUATE_AFTER && !curriculum.isGraduated(a.tips)) {
+                    a.tips = curriculum.withTip(a.tips, 'T.graduate');
+                    tutorSeat(game, pos).graduateUnsent = true;
+                    changed = true;
+                }
+                continue;
+            }
             const names = {};
             for (let p = 1; p <= 4; p++) names[p] = game.getPlayerByPosition(p)?.username || null;
             const facts = {
@@ -741,7 +785,7 @@ function tutorHandEnd(io, game) {
                 mults: { team1: game.team1Mult, team2: game.team2Mult }
             };
             for (const tip of curriculum.handEndTips(facts, a.tips)) {
-                sendTip(io, game, seat.ownerSocketId, pos, tip);
+                sendTip(io, game, sid, pos, tip);
                 a.tips = curriculum.withTip(a.tips, tip.bitId);
                 changed = true;
             }
@@ -760,10 +804,11 @@ function tutorHandEnd(io, game) {
  */
 function gameEndLines(io, game) {
     for (let pos = 1; pos <= 4; pos++) {
-        if (!tutorialOn(game, pos) || !game.seat(pos).ownerSocketId) continue;
+        const sid = tutorSocket(io, game, pos);
+        if (!sid) continue;
         const a = game.assist[pos];
         if (curriculum.has(a.tips, 'T.done')) continue;
-        sendTip(io, game, game.seat(pos).ownerSocketId, pos, curriculum.systemTip('T.done'));
+        sendTip(io, game, sid, pos, curriculum.systemTip('T.done'));
         a.tips = curriculum.withTip(a.tips, 'T.done');
     }
     // A game with a native bot seat: say nothing (the record still marks it)
@@ -778,14 +823,17 @@ function gameEndLines(io, game) {
 }
 
 /**
- * A FINISHED game (after its gameEnd): every seat owner who stayed to the
- * end (not a /leave'd seat) whose account is still 'pending' becomes
- * 'done', tutorial or not. A left or aborted game changes nothing.
+ * A FINISHED game (after its gameEnd): every seat owner still at the table
+ * at the end (presence connected: playing, or lazy / resigned and back
+ * watching) whose account is still 'pending' becomes 'done', tutorial or
+ * not. An owner who had left (/leave: gone), dropped (grace, resignable)
+ * or was force-resigned and is still away did not finish a game and keeps
+ * 'pending'; so does every seat of an aborted game.
  */
 function gameFinished(io, game) {
     const names = [];
     for (const seat of game.seatList()) {
-        if (seat && seat.ownerUsername && seat.presence !== 'gone') names.push(seat.ownerUsername);
+        if (seat && seat.ownerUsername && seat.presence === Presence.CONNECTED) names.push(seat.ownerUsername);
     }
     setAccountFlag(io, names, 'done');
 }

@@ -8,7 +8,7 @@ import Foundation
 /// play turn following a suit: T.follow "Following suit"; else T.trump), and on my own bid or
 /// play turn the advice (the /help answer with source `tutorial`, never counted).
 /// `-uiTutorialWelcome NO`: no welcome (it was kept in an earlier session). The chat's
-/// /tutorial, /tutorial on, /tutorial off and /tutorial keep are answered as the server does
+/// /tutorial, /tutorial on, /tutorial off, /tutorial keep and /tutorial close are answered as the server does
 /// (assistState, "Tips off. /help still works any time."). Every line shows in "fixture.sent";
 /// the chip in the probe "table.tutorial".
 extension UIFixture {
@@ -116,7 +116,7 @@ extension UIFixture {
             if tutorialOnNow { status("The tutorial is already on.") } else { setTutorial(true) }
         case "off":
             if tutorialOnNow { setTutorial(false); status(tipsOffText) } else { status("The tutorial is already off.") }
-        case "keep":
+        case "keep", "close":
             break  // silent
         default:
             status("Type /tutorial on or /tutorial off.")

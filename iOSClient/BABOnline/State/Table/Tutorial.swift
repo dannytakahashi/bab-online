@@ -12,14 +12,16 @@ import Foundation
 //    reasons = [its text]) in the neutral TutorialTipView above the answer, with a dim private
 //    log row "Tip: <text>". Not tied to the turn: up until closed, the next tip, or my own bid
 //    or card. VoiceOver hears each tip once. The welcome (T.welcome, `actions` keep / off) has
-//    its own slot with Keep / Turn off, so the first decision's tip and advice never push it away.
+//    its own slot with Keep / Turn off, so the first decision's tip and advice never push it away;
+//    a rule tip shows under it (GameState.tutorialTip), never hidden while the welcome is up.
 //  - assistHint {source 'tutorial', kind 'status'}: the private reply to /tutorial (a /help status).
 //  - s2c assistState {tutorial, auto, uses, freeUses, assisted, unlimited?}: on every change and
 //    after a rejoin; the snapshot's viewer.assist.tutorial / auto after a relaunch. While on, my
 //    seat shows the "Tutorial on" chip (TutorialChipView) with an off switch.
 //
-// Commands go as chat lines (no c2s of their own): /tutorial (toggle), /tutorial on|off, and
-// /tutorial keep (the welcome's Keep or ×: silent; it ends an auto-start's "pending" account).
+// Commands go as chat lines (no c2s of their own): /tutorial (toggle), /tutorial on|off,
+// /tutorial keep (the welcome's Keep: silent, the account stays as it is) and /tutorial close
+// (the welcome's ×: silent; it ends an auto-start's "pending" account, plan 5.2).
 // Names only in every text (the server's tip texts are linted there).
 
 /// My seat's tutorial as the server last said (assistState, the snapshot's viewer.assist).
@@ -36,8 +38,9 @@ enum TutorialRules {
     static let onCommand = "/tutorial on"
     static let offCommand = "/tutorial off"
     static let keepCommand = "/tutorial keep"
+    static let closeCommand = "/tutorial close"
     /// The words after /tutorial the server knows (a typed line keeps them).
-    static let arguments = ["on", "off", "keep"]
+    static let arguments = ["on", "off", "keep", "close"]
     /// The welcome tip's id: its own slot, with Keep / Turn off.
     static let welcomeId = "T.welcome"
     /// The welcome's buttons this build draws (assistHint.actions).

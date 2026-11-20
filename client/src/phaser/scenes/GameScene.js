@@ -61,7 +61,7 @@ import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
   isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible,
-  TUTORIAL_KEEP_COMMAND, TUTORIAL_OFF_COMMAND,
+  TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND,
 } from '../../state/tutorial.js';
 import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
 
@@ -1742,9 +1742,9 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** A tip's ✕ (Escape): the welcome's says Keep to the server. */
+  /** A tip's ✕ (Escape): the welcome's sends /tutorial close (it dismisses an auto-start; Keep does not). */
   closeTip(hint) {
-    if (isWelcomeTip(hint)) this._sendTutorial(TUTORIAL_KEEP_COMMAND);
+    if (isWelcomeTip(hint)) this._sendTutorial(TUTORIAL_CLOSE_COMMAND);
     this._dropTip(hint);
   }
 

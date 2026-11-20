@@ -7,10 +7,14 @@
  *
  * Moments (per tutorial seat):
  *  - 'decision': the seat's own NON-FORCED bid or play turn (a forced move
- *    gets nothing: no tip, no advice). At most ONE rule tip, then the advice
+ *    gets nothing: no tip, no advice). At most ONE rule tip, then the
+ *    advice. A tip that can only show at a decision (T.bid, T.oneCard,
+ *    T.hiJoker, T.lead, T.follow, T.void, T.partnerWins) goes before one
+ *    that may also show between (T.trump, T.set, ...: it waits for the
+ *    next between moment), so a first bidder's first bid gets T.bid
  *  - 'between': any other turn of the table. At most ONE rule tip between
- *    two of the seat's own decisions (the handler keeps that window; a
- *    hand's end opens a new one)
+ *    two of the seat's own decisions (the handler keeps that window; only
+ *    the seat's own decision reopens it, a hand's end does not)
  *  - the hand end: T.handScore after hands 1-3, T.graduate after the 2-card
  *    hand (hand 6); the game end: T.done
  * Each topic shows once per game (`tips`, game.assist[pos].tips, a
@@ -197,12 +201,18 @@ const RULE_TIPS = Object.freeze([
         }
     },
     {
+        // Only while "both bid 0" can still be true: at the seat's own bid,
+        // 0 suggested and the partner not yet bid (or bid 0); between, the
+        // partner bid 0 and the seat has not bid yet (or bid 0 too)
         id: 'T.zero', title: 'Bidding 0', moments: ['decision', 'between'],
         text: (f, d) => {
             if (f.view.stage !== 'bid') return null;
-            const suggested = d && d.kind === 'bid' && d.bid === '0';
-            const partnerZero = String(f.view.playerBids[f.view.partner - 1]) === '0';
-            if (!suggested && !partnerZero) return null;
+            const bidOf = (p) => f.view.playerBids[p - 1];
+            const zeroOrOpen = (p) => bidOf(p) == null || String(bidOf(p)) === '0';
+            const holds = d
+                ? d.kind === 'bid' && d.bid === '0' && zeroOrOpen(f.view.partner)
+                : String(bidOf(f.view.partner)) === '0' && zeroOrOpen(f.view.position);
+            if (!holds) return null;
             return `If you and ${f.partnerTagged} both bid 0, you can't be set: each trick you win is worth 1 point.`;
         }
     },
@@ -298,6 +308,12 @@ const RULE_TIPS = Object.freeze([
     }
 ]);
 
+/** RULE_TIPS for a 'decision' moment: the decision-only ones first, each group in catalog order. */
+const DECISION_ORDER = Object.freeze([
+    ...RULE_TIPS.filter((t) => !t.moments.includes('between')),
+    ...RULE_TIPS.filter((t) => t.moments.includes('between'))
+]);
+
 /** System tips (outside the rule-tip budget). `line`: the words for a client without the tip card. */
 const SYSTEM_TIPS = Object.freeze({
     'T.welcome': {
@@ -310,8 +326,9 @@ const SYSTEM_TIPS = Object.freeze({
         text: 'You\'ve got the basics. From now on tips show only for tricky choices. /help works any time.'
     },
     'T.done': {
+        // The text never repeats the title: clients announce "Tip: <title>. <text>"
         title: 'Tutorial complete',
-        text: 'Tutorial complete. Type /help any time for a suggestion.'
+        text: 'Thanks for playing with the tutorial. Type /help any time for a suggestion.'
     }
 });
 
@@ -336,7 +353,11 @@ function systemTip(id, { line = false } = {}) {
 function pickTip(moment, view, decision, tips) {
     if (!view) return null;
     const f = factsOf(view);
-    for (const t of RULE_TIPS) {
+    // At a decision the decision-only tips first (their only chance); a tip
+    // that may also show between waits for a between moment when one of
+    // them holds
+    const order = moment === 'decision' ? DECISION_ORDER : RULE_TIPS;
+    for (const t of order) {
         if (!t.moments.includes(moment) || has(tips, t.id)) continue;
         const text = t.text(f, moment === 'decision' ? decision : null, tips);
         if (text) return tipOut(t.id, t.title, text);
@@ -479,6 +500,7 @@ module.exports = {
     HAND_SCORE_HANDS,
     PLAY_LOW_CODES,
     RULE_TIPS,
+    DECISION_ORDER,
     SYSTEM_TIPS,
     has,
     withTip,

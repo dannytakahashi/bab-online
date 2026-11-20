@@ -868,7 +868,7 @@ private struct GameScreen: View {
                                    safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
         let cards = VStack(alignment: .leading, spacing: AssistLayout.gap) {
             if let welcome = gameState.tutorialWelcome {
-                TutorialTipView(tip: welcome, onClose: tutorialKeep, onKeep: tutorialKeep, onTurnOff: tutorialOff)
+                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff)
                     .transition(.opacity)
             }
             if let tip = gameState.tutorialTip {
@@ -876,7 +876,7 @@ private struct GameScreen: View {
                     .transition(.opacity)
             }
             if let hint = gameState.assistHint {
-                AssistCardView(hint: hint, onClose: { gameState.apply(.local(.assistDismissed)) })
+                AssistCardView(hint: hint, tutorialOn: gameState.tutorialOn, onClose: { gameState.apply(.local(.assistDismissed)) })
                     .transition(.opacity)
             }
         }
@@ -931,9 +931,14 @@ private struct GameScreen: View {
         #endif
     }
 
-    /// The welcome's Keep or close button: /tutorial keep.
+    /// The welcome's Keep button: /tutorial keep.
     private func tutorialKeep() {
         actions.tutorialKeep(connected: isConnectedForTutorial)
+    }
+
+    /// The welcome's close button (×): /tutorial close.
+    private func tutorialClose() {
+        actions.tutorialClose(connected: isConnectedForTutorial)
     }
 
     /// The chip's switch or the welcome's Turn off: /tutorial off.

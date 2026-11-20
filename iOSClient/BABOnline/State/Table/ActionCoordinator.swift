@@ -179,10 +179,19 @@ final class ActionCoordinator: ObservableObject {
         return true
     }
 
-    /// The welcome tip's Keep or close button: /tutorial keep (silent; an auto-start's account
-    /// stops being "pending"), and the welcome goes. Offline it just goes (nothing to keep).
+    /// The welcome tip's Keep button: /tutorial keep (silent; the account stays as it is, so a
+    /// kept first game that is then left still auto-starts the next), and the welcome goes.
+    /// Offline it just goes (nothing to keep).
     func tutorialKeep(connected: Bool) {
         if connected { emitter.chat(TutorialRules.keepCommand) }
+        store.apply(.local(.tutorialWelcomeKept))
+    }
+
+    /// The welcome tip's close button (×): /tutorial close (silent; an auto-start's account stops
+    /// being "pending": the server marks it dismissed, plan 5.2; the tutorial stays on), and the
+    /// welcome goes. Offline it just goes.
+    func tutorialClose(connected: Bool) {
+        if connected { emitter.chat(TutorialRules.closeCommand) }
         store.apply(.local(.tutorialWelcomeKept))
     }
 

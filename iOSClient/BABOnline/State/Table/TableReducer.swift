@@ -41,7 +41,7 @@ enum LocalAction: Equatable {
     case assistDismissed
     /// A rule tip's close button (local: the server is not told).
     case tutorialTipDismissed
-    /// The welcome's Keep or close button (ActionCoordinator sent /tutorial keep).
+    /// The welcome's Keep or close button (ActionCoordinator sent /tutorial keep or /tutorial close).
     case tutorialWelcomeKept
     /// The chip's switch or the welcome's Turn off (ActionCoordinator sent /tutorial off).
     case tutorialOffSent

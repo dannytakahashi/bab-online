@@ -5,7 +5,8 @@
  * `seed % 4 + 1`, so the four seats take turns), every seat a Mary bot,
  * and the tutor runs exactly as assistHandlers drives it (decisionStep on
  * the seat's own turns, betweenStep on the others' with one tip per
- * window, handEndTips after each hand). Prints, per hand, the seat's own
+ * window (reopened only by the seat's own decision), handEndTips after
+ * each hand). Prints, per hand, the seat's own
  * non-forced decisions, the advice shown and the rule tips shown; and the
  * totals before graduation (hands 1-6) and after it (hands 7-13).
  *
@@ -93,7 +94,6 @@ function measureFade({ games = 50, seed = 1, onEvent = null } = {}) {
                     note(tip, h);
                     if (onEvent) onEvent({ game: s, hand: h.hand, moment: 'handEnd', tip, advice: false, facts });
                 }
-                windowUsed = false;
             }
         });
     }

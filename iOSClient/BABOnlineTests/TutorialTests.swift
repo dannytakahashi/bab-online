@@ -116,7 +116,7 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(s.table.assist?.bid, "3", "what /help answered stays")
     }
 
-    func testATipIsLoggedAndAnnouncedOnceAndWaitsForTheWelcome() {
+    func testATipIsLoggedAndAnnouncedOnceAndShowsUnderTheWelcome() {
         let store = GameState()
         var said: [String] = []
         store.announce = { said.append($0) }
@@ -127,14 +127,14 @@ final class TutorialTests: XCTestCase {
         store.apply(welcome)
         store.apply(tip("T.bid", "Bidding", bidText))
         XCTAssertEqual(store.tutorialWelcome?.tipId, "T.welcome")
-        XCTAssertNil(store.tutorialTip, "the rule tip waits while the welcome is up")
+        XCTAssertEqual(store.tutorialTip?.tipId, "T.bid", "the rule tip shows under the welcome: VoiceOver read it, and it comes once a game")
         XCTAssertEqual(said, ["Tip: Tutorial on. \(UIFixture.welcomeText)", "Tip: Bidding. \(bidText)"])
         XCTAssertEqual(privateRows(store.state), ["Tip: \(UIFixture.welcomeText)", "Tip: \(bidText)"])
         // the same tip again (a rejoin's welcome): no second row or announcement
         store.apply(welcome)
         XCTAssertEqual(said.count, 2)
         XCTAssertEqual(privateRows(store.state).count, 2)
-        // Keep: the welcome goes, the rule tip shows
+        // Keep: the welcome goes, the rule tip stays
         store.apply(.local(.tutorialWelcomeKept))
         XCTAssertNil(store.tutorialWelcome)
         XCTAssertEqual(store.tutorialTip?.headline, "Bidding")
@@ -168,9 +168,9 @@ final class TutorialTests: XCTestCase {
         XCTAssertNil(t.table.tip, "game over")
         XCTAssertNil(t.table.welcome)
         // on the game-end screen a tip is its row only
-        TableReducer.reduce(&t, tip("T.done", "Tutorial complete", "Tutorial complete. Type /help any time for a suggestion."))
+        TableReducer.reduce(&t, tip("T.done", "Tutorial complete", "Thanks for playing with the tutorial. Type /help any time for a suggestion."))
         XCTAssertNil(t.table.tip)
-        XCTAssertEqual(privateRows(t).last, "Tip: Tutorial complete. Type /help any time for a suggestion.")
+        XCTAssertEqual(privateRows(t).last, "Tip: Thanks for playing with the tutorial. Type /help any time for a suggestion.")
     }
 
     func testTheTutorialsAdviceIsNeverCountedOrLogged() throws {
@@ -309,9 +309,16 @@ final class TutorialTests: XCTestCase {
         actions.tutorialKeep(connected: true)
         XCTAssertEqual(emitter.sent, [.chat("/tutorial keep")])
         XCTAssertNil(store.tutorialWelcome)
+        // the welcome's ×: its own line (the server dismisses an auto-start for it, not for Keep)
+        store.apply(welcome)
+        XCTAssertNotNil(store.tutorialWelcome)
+        actions.tutorialClose(connected: true)
+        XCTAssertEqual(emitter.sent, [.chat("/tutorial keep"), .chat("/tutorial close")])
+        XCTAssertNil(store.tutorialWelcome)
+        XCTAssertTrue(store.showsTutorialChip, "closing the welcome leaves the tutorial on")
         XCTAssertFalse(actions.tutorialOff(connected: false))
         XCTAssertEqual(store.notice?.text, AssistRules.reconnecting)
-        XCTAssertEqual(emitter.sent.count, 1)
+        XCTAssertEqual(emitter.sent.count, 2)
         XCTAssertTrue(actions.tutorialOff(connected: true))
         XCTAssertEqual(emitter.sent.last, .chat("/tutorial off"))
         XCTAssertTrue(store.tutorialOffSent)
@@ -320,6 +327,32 @@ final class TutorialTests: XCTestCase {
         XCTAssertFalse(store.showsTutorialChip)
         XCTAssertFalse(store.tutorialOffSent)
         XCTAssertEqual(store.tutorialDescription, "Tutorial: tips and advice every turn")
+    }
+
+    func testHelpWhileTheTutorialIsOnNamesNoCount() throws {
+        // a first /help while on: the server answers source help, counted false (never counted then)
+        let help = try XCTUnwrap(AssistHint(WirePayload.AssistHint(kind: "card", headline: "Play 9\u{2666}", reasons: ["Main reason"],
+                                                                   uses: 0, freeUses: 3, assisted: false, counted: false,
+                                                                   confidence: "clear")))
+        XCTAssertFalse(help.isTutorial)
+        XCTAssertEqual(AssistRules.footer(help, tutorial: true), "What our strongest bot would play")
+        XCTAssertEqual(AssistRules.footer(help), "What our strongest bot would play \u{00B7} Asked again this turn: not counted",
+                       "tutorial off: a re-ask, as before")
+        let quick = try XCTUnwrap(AssistHint(WirePayload.AssistHint(kind: "card", headline: "Play 9\u{2666}", reasons: ["Main reason"],
+                                                                    uses: 0, freeUses: 3, assisted: false, counted: false,
+                                                                    confidence: "quick")))
+        XCTAssertEqual(AssistRules.footer(quick, tutorial: true), AssistRules.footerQuick)
+        // the chat list: no free-use count while on (before the first decision: not assisted yet)
+        let store = GameState()
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(.snapshot(try T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        store.apply(T.ev("assistState", ["tutorial": true, "auto": true, "uses": 0, "freeUses": 3, "assisted": false]))
+        XCTAssertEqual(store.helpDescription, "Ask a bot for advice")
+        store.apply(state(on: true, auto: true))
+        XCTAssertEqual(store.helpDescription, "Ask a bot for advice (this game is bot-assisted for you)")
+        // off again, never assisted: the count is back
+        store.apply(T.ev("assistState", ["tutorial": false, "auto": false, "uses": 1, "freeUses": 3, "assisted": false]))
+        XCTAssertEqual(store.helpDescription, "Ask a bot for advice (1 of 3 free used)")
     }
 
     // MARK: - Layout

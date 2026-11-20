@@ -271,8 +271,10 @@ final class GameState: ObservableObject {
     /// The lightbulb by my hand shows (my own turn at my seat, no answer up or on its way).
     var showsAssistAsk: Bool { AssistRules.showsAsk(state) }
     /// The chat command list's /help line ("Ask a bot for advice", with no count in a game with
-    /// a native bot seat).
-    var helpDescription: String { AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state)) }
+    /// a native bot seat or while my tutorial is on: /help is never counted then).
+    var helpDescription: String {
+        AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state), tutorial: table.tutorial.on)
+    }
 
     // MARK: the tutorial (State/Table/Tutorial.swift)
 
@@ -285,9 +287,11 @@ final class GameState: ObservableObject {
     }
     /// The chip's switch went off (/tutorial off sent) and waits for the server.
     var tutorialOffSent: Bool { table.tutorialOffSent }
-    /// The rule tip up over the table (my seat only), nil when none. It waits while the welcome
-    /// is up (the welcome says tips will come; three cards at once would not fit a phone).
-    var tutorialTip: AssistHint? { table.viewer.role == .seat && table.welcome == nil ? table.tip : nil }
+    /// The rule tip up over the table (my seat only), nil when none. Drawn under the welcome when
+    /// both are up, as on the web (the column scrolls inside when the room is short): each tip
+    /// comes once a game and goes with my own bid or card, so one hidden behind the welcome would
+    /// never be seen, though VoiceOver had read it.
+    var tutorialTip: AssistHint? { table.viewer.role == .seat ? table.tip : nil }
     /// The welcome tip (Keep / Turn off), my seat only.
     var tutorialWelcome: AssistHint? { table.viewer.role == .seat ? table.welcome : nil }
     /// The chat command list's /tutorial line.

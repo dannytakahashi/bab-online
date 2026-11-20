@@ -4,7 +4,7 @@
  * real handlers, stub io and sockets (every emit contract-checked), fake
  * timers.
  *
- *  - /tutorial toggles, /tutorial on|off sets, /tutorial keep is silent;
+ *  - /tutorial toggles, /tutorial on|off sets, /tutorial keep and close are silent;
  *    the notices (human-only game: "... This game counts as bot-assisted
  *    for <name>."), the private off line, already-on / already-off, usage
  *  - refusals: spectators, entrants, a lazy owner; ?tutorial stays chat
@@ -15,12 +15,17 @@
  *    (not without the cap, not for another flag, not at a tournament);
  *    the first own decision makes the game bot-assisted (once, with the
  *    room line); turned off before it: not assisted, users.tutorial
- *    'dismissed'; keep: dismissed, still on
+ *    'dismissed'; keep: still pending, still on (a kept game then aborted
+ *    auto-starts the next one); close (the welcome's ✕): dismissed, still on
  *  - a game with a native bot seat: no limit or bot-assisted words, the
  *    record still marks it
  *  - the re-push on a rejoin and on /active
- *  - a finished game sets 'done' (and its fade-out, measured), an aborted
+ *  - a finished game sets 'done' (and its fade-out, measured) for the owners
+ *    still at the table, not for a dropped, force-resigned one; an aborted
  *    one keeps 'pending'
+ *  - away, lazy or on an app without the cap at the end of the 2-card hand:
+ *    graduated anyway, T.graduate with the next capable socket; nothing is
+ *    pushed to a socket without the cap
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -156,7 +161,8 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     const h = hintsTo(t, s.id, mark);
     expect(h.map((x) => [x.source, x.kind, x.tipId || null])).toEqual([
         ['tutorial', 'tip', 'T.welcome'],
-        ['tutorial', 'tip', expect.stringMatching(/^T\.(trump|noTrump)$/)],
+        // the first bidder's first bid: the decision-only T.bid (T.trump waits for a between moment)
+        ['tutorial', 'tip', 'T.bid'],
         ['tutorial', 'bid', null]
     ]);
     expect(h[0]).toMatchObject({ headline: 'Tutorial on', reasons: [curriculum.SYSTEM_TIPS['T.welcome'].text], actions: ['keep', 'off'], counted: false });
@@ -164,7 +170,7 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     expect(h[2]).toMatchObject({ counted: false, uses: 0, assisted: true, turnKey: game.turnKey(), suggest: { bid: expect.any(String) } });
     expect(statesTo(t, s.id, mark).at(-1)).toEqual({ tutorial: true, auto: false, uses: 0, freeUses: 3, assisted: true });
     expect(game.assist[p]).toMatchObject({ user: t.name(p), tutorial: true, auto: false, tutorialEver: true, help: 0 });
-    // the welcome and the hand's trump tip are remembered (once per game)
+    // the welcome and the bidding tip are remembered (once per game)
     expect(curriculum.has(game.assist[p].tips, 'T.welcome')).toBe(true);
 
     // a reload knows (snapshot viewer.assist)
@@ -227,7 +233,6 @@ test('while on: one rule tip per own decision, one between two of them, the advi
     let advice = 0;
     for (const l of log) {
         if (l.event === 'updateTurn' && l.to === game.roomName) lastTurn = l.data.currentTurn;
-        if (l.event === 'handComplete') window = 0;
         if (l.event !== 'assistHint' || l.to !== s.id) continue;
         const own = lastTurn === p;
         if (l.data.kind === 'tip' && l.data.tipId !== 'T.handScore') {
@@ -295,8 +300,34 @@ test('after the tutorial (off again): /help counts, but no 3rd-use warning or cr
     t.say(s, '/tutorial on');
     const m2 = t.w.log.length;
     assistHandlers.gameEndLines(t.w.io, game);
-    expect(hintsTo(t, s.id, m2).map((x) => [x.kind, x.tipId, x.reasons[0]])).toEqual([['tip', 'T.done', 'Tutorial complete. Type /help any time for a suggestion.']]);
+    expect(hintsTo(t, s.id, m2).map((x) => [x.kind, x.tipId, x.reasons[0]])).toEqual([['tip', 'T.done', 'Thanks for playing with the tutorial. Type /help any time for a suggestion.']]);
     expect(t.since(m2).filter((l) => l.event === 'gameLogEntry' && l.to === s.id).map((l) => l.data.message)).toEqual([TEXT.gameEndTutorial]);
+});
+
+test('a hand end does not reopen the between window: one rule tip between two own decisions', async () => {
+    const t = await lobbyGame('tk', { seed: 9 });
+    const { game, w } = t;
+    const p = game.currentTurn;
+    const s = t.owner(p);
+    clientInfo.handle(s, w.io, CAPS);
+    t.say(s, '/tutorial on');
+    const ruleTips = (mark) => hintsTo(t, s.id, mark).filter((x) => x.kind === 'tip' && x.tipId !== 'T.handScore' && x.tipId !== 'T.welcome');
+    expect(ruleTips(0).map((x) => x.tipId)).toEqual(['T.bid']);
+    // the own bid, then the next seat's turn: the window's one tip
+    let mark = w.log.length;
+    await t.move();
+    expect(game.currentTurn).not.toBe(p);
+    expect(ruleTips(mark)).toHaveLength(1);
+    // a hand end (as handleHandComplete calls it) between two own decisions
+    assistHandlers.tutorHandEnd(w.io, game);
+    mark = w.log.length;
+    while (game.currentTurn !== p && !game.isTerminal()) await t.move();
+    // the other seats' turns (T.set would hold there): nothing until the own decision
+    const beforeOwn = t.since(mark);
+    const own = beforeOwn.map((l) => l.event === 'updateTurn' && l.to === game.roomName && l.data.currentTurn === p).lastIndexOf(true);
+    const between = beforeOwn.slice(0, own).filter((l) => l.event === 'assistHint' && l.to === s.id && l.data.kind === 'tip' && l.data.tipId !== 'T.handScore');
+    expect(between).toEqual([]);
+    expect(curriculum.has(game.assist[p].tips, 'T.set')).toBe(false);
 });
 
 // ------------------------------------------------------------ refusals
@@ -388,13 +419,14 @@ describe('the auto-start (handleDrawComplete, before the first deal)', () => {
         expect(game.assist[pos]).toMatchObject({ tutorial: true, auto: false, tutorialEver: true });
     }, 120000);
 
-    test('the first own decision makes it count (once, with the room line); off before it: not assisted, dismissed; keep: dismissed, still on', async () => {
+    test('the first own decision makes it count (once, with the room line); off before it: not assisted, dismissed; keep: pending, still on; close: dismissed, still on', async () => {
         const names = ['tf_ann', 'tf_bob', 'tf_cat', 'tf_dan'];
         const t = await lobbyGame('tf', { pending: names, prep: (socks, w) => { for (const s of socks) clientInfo.handle(s, w.io, CAPS); } });
         const { game } = t;
         const first = game.currentTurn;
         const second = (first % 4) + 1;
         const third = (second % 4) + 1;
+        const fourth = (third % 4) + 1;
         for (let pos = 1; pos <= 4; pos++) expect(game.assist[pos]).toMatchObject({ tutorial: true, auto: true });
         expect(game.gameLog.filter((e) => / is playing with the tutorial\.$/.test(e.message))).toHaveLength(4);
         // the first bidder's first own decision has been ticked
@@ -410,13 +442,22 @@ describe('the auto-start (handleDrawComplete, before the first deal)', () => {
         await flush();
         expect(userDoc(t.name(second)).tutorial).toBe('dismissed');
         expect(t.owner(second).data.tutorialFlag).toBe('dismissed');
-        // the third keeps it: silent, dismissed on the account, still on
+        // the third keeps it (the welcome's Keep): silent, still pending on the account, still on
         mark = t.w.log.length;
         t.say(t.owner(third), '/tutorial keep');
         expect(t.since(mark).filter((l) => l.to === t.owner(third).id || l.to === game.roomName)).toEqual([]);
         await flush();
-        expect(userDoc(t.name(third)).tutorial).toBe('dismissed');
+        expect(userDoc(t.name(third)).tutorial).toBe('pending');
+        expect(t.owner(third).data.tutorialFlag).toBe('pending');
         expect(game.assist[third].tutorial).toBe(true);
+        // the fourth closes the welcome (✕): silent, dismissed on the account, still on
+        mark = t.w.log.length;
+        t.say(t.owner(fourth), '/tutorial close');
+        expect(t.since(mark).filter((l) => l.to === t.owner(fourth).id || l.to === game.roomName)).toEqual([]);
+        await flush();
+        expect(userDoc(t.name(fourth)).tutorial).toBe('dismissed');
+        expect(t.owner(fourth).data.tutorialFlag).toBe('dismissed');
+        expect(game.assist[fourth].tutorial).toBe(true);
         // the first seat, still pending on the account
         expect(userDoc(t.name(first)).tutorial).toBe('pending');
         // play on: the first bidder never counted again
@@ -561,10 +602,114 @@ test('a whole game with the tutorial (3 native bots): the fade-out after the 2-c
     console.info(`tutorial fade-out (real handlers, seed 21): ${perHand.map((r, i) => `h${i + 1} ${r.advice}/${r.decisions}`).join(', ')}`);
 }, 180000);
 
-test('an aborted game keeps the account pending', async () => {
-    const t = await lobbyGame('tx', { pending: ['tx_ann', 'tx_bob'] });
+test('an aborted game keeps the account pending, also after the welcome was kept', async () => {
+    const t = await lobbyGame('tx', { pending: ['tx_ann', 'tx_bob'], prep: (socks, w) => clientInfo.handle(socks[0], w.io, CAPS) });
+    expect(t.game.assist[t.posOf(t.socks[0])]).toMatchObject({ tutorial: true, auto: true });
+    t.say(t.socks[0], '/tutorial keep');
+    await flush();
     gameManager.abortGame(t.game.gameId);
     await flush();
     expect(userDoc('tx_ann').tutorial).toBe('pending');
+    expect(t.socks[0].data.tutorialFlag).toBe('pending');
     expect(userDoc('tx_bob').tutorial).toBe('pending');
+});
+
+test('a finished game: done for the owners still at the table (playing or lazy), pending for a dropped, force-resigned one', async () => {
+    const names = ['tz_ann', 'tz_bob', 'tz_cat', 'tz_dan'];
+    const t = await lobbyGame('tz', { pending: names });
+    const { game, w } = t;
+    const [gone, lazy] = [1, 2].map((p) => t.posOf(t.socks[p]));
+    // tz_bob's app closes, the grace runs out, the others replace the seat with a bot
+    seatLifecycle.disconnectOwner(w.io, game, gone, t.socks[1].id);
+    seatLifecycle.onGraceExpired(w.io, game, gone);
+    expect(seatLifecycle.resignSeat(w.io, game, gone)).toBe(true);
+    expect(game.seat(gone)).toMatchObject({ controller: 'resignBot', presence: 'away', ownerUsername: 'tz_bob' });
+    // tz_cat watches a bot play the seat (lazy)
+    t.say(t.socks[2], '/lazy');
+    expect(game.seat(lazy)).toMatchObject({ controller: 'lazyBot', presence: 'connected' });
+    // the game ends (as handleHandComplete calls it after gameEnd)
+    assistHandlers.gameFinished(w.io, game);
+    await flush();
+    expect(names.map((n) => [n, userDoc(n).tutorial])).toEqual([
+        ['tz_ann', 'done'], ['tz_bob', 'pending'], ['tz_cat', 'done'], ['tz_dan', 'done']
+    ]);
+});
+
+// ------------------------------------------------------------ the end of the 2-card hand, the cap
+
+/** The end of the 2-card hand, as handleHandComplete calls it (only the hand size is read for T.graduate). */
+function endTwoCardHand(t) {
+    const was = t.game.currentHand;
+    t.game.currentHand = curriculum.GRADUATE_AFTER;
+    try {
+        assistHandlers.tutorHandEnd(t.w.io, t.game);
+    } finally {
+        t.game.currentHand = was;
+    }
+}
+
+const tutorialTo = (t, sid, mark) => t.since(mark).filter((l) => l.to === sid && (
+    (l.event === 'assistHint' && l.data.source === 'tutorial') ||
+    (l.event === 'gameLogEntry' && /^Tip: /.test(l.data.message)) ||
+    l.event === 'assistState'));
+
+test('away at the end of the 2-card hand: graduated anyway; an app without the cap gets nothing pushed; T.graduate comes with the next capable socket', async () => {
+    const t = await lobbyGame('tq', { seed: 17 });
+    const { game, w } = t;
+    const p = game.currentTurn;
+    const s = t.owner(p);
+    const name = t.name(p);
+    clientInfo.handle(s, w.io, CAPS);
+    t.say(s, '/tutorial on');
+    await flush();
+    // the phone backgrounds on its own turn (grace), the 2-card hand ends meanwhile
+    seatLifecycle.disconnectOwner(w.io, game, p, s.id);
+    let mark = w.log.length;
+    endTwoCardHand(t);
+    expect(curriculum.isGraduated(game.assist[p].tips)).toBe(true);
+    expect(tutorialTo(t, s.id, mark)).toEqual([]);
+
+    // back on a shipped iOS build (cap assist, no tutorial): no advice, no tip, no assistState
+    const old = w.user('tq-old', name);
+    clientInfo.handle(old, w.io, { client: 'ios', version: '1.2.3', caps: ['assist'] });
+    mark = w.log.length;
+    seatLifecycle.reconnectOwner(w.io, game, p, old, name);
+    await flush();
+    expect(game.seat(p).ownerSocketId).toBe(old.id);
+    expect(tutorialTo(t, old.id, mark)).toEqual([]);
+    // nor at the next turns while it holds the seat
+    for (let i = 0; i < 4 && !game.isTerminal(); i++) await t.move();
+    expect(tutorialTo(t, old.id, mark)).toEqual([]);
+    expect(game.assist[p].tutorial).toBe(true);
+
+    // back on the web: assistState and the graduation it missed (once)
+    const web = w.user('tq-web', name);
+    clientInfo.handle(web, w.io, CAPS);
+    mark = w.log.length;
+    seatLifecycle.reconnectOwner(w.io, game, p, web, name);
+    await flush();
+    expect(statesTo(t, web.id, mark)).toHaveLength(1);
+    expect(hintsTo(t, web.id, mark).filter((x) => x.kind === 'tip').map((x) => x.tipId)).toEqual(['T.graduate']);
+    for (let i = 0; i < 4 && !game.isTerminal(); i++) await t.move();
+    expect(hintsTo(t, web.id, mark).filter((x) => x.tipId === 'T.graduate')).toHaveLength(1);
+    expect(errorLog).toEqual([]);
+});
+
+test('lazy at the end of the 2-card hand: graduated anyway, T.graduate after /active', async () => {
+    const t = await lobbyGame('tl', { seed: 19 });
+    const { game, w } = t;
+    const p = (game.currentTurn % 4) + 1; // not on turn: the bot does not move for it now
+    const s = t.owner(p);
+    clientInfo.handle(s, w.io, CAPS);
+    t.say(s, '/tutorial on');
+    t.say(s, '/lazy');
+    let mark = w.log.length;
+    endTwoCardHand(t);
+    expect(curriculum.isGraduated(game.assist[p].tips)).toBe(true);
+    expect(hintsTo(t, s.id, mark)).toEqual([]);
+    mark = w.log.length;
+    t.say(s, '/active');
+    await flush();
+    expect(hintsTo(t, s.id, mark).filter((x) => x.kind === 'tip').map((x) => x.tipId)).toEqual(['T.graduate']);
+    expect(errorLog).toEqual([]);
 });

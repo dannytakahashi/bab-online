@@ -7,6 +7,8 @@
  *  - the copy rules on every tip text seeded games produce (names only,
  *    lengths, no jargon or team words)
  *  - the budget: one rule tip per own decision, one between two of them
+ *    (a hand end does not reopen it); a decision prefers the tips that can
+ *    only show at a decision (a first bidder's first bid: T.bid)
  *  - the fade-out: advice on every non-forced decision before the end of
  *    the 2-card hand, only tricky ones after it (measured on seeded games)
  */
@@ -78,12 +80,39 @@ describe('every rule tip: its trigger, once per game', () => {
         expect(T.pickTip('decision', bidView, bidDecision('3'), only('T.bore'))).toBe(null);
     });
 
-    test('T.zero: 0 suggested, or the partner bid 0', () => {
+    test('T.zero: 0 suggested, or the partner bid 0, only while both can still bid 0', () => {
         const text = 'If you and Bob (your partner) both bid 0, you can\'t be set: each trick you win is worth 1 point.';
         expect(T.pickTip('decision', bidView, bidDecision('0'), only('T.zero')).text).toBe(text);
         const v = view({ handSize: 12, trump: '5h', hands: { 1: ['Ah'] }, bids: [null, '2', '0'], turn: 4 });
         expect(T.pickTip('between', v, null, only('T.zero')).text).toBe(text);
         expect(T.pickTip('decision', bidView, bidDecision('2'), only('T.zero'))).toBe(null);
+        // the partner (Bob, seat 3) bid 0 and 0 is suggested too: still true
+        const bobZero = view({ handSize: 12, trump: '5h', hands: { 1: ['Ah'] }, bids: [null, '1', '0', '3'], turn: 1 });
+        expect(T.pickTip('decision', bobZero, bidDecision('0'), only('T.zero')).text).toBe(text);
+        // Bob already bid 2: the pair's bid can be set whatever the seat bids
+        const bobTwo = view({ handSize: 12, trump: '5h', hands: { 1: ['Ah'] }, bids: [null, '1', '2', '3'], turn: 1 });
+        expect(T.pickTip('decision', bobTwo, bidDecision('0'), only('T.zero'))).toBe(null);
+        // between: the seat already bid 3, then Bob bid 0 (the choice is made)
+        const madeThree = view({ handSize: 12, trump: '5h', hands: { 1: ['Ah'] }, bids: ['3', null, '0'], turn: 4 });
+        expect(T.pickTip('between', madeThree, null, only('T.zero'))).toBe(null);
+        // between: both bid 0
+        const both = view({ handSize: 12, trump: '5h', hands: { 1: ['Ah'] }, bids: ['0', null, '0'], turn: 4 });
+        expect(T.pickTip('between', both, null, only('T.zero')).text).toBe(text);
+    });
+
+    test('a decision prefers the decision-only tips: a first bidder\'s first bid gets T.bid, the 1-card hand T.oneCard', () => {
+        const welcomed = T.withTip(0, 'T.welcome');
+        const e = { confidence: 'clear', codes: [] };
+        const r = T.decisionStep({ view: bidView, decision: bidDecision('2'), e, tips: welcomed });
+        expect(r.tip.id).toBe('T.bid');
+        // T.trump waits for the next between moment
+        expect(T.betweenStep({ view: bidView, tips: r.tips, windowUsed: false }).tip.id).toBe('T.trump');
+        // the 1-card hand with a joker flipped: T.oneCard before T.noTrump
+        const one = view({ handSize: 1, trump: 'LO', hands: { 1: ['Ah'] }, turn: 1 });
+        const seen = T.withTip(welcomed, 'T.bid');
+        expect(T.decisionStep({ view: one, decision: bidDecision('1'), e, tips: seen }).tip.id).toBe('T.oneCard');
+        // between moments keep the catalog order
+        expect(T.pickTip('between', one, null, seen).id).toBe('T.noTrump');
     });
 
     const playView = (o) => view({ handSize: 3, trump: '5h', bids: ['1', '1', '0', '0'], stage: 'play', ...o });
@@ -184,6 +213,15 @@ describe('every rule tip: its trigger, once per game', () => {
         expect(grad.map((t) => t.id)).toEqual(['T.graduate']);
         expect(grad[0].text).toBe('You\'ve got the basics. From now on tips show only for tricky choices. /help works any time.');
         expect(T.handEndTips(facts(13, 13), 0)).toEqual([]);
+    });
+
+    test('T.done never repeats its title (clients say "Tip: <title>. <text>")', () => {
+        const done = T.systemTip('T.done');
+        expect(done).toEqual({ id: 'T.done', title: 'Tutorial complete', text: 'Thanks for playing with the tutorial. Type /help any time for a suggestion.' });
+        for (const id of Object.keys(T.SYSTEM_TIPS)) {
+            const t = T.systemTip(id);
+            expect([id, t.text.toLowerCase().startsWith(t.title.toLowerCase())]).toEqual([id, false]);
+        }
     });
 
     test('a forced move gets nothing; the bit makes a topic once per game', () => {
@@ -348,19 +386,28 @@ describe('seeded games (sim/tutorialFade.js)', () => {
         }
     });
 
-    test('the budget: one rule tip per own decision, one between two of them (a hand end opens a new window)', () => {
+    test('the budget: one rule tip per own decision, one between two of them (a hand end does not reopen it)', () => {
         let between = 0;
-        let key = null;
+        let game = null;
         for (const ev of events) {
-            if (key !== `${ev.game}|${ev.hand}`) {
-                key = `${ev.game}|${ev.hand}`;
+            if (game !== ev.game) {
+                game = ev.game;
                 between = 0;
             }
             if (ev.moment === 'decision') between = 0;
             else if (ev.moment === 'between') {
                 between++;
                 expect(between).toBeLessThanOrEqual(1);
-            } else if (ev.moment === 'handEnd') between = 0;
+            }
+        }
+    });
+
+    test('a first bidder\'s first decision of the game is T.bid', () => {
+        const firsts = new Map();
+        for (const ev of events) if (ev.moment === 'decision' && !firsts.has(ev.game)) firsts.set(ev.game, ev);
+        for (const ev of firsts.values()) {
+            expect(ev.decision.kind).toBe('bid');
+            expect([ev.game, ev.tip && ev.tip.id]).toEqual([ev.game, 'T.bid']);
         }
     });
 
@@ -418,5 +465,6 @@ test('a real decision and explanation go through decisionStep', () => {
     const e = explain(d, v);
     const r = T.decisionStep({ view: v, decision: d, e, tips: 0 });
     expect(r.advice).toBe(true);
-    expect(r.tip && r.tip.id).toBe('T.trump');
+    // a decision-only tip first (T.trump waits for a between moment)
+    expect(r.tip && r.tip.id).toBe('T.follow');
 });
