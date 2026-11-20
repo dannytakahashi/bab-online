@@ -32,7 +32,9 @@
  *   users.mergedInto (earlier tombstones that point at a source)
  *   gameRecords.team1Players / team2Players (humans only; the bot personas
  *   of a bot game are in gameRecords.team1Bots / team2Bots, which are never
- *   account names and are never re-pointed)
+ *   account names and are never re-pointed), and the seat names
+ *   gameRecords.statsDeltas.names.<pos> (the Records superlatives,
+ *   2026-11-20; humans only, re-pointed with the teams)
  *   reports.reporter / reports.reported
  *   passwordResets.username (open links of a source are revoked, see below)
  * Not moved: adminAudit (a log of what happened, by the names of the time).
@@ -251,7 +253,8 @@ async function planMerge(db, { target, sources }) {
     const records = await db.gameRecords.find({
         $or: [
             { team1Players: { $in: plan.sources } },
-            { team2Players: { $in: plan.sources } }
+            { team2Players: { $in: plan.sources } },
+            ...[1, 2, 3, 4].map((pos) => ({ [`statsDeltas.names.${pos}`]: { $in: plan.sources } }))
         ]
     }).toArray();
     for (const rec of records) {
@@ -259,6 +262,13 @@ async function planMerge(db, { target, sources }) {
             team1Players: renameAll(rec.team1Players, plan.sources, target),
             team2Players: renameAll(rec.team2Players, plan.sources, target)
         };
+        // The superlatives' seat names, re-pointed with the teams
+        const seatNames = rec.statsDeltas?.names;
+        if (seatNames && typeof seatNames === 'object' && !Array.isArray(seatNames)
+            && Object.values(seatNames).some((n) => plan.sources.includes(n))) {
+            after['statsDeltas.names'] = Object.fromEntries(Object.entries(seatNames)
+                .map(([pos, n]) => [pos, plan.sources.includes(n) ? target : n]));
+        }
         const names = [...(after.team1Players || []), ...(after.team2Players || [])];
         if (names.filter(n => n === target).length > 1) {
             plan.warnings.push(`Game ${rec.gameId || rec._id} had more than one of these accounts at the table; "${target}" will appear in it twice.`);

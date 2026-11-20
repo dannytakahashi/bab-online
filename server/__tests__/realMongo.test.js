@@ -145,6 +145,21 @@ const sock = () => {
     return s;
 };
 const last = (event) => log.filter(l => l.event === event).pop()?.data;
+/**
+ * A records reply without each period's superlatives (additive
+ * 2026-11-20), for comparing with the 3db87b1 reference; the seed's records
+ * predate statsDeltas, so every list is empty.
+ */
+function withoutSuperlatives(reply) {
+    const records = {};
+    for (const [period, rec] of Object.entries(reply.records || {})) {
+        if (rec === null) { records[period] = null; continue; }
+        const { superlatives, ...rest } = rec;
+        expect(superlatives).toEqual([]);
+        records[period] = rest;
+    }
+    return { ...reply, records };
+}
 
 beforeEach(async () => {
     if (!client) return;
@@ -333,7 +348,7 @@ describe('real mongod', () => {
         require('../testUtils/contractCheck').takeViolations();
         await profile.getRecords(b, io);
         const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
-        const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
+        const after = withoutSuperlatives(log.filter(l => l.to === `self:${b.id}`).pop().data);
         // the 3db87b1 reply plus periodGames (additive 2026-11-14)
         const { periodGames, ...rest } = after;
         expect(rest).toEqual(before);
@@ -768,7 +783,10 @@ describe('real mongod', () => {
         const ref = makeReference(database);
         const a = sock();
         const b = sock();
-        const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
+        const reply = (s) => {
+            const data = log.filter(l => l.to === `self:${s.id}`).pop().data;
+            return s === b && data.records ? withoutSuperlatives(data) : data;
+        };
         // 'all' on human-only data is the reference exactly (plus the echo)
         await ref.getRecords(a, io);
         require('../testUtils/contractCheck').takeViolations(); // the reference predates periodGames
@@ -816,6 +834,67 @@ describe('real mongod', () => {
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });
         expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
+    });
+
+    test('(q) superlatives on the real driver: the dotted statsDeltas projection, names map and legacy rebuild, per scope; rename / merge / delete keep the names map in step', async () => {
+        if (!client) return;
+        const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
+        const seat = (o = {}) => ({ gamesPlayed: 1, totalHands: 13, totalHSI: 1300, totalSets: 1, totalTricksBid: 20, totalTricksTaken: 20, totalBags: 0, ...o });
+        const recs = [];
+        for (let i = 0; i < 5; i++) {
+            recs.push({
+                gameId: `s${i}`, team1Score: 300, team2Score: 200, team1Players: ['Alan', 'Cy'], team2Players: ['Bea', 'Eve'], team1Bags: 0, team2Bags: 0,
+                completedAt: new Date(now - 100 - i),
+                statsDeltas: {
+                    bucket: 'stats',
+                    byPosition: { 1: seat({ totalBags: 3 }), 2: seat(), 3: seat({ totalHSI: 2600 }), 4: seat() },
+                    // the last two are older records: no names map, rebuilt from the teams
+                    ...(i < 3 ? { names: { 1: 'Alan', 2: 'Bea', 3: 'Cy', 4: 'Eve' } } : {}),
+                    assist: { 2: { help: 2 } }
+                }
+            });
+            recs.push({
+                gameId: `solo${i}`, withBots: true, team1Score: 400, team2Score: 100, team1Players: ['Dot'], team2Players: [],
+                team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Ivy', '🤖 Mary'], team1Bags: 1, team2Bags: 0, completedAt: new Date(now - 50 - i),
+                statsDeltas: { bucket: 'botStats', byPosition: { 1: seat() }, names: { 1: 'Dot' } }
+            });
+        }
+        await mockHolder.gameRecords.insertMany(recs);
+        profile.invalidateRecords();
+
+        const b = sock();
+        await profile.getRecords(b, io);
+        const human = Object.fromEntries(reply(b).records.thisMonth.superlatives.map((x) => [x.id, x]));
+        expect(Object.keys(human)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'anchor']);
+        expect(human.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Alan'], detail: '3.0 bags a game' });
+        expect(human.luckyDuck.names).toEqual(['Cy']);
+        expect(human.cursed.names).toEqual(['Alan', 'Bea', 'Eve']);
+        expect(human.helpFromFriends).toMatchObject({ names: ['Bea'], detail: '10 /help uses' });
+        // the seed's older games (no statsDeltas) count nobody's games
+        expect(reply(b).records.allTime.superlatives).toEqual(reply(b).records.thisMonth.superlatives);
+
+        await profile.getRecords(b, io, { scope: 'bots' });
+        expect(reply(b).records.thisMonth.superlatives.find((x) => x.id === 'botFriends'))
+            .toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Dot'], detail: '5 solo games' });
+        expect(reply(b).records.thisMonth.superlatives.flatMap((x) => x.names)).toEqual(expect.not.arrayContaining(['Alan', '🤖 Zach']));
+        await profile.getRecords(b, io, { scope: 'all' });
+        expect(reply(b).records.thisMonth.superlatives.map((x) => x.id)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'anchor']);
+
+        // rename, merge and delete on the real driver keep the map in step
+        const { renameEverywhere } = require('../admin/accountRename');
+        const { eraseAccount } = require('../admin/accountDelete');
+        const { planMerge, applyMerge } = require('../admin/accountMerge');
+        const mapOf = async (gameId) => (await mockHolder.gameRecords.findOne({ gameId })).statsDeltas.names;
+        const user = (username) => mockHolder.users.findOne({ username });
+        await renameEverywhere(mockHolder, 'Cy', 'Cyd', { selfId: (await user('Cy'))._id });
+        expect(await mapOf('s0')).toEqual({ 1: 'Alan', 2: 'Bea', 3: 'Cyd', 4: 'Eve' });
+        expect(await mapOf('s4')).toBeUndefined();
+        expect((await mockHolder.gameRecords.findOne({ gameId: 's4' })).team1Players).toEqual(['Alan', 'Cyd']);
+        await eraseAccount(mockHolder, await user('Bea'));
+        expect(await mapOf('s1')).toEqual({ 1: 'Alan', 2: '[deleted]', 3: 'Cyd', 4: 'Eve' });
+        await applyMerge(mockHolder, await planMerge(mockHolder, { target: 'Alan', sources: ['Dot'] }));
+        expect(await mapOf('solo2')).toEqual({ 1: 'Alan' });
+        expect((await mockHolder.gameRecords.findOne({ gameId: 'solo2' })).team1Players).toEqual(['Alan']);
     });
 
     test('(p) end-of-game writes on the real driver: unique gameId index (partial, used by the lookup), a replay counts once, a duplicate falls back to a non-unique index', async () => {

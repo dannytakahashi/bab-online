@@ -14,6 +14,7 @@ const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
+const { createSuperlatives, SUPERLATIVE_MIN_GAMES } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
 const { DELETED_NAME } = require('../admin/nameHold');
@@ -1172,8 +1173,13 @@ function recordsKey(now) {
     return `${now.getFullYear()}-${now.getMonth()}`;
 }
 
-// Only the fields the reduction below reads
-const RECORDS_PROJECTION = { _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1 };
+// Only the fields the reduction below reads: the team records, plus the
+// per-seat counters, seat names and /help uses the superlatives read
+// (utils/superlatives.js)
+const RECORDS_PROJECTION = {
+    _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1,
+    'statsDeltas.byPosition': 1, 'statsDeltas.names': 1, 'statsDeltas.assist': 1
+};
 // Bot games also list their bot personas (team1Bots / team2Bots)
 const RECORDS_PROJECTION_WITH_BOTS = { ...RECORDS_PROJECTION, team1Bots: 1, team2Bots: 1 };
 
@@ -1215,6 +1221,11 @@ function recordTeam(game, n, scope) {
  * In bots / all a team made only of bots never holds the team records
  * (highest/lowest score, most/least bags); a biggest win always has a human
  * on one side.
+ *
+ * Superlatives (2026-11-20, utils/superlatives.js): each non-null period
+ * also carries `superlatives` [{id, title, names, detail}], accumulated in
+ * the same loop over the same documents (so the same scope filter and
+ * period boundaries), from players with SUPERLATIVE_MIN_GAMES games there.
  */
 async function fillRecords(now, scope = 'human') {
     const gameRecordsCollection = getGameRecordsCollection();
@@ -1253,8 +1264,10 @@ async function fillRecords(now, scope = 'human') {
         let biggestWin = null;
         let mostBags = null;
         let leastBags = null;
+        const superlatives = createSuperlatives({ minGames: SUPERLATIVE_MIN_GAMES });
 
         for (const game of games) {
+            superlatives.add(game);
             const team1 = recordTeam(game, 1, scope);
             const team2 = recordTeam(game, 2, scope);
 
@@ -1306,7 +1319,7 @@ async function fillRecords(now, scope = 'human') {
             }
         }
 
-        records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags };
+        records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags, superlatives: superlatives.result() };
     }
 
     return { records, totalGames, periodGames };

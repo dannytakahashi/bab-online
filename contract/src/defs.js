@@ -242,6 +242,11 @@ const defs = {
     // getRecords: per period (allTime / thisYear / thisMonth) null when no
     // game is recorded, else these five, each null until it has data (the
     // bag records skip legacy games without bags). Rows open, core required.
+    // superlatives (additive 2026-11-20, optional): the period's player
+    // titles (server/utils/superlatives.js), in server order; a title
+    // nobody qualifies for is left out, so the list may be empty. Clients
+    // render every entry generically (title, names joined with ", ",
+    // detail), whatever its id, so a new title needs no client release.
     recordsPeriod: orNull(obj({
         highestScore: orNull(obj({ score: num(), players: arr(str()) }, { open: true })),
         lowestScore: orNull(obj({ score: num(), players: arr(str()) }, { open: true })),
@@ -250,7 +255,19 @@ const defs = {
         }, { open: true })),
         mostBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
         leastBags: orNull(obj({ bags: num(), players: arr(str()) }, { open: true })),
-    }, { open: true })),
+        superlatives: arr(ref('recordsSuperlative')),
+    }, { open: true, optional: ['superlatives'] })),
+    // One Records title: id (bagBoy, luckyDuck, cursed, botFriends,
+    // helpFromFriends, anchor today; more may come, render unknown ids the
+    // same way), the title shown, the winner(s) (human usernames, up to 3
+    // tied, alphabetical) and the value line ("2.4 bags a game"; " (+N
+    // more)" when more players tied).
+    recordsSuperlative: obj({
+        id: str({ minLength: 1 }),
+        title: str({ minLength: 1 }),
+        names: arr(str(), { minItems: 1, maxItems: 3 }),
+        detail: str(),
+    }),
     // customProfilePic always null since V1_REMOVALS #19 B (the reply's avatarUrls has the URL)
     playerSearchRow: obj({ username: str(), profilePic: int(), customProfilePic: nul(), gamesPlayed: int(), wins: int() }),
     voicePeer: obj({ socketId: str(), username: { type: ['string', 'null'] } }),

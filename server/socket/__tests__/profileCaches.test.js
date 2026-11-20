@@ -256,7 +256,10 @@ describe('records cache', () => {
         await records();
         expect(find).toHaveBeenCalledTimes(3);
         for (const [, opts] of find.mock.calls) {
-            expect(opts.projection).toEqual({ _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1 });
+            expect(opts.projection).toEqual({ _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1,
+                // superlatives (utils/superlatives.js)
+                'statsDeltas.byPosition': 1, 'statsDeltas.names': 1, 'statsDeltas.assist': 1
+            });
         }
     });
 });

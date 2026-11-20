@@ -30,7 +30,9 @@
  *                             player renamed on request may be getting away
  *                             from someone; authHandlers.hidesNewName); the
  *                             admin can delete it later to free the name
- *   gameRecords               team1Players / team2Players
+ *   gameRecords               team1Players / team2Players, and the
+ *                             seat names statsDeltas.names.<pos> (the
+ *                             Records superlatives, 2026-11-20)
  *   reports                   reporter, reported, resolvedBy (not a report
  *                             marked reporterDeletedAt / reportedDeletedAt:
  *                             that side was an earlier, deleted holder of
@@ -73,6 +75,9 @@
 
 const { REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
 const { revokeOpenResetLinks } = require('./setPassword');
+
+/** gameRecords' per-seat names (profileHandlers.buildGameEndRecord, superlatives). */
+const SEAT_NAME_PATHS = [1, 2, 3, 4].map((pos) => `statsDeltas.names.${pos}`);
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -160,6 +165,10 @@ async function renameEverywhere(db, from, to, { selfId, now = new Date() }) {
                 { arrayFilters: [{ p: from }] }
             );
             out.gameRecords += res?.modifiedCount || 0;
+        }
+        // The superlatives' seat names (the same records: not counted again)
+        for (const path of SEAT_NAME_PATHS) {
+            await db.gameRecords.updateMany({ [path]: from }, { $set: { [path]: to } });
         }
     }
     if (db.reports) {
