@@ -790,25 +790,43 @@ private struct GameScreen: View {
 
     // MARK: - /help (AssistCardView): above my hand, or above the bid panel while I bid
 
-    /// My hand's box in the pane's points (its cards' width at the hand's scale, from its
-    /// baseline to the lifted cards' top): the card and the lightbulb are placed from it, so on
-    /// the Duo they follow the hand below the fold.
+    /// My hand's box in the pane's points (AssistLayout.handBox).
     private func handBox(_ layout: TableLayout) -> CGRect {
-        let n = max(gameState.myCards.count, 1)
-        let width = TableLayout.cardSize.width * layout.handScale + layout.handOverlap(count: n) * CGFloat(n - 1)
-        let bottom = layout.handTop - TableLayout.cardSize.height * layout.handScale
-        return layout.window(CGRect(x: layout.handBaseline.x - width / 2, y: bottom, width: width, height: layout.liftTop - bottom))
+        AssistLayout.handBox(layout, count: gameState.myCards.count)
     }
 
-    /// The lightbulb: its right edge at my hand's right end, just above the lifted cards.
+    /// What the lightbulb keeps clear of on my play turn: my seat's row as it draws now (my
+    /// pips' pill, HSI, the voice button: the same conditions as `seatRow` and the scene), the
+    /// spectator badge while it shows, and the rest of the table (AssistAskLayout.swift).
+    private func assistAskKeeps(_ layout: TableLayout) -> AssistLayout.AskKeeps {
+        #if DEBUG
+        let voice = (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
+        #else
+        let voice = voiceManager.isActive && !isPureSpectator
+        #endif
+        let badge = gameState.watching.count > 0
+            ? layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.holdsSeat)) : nil
+        return AssistLayout.askKeeps(layout, handCount: gameState.myCards.count,
+                                     pipSlots: TableRenderModel(gameState.state).myPips?.slots ?? 0,
+                                     hsi: gameState.myHSI != nil, voice: voice, spectatorBadge: badge)
+    }
+
+    /// The lightbulb: its right edge at my hand's right end, just above the lifted cards, or, when
+    /// that is on my seat's row (a short hand, or the voice button), one spot left of the row for
+    /// as long as the row is in the way (AssistLayout.askFrame / askLane).
     private func assistAsk(_ layout: TableLayout) -> some View {
-        let box = handBox(layout)
-        let size = AssistLayout.askSize
-        let hit = max(size, Theme.hitTarget)
-        return AssistAskButton(size: size, action: askHelp)
-            .frame(width: hit, height: hit)
-            .offset(x: max(0, box.maxX - hit + (hit - size) / 2), y: max(0, box.minY - hit + (hit - size) / 2 - 2))
+        let keeps = assistAskKeeps(layout)
+        let f = AssistLayout.askFrame(keeps)
+        return AssistAskButton(size: AssistLayout.askSize, action: askHelp)
+            .frame(width: f.width, height: f.height)
+            .offset(x: f.minX, y: f.minY)
             .transition(.opacity)
+            #if DEBUG
+            .onChange(of: f, initial: true) { _, r in
+                if UIFixture.isActive { TableDebugProbe.shared.assistAsk = (r, AssistLayout.askProblems(r, keeps), Array(keeps.drawn.keys) + Array(keeps.taps.keys)) }
+            }
+            .onDisappear { if UIFixture.isActive && !gameState.showsAssistAsk { TableDebugProbe.shared.assistAsk = nil } }
+            #endif
     }
 
     private func askHelp() {

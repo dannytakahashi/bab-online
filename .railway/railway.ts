@@ -13,10 +13,19 @@ export default defineRailway(() => {
     // checkSuites: Railway deploys a main commit only after its GitHub
     // checks (.github/workflows/ci.yml) pass, so a red CI never ships
     source: github("dannytakahashi/bab-online", { branch: "main", checkSuites: true }),
-    // Nixpacks picks Node from package.json engines (24.x); Railpack, the
-    // default for new services, is a separate move
-    build: { buildEnvironment: "V3", builder: "NIXPACKS" },
+    // Railpack (2026-11-19; Nixpacks is frozen and has no Node 26) picks
+    // Node from package.json engines (26.x), then .nvmrc; it runs
+    // `npm ci` and `npm run build` (vite), as Nixpacks did; the start is
+    // deploy.startCommand below
+    build: { buildEnvironment: "V3", builder: "RAILPACK" },
     deploy: {
+      // The server itself must receive the deploy's SIGTERM. The builders'
+      // default start, `npm start` (npm -> sh -c -> node), gets the signal in
+      // npm, which dies with "signal SIGTERM" and the server is killed without
+      // its graceful shutdown (no "Graceful shutdown complete" in any deploy's
+      // log before 2026-11-19): no shutdown notice to players, no drain, and
+      // with LIVE_PERSIST=on no handoff
+      startCommand: "node server/index.js",
       // Restart policy: Railway's default, ON_FAILURE with 10 retries (not
       // set here: Railway stores the default as null, so an explicit value
       // shows in every plan). A crash exits 1 (server/utils/shutdown.js) and

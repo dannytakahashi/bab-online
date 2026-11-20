@@ -170,6 +170,7 @@ enum UIFixture {
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
             editFaults(&snapDict)
+            editAssistHand(&snapDict)
             let snap = try TableSnapshot.decode(snapDict, strict: true)
             seededSnapshot = snapDict
             let me = snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
@@ -828,6 +829,22 @@ final class TableDebugProbe: ObservableObject {
         let text = "\(assistParts) frame=\(frame) clear=\(clear) keeps=\(kept.isEmpty ? "-" : kept)"
         if text != tableAssist { tableAssist = text }
     }
+    /// The lightbulb on my play turn (AssistLayout.askFrame): "frame=<x y w h> clear=ok|over:<what>
+    /// keeps=<pips,hsi,voice,spectators>|-" (its tap square in the pane's points, what it covers,
+    /// what of my seat's row it keeps clear of); "-": no lightbulb on the table.
+    @Published var tableAssistAsk = "-"
+    var assistAsk: (frame: CGRect, problems: [String], keeps: [String])? {
+        didSet {
+            var text = "-"
+            if let a = assistAsk {
+                let f = a.frame
+                text = String(format: "frame=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+                    + " clear=\(a.problems.isEmpty ? "ok" : "over:" + a.problems.joined(separator: ","))"
+                    + " keeps=\(a.keeps.isEmpty ? "-" : a.keeps.sorted().joined(separator: ","))"
+            }
+            if text != tableAssistAsk { tableAssistAsk = text }
+        }
+    }
     /// The bidder's countdown (BidClockPill) against the table, in the pane's points:
     /// "x y w h seats=ok|over:<what> fold=ok|over|-" ("-": no countdown shown).
     @Published var bidClock = "-"
@@ -929,6 +946,7 @@ struct FixtureProbes: View {
             dot("table.deal", probe.tableDeal)
             dot("table.bidClock", probe.bidClock)
             dot("table.assist", probe.tableAssist)
+            dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
             Spacer()
         }
