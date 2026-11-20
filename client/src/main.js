@@ -1487,6 +1487,9 @@ function initializeApp() {
     onMainRoomPlayerJoined: (data) => {
       updateMainRoomOnlineCount(data.onlineCount, data.onlineUsers);
     },
+    onMainRoomPlayerLeft: (data) => {
+      updateMainRoomOnlineCount(data.onlineCount, data.onlineUsers);
+    },
 
     // Lobby callbacks
     onLobbyCreated: (data) => {

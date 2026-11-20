@@ -2,6 +2,7 @@
  * Lobby and main room socket event handlers.
  *
  * Handles: mainRoomJoined, mainRoomMessage, lobbiesUpdated, mainRoomPlayerJoined,
+ *          mainRoomPlayerLeft,
  *          lobbyCreated, lobbyReturn, playerReadyUpdate, lobbyMessage,
  *          lobbyPlayerLeft, lobbyPlayerJoined, leftLobby, allPlayersReady
  *
@@ -25,6 +26,7 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
     onMainRoomMessage,
     onLobbiesUpdated,
     onMainRoomPlayerJoined,
+    onMainRoomPlayerLeft,
     // Lobby callbacks
     onLobbyCreated,
     onLobbyReturn,
@@ -61,6 +63,13 @@ export function registerLobbyHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.MAIN_ROOM_PLAYER_JOINED, (data) => {
     console.log('👋 Player joined main room:', data);
     onMainRoomPlayerJoined?.(data);
+  });
+
+  // A name went offline (its last socket closed, or it was signed out): the
+  // same refresh of the online count and list as a join (read since
+  // 2026-11-20; before that a player who left stayed listed until the next join)
+  socketManager.on(SERVER_EVENTS.MAIN_ROOM_PLAYER_LEFT, (data) => {
+    onMainRoomPlayerLeft?.(data);
   });
 
   // ==================== LOBBY HANDLERS ====================
