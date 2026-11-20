@@ -17,6 +17,7 @@ const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } =
 const { createSuperlatives, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
+const { normalizeSeatBags } = require('../game/rules');
 const { DELETED_NAME } = require('../admin/nameHold');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
@@ -635,11 +636,14 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * teamNPlayers); humans only. Kept in step with teamNPlayers by
  * server/admin/accountRename.js, accountMerge.js and accountDelete.js.
  * `statsDeltas.bags {<pos>: n}` (Bag Boy): the seat's tricks over its own
- * bid, counted per hand (gameHandlers.handleHandComplete), only for seats
- * whose game counted them from hand 1 (a game adopted from a process
- * without the counter has none, and the superlatives fall back to the net
- * of that seat). Beside byPosition on purpose: an applyPendingStats that
- * $incs every byPosition field (the release before) never sees it.
+ * bid, counted per hand (game.seatBags, gameHandlers.handleHandComplete),
+ * only when the counter saw every hand of the game (seatBags.hands ===
+ * handStats.totalHands): a game adopted from a process without the
+ * counter (null), or one that went through such a process and back (the
+ * release before drops the field), has none, and the superlatives fall
+ * back to the net of each seat. Beside byPosition on purpose: an
+ * applyPendingStats that $incs every byPosition field (the release
+ * before) never sees it.
  *
  * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
  * made more than ASSIST_FREE_HELP counted /help uses or played with the
@@ -674,14 +678,17 @@ function buildGameEndRecord(game) {
     const withBots = game.seatList().some(s => BOT_CONTROLLERS.has(s.controller));
     const bucket = withBots ? 'botStats' : 'stats';
 
+    // The bag counter, only when it counted every hand of this game
+    const counter = normalizeSeatBags(game.seatBags);
+    const counted = counter && counter.hands === game.handStats?.totalHands ? counter.byPos : null;
+
     const byPosition = {};
     const names = {};
     const bags = {};
     for (const { position, player } of players) {
         byPosition[position] = seatStatsDelta(game, position);
         names[position] = gameManager.deletedUsernames.has(player.username) ? DELETED_NAME : player.username;
-        const counted = game.playerStats?.[position]?.totalBags;
-        if (typeof counted === 'number' && Number.isFinite(counted)) bags[position] = counted;
+        if (counted) bags[position] = counted[position];
     }
     // A player who deleted their account mid-game has nothing to credit, and
     // their name must not go into the record

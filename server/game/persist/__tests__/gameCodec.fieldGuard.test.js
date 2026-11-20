@@ -65,16 +65,22 @@ const SERVER = path.join(__dirname, '../../..');
 // nothing calls serialize before the persist store (PR 4). From PR 4 on a
 // change bumps CODEC_V. Game v2: game.assist (/help, plan H2b); hydrate
 // still reads v1 (gameCodec.v1Hydrate.test.js). Game v3: a log entry's
-// optional fault (a hand's fault line, 2026-11-19).
+// optional fault (a hand's fault line, 2026-11-19). Game v3 re-pinned (not
+// bumped) on 2026-11-20 for state.seatBags (the superlatives' bag counter):
+// a v4 doc is one the release before cannot read at all (READ_VERSIONS
+// [1, 2, 3]: a rollback would discard every live game), while a v3 doc
+// with the extra state key is one it restores (restoreFrom reads named
+// fields only) and one without it restores here as no counter
+// (gameCodec.js header, superlativeRecord.test.js).
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '213d07164b4c1a9c' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '6174f83b00961127' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
-    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: '8ff2c04e4dd526ac' },
+    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: 'dd63a55fc74621e5' },
     tournament: { 1: 'b361a440bd865499' },
 };
 

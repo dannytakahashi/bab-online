@@ -271,13 +271,58 @@ describe('seat names', () => {
         expect(seatNames({ team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'] })).toBeNull();
         expect(seatNames({ statsDeltas: { byPosition: {} } })).toBeNull();
         expect(seatNames({ statsDeltas: { names: { 1: 'Ann' } } })).toBeNull();
-        // a names map missing a seat of byPosition is not guessed
-        expect(seatNames({ ...g, statsDeltas: { ...g.statsDeltas, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat' } } })).toBeNull();
+        // a names map missing a seat of byPosition is not trusted: seat order
+        // against teamNPlayers instead, and skipped if that is ambiguous too
+        expect(seatNames({ ...g, statsDeltas: { ...g.statsDeltas, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat' } } }))
+            .toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        expect(seatNames({ ...g, team1Players: ['Ann'], statsDeltas: { ...g.statsDeltas, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat' } } })).toBeNull();
 
         // skipped whole: Ann's ambiguous games do not count toward her 5
         const games = [...times(4, () => g), ...times(3, () => ({ ...g, team1Players: ['Ann'] }))];
         expect(computeSuperlatives(games)).toEqual([]);
         expect(computeSuperlatives([...games, g]).length).toBeGreaterThan(0);
+    });
+
+    test('the names map only while every seat\'s name is in its own team\'s teamNPlayers (odd seats team1, even team2)', () => {
+        const g = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] });
+        // seat 1 named on the other team: not trusted, seat order instead
+        expect(seatNames({ ...g, team1Players: ['Ben', 'Cat'], team2Players: ['Ann', 'Dan'] }))
+            .toEqual({ 1: 'Ben', 2: 'Ann', 3: 'Cat', 4: 'Dan' });
+        // a merged player in two seats: as often as the seats name them
+        const merged = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Ann'], 4: ['Dan'] });
+        expect(seatNames(merged)).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Ann', 4: 'Dan' });
+        expect(seatNames({ ...merged, team1Players: ['Ann', 'Cat'] })).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // a non-string name in the map: seat order
+        expect(seatNames({ ...g, statsDeltas: { ...g.statsDeltas, names: { ...g.statsDeltas.names, 2: 7 } } }))
+            .toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // a bot game: only the human seats
+        const solo = soloGame('Eve');
+        expect(seatNames({ ...solo, team1Players: ['Eva'] })).toEqual({ 1: 'Eva' });
+    });
+
+    test('a delete / rename / merge by the release before (teamNPlayers only) never lets the stale names map win', () => {
+        // Ann has the most bags, Cat the best HSI
+        const rec = () => humanGame({
+            1: ['Ann', { totalBags: 9 }], 2: ['Ben', { totalBags: 1 }],
+            3: ['Cat', { totalBags: 1, totalHSI: 2600 }], 4: ['Dan', { totalBags: 1 }]
+        });
+        // the release before's eraseAccount and renameEverywhere: '[deleted]'
+        // and 'Kit' in team1Players, statsDeltas.names untouched
+        const games = times(6, () => ({ ...rec(), team1Players: ['[deleted]', 'Kit'] }));
+        expect(games[0].statsDeltas.names).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        expect(seatNames(games[0])).toEqual({ 1: '[deleted]', 2: 'Ben', 3: 'Kit', 4: 'Dan' });
+        const out = computeSuperlatives(games);
+        const shown = out.flatMap((s) => s.names);
+        for (const stale of ['Ann', 'Cat', '[deleted]']) expect(shown).not.toContain(stale);
+        expect(byId(out).luckyDuck.names).toEqual(['Kit']);
+        // the deleted seat's bags are nobody's: Bag Boy goes to the 1-bag seats
+        expect(byId(out).bagBoy).toMatchObject({ names: ['Ben', 'Dan', 'Kit'], detail: '1.0 bags a game' });
+
+        // a merge of Cat into Ann by the release before: Ann in both team1 seats
+        const mergedGames = times(6, () => ({ ...rec(), team1Players: ['Ann', 'Ann'] }));
+        expect(seatNames(mergedGames[0])).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Ann', 4: 'Dan' });
+        expect(byId(computeSuperlatives(mergedGames)).luckyDuck.names).toEqual(['Ann']);
+        expect(computeSuperlatives(mergedGames).flatMap((s) => s.names)).not.toContain('Cat');
     });
 
     test('a legacy record and a names-map record of the same player add up', () => {

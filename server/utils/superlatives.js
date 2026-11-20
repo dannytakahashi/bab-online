@@ -22,12 +22,18 @@
  *   - the per-seat values (bags, HSI, sets, /help): only records with
  *     per-seat counters (`statsDeltas.byPosition`, since 2026-11-15) whose
  *     seats can be named: `statsDeltas.names {<pos>: username}` (since
- *     2026-11-20, kept in step by the account rename / merge / delete
- *     code), else a read-time reconstruction, only when unambiguous: per
- *     team, the byPosition seats of that team in seat order against the
- *     record's teamNPlayers (human owners in seat order) with equal
- *     counts. A record with per-seat counters that cannot be named that
- *     way is skipped whole (not even a game).
+ *     2026-11-20, kept in step by this release's account rename / merge /
+ *     delete code), only while it agrees with teamNPlayers: every seat's
+ *     name is in its team's array (odd seats team1Players, even seats
+ *     team2Players, as often as the seats name it). The release before
+ *     (a rollback, or the old process during a deploy) rewrites only
+ *     teamNPlayers, so a names map it left stale (a deleted player's real
+ *     name, a name before a rename or merge) is ignored for that record.
+ *     Then, or for a record without names, a read-time reconstruction,
+ *     only when unambiguous: per team, the byPosition seats of that team
+ *     in seat order against the record's teamNPlayers (human owners in
+ *     seat order) with equal counts. A record with per-seat counters that
+ *     cannot be named that way is skipped whole (not even a game).
  * Never a winner: '[deleted]', a non-string or empty name, or a name the
  * record also lists as a bot persona (teamNBots). Bots have no
  * byPosition seat, so they never get a value anyway.
@@ -39,9 +45,9 @@
  *                   hand; a hand in which either seat of the team bid a
  *                   bore has none (the team's contract was the whole hand,
  *                   rules.seatBags): `statsDeltas.bags[pos]` (since
- *                   2026-11-20, only for a game that counted it from hand
- *                   1), else max(0, totalTricksTaken - totalTricksBid) of
- *                   that seat
+ *                   2026-11-20, only for a game whose counter saw every
+ *                   hand: profileHandlers.buildGameEndRecord), else
+ *                   max(0, totalTricksTaken - totalTricksBid) of that seat
  *   luckyDuck       highest sum totalHSI / sum totalHands
  *   cursed          lowest sum totalHSI / sum totalHands; left out when it
  *                   equals Lucky Duck's (one qualifier, or all tied: the
@@ -95,6 +101,29 @@ function seatPositions(record) {
         .sort((a, b) => a - b);
 }
 
+/** The seat's team (odd seats team 1, even seats team 2: buildGameRecord). */
+const teamOf = (pos) => (pos % 2 === 1 ? 1 : 2);
+
+/**
+ * Every seat's name is a string its team's teamNPlayers lists, as often as
+ * that team's seats name it (a merge can put one player in two seats).
+ */
+function namesMatchTeams(record, positions, named) {
+    for (const n of [1, 2]) {
+        const players = record[`team${n}Players`];
+        if (!Array.isArray(players)) return false;
+        const left = new Map();
+        for (const name of players) left.set(name, (left.get(name) || 0) + 1);
+        for (const pos of positions.filter((p) => teamOf(p) === n)) {
+            const name = named[pos];
+            const count = left.get(name) || 0;
+            if (typeof name !== 'string' || count === 0) return false;
+            left.set(name, count - 1);
+        }
+    }
+    return true;
+}
+
 /**
  * {pos: name} for a record's human seats, or null when the record has no
  * per-seat counters or its seats cannot be named unambiguously.
@@ -104,18 +133,17 @@ function seatNames(record) {
     if (positions.length === 0) return null;
     const sd = record.statsDeltas;
 
-    const out = {};
     if (isPlainObject(sd.names)) {
-        for (const pos of positions) {
-            const name = sd.names[pos];
-            if (typeof name !== 'string') return null; // a seat without a name: not ours to guess
-            out[pos] = name;
-        }
-        return out;
+        const named = {};
+        for (const pos of positions) named[pos] = sd.names[pos];
+        if (namesMatchTeams(record, positions, named)) return named;
+        // Stale (rewritten in teamNPlayers only) or incomplete: not trusted
     }
-    // Older record (2026-11-15 .. 2026-11-20): seat order against teamNPlayers
+    // Seat order against teamNPlayers: an older record (2026-11-15 ..
+    // 2026-11-20), or one whose names map disagrees with it
+    const out = {};
     for (const n of [1, 2]) {
-        const seats = positions.filter((pos) => (pos % 2 === 1 ? 1 : 2) === n);
+        const seats = positions.filter((pos) => teamOf(pos) === n);
         const players = record[`team${n}Players`];
         if (!Array.isArray(players) || players.length !== seats.length) return null;
         seats.forEach((pos, i) => { out[pos] = players[i]; });

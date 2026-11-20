@@ -2,11 +2,13 @@
  * What a finished game's record carries for the Records superlatives
  * (2026-11-20, server/utils/superlatives.js):
  *   - statsDeltas.bags[pos]: tricks over the seat's own bid, summed per
- *     hand (rules.seatBags; no bags on a team with a bore), only for a game
- *     that counted them from hand 1 (GameState starts playerStats.totalBags
- *     at 0; a game adopted from a process without it has none). Beside
- *     byPosition, so no applyPendingStats $incs it into users.stats /
- *     botStats; never on gameEnd
+ *     hand (rules.seatBags; no bags on a team with a bore) into
+ *     game.seatBags {hands, byPos}, only when that counter saw every hand
+ *     (seatBags.hands === handStats.totalHands; GameState starts it, a game
+ *     adopted from a process without it has none, a stale one is not
+ *     trusted). Beside byPosition, so no applyPendingStats $incs it into
+ *     users.stats / botStats; never in playerStats (the release before
+ *     spreads that into gameEnd) nor on the wire
  *   - statsDeltas.names {pos: username}: the durable seat -> player map
  *     (statsPending leaves the record once the stats are applied)
  *
@@ -148,29 +150,44 @@ describe('rules.seatBags', () => {
     });
 });
 
-describe('per hand: playerStats.totalBags', () => {
-    test('a hand adds each seat\'s bags (not the team net); the next hand adds to it', async () => {
+const codec = require('../../game/persist/gameCodec');
+
+/** serialize + JSON, as the persist store writes it. */
+const save = (game) => JSON.parse(JSON.stringify(codec.serialize(game, { tournamentId: null, getBot: () => null })));
+
+/** A hand straight into the hand-end step (not the last unless `currentHand` 13). */
+async function hand(game, io, bids, handTricks, { currentHand = 4 } = {}) {
+    game.playerBids = bids;
+    game.bids = { team1: Number(bids[0]) + Number(bids[2]), team2: Number(bids[1]) + Number(bids[3]) };
+    game.team1Mult = 1;
+    game.team2Mult = 1;
+    game.tricks = { team1: handTricks[1] + handTricks[3], team2: handTricks[2] + handTricks[4] };
+    game.handTricks = { ...handTricks };
+    game.currentHand = currentHand;
+    game.forcePhase('HAND_RESOLVING');
+    await gameHandlers.handleHandComplete(game, io);
+}
+
+const byPos = (game) => [1, 2, 3, 4].map((p) => game.seatBags.byPos[p]);
+
+describe('per hand: game.seatBags', () => {
+    test('a hand adds each seat\'s bags (not the team net) and counts the hand; the next hand adds to it', async () => {
         const t = await setup();
         await bidAll(t, ['1', '2', '1', '1']);
         await playOut(t);
         // seat 1 took all 4 on a bid of 1; nobody else took a trick
-        expect([1, 2, 3, 4].map((p) => t.game.playerStats[p].totalBags)).toEqual([3, 0, 0, 0]);
+        expect(t.game.seatBags).toEqual({ hands: 1, byPos: { 1: 3, 2: 0, 3: 0, 4: 0 } });
+        expect(t.game.handStats.totalHands).toBe(1);
         // team1 bid 2 and took 4: net 2, but seat 1's own bags are 3
         expect(t.game.playerStats[1].totalTricks - t.game.playerStats[1].totalBids).toBe(3);
         expect((t.game.playerStats[1].totalTricks + t.game.playerStats[3].totalTricks)
             - (t.game.playerStats[1].totalBids + t.game.playerStats[3].totalBids)).toBe(2);
+        // never in playerStats (the release before spreads it into gameEnd)
+        for (const p of [1, 2, 3, 4]) expect(t.game.playerStats[p]).not.toHaveProperty('totalBags');
 
-        // A second hand, straight into the hand-end step
-        const { game, io } = t;
-        game.playerBids = ['0', '1', '2', '0'];
-        game.bids = { team1: 2, team2: 1 };
-        game.team1Mult = 1;
-        game.team2Mult = 1;
-        game.tricks = { team1: 3, team2: 1 };
-        game.handTricks = { 1: 2, 2: 1, 3: 1, 4: 0 };
-        game.forcePhase('HAND_RESOLVING');
-        await gameHandlers.handleHandComplete(game, io);
-        expect([1, 2, 3, 4].map((p) => game.playerStats[p].totalBags)).toEqual([5, 0, 0, 0]);
+        await hand(t.game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        expect(t.game.seatBags).toEqual({ hands: 2, byPos: { 1: 5, 2: 0, 3: 0, 4: 0 } });
+        expect(t.game.handStats.totalHands).toBe(2);
     });
 
     test('a bore never bags, even taking every trick', async () => {
@@ -178,7 +195,7 @@ describe('per hand: playerStats.totalBags', () => {
         await bidAll(t, ['B', '0', '0', '0']);
         await playOut(t);
         expect(t.game.playerStats[1].totalTricks).toBe(4);
-        expect([1, 2, 3, 4].map((p) => t.game.playerStats[p].totalBags)).toEqual([0, 0, 0, 0]);
+        expect(t.game.seatBags).toEqual({ hands: 1, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } });
     });
 
     test('the partner of a bore does not bag either; the other team still does', async () => {
@@ -193,46 +210,131 @@ describe('per hand: playerStats.totalBags', () => {
         game.handTricks = { 1: 2, 2: 0, 3: 1, 4: 1 };
         game.forcePhase('HAND_RESOLVING');
         await gameHandlers.handleHandComplete(game, io);
-        expect([1, 2, 3, 4].map((p) => game.playerStats[p].totalBags)).toEqual([0, 0, 0, 1]);
+        expect(byPos(game)).toEqual([0, 0, 0, 1]);
     });
 
-    test('a game adopted from a process without the counter (no totalBags in playerStats) never starts one mid-game', async () => {
+    test('a game adopted from a process without the counter (no state.seatBags) never starts one mid-game', async () => {
         const t = await setup();
-        const { game, io } = t;
-        for (const p of [1, 2, 3, 4]) delete game.playerStats[p].totalBags; // as an older CODEC doc restores it
-        game.playerBids = ['0', '1', '2', '0'];
-        game.bids = { team1: 2, team2: 1 };
-        game.team1Mult = 1;
-        game.team2Mult = 1;
-        game.tricks = { team1: 3, team2: 1 };
-        game.handTricks = { 1: 2, 2: 1, 3: 1, 4: 0 };
-        game.forcePhase('HAND_RESOLVING');
-        await gameHandlers.handleHandComplete(game, io);
+        const doc = save(t.game);
+        delete doc.state.seatBags; // as the release before saves it
+        gameManager.abortGame(t.game.gameId);
+        const game = codec.hydrate(doc).game;
+        expect(game.seatBags).toBeNull();
+        await hand(game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        expect(game.seatBags).toBeNull();
         for (const p of [1, 2, 3, 4]) expect(game.playerStats[p]).not.toHaveProperty('totalBags');
         // its record has no bags: the superlatives fall back to each seat's net
         const rec = profile.buildGameEndRecord(game);
         expect(rec.statsDeltas).not.toHaveProperty('bags');
         expect(Object.keys(rec.statsDeltas.byPosition[1])).not.toContain('totalBags');
+        expect(rec.statsDeltas.names).toEqual({ 1: t.names[0], 2: t.names[1], 3: t.names[2], 4: t.names[3] });
+        // and saves it as null
+        expect(save(game).state.seatBags).toBeNull();
+        game._cancelAllTimers();
     });
 
-    test('a new game starts every seat at totalBags 0; a save and restore keeps the count, an older doc has none', async () => {
+    test('a new game starts the counter at 0; a save and restore keeps it; a missing or malformed one restores as none', async () => {
         const t = await setup();
-        expect([1, 2, 3, 4].map((p) => t.game.playerStats[p].totalBags)).toEqual([0, 0, 0, 0]);
-        t.game.playerStats[2].totalBags = 3;
-        const codec = require('../../game/persist/gameCodec');
-        const doc = JSON.parse(JSON.stringify(codec.serialize(t.game, { tournamentId: null, getBot: () => null })));
+        expect(t.game.seatBags).toEqual({ hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } });
+        t.game.seatBags.byPos[2] = 3;
+        t.game.seatBags.hands = 1;
+        const doc = save(t.game);
+        expect(doc.state.seatBags).toEqual({ hands: 1, byPos: { 1: 0, 2: 3, 3: 0, 4: 0 } });
+        for (const p of [1, 2, 3, 4]) expect(doc.state.playerStats[p]).not.toHaveProperty('totalBags');
+        // still a v3 doc: the release before reads v3 only, and ignores the extra state key
+        expect(doc.v).toBe(3);
         gameManager.abortGame(t.game.gameId);
-        const restored = codec.hydrate(doc).game;
-        expect([1, 2, 3, 4].map((p) => restored.playerStats[p].totalBags)).toEqual([0, 3, 0, 0]);
-        // the doc of a process without the counter
-        for (const p of [1, 2, 3, 4]) delete doc.state.playerStats[p].totalBags;
+        const restored = codec.hydrate(JSON.parse(JSON.stringify(doc))).game;
+        expect(restored.seatBags).toEqual({ hands: 1, byPos: { 1: 0, 2: 3, 3: 0, 4: 0 } });
+        expect(save(restored)).toEqual(codec.expectedAfterRestore(doc));
+        restored._cancelAllTimers();
+        for (const bad of [undefined, null, 7, { hands: -1, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } }, { hands: 1, byPos: { 1: 0, 2: 0, 3: 0 } },
+            { hands: 1.5, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } }, { hands: 1, byPos: { 1: 0, 2: '1', 3: 0, 4: 0 } }]) {
+            const d = JSON.parse(JSON.stringify(doc));
+            if (bad === undefined) delete d.state.seatBags;
+            else d.state.seatBags = bad;
+            const g = codec.hydrate(d).game;
+            expect(g.seatBags).toBeNull();
+            expect(codec.expectedAfterRestore(d).state.seatBags).toBeNull();
+            g._cancelAllTimers();
+        }
+    });
+
+    test('a doc whose playerStats carry a pre-release totalBags restores without it (never on gameEnd)', async () => {
+        const t = await setup({ handSize: 13 });
+        await bidAll(t, ['1', '1', '1', '1']);
+        const doc = save(t.game);
+        for (const p of [1, 2, 3, 4]) doc.state.playerStats[p].totalBags = p;
+        delete doc.state.seatBags;
+        gameManager.abortGame(t.game.gameId);
+        const game = codec.hydrate(doc).game;
+        game._cancelAllTimers();
+        for (const p of [1, 2, 3, 4]) expect(game.playerStats[p]).not.toHaveProperty('totalBags');
+        expect(codec.expectedAfterRestore(doc).state.playerStats[1]).not.toHaveProperty('totalBags');
+        const from = t.log.length;
+        await hand(game, t.io, ['1', '1', '1', '1'], { 1: 13, 2: 0, 3: 0, 4: 0 }, { currentHand: 13 });
+        await settle();
+        const [end] = events(t.log.slice(from), 'gameEnd');
+        for (const pos of ['1', '2', '3', '4']) expect(end.data.playerStats[pos]).not.toHaveProperty('totalBags');
+        expect(mockDb.current.gameRecords.docs[0].statsDeltas).not.toHaveProperty('bags');
+    });
+
+    test('branch -> release before -> branch: the counter is dropped on the way, so the record carries no bags', async () => {
+        const t = await setup();
+        // hand 1 here: seat 1 bids 1, takes 3
+        await hand(t.game, t.io, ['1', '0', '0', '1'], { 1: 3, 2: 0, 3: 0, 4: 1 });
+        expect(t.game.seatBags.hands).toBe(1);
+        const doc = save(t.game);
+        gameManager.abortGame(t.game.gameId);
+        // the release before adopts it (restoreFrom reads named fields only),
+        // plays hand 2 and saves without the counter
         const old = codec.hydrate(doc).game;
-        for (const p of [1, 2, 3, 4]) expect(old.playerStats[p]).not.toHaveProperty('totalBags');
+        old.seatBags = null;
+        await hand(old, t.io, ['1', '0', '0', '0'], { 1: 4, 2: 0, 3: 0, 4: 0 });
+        const oldDoc = save(old);
+        delete oldDoc.state.seatBags;
+        gameManager.abortGame(old.gameId);
+        old._cancelAllTimers();
+        // back here for hand 3
+        const back = codec.hydrate(oldDoc).game;
+        expect(back.seatBags).toBeNull();
+        await hand(back, t.io, ['1', '0', '0', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        expect(back.handStats.totalHands).toBe(3);
+        expect(profile.buildGameEndRecord(back).statsDeltas).not.toHaveProperty('bags');
+        back._cancelAllTimers();
+    });
+
+    test('a counter that missed hands (hands !== handStats.totalHands) is not written: a stale one kept across a hop', async () => {
+        const t = await setup();
+        await hand(t.game, t.io, ['1', '0', '0', '1'], { 1: 3, 2: 0, 3: 0, 4: 1 });
+        const doc = save(t.game);
+        gameManager.abortGame(t.game.gameId);
+        // a process that kept the field but never added to it: hand 2 not counted
+        const kept = codec.hydrate(doc).game;
+        const stale = kept.seatBags;
+        kept.seatBags = null;
+        await hand(kept, t.io, ['1', '0', '0', '0'], { 1: 4, 2: 0, 3: 0, 4: 0 });
+        kept.seatBags = stale;
+        const keptDoc = save(kept);
+        expect(keptDoc.state.seatBags).toEqual({ hands: 1, byPos: { 1: 2, 2: 0, 3: 0, 4: 0 } });
+        gameManager.abortGame(kept.gameId);
+        kept._cancelAllTimers();
+        const back = codec.hydrate(keptDoc).game;
+        await hand(back, t.io, ['1', '0', '0', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        // it counted hands 1 and 3 of 3: not every hand
+        expect(back.seatBags.hands).toBe(2);
+        expect(back.handStats.totalHands).toBe(3);
+        const rec = profile.buildGameEndRecord(back);
+        expect(rec.statsDeltas).not.toHaveProperty('bags');
+        // the same game with the counter in step does carry them
+        back.seatBags.hands = 3;
+        expect(profile.buildGameEndRecord(back).statsDeltas.bags).toEqual({ 1: 3, 2: 1, 3: 1, 4: 0 });
+        back._cancelAllTimers();
     });
 });
 
 describe('the record written at game end', () => {
-    test('statsDeltas.bags carries the bags (not byPosition) and statsDeltas.names the seat names; neither users.stats nor gameEnd carries totalBags', async () => {
+    test('statsDeltas.bags carries the bags (not byPosition) and statsDeltas.names the seat names; neither users.stats nor gameEnd carries them', async () => {
         const t = await setup({ handSize: 13 });
         await bidAll(t, ['1', '1', '1', '1']);
         const from = t.log.length;
@@ -242,7 +344,11 @@ describe('the record written at game end', () => {
         const end = events(t.log.slice(from), 'gameEnd');
         expect(end.length).toBeGreaterThan(0);
         for (const e of end) {
-            for (const pos of ['1', '2', '3', '4']) expect(e.data.playerStats[pos]).not.toHaveProperty('totalBags');
+            for (const pos of ['1', '2', '3', '4']) {
+                expect(e.data.playerStats[pos]).not.toHaveProperty('totalBags');
+                expect(e.data.playerStats[pos]).not.toHaveProperty('seatBags');
+            }
+            expect(e.data).not.toHaveProperty('seatBags');
         }
 
         const docs = mockDb.current.gameRecords.docs;
@@ -265,6 +371,26 @@ describe('the record written at game end', () => {
         }
     });
 
+    test('a game adopted from the release before on its last hand ends with no bags in its record (names still written)', async () => {
+        const t = await setup({ handSize: 13 });
+        await bidAll(t, ['1', '1', '1', '1']);
+        // the release before's doc, mid-hand: no counter
+        const doc = save(t.game);
+        delete doc.state.seatBags;
+        gameManager.abortGame(t.game.gameId);
+        const game = codec.hydrate(doc).game;
+        game._cancelAllTimers();
+        const from = t.log.length;
+        await hand(game, t.io, ['1', '1', '1', '1'], { 1: 13, 2: 0, 3: 0, 4: 0 }, { currentHand: 13 });
+        await settle();
+        expect(game.seatBags).toBeNull();
+        expect(events(t.log.slice(from), 'gameEnd')).toHaveLength(1);
+        const docs = mockDb.current.gameRecords.docs;
+        expect(docs).toHaveLength(1);
+        expect(docs[0].statsDeltas).not.toHaveProperty('bags');
+        expect(docs[0].statsDeltas.names).toEqual({ 1: t.names[0], 2: t.names[1], 3: t.names[2], 4: t.names[3] });
+    });
+
     test('a player deleted mid-game is [deleted] in the names map, as in teamNPlayers', async () => {
         const t = await setup({ handSize: 4 });
         gameManager.deletedUsernames.add(t.names[2]);
@@ -276,7 +402,7 @@ describe('the record written at game end', () => {
 
     test('the deploy-survival path inserts the same prebuilt record, names map and all (recordEndedGame)', async () => {
         const t = await setup({ handSize: 4 });
-        t.game.playerStats[1].totalBags = 4;
+        t.game.seatBags = { hands: t.game.handStats.totalHands, byPos: { 1: 4, 2: 0, 3: 0, 4: 0 } };
         const rec = profile.buildGameEndRecord(t.game);
         expect(await profile.recordEndedGame(rec)).toBe(true);
         const stored = mockDb.current.gameRecords.docs[0];

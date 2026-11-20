@@ -354,6 +354,27 @@ function seatBags(bid, took, partnerBid) {
 }
 
 /**
+ * The game's bag counter (game.seatBags, superlatives' Bag Boy):
+ * `{hands, byPos: {1..4: n}}`, `hands` the hands it counted (each counted
+ * hand adds rules.seatBags to every seat and 1 to hands, together). A copy
+ * of a well-formed one (non-negative safe integers, all four seats), else
+ * null: no counter (a game saved by a process without it), so its record
+ * falls back to the net per seat.
+ * @param {*} v
+ * @returns {{hands: number, byPos: Object}|null}
+ */
+function normalizeSeatBags(v) {
+    const count = (n) => Number.isSafeInteger(n) && n >= 0;
+    if (!v || typeof v !== 'object' || !count(v.hands) || !v.byPos || typeof v.byPos !== 'object') return null;
+    const byPos = {};
+    for (const pos of [1, 2, 3, 4]) {
+        if (!count(v.byPos[pos])) return null;
+        byPos[pos] = v.byPos[pos];
+    }
+    return { hands: v.hands, byPos };
+}
+
+/**
  * Find the index of the highest bidder starting from a position
  * @param {number} startPosition - Position to start checking from (1-4)
  * @param {Array} bids - Array of bid strings
@@ -525,6 +546,7 @@ module.exports = {
     personalBidValue,
     handFaults,
     seatBags,
+    normalizeSeatBags,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,

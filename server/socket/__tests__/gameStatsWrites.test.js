@@ -41,11 +41,13 @@ function finishedGame({ gameId = 'g-1', bots = [] } = {}) {
         getOriginalPlayer: (pos) => ({ username: bots.includes(pos) ? `🤖 Bot${pos}` : humans[pos] }),
         handStats: { totalHands: 13, team1Sets: 1, team2Sets: 3, team1SetPoints: 20, team2SetPoints: 90 },
         playerStats: {
-            1: { totalBids: 5, totalTricks: 6, setsCaused: 0, totalHSI: 300, totalBags: 2 },
+            1: { totalBids: 5, totalTricks: 6, setsCaused: 0, totalHSI: 300 },
             2: { totalBids: 4, totalTricks: 3, setsCaused: 2, totalHSI: 250 },
             3: { totalBids: 2, totalTricks: 2, setsCaused: 1, totalHSI: 200 },
             4: { totalBids: 3, totalTricks: 2, setsCaused: 1, totalHSI: 150 }
-        }
+        },
+        // the superlatives' bag counter, in step with handStats.totalHands
+        seatBags: { hands: 13, byPos: { 1: 2, 2: 0, 3: 0, 4: 0 } }
     };
 }
 
@@ -117,8 +119,8 @@ describe('one game, no failures', () => {
         // Usernames only in the durable seat names (superlatives), never in the deltas
         const { names, ...deltas } = rec.statsDeltas;
         expect(names).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
-        // bags only for a seat whose game counted them (this fake game: seat 1 only)
-        expect(rec.statsDeltas.bags).toEqual({ 1: 2 });
+        // bags for every human seat, the counter having seen all 13 hands
+        expect(rec.statsDeltas.bags).toEqual({ 1: 2, 2: 0, 3: 0, 4: 0 });
         expect(JSON.stringify(deltas)).not.toMatch(/Ann|Ben|Cat|Dan/);
         expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
         expect(statsOf('Ben')).toMatchObject({ gamesPlayed: 1, wins: 0, losses: 1, totalPoints: 150, totalFaults: 2 });
