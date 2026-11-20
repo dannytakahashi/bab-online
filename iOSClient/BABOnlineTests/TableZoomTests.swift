@@ -416,7 +416,7 @@ final class TableZoomTests: XCTestCase {
     /// My seat's row at zoom: HSI's slot and the voice button keep their scene slots (in points).
     func testSeatRowSlotsFollowTheZoom() {
         let z = TableLayout.maxZoom
-        let slot = fit(SeatRowHSISlot(value: 99.9, zoom: z).fixedSize(), width: 600)
+        let slot = fit(SeatRowHSISlot(reading: .value(99.9), zoom: z).fixedSize(), width: 600)
         XCTAssertEqual(slot.width, TableLayout.hsiSize.width * z, accuracy: 0.5)
         let (size, chrome) = Self.ipad(1032, 1376)
         let L = TableLayout(size: size, chrome: chrome)

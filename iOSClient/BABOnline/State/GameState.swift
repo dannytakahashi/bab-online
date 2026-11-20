@@ -235,6 +235,14 @@ final class GameState: ObservableObject {
     /// My seat's HSI (my seat's row, the bid panel); nil for a pure spectator (no seat) or
     /// before the deal's values arrive.
     var myHSI: Double? { isSpectator ? nil : position.flatMap { hsiValues[$0] } }
+    /// What my seat's row and the bid panel show for HSI: `.pending` ("HSI --") from a live
+    /// deal until its reveal (TableSlice.hsiHeld), then my value; nil with no seat (a pure
+    /// spectator) or no value for this deal.
+    var myHSIReading: HSIBadge.Reading? {
+        guard !isSpectator, position != nil else { return nil }
+        if table.hsiHeld { return .pending }
+        return myHSI.map { .value($0) }
+    }
 
     /// What Leave does from my seat now: a bot finishes, or the game (or tournament table) ends.
     var leaveOutcome: LeaveOutcome {

@@ -695,7 +695,7 @@ private struct GameScreen: View {
     @ViewBuilder
     private func seatRow(_ layout: TableLayout) -> some View {
         let row = layout.seatRow
-        let hsi = gameState.myHSI
+        let hsi = gameState.myHSIReading
         // a pure spectator's row is the watched seat's: its voice button is the pill's (1.2.2 (12))
         #if DEBUG
         let voice = (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
@@ -710,7 +710,7 @@ private struct GameScreen: View {
                 HStack(alignment: compact ? .bottom : .center,
                        spacing: (compact ? TableLayout.seatRowColumnSpacing : TableLayout.seatRowSpacing) * layout.zoom) {
                     // the button keeps its slot whatever HSI reads, or with none
-                    SeatRowHSISlot(value: hsi, zoom: layout.zoom)
+                    SeatRowHSISlot(reading: hsi, zoom: layout.zoom)
                     if voice { VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: TableLayout.voiceButtonSize * layout.zoom) }
                 }
                 .frame(width: rect.width, height: rect.height, alignment: compact ? .bottomLeading : .leading)
@@ -719,7 +719,7 @@ private struct GameScreen: View {
         } else {
             if let hsi {
                 let rect = layout.window(row.hsi)
-                HSIBadge(value: hsi)
+                HSIBadge(reading: hsi)
                     .frame(width: rect.width, height: rect.height, alignment: .leading)
                     .offset(x: rect.minX, y: rect.minY)
             }
@@ -812,7 +812,7 @@ private struct GameScreen: View {
             ? layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.holdsSeat)) : nil
         return AssistLayout.askKeeps(layout, handCount: gameState.myCards.count,
                                      pipSlots: TableRenderModel(gameState.state).myPips?.slots ?? 0,
-                                     hsi: gameState.myHSI != nil, voice: voice, spectatorBadge: badge)
+                                     hsi: gameState.myHSIReading != nil, voice: voice, spectatorBadge: badge)
     }
 
     /// The lightbulb: its right edge at my hand's right end, just above the lifted cards, or, when
@@ -1352,15 +1352,15 @@ enum AssistLayout {
 
 /// HSI's slot in my seat's row (TableLayout.hsiSize wide, the badge leading-aligned in it), so
 /// the voice button after it (`.row`, `.compact`) never moves with the text's width; with no
-/// value the slot stays empty.
+/// reading the slot stays empty.
 struct SeatRowHSISlot: View {
-    let value: Double?
+    let reading: HSIBadge.Reading?
     /// The table's zoom: the slot is hsiSize.width scene units (the badge's type stays Dynamic Type).
     var zoom: CGFloat = 1
 
     var body: some View {
-        if let value {
-            HSIBadge(value: value).frame(width: TableLayout.hsiSize.width * zoom, alignment: .leading)
+        if let reading {
+            HSIBadge(reading: reading).frame(width: TableLayout.hsiSize.width * zoom, alignment: .leading)
         } else {
             Color.clear.frame(width: TableLayout.hsiSize.width * zoom, height: 1).accessibilityHidden(true)
         }
@@ -1368,24 +1368,68 @@ struct SeatRowHSISlot: View {
 }
 
 /// "HSI 119.2", 11 pt monospaced, in my seat's row beside the voice button (TableLayout.hsiSize
-/// is its largest): the web's HSI box (text.secondary on the seat-plate glass). `.panel` is the
-/// same text inside the bid panel (no box: the panel is the surface, and a box there would read
-/// as one more button). VoiceOver reads both "Hand strength index 119.2".
+/// is its largest): the web's HSI box (on the seat-plate glass). `.panel` is the same text
+/// inside the bid panel (no box: the panel is the surface, and a box there would read as one
+/// more button). The value reads red (weak) through yellow to green (strong), HSIScale.color;
+/// a live deal's "HSI --" (`.pending`, until HSIScale.revealDelay after it) is text.secondary,
+/// as wide as a three-digit value so nothing moves when the value comes. VoiceOver reads
+/// "Hand strength index 119.2" ("Hand strength index pending").
 struct HSIBadge: View {
     enum Style { case table, panel }
-    let value: Double
+    /// The value, or `.pending` while a live deal holds it (GameState.myHSIReading).
+    enum Reading: Equatable {
+        case pending
+        case value(Double)
+    }
+    let reading: Reading
     var style: Style = .table
+
+    init(reading: Reading, style: Style = .table) {
+        self.reading = reading
+        self.style = style
+    }
+
+    init(value: Double, style: Style = .table) {
+        self.init(reading: .value(value), style: style)
+    }
 
     /// "HSI 119.2".
     static func text(_ value: Double) -> String { "HSI \(String(format: "%.1f", value))" }
+    /// "HSI --": a live deal's, until its value shows (the web's "HSI: --").
+    static let pendingText = "HSI --"
+    /// The pending badge's width: a three-digit value's (the commonest; monospaced digits).
+    static let pendingWidthTemplate = "HSI 000.0"
     /// "Hand strength index 119.2" (VoiceOver: "HSI" is not a word).
     static func spoken(_ value: Double) -> String { "Hand strength index \(String(format: "%.1f", value))" }
+    static let pendingSpoken = "Hand strength index pending"
+
+    static func text(_ reading: Reading) -> String {
+        switch reading {
+        case .pending: return pendingText
+        case .value(let v): return text(v)
+        }
+    }
+
+    static func spoken(_ reading: Reading) -> String {
+        switch reading {
+        case .pending: return pendingSpoken
+        case .value(let v): return spoken(v)
+        }
+    }
+
+    /// The text's colour: HSIScale's for a value, text.secondary for "HSI --".
+    static func color(_ reading: Reading) -> ThemeColor {
+        switch reading {
+        case .pending: return Theme.Palette.Text.secondary
+        case .value(let v): return HSIScale.color(v)
+        }
+    }
 
     var body: some View {
-        Text(Self.text(value))
+        label
             .font(.caption2.monospaced())
             .dynamicTypeSize(...DynamicTypeSize.large)  // the row's HSI slot (and the panel's row) is sized for 11 pt
-            .foregroundColor(Theme.textSecondary)
+            .foregroundColor(Self.color(reading).color)
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(style == .table ? Theme.Palette.Surface.s2.opacity(0.86).color : Color.clear)
@@ -1396,8 +1440,19 @@ struct HSIBadge: View {
             )
             .fixedSize()
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Self.spoken(value))
+            .accessibilityLabel(Self.spoken(reading))
             .accessibilityIdentifier(style == .table ? "hsi" : "bidOverlay.hsi")
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        switch reading {
+        case .value(let v):
+            Text(Self.text(v))
+        case .pending:
+            Text(Self.pendingWidthTemplate).hidden()
+                .overlay(alignment: .leading) { Text(Self.pendingText) }
+        }
     }
 }
 

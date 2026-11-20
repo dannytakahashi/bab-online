@@ -71,7 +71,7 @@ struct BidOverlayView: View {
                                                  usernames: gameState.players.seats.compactMapValues(\.username)))
     }
 
-    private var hsiInHeader: Bool { gameState.myHSI != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
+    private var hsiInHeader: Bool { gameState.myHSIReading != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
 
     /// My seat's running bid clock (a seat holder's, never a spectator's or a lazy watcher's).
     private var myClock: BidCountdown? {
@@ -98,8 +98,8 @@ struct BidOverlayView: View {
             // outlined chips past the hand size for an overbid
             BidChipRow(chips: bidChips, zoom: zoom)
                 .padding(.horizontal, Theme.Space.s3)
-            if hsiInHeader, let hsi = gameState.myHSI {
-                HSIBadge(value: hsi, style: .panel)
+            if hsiInHeader, let hsi = gameState.myHSIReading {
+                HSIBadge(reading: hsi, style: .panel)
                     .frame(maxWidth: .infinity, alignment: .trailing)
                     .padding(.horizontal, Theme.Space.s2)
             }
@@ -153,8 +153,8 @@ struct BidOverlayView: View {
                     .frame(minWidth: 8, maxWidth: .infinity, maxHeight: rowSize)
                     .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { gapWidth = $0 }
                     .overlay {
-                        if let hsi = gameState.myHSI {
-                            HSIBadge(value: hsi, style: .panel)
+                        if let hsi = gameState.myHSIReading {
+                            HSIBadge(reading: hsi, style: .panel)
                                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { hsiWidth = $0 }
                                 .opacity(hsiInHeader ? 0 : 1)
                                 .accessibilityHidden(hsiInHeader)

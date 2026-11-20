@@ -45,6 +45,9 @@ enum LocalAction: Equatable {
     case tutorialWelcomeKept
     /// The chip's switch or the welcome's Turn off (ActionCoordinator sent /tutorial off).
     case tutorialOffSent
+    /// HSIScale.revealDelay after a live deal (ActionCoordinator, `.revealHSI`): its HSI shows.
+    /// A later deal's reveal is its own (a stale one, after a redeal, changes nothing).
+    case hsiRevealed(dealSeq: Int)
 }
 
 enum TableEffect: Equatable {
@@ -67,6 +70,10 @@ enum TableEffect: Equatable {
     case cancelAck(reqId: UInt32)
     /// Said to VoiceOver (my /help answer: AssistRules.announcement).
     case announce(String)
+    /// A live deal holds its HSI ("HSI --", TableSlice.hsiHeld): ActionCoordinator applies
+    /// `.local(.hsiRevealed(dealSeq:))` HSIScale.revealDelay later (the web's director.delay
+    /// after the cards go down). Catch-up never sends it: it shows the value at once.
+    case revealHSI(dealSeq: Int)
 }
 
 enum TableAnimation: Equatable {
@@ -113,16 +120,19 @@ enum TableReducer {
 
     /// Catch-up (buffered events replayed after a snapshot or a lapsed resync): its effects
     /// without the sounds and the deal's fly-in, so a rejoin or resync never plays a burst
-    /// and shows the hand where it is.
-    static func catchUp(_ fx: inout [TableEffect], _ body: (inout [TableEffect]) -> Void) {
+    /// and shows the hand where it is; a replayed deal's HSI shows at once (no reveal wait).
+    static func catchUp(_ s: inout TableState, _ fx: inout [TableEffect], _ body: (inout TableState, inout [TableEffect]) -> Void) {
         var inner: [TableEffect] = []
-        body(&inner)
+        body(&s, &inner)
+        var revealed = false
         fx += inner.filter {
             switch $0 {
             case .sound, .animate(.dealt): return false
+            case .revealHSI: revealed = true; return false
             default: return true
             }
         }
+        if revealed { s.table.hsiHeld = false }
     }
 
     // MARK: - Seq gate (contract/README.md R1-R5)
@@ -149,7 +159,7 @@ enum TableReducer {
         let buffered = s.sync.buffered.sorted { ($0.seq ?? 0) < ($1.seq ?? 0) }
         s.sync.buffered = []
         s.sync.resyncId = nil
-        catchUp(&fx) { fx in
+        catchUp(&s, &fx) { s, fx in
             for ev in buffered {
                 if let seq = ev.seq, let last = s.sync.lastSeq, seq <= last { fx.append(.dropped(event: ev.name, seq: seq)); continue }
                 s.sync.lastSeq = ev.seq ?? s.sync.lastSeq
@@ -250,6 +260,8 @@ enum TableReducer {
             s.table.welcome = nil
             clearTip(&s)
             s.table.tutorialOffSent = true
+        case .hsiRevealed(let dealSeq):
+            if s.table.deal?.dealSeq == dealSeq { s.table.hsiHeld = false }
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer
             // whichever request it was: a gap request suppressed behind this one
