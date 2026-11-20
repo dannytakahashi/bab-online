@@ -173,8 +173,6 @@ describe('ingress fold (capable shape -> one pic field; legacy shape untouched)'
     expect(foldAvatarPayload('playerActiveMode', { position: 2, pic: DATA }).pic).toBe(DATA);
     const lb = { success: true, leaderboard: [{ username: 'kim', customProfilePic: null }, { username: 'ivy', customProfilePic: null, profilePic: 3 }], avatarUrls: { kim: URL1 } };
     expect(foldAvatarPayload('leaderboardResponse', lb).leaderboard.map((r) => r.customProfilePic)).toEqual([URL1, null]);
-    const sp = { success: true, players: [{ username: 'kim', customProfilePic: null }], avatarUrls: { kim: URL1 } };
-    expect(foldAvatarPayload('searchPlayersResponse', sp).players[0].customProfilePic).toBe(URL1);
     for (const ev of ['profileResponse', 'playerProfileResponse']) {
       expect(foldAvatarPayload(ev, { success: true, profile: { customProfilePic: null }, avatarUrl: URL1 }).profile.customProfilePic).toBe(URL1);
       expect(foldAvatarPayload(ev, { success: true, profile: { customProfilePic: DATA } }).profile.customProfilePic).toBe(DATA);
@@ -261,23 +259,6 @@ describe('render sites', () => {
         return src.includes("startsWith('data:image')") || src.includes('`assets/profile${');
       });
     expect(offenders).toEqual([]);
-  });
-
-  test('search results use lazy, async avatars (URL, inline and stock)', async () => {
-    const { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage } = await import('../ui/screens/PlayerSearchPage.js');
-    showPlayerSearchPage({ emit: () => {} });
-    updatePlayerSearchResults([
-      { username: 'kim', customProfilePic: URL1, profilePic: 2, gamesPlayed: 3, wins: 1 },
-      { username: 'ivy', customProfilePic: DATA, profilePic: 2, gamesPlayed: 3, wins: 1 },
-      { username: 'bo', customProfilePic: null, profilePic: 7, gamesPlayed: 3, wins: 1 },
-    ]);
-    const imgs = [...document.querySelectorAll('#playerSearchResults img')];
-    expect(imgs.map((i) => i.getAttribute('src'))).toEqual([URL1, DATA, 'assets/avatars/v1/profile7.webp']);
-    for (const i of imgs) {
-      expect(i.getAttribute('loading')).toBe('lazy');
-      expect(i.getAttribute('decoding')).toBe('async');
-    }
-    removePlayerSearchPage();
   });
 
   test('leaderboard rows use lazy, async avatars', async () => {

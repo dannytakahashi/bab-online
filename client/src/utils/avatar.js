@@ -180,9 +180,6 @@ export function foldAvatarPayload(event, data) {
     case 'leaderboardResponse':
       foldRows(data.leaderboard, urls);
       break;
-    case 'searchPlayersResponse':
-      foldRows(data.players, urls);
-      break;
     case 'profileResponse':
     case 'playerProfileResponse':
       if (data.profile && typeof data.profile === 'object') {
