@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
+  intersects, contains, assistAskSpot, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
 } from './computeTableLayout.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
 
@@ -653,5 +653,82 @@ describe('computeTableLayout contract', () => {
       expect(logWidthFor(max)).toBe(w);
     }
     expect(logWidthFor(1401)).toBe(LOG_WIDTH_MAX);
+  });
+});
+
+/**
+ * The /help lightbulb (AssistCard's .hud-assist-ask; tableHud places it at
+ * assistAskSpot: its right and bottom edges, drawn up and left from there,
+ * with its hit area `pad` round it, as table.css's ::before).
+ */
+function askBoxes(L) {
+  const { x, y, size, pad } = assistAskSpot(L);
+  const bulb = { x: x - size, y: y - size, w: size, h: size };
+  return { size, pad, bulb, hit: { x: bulb.x - pad, y: bulb.y - pad, w: size + 2 * pad, h: size + 2 * pad } };
+}
+
+/** What the lightbulb or its hit area covers (my seat's box, the bid sheet, the piles, the felt...). */
+function askProblems(L) {
+  const { bulb, hit } = askBoxes(L);
+  const out = [];
+  for (const r of layoutRects(L)) {
+    // the hand box is its home; the log is beside the canvas; a chat bubble comes and goes
+    if (r.id === 'hand' || r.id === 'log' || String(r.group).startsWith('bubble')) continue;
+    if (intersects(hit, r.rect)) out.push(`hit x ${r.id}`);
+  }
+  if (!contains(L.canvas, bulb)) out.push('bulb outside the canvas');
+  // sideways inside the hand box (my seat's box is beside it)
+  if (hit.x < L.hand.rect.x - 0.01 || hit.x + hit.w > L.hand.rect.x + L.hand.rect.w + 0.01) out.push('hit area outside the hand box sideways');
+  return out;
+}
+
+describe('the /help lightbulb by my hand (assistAskSpot)', () => {
+  it('never covers my seat (avatar, frog, plate, HSI, voice), the bid sheet, the piles or the felt, 800-2560 x 500-1440', () => {
+    const bad = [];
+    for (let vw = 800; vw <= 2560; vw += 40) {
+      for (let vh = 500; vh <= 1440; vh += 40) {
+        const p = askProblems(layoutForViewport({ vw, vh }));
+        if (p.length) bad.push({ vw, vh, p });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('nor on phones and short or narrow windows (360-780 x 360-1200)', () => {
+    const bad = [];
+    for (let vw = 360; vw <= 780; vw += 20) {
+      for (let vh = 360; vh <= 1200; vh += 40) {
+        const p = askProblems(layoutForViewport({ vw, vh }));
+        if (p.length) bad.push({ vw, vh, p });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('sits at the hand box\'s right end level with the lifted cards\' top where there is room (the owner\'s sizes)', () => {
+    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768], [820, 1180]]) {
+      const L = layoutForViewport({ vw, vh });
+      const h = L.hand;
+      const { x, y, size, pad } = assistAskSpot(L);
+      expect(x, `${vw}x${vh}`).toBeCloseTo(h.rect.x + h.rect.w - pad, 5);
+      expect(y, `${vw}x${vh}`).toBeCloseTo(h.y - h.card.h / 2 - h.lift, 5);
+      expect(size).toBe(Math.max(ASK_MIN, L.voice.button));
+      expect(size + 2 * pad).toBeGreaterThanOrEqual(ASK_HIT);
+    }
+  });
+
+  it('on a short table comes down inside the hand box, clear of the bid sheet (560 x 360)', () => {
+    const L = layoutForViewport({ vw: 560, vh: 360 });
+    const h = L.hand;
+    const { y } = assistAskSpot(L);
+    expect(y).toBeGreaterThan(h.y - h.card.h / 2 - h.lift);
+    expect(y).toBeLessThanOrEqual(h.rect.y + h.rect.h);
+    expect(askProblems(L)).toEqual([]);
+  });
+
+  it('depends on the layout only (one spot per hand, whatever its cards) and is null without a hand', () => {
+    const L = layoutForViewport({ vw: 1280, vh: 800 });
+    expect(assistAskSpot(L)).toEqual(assistAskSpot(L));
+    expect(assistAskSpot(layoutForViewport({ vw: 1280, vh: 800, isSpectator: true }))).toBeNull();
   });
 });

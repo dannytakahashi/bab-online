@@ -1128,3 +1128,45 @@ export function layoutOf(scene) {
   }
   return scene._layoutFallback.layout;
 }
+
+/** The /help lightbulb's smallest size (px): legible on a small table. */
+export const ASK_MIN = 28;
+/** Its hit area at the least (HIG 44 pt; tokens.css --hit-target). */
+export const ASK_HIT = 44;
+
+/**
+ * Where the /help lightbulb goes (AssistCard's .hud-assist-ask; tableHud
+ * sets --assist-ask-x / -y / --assist-ask from it): the voice buttons' size,
+ * at least ASK_MIN, at the hand box's right end, its bottom level with the
+ * top of the lifted cards. Its hit area (`pad` round it, at least 6 px, so
+ * ASK_HIT across) stays inside the hand box sideways, clear of my seat's box
+ * (avatar, frog, plate, HSI, pips, voice buttons) beside it. On a short
+ * table, where that spot would rise into the felt, the bid sheet (its clock)
+ * or the spectator badge, it comes down inside the hand box just far enough
+ * to clear them. One spot per layout: the card count never moves it.
+ * Null without a hand (a spectator).
+ * @returns {{x:number, y:number, size:number, pad:number}|null} x, y: the
+ *   bulb's right and bottom edges
+ */
+export function assistAskSpot(L) {
+  const h = L?.hand;
+  if (!h?.card) return null;
+  const size = Math.max(ASK_MIN, L.voice.button);
+  const pad = Math.max(6, (ASK_HIT - size) / 2);
+  const x = h.rect.x + h.rect.w - pad;
+  const hitAt = (y) => rect(x - size - pad, y - size - pad, size + 2 * pad, size + 2 * pad);
+  // everything but the hand box itself, the log beside the canvas and the
+  // chat bubbles (they come and go, over anything)
+  const blockers = layoutRects(L)
+    .filter((r) => r.id !== 'hand' && r.id !== 'log' && !String(r.group).startsWith('bubble'))
+    .map((r) => r.rect);
+  let y = h.y - h.card.h / 2 - (h.lift || 0);
+  for (let i = 0; i < 4; i++) {
+    const over = blockers.filter((r) => intersects(hitAt(y), r));
+    if (!over.length) break;
+    y = Math.max(...over.map((r) => r.y + r.h)) + pad + size;
+  }
+  // never below the hand box
+  y = Math.min(y, h.rect.y + h.rect.h - pad);
+  return { x, y, size, pad };
+}

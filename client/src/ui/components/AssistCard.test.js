@@ -26,6 +26,12 @@ describe('the /help card', () => {
     // not a live region: the table's announcer says it (GameScene)
     expect(card.getAttribute('aria-live')).toBeNull();
     expect(q('.assist-card__chip').textContent).toBe('Clear choice');
+    // a small lightbulb first in the top row (as on iOS), hidden from assistive tech
+    const bulb = q('.assist-card__top').firstElementChild;
+    expect(bulb.tagName.toLowerCase()).toBe('svg');
+    expect(bulb.getAttribute('class')).toBe('assist-card__bulb');
+    expect(bulb.getAttribute('aria-hidden')).toBe('true');
+    expect(bulb.nextElementSibling).toBe(q('.assist-card__chip'));
     expect(q('.assist-card__head').textContent).toBe('Play 9♦');
     expect([...document.querySelectorAll('.assist-card__reasons li')].map((li) => li.textContent)).toEqual(hint().reasons);
     const toggle = q('.assist-card__why-toggle');
@@ -147,7 +153,28 @@ describe('the /help card', () => {
   });
 });
 
-describe('the "?" button', () => {
+describe('the lightbulb button', () => {
+  it('is a lightbulb (an aria-hidden SVG in currentColor), not a "?", with its label and title', () => {
+    const btn = syncAssistButton({ visible: true });
+    expect(btn.textContent).toBe('');
+    expect(btn.textContent).not.toContain('?');
+    expect(btn.getAttribute('aria-label')).toBe('Ask a bot for advice');
+    expect(btn.title).toBe('Ask a bot for advice (/help)');
+    expect(btn.type).toBe('button');
+    const svgs = btn.querySelectorAll('svg');
+    expect(svgs).toHaveLength(1);
+    const svg = svgs[0];
+    expect(svg.namespaceURI).toBe('http://www.w3.org/2000/svg');
+    expect(svg.getAttribute('class')).toBe('hud-assist-ask__bulb');
+    expect(svg.getAttribute('aria-hidden')).toBe('true');
+    expect(svg.getAttribute('focusable')).toBe('false');
+    expect(svg.getAttribute('fill')).toBe('currentColor');
+    expect(svg.getAttribute('viewBox')).toBe('0 0 24 24');
+    // the bulb and its two base bars
+    expect(svg.querySelectorAll('path')).toHaveLength(1);
+    expect(svg.querySelectorAll('rect')).toHaveLength(2);
+  });
+
   it('shows while asked to and sends through onAsk', () => {
     expect(syncAssistButton({ visible: false })).toBeNull();
     expect(q('.hud-assist-ask')).toBeNull();

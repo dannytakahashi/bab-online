@@ -64,7 +64,7 @@ export const FOOTER_QUICK = 'Quick suggestion: rules only, the server is busy.';
 /** The plain words of the chat command (GameLog's autocomplete). */
 export const HELP_COMMAND = '/help';
 /**
- * What asking is called everywhere (the "?" button, the chat line; owner
+ * What asking is called everywhere (the lightbulb button, the chat line; owner
  * 2026-11-19: the old label read as the player suggesting a move).
  */
 export const HELP_LABEL = 'Ask a bot for advice';

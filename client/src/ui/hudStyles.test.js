@@ -75,6 +75,32 @@ describe('HUD hit targets (HIG 44 pt)', () => {
   });
 });
 
+describe('the /help lightbulb', () => {
+  const table = readClientFile('styles/table.css');
+
+  it('is a gold bulb on a dark disc with a gold ring, all from tokens, with a 44 px hit area', () => {
+    const r = ruleOf(table, '.hud-assist-ask');
+    expect(r).toContain('color: var(--gold)');
+    expect(r).toContain('border: 1px solid rgb(var(--gold-rgb) / 0.7)');
+    expect(r).toContain('background: rgb(var(--surface-1-rgb) / 0.9)');
+    expect(r).toContain('border-radius: var(--radius-pill)');
+    expect(r).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    // the ::before reaches the hit target round any button size
+    expect(ruleOf(table, '.hud-assist-ask::before')).toContain('position: absolute');
+    // (the layout's assistAskSpot pad: max(6, (44 - size) / 2))
+    expect(table).toMatch(/\n\.hud-assist-ask::before \{ inset: min\(-6px, calc\(\(var\(--assist-ask, 36px\) - var\(--hit-target, 44px\)\) \/ 2\)\); \}/);
+    expect(r).toContain('width: var(--assist-ask, 36px)');
+    // its right and bottom edges are the spot's
+    expect(r).toContain('transform: translate(-100%, -100%)');
+    expect(ruleOf(table, '.hud-assist-ask:focus-visible')).toContain('outline: 2px solid');
+  });
+
+  it('its press dip is dropped with reduced motion', () => {
+    const i = table.indexOf('@media (prefers-reduced-motion: reduce) {\n    .hud-assist-ask:active');
+    expect(i).toBeGreaterThan(-1);
+  });
+});
+
 describe('the spectator badge\'s bubble', () => {
   const table = readClientFile('styles/table.css');
   const components = readClientFile('styles/components.css');

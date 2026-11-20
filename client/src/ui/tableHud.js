@@ -29,6 +29,8 @@
  */
 
 /** OpponentManager's 'bottom' slot (a spectator's view) is the self seat. */
+import { assistAskSpot } from '../phaser/layout/computeTableLayout.js';
+
 export const SEAT_KEYS = ['self', 'partner', 'opp1', 'opp2'];
 export const seatKeyOf = (slot) => (slot === 'bottom' || slot === 'me' ? 'self' : slot);
 
@@ -198,9 +200,9 @@ function applyRootVars(hud, L) {
   set('--bid-scale', String(L.bidSheet.scale));
   // the /help card (ui/components/AssistCard.js): its bottom just above my
   // hand's lifted cards, centred on the hand; a bid suggestion above the
-  // bid sheet instead (the sheet covers the felt while I bid); the "?" at
-  // the hand box's right end, at the same height (no hand, a spectator:
-  // never shown)
+  // bid sheet instead (the sheet covers the felt while I bid); the lightbulb
+  // at the hand box's right end, clear of my seat's box (assistAskSpot; no
+  // hand, a spectator: never shown)
   set('--assist-bid-x', L.bidSheet.x);
   set('--assist-bid-y', L.bidSheet.rect.y - Math.max(4, 6 * L.s));
   const h = L.hand;
@@ -209,11 +211,13 @@ function applyRootVars(hud, L) {
     set('--assist-x', h.cx);
     set('--assist-y', cardsTop - Math.max(4, 6 * L.s));
     set('--assist-w', Math.min(h.rect.w, 380));
-    set('--assist-ask-x', h.rect.x + h.rect.w);
-    set('--assist-ask-y', cardsTop);
-    set('--assist-ask', L.voice.button);
+    // the lightbulb: its right and bottom edges and its size (assistAskSpot)
+    const ask = assistAskSpot(L);
+    set('--assist-ask-x', ask.x);
+    set('--assist-ask-y', ask.y);
+    set('--assist-ask', ask.size);
     // the "Tutorial on" chip (ui/components/TutorialChip.js): the hand
-    // box's left end, level with the "?" at its right end
+    // box's left end, level with the lightbulb at its right end
     set('--tutorial-x', h.rect.x);
     set('--tutorial-y', cardsTop);
   }

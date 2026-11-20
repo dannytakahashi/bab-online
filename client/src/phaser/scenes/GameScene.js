@@ -67,7 +67,7 @@ import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
-/** After a "?" click the "?" waits this long at most for the answer before it shows again. */
+/** After a lightbulb click the lightbulb waits this long at most for the answer before it shows again. */
 export const ASSIST_ASK_WAIT_MS = 10000;
 /** After the chip's off switch the switch waits this long at most for the server's assistState. */
 export const TUTORIAL_OFF_WAIT_MS = 10000;
@@ -1352,7 +1352,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       scene._myPlayAt = Date.now();
-      // my card is on its way: the /help card (and its "?"), the rule tip, are done
+      // my card is on its way: the /help card (and its lightbulb), the rule tip, are done
       scene.clearAssist();
       scene.clearTips();
 
@@ -1594,7 +1594,7 @@ export class GameScene extends Phaser.Scene {
     if (this._assistHint && !this._assistStillLive(this._assistHint)) this.clearAssist();
   }
 
-  /** The "?" was clicked and its answer came (or the turn moved): it may show again. */
+  /** The lightbulb was clicked and its answer came (or the turn moved): it may show again. */
   _endAsking() {
     this._assistAsking = false;
     clearTimeout(this._assistAskTimer);
@@ -1606,7 +1606,7 @@ export class GameScene extends Phaser.Scene {
     // a held answer of a turn that is over now
     this._abandonParked();
     const had = !!this._assistHint;
-    // focus in the card (its ✕, Escape, Why?) goes to the "?" when it comes back
+    // focus in the card (its ✕, Escape, Why?) goes to the lightbulb when it comes back
     const focused = had && typeof document !== 'undefined' && !!document.activeElement?.closest?.('.hud-assist');
     this._assistHint = null;
     if (had) hideAssistCard();
@@ -1647,7 +1647,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Is it my own bid or play turn at my seat, with nothing of mine on its
-   * way (where the "?" shows)?
+   * way (where the lightbulb shows)?
    */
   canAskHelp() {
     const s = this.state;
@@ -1658,7 +1658,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The "?" by my hand: on my turn at my seat while no answer is up, and
+   * The lightbulb by my hand: on my turn at my seat while no answer is up, and
    * not while one asked for is on its way (one click, one ask).
    */
   syncAssistButton() {
@@ -1669,7 +1669,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The "?": send /help as the chat would. Offline, or while the session
+   * The lightbulb: send /help as the chat would. Offline, or while the session
    * is being restored (the emit gate would hold or refuse it, with a notice
    * about a "message"), the one reconnecting notice instead.
    */
