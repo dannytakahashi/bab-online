@@ -212,6 +212,13 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             // CHANGED (snapshot v2, additive): +snapshot
             'self(r1):restorePlayerState{gameId,players,snapshot}',
+            // CHANGED (2026-11-19): /active from the watch view is a returning
+            // owner's voice (announceOwnerVoice): the others are told
+            // (private), r1 gets the list and offers
+            'h2:voicePeerJoined{socketId,username}',
+            'h3:voicePeerJoined{socketId,username}',
+            'h4:voicePeerJoined{socketId,username}',
+            'self(r1):voicePeerList{peers}',
         ]);
     });
 
@@ -239,6 +246,11 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             // unsequenced, additive 2026-11-19: the owner is gone for good
             'room:seatLeft{gameId,position,username}@1',
+            // CHANGED (2026-11-19): it was in the voice room, so its peers
+            // drop the call (private; gameVoice.playerLeftVoice)
+            'h2:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
+            'h4:voicePeerLeft{socketId}',
             'self(h1):leftGame{}',
         ]);
         expect(gameManager.playerGames.has(t.ids[0])).toBe(false);
@@ -372,6 +384,11 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             // CHANGED (snapshot v2, additive): +snapshot
             'self(r1):restorePlayerState{gameId,players,snapshot}',
+            // CHANGED (2026-11-19): a returning owner's voice (announceOwnerVoice)
+            'h2:voicePeerJoined{socketId,username}',
+            'h3:voicePeerJoined{socketId,username}',
+            'h4:voicePeerJoined{socketId,username}',
+            'self(r1):voicePeerList{peers}',
         ]);
         expect(t.game.getClientState(s.id).resignedPositions).toEqual([]);
     });
@@ -383,6 +400,11 @@ describe('seat transcripts (wire characterization)', () => {
         await drop(t.io, t.sockets[0]);
         expect(t.rec.take(mark)).toEqual([
             'room:gameLogEntry{message,type}',
+            // CHANGED (2026-11-19): a lazy owner at its seat was a voice
+            // member: its peers drop the call (private; gameVoice.playerLeftVoice)
+            'h2:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
+            'h4:voicePeerLeft{socketId}',
         ]);
     });
 });

@@ -229,7 +229,8 @@ describe('R3 a returning socket gets the table presence replayed', () => {
         await jest.advanceTimersByTimeAsync(60000);
         const mark = t.log.length;
         chat(t, 3, '/active', w);
-        expect(selfEvents(t, w, mark)).toEqual(['restorePlayerState@3', 'playerDisconnected@2', 'resignationAvailable@2']);
+        // then the returning owner's voice peer list (2026-11-19)
+        expect(selfEvents(t, w, mark)).toEqual(['restorePlayerState@3', 'playerDisconnected@2', 'resignationAvailable@2', 'voicePeerList']);
         // The rejoin itself replayed nothing yet (nobody was absent)
         expect(selfEvents(t, w).slice(0, 1)).toEqual(['rejoinSuccess@3']);
     });

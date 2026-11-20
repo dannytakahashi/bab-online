@@ -8,7 +8,9 @@
  * in flight: its late answer draws nothing and says nothing (the manager's
  * own generation check already releases the microphone).
  *
- * Every start is muted and asks for no microphone (2026-11-18); a second
+ * No start asks for a microphone (2026-11-18): the tab's first is muted, a
+ * later one unmuted only after a manual unmute with the microphone already
+ * allowed (2026-11-19, voiceSessionMute.js); a second
  * start while one is in flight returns that one.
  */
 

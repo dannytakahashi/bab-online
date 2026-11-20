@@ -322,6 +322,7 @@ struct AccountSettingsView: View {
         tournamentState.reset()
         safetyState.reset()
         VoiceChatManager.shared.forgetVolumes()  // per-player volumes are this account's
+        VoiceChatManager.shared.forgetSessionMute()  // so is an unmute by hand: the next one starts muted
         appState.screen = .signIn
         // Cycle the connection so the server-side session ends; the auto
         // session restore won't run because credentials are cleared.

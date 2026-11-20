@@ -43,6 +43,7 @@ import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { getRestartNotice, LOSS } from './state/restartNotice.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
+import { forgetSessionMute } from './voice/voiceSessionMute.js';
 
 // UI Components
 import { showToast, showError, showSuccess, showWarning, showInfo, showNotice, TOAST_SHORT } from './ui/components/Toast.js';
@@ -369,9 +370,11 @@ socket.io.on('reconnect', (attemptNumber) => {
 
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
-  // The tab's credentials go; the device's saved session stays
+  // The tab's credentials go; the device's saved session stays. So does
+  // this tab's voice unmute (whoever signs in next starts muted)
   safeSessionStorage().removeItem('username');
   safeSessionStorage().removeItem('sessionToken');
+  forgetSessionMute();
   session.clearIdentity();
   setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
@@ -693,7 +696,9 @@ function initializeApp() {
   // start, so a late answer draws no dead mute button (voiceLifecycle.js)
   const voiceLifecycle = createVoiceLifecycle({
     manager: voiceManager,
-    // every start is muted, no microphone prompt (the first unmute asks)
+    // no microphone prompt at a start: muted, or unmuted with the microphone
+    // already allowed once the person unmuted by hand in this tab
+    // (voice/voiceSessionMute.js); the first unmute asks
     connect: (opts) => voiceManager.initialize(socketMgr, opts),
     onStarted: () => showVoiceControls(),
     onUnavailable: (err) => {
@@ -758,7 +763,7 @@ function initializeApp() {
   gameState.onCompanyChange(() => voiceGate.update());
   session.onScreenChange(() => voiceGate.update());
 
-  /** This screen wants voice (muted at the start): it runs while another human is here. */
+  /** This screen wants voice (muted at the tab's first start): it runs while another human is here. */
   function startVoice() {
     voiceGate.want();
   }
@@ -840,7 +845,8 @@ function initializeApp() {
 
   /**
    * voiceSettings (a casual game's voice; private, to this capable tab only):
-   * role player, spectator (voice starts muted when not running: a lobby
+   * role player, spectator (voice starts when not running, muted unless
+   * unmuted by hand earlier in this tab: a lobby
    * extra's lobby session just carries on with its mute as it was) or none
    * (voice is full: watch and chat only). spectatorsCanTalk / canTalk /
    * canChange are always true / true / false now and not read.
@@ -1065,19 +1071,17 @@ function initializeApp() {
    * the stop for EXIT.LOBBY_RETURN). The table's voice settings go, and
    * the controls are drawn again in the lobby's slot (voiceLifecycle.start
    * returns at once while the manager is active and would draw nothing).
-   * The same call carries on, muted again: a game's end is where an
-   * unmuted microphone stops (the next game starts muted; within one
-   * lobby and its game the person's choice holds). The microphone is
-   * kept (a mute disables its track), so the next unmute asks nothing.
+   * The same call carries on with the person's mute as it was (owner
+   * 2026-11-19: "once you unmute in a session it should stay unmuted";
+   * until then Return to Lobby muted again). The microphone is kept.
    * @returns {boolean} voice is running or starting (else the caller starts it)
    */
   function carryVoiceIntoLobby() {
     voiceSettings = null;
     voiceFull = false;
     if (!voiceManager.active) return voiceLifecycle.starting;
-    voiceManager.setMuted(true);
     createMuteButton();
-    setMuteButtonState(true);
+    setMuteButtonState(voiceManager.isMuted());
     refreshTalkView();
     return true;
   }
@@ -2619,6 +2623,7 @@ socket.on('restoreSessionResponse', (data) => {
     forgetSession(safeSessionStorage().getItem('sessionToken'));
     safeSessionStorage().removeItem('username');
     safeSessionStorage().removeItem('sessionToken');
+    forgetSessionMute();
     session.clearIdentity();
     restartNotice.clear();
     setIsAdmin(false);
