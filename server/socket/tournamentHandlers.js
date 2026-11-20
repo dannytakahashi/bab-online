@@ -827,10 +827,10 @@ function spectateTournamentGame(socket, io, data, { resolved = false } = {}) {
     const user = gameManager.getUserBySocketId(socket.id);
     const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
-        // LIVE_PERSIST=on: as joinAsSpectator (pointerResolve). Spectating
-        // only: a tournament table is adopted with its tournament (PR 6);
-        // until then another live instance's table answers pending, and a
-        // doc nobody can adopt is gone once its owner is
+        // LIVE_PERSIST=on: as joinAsSpectator (pointerResolve). A
+        // tournament table is adopted with its tournament (PR 6: resolve
+        // adopts the tournament first); another live instance's table
+        // answers pending, and a doc nobody can adopt is gone
         if (!resolved && user && pointerResolve.active() && !gameManager.getGameById(gameId)) {
             return pointerResolve.resolveThen(socket, gameId, 'spectateTournamentGame', {
                 onGame: () => spectateTournamentGame(socket, io, data, { resolved: true }),

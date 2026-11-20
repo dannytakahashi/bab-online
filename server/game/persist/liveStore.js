@@ -14,16 +14,16 @@
  *   on     (PR 5, casual games) everything write does, plus: the store
  *          writes nothing until start() (its serverInstances doc exists
  *          first), a casual game's doc says ownerMode 'on' (adoptable),
- *          a lost casual doc is a fence (fenceOnLoss; a lost tournament or
- *          tournament-table doc plays on as in write mode), the sweep adopts other
+ *          a lost doc is a fence (fenceOnLoss; since PR 6 tournaments and their
+ *          tables too: every 'on' doc is adoptable), the sweep adopts other
  *          instances' released or dead-owner docs (adopt.js), resolve()
  *          answers where a game is, the heartbeat carries the holder
  *          self-fence, and SIGTERM / a crash hand off (handoff.js). Only
  *          with gameRecords' UNIQUE gameId index (database
  *          getGameIdIndexUnique, read at start()): without it 'on' runs
- *          as 'write' (effectiveMode 'write', one log line). Tournaments
- *          and their tables keep ownerMode 'write' until PR 6, so nothing
- *          adopts them and a handoff deletes them (today's notice)
+ *          as 'write' (effectiveMode 'write', one log line). PR 6:
+ *          tournaments and their tables are handed off and adopted too
+ *          (handoff.js, adopt.js, restoreTournament.js)
  *
  * Writes (one writer per entity, never awaited by game code):
  *   - a change (persist/hooks.js: GameState.nextSeq, _afterSeat,
