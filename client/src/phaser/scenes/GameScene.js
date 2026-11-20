@@ -1934,11 +1934,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Show the hand's HSI in the own avatar box.
+   * Show the hand's HSI in the own avatar box, colored red (weak) through
+   * yellow (an average deal, ~132) to green (strong).
    */
   updatePlayerHsi(hsi) {
     if (this._playerInfo?.hsiBox && hsi !== undefined) {
       this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
+      const hue = 120 * Math.min(1, Math.max(0, (hsi - 70) / 125));
+      this._playerInfo.hsiBox.style.setProperty('--hsi-color', `hsl(${hue}, 75%, 55%)`);
+    }
+  }
+
+  /**
+   * Reset the own avatar box's HSI to the placeholder (a new deal: the
+   * value shows with the dealt cards).
+   */
+  clearPlayerHsi() {
+    if (this._playerInfo?.hsiBox) {
+      this._playerInfo.hsiBox.textContent = 'HSI: --';
+      this._playerInfo.hsiBox.style.removeProperty('--hsi-color');
     }
   }
 

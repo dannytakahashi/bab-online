@@ -202,7 +202,7 @@
 }
 
 .hud-hsi {
-    color: var(--text-secondary);
+    color: var(--hsi-color, var(--text-secondary));
     font-variant-numeric: tabular-nums;
 }
 

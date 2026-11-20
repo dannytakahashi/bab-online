@@ -388,7 +388,7 @@
     border-radius: 4px;
     font-size: var(--hsi-font, 12px);
     line-height: calc(var(--hsi-h, 20px) - 6px);
-    color: var(--text-secondary);
+    color: var(--hsi-color, var(--text-secondary));
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
