@@ -16,7 +16,9 @@
  *       senders are dropped (opts.scrubFrom). Registered in GameManager
  *       (no playerTournaments entry for a synthetic id). Then:
  *         - the restored abandon ('restoreAbandon', RESTORE_ABANDON_MS, 10
- *           min, not for a complete tournament): at its end, with nobody
+ *           min, not for a complete tournament): at its end, unless the
+ *           tournament completed meanwhile (its results-window cleanup
+ *           owns it then), with nobody
  *           here and either nobody ever back or no table still running ->
  *           torn down like a cancel (deleteTournament, abortGame for every
  *           table, tournamentCancelled to the room, the members' pointers
@@ -40,10 +42,13 @@
  *       In the lobby the ghosts stay members until they come back or the
  *       host begins (beginTournament drops them: dropLobbyGhosts).
  *
- *   normalizeRound(io, t, {tableScores, kept, ended})
- *       round_active only. kept: the round's tables live here now;
+ *   normalizeRound(io, t, {tableScores, kept, pending, ended})
+ *       round_active only (never a frozen or retired tournament). kept: the
+ *       round's tables live here now; pending: tables whose doc is still
+ *       adoptable (the adoption did not finish it: a later sweep or the
+ *       successor adopts it): like kept, never scored, never a rollback;
  *       ended: gameId -> the `ended` of an ENDED tombstone claimed for it.
- *       None kept and none complete (every table was pre-deal, or the
+ *       None kept or pending and none complete (every table was pre-deal, or the
  *       announce): the round is rolled back (rollbackRound, generalized: its
  *       games are dropped, their players' activeGameId cleared scoped).
  *       Otherwise every table of the round that is neither complete nor kept
@@ -192,6 +197,8 @@ function onRestoreAbandon(io, t) {
     if (!t.restored) return false;
     const gm = require('../GameManager');
     if (gm.getTournamentById(t.tournamentId) !== t) return false;
+    // Completed since the restore: the results window ends it, never a cancel
+    if (t.phase === 'complete') return false;
     if (t.getConnectedPlayerCount() > 0) return false;
     // Someone came back and a table still runs: its own rules end it
     if (t.restored.memberBack && gm.getTournamentLiveGames(t.tournamentId).length > 0) return false;
@@ -272,6 +279,7 @@ function scoreGoneTable(t, gameId, { ended = null, tableScore = null } = {}) {
 
 /** completeRound plus its outcome once every table of the current round is complete. */
 async function completeIfDone(io, t) {
+    if (t.frozen || t.retired) return false;
     if (t.phase !== 'round_active' || !t.isRoundComplete()) return false;
     t.completeRound();
     await require('../../socket/tournamentHandlers').broadcastRoundOutcome(io, t);
@@ -314,16 +322,17 @@ function rollbackRestoredRound(io, t, round) {
 /**
  * See the header. Never throws for one table: a table that fails to score
  * is logged and left (the round then waits for the abandon or a cancel).
- * @param {{tableScores?: Object, kept?: Set<string>, ended?: Map<string, Object>}} opts
+ * @param {{tableScores?: Object, kept?: Set<string>, pending?: Set<string>, ended?: Map<string, Object>}} opts
  * @returns {Promise<'rolledBack'|'scored'|'none'>}
  */
-async function normalizeRound(io, t, { tableScores = {}, kept = new Set(), ended = new Map() } = {}) {
+async function normalizeRound(io, t, { tableScores = {}, kept = new Set(), pending = new Set(), ended = new Map() } = {}) {
+    if (t.frozen || t.retired) return 'none';
     if (t.phase !== 'round_active') return 'none';
     const round = t.getCurrentRound();
     if (!round) return 'none';
     const ids = [...round.games.keys()];
     const anyComplete = round.completedGames.size > 0 || ids.some((id) => ended.has(id));
-    const anyKept = ids.some((id) => kept.has(id));
+    const anyKept = ids.some((id) => kept.has(id) || pending.has(id));
     if (!anyKept && !anyComplete) {
         rollbackRestoredRound(io, t, round);
         socketLogger.info('Restored tournament: round rolled back', { tournamentId: t.tournamentId, round: round.roundNumber });
@@ -331,7 +340,7 @@ async function normalizeRound(io, t, { tableScores = {}, kept = new Set(), ended
     }
     let scored = 0;
     for (const id of ids) {
-        if (round.completedGames.has(id) || kept.has(id)) continue;
+        if (round.completedGames.has(id) || kept.has(id) || pending.has(id)) continue;
         try {
             if (scoreGoneTable(t, id, { ended: ended.get(id) || null, tableScore: tableScores[id] || null })) scored++;
         } catch (err) {

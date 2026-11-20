@@ -17,9 +17,15 @@
  *     survives (players' and spectators', the 100 cap, no system line)
  *   plus: lobby pointers, the handoff itself (no tournamentPlayerLeft or
  *     delete at io.close, a start in flight aborts no frozen table,
- *     joinTournament during the flush clears nothing, a failed flush sends
- *     no "continue" line, a crash releases liveTournaments), a member
- *     deleted or merged across the restore, a cancel after the restore
+ *     joinTournament during the flush clears nothing, a failed final write
+ *     releases the saved doc as it is with no "continue" line, a refused
+ *     serialize takes its tables with it ("ended"), a crash releases
+ *     liveTournaments), a member deleted or merged across the restore, a
+ *     cancel after the restore
+ *   an adoption cut short: a Mongo error on a table's claim, SIGTERM during
+ *     the claim (nothing scored or rolled back; the next instance adopts);
+ *     a tournament completed after the restore is never cancelled by the
+ *     restored abandon
  */
 
 // Integration test (real Socket.IO / two instances / chaos): CI's slower runners take
@@ -445,6 +451,92 @@ describe('round_active', () => {
     }, 120000);
 });
 
+describe('an adoption cut short', () => {
+    /** bootTournament with deployKit hooks (beforeSweep, beforeHandoff). */
+    async function bootWithHooks(count, hooks) {
+        deploy = createDeploy({ holder: mockDb, db: db(), hooks });
+        const A = await deploy.boot();
+        const ctx = await setupTournament(count, { io: A.io, log: A.log });
+        await h.flushStore(A.store);
+        return { A, ctx, tid: ctx.t.tournamentId };
+    }
+
+    test('a Mongo error on one table\'s claim leaves it adoptable: never scored as an abort, adopted by the same sweep', async () => {
+        const { A, ctx, tid } = await bootWithHooks(8, {
+            beforeSweep: (inst) => {
+                if (inst.name === 'i2') db().faults.fail({ collections: 'liveGames', ops: 'findOne', instances: 'i2', times: 1 });
+            }
+        });
+        const tables = await beginRound(ctx, A.io);
+        expect(tables).toHaveLength(2);
+        await h.flushStore(A.store);
+        await deploy.restart({ kind: 'handoff' });
+        expect(db().faults.calls.filter((c) => c.instance === 'i2' && c.outcome === 'failed')).toHaveLength(1);
+        const t = T(tid);
+        expect(t.phase).toBe('round_active');
+        for (const g of tables) expect(gameManager.games.has(g.gameId)).toBe(true);
+        expect(t.getCurrentRound().completedGames.size).toBe(0);
+        expect(Object.values(t.scoreboard).some((e) => e.roundDetails.some((d) => d?.aborted))).toBe(false);
+        expect(ended).toEqual([]);
+    }, 120000);
+
+    test('SIGTERM while a table is being claimed: no rollback, nothing scored; the next instance adopts the tournament and the table', async () => {
+        const { A, ctx, tid } = await bootWithHooks(4, {
+            beforeSweep: (inst) => {
+                if (inst.name === 'i2') db().faults.stall({ collections: 'liveGames', ops: 'findOne', instances: 'i2' });
+            },
+            // Inside B's settle: the claim's read goes on, now stopping
+            beforeHandoff: (old) => {
+                if (old.name === 'i2') setTimeout(() => db().faults.release(), 200);
+            }
+        });
+        const [table] = await beginRound(ctx, A.io);
+        await h.flushStore(A.store);
+        const toB = deploy.restart({ kind: 'handoff' });
+        await advanceUntil(() => db().faults.stalledCount() > 0, 10, 20000);
+        const B = deploy.current();
+        expect(B.name).toBe('i2');
+        expect(T(tid)).toBeTruthy();
+        const C = await deploy.restart({ kind: 'handoff' });
+        await toB;
+        expect(C.name).toBe('i3');
+        expect(events(B, 'tournamentRoundComplete')).toEqual([]);
+        const t = T(tid);
+        expect(t).toBeTruthy();
+        expect(t.phase).toBe('round_active');
+        expect(gameManager.games.has(table.gameId)).toBe(true);
+        expect(t.getCurrentRound().completedGames.size).toBe(0);
+        for (const u of table.seatList().map((s) => s.username).filter(Boolean)) {
+            if (ctx.usernames.includes(u)) expect(user(u).activeGameId).toBe(table.gameId);
+        }
+        expect(ended).toEqual([]);
+        expect(deploy.harness.deadEmits()).toEqual([]);
+    }, 120000);
+
+    test('a tournament completed after the restore is never cancelled by the restored abandon; the results window ends it', async () => {
+        const { A, ctx, tid } = await bootTournament(4, { totalRounds: 1 });
+        const [table] = await beginRound(ctx, A.io);
+        await h.flushStore(A.store);
+        const B = await deploy.restart({ kind: 'handoff' });
+        const t = T(tid);
+        expect(gameManager.games.has(table.gameId)).toBe(true);
+        // Nobody back: the table aborts at 5 minutes, the last round and the tournament complete
+        await jest.advanceTimersByTimeAsync(RESTORE_ABANDON_TOURNAMENT_MS + 1000);
+        expect(gameManager.games.has(table.gameId)).toBe(false);
+        expect(T(tid)).toBe(t);
+        expect(t.phase).toBe('complete');
+        expect(events(B, 'tournamentComplete')).toHaveLength(1);
+        // The restored window ends: no cancel for a finished tournament
+        await jest.advanceTimersByTimeAsync(restoreTournament.RESTORE_ABANDON_MS - RESTORE_ABANDON_TOURNAMENT_MS + 1000);
+        expect(events(B, 'tournamentCancelled')).toEqual([]);
+        expect(T(tid)).toBe(t);
+        // ... the results window (completedAt + 10 min) does
+        await jest.advanceTimersByTimeAsync(t.completedAt + 10 * 60000 - Date.now() + 1000);
+        expect(T(tid)).toBeNull();
+        expect(events(B, 'tournamentCancelled')).toEqual([]);
+    }, 120000);
+});
+
 /** Lazy humans on A until `pred` (5 s steps by default). */
 async function playOutUntil(ctx, A, pred, { step = 5000, cap = 2000 } = {}) {
     for (let i = 0; i < cap && !pred(); i++) {
@@ -597,18 +689,37 @@ describe('chat', () => {
 });
 
 describe('the handoff itself', () => {
-    test('a failed final write sends no "continue" line (the doc deleted); its tables still continue', async () => {
+    /** What A's handoff told each table. */
+    const toldOf = (inst) => new Map(deploy.outcomes.filter((o) => o.instance === inst.name && o.kind === 'run').flatMap((o) => o.tables.map((x) => [x.gameId, x.outcome])));
+
+    test('a failed final write: the saved doc released as it is (no "continue" line, its tables "unknown"); B adopts it and its tables', async () => {
         const { A, ctx, tid } = await bootTournament(4);
-        await beginRound(ctx, A.io);
+        const [table] = await beginRound(ctx, A.io);
         await h.flushStore(A.store);
         db().faults.fail({ collections: 'liveTournaments', ops: 'replaceOne', instances: A.name });
         await deploy.restart({ kind: 'handoff' });
         expect(events(A, 'tournamentMessage').filter((e) => e.data.message === shutdown.TOURNAMENT_CONTINUE_LINE)).toEqual([]);
-        // No tournament doc: its tables go with it
+        expect(toldOf(A).get(table.gameId)).toBe('unknown');
+        const t = T(tid);
+        expect(t).toBeTruthy();
+        expect(t.phase).toBe('round_active');
+        expect(gameManager.games.has(table.gameId)).toBe(true);
+        expect(ended).toEqual([]);
+    });
+
+    test('a tournament whose serialize refuses is deleted and its tables with it: told "ended", never "continue"', async () => {
+        const { A, ctx, tid } = await bootTournament(4);
+        const [table] = await beginRound(ctx, A.io);
+        await h.flushStore(A.store);
+        jest.spyOn(require('../game/persist/tournamentCodec'), 'serialize').mockImplementation(() => { throw new Error('chaos: serialize'); });
+        await deploy.restart({ kind: 'handoff' });
+        expect(events(A, 'tournamentMessage').filter((e) => e.data.message === shutdown.TOURNAMENT_CONTINUE_LINE)).toEqual([]);
+        expect(toldOf(A).get(table.gameId)).toBe('ended');
         expect(T(tid)).toBeNull();
         await jest.advanceTimersByTimeAsync(2000);
         expect(liveTables({ tournamentId: tid })).toEqual([]);
         expect(db().liveGames.docs.filter((d) => d.tournamentId === tid)).toEqual([]);
+        expect(db().liveTournaments.docs.filter((d) => d._id === tid)).toEqual([]);
     });
 
     test('joinTournament during the flush clears nothing and answers no failure', async () => {

@@ -80,9 +80,15 @@
  * aborting its tables), its results-window cleanup cancelled and deleted
  * from GameManager (so io.close's disconnects find no member: no
  * tournamentPlayerLeft, no delete of its doc: the store is closed). In 4b
- * its final write and release go to liveTournaments like a table's (the
- * same rules: acknowledged ids released; after a failed successor read a
- * saved doc is released as it is; anything else deleted); then, for each
+ * its final write and release go to liveTournaments like a table's
+ * (acknowledged ids released; a saved doc whose final write did not land
+ * is released as it is, successor seen or not, since its tables' docs need
+ * it; one with no saved doc, or whose serialize refused, is deleted). A
+ * tournament's table goes with its tournament: when the tournament is not
+ * released its tables are deleted too (never released, never 'continue':
+ * 'ended', or 'unknown' while a delete or an insert is unsettled), and a
+ * table is 'continue' only when its tournament's final write and release
+ * were acknowledged (else 'unknown'); then, for each
  * released lobby-phase tournament, its members' activeTournamentId is
  * written where it is unset or already this tournament (never over a
  * pointer a user set on the successor meanwhile), so shipped clients route
@@ -271,7 +277,16 @@ function createHandoff({
             // Suspended by the holder self-fence (a Mongo blip): serialize
             // refuses it, but it took no input or timer since, so its last
             // saved doc is a valid restore point (released as it is in 4b)
-            return { game, doc, suspended: game.isSuspended === true, info: s.docInfo(game) || { inserted: false, insertPending: false } };
+            // Its tournament (PR 6), read before the detach drops the mapping
+            let tid = doc?.tournamentId ?? null;
+            if (tid == null) {
+                try {
+                    tid = gm().tournamentGames?.get?.(game.gameId) ?? null;
+                } catch {
+                    tid = null;
+                }
+            }
+            return { game, doc, tid, suspended: game.isSuspended === true, info: s.docInfo(game) || { inserted: false, insertPending: false } };
         });
         // Tournaments before their tables are detached (tableScores reads them)
         const tEntries = liveTournamentsHere().map((t) => {
@@ -358,12 +373,21 @@ function createHandoff({
             return bounded(op, FLUSH_WRITE_MS).then((r) => r === true);
         });
         const [acks, tAcks] = await Promise.all([Promise.all(writes), Promise.all(tWrites)]);
-        const acked = entries.filter((e, i) => acks[i]);
         const tAcked = tEntries.filter((e, i) => tAcks[i]);
-        const tReleaseIds = [
-            ...tAcked.map((e) => e.t.tournamentId),
-            ...tEntries.filter((e) => successorUnknown && e.info.inserted && !!e.doc && !tAcked.includes(e)).map((e) => e.t.tournamentId)
-        ];
+        // A saved tournament doc whose final write did not land is released
+        // as it is (successor seen or not): its tables' docs need it. One
+        // with no saved doc, or whose serialize refused, is deleted
+        const tAsIs = tEntries.filter((e) => e.info.inserted && !!e.doc && !tAcked.includes(e));
+        const tReleaseIds = [...tAcked, ...tAsIs].map((e) => e.t.tournamentId);
+        // A table of a tournament handed off here goes with it: never released
+        // when its tournament is not (deleted with it, never told 'continue')
+        const tByTid = new Map(tEntries.map((e) => [e.t.tournamentId, e]));
+        const tournamentOf = (e) => (e.tid != null ? tByTid.get(e.tid) || null : null);
+        const dropped = entries.filter((e) => {
+            const te = tournamentOf(e);
+            return !!te && !tReleaseIds.includes(te.t.tournamentId);
+        });
+        const acked = entries.filter((e, i) => acks[i] && !dropped.includes(e));
         const tKeepIds = [...tReleaseIds, ...(s.adopter?.inFlightTournamentIds?.() || [])];
         const ackedIds = acked.map((e) => e.game.gameId);
         // A suspended table's saved doc is released as it is (never
@@ -373,7 +397,7 @@ function createHandoff({
         // After a failed successor read, likewise every saved doc whose final
         // write did not land (a table serialize refuses, tainted or invalid,
         // is still deleted)
-        const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
+        const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && !dropped.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
         const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
         // An adoption claim still settling (past the settle bound): adopt.js
         // hands that doc straight back, so the delete leaves it alone
@@ -419,9 +443,15 @@ function createHandoff({
             const released = tReleasedOk && tReleaseIds.includes(e.t.tournamentId);
             out.tournaments.push({ tournament: e.t, outcome: released && !successorUnknown && tAcked.includes(e) ? 'continue' : (released || !deletedOk ? 'unknown' : 'ended') });
         }
+        // 'continue' for a tournament's table only with its tournament's final
+        // state released (acknowledged): one released as saved may be behind
+        const tournamentSure = (e) => {
+            const te = tournamentOf(e);
+            return !te || (tAcked.includes(te) && tReleasedOk);
+        };
         for (const e of entries) {
             let outcome;
-            if (acked.includes(e)) outcome = releasedOk && !successorUnknown ? 'continue' : 'unknown';
+            if (acked.includes(e)) outcome = releasedOk && !successorUnknown && tournamentSure(e) ? 'continue' : 'unknown';
             else if (asIs.includes(e)) outcome = 'unknown';
             else if (!mayHaveDoc(e) && !e.insertSent) outcome = 'ended';
             // An insert that may still land after the delete, or a delete not acknowledged

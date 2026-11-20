@@ -63,6 +63,13 @@
  * tournament abandon, an ENDED tombstone claimed), then
  * restoreTournament.normalizeRound (scores what did not survive, or rolls
  * the round back), then the claimed tombstones are recorded and deleted. A
+ * table this adoption did not finish (the loop cut by a shutdown, a Mongo
+ * error, adoptLive 'pending' or 'lost', a tombstone claim missed) still has
+ * an adoptable doc: normalizeRound neither scores it nor rolls back for it
+ * (a later sweep, or the successor, adopts it). normalizeRound is skipped
+ * altogether once this process stops (or the tournament was frozen,
+ * retired or replaced meanwhile), and so is the tombstones' recording (the
+ * handoff releases them with the tournament). A
  * discarded tournament's members' activeTournamentId pointers are cleared
  * (scoped). resolveTournament(tid) answers like resolve() for a game.
  *
@@ -700,6 +707,8 @@ function createAdopter(ctx) {
             const claimed = await claimTombstone(env, inner.attempts);
             if (!claimed) return { state: 'lost' };
             notify(env._id, null);
+            // A handoff began: held (released with the tournament), never scored here
+            if (stopping()) return { state: 'pending' };
             if (open) {
                 try {
                     await scoreLateTable(getIo(), t, env._id, claimed.ended || {});
@@ -823,8 +832,10 @@ function createAdopter(ctx) {
         trackAdoptedTournament(t, claimed);
         adoptedCount++;
         logger.info('Live tournament adopted', { tournamentId: tenv._id, rev: claimed.rev, from: String(tenv.owner).slice(0, 8), attempts, tables: verdicts.size });
-        // Its tables, each by its own verdict
+        // Its tables, each by its own verdict. `unsettled`: a table whose doc
+        // this adoption did not finish (still adoptable: never scored here)
         const kept = new Set();
+        const unsettled = new Set();
         const ended = new Map();
         const claimedTombstones = [];
         for (const { env, v } of verdicts.values()) {
@@ -838,6 +849,8 @@ function createAdopter(ctx) {
                         ended.set(env._id, tb.ended || {});
                         claimedTombstones.push(tb);
                         notify(env._id, null);
+                    } else {
+                        unsettled.add(env._id);
                     }
                 } else {
                     const round = t.roundOfGame(env._id);
@@ -847,17 +860,25 @@ function createAdopter(ctx) {
                     }
                     const r = await adoptLive(env, v.attempts, { tableAbandonMs: tournamentAbandonMs });
                     if (r.state === 'adopted' && r.game) kept.add(env._id);
+                    else if (r.state === 'pending' || r.state === 'lost') unsettled.add(env._id);
                 }
             } catch (err) {
+                unsettled.add(env._id);
                 logFailure('adopt', null, err, { gameId: env._id });
             }
         }
-        try {
-            await normalizeRound(io, t, { tableScores: adopted.tableScores || {}, kept, ended });
-        } catch (err) {
-            logFailure('tournament normalize', null, err, { tournamentId: tenv._id });
+        // Stopping (a handoff serializes it as it is), or no longer this
+        // process's live tournament: nothing is scored or rolled back here
+        const ours = !stopping() && !t.frozen && !t.retired && findTournament(tenv._id) === t;
+        if (ours) {
+            try {
+                await normalizeRound(io, t, { tableScores: adopted.tableScores || {}, kept, pending: unsettled, ended });
+            } catch (err) {
+                logFailure('tournament normalize', null, err, { tournamentId: tenv._id });
+            }
         }
-        for (const tb of claimedTombstones) {
+        // Held when stopping: the handoff releases this process's tombstones
+        for (const tb of stopping() ? [] : claimedTombstones) {
             try {
                 await finishTombstone(tb);
             } catch (err) {
