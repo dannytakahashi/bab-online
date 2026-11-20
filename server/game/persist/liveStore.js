@@ -14,16 +14,16 @@
  *   on     (PR 5, casual games) everything write does, plus: the store
  *          writes nothing until start() (its serverInstances doc exists
  *          first), a casual game's doc says ownerMode 'on' (adoptable),
- *          a lost casual doc is a fence (fenceOnLoss; a lost tournament or
- *          tournament-table doc plays on as in write mode), the sweep adopts other
+ *          a lost doc is a fence (fenceOnLoss; since PR 6 tournaments and their
+ *          tables too: every 'on' doc is adoptable), the sweep adopts other
  *          instances' released or dead-owner docs (adopt.js), resolve()
  *          answers where a game is, the heartbeat carries the holder
  *          self-fence, and SIGTERM / a crash hand off (handoff.js). Only
  *          with gameRecords' UNIQUE gameId index (database
  *          getGameIdIndexUnique, read at start()): without it 'on' runs
- *          as 'write' (effectiveMode 'write', one log line). Tournaments
- *          and their tables keep ownerMode 'write' until PR 6, so nothing
- *          adopts them and a handoff deletes them (today's notice)
+ *          as 'write' (effectiveMode 'write', one log line). PR 6:
+ *          tournaments and their tables are handed off and adopted too
+ *          (handoff.js, adopt.js, restoreTournament.js)
  *
  * Writes (one writer per entity, never awaited by game code):
  *   - a change (persist/hooks.js: GameState.nextSeq, _afterSeat,
@@ -267,6 +267,8 @@ function bounded(p, ms, onTimeout) {
  * @param {Function} [opts.listGames] / [opts.listTournaments] - () => iterable of live ids (heartbeat)
  * @param {Function} [opts.findGame] - (gameId) => the live GameState here, or
  *   undefined (resolve / whenAdopted's "in memory"; GameManager.games)
+ * @param {Function} [opts.findTournament] - (tournamentId) => the live
+ *   TournamentState here, or undefined (resolveTournament; GameManager.tournaments)
  * @param {Function} [opts.tournamentOfGame] - gameId -> the live TournamentState it belongs to, or null
  * @param {Function} [opts.gameIdIndexUnique] - () => true | false | null (/health)
  * @param {boolean|null} [opts.fenceOnLoss=null] - a lost doc (gone early, another
@@ -301,6 +303,7 @@ function createLiveStore({
     listGames = () => gameManagerOf().games.keys(),
     listTournaments = () => gameManagerOf().tournaments.keys(),
     findGame = (gameId) => gameManagerOf().games.get(gameId),
+    findTournament = (tournamentId) => gameManagerOf().tournaments.get(tournamentId),
     tournamentOfGame = (gameId) => {
         const gm = gameManagerOf();
         const tid = gm.tournamentGames.get(gameId);
@@ -332,10 +335,10 @@ function createLiveStore({
     const effective = () => latchedMode ?? computeEffective();
     const isOn = () => effective() === 'on';
     // A lost doc is a fence only if another instance could own it now: in
-    // effective 'on', a doc last written ownerMode 'on' (a casual table;
-    // adopt.js adopts nothing else). A tournament and its tables say
-    // 'write' until PR 6, so a lost one (a sweep discarded it after a false
-    // death of this process) stops persisting and plays on, as in write mode
+    // effective 'on', a doc last written ownerMode 'on' (every doc since
+    // PR 6: casual tables, tournaments and their tables; adopt.js adopts
+    // them). A 'write' doc (write mode, or one written before the index
+    // probe latched 'on') stops persisting and plays on, as in write mode
     const fences = (st) => (fenceOnLoss === null ? isOn() && !!st && st.ownerMode === 'on' : fenceOnLoss);
 
     // entity -> state, and id -> state (tombstones, tournaments by id)
@@ -461,15 +464,15 @@ function createLiveStore({
      * Its writes go on as updates of that doc (never an insert), the first
      * one with the whole log (the adoption scrubbed lines and added one).
      */
-    function trackAdopted(game, doc) {
+    function trackAdopted(game, doc, kind = 'game') {
         if (!active || closed || !game) return null;
-        const id = game.gameId;
-        const prev = byId.get(`game:${id}`);
+        const id = kind === 'game' ? game.gameId : game.tournamentId;
+        const prev = byId.get(`${kind}:${id}`);
         if (prev && !prev.done) forget(prev);
         const createdAt = doc.createdAt instanceof Date ? doc.createdAt.getTime()
             : Number.isFinite(game.createdAt) ? game.createdAt : now();
         const st = {
-            id, kind: 'game', entity: game, createdAt,
+            id, kind, entity: game, createdAt,
             inserted: true, insertTried: true, dirty: false, immediate: null, ops: 0,
             tail: Promise.resolve(), rev: Number.isInteger(doc.rev) ? doc.rev : 0,
             lastLogTotal: Number.isInteger(doc.logTotal) ? doc.logTotal : null,
@@ -481,8 +484,8 @@ function createLiveStore({
             adoption: { adoptAttempts: Number(doc.adoptAttempts) || 0, adoptedBy: doc.adoptedBy ?? null, adoptedAt: doc.adoptedAt ?? null }
         };
         byEntity.set(game, st);
-        byId.set(`game:${id}`, st);
-        addToInstance('game', id);
+        byId.set(`${kind}:${id}`, st);
+        addToInstance(kind, id);
         markDirty(game);
         return st;
     }
@@ -547,14 +550,12 @@ function createLiveStore({
     const stopAt = (st) => st.createdAt + TTL_MS - STOP_BEFORE_EXPIRE_MS;
 
     /**
-     * The ownerMode a doc says: 'on' (adoptable) only for a casual game in
-     * effective 'on'; a tournament and its tables stay 'write' until the
-     * tournament handoff exists (PR 6), so nothing adopts them.
+     * The ownerMode a doc says: the effective mode. In 'on' every doc is
+     * adoptable (PR 6: tournaments and their tables too; before it they
+     * said 'write'). Write mode: 'write' (never adopted).
      */
-    function ownerModeFor(st, doc) {
-        const m = effective();
-        if (m !== 'on') return m;
-        return st.kind === 'game' && !(doc && doc.tournamentId) ? 'on' : 'write';
+    function ownerModeFor() {
+        return effective();
     }
 
     function envelope(st, doc, at) {
@@ -589,8 +590,10 @@ function createLiveStore({
             set.ownerMode = ownerModeFor(st, doc);
             st.ownerMode = set.ownerMode;
             // Adopted: the first write once the restore gate is open (an
-            // owner is back, the table plays) clears the crash-loop counter
+            // owner is back, the table plays) clears the crash-loop counter;
+            // a tournament's once a member is back (PR 6)
             if (st.resetAttempts && st.kind === 'game' && adopter && !adopter.gated(st.entity)) set.adoptAttempts = 0;
+            if (st.resetAttempts && st.kind === 'tournament' && st.entity?.restored?.memberBack === true) set.adoptAttempts = 0;
         }
         if (st.kind === 'tournament') {
             set.phase = doc.phase;
@@ -1186,14 +1189,33 @@ function createLiveStore({
 
     // ---------- 'on': the holder self-fence ----------
 
-    /** The tables a self-fence suspends: casual games with a doc this process wrote. */
+    /**
+     * The tables a self-fence suspends: games with a doc this process
+     * wrote (casual and, since PR 6, tournament tables: both adoptable).
+     */
     function fenceableStates() {
         const out = [];
         for (const st of byId.values()) {
             if (st.kind !== 'game' || st.done || st.retired || !st.entity) continue;
             if (!st.inserted && !st.insertTried) continue;
-            if (safeCall(() => tournamentOfGame(st.id))) continue;
             if (st.entity.isTerminal?.() || st.entity.frozen) continue;
+            out.push(st);
+        }
+        return out;
+    }
+
+    /**
+     * PR 6: the tournaments a self-fence holds: a doc this process wrote.
+     * Their writes wait (st.suspended) and the doc is re-taken at the next
+     * good beat like a table's (fenced if not ours). The tournament itself
+     * runs on (its timers only start rounds whose tables are then held).
+     */
+    function fenceableTournaments() {
+        const out = [];
+        for (const st of byId.values()) {
+            if (st.kind !== 'tournament' || st.done || st.retired || !st.entity) continue;
+            if (!st.inserted && !st.insertTried) continue;
+            if (st.entity.retired || st.entity.frozen) continue;
             out.push(st);
         }
         return out;
@@ -1236,6 +1258,10 @@ function createLiveStore({
             }
             if (!st.pauseNoticed) st.pauseOwed = true;
         }
+        for (const st of fenceableTournaments()) {
+            st.suspended = true;
+            cancelImmediate(st);
+        }
         // The pause lines go out from an immediate, never from here: this
         // check also runs inside persistHooks.beforeRun, and hooks never
         // emit (persist/hooks.js, server/CLAUDE.md rule 2)
@@ -1258,6 +1284,7 @@ function createLiveStore({
         for (const st of byId.values()) {
             if (!st.pauseOwed) continue;
             st.pauseOwed = false;
+            if (st.kind !== 'game') continue;
             if (st.done || !st.suspended || st.pauseNoticed || !st.entity.isSuspended) continue;
             st.pauseNoticed = tellRoom(st, PAUSE_NOTICE);
         }
@@ -1276,15 +1303,17 @@ function createLiveStore({
         if (recovering) return;
         recovering = true;
         try {
-            const coll = collections().liveGames;
-            const states = [...byId.values()].filter((st) => st.kind === 'game' && st.suspended && !st.done);
+            const states = [...byId.values()].filter((st) => st.suspended && !st.done);
             let pendingReads = 0;
             await Promise.all(states.map(async (st) => {
                 let doc;
+                const coll = collectionFor(st);
                 try {
                     if (!coll) throw Object.assign(new Error('no collection'), { name: 'NoCollection' });
                     doc = await bounded(coll.findOneAndUpdate(
-                        { _id: st.id, owner: bootId, released: false, kind: 'live' },
+                        st.kind === 'game'
+                            ? { _id: st.id, owner: bootId, released: false, kind: 'live' }
+                            : { _id: st.id, owner: bootId, released: false },
                         { $inc: { rev: 1 } },
                         { returnDocument: 'after', projection: { rev: 1 } }
                     ), BEAT_WAIT_MS, undefined);
@@ -1298,6 +1327,13 @@ function createLiveStore({
                 const noticed = st.pauseNoticed;
                 st.pauseNoticed = false;
                 st.pauseOwed = false;
+                if (doc && st.kind === 'tournament') {
+                    // A held tournament (PR 6): its writes go on
+                    if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
+                    st.suspended = false;
+                    if (st.dirty) schedule(st);
+                    return;
+                }
                 if (doc) {
                     // Later writes carry a rev past the one this re-take wrote
                     if (Number.isInteger(doc.rev)) st.rev = Math.max(st.rev, doc.rev);
@@ -1540,11 +1576,20 @@ function createLiveStore({
                 isShuttingDown: () => safeCall(isShuttingDown) === true,
                 getIo: () => ioRef || safeCall(getIo),
                 trackAdopted,
+                trackAdoptedTournament: (t, doc) => trackAdopted(t, doc, 'tournament'),
+                findTournament: (tid) => {
+                    const t = safeCall(() => findTournament(tid));
+                    return t && !t.retired && !t.frozen ? t : null;
+                },
                 isOn,
                 isClosed: () => closed,
                 holdsLocally: (gameId) => {
                     const st = byId.get(`game:${gameId}`);
                     return (!!st && !st.done) || tombstones.has(gameId);
+                },
+                holdsTournamentLocally: (tid) => {
+                    const st = byId.get(`tournament:${tid}`);
+                    return !!st && !st.done;
                 },
                 ...adoption
             });
@@ -1611,6 +1656,60 @@ function createLiveStore({
         if (g && !g.isTerminal?.() && !g.frozen) return Promise.resolve(g);
         if (!isOn() || !adopter) return Promise.resolve(null);
         return adopter.whenAdopted(gameId, ms);
+    }
+
+    /**
+     * PR 6: where tournament `tournamentId` is, as resolve() for a game:
+     * {state: 'memory' | 'adopted', tournament} | {state: 'pending'} |
+     * {state: 'gone'}. Adopting one adopts its live tables with it.
+     */
+    async function resolveTournament(tournamentId, { waitMs = RESOLVE_WAIT_MS } = {}) {
+        const inMemory = () => {
+            const t = safeCall(() => findTournament(tournamentId));
+            return t && !t.retired && !t.frozen ? t : null;
+        };
+        const live = inMemory();
+        if (live) return { state: 'memory', tournament: live };
+        if (typeof tournamentId !== 'string' || !tournamentId) return { state: 'gone' };
+        if (mode === 'on' && !started) {
+            const ok = await bounded(startedPromise, waitMs, false);
+            if (!ok) return { state: 'pending' };
+            const now2 = inMemory();
+            if (now2) return { state: 'memory', tournament: now2 };
+        }
+        if (!isOn() || !started) return { state: 'gone' };
+        if (safeCall(isShuttingDown) === true) return { state: 'pending' };
+        try {
+            return await getAdopter().resolveTournament(tournamentId, { waitMs, inMemory, whenDbReady });
+        } catch (err) {
+            logFailure('resolve', null, err, { tournamentId });
+            return { state: 'pending' };
+        }
+    }
+
+    /** whenAdopted for a tournament: resolves with it once live here, null at the timeout. */
+    function whenTournamentAdopted(tournamentId, ms) {
+        const t = safeCall(() => findTournament(tournamentId));
+        if (t && !t.retired && !t.frozen) return Promise.resolve(t);
+        if (!isOn() || !adopter) return Promise.resolve(null);
+        return adopter.whenAdopted(tournamentId, ms);
+    }
+
+    /**
+     * PR 6, returnToTournament with nothing in memory: the id of a
+     * tournament another instance saved with `username` a member, or null.
+     */
+    async function savedTournamentOf(username) {
+        if (!isOn() || !started || typeof username !== 'string' || !username) return null;
+        const coll = collections().liveTournaments;
+        if (!coll) return null;
+        try {
+            const doc = await coll.findOne({ owner: { $ne: bootId }, 'state.players.username': username }, { projection: { _id: 1 } });
+            return doc ? doc._id : null;
+        } catch (err) {
+            logFailure('saved tournament read', null, err);
+            return null;
+        }
     }
 
     /** /ready: true unless 'on' is still in its boot sweep (capped at BOOT_SWEEP_CAP_MS after start). */
@@ -1707,6 +1806,9 @@ function createLiveStore({
         expectStart,
         get resolving() { return resolving(); },
         whenAdopted,
+        resolveTournament,
+        whenTournamentAdopted,
+        savedTournamentOf,
         whenBootSwept,
         ready,
         holdsPointers,

@@ -188,6 +188,10 @@ const UNKNOWN_NOTICE = "This game was interrupted by a server update. If it isn'
 const CRASH_RELEASED_NOTICE = 'The server hit an error and is restarting. This game should continue in a moment, possibly a move earlier.';
 const CRASH_UNKNOWN_NOTICE = "This game was interrupted by a server restart. If it isn't back in a moment, it won't count toward stats.";
 
+// A tournament released to an 'on' successor (owner answer a, 2026-11-16;
+// deploy survival PR 6): its room's tournamentMessage system line
+const TOURNAMENT_CONTINUE_LINE = 'The server is updating. The tournament will continue in a few seconds.';
+
 /** The line for a handoff outcome (handoff.js run / crash). */
 const OUTCOME_NOTICE = Object.freeze({
     continue: CONTINUE_NOTICE,
@@ -354,6 +358,17 @@ function setupGracefulShutdown(server, io, opts = {}) {
                 } catch (error) {
                     logger.error('Shutdown notice to games failed', { error: error.message });
                 }
+                // A tournament whose release was acknowledged (PR 6): one
+                // system line to its room (never stored: the store is closed)
+                for (const { tournament, outcome } of result?.tournaments || []) {
+                    if (outcome !== 'continue' || !tournament?.roomName) continue;
+                    try {
+                        const { systemLine } = require('../socket/tournamentLiveness');
+                        io.to(tournament.roomName).emit('tournamentMessage', systemLine(TOURNAMENT_CONTINUE_LINE));
+                    } catch (error) {
+                        logger.error('Shutdown notice to a tournament failed', { tournamentId: tournament.tournamentId, error: error.message });
+                    }
+                }
 
                 await new Promise(resolve => safeTimeout(resolve, noticeMs, 'shutdownNotice'));
                 io.close(() => {
@@ -434,6 +449,7 @@ module.exports = {
     GAME_NOTICE,
     CRASH_NOTICE,
     CONTINUE_NOTICE,
+    TOURNAMENT_CONTINUE_LINE,
     UNKNOWN_NOTICE,
     CRASH_RELEASED_NOTICE,
     CRASH_UNKNOWN_NOTICE,

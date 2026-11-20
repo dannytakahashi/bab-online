@@ -270,3 +270,59 @@ test('the instance doc: insert, a beat that upserts after a lost doc, TTL field 
     expect((await coll('serverInstances').findOne({ _id: 'boot-A' })).shuttingDown).toBe(true);
 }, 20000);
 
+
+test('PR 6: two adopters racing on one released tournament (real liveTournaments): exactly one wins it and its table, once', async () => {
+    if (!client) return;
+    const at = new Date();
+    await coll('users').insertOne({ username: 'Hal', profilePic: 3 });
+    await coll('liveTournaments').insertOne({
+        _id: 't-race', v: 1, kind: 'live', owner: 'boot-dead', ownerMode: 'on', released: true, releasedAt: at, releaseKind: 'handoff',
+        rev: 5, createdAt: at, updatedAt: at, expireAt: new Date(at.getTime() + 86400000), adoptAttempts: 0, adoptedBy: null, adoptedAt: null,
+        phase: 'round_active', state: { players: [{ username: 'Hal', pic: null }], messages: [] }
+    });
+    await coll('liveGames').insertOne({
+        _id: 'g-race', v: gameCodec.CODEC_V, kind: 'live', owner: 'boot-dead', ownerMode: 'on', released: true, releasedAt: at, releaseKind: 'handoff',
+        rev: 3, createdAt: at, updatedAt: at, expireAt: new Date(at.getTime() + 86400000), adoptAttempts: 0, adoptedBy: null, adoptedAt: null,
+        stage: 'BIDDING', tournamentId: 't-race', state: { seats: {} }, log: [], logTotal: 0, bots: []
+    });
+    const adopt = require('../adopt');
+    const wins = [];
+    const make = (me) => {
+        const here = new Map();
+        return adopt.createAdopter({
+            bootId: me,
+            monoNow: () => performance.now(),
+            logger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} },
+            collections: () => mockHolder.current,
+            trackAdopted: () => {},
+            trackAdoptedTournament: (t) => wins.push(['tournament', me, t.tournamentId]),
+            findTournament: (tid) => here.get(tid) || null,
+            adoptTournament: (io2, doc) => {
+                const t = { tournamentId: doc.tournamentId, roundOfGame: () => ({ completedGames: new Set() }) };
+                here.set(doc.tournamentId, t);
+                return { tournament: t, tableScores: {} };
+            },
+            normalizeRound: async () => 'none',
+            adoptGame: (io2, doc) => {
+                wins.push(['game', me, doc.gameId]);
+                return { gameId: doc.gameId };
+            },
+            clearPointer: async () => {},
+            clearTournamentPointer: async () => {}
+        });
+    };
+    const [a, b] = [make('boot-X'), make('boot-Y')];
+    // Both boot sweeps at once (start() runs the first pass; stop() ends the cadence)
+    a.start();
+    b.start();
+    await Promise.all([a.whenBootSwept(), b.whenBootSwept()]);
+    a.stop();
+    b.stop();
+    const t = await coll('liveTournaments').findOne({ _id: 't-race' });
+    const g = await coll('liveGames').findOne({ _id: 'g-race' });
+    expect(wins.filter((w) => w[0] === 'tournament')).toHaveLength(1);
+    const winner = wins.find((w) => w[0] === 'tournament')[1];
+    expect(t).toMatchObject({ owner: winner, released: false, rev: 6, adoptedBy: winner });
+    expect(wins.filter((w) => w[0] === 'game')).toEqual([['game', winner, 'g-race']]);
+    expect(g).toMatchObject({ owner: winner, rev: 4 });
+}, 20000);

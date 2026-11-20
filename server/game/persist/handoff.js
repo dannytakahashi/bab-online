@@ -73,6 +73,30 @@
  * 'crashUnknown' (a doc that may be adopted after the stale-owner wait),
  * 'crashEnded' (no doc: pre-deal tables, tournament tables, the demo).
  *
+ * Tournaments (PR 6): tables of a tournament are handed off like casual
+ * ones (2.-5. above); each live tournament is serialized in step 2 BEFORE
+ * its tables are detached (its doc carries their running scores), then
+ * frozen (t.frozen = t.handedOff: an in-flight round start stops without
+ * aborting its tables), its results-window cleanup cancelled and deleted
+ * from GameManager (so io.close's disconnects find no member: no
+ * tournamentPlayerLeft, no delete of its doc: the store is closed). In 4b
+ * its final write and release go to liveTournaments like a table's
+ * (acknowledged ids released; a saved doc whose final write did not land
+ * is released as it is, successor seen or not, since its tables' docs need
+ * it; one with no saved doc, or whose serialize refused, is deleted). A
+ * tournament's table goes with its tournament: when the tournament is not
+ * released its tables are deleted too (never released, never 'continue':
+ * 'ended', or 'unknown' while a delete or an insert is unsettled), and a
+ * table is 'continue' only when its tournament's final write and release
+ * were acknowledged (else 'unknown'); then, for each
+ * released lobby-phase tournament, its members' activeTournamentId is
+ * written where it is unset or already this tournament (never over a
+ * pointer a user set on the successor meanwhile), so shipped clients route
+ * lobby members back. out.tournaments lists [{tournament, outcome}]
+ * ('continue' only when its release was acknowledged and a successor was
+ * seen): shutdown.js sends the tournament room TOURNAMENT_CONTINUE_LINE then.
+ * The crash release releases liveTournaments too.
+ *
  * Never logs a doc, a hand or chat.
  */
 
@@ -126,6 +150,15 @@ function createHandoff({
     gameManager = null,
     botController = null,
     serialize = (game) => require('./gameCodec').serialize(game),
+    serializeTournament = (t) => require('./tournamentCodec').serialize(t),
+    users = () => {
+        try {
+            return require('../../database').getUsersCollection() || null;
+        } catch {
+            return null;
+        }
+    },
+    cancelCleanup = (tid) => require('../../socket/tournamentHandlers').cancelTournamentCleanup(tid),
     now = () => Date.now(),
     monoNow = () => performance.now(),
     logger = require('../../utils/logger').createModuleLogger('persist')
@@ -144,16 +177,43 @@ function createHandoff({
         }
     }
 
-    /** Live tables: [casual (handed off), others (tournament tables, the demo: today's path)]. */
+    /**
+     * Live tables: [casual (handed off: casual and, since PR 6, tournament
+     * tables), others (the demo: today's path)].
+     */
     function tables() {
         const casual = [];
         const others = [];
         for (const game of gm().games.values()) {
             if (!game || game.isTerminal?.() || game.frozen) continue;
-            if (game.isDemo || gm().tournamentGames.has(game.gameId)) others.push(game);
+            if (game.isDemo) others.push(game);
             else casual.push(game);
         }
         return { casual, others };
+    }
+
+    /** Live tournaments (PR 6). */
+    function liveTournamentsHere() {
+        const out = [];
+        for (const t of gm().tournaments?.values?.() || []) {
+            if (t && !t.retired && !t.frozen) out.push(t);
+        }
+        return out;
+    }
+
+    /** Freeze and drop a tournament (no emit, no doc delete: the store is closed). */
+    function detachTournament(t) {
+        try {
+            t.frozen = t.handedOff = true;
+            cancelCleanup(t.tournamentId);
+        } catch (err) {
+            logger.warn('Handoff tournament freeze failed', { tournamentId: t.tournamentId, error: err?.name });
+        }
+        try {
+            if (gm().tournaments.get(t.tournamentId) === t) gm().deleteTournament(t.tournamentId);
+        } catch (err) {
+            logger.warn('Handoff tournament detach failed', { tournamentId: t.tournamentId, error: err?.name });
+        }
     }
 
     function detach(game) {
@@ -189,12 +249,13 @@ function createHandoff({
      */
     async function run() {
         const s = getStore();
-        const out = { tables: [], successor: false };
+        const out = { tables: [], tournaments: [], successor: false };
         s.adopter?.stop();
         const first = tables();
         // Nothing to hand off: no timer, no I/O wait (the no-games shutdown
         // stays microtask-only)
-        if (first.casual.length === 0 && first.others.length === 0 && s.pending() === 0 && (s.adopter?.inFlight().length || 0) === 0) {
+        if (first.casual.length === 0 && first.others.length === 0 && liveTournamentsHere().length === 0 &&
+            s.pending() === 0 && (s.adopter?.inFlight().length || 0) === 0) {
             s.markShuttingDown();
             s.close();
             return out;
@@ -216,7 +277,26 @@ function createHandoff({
             // Suspended by the holder self-fence (a Mongo blip): serialize
             // refuses it, but it took no input or timer since, so its last
             // saved doc is a valid restore point (released as it is in 4b)
-            return { game, doc, suspended: game.isSuspended === true, info: s.docInfo(game) || { inserted: false, insertPending: false } };
+            // Its tournament (PR 6), read before the detach drops the mapping
+            let tid = doc?.tournamentId ?? null;
+            if (tid == null) {
+                try {
+                    tid = gm().tournamentGames?.get?.(game.gameId) ?? null;
+                } catch {
+                    tid = null;
+                }
+            }
+            return { game, doc, tid, suspended: game.isSuspended === true, info: s.docInfo(game) || { inserted: false, insertPending: false } };
+        });
+        // Tournaments before their tables are detached (tableScores reads them)
+        const tEntries = liveTournamentsHere().map((t) => {
+            let doc = null;
+            try {
+                doc = serializeTournament(t);
+            } catch (err) {
+                logger.warn('Handoff serialize failed', { tournamentId: t.tournamentId, error: err?.name });
+            }
+            return { t, doc, info: s.docInfo(t) || { inserted: false, insertPending: false } };
         });
         s.close({ keepHeartbeat: true });
         for (const e of entries) {
@@ -227,6 +307,7 @@ function createHandoff({
             }
             detach(e.game);
         }
+        for (const e of tEntries) detachTournament(e.t);
         const coll = s.collections();
         const liveGames = coll.liveGames;
         const liveTournaments = coll.liveTournaments;
@@ -255,8 +336,9 @@ function createHandoff({
                 out.tables.push({ game: e.game, outcome: !mayHaveDoc(e) ? 'ended' : (deleted && !e.info.insertPending ? 'ended' : 'unknown') });
             }
             for (const game of others) out.tables.push({ game, outcome: 'ended' });
+            for (const e of tEntries) out.tournaments.push({ tournament: e.t, outcome: 'ended' });
             s.stopHeartbeat();
-            logger.info('Handoff: no successor; live docs deleted', { tables: entries.length, deleted });
+            logger.info('Handoff: no successor; live docs deleted', { tables: entries.length, ...(tEntries.length > 0 && { tournaments: tEntries.length }), deleted });
             return out;
         }
 
@@ -279,8 +361,34 @@ function createHandoff({
                 return r === true;
             });
         });
-        const acks = await Promise.all(writes);
-        const acked = entries.filter((e, i) => acks[i]);
+        // Tournaments' final writes, the same way (PR 6)
+        const tWrites = tEntries.map((e) => {
+            if (!e.doc || e.info.insertPending || !liveTournaments) return Promise.resolve(false);
+            const replacement = s.finalDoc(e.t, e.doc);
+            if (!replacement) return Promise.resolve(false);
+            const op = e.info.inserted
+                ? liveTournaments.replaceOne({ _id: e.t.tournamentId, owner: me, released: false, rev: { $lt: replacement.rev } }, replacement).then((r) => !!r && r.matchedCount === 1)
+                : liveTournaments.insertOne(replacement).then(() => true);
+            e.insertSent = !e.info.inserted;
+            return bounded(op, FLUSH_WRITE_MS).then((r) => r === true);
+        });
+        const [acks, tAcks] = await Promise.all([Promise.all(writes), Promise.all(tWrites)]);
+        const tAcked = tEntries.filter((e, i) => tAcks[i]);
+        // A saved tournament doc whose final write did not land is released
+        // as it is (successor seen or not): its tables' docs need it. One
+        // with no saved doc, or whose serialize refused, is deleted
+        const tAsIs = tEntries.filter((e) => e.info.inserted && !!e.doc && !tAcked.includes(e));
+        const tReleaseIds = [...tAcked, ...tAsIs].map((e) => e.t.tournamentId);
+        // A table of a tournament handed off here goes with it: never released
+        // when its tournament is not (deleted with it, never told 'continue')
+        const tByTid = new Map(tEntries.map((e) => [e.t.tournamentId, e]));
+        const tournamentOf = (e) => (e.tid != null ? tByTid.get(e.tid) || null : null);
+        const dropped = entries.filter((e) => {
+            const te = tournamentOf(e);
+            return !!te && !tReleaseIds.includes(te.t.tournamentId);
+        });
+        const acked = entries.filter((e, i) => acks[i] && !dropped.includes(e));
+        const tKeepIds = [...tReleaseIds, ...(s.adopter?.inFlightTournamentIds?.() || [])];
         const ackedIds = acked.map((e) => e.game.gameId);
         // A suspended table's saved doc is released as it is (never
         // deleted). Its outcome is UNKNOWN: the doc may be a move behind,
@@ -289,14 +397,15 @@ function createHandoff({
         // After a failed successor read, likewise every saved doc whose final
         // write did not land (a table serialize refuses, tainted or invalid,
         // is still deleted)
-        const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
+        const asIs = entries.filter((e) => e.info.inserted && !acked.includes(e) && !dropped.includes(e) && (e.suspended || (successorUnknown && !!e.doc)));
         const releaseIds = [...ackedIds, ...asIs.map((e) => e.game.gameId)];
         // An adoption claim still settling (past the settle bound): adopt.js
         // hands that doc straight back, so the delete leaves it alone
         const keepIds = [...releaseIds, ...(s.adopter?.inFlightIds?.() || [])];
         const releasedAt = new Date(now());
         const left = Math.max(0, FLUSH_MS - (monoNow() - flushStart));
-        const [rel, del] = await Promise.all([
+        const relStart = monoNow();
+        const [rel, del, tRel] = await Promise.all([
             bounded(liveGames
                 ? liveGames.updateMany(
                     { owner: me, $or: [{ _id: { $in: releaseIds } }, { kind: 'ended' }] },
@@ -304,14 +413,45 @@ function createHandoff({
                 : null, left),
             bounded(Promise.all([
                 liveGames ? liveGames.deleteMany({ owner: me, kind: 'live', released: false, _id: { $nin: keepIds } }) : null,
-                liveTournaments ? liveTournaments.deleteMany({ owner: me }) : null
-            ]), left)
+                liveTournaments ? liveTournaments.deleteMany({ owner: me, released: false, _id: { $nin: tKeepIds } }) : null
+            ]), left),
+            bounded(liveTournaments && tReleaseIds.length
+                ? liveTournaments.updateMany({ owner: me, _id: { $in: tReleaseIds } }, { $set: { released: true, releasedAt, releaseKind: 'handoff' } })
+                : null, left)
         ]);
         const releasedOk = !failedOrTimedOut(rel) && !!liveGames;
         const deletedOk = !failedOrTimedOut(del);
+        const tReleasedOk = !failedOrTimedOut(tRel) && !!liveTournaments && tReleaseIds.length > 0;
+        // Lobby members' pointers for each released lobby-phase tournament
+        // (shipped iOS routes a member back by activeTournamentId), never
+        // over a pointer set elsewhere meanwhile; within what is left of FLUSH_MS
+        const lobbies = tReleasedOk ? tEntries.filter((e) => tReleaseIds.includes(e.t.tournamentId) && e.doc?.phase === 'lobby') : [];
+        const usersColl = lobbies.length ? users() : null;
+        if (usersColl) {
+            const rest = Math.max(0, left - (monoNow() - relStart));
+            await bounded(Promise.all(lobbies.map((e) => {
+                const tid = e.t.tournamentId;
+                const members = (e.doc.state?.players || []).map((p) => p.username).filter(Boolean);
+                if (!members.length) return null;
+                return usersColl.updateMany(
+                    { username: { $in: members }, $or: [{ activeTournamentId: { $exists: false } }, { activeTournamentId: null }, { activeTournamentId: tid }] },
+                    { $set: { activeTournamentId: tid } }
+                );
+            })), rest);
+        }
+        for (const e of tEntries) {
+            const released = tReleasedOk && tReleaseIds.includes(e.t.tournamentId);
+            out.tournaments.push({ tournament: e.t, outcome: released && !successorUnknown && tAcked.includes(e) ? 'continue' : (released || !deletedOk ? 'unknown' : 'ended') });
+        }
+        // 'continue' for a tournament's table only with its tournament's final
+        // state released (acknowledged): one released as saved may be behind
+        const tournamentSure = (e) => {
+            const te = tournamentOf(e);
+            return !te || (tAcked.includes(te) && tReleasedOk);
+        };
         for (const e of entries) {
             let outcome;
-            if (acked.includes(e)) outcome = releasedOk && !successorUnknown ? 'continue' : 'unknown';
+            if (acked.includes(e)) outcome = releasedOk && !successorUnknown && tournamentSure(e) ? 'continue' : 'unknown';
             else if (asIs.includes(e)) outcome = 'unknown';
             else if (!mayHaveDoc(e) && !e.insertSent) outcome = 'ended';
             // An insert that may still land after the delete, or a delete not acknowledged
@@ -327,6 +467,7 @@ function createHandoff({
         const head = successorUnknown ? 'Handoff: successor read failed; ' : 'Handoff: ';
         logger.info(head + (releasedOk ? 'live docs released' : 'release not acknowledged'), {
             tables: entries.length,
+            ...(tEntries.length > 0 && { tournaments: tEntries.length, tournamentsReleased: tReleasedOk ? tReleaseIds.length : 0 }),
             released: releasedOk ? releaseIds.length : 0,
             asIs: releasedOk ? asIs.length : 0,
             continued: out.tables.filter((t) => t.outcome === 'continue').length,
@@ -340,7 +481,7 @@ function createHandoff({
      * @returns {Promise<{tables: Array<{game, outcome: 'crashContinue'|'crashUnknown'|'crashEnded'}>}>}
      */
     async function crash() {
-        const out = { tables: [] };
+        const out = { tables: [], tournaments: [] };
         let s;
         try {
             s = getStore();
@@ -370,18 +511,38 @@ function createHandoff({
             detach(game);
             return { game, mayHaveDoc: !!info && (info.inserted || info.insertPending) };
         });
-        let released = false;
-        if (s && entries.some((e) => e.mayHaveDoc)) {
+        // Tournaments (PR 6): frozen and dropped, each in try/catch
+        let tList = [];
+        try {
+            tList = liveTournamentsHere();
+        } catch {
+            tList = [];
+        }
+        const tHadDoc = tList.map((t) => {
+            let info = null;
             try {
-                const liveGames = s.collections().liveGames;
-                if (liveGames) {
-                    const r = await bounded(liveGames.updateMany({ owner: s.bootId }, { $set: { released: true, releasedAt: new Date(now()), releaseKind: 'crash' } }), CRASH_RELEASE_MS);
-                    released = !failedOrTimedOut(r);
-                }
+                info = s?.docInfo(t) || null;
+            } catch {
+                info = null;
+            }
+            detachTournament(t);
+            return !!info && (info.inserted || info.insertPending);
+        });
+        let released = false;
+        if (s && (entries.some((e) => e.mayHaveDoc) || tHadDoc.some(Boolean))) {
+            try {
+                const { liveGames, liveTournaments } = s.collections();
+                const set = { $set: { released: true, releasedAt: new Date(now()), releaseKind: 'crash' } };
+                const [r] = await Promise.all([
+                    liveGames ? bounded(liveGames.updateMany({ owner: s.bootId }, set), CRASH_RELEASE_MS) : TIMEOUT,
+                    liveTournaments ? bounded(liveTournaments.updateMany({ owner: s.bootId }, set), CRASH_RELEASE_MS) : null
+                ]);
+                released = !!liveGames && !failedOrTimedOut(r);
             } catch {
                 released = false;
             }
         }
+        tList.forEach((t) => out.tournaments.push({ tournament: t, outcome: 'crash' }));
         for (const e of entries) {
             out.tables.push({ game: e.game, outcome: !e.mayHaveDoc ? 'crashEnded' : (released ? 'crashContinue' : 'crashUnknown') });
         }

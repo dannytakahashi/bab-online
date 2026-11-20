@@ -1,0 +1,1581 @@
+{
+  "build": 23,
+  "version": "1.2.3",
+  "commit": "e7666deef8a2ce2d9b25d459a0961b569810c7fc",
+  "sources": [
+    "iOSClient/BABOnline/Networking/Wire/ServerEvent.swift",
+    "iOSClient/BABOnline/Networking/Wire/WirePayloads.swift",
+    "iOSClient/BABOnline/Networking/Wire/WireDecoding.swift",
+    "iOSClient/BABOnline/Generated/TableSnapshot.swift",
+    "iOSClient/BABOnline/Models/Card.swift"
+  ],
+  "events": {
+    "actionRejected": [
+      "WirePayload.ActionRejected"
+    ],
+    "allPlayersReady": [
+      "WirePayload.AllPlayersReady"
+    ],
+    "assistHint": [
+      "WirePayload.AssistHint"
+    ],
+    "assistState": [
+      "WirePayload.AssistState"
+    ],
+    "bidClock": [
+      "WirePayload.BidClock"
+    ],
+    "bidReceived": [
+      "WirePayload.BidReceived"
+    ],
+    "cardPlayed": [
+      "WirePayload.CardPlayed"
+    ],
+    "chatMessage": [
+      "WirePayload.Chat"
+    ],
+    "doneBidding": [
+      "WirePayload.DoneBidding"
+    ],
+    "gameEnd": [
+      "WirePayload.GameEnd"
+    ],
+    "gameLogEntry": [
+      "WirePayload.GameLogEntry"
+    ],
+    "gameStart": [
+      "WirePayload.GameStart"
+    ],
+    "handComplete": [
+      "WirePayload.HandComplete"
+    ],
+    "playerActiveMode": [
+      "WirePayload.ActiveMode"
+    ],
+    "playerDisconnected": [
+      "WirePayload.Presence"
+    ],
+    "playerDrew": [
+      "WirePayload.PlayerDrew"
+    ],
+    "playerLazyMode": [
+      "WirePayload.LazyMode"
+    ],
+    "playerReconnected": [
+      "WirePayload.Presence"
+    ],
+    "playerResigned": [
+      "WirePayload.PlayerResigned"
+    ],
+    "positionUpdate": [
+      "WirePayload.PositionUpdate"
+    ],
+    "rainbow": [
+      "WirePayload.PositionOnly"
+    ],
+    "rejoinSuccess": [
+      "WirePayload.RejoinEnvelope"
+    ],
+    "resignationAvailable": [
+      "WirePayload.ResignationAvailable"
+    ],
+    "restorePlayerState": [
+      "WirePayload.RejoinEnvelope"
+    ],
+    "seatLeft": [
+      "WirePayload.SeatLeft"
+    ],
+    "spectatorJoined": [
+      "WirePayload.RejoinEnvelope",
+      "WirePayload.SpectatorNotice"
+    ],
+    "spectatorsUpdated": [
+      "WirePayload.SpectatorsUpdated"
+    ],
+    "stateSnapshot": [
+      "WirePayload.StateSnapshot"
+    ],
+    "teamsAnnounced": [
+      "WirePayload.TeamsAnnounced"
+    ],
+    "trickComplete": [
+      "WirePayload.TrickComplete"
+    ],
+    "updateTurn": [
+      "WirePayload.UpdateTurn"
+    ],
+    "youDrew": [
+      "WirePayload.YouDrew"
+    ]
+  },
+  "tolerated": [
+    "rejoinFailed"
+  ],
+  "types": {
+    "BidWire": {
+      "kind": "value",
+      "accepts": [
+        "integer",
+        "string"
+      ]
+    },
+    "Card": {
+      "kind": "struct",
+      "fields": {
+        "suit": {
+          "type": "Suit",
+          "optional": false
+        },
+        "rank": {
+          "type": "Rank",
+          "optional": false
+        }
+      }
+    },
+    "PicWire": {
+      "kind": "value",
+      "accepts": [
+        "integer",
+        "null",
+        "string"
+      ]
+    },
+    "Rank": {
+      "kind": "enum",
+      "values": [
+        "10",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "A",
+        "HI",
+        "J",
+        "K",
+        "LO",
+        "Q"
+      ]
+    },
+    "Suit": {
+      "kind": "enum",
+      "values": [
+        "clubs",
+        "diamonds",
+        "hearts",
+        "joker",
+        "spades"
+      ]
+    },
+    "TableSnapshot": {
+      "kind": "struct",
+      "fields": {
+        "v": {
+          "type": "Int",
+          "optional": false
+        },
+        "gameId": {
+          "type": "String",
+          "optional": false
+        },
+        "seq": {
+          "type": "Int",
+          "optional": false
+        },
+        "serverTime": {
+          "type": "Int",
+          "optional": false
+        },
+        "stage": {
+          "type": "TableSnapshot.Stage",
+          "optional": false
+        },
+        "partial": {
+          "type": "[TableSnapshot.PartialKey]",
+          "optional": false
+        },
+        "viewer": {
+          "type": "TableSnapshot.Viewer",
+          "optional": false
+        },
+        "hand": {
+          "type": "[Card]",
+          "optional": true
+        },
+        "deal": {
+          "type": "TableSnapshot.Deal",
+          "optional": true
+        },
+        "trump": {
+          "type": "Card",
+          "optional": true
+        },
+        "trumpBroken": {
+          "type": "Bool",
+          "optional": false
+        },
+        "turn": {
+          "type": "TableSnapshot.Turn",
+          "optional": true
+        },
+        "bids": {
+          "type": "TableSnapshot.Bids",
+          "optional": false
+        },
+        "trick": {
+          "type": "TableSnapshot.Trick",
+          "optional": false
+        },
+        "tricks": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": false
+        },
+        "tricksByPosition": {
+          "type": "[Int]",
+          "optional": false
+        },
+        "trickHistory": {
+          "type": "[TableSnapshot.WonTrick]",
+          "optional": false
+        },
+        "score": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": false
+        },
+        "rainbows": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": false
+        },
+        "hsi": {
+          "type": "[Double?]",
+          "optional": true
+        },
+        "seats": {
+          "type": "[TableSnapshot.Seat]",
+          "optional": false
+        },
+        "entrants": {
+          "type": "[TableSnapshot.Entrant]",
+          "optional": true
+        },
+        "draw": {
+          "type": "TableSnapshot.Draw",
+          "optional": true
+        },
+        "spectatorCount": {
+          "type": "Int",
+          "optional": false
+        },
+        "watching": {
+          "type": "TableSnapshot.SpectatorList",
+          "optional": false
+        },
+        "tournament": {
+          "type": "TableSnapshot.Tournament",
+          "optional": true
+        },
+        "log": {
+          "type": "[TableSnapshot.LogEntry]",
+          "optional": false
+        },
+        "resume": {
+          "type": "TableSnapshot.Resume",
+          "optional": true
+        },
+        "bidClock": {
+          "type": "TableSnapshot.BidClock",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.BidClock": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "inMs": {
+          "type": "Int",
+          "optional": false
+        },
+        "durationMs": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Bids": {
+      "kind": "struct",
+      "fields": {
+        "byPosition": {
+          "type": "[String?]",
+          "optional": false
+        },
+        "order": {
+          "type": "[Int]",
+          "optional": false
+        },
+        "teamBids": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": true
+        },
+        "mults": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Controller": {
+      "kind": "string"
+    },
+    "TableSnapshot.Deal": {
+      "kind": "struct",
+      "fields": {
+        "handNo": {
+          "type": "Int",
+          "optional": false
+        },
+        "handSize": {
+          "type": "Int",
+          "optional": false
+        },
+        "dealer": {
+          "type": "Int",
+          "optional": false
+        },
+        "bidder": {
+          "type": "Int",
+          "optional": false
+        },
+        "dealSeq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.Draw": {
+      "kind": "struct",
+      "fields": {
+        "deckRemaining": {
+          "type": "Int",
+          "optional": true
+        },
+        "drawn": {
+          "type": "[TableSnapshot.DrawnCard]",
+          "optional": false
+        },
+        "viewerDrawOrder": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.DrawnCard": {
+      "kind": "struct",
+      "fields": {
+        "drawOrder": {
+          "type": "Int",
+          "optional": false
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "isBot": {
+          "type": "Bool",
+          "optional": false
+        },
+        "card": {
+          "type": "Card",
+          "optional": false
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.Entrant": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "isBot": {
+          "type": "Bool",
+          "optional": false
+        },
+        "presence": {
+          "type": "TableSnapshot.EntrantPresence",
+          "optional": false
+        },
+        "hasDrawn": {
+          "type": "Bool",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.EntrantPresence": {
+      "kind": "string"
+    },
+    "TableSnapshot.LogEntry": {
+      "kind": "struct",
+      "fields": {
+        "message": {
+          "type": "String",
+          "optional": false
+        },
+        "type": {
+          "type": "TableSnapshot.LogType",
+          "optional": false
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "at": {
+          "type": "Int",
+          "optional": false
+        },
+        "fault": {
+          "type": "TableSnapshot.LogFault",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.LogFault": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "bid": {
+          "type": "Int",
+          "optional": false
+        },
+        "took": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.LogType": {
+      "kind": "string"
+    },
+    "TableSnapshot.OwnerView": {
+      "kind": "string"
+    },
+    "TableSnapshot.PartialKey": {
+      "kind": "string"
+    },
+    "TableSnapshot.Presence": {
+      "kind": "string"
+    },
+    "TableSnapshot.Resume": {
+      "kind": "struct",
+      "fields": {
+        "kind": {
+          "type": "TableSnapshot.ResumeKind",
+          "optional": false
+        },
+        "inMs": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.ResumeKind": {
+      "kind": "string"
+    },
+    "TableSnapshot.Role": {
+      "kind": "string"
+    },
+    "TableSnapshot.Seat": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "pic": {
+          "type": "Int",
+          "optional": true
+        },
+        "hasCustomPic": {
+          "type": "Bool",
+          "optional": false
+        },
+        "customPic": {
+          "type": "String",
+          "optional": true
+        },
+        "ownerUsername": {
+          "type": "String",
+          "optional": true
+        },
+        "controller": {
+          "type": "TableSnapshot.Controller",
+          "optional": false
+        },
+        "presence": {
+          "type": "TableSnapshot.Presence",
+          "optional": false
+        },
+        "isBot": {
+          "type": "Bool",
+          "optional": false
+        },
+        "lazy": {
+          "type": "Bool",
+          "optional": false
+        },
+        "offered": {
+          "type": "Bool",
+          "optional": false
+        },
+        "graceDeadline": {
+          "type": "Int",
+          "optional": true
+        },
+        "resignableAt": {
+          "type": "Int",
+          "optional": true
+        },
+        "cardsInHand": {
+          "type": "Int",
+          "optional": false
+        },
+        "avatarUrl": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.Spectator": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": false
+        },
+        "pic": {
+          "type": "Int",
+          "optional": true
+        },
+        "avatarUrl": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.SpectatorList": {
+      "kind": "struct",
+      "fields": {
+        "spectators": {
+          "type": "[TableSnapshot.Spectator]",
+          "optional": false
+        },
+        "count": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Stage": {
+      "kind": "string"
+    },
+    "TableSnapshot.TeamPair": {
+      "kind": "struct",
+      "fields": {
+        "team1": {
+          "type": "Int",
+          "optional": false
+        },
+        "team2": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Tournament": {
+      "kind": "struct",
+      "fields": {
+        "tournamentId": {
+          "type": "String",
+          "optional": false
+        },
+        "name": {
+          "type": "String",
+          "optional": false
+        },
+        "roundNumber": {
+          "type": "Int",
+          "optional": true
+        },
+        "totalRounds": {
+          "type": "Int",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Trick": {
+      "kind": "struct",
+      "fields": {
+        "number": {
+          "type": "Int",
+          "optional": true
+        },
+        "leadPosition": {
+          "type": "Int",
+          "optional": true
+        },
+        "cards": {
+          "type": "[TableSnapshot.TrickCard]",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.TrickCard": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "card": {
+          "type": "Card",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.Turn": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "action": {
+          "type": "TableSnapshot.TurnAction",
+          "optional": false
+        }
+      }
+    },
+    "TableSnapshot.TurnAction": {
+      "kind": "string"
+    },
+    "TableSnapshot.Viewer": {
+      "kind": "struct",
+      "fields": {
+        "role": {
+          "type": "TableSnapshot.Role",
+          "optional": false
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "ownerView": {
+          "type": "TableSnapshot.OwnerView",
+          "optional": true
+        },
+        "canAct": {
+          "type": "Bool",
+          "optional": false
+        },
+        "assist": {
+          "type": "TableSnapshot.ViewerAssist",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.ViewerAssist": {
+      "kind": "struct",
+      "fields": {
+        "uses": {
+          "type": "Int",
+          "optional": false
+        },
+        "freeUses": {
+          "type": "Int",
+          "optional": false
+        },
+        "assisted": {
+          "type": "Bool",
+          "optional": false
+        },
+        "unlimited": {
+          "type": "Bool",
+          "optional": true
+        },
+        "tutorial": {
+          "type": "Bool",
+          "optional": true
+        },
+        "auto": {
+          "type": "Bool",
+          "optional": true
+        }
+      }
+    },
+    "TableSnapshot.WonTrick": {
+      "kind": "struct",
+      "fields": {
+        "winner": {
+          "type": "Int",
+          "optional": false
+        },
+        "lead": {
+          "type": "Int",
+          "optional": false
+        },
+        "cards": {
+          "type": "[Card]",
+          "optional": false
+        }
+      }
+    },
+    "WirePayload.ActionRejected": {
+      "kind": "struct",
+      "fields": {
+        "action": {
+          "type": "String",
+          "optional": true
+        },
+        "reason": {
+          "type": "String",
+          "optional": true
+        },
+        "snapshot": {
+          "type": "TableSnapshot",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.ActiveMode": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "pic": {
+          "type": "PicWire",
+          "optional": true
+        },
+        "avatarUrl": {
+          "type": "String",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.AllPlayersReady": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.AssistHint": {
+      "kind": "struct",
+      "fields": {
+        "v": {
+          "type": "Int",
+          "optional": true
+        },
+        "source": {
+          "type": "String",
+          "optional": true
+        },
+        "kind": {
+          "type": "String",
+          "optional": true
+        },
+        "turnKey": {
+          "type": "String",
+          "optional": true
+        },
+        "headline": {
+          "type": "String",
+          "optional": true
+        },
+        "reasons": {
+          "type": "[String]",
+          "optional": true
+        },
+        "uses": {
+          "type": "Int",
+          "optional": true
+        },
+        "freeUses": {
+          "type": "Int",
+          "optional": true
+        },
+        "assisted": {
+          "type": "Bool",
+          "optional": true
+        },
+        "counted": {
+          "type": "Bool",
+          "optional": true
+        },
+        "details": {
+          "type": "[String]",
+          "optional": true
+        },
+        "confidence": {
+          "type": "String",
+          "optional": true
+        },
+        "suggest": {
+          "type": "WirePayload.AssistHint.Suggest",
+          "optional": true
+        },
+        "note": {
+          "type": "String",
+          "optional": true
+        },
+        "unlimited": {
+          "type": "Bool",
+          "optional": true
+        },
+        "tipId": {
+          "type": "String",
+          "optional": true
+        },
+        "actions": {
+          "type": "[WirePayload.LenientString]",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.AssistHint.Suggest": {
+      "kind": "struct",
+      "fields": {
+        "bid": {
+          "type": "String",
+          "optional": true
+        },
+        "card": {
+          "type": "Card",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.AssistState": {
+      "kind": "struct",
+      "fields": {
+        "tutorial": {
+          "type": "Bool",
+          "optional": true
+        },
+        "auto": {
+          "type": "Bool",
+          "optional": true
+        },
+        "uses": {
+          "type": "Int",
+          "optional": true
+        },
+        "freeUses": {
+          "type": "Int",
+          "optional": true
+        },
+        "assisted": {
+          "type": "Bool",
+          "optional": true
+        },
+        "unlimited": {
+          "type": "Bool",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.BidClock": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        },
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "running": {
+          "type": "Bool",
+          "optional": false
+        },
+        "inMs": {
+          "type": "Int",
+          "optional": true
+        },
+        "durationMs": {
+          "type": "Int",
+          "optional": true
+        },
+        "reason": {
+          "type": "WirePayload.BidClock.Reason",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.BidClock.Reason": {
+      "kind": "string"
+    },
+    "WirePayload.BidReceived": {
+      "kind": "struct",
+      "fields": {
+        "bid": {
+          "type": "BidWire",
+          "optional": false
+        },
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "bidArray": {
+          "type": "[BidWire?]",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.CardPlayed": {
+      "kind": "struct",
+      "fields": {
+        "card": {
+          "type": "Card",
+          "optional": false
+        },
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "trump": {
+          "type": "Bool",
+          "optional": true
+        },
+        "trumpBroken": {
+          "type": "Bool",
+          "optional": true
+        },
+        "resumeInMs": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.Chat": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "message": {
+          "type": "String",
+          "optional": true
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "type": {
+          "type": "String",
+          "optional": true
+        },
+        "isSpectator": {
+          "type": "Bool",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.DoneBidding": {
+      "kind": "struct",
+      "fields": {
+        "bids": {
+          "type": "[BidWire?]",
+          "optional": true
+        },
+        "lead": {
+          "type": "Int",
+          "optional": true
+        },
+        "teamBids": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": true
+        },
+        "mults": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.GameEnd": {
+      "kind": "struct",
+      "fields": {
+        "tournamentId": {
+          "type": "String",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.GameLogEntry": {
+      "kind": "struct",
+      "fields": {
+        "message": {
+          "type": "String",
+          "optional": true
+        },
+        "type": {
+          "type": "String",
+          "optional": true
+        },
+        "playerPosition": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        },
+        "fault": {
+          "type": "WirePayload.GameLogEntry.Fault",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.GameLogEntry.Fault": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "bid": {
+          "type": "Int",
+          "optional": true
+        },
+        "took": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.GameStart": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        },
+        "avatarUrls": {
+          "type": "[String: String]",
+          "optional": true
+        },
+        "hand": {
+          "type": "[Card]",
+          "optional": true
+        },
+        "trump": {
+          "type": "Card",
+          "optional": true
+        },
+        "score1": {
+          "type": "Int",
+          "optional": true
+        },
+        "score2": {
+          "type": "Int",
+          "optional": true
+        },
+        "dealer": {
+          "type": "Int",
+          "optional": true
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "currentHand": {
+          "type": "Int",
+          "optional": true
+        },
+        "hsiValues": {
+          "type": "[String: Double]",
+          "optional": true
+        },
+        "playerInfo": {
+          "type": "[WirePayload.PlayerInfo]",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.HandComplete": {
+      "kind": "struct",
+      "fields": {
+        "score": {
+          "type": "TableSnapshot.TeamPair",
+          "optional": true
+        },
+        "team1Tricks": {
+          "type": "Int",
+          "optional": true
+        },
+        "team2Tricks": {
+          "type": "Int",
+          "optional": true
+        },
+        "team1OldScore": {
+          "type": "Int",
+          "optional": true
+        },
+        "team2OldScore": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.LazyMode": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "botUsername": {
+          "type": "String",
+          "optional": true
+        },
+        "botPic": {
+          "type": "PicWire",
+          "optional": true
+        },
+        "originalUsername": {
+          "type": "String",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.LenientString": {
+      "kind": "value",
+      "accepts": [
+        "string"
+      ]
+    },
+    "WirePayload.PlayerDrew": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "card": {
+          "type": "Card",
+          "optional": true
+        },
+        "drawOrder": {
+          "type": "Int",
+          "optional": false
+        },
+        "cardIndex": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.PlayerInfo": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": false
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "pic": {
+          "type": "PicWire",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.PlayerResigned": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "oldUsername": {
+          "type": "String",
+          "optional": true
+        },
+        "botUsername": {
+          "type": "String",
+          "optional": true
+        },
+        "botPic": {
+          "type": "PicWire",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.PositionOnly": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.PositionUpdate": {
+      "kind": "struct",
+      "fields": {
+        "positions": {
+          "type": "[Int]",
+          "optional": true
+        },
+        "sockets": {
+          "type": "[String]",
+          "optional": true
+        },
+        "isBot": {
+          "type": "[Bool]",
+          "optional": true
+        },
+        "nativeBot": {
+          "type": "[Bool]",
+          "optional": true
+        },
+        "usernames": {
+          "type": "[WirePayload.PositionUpdate.Name]",
+          "optional": true
+        },
+        "pics": {
+          "type": "[PicWire]",
+          "optional": true
+        },
+        "avatarUrls": {
+          "type": "[String: String]",
+          "optional": true
+        },
+        "yourPosition": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.PositionUpdate.Name": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "socketId": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.Presence": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.RejoinEnvelope": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        },
+        "avatarUrls": {
+          "type": "[String: String]",
+          "optional": true
+        },
+        "snapshot": {
+          "type": "TableSnapshot",
+          "optional": true
+        },
+        "isLazy": {
+          "type": "Bool",
+          "optional": true
+        },
+        "tournamentId": {
+          "type": "String",
+          "optional": true
+        },
+        "players": {
+          "type": "[WirePayload.RejoinEnvelope.Player]",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.RejoinEnvelope.Player": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "socketId": {
+          "type": "String",
+          "optional": true
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "pic": {
+          "type": "PicWire",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.ResignationAvailable": {
+      "kind": "struct",
+      "fields": {
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "idle": {
+          "type": "Bool",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.SeatLeft": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        },
+        "username": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.SpectatorNotice": {
+      "kind": "struct",
+      "fields": {
+        "username": {
+          "type": "String",
+          "optional": true
+        },
+        "spectatorCount": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.SpectatorsUpdated": {
+      "kind": "struct",
+      "fields": {
+        "gameId": {
+          "type": "String",
+          "optional": true
+        },
+        "spectators": {
+          "type": "[TableSnapshot.Spectator]",
+          "optional": true
+        },
+        "count": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.StateSnapshot": {
+      "kind": "struct",
+      "fields": {
+        "snapshot": {
+          "type": "TableSnapshot",
+          "optional": true
+        },
+        "reason": {
+          "type": "String",
+          "optional": true
+        },
+        "requestId": {
+          "type": "String",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.TeamsAnnounced": {
+      "kind": "struct",
+      "fields": {
+        "team1": {
+          "type": "[String]",
+          "optional": true
+        },
+        "team2": {
+          "type": "[String]",
+          "optional": true
+        },
+        "resumeInMs": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.TrickComplete": {
+      "kind": "struct",
+      "fields": {
+        "winner": {
+          "type": "Int",
+          "optional": false
+        },
+        "resumeInMs": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.UpdateTurn": {
+      "kind": "struct",
+      "fields": {
+        "currentTurn": {
+          "type": "Int",
+          "optional": true
+        },
+        "turn": {
+          "type": "Int",
+          "optional": true
+        },
+        "seq": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    },
+    "WirePayload.YouDrew": {
+      "kind": "struct",
+      "fields": {
+        "card": {
+          "type": "Card",
+          "optional": true
+        },
+        "drawOrder": {
+          "type": "Int",
+          "optional": true
+        },
+        "position": {
+          "type": "Int",
+          "optional": true
+        }
+      }
+    }
+  }
+}
