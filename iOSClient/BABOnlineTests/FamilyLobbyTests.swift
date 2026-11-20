@@ -654,7 +654,8 @@ final class MutedStartVoiceTests: XCTestCase {
 
     /// Sign Out (or forceLogout, a deleted account, a failed restore): the unmute by hand was
     /// that person's, so the next account's first start in this app run is muted with the mic
-    /// allowed (iOS mic permission is per app), and its unmute needs no prompt.
+    /// allowed (iOS mic permission is per app); its first unmute asks as every session's does
+    /// (iOS answers at once, with no prompt shown, once allowed).
     func testASignOutForgetsTheUnmuteForTheNextAccount() async throws {
         let w = Wire()
         w.micAllowed = true
@@ -670,8 +671,9 @@ final class MutedStartVoiceTests: XCTestCase {
         XCTAssertTrue(a.isSelfMuted, "the next account starts muted")
         XCTAssertEqual(a.localTrackEnabled, false)
         a.toggleSelfMute()
-        XCTAssertFalse(a.isSelfMuted, "the mic is allowed: its unmute is immediate")
-        XCTAssertEqual(w.prompts, 1)
+        try await waitUntil("the next account unmutes") { !a.isSelfMuted }
+        XCTAssertEqual(a.localTrackEnabled, true)
+        XCTAssertTrue(a.sessionUnmuted, "its own choice now holds for its session")
     }
 
     /// A reconnect that kept voice running (a new socket id): the server listed a peer again
