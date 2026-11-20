@@ -333,8 +333,20 @@ function pointerGame(activeGameId) {
  */
 function pointerTournament(activeTournamentId, username) {
     const t = activeTournamentId ? gameManager.getTournamentById(activeTournamentId) : null;
-    if (!t || !pointerResolve.active()) return t;
-    return typeof t.getPlayerByUsername === 'function' && !t.getPlayerByUsername(username) ? null : t;
+    if (!pointerResolve.active()) return t;
+    const member = (x) => typeof x.getPlayerByUsername !== 'function' || !!x.getPlayerByUsername(username);
+    if (t) return member(t) ? t : null;
+    if (!activeTournamentId) return null;
+    // PR 6: not in memory: adopted now (a released or dead owner's doc), or
+    // held while another live instance has it (answered as active: the
+    // client's joinTournament parks until it is adopted here). A saved doc
+    // that does not list the user is a non-member's pointer: none
+    return pointerResolve.resolveTournament(activeTournamentId).then(async (r) => {
+        if (r.tournament) return member(r.tournament) ? r.tournament : null;
+        if (r.state !== 'pending') return null;
+        const listed = await pointerResolve.savedTournamentMember(activeTournamentId, username);
+        return listed === false ? null : { held: true };
+    });
 }
 
 async function signIn(socket, io, data) {
@@ -497,7 +509,8 @@ async function signIn(socket, io, data) {
 
             // Check for active tournament
             const activeTournamentId = user.activeTournamentId;
-            const activeTournament = pointerTournament(activeTournamentId, username);
+            let activeTournament = pointerTournament(activeTournamentId, username);
+            if (activeTournament && typeof activeTournament.then === 'function') activeTournament = await activeTournament;
 
             if (activeTournament) {
                 socket.emit('signInResponse', {
@@ -925,7 +938,8 @@ async function restoreSession(socket, io, data) {
 
             // Check for active tournament
             const activeTournamentId = user.activeTournamentId;
-            const activeTournament = pointerTournament(activeTournamentId, username);
+            let activeTournament = pointerTournament(activeTournamentId, username);
+            if (activeTournament && typeof activeTournament.then === 'function') activeTournament = await activeTournament;
 
             if (activeTournament) {
                 socket.emit('restoreSessionResponse', {
