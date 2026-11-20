@@ -24,7 +24,7 @@ For complete game rules including bidding, scoring, and special mechanics, see [
 ## Getting Started
 
 ### Prerequisites
-- Node.js 24 (`.nvmrc`)
+- Node.js 26 (`.nvmrc`)
 - MongoDB (local or Atlas)
 - Xcode 16+ (for iOS client)
 

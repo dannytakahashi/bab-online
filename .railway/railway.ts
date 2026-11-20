@@ -13,9 +13,10 @@ export default defineRailway(() => {
     // checkSuites: Railway deploys a main commit only after its GitHub
     // checks (.github/workflows/ci.yml) pass, so a red CI never ships
     source: github("dannytakahashi/bab-online", { branch: "main", checkSuites: true }),
-    // Nixpacks picks Node from package.json engines (24.x); Railpack, the
-    // default for new services, is a separate move
-    build: { buildEnvironment: "V3", builder: "NIXPACKS" },
+    // Railpack (2026-11-19; Nixpacks is frozen and has no Node 26) picks
+    // Node from package.json engines (26.x), then .nvmrc; it runs
+    // `npm ci`, `npm run build` (vite) and `npm start`, as Nixpacks did
+    build: { buildEnvironment: "V3", builder: "RAILPACK" },
     deploy: {
       // Restart policy: Railway's default, ON_FAILURE with 10 retries (not
       // set here: Railway stores the default as null, so an explicit value

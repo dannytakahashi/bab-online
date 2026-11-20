@@ -1,5 +1,5 @@
 /**
- * One Node major everywhere. Railway's Nixpacks takes it from package.json
+ * One Node major everywhere. Railway's Railpack takes it from package.json
  * engines (before .nvmrc); CI and Dockerfile.local must test that same
  * major, or they drift the way they once did (CI on 18, production on 24).
  */
@@ -10,7 +10,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..', '..');
 const read = (f) => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
-// "24.x" pins one major; a range like ">=24" lets Nixpacks pick a newer one
+// "26.x" pins one major; a range like ">=26" lets the builder pick a newer one
 const engines = require(path.join(ROOT, 'package.json')).engines.node;
 const MAJOR = (engines.match(/^(\d+)\.x$/) || [])[1];
 
