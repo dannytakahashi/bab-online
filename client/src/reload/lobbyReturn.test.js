@@ -191,7 +191,7 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     expect(socket.emitted('lobbyReturnSeen')).toEqual([{}]);
   });
 
-  it('voice runs on through lobbyReturn and Return, muted again in the lobby (the next game starts muted; an old server\'s switch-off settings mute nobody)', async () => {
+  it('voice runs on through lobbyReturn and Return, unmuted as I left it (owner 2026-11-19: the session\'s unmute holds; an old server\'s switch-off settings mute nobody)', async () => {
     await seated();
     // muted at the start; I unmute at the table
     expect(page.voice.isMuted()).toBe(true);
@@ -212,17 +212,34 @@ describe('a seat at a lobby-born game: the score screen stays, Return lands in t
     // still unmuted on the results (the game's own call)
     expect(page.voice.isMuted()).toBe(false);
     page.voice.setTalk.mockClear();
+    page.voice.setMuted.mockClear();
     returnButton().click();
-    // the same call, muted again: the microphone is kept (a later unmute asks nothing)
+    // the same call, still unmuted: nothing muted me on the way into the lobby
     expect(page.voice.isTalking()).toBe(true);
-    expect(page.voice.isMuted()).toBe(true);
+    expect(page.voice.isMuted()).toBe(false);
+    expect(page.voice.setMuted).not.toHaveBeenCalled();
     expect(page.voice.setTalk).not.toHaveBeenCalled();
     expect(page.voice.shutdown).not.toHaveBeenCalled();
     const btn = document.querySelector('#lobbyVoiceSlot #voice-mute-btn');
-    expect(btn.getAttribute('aria-label')).toBe('Unmute microphone (M)');
+    expect(btn.getAttribute('aria-label')).toBe('Mute microphone (M)');
+    // a mute by hand holds too
     btn.click();
-    await vi.waitFor(() => expect(page.voice.isMuted()).toBe(false));
+    await vi.waitFor(() => expect(page.voice.isMuted()).toBe(true));
+    expect(btn.getAttribute('aria-label')).toBe('Unmute microphone (M)');
     expect(page.voice.setTalk).not.toHaveBeenCalled();
+  });
+
+  it('muted at the table, Return to Lobby keeps me muted (the choice holds either way)', async () => {
+    await seated();
+    expect(page.voice.isMuted()).toBe(true);
+    socket.fire('gameEnd', gameEnd());
+    socket.fire('lobbyReturn', lobbyReturn());
+    page.voice.setMuted.mockClear();
+    returnButton().click();
+    expect(page.voice.active).toBe(true);
+    expect(page.voice.isMuted()).toBe(true);
+    expect(page.voice.setMuted).not.toHaveBeenCalled();
+    expect(document.querySelector('#lobbyVoiceSlot #voice-mute-btn').getAttribute('aria-label')).toBe('Unmute microphone (M)');
   });
 
   it('Return puts the keyboard on Ready, kept across the server\'s lobbyCreated re-render (and a chat draft too)', async () => {

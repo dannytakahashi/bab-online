@@ -27,6 +27,7 @@ const mainRoomHandlers = require('../mainRoomHandlers');
 const lobbyHandlers = require('../lobbyHandlers');
 const queueHandlers = require('../queueHandlers');
 const chatHandlers = require('../chatHandlers');
+const reconnectHandlers = require('../reconnectHandlers');
 const seatLifecycle = require('../seatLifecycle');
 const clientInfo = require('../clientInfo');
 const turn = require('../../voice/turnCredentials');
@@ -447,6 +448,139 @@ describe('leaving the voice room', () => {
         expect(to(a, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([b.id]);
         expect(to(b, 'voicePeerLeft', mark).map((l) => l.data.socketId)).toEqual([a.id]);
         expect(to(c, 'voicePeerLeft', mark)).toEqual([]);
+    });
+});
+
+/**
+ * Play test 2026-11-19 (production log 03:35-03:45 UTC): a player's seat went
+ * to the AFK bot (lazy at its seat: a voice member), his old socket dropped,
+ * he signed in on iOS 1.2.2 (13) and rejoined (watchSeat via 'rejoin': a
+ * watching owner is no voice member), typed /active and got his seat back,
+ * but nobody was told: goActive from the watch view sent only voiceSettings,
+ * so he heard nobody and nobody heard him until a later reconnect. Now
+ * /active from the watch view is a returning owner's voice (announceOwnerVoice).
+ */
+describe('/active after a rejoin onto a lazy seat (iOS 1.2.2 (13))', () => {
+    const B13 = { client: 'ios', version: '1.2.2', build: '13', caps: ['avatarUrl', 'casualSpectators', 'playAgain'] };
+
+    /** The owner of seat 2 is idle (the AFK takeover), drops, and rejoins from build 13. */
+    async function rejoinedWatcher() {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const owner = nameOf(socks[1]);
+        expect(seatLifecycle.goLazy(io, game, 2, { reason: 'afk' })).toBe(true);
+        expect(game.seat(2)).toMatchObject({ controller: 'lazyBot', ownerView: 'seat' });
+        // still a voice member at its seat
+        expect(gameVoice.gameVoiceMembers(game).map((m) => m.socketId)).toContain(socks[1].id);
+        let mark = log.length;
+        io.sockets.sockets.delete(socks[1].id);
+        await queueHandlers.handleDisconnect(socks[1], io);
+        expect(game.seat(2).presence).toBe('away');
+        // its peers drop the dead call privately (never the room)
+        expect(log.slice(mark).filter((l) => l.event === 'voicePeerLeft' && l.data.socketId === socks[1].id).map((l) => l.to).sort())
+            .toEqual([socks[0].id, socks[2].id, socks[3].id].sort());
+        const ios = makeSocket(`sv${seq}-ios`, log, io);
+        gameManager.registerUser(ios.id, owner);
+        voice.rememberBlockList(ios, []);
+        clientInfo.handle(ios, io, B13);
+        mark = log.length;
+        await reconnectHandlers.rejoinGame(ios, io, { gameId: game.gameId, username: owner });
+        expect(to(ios, 'rejoinSuccess', mark).pop().data.isLazy).toBe(true);
+        expect(game.seat(2)).toMatchObject({ ownerSocketId: ios.id, ownerView: 'watch' });
+        // a watching owner is not in voice: nobody lists it, it lists nobody
+        expect(to(ios, 'voicePeerList', mark)).toEqual([]);
+        expect(gameVoice.gameVoiceMembers(game).map((m) => m.socketId)).not.toContain(ios.id);
+        return { game, socks, owner, ios, others: [socks[0], socks[2], socks[3]] };
+    }
+
+    test('/active from the watch view: the owner peer list (players and voice spectators), voicePeerJoined to each, voiceSettings role player', async () => {
+        const { game, owner, ios, others } = await rejoinedWatcher();
+        // a main-room spectator joined meanwhile (admitted to voice: the players minus the watcher)
+        const x = user('x');
+        expect(spectate(game, x)).toBe(true);
+        expect(last(x, 'voicePeerList').peers.map((p) => p.socketId)).toEqual(others.map((s) => s.id));
+        const mark = log.length;
+        chatHandlers.chatMessage(ios, io, { message: '/active' });
+        expect(game.seat(2)).toMatchObject({ controller: 'human', ownerSocketId: ios.id });
+        expect(to(ios, 'restorePlayerState', mark)).toHaveLength(1);
+        // build 13's voicePeerList handler connects to each listed peer (it offers)
+        const lists = to(ios, 'voicePeerList', mark);
+        expect(lists).toHaveLength(1);
+        expect(lists[0].data.peers).toEqual([...others.map((s) => ({ socketId: s.id, username: nameOf(s) })), { socketId: x.id, username: nameOf(x) }]);
+        for (const s of [...others, x]) {
+            expect(to(s, 'voicePeerJoined', mark).map((l) => l.data)).toEqual([{ socketId: ios.id, username: owner }]);
+        }
+        // nothing to drop: it held no call as a watcher
+        expect(to(ios, 'voicePeerLeft', mark)).toEqual([]);
+        expect(last(ios, 'voiceSettings')).toMatchObject({ gameId: game.gameId, role: 'player', canTalk: true });
+        expect(last(x, 'voiceSettings')).toMatchObject({ role: 'spectator' });
+        // and the calls go through: its offer reaches a player, the answer comes back
+        voice.voiceOffer(ios, io, { targetSocketId: others[0].id, offer: OFFER('sendrecv') });
+        voice.voiceAnswer(others[0], io, { targetSocketId: ios.id, answer: ANSWER('sendrecv') });
+        voice.voiceOffer(ios, io, { targetSocketId: x.id, offer: OFFER('sendrecv') });
+        expect(relayed('voiceOffer', mark).map((l) => l.to)).toEqual([others[0].id, x.id]);
+        expect(relayed('voiceAnswer', mark).map((l) => l.to)).toEqual([ios.id]);
+        // a later spectator lists it as a player
+        const y = user('y');
+        spectate(game, y);
+        expect(last(y, 'voicePeerList').peers.map((p) => p.socketId)).toContain(ios.id);
+    });
+
+    test('/active in a tournament-like game (no casual voice): the peer list still goes out, no voiceSettings', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd'], { casual: false });
+        const owner = nameOf(socks[1]);
+        seatLifecycle.goLazy(io, game, 2, { reason: 'afk' });
+        io.sockets.sockets.delete(socks[1].id);
+        await queueHandlers.handleDisconnect(socks[1], io);
+        const back = makeSocket(`sv${seq}-back`, log, io);
+        gameManager.registerUser(back.id, owner);
+        voice.rememberBlockList(back, []);
+        clientInfo.handle(back, io, B13);
+        await reconnectHandlers.rejoinGame(back, io, { gameId: game.gameId, username: owner });
+        const mark = log.length;
+        chatHandlers.chatMessage(back, io, { message: '/active' });
+        expect(to(back, 'voicePeerList', mark).pop().data.peers.map((p) => p.socketId)).toEqual([socks[0].id, socks[2].id, socks[3].id]);
+        for (const s of [socks[0], socks[2], socks[3]]) expect(to(s, 'voicePeerJoined', mark)).toHaveLength(1);
+        expect(relayed('voiceSettings', mark)).toEqual([]);
+    });
+
+    test('/active at the seat (lazy at its seat, still a voice member) announces nothing new', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        seatLifecycle.goLazy(io, game, 2, { reason: 'afk' });
+        const mark = log.length;
+        chatHandlers.chatMessage(socks[1], io, { message: '/active' });
+        expect(game.seat(2).controller).toBe('human');
+        expect(relayed('voicePeerList', mark)).toEqual([]);
+        expect(relayed('voicePeerJoined', mark)).toEqual([]);
+    });
+
+    test('reclaimSeat from a build-13 voice spectator of the owner: spectator calls dropped both ways, then the owner list, each told, role player', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        const owner = nameOf(socks[2]);
+        lazySeat(game, 3, new BotPlayer('🤖 Mary', 'mary'), { presence: 'away' });
+        gameManager.playerGames.delete(socks[2].id);
+        const tab = makeSocket(`sv${seq}-tab`, log, io);
+        gameManager.registerUser(tab.id, owner);
+        voice.rememberBlockList(tab, []);
+        clientInfo.handle(tab, io, B13);
+        gameManager.addSpectator(io, game, tab.id, owner, 1);
+        // admitted: the owner's seat is away, so its name is in voice nowhere else
+        expect(gameVoice.admitVoiceSpectator(io, game, tab.id)).toBe(true);
+        const mark = log.length;
+        chatHandlers.chatMessage(tab, io, { message: '/active' });
+        expect(game.seat(3)).toMatchObject({ controller: 'human', ownerSocketId: tab.id });
+        expect(game.voiceSpectators.has(tab.id)).toBe(false);
+        const peers = [socks[0].id, socks[1].id, socks[3].id, x.id];
+        expect(to(tab, 'voicePeerLeft', mark).map((l) => l.data.socketId).sort()).toEqual([...peers].sort());
+        for (const sid of peers) expect(log.slice(mark).some((l) => l.to === sid && l.event === 'voicePeerLeft' && l.data.socketId === tab.id)).toBe(true);
+        // the list comes after the drops
+        const leftAt = log.findIndex((l, i) => i >= mark && l.event === 'voicePeerLeft');
+        const listAt = log.findIndex((l, i) => i >= mark && l.event === 'voicePeerList' && (l.to === tab.id || l.to === `self:${tab.id}`));
+        expect(listAt).toBeGreaterThan(leftAt);
+        expect(log[listAt].data.peers.map((p) => p.socketId)).toEqual(peers);
+        for (const sid of peers) expect(log.slice(mark).filter((l) => l.to === sid && l.event === 'voicePeerJoined').map((l) => l.data.socketId)).toEqual([tab.id]);
+        expect(last(tab, 'voiceSettings')).toMatchObject({ role: 'player' });
     });
 });
 

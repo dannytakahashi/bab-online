@@ -12,6 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { VoiceChatManager, REOFFER_DELAY_MS } from './VoiceChatManager.js';
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
+import { forgetSessionMute, sessionWantsUnmuted, SESSION_MUTE_KEY } from './voiceSessionMute.js';
 
 const TURN = { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478'] }], turn: true, expiresInSec: 4 * 3600 };
 
@@ -89,6 +90,8 @@ function newMic() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // a fresh tab: no mute choice made by hand yet
+  forgetSessionMute();
   FakePC.all = [];
   micTracks = [];
   silentTracks = [];
@@ -287,7 +290,7 @@ describe('the first unmute', () => {
 });
 
 describe('a new session', () => {
-  it('starts muted again (an unmuted session never carries into the next); the silent track goes with the old one', async () => {
+  it('with no unmute by hand (setMuted alone) starts muted again; the silent track goes with the old one', async () => {
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
     await start(vm, sm);
@@ -307,12 +310,143 @@ describe('a new session', () => {
   });
 
   it('initialize({talk: true}) still starts with the microphone, unmuted', async () => {
+    // (unchanged by the tab's choice)
     const vm = new VoiceChatManager();
     const sm = fakeSocketManager();
     await start(vm, sm, { talk: true });
     expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
     expect(vm.isMuted()).toBe(false);
     vm.shutdown();
+  });
+});
+
+/**
+ * Owner 2026-11-19: "once you unmute in a session it should stay unmuted".
+ * The tab's first start is muted; after an unmute by hand every later start
+ * (a new lobby, a table, voice back after company, a reconnect, a reload in
+ * the same tab) opens the already-allowed microphone and starts unmuted; a
+ * mute by hand holds the same way (voiceSessionMute.js).
+ */
+describe('the session keeps a manual unmute (owner 2026-11-19)', () => {
+  const allowMic = (state = 'granted') => {
+    navigator.permissions = { query: vi.fn(async ({ name }) => ({ name, state })) };
+  };
+
+  it('the first start of a tab is muted and asks nothing, even with the microphone allowed', async () => {
+    allowMic();
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    expect(vm.isMuted()).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+    vm.shutdown();
+  });
+
+  it('after an unmute by hand the next session (a new lobby, voice back after company) starts unmuted on the microphone, with no prompt', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    expect(await vm.toggleSelfMute()).toBe(false);
+    expect(sessionWantsUnmuted()).toBe(true);
+    vm.shutdown();
+    expect(micTracks[0].stop).toHaveBeenCalled();
+    // no Permissions API here: this page got the microphone once
+    await start(vm, fakeSocketManager());
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(2);
+    expect(vm.isMuted()).toBe(false);
+    expect(vm.isTalking()).toBe(true);
+    expect(micTracks[1].enabled).toBe(true);
+    // its calls send the microphone from their first offer
+    await vm.connectToPeer('sock-b', 'bob');
+    expect(senderOf(vm, 'sock-b').track).toBe(micTracks[1]);
+    vm.shutdown();
+  });
+
+  it('a mute by hand holds too: the next session starts muted with no microphone', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    await vm.toggleSelfMute();
+    expect(await vm.toggleSelfMute()).toBe(true);
+    expect(sessionWantsUnmuted()).toBe(false);
+    vm.shutdown();
+    await start(vm, fakeSocketManager());
+    expect(vm.isMuted()).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    vm.shutdown();
+  });
+
+  it('a reload in the same tab (a new page, the tab\'s storage kept) starts unmuted where the browser says the microphone is granted', async () => {
+    window.sessionStorage.setItem(SESSION_MUTE_KEY, '1');
+    allowMic('granted');
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    expect(navigator.permissions.query).toHaveBeenCalledWith({ name: 'microphone' });
+    expect(vm.isMuted()).toBe(false);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    vm.shutdown();
+  });
+
+  it('a reload where the microphone is not allowed yet (prompt, denied, no API): muted as today, nothing asked', async () => {
+    for (const setup of [() => allowMic('prompt'), () => allowMic('denied'), () => { delete navigator.permissions; }]) {
+      window.sessionStorage.setItem(SESSION_MUTE_KEY, '1');
+      setup();
+      const vm = new VoiceChatManager();
+      await start(vm, fakeSocketManager());
+      expect(vm.isMuted()).toBe(true);
+      expect(vm.micDenied).toBe(false);
+      expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled();
+      vm.shutdown();
+    }
+  });
+
+  it('denied in this page is denied: a refusal after a remembered unmute never reopens it silently', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    await vm.toggleSelfMute();
+    vm.shutdown();
+    allowMic('denied');
+    await start(vm, fakeSocketManager());
+    expect(vm.isMuted()).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    vm.shutdown();
+  });
+
+  it('a microphone that fails to open again starts muted with no denied toast state', async () => {
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    await vm.toggleSelfMute();
+    vm.shutdown();
+    navigator.mediaDevices.getUserMedia = vi.fn(async () => { throw Object.assign(new Error('gone'), { name: 'NotFoundError' }); });
+    await start(vm, fakeSocketManager());
+    expect(vm.isMuted()).toBe(true);
+    expect(vm.micDenied).toBe(false);
+    vm.shutdown();
+  });
+
+  it('a refused unmute leaves the tab muted (the next start asks nothing)', async () => {
+    navigator.mediaDevices.getUserMedia = vi.fn(async () => { throw Object.assign(new Error('no'), { name: 'NotAllowedError' }); });
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    expect(await vm.toggleSelfMute()).toBe(true);
+    expect(sessionWantsUnmuted()).toBe(false);
+    vm.shutdown();
+  });
+
+  it('a shutdown while the remembered microphone opens: released, the next start is not stuck talking', async () => {
+    window.sessionStorage.setItem(SESSION_MUTE_KEY, '1');
+    allowMic('granted');
+    let open;
+    navigator.mediaDevices.getUserMedia = vi.fn(() => new Promise((r) => { open = r; }));
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager();
+    const p = vm.initialize(sm);
+    await flush();
+    expect(open).toBeTypeOf('function');
+    vm.shutdown();
+    const stream = newMic();
+    open(stream);
+    await p;
+    expect(stream.getTracks()[0].stop).toHaveBeenCalled();
+    expect(vm.active).toBe(false);
+    expect(vm.wantsTalk).toBe(false);
   });
 });
 

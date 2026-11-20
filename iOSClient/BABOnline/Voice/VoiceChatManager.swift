@@ -29,8 +29,9 @@ final class VoiceChatManager: ObservableObject {
     // MARK: - Published State
 
     @Published var isActive = false
-    /// Every voice session starts muted (owner 2026-11-18: "by default the mic should be muted
-    /// and you can click to unmute / activate mic"); the first unmute asks for the microphone.
+    /// The app run's first voice session starts muted (owner 2026-11-18: "by default the mic
+    /// should be muted and you can click to unmute / activate mic"); the first unmute asks for
+    /// the microphone. A later session follows the last choice by hand (`sessionUnmuted`).
     @Published var isSelfMuted = true
     /// The microphone was refused: voice listens only (headphones; a tap asks again).
     @Published var micPermissionDenied = false
@@ -68,6 +69,13 @@ final class VoiceChatManager: ObservableObject {
     /// This session's first unmute got the microphone (asked again in each session: iOS
     /// answers at once, with no prompt, once the person has answered it).
     private var micGranted = false
+    /// The person's own mute choice for this app run (owner 2026-11-19: "once you unmute in a
+    /// session it should stay unmuted"): true after an unmute by hand that got the mic, false
+    /// again after a mute by hand. In memory only, so a relaunch starts muted. Every later voice
+    /// start (play again's lobby, a new lobby or table, voice back after company returns, a
+    /// reconnect) starts unmuted while it holds and the microphone is already allowed
+    /// (`Hooks.recordPermissionGranted`: no prompt at a start); else muted, as the first start.
+    private(set) var sessionUnmuted = false
     /// The casual game's voice settings for this socket (voiceSettings), nil elsewhere. Only
     /// the role is acted on (spectators always may talk since 2026-11-18).
     @Published var settings: VoiceSettings?
@@ -90,6 +98,9 @@ final class VoiceChatManager: ObservableObject {
     struct Hooks {
         /// Asked on the first unmute only, never at a voice start.
         var requestRecordPermission: @MainActor () async -> Bool
+        /// Whether the microphone is already allowed (read at a start, never prompts): an
+        /// unmuted start (`sessionUnmuted`) needs it.
+        var recordPermissionGranted: @MainActor () -> Bool = { false }
         var configureAudioSession: @MainActor () throws -> Void
         /// shutdown(): drop our activation (WebRTC drops its own when its audio unit stops; the
         /// mic indicator goes; the category is kept).
@@ -101,6 +112,7 @@ final class VoiceChatManager: ObservableObject {
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
+            recordPermissionGranted: { AVAudioApplication.shared.recordPermission == .granted },
             // VoiceAudioSession: through RTCAudioSession, loudspeaker by default (WebRTC's own
             // configuration carries the same options), with a route safety net while active
             configureAudioSession: { try VoiceAudioSession.shared.activate() },
@@ -262,14 +274,19 @@ final class VoiceChatManager: ObservableObject {
         localUsername = SocketService.shared.authState?.username
 
         isActive = true
-        // a new session starts muted, whatever the last one did (the same session carries its
-        // choice on: lobby into its game, an extra into watching, play again's return)
-        isSelfMuted = true
+        // the app run's first session starts muted; after an unmute by hand (and no mute by
+        // hand since) a later one starts unmuted when the mic is already allowed (owner
+        // 2026-11-19); the same session carries its choice on as before (lobby into its game,
+        // an extra into watching, play again's return)
+        let resume = sessionUnmuted && hooks.recordPermissionGranted()
+        isSelfMuted = !resume
         micPermissionDenied = false
-        micGranted = false
+        micGranted = resume
         unmuteAfterPrompt = false
         // the track every call carries, disabled until an unmute the microphone was allowed for
+        // (enabled from the start for a resumed unmute; off while in the background)
         createLocalTrack()
+        if resume { localAudioTrack?.isEnabled = !isBackgrounded }
 
         // Start speaking detection (main run loop, since we're on the main actor)
         startSpeakingDetection()
@@ -284,7 +301,7 @@ final class VoiceChatManager: ObservableObject {
         // Flush buffered events
         flushPendingEvents()
 
-        print("[Voice] Initialized (muted), username: \(localUsername ?? "nil")")
+        print("[Voice] Initialized (\(isSelfMuted ? "muted" : "unmuted, as this session's last choice")), username: \(localUsername ?? "nil")")
     }
 
     /// Made at the start, disabled: an allowed unmute enables it. Making it asks for nothing.
@@ -355,7 +372,7 @@ final class VoiceChatManager: ObservableObject {
 
     /// The last other human left and the grace ran out (VoiceGate): the session ends (no audio
     /// session, no calls), still wanted, and this table's voice settings stay, so the next
-    /// arrival starts it again (muted, as every start).
+    /// arrival starts it again (muted, or unmuted after an unmute by hand: `sessionUnmuted`).
     func suspend() {
         print("[Voice] Alone: voice stops")
         teardown(keepSettings: true)
@@ -573,9 +590,12 @@ final class VoiceChatManager: ObservableObject {
         if isSelfMuted && !micRequestInFlight { unmute() } else { mute() }
     }
 
+    /// Mute by hand (the only caller is the person: `toggleSelfMute`, the tests); it holds for
+    /// the later starts of this app run too (`sessionUnmuted`).
     func mute() {
         unmuteAfterPrompt = false
         isSelfMuted = true
+        sessionUnmuted = false
         localAudioTrack?.isEnabled = false
     }
 
@@ -592,6 +612,7 @@ final class VoiceChatManager: ObservableObject {
         if micGranted {
             unmuteAfterPrompt = false
             isSelfMuted = false
+            sessionUnmuted = true
             localAudioTrack?.isEnabled = !isBackgrounded
             return
         }
@@ -617,6 +638,7 @@ final class VoiceChatManager: ObservableObject {
             if self.unmuteAfterPrompt {
                 self.unmuteAfterPrompt = false
                 self.isSelfMuted = false
+                self.sessionUnmuted = true
                 self.localAudioTrack?.isEnabled = !self.isBackgrounded
             }
         }

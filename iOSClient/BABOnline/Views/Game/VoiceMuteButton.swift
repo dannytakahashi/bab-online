@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Floating circular mic mute/unmute button for voice chat. Voice starts muted (build 16,
-/// owner 2026-11-18): the first tap unmutes and asks for the microphone then. Once the mic was
+/// owner 2026-11-18; a later start in the same app run unmuted after an unmute by hand, owner
+/// 2026-11-19): the first tap unmutes and asks for the microphone then. Once the mic was
 /// refused it shows headphones ("Listening only (no mic access)"); a tap asks again. It is
 /// never `.disabled`, which would also end the long press that
 /// opens the voice panel. That long press is the panel only: the Button's action that

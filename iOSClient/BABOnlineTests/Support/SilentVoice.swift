@@ -61,12 +61,14 @@ extension VoiceChatManager {
     /// `SilentAudioDevice` in place of WebRTC's audio unit, no socket). Every test builds its
     /// managers here (`SilentVoiceTests.testEveryTestManagerIsSilent`).
     static func silent(requestRecordPermission: @escaping @MainActor () async -> Bool = { true },
+                       recordPermissionGranted: @escaping @MainActor () -> Bool = { false },
                        sendOffer: @escaping @MainActor (String, RTCSessionDescription, String?) -> Void = { _, _, _ in },
                        sendAnswer: @escaping @MainActor (String, RTCSessionDescription) -> Void = { _, _ in },
                        notify: @escaping @MainActor (String) -> Void = { _ in },
                        audioDevice: SilentAudioDevice = SilentAudioDevice(),
                        after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
         VoiceChatManager(hooks: .init(requestRecordPermission: requestRecordPermission,
+                                      recordPermissionGranted: recordPermissionGranted,
                                       configureAudioSession: {},
                                       deactivateAudioSession: {},
                                       sendOffer: sendOffer,

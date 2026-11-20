@@ -46,6 +46,7 @@
 
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
+import { sessionWantsUnmuted, rememberSessionMute, micAlreadyAllowed } from './voiceSessionMute.js';
 
 /** What voice used before TURN, and still uses without it. */
 export const STUN_ICE_SERVERS = Object.freeze([
@@ -179,6 +180,9 @@ export class VoiceChatManager {
     // The microphone picked in the gear menu (kept for the tab, like the
     // browser's own choice; null: the default)
     this._preferredDeviceId = null;
+    // This page got the microphone once (kept through shutdown): a later
+    // start may open it again with no prompt (voiceSessionMute.js)
+    this._micGrantedThisPage = false;
   }
 
   /**
@@ -198,7 +202,31 @@ export class VoiceChatManager {
     // In parallel with the microphone prompt; never rejects
     const iceReady = this.ensureIceServers();
 
-    let stream = await this._streamForMode(null, generation);
+    // Unmuted by hand earlier in this tab (owner 2026-11-19: it stays
+    // unmuted for the session): with the microphone already allowed this
+    // start opens it (no prompt) and starts unmuted; otherwise muted as
+    // every first start. A failure here is not a refusal: muted, no toast
+    let resumed = null;
+    if (typeof talk !== 'boolean' && !this._wantTalk && sessionWantsUnmuted() &&
+        await micAlreadyAllowed({ grantedThisPage: this._micGrantedThisPage })) {
+      try {
+        if (generation === this._generation) resumed = await this._getPreferredMic();
+      } catch (err) {
+        console.warn('[Voice] the microphone did not open again:', err?.message);
+      }
+      if (resumed && generation !== this._generation) {
+        // shut down while it opened: this start is over (the stop reset the mode)
+        resumed.getTracks().forEach(t => t.stop());
+        return;
+      }
+      if (resumed) {
+        this._wantTalk = true;
+        this.micDenied = false;
+        this._micGrantedThisPage = true;
+      }
+    }
+
+    let stream = await this._streamForMode(resumed, generation);
     await iceReady;
     // A voiceSettings during the prompt or the ICE wait changed the mode:
     // the latest one wins
@@ -282,6 +310,7 @@ export class VoiceChatManager {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error('getUserMedia unavailable');
       const stream = await this._getPreferredMic();
       this.micDenied = false;
+      this._micGrantedThisPage = true;
       return stream;
     } catch (err) {
       console.warn('Mic permission denied:', err?.message);
@@ -729,8 +758,13 @@ export class VoiceChatManager {
    * @returns {Promise<boolean>} the new muted state
    */
   toggleSelfMute() {
-    if (this.micRequestInFlight) return this.setMuted(!this.selfMuted);
-    return this.setMuted(!this.isMuted());
+    const run = this.micRequestInFlight ? this.setMuted(!this.selfMuted) : this.setMuted(!this.isMuted());
+    // A choice by hand is the tab's from now on (voiceSessionMute.js): a
+    // refused unmute settles muted, a mute during the prompt wins
+    return run.then((muted) => {
+      rememberSessionMute(muted);
+      return muted;
+    });
   }
 
   /**
@@ -1121,7 +1155,8 @@ export class VoiceChatManager {
     this._pendingOffers = [];
     this._pendingCandidates = new Map();
     this._localUsername = null;
-    // The next session starts muted again (owner 2026-11-18)
+    // Muted while no session runs; the next one follows the tab's choice
+    // (muted unless unmuted by hand earlier: voiceSessionMute.js)
     this.selfMuted = true;
     this.socketManager = null;
 
