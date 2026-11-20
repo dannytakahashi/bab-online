@@ -10,6 +10,10 @@ struct TableSlice: Equatable {
     var deal: DealState?
     var hand: [Card] = []
     var hsi: [Int: Double] = [:]
+    /// A live deal's HSI is not shown yet ("HSI --", GameState.myHSIReading): from its gameStart
+    /// until HSIScale.revealDelay later (`.hsiRevealed`), as the web shows it a beat after the
+    /// cards go down. A snapshot (a reload, a relaunch, a resync) or a catch-up shows it at once.
+    var hsiHeld = false
     var trickNo = 1
     /// Mirror of TableState.myTurn, refreshed after every reduce.
     var myTurn: MyTurnState = .waiting

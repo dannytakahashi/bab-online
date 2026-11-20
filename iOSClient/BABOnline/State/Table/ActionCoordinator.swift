@@ -79,13 +79,19 @@ final class ActionCoordinator: ObservableObject {
     /// The lightbulb's wait for its /help answer (AssistRules.askWait), on its own clock.
     private let askClock: AckClock
     private var askTimer: AckCancellable?
+    /// A live deal's HSI reveal (`.revealHSI`, HSIScale.revealDelay), on its own clock (the ack
+    /// tests count `clock`'s timers); a redeal replaces it.
+    private let hsiClock: AckClock
+    private var hsiTimer: AckCancellable?
 
     /// `soundClock` is not `clock`: the ack tests count that clock's timers.
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock(),
          sounds: SoundPlaying? = nil, soundClock: AckClock = DispatchAckClock(), tunePlayer: TunePlaying? = nil,
-         notifications: NotificationCenter = .default, askClock: AckClock = DispatchAckClock()) {
+         notifications: NotificationCenter = .default, askClock: AckClock = DispatchAckClock(),
+         hsiClock: AckClock = DispatchAckClock()) {
         self.store = store
         self.askClock = askClock
+        self.hsiClock = hsiClock
         self.emitter = emitter
         self.clock = clock
         cues = TableSoundCues(clock: soundClock, sounds: sounds ?? SoundPlayer.shared,
@@ -244,6 +250,13 @@ final class ActionCoordinator: ObservableObject {
                 guard let self else { return }
                 self.retryTimer = nil
                 if self.store.state.sync.resyncId == id { self.send(id, log: false) }
+            }
+        case .revealHSI(let dealSeq):
+            hsiTimer?.cancel()
+            hsiTimer = hsiClock.after(HSIScale.revealDelay) { [weak self] in
+                guard let self else { return }
+                self.hsiTimer = nil
+                self.store.apply(.local(.hsiRevealed(dealSeq: dealSeq)))
             }
         case .haptic:
             HapticManager.error()

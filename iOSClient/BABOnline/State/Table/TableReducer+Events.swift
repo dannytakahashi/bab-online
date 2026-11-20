@@ -73,6 +73,9 @@ extension TableReducer {
             guard let pos = Position.valid(p.position) else { break }
             s.scores.rainbows[team: Positions.getTeamNumber(pos)] += 1
             fx.append(.animate(.rainbow(position: pos, dealSeq: s.table.deal?.dealSeq ?? 0)))
+            // the server stores this line (type rainbow) but never sends it live: the web adds it
+            // on this event, the same row a rejoin's snapshot log replays
+            s.log.entries.append(ChatMessage(username: "System", message: rainbowLine(s.players.name(pos)), type: .system, position: pos))
         case .destroyHands:
             stopBidClock(&s, .fade, &fx)
             clearAssist(&s)
@@ -311,6 +314,9 @@ extension TableReducer {
         s.players.seats[pos] = seat
     }
 
+    /// "ann has a rainbow!" (the server's stored line, gameHandlers.js; the web's live one).
+    static func rainbowLine(_ name: String) -> String { "\(name) has a rainbow!" }
+
     static func addLog(_ s: inout TableState, _ message: String) {
         s.log.entries.append(ChatMessage(username: "System", message: message, type: .system))
     }
@@ -375,6 +381,9 @@ extension TableReducer {
         var hsi: [Int: Double] = [:]
         for (k, v) in p.hsiValues ?? [:] { if let pos = Position.valid(Int(k)) { hsi[pos] = v } }
         s.table.hsi = hsi
+        // "HSI --" until the cards are down (the web's clearPlayerHsi, then a 1 s director.delay)
+        s.table.hsiHeld = true
+        fx.append(.revealHSI(dealSeq: dealSeq))
         s.scores.tricks = TeamPair()
         s.scores.tricksByPosition = [0, 0, 0, 0]
         s.scores.rainbows = TeamPair()
