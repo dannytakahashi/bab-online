@@ -298,3 +298,52 @@ describe('what the card shows', () => {
     }
   });
 });
+
+describe('the tutorial (source tutorial, 2026-11-19)', () => {
+  const tipHint = (over = {}) => ({
+    v: 1, source: 'tutorial', kind: 'tip', turnKey: '3|BIDDING|1|2|0', headline: 'Bidding',
+    reasons: ['Bid how many tricks you expect to win.'], uses: 0, freeUses: 3, assisted: false, counted: false, tipId: 'T.bid', ...over,
+  });
+
+  it('its advice: the footer is just our strongest bot (never counted), the Quick note alone when quick; no "Help:" row', () => {
+    expect(assistFooter(cardHint({ source: 'tutorial', counted: false }))).toBe(FOOTER_BOT);
+    expect(assistFooter(bidHint({ source: 'tutorial', counted: false, uses: 2 }))).toBe(FOOTER_BOT);
+    expect(assistFooter(cardHint({ source: 'tutorial', counted: false, confidence: 'quick' }))).toBe('Quick suggestion: rules only, the server is busy.');
+    expect(assistLogLine(cardHint({ source: 'tutorial', counted: false }))).toBeNull();
+    // its status replies keep their row (the game-end screen)
+    expect(assistLogLine(statusHint({ source: 'tutorial', headline: 'Tips off. /help still works any time.' }))).toBe('Help: Tips off. /help still works any time. (only you see this)');
+  });
+
+  it('/help while the tutorial is on is never counted: no count in its footer or chat line', () => {
+    expect(assistFooter(cardHint({ counted: false, uses: 1 }), { tutorial: true })).toBe(FOOTER_BOT);
+    // a counted one (the server's word) keeps it
+    expect(assistFooter(cardHint({ counted: true, uses: 1 }), { tutorial: true })).toBe(`${FOOTER_BOT} · Help 1 of 3 free`);
+    resetAssistUses('g');
+    noteAssistUses({ uses: 1, freeUses: 3, assisted: false }, 'g');
+    expect(helpDescription('g', { tutorial: true })).toBe(HELP_LABEL);
+    noteAssistUses({ uses: 0, freeUses: 3, assisted: true }, 'g');
+    expect(helpDescription('g', { tutorial: true })).toBe(`${HELP_LABEL} (this game is bot-assisted for you)`);
+    // a game with a native bot seat: nothing about it
+    noteAssistUses({ uses: 0, freeUses: 3, assisted: false, unlimited: true }, 'g');
+    expect(helpDescription('g', { tutorial: true })).toBe(HELP_LABEL);
+    forgetAssistUses();
+    expect(helpDescription(null, { tutorial: true })).toBe(HELP_LABEL);
+  });
+
+  it('a tip is not a /help card (its own section); it goes to the scene at the table, else its "Tip:" row', () => {
+    expect(isAssistHint(tipHint())).toBe(false);
+    expect(assistHintRoute({ isAtTable: true, hasTable: true }, tipHint())).toBe('scene');
+    expect(assistHintRoute({ isAtTable: false, hasTable: true }, tipHint())).toBe('row');
+    expect(assistHintRoute({ isAtTable: false, hasTable: false }, tipHint())).toBeNull();
+    expect(assistLogLine(tipHint())).toBe('Tip: Bid how many tricks you expect to win.');
+    // a tutorial bid or card answer goes to the scene like /help's; off the table nowhere
+    expect(assistHintRoute({ isAtTable: true, hasTable: true }, cardHint({ source: 'tutorial' }))).toBe('scene');
+    expect(assistHintRoute({ isAtTable: false, hasTable: true }, cardHint({ source: 'tutorial' }))).toBeNull();
+  });
+
+  it('its advice is live exactly as /help\'s is', () => {
+    const s = seat({ isBidding: true, bids: { 4: '1' }, currentTurn: 1 });
+    expect(hintIsLive(bidHint({ source: 'tutorial', turnKey: '3|BIDDING|1|1|0' }), s)).toBe(true);
+    expect(hintIsLive(bidHint({ source: 'tutorial', turnKey: '3|BIDDING|1|1|0' }), { ...s, currentTurn: 2 })).toBe(false);
+  });
+});

@@ -200,7 +200,8 @@ function withScene(fn, kind = 'table') {
 
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
-import { resetAssistUses, forgetAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
+import { resetAssistUses, forgetAssistUses, noteAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
+import { resetTutorial, forgetTutorial, noteTutorialState } from './state/tutorial.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -242,14 +243,32 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
 
     if (!isReconnection) {
       gameLogInstance.addGameMessage('Game started!');
+      flushEarlyLogLines();
     }
   }
+  earlyLogLines = null;
 };
+
+// Lines that came between createUI and the log it creates after its fade
+// (the server's room lines right after createUI, e.g. the tutorial's
+// auto-start notice "<name> is playing with the tutorial."): kept and
+// written after the log's 'Game started!' (flushEarlyLogLines), never
+// dropped. Only while a createUI is pending; a replay of the server's log
+// (a rejoin) brings them itself, so they are forgotten there
+const EARLY_LOG_MAX = 20;
+let earlyLogLines = null;
+function flushEarlyLogLines() {
+  const lines = earlyLogLines || [];
+  earlyLogLines = null;
+  for (const [message, playerPosition, at] of lines) gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+}
 
 // Bridge for adding messages to game feed
 window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null) {
-  if (gameLogInstance && gameLogInstance.addGameMessage) {
+  if (gameLogInstance && gameLogInstance.addGameMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addGameMessage(message, playerPosition, at);
+  } else if (earlyLogLines && earlyLogLines.length < EARLY_LOG_MAX) {
+    earlyLogLines.push([message, playerPosition, at]);
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
@@ -915,8 +934,11 @@ function initializeApp() {
     director.reset();
     seqGate.reset();
     myAction.reset();
-    // this game's /help count is unknown from here (a rejoin learns it again)
+    // this game's /help count is unknown from here (a rejoin learns it again),
+    // and the tutorial off (a rejoin's assistState / snapshot says again)
     forgetAssistUses();
+    forgetTutorial();
+    earlyLogLines = null;
     getTableSounds().reset();
     const scene = getGameScene();
 
@@ -1763,8 +1785,13 @@ function initializeApp() {
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
-      // a new game: no /help used yet (the autocomplete's count)
+      // a new game: no /help used yet (the autocomplete's count), the
+      // tutorial off until the server says (an auto-start's assistState
+      // comes right after this createUI)
       resetAssistUses();
+      resetTutorial();
+      // room lines before the log is up again are kept (flushEarlyLogLines)
+      earlyLogLines = [];
       // Remove waiting screen and lobby/main room/tournament UI
       uiManager.removeWaitingScreen();
       removeMainRoom();
@@ -1793,14 +1820,17 @@ function initializeApp() {
             // The canvas takes the narrower column (Phaser then relayouts the table)
             requestAnimationFrame(() => syncCanvasSize(scene));
 
-            // Add initial message
+            // Add initial message, then the lines that came before the log
             gameLogInstance.addGameMessage('Game started!');
+            flushEarlyLogLines();
 
             // Update hand indicator from current game state
             if (gameState.currentHand !== undefined) {
               window.updateHandIndicatorFromLegacy(gameState.currentHand);
             }
           }
+          // (a log kept up: nothing was held, the buffer just closes)
+          flushEarlyLogLines();
         });
       }, 'draw');
     },
@@ -1866,6 +1896,9 @@ function initializeApp() {
       // Nobody's turn any more: the turn ring stops (its animation with it)
       scene?.opponentManager?.removeTurnGlow?.();
       scene?.cardManager?.removeTurnGlow?.();
+      // the tutorial's tips go with the game (T.done is its log row)
+      scene?.clearTips?.({ all: true });
+      scene?.syncTutorial?.();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team
@@ -2096,6 +2129,15 @@ function initializeApp() {
     // countdown on the bid sheet (BidManager reads the state's clock)
     onBidClock: () => {
       getGameScene()?.bidManager?.syncClock?.();
+    },
+    // My tutorial's state (private, unsequenced; the clientHello cap
+    // tutorial): on / off and my /help count, at once (it may come between
+    // createUI and the first deal, while gameState.gameId is still the last
+    // game's: so it binds to no game id); the chip and tips follow
+    onAssistState: (data) => {
+      noteTutorialState(data, null);
+      if (!(gameState.isSpectator && !gameState.isLazy)) noteAssistUses(data, null);
+      if (session.isAtTable) getGameScene()?.syncTutorial?.();
     },
     // My /help answer (private): the card above my hand, in table order
     onAssistHint: (data) => {

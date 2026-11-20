@@ -1202,3 +1202,271 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
     expect(ask().hidden).toBe(true);
   });
 });
+
+describe('GameScene the tutorial (tips, its advice, the chip)', () => {
+  let getGameState;
+  let resetMyAction;
+  let assist;
+  let tut;
+  let card;
+  let chipMod;
+  let clearToasts;
+  beforeAll(async () => {
+    ({ getGameState } = await import('../../state/GameState.js'));
+    ({ resetMyAction } = await import('../../state/MyAction.js'));
+    assist = await import('../../state/assistHint.js');
+    tut = await import('../../state/tutorial.js');
+    card = await import('../../ui/components/AssistCard.js');
+    chipMod = await import('../../ui/components/TutorialChip.js');
+    ({ clearToasts } = await import('../../ui/kit/toast.js'));
+  });
+  let rows;
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="game-container"><div id="table-hud"></div></div>';
+    card.resetAssistCard();
+    chipMod.resetTutorialChip();
+    assist.resetAssistUses();
+    tut.resetTutorial();
+    resetMyAction();
+    clearToasts();
+    rows = [];
+    window.addPrivateToGameFeed = (m) => { if (m) rows.push(m); };
+    window.socket = { emit: vi.fn(() => true), connected: true };
+  });
+  afterEach(() => {
+    getGameState().reset();
+    resetMyAction();
+    tut.forgetTutorial();
+    delete window.addPrivateToGameFeed;
+    delete window.socket;
+    clearToasts();
+  });
+
+  const base = { v: 1, source: 'tutorial', uses: 0, freeUses: 3, assisted: false, counted: false };
+  const tip = (id, title, text, over = {}) => ({ ...base, kind: 'tip', turnKey: '1|BIDDING|1|1|0', headline: title, reasons: [text], tipId: id, ...over });
+  const welcome = () => tip('T.welcome', 'Tutorial on', 'Tips will appear above your cards. Only you see them. Close one with ×, or choose Turn off to stop them.', { actions: ['keep', 'off'] });
+  const trump = () => tip('T.trump', 'Trump', 'Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps.');
+  const bidAdvice = (over = {}) => ({
+    ...base, kind: 'bid', turnKey: '1|BIDDING|1|1|0', headline: 'Bid 3', reasons: ['Your hand is worth about 3 tricks.'],
+    details: [], confidence: 'clear', suggest: { bid: '3' }, codes: [], ...over,
+  });
+  const cardAdvice = (over = {}) => ({
+    ...base, kind: 'card', turnKey: '1|PLAYING|1|4|0', headline: 'Lead A♣', reasons: ['The A♣ is the highest club left.'],
+    details: [], confidence: 'clear', suggest: { card: { suit: 'clubs', rank: 'A' } }, codes: [], ...over,
+  });
+
+  function mySeat({ bidding = false } = {}) {
+    const state = getGameState();
+    state.gameId = 'g1';
+    state.position = 1;
+    state.currentTurn = 1;
+    state.isSpectator = false;
+    state.isLazy = false;
+    state.isBidding = bidding;
+    state.phase = bidding ? 'bidding' : 'playing';
+    state.stage = bidding ? 'BIDDING' : 'PLAYING';
+    state.bids = bidding ? { 4: '2' } : { 1: '2', 2: '1', 3: '2', 4: '2' };
+    state.myCards = [{ suit: 'clubs', rank: 'A' }, { suit: 'hearts', rank: '4' }];
+    state.hasPlayedCard = false;
+    if (!bidding) state.trickNo = 1;
+    const scene = new GameScene();
+    scene.state = state;
+    scene.callbacks = {};
+    scene.cardManager = {
+      setSuggestedCard: vi.fn(), updatePlayerTurnGlow: vi.fn(), updateCardLegality: vi.fn(), clearHand: vi.fn(), clearAll: vi.fn(),
+    };
+    scene.bidManager = { setSuggestedBid: vi.fn(), updateVisibility: vi.fn(), updateBoreButtonStates: vi.fn(), showBidBubble: vi.fn(), hideBidUI: vi.fn() };
+    scene.opponentManager = { updateTurnGlow: vi.fn() };
+    return { scene, state };
+  }
+  const q = (sel) => document.querySelector(sel);
+  const titles = () => [...document.querySelectorAll('.hud-assist:not([hidden]) .assist-tip__title')].map((e) => e.textContent);
+  const head = () => q('.hud-assist:not([hidden]) .assist-card__head')?.textContent ?? null;
+  const said = () => [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
+  const sent = () => window.socket.emit.mock.calls.filter(([e]) => e === 'chatMessage').map(([, d]) => d.message);
+  const on = (auto = false) => tut.noteTutorialState({ tutorial: true, auto, uses: 0, freeUses: 3, assisted: false });
+
+  it('a tip and the advice of one decision: the tip above the advice, a "Tip:" row, each said once; no "Help:" row for the advice', () => {
+    on();
+    const { scene } = mySeat({ bidding: true });
+    scene.handleAssistHint(trump());
+    scene.handleAssistHint(bidAdvice());
+    expect(titles()).toEqual(['Trump']);
+    expect(head()).toBe('Bid 3');
+    const card = q('.hud-assist');
+    // the tip first, then the advice; the card sits above the bid sheet
+    expect(card.firstElementChild.classList.contains('assist-tip')).toBe(true);
+    expect(card.querySelector('.assist-card__advice')).not.toBeNull();
+    expect(card.dataset.place).toBe('bid');
+    expect(card.getAttribute('aria-label')).toBe('Suggestion');
+    expect(rows).toEqual(['Tip: Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps.']);
+    expect(said()).toEqual([
+      'Tip: Trump. Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps.',
+      'Suggestion: Bid 3. Your hand is worth about 3 tricks.',
+    ]);
+    // the advice: the /help card's chip and ring, the footer names no count
+    expect(q('.assist-card__chip').textContent).toBe('Clear choice');
+    expect(scene.bidManager.setSuggestedBid).toHaveBeenLastCalledWith('3');
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    expect(assist.helpDescription('g1', { tutorial: tut.tutorialIsOn('g1') })).toBe('Ask a bot for advice');
+  });
+
+  it('my own bid takes the rule tip and the advice down; the welcome stays until Keep / Turn off / ✕', () => {
+    on(true);
+    const { scene, state } = mySeat({ bidding: true });
+    scene.handleAssistHint(welcome());
+    scene.handleAssistHint(trump());
+    scene.handleAssistHint(bidAdvice());
+    expect(titles()).toEqual(['Tutorial on', 'Trump']);
+    state.bids[1] = '3';
+    scene.handleBidReceived({ position: 1, bid: '3' });
+    expect(titles()).toEqual(['Tutorial on']);
+    expect(head()).toBeNull();
+    // tips alone: above the hand once it is not my bid turn
+    expect(q('.hud-assist').dataset.kind).toBe('tip');
+    expect(q('.hud-assist').getAttribute('aria-label')).toBe('Tutorial tip');
+    // Keep: '/tutorial keep', the welcome goes
+    const keep = q('.assist-tip__action.is-keep');
+    expect(keep.textContent).toBe('Keep');
+    keep.click();
+    expect(sent()).toEqual(['/tutorial keep']);
+    expect(q('.hud-assist').hidden).toBe(true);
+  });
+
+  it('the welcome\'s ✕ says Keep too; Turn off sends /tutorial off', () => {
+    on(true);
+    const { scene } = mySeat();
+    scene.handleAssistHint(welcome());
+    q('.assist-tip__close').click();
+    expect(sent()).toEqual(['/tutorial keep']);
+    scene.handleAssistHint({ ...welcome() });
+    const off = q('.assist-tip__action.is-off');
+    expect(off.textContent).toBe('Turn off');
+    off.click();
+    expect(sent()).toEqual(['/tutorial keep', '/tutorial off']);
+    expect(titles()).toEqual([]);
+  });
+
+  it('a rule tip\'s ✕ sends nothing; a newer tip replaces the one up', () => {
+    on();
+    const { scene } = mySeat();
+    scene.handleAssistHint(trump());
+    scene.handleAssistHint(tip('T.lead', 'Leading', 'You lead this trick.'));
+    expect(titles()).toEqual(['Leading']);
+    q('.assist-tip__close').click();
+    expect(sent()).toEqual([]);
+    expect(titles()).toEqual([]);
+  });
+
+  it('a tip between my decisions stays through other seats\' turns and goes with my card', () => {
+    on();
+    const { scene, state } = mySeat();
+    state.currentTurn = 2;
+    scene.handleAssistHint(tip('T.made', 'Bid made', 'You and Bob (your partner) made your bid! Extra tricks are worth 1 point each.'));
+    scene.handleUpdateTurn({ currentTurn: 3 });
+    expect(titles()).toEqual(['Bid made']);
+    state.currentTurn = 1;
+    scene.handleUpdateTurn({ currentTurn: 1 });
+    scene.handleAssistHint(cardAdvice());
+    expect(titles()).toEqual(['Bid made']);
+    expect(head()).toBe('Lead A♣');
+    state.playedCards = [{ card: { suit: 'clubs', rank: 'A' }, position: 1 }];
+    state.currentTrick = [{ card: { suit: 'clubs', rank: 'A' }, position: 1 }];
+    scene.updateCardLegalityAfterPlay = vi.fn();
+    scene._seatName = () => 'Alice';
+    scene.handleCardPlayed({ position: 1, card: { suit: 'clubs', rank: 'A' } });
+    expect(titles()).toEqual([]);
+    expect(head()).toBeNull();
+  });
+
+  it('the game-end tip is its row alone; a hand-end tip survives the hand\'s end', () => {
+    on();
+    const { scene } = mySeat();
+    scene.handleAssistHint(tip('T.handScore', 'Hand score', 'This hand, you and Bob (your partner) bid 2 and won 2: 2 × 10 = +20.'));
+    scene.clearAssist();
+    expect(titles()).toEqual(['Hand score']);
+    scene.handleAssistHint(tip('T.done', 'Tutorial complete', 'Tutorial complete. Type /help any time for a suggestion.'));
+    expect(titles()).toEqual(['Hand score']);
+    expect(rows.at(-1)).toBe('Tip: Tutorial complete. Type /help any time for a suggestion.');
+  });
+
+  it('the chip: only while on, at my own seat; its switch sends /tutorial off once and waits', () => {
+    const { scene, state } = mySeat();
+    scene.syncTutorial();
+    expect(q('.hud-tutorial')).toBeNull();
+    on();
+    scene.syncTutorial();
+    const chip = q('.hud-tutorial');
+    expect(chip.hidden).toBe(false);
+    expect(chip.querySelector('.hud-tutorial__label').textContent).toBe('Tutorial on');
+    const sw = chip.querySelector('.hud-tutorial__switch');
+    expect(sw.getAttribute('role')).toBe('switch');
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    expect(sw.getAttribute('aria-label')).toBe('Turn off the tutorial');
+    sw.click();
+    sw.click();
+    expect(sent()).toEqual(['/tutorial off']);
+    expect(sw.getAttribute('aria-disabled')).toBe('true');
+    // a bot plays my seat: no chip
+    state.isLazy = true;
+    scene.syncTutorial();
+    expect(chip.hidden).toBe(true);
+    state.isLazy = false;
+    // a spectator: no chip
+    state.isSpectator = true;
+    scene.syncTutorial();
+    expect(chip.hidden).toBe(true);
+  });
+
+  it('the server says off: the chip, the tips and the tutorial\'s advice go; a /help answer stays', () => {
+    on();
+    const { scene } = mySeat();
+    scene.handleAssistHint(trump());
+    scene.handleAssistHint(cardAdvice());
+    scene.syncTutorial();
+    expect(q('.hud-tutorial').hidden).toBe(false);
+    tut.noteTutorialState({ tutorial: false, auto: false, uses: 0, freeUses: 3, assisted: true });
+    scene.syncTutorial();
+    expect(q('.hud-tutorial').hidden).toBe(true);
+    expect(titles()).toEqual([]);
+    expect(head()).toBeNull();
+    // a /help answer is not the tutorial's
+    on();
+    scene.handleAssistHint(cardAdvice({ source: 'help', counted: true, uses: 1 }));
+    tut.noteTutorialState({ tutorial: false });
+    scene.syncTutorial();
+    expect(head()).toBe('Lead A♣');
+  });
+
+  it('/help asked while the tutorial is on: answered, its footer says no count', () => {
+    on();
+    const { scene } = mySeat();
+    scene.handleAssistHint(cardAdvice({ source: 'help', counted: false, uses: 0 }));
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+    expect(rows).toEqual(['Help: Lead A♣ (only you see this)']);
+  });
+
+  it('a tutorial answer that came late leaves no "turn had passed" row', () => {
+    on();
+    const { scene, state } = mySeat();
+    state.currentTurn = 2;
+    scene.handleAssistHint(cardAdvice());
+    scene.handleUpdateTurn({ currentTurn: 3 });
+    expect(rows).toEqual([]);
+  });
+
+  it('a bot taking my seat, and the table going, take every tip down', () => {
+    on();
+    const { scene } = mySeat();
+    scene.handleAssistHint(welcome());
+    scene.showSeatDisplay = vi.fn();
+    scene.handlePlayerLazyMode({ position: 1 });
+    expect(titles()).toEqual([]);
+    scene.handleAssistHint(welcome());
+    scene.opponentManager = { clearAll: vi.fn() };
+    scene.trickManager = { clearAll: vi.fn() };
+    scene.cleanup();
+    expect(titles()).toEqual([]);
+    expect(q('.hud-tutorial').hidden).toBe(true);
+  });
+});

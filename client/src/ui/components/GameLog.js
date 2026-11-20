@@ -12,6 +12,7 @@ import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
 import { helpDescription, helpIsUnlimited, HELP_COMMAND } from '../../state/assistHint.js';
+import { tutorialDescription, tutorialIsOn, TUTORIAL_COMMAND } from '../../state/tutorial.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
@@ -192,15 +193,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   // says this game's uses, read when the list is drawn ("Ask a bot for
   // advice (1 of 3 free used)"; after the free ones "the next one makes
   // this game bot-assisted"; just "Ask a bot for advice" in a game with a
-  // native bot seat: helpIsUnlimited)
+  // native bot seat: helpIsUnlimited). /tutorial (state/tutorial.js):
+  // "Tutorial: tips and advice every turn", or while it is on "Turn off the
+  // tutorial" (the plain /tutorial toggles)
   const ALL_SLASH_COMMANDS = [
     {
       command: HELP_COMMAND,
       description: () => {
         const gs = getGameState();
-        return helpDescription(gs.gameId, { unlimited: helpIsUnlimited(gs) });
+        return helpDescription(gs.gameId, { unlimited: helpIsUnlimited(gs), tutorial: tutorialIsOn(gs.gameId) });
       },
     },
+    { command: TUTORIAL_COMMAND, description: () => tutorialDescription(getGameState().gameId) },
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },

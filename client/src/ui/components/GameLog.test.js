@@ -3,6 +3,7 @@ import { createGameLog, showGameLog } from './GameLog.js';
 import { getGameState, resetGameState } from '../../state/GameState.js';
 import { readClientFile } from '../../testing/files.js';
 import { resetAssistUses, forgetAssistUses, noteAssistUses } from '../../state/assistHint.js';
+import { forgetTutorial, noteTutorialState } from '../../state/tutorial.js';
 
 describe('createGameLog', () => {
   let gameLog;
@@ -437,6 +438,31 @@ describe('/help in the autocomplete (plan H3)', () => {
     getGameState().isSpectator = true;
     gameLog = createGameLog();
     expect(helpFor('/h')).toEqual([]);
+  });
+
+  it('/tutorial follows /help: on offer while off, "Turn off the tutorial" while on; /tut sends /tutorial', () => {
+    const sent = [];
+    gameLog = createGameLog({ onChatSubmit: (m) => { sent.push(m); } });
+    forgetTutorial();
+    expect(helpFor('/').slice(0, 2).map((c) => c.cmd)).toEqual(['/help', '/tutorial']);
+    expect(helpFor('/tu')).toEqual([{ cmd: '/tutorial', desc: 'Tutorial: tips and advice every turn' }]);
+    noteTutorialState({ tutorial: true, auto: false });
+    expect(helpFor('/tu')).toEqual([{ cmd: '/tutorial', desc: 'Turn off the tutorial' }]);
+    // /help is never counted while it is on
+    resetAssistUses();
+    noteAssistUses(hint(1));
+    expect(helpFor('/he')).toEqual([{ cmd: '/help', desc: 'Ask a bot for advice' }]);
+    gameLog.chatInput.value = '/tut';
+    gameLog.chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+    gameLog.chatInput.value = '/tutorial off';
+    gameLog.chatInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter' }));
+    expect(sent).toEqual(['/tutorial', '/tutorial off']);
+    forgetTutorial();
+    // a spectator's list has no /tutorial
+    gameLog.destroy();
+    getGameState().isSpectator = true;
+    gameLog = createGameLog();
+    expect(helpFor('/t')).toEqual([]);
   });
 
   it('a private row: dim, the system style, marked is-private', () => {

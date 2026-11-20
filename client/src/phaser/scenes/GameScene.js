@@ -58,12 +58,19 @@ import {
   parseTurnKey, ASSIST_LATE_LINE,
 } from '../../state/assistHint.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
-import { showAssistCard, hideAssistCard, syncAssistButton } from '../../ui/components/AssistCard.js';
+import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
+import {
+  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible,
+  TUTORIAL_KEEP_COMMAND, TUTORIAL_OFF_COMMAND,
+} from '../../state/tutorial.js';
+import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
 /** After a "?" click the "?" waits this long at most for the answer before it shows again. */
 export const ASSIST_ASK_WAIT_MS = 10000;
+/** After the chip's off switch the switch waits this long at most for the server's assistState. */
+export const TUTORIAL_OFF_WAIT_MS = 10000;
 
 /**
  * Main game scene class.
@@ -598,8 +605,11 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.updateBoreButtonStates();
     }
 
-    // my own bid: the /help card is done
-    if (data.position === this.state.position && !this.state.isSpectator) this.clearAssist();
+    // my own bid: the /help card (and the tutorial's rule tip) is done
+    if (data.position === this.state.position && !this.state.isSpectator) {
+      this.clearAssist();
+      this.clearTips();
+    }
 
     // Show bid bubble at the appropriate position
     const positionKey = this.getPositionKey(data.position);
@@ -787,6 +797,7 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.updateVisibility();
     }
     this.syncAssistButton();
+    this.syncTutorial();
   }
 
   /**
@@ -828,8 +839,11 @@ export class GameScene extends Phaser.Scene {
 
     announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
 
-    // my own card: the /help card is done
-    if (playedPosition === myPosition && !this.state.isSpectator) this.clearAssist();
+    // my own card: the /help card (and the tutorial's rule tip) is done
+    if (playedPosition === myPosition && !this.state.isSpectator) {
+      this.clearAssist();
+      this.clearTips();
+    }
 
     // Update card legality when lead card is first played
     if (this.state.currentTrick.length === 1) {
@@ -1241,7 +1255,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   handlePlayerLazyMode(data) {
-    if (data.position === this.state?.position) this.clearAssist();
+    if (data.position === this.state?.position) {
+      this.clearAssist();
+      this.clearTips({ all: true });
+      this.syncTutorial();
+    }
     this.showSeatDisplay(data.position);
   }
 
@@ -1334,8 +1352,9 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       scene._myPlayAt = Date.now();
-      // my card is on its way: the /help card (and its "?") is done
+      // my card is on its way: the /help card (and its "?"), the rule tip, are done
       scene.clearAssist();
+      scene.clearTips();
 
       // Capture the current (hovered) position before any operations that might reset it
       const startX = clickedSprite.x;
@@ -1474,7 +1493,10 @@ export class GameScene extends Phaser.Scene {
   /** The bid panel's choice: MyAction sends it (one outstanding at a time). */
   submitBid(bid) {
     const sent = getMyAction().submitBid(bid, this.state.position);
-    if (sent) this.clearAssist();
+    if (sent) {
+      this.clearAssist();
+      this.clearTips();
+    }
     return sent;
   }
 
@@ -1497,6 +1519,11 @@ export class GameScene extends Phaser.Scene {
    */
   handleAssistHint(hint) {
     const s = this.state || getGameState();
+    // the tutorial's rule tip: its own section of the card
+    if (isTipHint(hint)) {
+      this.handleTutorialTip(hint);
+      return;
+    }
     if (!isAssistHint(hint)) return;
     this._endAsking();
     const watching = s.isSpectator && !s.isLazy;
@@ -1524,8 +1551,9 @@ export class GameScene extends Phaser.Scene {
     window.addPrivateToGameFeed?.(assistLogLine(hint));
     this._assistHint = hint;
     // no count in a game with a native bot seat (the hint says, or the table)
-    const unlimited = helpIsUnlimited(this.state || getGameState(), hint);
-    showAssistCard(hint, { onClose: () => this.clearAssist(), unlimited });
+    const st = this.state || getGameState();
+    const unlimited = helpIsUnlimited(st, hint);
+    showAssistCard(hint, { onClose: () => this.clearAssist(), unlimited, tutorial: tutorialIsOn(st.gameId || null) });
     this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
     this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
     announce(assistAnnouncement(hint));
@@ -1534,9 +1562,11 @@ export class GameScene extends Phaser.Scene {
 
   /** A held (not yet live) answer is given up: its row says the turn had passed. */
   _abandonParked() {
-    if (!this._parkedAssist) return;
+    const held = this._parkedAssist;
+    if (!held) return;
     this._parkedAssist = null;
-    window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
+    // the tutorial's advice is never counted: no trace needed
+    if (held.source !== 'tutorial') window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
   }
 
   /**
@@ -1612,6 +1642,7 @@ export class GameScene extends Phaser.Scene {
       this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
     }
     this.syncAssistButton();
+    this.syncTutorial();
   }
 
   /**
@@ -1660,6 +1691,144 @@ export class GameScene extends Phaser.Scene {
       this.syncAssistButton();
     }, ASSIST_ASK_WAIT_MS);
     this.syncAssistButton();
+  }
+
+  // ============================================
+  // The tutorial (state/tutorial.js): rule tips and the "Tutorial on" chip
+  // ============================================
+
+  /**
+   * A rule tip (assistHint source tutorial, kind tip): its log row ("Tip:
+   * ..."), said once by the announcer, and a section at the top of the card
+   * (the welcome and the latest tip at most; a newer tip replaces the one
+   * up). The game-end tip is the row alone (the end screen follows it).
+   * A rule tip stays until its ✕, the next tip, or my own bid or card; the
+   * welcome until its Keep / Turn off / ✕.
+   * @param {Object} hint
+   */
+  handleTutorialTip(hint) {
+    const s = this.state || getGameState();
+    if (!(s.isSpectator && !s.isLazy)) noteAssistUses(hint, s.gameId);
+    window.addPrivateToGameFeed?.(tipLogLine(hint));
+    announce(tipAnnouncement(hint));
+    if (isRowOnlyTip(hint)) return;
+    const tips = this._tips || [];
+    const welcome = isWelcomeTip(hint);
+    const other = tips.filter((t) => isWelcomeTip(t) !== welcome);
+    this._tips = welcome ? [hint, ...other] : [...other, hint];
+    this.drawTips();
+  }
+
+  /** The tips up (oldest first). */
+  tutorialTips() {
+    return (this._tips || []).slice();
+  }
+
+  /** Where tips alone go: above the bid sheet on my bid turn, else above the hand. */
+  _tipPlace() {
+    const s = this.state;
+    const bidding = !!s && s.isBidding && !!s.position && !s.isSpectator && !s.isLazy &&
+      s.currentTurn === s.position && s.bids?.[s.position] === undefined;
+    return bidding ? 'bid' : 'hand';
+  }
+
+  /** Draw the tips (the card keeps the advice up below them). */
+  drawTips() {
+    this._tipPlaceDrawn = this._tipPlace();
+    showAssistTips(this._tips || [], {
+      place: this._tipPlaceDrawn,
+      onClose: (h) => this.closeTip(h),
+      onAction: (h, a) => this.tipAction(h, a),
+    });
+  }
+
+  /** A tip's ✕ (Escape): the welcome's says Keep to the server. */
+  closeTip(hint) {
+    if (isWelcomeTip(hint)) this._sendTutorial(TUTORIAL_KEEP_COMMAND);
+    this._dropTip(hint);
+  }
+
+  /** The welcome's Keep / Turn off. */
+  tipAction(hint, action) {
+    const cmd = tipActionCommand(action);
+    if (!cmd) return;
+    if (!this._sendTutorial(cmd)) return;
+    if (action === 'off') this._noteOffSent();
+    this._dropTip(hint);
+  }
+
+  _dropTip(hint) {
+    const tips = this._tips || [];
+    if (!tips.includes(hint)) return;
+    this._tips = tips.filter((t) => t !== hint);
+    this.drawTips();
+  }
+
+  /**
+   * Take the rule tip down (my own bid or card); `all`: the welcome too
+   * (the tutorial went off, a bot took my seat, the table goes).
+   */
+  clearTips({ all = false } = {}) {
+    const tips = this._tips || [];
+    const keep = all ? [] : tips.filter(isWelcomeTip);
+    if (keep.length === tips.length) return;
+    this._tips = keep;
+    this.drawTips();
+  }
+
+  /**
+   * Send a /tutorial line as the chat would; offline (or while the session
+   * is restored) the one reconnecting notice instead.
+   * @returns {boolean} sent
+   */
+  _sendTutorial(command) {
+    const socket = window.socket;
+    let canSend = true;
+    try { canSend = getSocketManager().canSend('chatMessage') !== false; } catch { canSend = true; }
+    if (!socket || socket.connected === false || !canSend) {
+      showNotice(NOTICE.RECONNECTING);
+      return false;
+    }
+    return socket.emit('chatMessage', { message: command }) !== false;
+  }
+
+  /** The off was sent: the switch waits for the server's assistState (or 10 s). */
+  _noteOffSent() {
+    this._tutorialOffSent = true;
+    clearTimeout(this._tutorialOffTimer);
+    this._tutorialOffTimer = setTimeout(() => {
+      this._tutorialOffTimer = null;
+      this._tutorialOffSent = false;
+      this.syncTutorial();
+    }, TUTORIAL_OFF_WAIT_MS);
+    this.syncTutorial();
+  }
+
+  /** The chip's switch: `/tutorial off`. */
+  turnOffTutorial() {
+    if (this._tutorialOffSent) return;
+    if (this._sendTutorial(TUTORIAL_OFF_COMMAND)) this._noteOffSent();
+  }
+
+  /**
+   * After an assistState, a snapshot, a turn change or a render: the chip
+   * (on, at my own seat), and with the tutorial off its tips and its advice
+   * go (a /help answer stays). Tips alone move above the bid sheet on my
+   * bid turn.
+   */
+  syncTutorial() {
+    const s = this.state || getGameState();
+    const on = tutorialIsOn(s?.gameId || null);
+    if (!on) {
+      clearTimeout(this._tutorialOffTimer);
+      this._tutorialOffTimer = null;
+      this._tutorialOffSent = false;
+      if (this._tips?.length) this.clearTips({ all: true });
+      if (this._parkedAssist?.source === 'tutorial') this._parkedAssist = null;
+      if (this._assistHint?.source === 'tutorial') this.clearAssist();
+    }
+    syncTutorialChip({ visible: chipVisible(s), busy: !!this._tutorialOffSent, onOff: () => this.turnOffTutorial() });
+    if (this._tips?.length && this._tipPlace() !== this._tipPlaceDrawn) this.drawTips();
   }
 
   /**
@@ -1956,6 +2125,12 @@ export class GameScene extends Phaser.Scene {
     this._parkedAssist = null;
     this._endAsking();
     this.clearAssist();
+    // the tutorial's tips and chip (its state goes with the table: main.js)
+    this.clearTips({ all: true });
+    clearTimeout(this._tutorialOffTimer);
+    this._tutorialOffTimer = null;
+    this._tutorialOffSent = false;
+    syncTutorialChip({ visible: false });
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
     this.trickManager?.clearAll();

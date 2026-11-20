@@ -209,14 +209,17 @@ export function foldAvatarPayload(event, data) {
  * to Lobby) have nothing to do with the fold: always sent. So is assist
  * (2026-11-19, /help plan H3): the server answers this socket's /help with
  * the private s2c assistHint (ui/components/AssistCard.js) instead of
- * plain-text game-log lines.
+ * plain-text game-log lines. And tutorial (2026-11-19, state/tutorial.js):
+ * this page draws the tutorial's rule tips and their Keep / Turn off, so the
+ * server sends them as assistHint tips plus s2c assistState, and a new
+ * account's first game starts with the tutorial on.
  */
 export function clientHello(version, build, capable = true) {
   return {
     client: 'web',
     version: String(version || '0.0.0').slice(0, 32),
     build: String(build || '').slice(0, 64),
-    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain', 'assist'] : ['casualSpectators', 'playAgain', 'assist'],
+    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial'] : ['casualSpectators', 'playAgain', 'assist', 'tutorial'],
   };
 }
 

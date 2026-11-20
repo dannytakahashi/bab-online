@@ -212,6 +212,10 @@ function applyRootVars(hud, L) {
     set('--assist-ask-x', h.rect.x + h.rect.w);
     set('--assist-ask-y', cardsTop);
     set('--assist-ask', L.voice.button);
+    // the "Tutorial on" chip (ui/components/TutorialChip.js): the hand
+    // box's left end, level with the "?" at its right end
+    set('--tutorial-x', h.rect.x);
+    set('--tutorial-y', cardsTop);
   }
   const vr = L.voice.rect;
   set('--voice-x', vr.x);

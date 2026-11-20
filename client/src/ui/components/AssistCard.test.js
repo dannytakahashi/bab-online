@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { showAssistCard, hideAssistCard, assistCardHint, syncAssistButton, resetAssistCard } from './AssistCard.js';
+import { showAssistCard, hideAssistCard, assistCardHint, syncAssistButton, resetAssistCard, showAssistTips } from './AssistCard.js';
 
 const hint = (over = {}) => ({
   v: 1, source: 'help', kind: 'card', turnKey: '3|PLAYING|1|4|5', headline: 'Play 9♦',
@@ -173,5 +173,113 @@ describe('the "?" button', () => {
     document.getElementById('table-hud').replaceChildren();
     const btn = syncAssistButton({ visible: true });
     expect(btn.isConnected).toBe(true);
+  });
+});
+
+describe('the tutorial\'s tips on the card', () => {
+  const tip = (over = {}) => ({
+    v: 1, source: 'tutorial', kind: 'tip', turnKey: '1|BIDDING|1|1|0', headline: 'Trump',
+    reasons: ['Trump this hand is hearts ♥.'], uses: 0, freeUses: 3, assisted: false, counted: false, tipId: 'T.trump', ...over,
+  });
+  const welcome = () => tip({ tipId: 'T.welcome', headline: 'Tutorial on', reasons: ['Tips will appear above your cards.'], actions: ['keep', 'off'] });
+  const sections = () => [...document.querySelectorAll('.hud-assist .assist-tip')];
+
+  it('a tip alone: a neutral section with its title, text and ✕; the card is labelled "Tutorial tip"', () => {
+    const root = showAssistTips([tip()]);
+    expect(root.hidden).toBe(false);
+    expect(root.dataset.kind).toBe('tip');
+    expect(root.dataset.place).toBe('hand');
+    expect(root.getAttribute('aria-label')).toBe('Tutorial tip');
+    expect(root.classList.contains('has-tip')).toBe(true);
+    const sec = sections()[0];
+    expect(sec.querySelector('.assist-tip__title').textContent).toBe('Trump');
+    expect(sec.getAttribute('aria-labelledby')).toBe(sec.querySelector('.assist-tip__title').id);
+    expect(sec.querySelector('.assist-tip__text').textContent).toBe('Trump this hand is hearts ♥.');
+    expect(sec.querySelector('.assist-tip__close').getAttribute('aria-label')).toBe('Dismiss tip');
+    expect(sec.querySelector('.assist-tip__actions')).toBeNull();
+    // no advice parts
+    expect(q('.assist-card__head')).toBeNull();
+  });
+
+  it('above the advice: the tips first, then the advice; hiding the advice keeps the tips', () => {
+    showAssistTips([tip()]);
+    showAssistCard(hint());
+    const root = q('.hud-assist');
+    expect(root.firstElementChild.classList.contains('assist-tip')).toBe(true);
+    expect(root.querySelector('.assist-card__advice .assist-card__head').textContent).toBe('Play 9♦');
+    expect(root.getAttribute('aria-label')).toBe('Suggestion');
+    expect(root.dataset.kind).toBe('card');
+    hideAssistCard();
+    expect(root.hidden).toBe(false);
+    expect(sections()).toHaveLength(1);
+    expect(q('.assist-card__head')).toBeNull();
+    // a new advice keeps them too
+    showAssistCard(hint({ headline: 'Play K♣' }));
+    expect(sections()).toHaveLength(1);
+    showAssistTips([]);
+    expect(sections()).toHaveLength(0);
+    expect(q('.assist-card__head').textContent).toBe('Play K♣');
+    hideAssistCard();
+    expect(root.hidden).toBe(true);
+  });
+
+  it('a bid answer, or tips alone on my bid turn, sit above the bid sheet', () => {
+    showAssistTips([tip()], { place: 'bid' });
+    expect(q('.hud-assist').dataset.place).toBe('bid');
+    showAssistCard(hint({ kind: 'card' }));
+    expect(q('.hud-assist').dataset.place).toBe('hand');
+    showAssistCard(hint({ kind: 'bid', headline: 'Bid 3', suggest: { bid: '3' } }));
+    expect(q('.hud-assist').dataset.place).toBe('bid');
+  });
+
+  it('the welcome\'s Keep / Turn off and the ✕ call back with the tip', () => {
+    const onAction = vi.fn();
+    const onClose = vi.fn();
+    const w = welcome();
+    showAssistTips([w, tip()], { onAction, onClose });
+    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome', 'T.trump']);
+    const buttons = [...sections()[0].querySelectorAll('.assist-tip__action')];
+    expect(buttons.map((b) => b.textContent)).toEqual(['Keep', 'Turn off']);
+    buttons[0].click();
+    buttons[1].click();
+    expect(onAction.mock.calls).toEqual([[w, 'keep'], [w, 'off']]);
+    sections()[1].querySelector('.assist-tip__close').click();
+    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ tipId: 'T.trump' }));
+  });
+
+  it('without callbacks a ✕ or a button just takes that tip down', () => {
+    showAssistTips([welcome(), tip()]);
+    sections()[1].querySelector('.assist-tip__close').click();
+    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome']);
+    sections()[0].querySelector('.assist-tip__action').click();
+    expect(q('.hud-assist').hidden).toBe(true);
+  });
+
+  it('Escape closes the whole card: the advice and each tip', () => {
+    const onClose = vi.fn();
+    const onTip = vi.fn();
+    showAssistTips([tip()], { onClose: onTip });
+    showAssistCard(hint(), { onClose });
+    q('.hud-assist').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onTip).toHaveBeenCalledTimes(1);
+  });
+
+  it('at most two tips; never what is not a tip; texts are text', () => {
+    showAssistTips([tip({ headline: 'a' }), tip({ headline: 'b' }), tip({ headline: '<b>c</b>' }), { kind: 'tip', headline: 'x' }]);
+    expect(sections().map((s) => s.querySelector('.assist-tip__title').textContent)).toEqual(['b', '<b>c</b>']);
+    expect(q('.hud-assist b')).toBeNull();
+  });
+
+  it('never takes focus; a tip drawn while focus is in the card keeps it there', () => {
+    const other = document.createElement('input');
+    document.body.appendChild(other);
+    other.focus();
+    showAssistTips([tip()]);
+    expect(document.activeElement).toBe(other);
+    showAssistCard(hint());
+    q('.assist-card__close').focus();
+    showAssistTips([tip({ headline: 'Leading' })]);
+    expect(document.activeElement).toBe(q('.assist-card__close'));
   });
 });
