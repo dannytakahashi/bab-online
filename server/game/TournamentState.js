@@ -118,8 +118,17 @@ class TournamentState {
                 player.connected = true;
                 player.ready = false;
                 this.players.set(newSocketId, player);
-                if (this.createdBy === oldSocketId) {
+                const wasCreator = this.createdBy === oldSocketId;
+                if (wasCreator) {
                     this.createdBy = newSocketId;
+                }
+                // A restored tournament's ghost is back (deploy survival
+                // PR 6; never set otherwise)
+                if (this.restored) {
+                    require('./persist/restoreTournament').noteReattach(this, {
+                        wasGhost: oldSocketId.startsWith(`restored:${this.tournamentId}:`),
+                        isCreator: wasCreator
+                    });
                 }
                 this.recoverCreatorIfDisconnected();
                 this.logAction('reattachPlayer', { username, oldSocketId, newSocketId });
@@ -138,6 +147,9 @@ class TournamentState {
     recoverCreatorIfDisconnected() {
         const creatorEntry = this.players.get(this.createdBy);
         if (!creatorEntry || creatorEntry.connected === false) {
+            // A restored tournament's host grace (deploy survival PR 6): a
+            // ghost host keeps the role until it ends (restoreTournament)
+            if (creatorEntry && this.restored?.hostGraceUntil != null && Date.now() < this.restored.hostGraceUntil) return;
             this.transferCreator();
         }
     }
@@ -636,9 +648,15 @@ class TournamentState {
 
     getClientState() {
         const players = [];
+        // A restored member's synthetic id (restored:<tid>:<username>, deploy
+        // survival PR 6) never goes on the wire: away:<username> until it
+        // reattaches (unique per row, never a socket, like play again's
+        // away:<uuid> rows; iOS keys its rows by socketId)
+        const prefix = `restored:${this.tournamentId}:`;
+        const wire = (sid) => (this.restored && typeof sid === 'string' && sid.startsWith(prefix) ? `away:${sid.slice(prefix.length)}` : sid);
         for (const [socketId, player] of this.players.entries()) {
             players.push({
-                socketId,
+                socketId: wire(socketId),
                 username: player.username,
                 pic: player.pic,
                 ready: player.ready,
@@ -658,7 +676,7 @@ class TournamentState {
             scoreboard: this.getScoreboard(),
             activeGames: this.getActiveGames(),
             creatorUsername: this.creatorUsername,
-            creatorSocketId: this.createdBy
+            creatorSocketId: wire(this.createdBy)
         };
 
         // Additive (2026-11-15): Begin may start with the ready members

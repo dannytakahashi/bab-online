@@ -307,17 +307,44 @@ final class CardArtTests: XCTestCase {
               + "Duo closed \(duo.handOverlap(count: 13) / duo.handScale * 3), iPad 13 \(ipad.handOverlap(count: 13) / ipad.handScale * 3) (zoom \(ipad.zoom))")
     }
 
+    // MARK: the four-colour deck
+
+    /// iOS 1.2.3 (23) (owner, 2026-11-20): spades black, hearts red, diamonds blue, clubs
+    /// green, so spades and clubs no longer share an ink. Each face's index and pips are in its
+    /// suit's ink and in no other suit's.
+    func testFourColourDeck() {
+        XCTAssertEqual(Theme.CardInk.ink(.spades), Theme.CardInk.black)
+        XCTAssertEqual(Theme.CardInk.ink(.hearts), Theme.CardInk.red)
+        XCTAssertEqual(Theme.CardInk.ink(.diamonds), Theme.CardInk.blue)
+        XCTAssertEqual(Theme.CardInk.ink(.clubs), Theme.CardInk.green)
+        XCTAssertEqual(Theme.CardInk.ink(.joker), Theme.CardInk.joker)
+        let inks: [ThemeColor] = [Theme.CardInk.black, Theme.CardInk.red, Theme.CardInk.blue, Theme.CardInk.green]
+        XCTAssertEqual(Set(inks.map { Self.rgb($0).0 * 65536 + Self.rgb($0).1 * 256 + Self.rgb($0).2 }).count, 4, "four distinct inks")
+        for card in CardTextureGenerator.allCards where !card.isJoker {
+            let p = Pixels(CardTextureGenerator.renderFaceForTesting(card))
+            let own = Theme.CardInk.ink(card.suit)
+            XCTAssertGreaterThan(p.count(own, tol: 12), 200, "\(card.id): drawn in its suit's ink")
+            for other in inks where other != own {
+                XCTAssertEqual(p.count(other, tol: 12), 0, "\(card.id): no \(Self.rgb(other)) ink")
+            }
+        }
+        // the score bar's trump and the lobby's suits, on the dark surfaces
+        XCTAssertEqual(Theme.suitOnDark(.diamonds), Theme.Palette.Card.blueOnDark.color)
+        XCTAssertEqual(Theme.suitOnDark(.clubs), Theme.Palette.Card.greenOnDark.color)
+        XCTAssertNotEqual(Theme.suitOnDark(.spades), Theme.suitOnDark(.clubs))
+    }
+
     // MARK: every other face
 
-    /// Every non-joker face is the 1.2.0 one, pixel for pixel: a SHA-256 of the 52 faces'
+    /// Every non-joker face is the recorded one, pixel for pixel: a SHA-256 of the 52 faces'
     /// RGBA on the iOS 27.2 simulator for the two texture configurations (a 3x phone at zoom
-    /// 1, a 2x iPad at the table's zoom 1.4), the faces of 1.2.0 / origin/main efccbcb (recorded
-    /// with this change, whose 52 faces were byte-identical to efccbcb's in PNG dumps on both).
+    /// 1, a 2x iPad at the table's zoom 1.4). First recorded against 1.2.0 (efccbcb); recorded
+    /// again for the four-colour deck of 1.2.3 (23), where diamonds and clubs changed ink.
     /// Another runtime (fonts) or configuration skips rather than guesses.
     func testStandardFacesAreUnchanged() throws {
         let golden: [String: String] = [
-            "3x-z1.0": "f4a4a1fa400527fb919fd272bd313f08ffc6ce585d11a0cdd315a17dc896bc33",
-            "2x-z1.4": "02f917499b06c82b853080f8d4d311e8e7c5b91a953d89ddda6ec6df3a18bea7",
+            "3x-z1.0": "c0ee2b627adf0c9511baf4f6024ca25596af7f3a002e8092d7bca69185c2b59c",
+            "2x-z1.4": "439b74d43635dd21e71a8c85e9e294094042caab6abdbb63e8fcc3e0f0869a6b",
         ]
         let key = String(format: "%.0fx-z%.1f", CardTextureGenerator.displayScale, CardTextureGenerator.textureZoom)
         let digest = Self.standardFacesDigest()

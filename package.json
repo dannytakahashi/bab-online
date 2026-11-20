@@ -26,8 +26,8 @@
         "contract:check": "node contract/gen.js --check",
         "contract:baseline": "node contract/baseline.js",
         "contract:fixtures": "UPDATE_CONTRACT_FIXTURES=1 jest server/socket/__tests__/contractFixtures.test.js",
-        "test:contract": "CHAOS_SEEDS=1500 CHAOS_RESTORE_SEEDS=500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js server/__tests__/chaosRestore.test.js",
-        "test:race": "BAB_PACING=zero CHAOS_SEEDS=200 CHAOS_RESTORE_SEEDS=200 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/hardening.test.js server/socket/__tests__/pacingBudget.test.js server/__tests__/chaosRestore.test.js"
+        "test:contract": "CHAOS_SEEDS=1500 CHAOS_RESTORE_SEEDS=500 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/contract.test.js server/__tests__/chaosRestore.test.js server/__tests__/tournamentRestore.test.js",
+        "test:race": "BAB_PACING=zero CHAOS_SEEDS=200 CHAOS_RESTORE_SEEDS=200 jest server/socket/__tests__/chaos.test.js server/socket/__tests__/tournamentLifecycle.test.js server/socket/__tests__/hardening.test.js server/socket/__tests__/pacingBudget.test.js server/__tests__/chaosRestore.test.js server/__tests__/tournamentRestore.test.js"
     },
     "dependencies": {
         "bcryptjs": "^3.0.2",

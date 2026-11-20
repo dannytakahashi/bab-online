@@ -486,12 +486,17 @@ describe('shutting down (on): no pointer clear anywhere', () => {
         expect(toSelf(b.s, 'restoreSessionResponse')).toEqual([expect.objectContaining({ success: true })]);
         const j = sock('jt');
         gameManager.registerUser(j.id, 'Hal');
-        await tournamentHandlers.joinTournament(j, io, { tournamentId: 't-none' });
+        // PR 6: an unknown tournament while shutting down is pending too:
+        // the joinTournament parks (no "not found"), then engine-closes
+        const jt = tournamentHandlers.joinTournament(j, io, { tournamentId: 't-none' });
         await users().updateOne({ username: 'Hal' }, { $set: { activeGameId: 'g-none' } });
         expect(userDoc('Hal')).toMatchObject({ activeGameId: 'g-none', activeTournamentId: 't-none' });
         await jest.advanceTimersByTimeAsync(pointerResolve.PARK_MS + 100);
+        await jt;
         expect(pointer('Hal')).toBe('g-none');
+        expect(userDoc('Hal')).toMatchObject({ activeTournamentId: 't-none' });
         expect(toSelf(r.s, 'rejoinFailed')).toEqual([]);
+        expect(toSelf(j, 'serverError')).toEqual([]);
     });
 });
 

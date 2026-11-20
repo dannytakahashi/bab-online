@@ -32,6 +32,14 @@ const playAgain = () => require('../socket/playAgain');
  * lazily. With LIVE_PERSIST off every call on it is a no-op.
  */
 const liveStore = () => require('./persist/liveStore').getLiveStore();
+// LIVE_PERSIST=on resolving (deploy survival PR 5/6): false off and in write mode
+const persistOn = () => {
+    try {
+        return require('../socket/pointerResolve').active();
+    } catch {
+        return false;
+    }
+};
 
 class GameManager {
     constructor() {
@@ -1973,6 +1981,9 @@ class GameManager {
         if (!stale) return { refused: false, evicted: null };
         if (stale.tournament.phase !== 'lobby') return { refused: true, evicted: null };
         this.playerTournaments.set(stale.oldSocketId, stale.tournament.tournamentId);
+        // A lobby-phase removal clears the pointer, scoped (LIVE_PERSIST=on:
+        // the handoff writes lobby members' pointers; the plan's 2.6)
+        if (persistOn()) this.clearActiveTournament(username, stale.tournament.tournamentId);
         return {
             refused: false,
             evicted: { oldSocketId: stale.oldSocketId, tournament: stale.tournament, leaveResult: this.leaveTournament(stale.oldSocketId) },
@@ -2024,8 +2035,11 @@ class GameManager {
     deleteTournamentIfAbandoned(tournament) {
         const round = tournament.getCurrentRound();
         const hasRunningGames = round && round.completedGames.size < round.games.size;
+        // A restored tournament's ghosts count as present while its restored
+        // abandon holds it (deploy survival PR 6; never set otherwise)
+        const held = tournament.restored ? require('./persist/restoreTournament').restoreHolds(tournament) : false;
         if (tournament.players.size === 0 ||
-            (tournament.getConnectedPlayerCount() === 0 && !hasRunningGames)) {
+            (tournament.getConnectedPlayerCount() === 0 && !hasRunningGames && !held)) {
             this.deleteTournament(tournament.tournamentId);
             return true;
         }
@@ -2062,7 +2076,12 @@ class GameManager {
      */
     handleTournamentDisconnect(socketId, tournament) {
         if (tournament.phase === 'lobby') {
-            return this.leaveTournament(socketId);
+            // LIVE_PERSIST=on: a lobby-phase removal clears the pointer, scoped
+            // (the handoff writes lobby members' pointers; the plan's 2.6)
+            const username = persistOn() ? tournament.players.get(socketId)?.username : null;
+            const result = this.leaveTournament(socketId);
+            if (username && result.success) this.clearActiveTournament(username, tournament.tournamentId);
+            return result;
         }
 
         const wasCreator = tournament.createdBy === socketId;

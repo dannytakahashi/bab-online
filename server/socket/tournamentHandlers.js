@@ -101,7 +101,7 @@ const STAYS_PUT = new Set(['Already in a tournament', 'Already in a lobby', 'Alr
 /**
  * Join an existing tournament
  */
-async function joinTournament(socket, io, data) {
+async function joinTournament(socket, io, data, { resolved = false } = {}) {
     require('./playAgain').endLingering(io, socket.id, 'joinTournament');
     const { tournamentId } = data;
     if (!tournamentId) {
@@ -110,6 +110,23 @@ async function joinTournament(socket, io, data) {
     }
 
     const result = gameManager.joinTournament(socket.id, tournamentId);
+    // LIVE_PERSIST=on (deploy survival PR 6): a tournament another instance
+    // saved is adopted here, or the socket parks while one still holds it
+    // (never "not found" then); gone: today's failure below
+    if (!result.success && result.error === 'Tournament not found' && !resolved && pointerResolve.active() &&
+        gameManager.getUserBySocketId(socket.id)) {
+        return pointerResolve.resolveTournamentThen(socket, tournamentId, 'joinTournament', {
+            onTournament: () => joinTournament(socket, io, data, { resolved: true }),
+            onGone: () => joinTournament(socket, io, data, { resolved: true })
+        });
+    }
+    // LIVE_PERSIST=on, this process handing its tournaments off (they are
+    // gone from memory already): no "not found", no pointer clear; the
+    // socket closes with io.close and the client restores on the successor
+    if (!result.success && result.error === 'Tournament not found' && pointerResolve.holdsPointers()) {
+        socketLogger.info('joinTournament during the handoff: no answer', { socketId: socket.id, tournamentId });
+        return;
+    }
     if (!result.success) {
         emitError(socket, { message: result.error }, 'joinTournament');
         // An active member of another tournament (or a lobby seat or game:
@@ -348,6 +365,10 @@ async function beginTournament(socket, io) {
         return;
     }
 
+    // A restored lobby (deploy survival PR 6): members not back since the
+    // restore leave now (tournamentPlayerLeft each, pointer cleared scoped)
+    if (tournament.restored) require('../game/persist/restoreTournament').dropLobbyGhosts(io, tournament);
+
     // Flip the phase (and the start generation) synchronously before any
     // awaits so a double-click or retry can't pass the phase guard and start
     // round 1 twice, and so a cancel during the writes is noticed.
@@ -526,6 +547,9 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
     // already did; deletion stripped the mappings, so no tournament
     // follow-up runs) and stop
     const stop = () => {
+        // Handed off (deploy survival PR 6): the tables are frozen and saved
+        // for the successor, never aborted here
+        if (tournament.frozen) return false;
         for (const { game } of tables) {
             if (game.isTerminal()) continue;
             abortGame(io, game, 'Tournament cancelled').catch(err =>
@@ -743,11 +767,19 @@ function tournamentChat(socket, io, data) {
 /**
  * Spectate a tournament (join tournament room to see games list)
  */
-function spectateTournament(socket, io, data) {
+function spectateTournament(socket, io, data, { resolved = false } = {}) {
     require('./playAgain').endLingering(io, socket.id, 'spectateTournament');
     const { tournamentId } = data;
     const tournament = gameManager.getTournamentById(tournamentId);
     if (!tournament) {
+        // LIVE_PERSIST=on (PR 6): adopted here, or parked while another
+        // instance holds it
+        if (!resolved && tournamentId && pointerResolve.active() && gameManager.getUserBySocketId(socket.id)) {
+            return pointerResolve.resolveTournamentThen(socket, tournamentId, 'spectateTournament', {
+                onTournament: () => spectateTournament(socket, io, data, { resolved: true }),
+                onGone: () => emitError(socket, { message: 'Tournament not found' }, 'spectateTournament')
+            });
+        }
         emitError(socket, { message: 'Tournament not found' }, 'spectateTournament');
         return;
     }
@@ -795,10 +827,10 @@ function spectateTournamentGame(socket, io, data, { resolved = false } = {}) {
     const user = gameManager.getUserBySocketId(socket.id);
     const game = gameManager.getGameVisibleTo(gameId, user?.username);
     if (!game) {
-        // LIVE_PERSIST=on: as joinAsSpectator (pointerResolve). Spectating
-        // only: a tournament table is adopted with its tournament (PR 6);
-        // until then another live instance's table answers pending, and a
-        // doc nobody can adopt is gone once its owner is
+        // LIVE_PERSIST=on: as joinAsSpectator (pointerResolve). A
+        // tournament table is adopted with its tournament (PR 6: resolve
+        // adopts the tournament first); another live instance's table
+        // answers pending, and a doc nobody can adopt is gone
         if (!resolved && user && pointerResolve.active() && !gameManager.getGameById(gameId)) {
             return pointerResolve.resolveThen(socket, gameId, 'spectateTournamentGame', {
                 onGame: () => spectateTournamentGame(socket, io, data, { resolved: true }),
@@ -898,7 +930,7 @@ async function cancelTournament(socket, io) {
 /**
  * Return to tournament lobby from game/spectating
  */
-function returnToTournament(socket, io) {
+function returnToTournament(socket, io, data, { resolved = false } = {}) {
     let tournament = gameManager.getPlayerTournament(socket.id);
 
     // Tournament spectators aren't in playerTournaments
@@ -916,6 +948,24 @@ function returnToTournament(socket, io) {
         const user = gameManager.getUserBySocketId(socket.id);
         if (user) {
             tournament = gameManager.reattachTournamentPlayer(socket.id, user.username);
+        }
+    }
+
+    if (!tournament && !resolved && pointerResolve.active()) {
+        // LIVE_PERSIST=on (deploy survival PR 6): nothing in memory; a
+        // tournament another instance saved with this user a member is
+        // adopted here (or the socket parks while one still holds it)
+        const user = gameManager.getUserBySocketId(socket.id);
+        if (user) {
+            return (async () => {
+                const tid = await require('../game/persist/liveStore').getLiveStore().savedTournamentOf(user.username);
+                if (!pointerResolve.isLive(socket)) return;
+                if (!tid) return returnToTournament(socket, io, data, { resolved: true });
+                return pointerResolve.resolveTournamentThen(socket, tid, 'returnToTournament', {
+                    onTournament: () => returnToTournament(socket, io, data, { resolved: true }),
+                    onGone: () => returnToTournament(socket, io, data, { resolved: true })
+                });
+            })();
         }
     }
 
@@ -1036,10 +1086,10 @@ async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGam
 
     if (result.roundComplete) {
         await broadcastRoundOutcome(io, tournament);
-        // Everyone may be gone already (that's often why the game aborted)
-        if (tournament.getConnectedPlayerCount() === 0) {
-            gameManager.deleteTournament(tournament.tournamentId);
-        }
+        // Everyone may be gone already (that's often why the game aborted);
+        // a restored tournament's ghosts count as present while its
+        // restored abandon holds it (deploy survival PR 6)
+        gameManager.deleteTournamentIfAbandoned(tournament);
     }
 
     socketLogger.info('Aborted tournament game resolved', {
@@ -1064,6 +1114,8 @@ module.exports = {
     spectateTournamentGame: pointerResolve.tracked(spectateTournamentGame),
     returnToTournament,
     broadcastRoundOutcome,
+    rollbackRound,
+    cancelTournamentCleanup,
     handleAbortedTournamentGame,
     scheduleTournamentCleanup,
     _resetCleanupTimersForTests
