@@ -220,9 +220,10 @@ enum AssistRules {
     }
 
     /// The dim private log row (never sent): "Help: Play 9♦ (only you see this)"; the
-    /// tutorial's own replies (a /tutorial status, e.g. "Tips off. ...") are "Tutorial: ...".
-    static func logLine(_ h: AssistHint) -> String {
-        "\(h.isTutorial ? TutorialRules.rowLabel : "Help"): \(h.headline) (only you see this)"
+    /// tutorial's own replies (a /tutorial status, e.g. "Tips off. ...") are "Tutorial: ...",
+    /// whose note `note` decides (the log's first tutorial row only: TableReducer.tutorialNote).
+    static func logLine(_ h: AssistHint, note: Bool = true) -> String {
+        "\(h.isTutorial ? TutorialRules.rowLabel : "Help"): \(h.headline)\(note || !h.isTutorial ? TutorialRules.privateNote : "")"
     }
 
     /// What VoiceOver hears: the headline and the main reason (the last one: the first is the

@@ -99,6 +99,9 @@ struct PlayersSlice: Equatable {
 struct LogSlice: Equatable {
     var entries: [ChatMessage] = []
     var unread = 0
+    /// This log has a tutorial row: later ones leave off "(only you see this)" (a new log, e.g.
+    /// a snapshot's or the next table's, or a relaunch, has the note on its first again).
+    var tutorialNoted = false
 }
 
 struct SyncState: Equatable {

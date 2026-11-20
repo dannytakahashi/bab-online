@@ -1699,7 +1699,8 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * A rule tip (assistHint source tutorial, kind tip): its log row
-   * ("Tutorial: ... (only you see this)") always, and a section at the top
+   * ("Tutorial: ..."; the log's first ends "(only you see this)", main.js
+   * tutorialFeedRow) always, and a section at the top
    * of the card. ONE TIP CARD AT A TIME (state/tutorial.js shownTip): the
    * welcome while it is up, else the newest rule tip; a rule tip that comes
    * behind the welcome waits (kept, not drawn) and shows when the welcome

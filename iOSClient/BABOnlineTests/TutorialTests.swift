@@ -131,7 +131,7 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(store.state.table.tip?.tipId, "T.bid", "kept behind it")
         XCTAssertEqual(said, ["Tip: Tutorial on. \(UIFixture.welcomeText)"], "VoiceOver hears only the card shown")
         XCTAssertEqual(privateRows(store.state), ["Tutorial: \(UIFixture.welcomeText) (only you see this)",
-                                                  "Tutorial: \(bidText) (only you see this)"], "every tip is in the log")
+                                                  "Tutorial: \(bidText)"], "every tip is in the log (the note on the first only)")
         // the same tip again (a rejoin's welcome): no second row or announcement
         store.apply(welcome)
         XCTAssertEqual(said.count, 1)
@@ -192,6 +192,34 @@ final class TutorialTests: XCTestCase {
         XCTAssertNil(u.tutorialTip)
     }
 
+    func testOnlyTheLogsFirstTutorialRowSaysOnlyYouSeeThis() throws {
+        let store = GameState()
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        store.apply(state(on: true))
+        // a /help status first: its row keeps the note and leaves the tutorial's first its own
+        store.apply(T.ev("assistHint", ["v": 1, "source": "help", "kind": "status", "turnKey": bidKey,
+                                        "headline": "One moment: try again in a few seconds.", "reasons": [String](),
+                                        "uses": 0, "freeUses": 3, "assisted": false, "counted": false]))
+        store.apply(tip("T.trump", "Trump", "Trump this hand is hearts ♥."))
+        store.apply(tip("T.bid", "Bidding", bidText))
+        store.apply(T.ev("assistHint", ["v": 1, "source": "tutorial", "kind": "status", "turnKey": bidKey,
+                                        "headline": "Tips off. /help still works any time.", "reasons": [String](),
+                                        "uses": 0, "freeUses": 3, "assisted": false, "counted": false]))
+        XCTAssertEqual(privateRows(store.state), ["Help: One moment: try again in a few seconds. (only you see this)",
+                                                  "Tutorial: Trump this hand is hearts ♥. (only you see this)",
+                                                  "Tutorial: \(bidText)",
+                                                  "Tutorial: Tips off. /help still works any time."])
+        // a snapshot with its own log (a rejoin, a relaunch's): a new log, the note once again
+        store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertEqual(privateRows(store.state), [], "the server's log has no private rows")
+        store.apply(state(on: true))
+        store.apply(tip("T.lead", "Leading", "You lead: play any card."))
+        store.apply(tip("T.follow", "Following", "Follow the suit led if you can."))
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: You lead: play any card. (only you see this)",
+                                                  "Tutorial: Follow the suit led if you can."])
+    }
+
     func testMyOwnBidEndsTheRuleTipButNotTheWelcome() {
         var s = myBidTurn()
         TableReducer.reduce(&s, state(on: true))
@@ -218,7 +246,7 @@ final class TutorialTests: XCTestCase {
         // on the game-end screen a tip is its row only
         TableReducer.reduce(&t, tip("T.done", "Tutorial complete", "Thanks for playing with the tutorial. Type /help any time for a suggestion."))
         XCTAssertNil(t.table.tip)
-        XCTAssertEqual(privateRows(t).last, "Tutorial: Thanks for playing with the tutorial. Type /help any time for a suggestion. (only you see this)")
+        XCTAssertEqual(privateRows(t).last, "Tutorial: Thanks for playing with the tutorial. Type /help any time for a suggestion.")
     }
 
     func testTheTutorialsAdviceIsNeverCountedOrLogged() throws {
@@ -259,7 +287,7 @@ final class TutorialTests: XCTestCase {
         TableReducer.reduce(&s, T.ev("assistHint", ["v": 1, "source": "tutorial", "kind": "status", "turnKey": bidKey,
                                                     "headline": "Tips off. /help still works any time.", "reasons": [String](),
                                                     "uses": 0, "freeUses": 3, "assisted": false, "counted": false]))
-        XCTAssertEqual(privateRows(s).last, "Tutorial: Tips off. /help still works any time. (only you see this)")
+        XCTAssertEqual(privateRows(s).last, "Tutorial: Tips off. /help still works any time.", "the welcome's row had the note")
         XCTAssertFalse(privateRows(s).contains { $0.hasPrefix("Help:") })
     }
 
@@ -323,8 +351,11 @@ final class TutorialTests: XCTestCase {
         let off = try XCTUnwrap(AssistHint(WirePayload.AssistHint(source: "tutorial", kind: "status",
                                                                   headline: "Tips off. /help still works any time.")))
         XCTAssertEqual(AssistRules.logLine(off), "Tutorial: Tips off. /help still works any time. (only you see this)")
+        XCTAssertEqual(AssistRules.logLine(off, note: false), "Tutorial: Tips off. /help still works any time.")
+        XCTAssertEqual(TutorialRules.logLine(h, note: false), "Tutorial: Trump this hand is hearts ♥.")
         let help = try XCTUnwrap(AssistHint(WirePayload.AssistHint(source: "help", kind: "status", headline: "/help is for players only.")))
         XCTAssertEqual(AssistRules.logLine(help), "Help: /help is for players only. (only you see this)")
+        XCTAssertEqual(AssistRules.logLine(help, note: false), "Help: /help is for players only. (only you see this)", "/help's rows always")
         XCTAssertEqual(TutorialRules.announcement(h), "Tip: Trump. Trump this hand is hearts ♥.")
         XCTAssertEqual(TutorialRules.commandDescription(on: false), "Tutorial: tips and advice every turn")
         XCTAssertEqual(TutorialRules.commandDescription(on: true), "Turn off the tutorial")

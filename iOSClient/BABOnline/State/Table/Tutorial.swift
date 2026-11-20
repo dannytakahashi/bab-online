@@ -10,7 +10,8 @@ import Foundation
 //    counted: its footer has no count and it adds no log row (one per turn would flood the log).
 //  - assistHint {source 'tutorial', kind 'tip', tipId}: a rule tip (headline = its title,
 //    reasons = [its text]) in the neutral TutorialTipView above the answer, with a dim private
-//    log row "Tutorial: <text> (only you see this)". Not tied to the turn: up until closed, the
+//    log row "Tutorial: <text>" (the log's first tutorial row ends " (only you see this)":
+//    TableReducer.tutorialNote). Not tied to the turn: up until closed, the
 //    next tip, or my own bid or card. ONE TIP CARD AT A TIME (lead 2026-11-19; the stack pushed
 //    the advice below the fold): the welcome (T.welcome, `actions` keep / off) has its own slot
 //    with Keep / Turn off and priority while it is up, so a rule tip that comes meanwhile is
@@ -67,9 +68,15 @@ enum TutorialRules {
     /// /help's own rows keep "Help").
     static let rowLabel = "Tutorial"
 
-    /// The dim private log row of a tip (never sent): "Tutorial: <text> (only you see this)",
-    /// the title when a tip has no text. Every tip gets one, shown as a card or not.
-    static func logLine(_ h: AssistHint) -> String { "\(rowLabel): \(h.reasons.first ?? h.headline) (only you see this)" }
+    /// The note on a private row's end: /help's rows always, the tutorial's on a log's first
+    /// row only (owner 2026-11-19: once is enough; TableReducer.tutorialNote).
+    static let privateNote = " (only you see this)"
+
+    /// The dim private log row of a tip (never sent): "Tutorial: <text>", plus " (only you see
+    /// this)" with `note`; the title when a tip has no text. Every tip gets one, shown as a card or not.
+    static func logLine(_ h: AssistHint, note: Bool = true) -> String {
+        "\(rowLabel): \(h.reasons.first ?? h.headline)\(note ? privateNote : "")"
+    }
 
     /// What VoiceOver hears, once per tip: "Tip: Trump. Trump this hand is hearts ♥. ...".
     static func announcement(_ h: AssistHint) -> String {

@@ -67,6 +67,19 @@ describe('the tutorial after a reload', () => {
     expect(rows().at(-1)).toMatch(/^Tutorial: Win at least your combined bid.*\(only you see this\)$/);
   });
 
+  it('a later tutorial row is just "Tutorial: <text>" (the note on the log\'s first only); a /help row keeps it', () => {
+    page.socket.fire('assistHint', {
+      v: 1, source: 'tutorial', kind: 'tip', turnKey: 'k2', headline: 'Trump',
+      reasons: ['Trump this hand is hearts ♥.'],
+      uses: 0, freeUses: 3, assisted: false, counted: false, tipId: 'T.trump', unlimited: true,
+    });
+    replay.advance(50);
+    expect(rows().at(-1)).toBe('Tutorial: Trump this hand is hearts ♥.');
+    expect(rows().filter((r) => r.endsWith('(only you see this)') && r.startsWith('Tutorial: '))).toHaveLength(1);
+    window.addPrivateToGameFeed('Help: Lead A♣ (only you see this)');
+    expect(rows().at(-1)).toBe('Help: Lead A♣ (only you see this)');
+  });
+
   it('the chip\'s switch sends /tutorial off; the server\'s assistState off takes the chip and the tips down', () => {
     page.socket.clearEmits?.();
     chip().querySelector('.hud-tutorial__switch').click();
@@ -88,5 +101,9 @@ describe('the tutorial after a reload', () => {
     page.socket.fire('rejoinSuccess', rejoin({ uses: 0, freeUses: 3, assisted: false, unlimited: true }));
     replay.advance(100);
     expect(chip()?.hidden ?? true).toBe(true);
+    // the rejoin's new log: its first tutorial row has the note again, the next not
+    window.addPrivateToGameFeed('Tutorial: Tips off. /help still works any time. (only you see this)');
+    window.addPrivateToGameFeed('Tutorial: Tips off. /help still works any time. (only you see this)');
+    expect(rows().slice(-2)).toEqual(['Tutorial: Tips off. /help still works any time. (only you see this)', 'Tutorial: Tips off. /help still works any time.']);
   });
 });

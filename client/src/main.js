@@ -201,7 +201,7 @@ function withScene(fn, kind = 'table') {
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
 import { resetAssistUses, forgetAssistUses, noteAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
-import { resetTutorial, forgetTutorial, noteTutorialState } from './state/tutorial.js';
+import { resetTutorial, forgetTutorial, noteTutorialState, resetTutorialRows, tutorialFeedRow } from './state/tutorial.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -234,6 +234,8 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
       // false (the emit gate refused it, offline): the log keeps the draft
       onChatSubmit: (message) => (window.socket ? window.socket.emit('chatMessage', { message }) : false),
     });
+    // a new log: its first tutorial row says "(only you see this)" again
+    resetTutorialRows();
 
     // The log's grid column (--log-w) comes on
     setTableChrome(true);
@@ -275,9 +277,10 @@ window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = n
 };
 
 // The /help reply row only this page shows (never sent or stored;
-// GameScene.handleAssistHint)
+// GameScene.handleAssistHint); a tutorial row keeps "(only you see this)"
+// only as the log's first (tutorialFeedRow)
 window.addPrivateToGameFeed = function(message) {
-  if (message) gameLogInstance?.addPrivateMessage?.(message);
+  if (message && gameLogInstance?.addPrivateMessage) gameLogInstance.addPrivateMessage(tutorialFeedRow(message));
 };
 
 // A set hand's red fault row: the server's stored gameLogEntry with
@@ -1813,6 +1816,8 @@ function initializeApp() {
               // false (the emit gate refused it, offline): the log keeps the draft
               onChatSubmit: (message) => getSocketManager()?.socket?.emit('chatMessage', { message }) ?? false,
             });
+            // a new log: its first tutorial row says "(only you see this)" again
+            resetTutorialRows();
 
             // The log's grid column (--log-w) comes on
             setTableChrome(true);

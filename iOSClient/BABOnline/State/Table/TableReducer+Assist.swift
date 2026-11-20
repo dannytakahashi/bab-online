@@ -30,7 +30,7 @@ extension TableReducer {
         if h.kind == .status && h.isTutorial { s.table.tutorialOffSent = false }
         switch s.table.phase.kind {
         case .ended:
-            if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h)) }
+            if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h, note: !h.isTutorial || tutorialNote(&s))) }
             return
         case .none, .waiting, .draw:
             if h.kind == .status { fx.append(.infoNotice(h.headline)) }
@@ -54,7 +54,7 @@ extension TableReducer {
     /// Put a live answer up (the card, the glow or ring, the row, the announcement).
     /// The tutorial's advice adds no row: it comes on every decision while the tutorial is on.
     static func showAssist(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
-        if !(h.isTutorial && h.kind != .status) { addPrivateLog(&s, AssistRules.logLine(h)) }
+        if !(h.isTutorial && h.kind != .status) { addPrivateLog(&s, AssistRules.logLine(h, note: !h.isTutorial || tutorialNote(&s))) }
         s.table.assist = h
         fx.append(.announce(AssistRules.announcement(h)))
     }
@@ -110,7 +110,7 @@ extension TableReducer {
         let fresh = !s.table.tipsSeen.contains(key)
         if fresh {
             s.table.tipsSeen.insert(key)
-            addPrivateLog(&s, TutorialRules.logLine(h))
+            addPrivateLog(&s, TutorialRules.logLine(h, note: tutorialNote(&s)))
         }
         switch s.table.phase.kind {
         case .none, .waiting, .draw, .ended:
@@ -167,6 +167,13 @@ extension TableReducer {
     }
 
     /// A row only this device shows (never sent or stored), dim in the suggestion's gold.
+    /// For a tutorial row about to be written: is it the log's first (it alone ends "(only you
+    /// see this)"; /help's rows always do)? Marks the log.
+    static func tutorialNote(_ s: inout TableState) -> Bool {
+        defer { s.log.tutorialNoted = true }
+        return !s.log.tutorialNoted
+    }
+
     static func addPrivateLog(_ s: inout TableState, _ message: String) {
         var m = ChatMessage(username: "System", message: message, type: .system)
         m.isPrivate = true

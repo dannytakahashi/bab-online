@@ -273,9 +273,11 @@ final class TutorialUITests: XCTestCase {
         field.typeText("utorial off\n")
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
-        // the tip's row stays in the log (dim, private), and the off's reply is the tutorial's, not /help's
+        // the tip's row stays in the log (dim, private; the log's first tutorial row, so it alone
+        // has the note), and the off's reply is the tutorial's, not /help's
         XCTAssertTrue(app.staticTexts["Tutorial: Clubs were led: you must play a club if you have one. (only you see this)"].exists)
-        XCTAssertTrue(app.staticTexts["Tutorial: Tips off. /help still works any time. (only you see this)"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Tutorial: Tips off. /help still works any time."].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Tutorial: Tips off. /help still works any time. (only you see this)"].exists)
         XCTAssertFalse(app.staticTexts["Help: Tips off. /help still works any time. (only you see this)"].exists)
         field.tap()
         field.typeText("/t")

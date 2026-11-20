@@ -1323,6 +1323,7 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(head()).toBe('Bid 3');
     // every tip in the log, shown or not
     expect(rows.filter((r) => r.startsWith('Tutorial: '))).toHaveLength(3);
+    // (as built; the page's feed keeps the note on its first only: tutorial.test.js tutorialFeedRow)
     expect(rows.every((r) => r.endsWith('(only you see this)'))).toBe(true);
     // the announcer says only the card shown (and the advice)
     expect(said().filter((t) => t.startsWith('Tip: ')).map((t) => t.split('.')[0])).toEqual(['Tip: Tutorial on']);

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   TUTORIAL_CAP, TUTORIAL_COMMAND, resetTutorial, forgetTutorial, noteTutorialState, tutorialIsOn, tutorialIsAuto,
   tutorialDescription, chipVisible, isTipHint, tipText, isWelcomeTip, tipActions, tipActionCommand, tipLogLine,
-  tipAnnouncement, isRowOnlyTip, CHIP_LABEL, CHIP_OFF_LABEL, TIP_ACTION_LABEL,
+  tipAnnouncement, isRowOnlyTip, CHIP_LABEL, CHIP_OFF_LABEL, TIP_ACTION_LABEL, tutorialFeedRow, resetTutorialRows,
 } from './tutorial.js';
 
 const NAME_LINT = /\bteam ?[12]\b|\bT[12]\b|your team|other team|opponents?/i;
@@ -125,6 +125,23 @@ describe('tips', () => {
     expect(tipAnnouncement(tip())).toBe(`Tip: Trump. ${tip().reasons[0]}`);
     expect(tipLogLine({ kind: 'card' })).toBeNull();
     expect(tipAnnouncement({})).toBe('');
+  });
+
+  it('the feed: only a log\'s first tutorial row says "(only you see this)"; /help rows always do', () => {
+    const first = tipLogLine(welcome());
+    const help = 'Help: Play 9♦ (only you see this)';
+    expect(tutorialFeedRow(help)).toBe(help);
+    expect(tutorialFeedRow(first)).toBe(first);
+    expect(tutorialFeedRow(tipLogLine(tip()))).toBe(`Tutorial: ${tip().reasons[0]}`);
+    expect(tutorialFeedRow('Tutorial: Tips off. /help still works any time. (only you see this)')).toBe('Tutorial: Tips off. /help still works any time.');
+    expect(tutorialFeedRow(help)).toBe(help);
+    expect(tutorialFeedRow(null)).toBeNull();
+    // a new log (or leaving the table): the note again, once
+    resetTutorialRows();
+    expect(tutorialFeedRow(tipLogLine(tip()))).toBe(tipLogLine(tip()));
+    expect(tutorialFeedRow(tipLogLine(tip()))).toBe(`Tutorial: ${tip().reasons[0]}`);
+    forgetTutorial();
+    expect(tutorialFeedRow(tipLogLine(tip()))).toBe(tipLogLine(tip()));
   });
 
   it('the welcome (by id or by its actions) and the game-end tip (a row only)', () => {

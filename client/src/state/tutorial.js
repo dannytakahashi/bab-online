@@ -15,7 +15,8 @@
  *    tipId). A tip and the advice of the same decision arrive tip first, so
  *    the card shows both: the tip above the advice. One tip card at a time
  *    (shownTip): the welcome first, then the newest rule tip; every tip
- *    leaves its private row "Tutorial: <text> (only you see this)", and the
+ *    leaves its private row "Tutorial: <text>" (only a log's first such row
+ *    ends " (only you see this)": tutorialFeedRow), and the
  *    announcer says only the tip shown (one kept behind the welcome when it
  *    comes into view).
  *  - T.welcome carries actions ['keep', 'off']: Keep sends `/tutorial keep`
@@ -72,6 +73,7 @@ export function resetTutorial(gameId = null) {
 /** Left the table (or tests): off. */
 export function forgetTutorial() {
   state = blank();
+  resetTutorialRows();
 }
 
 /**
@@ -149,11 +151,40 @@ export function tipActionCommand(action) {
 export const TUTORIAL_ROW_LABEL = 'Tutorial';
 
 /**
- * The local log row (never sent): "Tutorial: <text> (only you see this)".
- * Every tip gets one, shown as a card or not (one tip card at a time).
+ * The local log row (never sent): "Tutorial: <text> (only you see this)"
+ * (the page's feed keeps the note on a log's first tutorial row only:
+ * tutorialFeedRow). Every tip gets one, shown as a card or not (one tip
+ * card at a time).
  */
 export function tipLogLine(hint) {
   return isTipHint(hint) ? `${TUTORIAL_ROW_LABEL}: ${tipText(hint)} (only you see this)` : null;
+}
+
+/** The note on a private row's end ("/help"'s always; the tutorial's on a log's first row only). */
+export const PRIVATE_ROW_NOTE = ' (only you see this)';
+
+// Has this log shown a tutorial row yet (the page's one log at the table)
+let tutorialRowNoted = false;
+
+/** A new log at the table (main.js showGameLog), or left the table: its first tutorial row has the note again. */
+export function resetTutorialRows() {
+  tutorialRowNoted = false;
+}
+
+/**
+ * A private row as the page's log writes it (main.js addPrivateToGameFeed;
+ * call it only for a row that is written): the first "Tutorial: ..." row of
+ * a log keeps " (only you see this)", later ones are just "Tutorial: <text>"
+ * (owner 2026-11-19: once is enough). /help's "Help: ..." rows are as built.
+ * @param {string} line
+ */
+export function tutorialFeedRow(line) {
+  if (typeof line !== 'string' || !line.startsWith(`${TUTORIAL_ROW_LABEL}: `)) return line;
+  if (!tutorialRowNoted) {
+    tutorialRowNoted = true;
+    return line;
+  }
+  return line.endsWith(PRIVATE_ROW_NOTE) ? line.slice(0, -PRIVATE_ROW_NOTE.length) : line;
 }
 
 /**
