@@ -101,6 +101,12 @@ extension UIFixture {
                            "winnerPlayers": ["ora", "🤖 Mary"], "loserPlayers": ["🤖 Lou", "🤖 Ann"]],
             "mostBags": ["bags": 9, "players": ["kim", "🤖 Bo"], "withBots": true],
             "leastBags": ["bags": 1, "players": ["ora", "🤖 Mary"], "withBots": true],
+            "superlatives": [
+                ["id": "bagBoy", "title": "Bag Boy", "names": ["kim"], "detail": "3.5 bags a game"],
+                ["id": "luckyDuck", "title": "Lucky Duck", "names": ["ora"], "detail": "138.4 avg HSI"],
+                ["id": "cursed", "title": "Cursed", "names": ["kim"], "detail": "102.6 avg HSI"],
+                ["id": "botFriends", "title": "Some of my best friends are bots", "names": ["ora"], "detail": "4 solo games"],
+            ],
         ]
         return ["success": true, "totalGames": 6, "periodGames": ["allTime": 6, "thisYear": 6, "thisMonth": 6],
                 "records": ["allTime": month, "thisYear": month, "thisMonth": month]]
@@ -151,6 +157,8 @@ extension UIFixture {
 
     /// All three periods: This Year from legacy games (no bag records), This Month empty; each
     /// period's count (periodGames) differs, as the owner expects when switching periods.
+    /// Superlatives (additive 2026-11-20): All Time has five (no botFriends: human games are
+    /// never solo), This Year three with a three-way tie whose detail names two more.
     static let recordsFixture: [String: Any] = [
         "success": true,
         "totalGames": 1234,
@@ -163,6 +171,14 @@ extension UIFixture {
                                "winnerPlayers": ["kim", "ora"], "loserPlayers": ["pat", "hal"]],
                 "mostBags": ["bags": 15, "players": ["kim", "ora"]],
                 "leastBags": ["bags": 0, "players": ["jon", "hal"]],
+                "superlatives": [
+                    ["id": "bagBoy", "title": "Bag Boy", "names": ["kim"], "detail": "2.4 bags a game"],
+                    ["id": "luckyDuck", "title": "Lucky Duck", "names": ["ora"], "detail": "141.2 avg HSI"],
+                    ["id": "cursed", "title": "Cursed", "names": ["jon"], "detail": "98.7 avg HSI"],
+                    ["id": "helpFromFriends", "title": "A little help from my friends", "names": ["ivy"],
+                     "detail": "37 /help uses"],
+                    ["id": "anchor", "title": "Anchor", "names": ["hal"], "detail": "31% of hands set"],
+                ],
             ],
             "thisYear": [
                 "highestScore": ["score": 545, "players": ["ora", "max"]],
@@ -171,6 +187,11 @@ extension UIFixture {
                                "winnerPlayers": ["kim", "ned"], "loserPlayers": ["jon", "hal"]],
                 "mostBags": NSNull(),
                 "leastBags": NSNull(),
+                "superlatives": [
+                    ["id": "bagBoy", "title": "Bag Boy", "names": ["hal", "kim", "ned"], "detail": "2.1 bags a game, +2 more"],
+                    ["id": "luckyDuck", "title": "Lucky Duck", "names": ["max"], "detail": "139.9 avg HSI"],
+                    ["id": "anchor", "title": "Anchor", "names": ["jon"], "detail": "27% of hands set"],
+                ],
             ],
             "thisMonth": NSNull(),
         ] as [String: Any],

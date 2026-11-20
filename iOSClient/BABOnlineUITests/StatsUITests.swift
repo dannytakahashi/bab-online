@@ -176,6 +176,17 @@ final class StatsUITests: XCTestCase {
                        "Biggest Win, 705 pt margin, 610 - -95, winners kim & ora, losers pat & hal")
         XCTAssertEqual(allTime.descendants(matching: .any)["records.Least Bags"].label, "Least Bags, 0 bags, jon & hal")
         keepScreenshot(app, "stats-records")
+        // superlatives (additive 2026-11-20): under the records, rendered from the reply alone
+        XCTAssertTrue(allTime.descendants(matching: .any)["records.superlatives"].exists, "the Superlatives header")
+        XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.bagBoy"].label, "Bag Boy, kim, 2.4 bags a game")
+        XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.helpFromFriends"].label,
+                       "A little help from my friends, ivy, 37 /help uses")
+        XCTAssertFalse(allTime.descendants(matching: .any)["records.superlative.botFriends"].exists, "absent from the reply")
+        let anchor = allTime.descendants(matching: .any)["records.superlative.anchor"]
+        for _ in 0..<4 where !anchor.isHittable { element(app, "records.list").swipeUp() }
+        keepScreenshot(app, "stats-records-superlatives")
+        element(app, "records.list").swipeDown()
+        element(app, "records.list").swipeDown()
         // owner 2026-11-14: each period says its own count (the one total never changed)
         XCTAssertEqual(countLabel(app, "thisYear", title: "This Year"), "317 games played")
         if picker.exists { keepScreenshot(app, "stats-records-this-year") }
@@ -185,8 +196,18 @@ final class StatsUITests: XCTestCase {
         let thisYear = element(app, "records.period.thisYear")
         XCTAssertEqual(thisYear.descendants(matching: .any)["records.Most Bags"].label, "Most Bags, no games yet",
                        "legacy games have no bag records")
+        XCTAssertEqual(thisYear.descendants(matching: .any)["records.superlative.bagBoy"].label,
+                       "Bag Boy, hal, kim, ned, 2.1 bags a game, +2 more", "a tie: names joined with commas")
+        if picker.exists {
+            let yearAnchor = thisYear.descendants(matching: .any)["records.superlative.anchor"]
+            for _ in 0..<4 where !yearAnchor.isHittable { element(app, "records.list").swipeUp() }
+            keepScreenshot(app, "stats-records-this-year-superlatives")
+            element(app, "records.list").swipeDown()
+            element(app, "records.list").swipeDown()
+        }
         showPeriod(app, "This Month")
         let thisMonth = element(app, "records.period.thisMonth")
+        XCTAssertFalse(thisMonth.descendants(matching: .any)["records.superlatives"].exists, "no games: no Superlatives section")
         XCTAssertTrue(thisMonth.staticTexts["This Month"].exists)
         XCTAssertTrue(thisMonth.staticTexts["No games yet"].exists, "a period without games")
         if picker.exists { keepScreenshot(app, "stats-records-this-month") }

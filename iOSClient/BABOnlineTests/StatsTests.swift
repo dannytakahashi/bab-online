@@ -194,6 +194,101 @@ final class StatsTests: XCTestCase {
         XCTAssertEqual(GameRecords.from(response: ["success": true])?.periods.count, 0, "no records object: three empty periods")
     }
 
+    // MARK: - Superlatives (recordsPeriod.superlatives, additive 2026-11-20)
+
+    private func period(superlatives: Any?) -> [String: Any] {
+        var p = fullPeriod
+        if let superlatives { p["superlatives"] = superlatives }
+        return p
+    }
+
+    func testSuperlativesDecodeInOrder() throws {
+        let list: [Any] = [
+            ["id": "bagBoy", "title": "Bag Boy", "names": ["kim"], "detail": "2.4 bags a game"],
+            ["id": "luckyDuck", "title": "Lucky Duck", "names": ["ora"], "detail": "141.2 avg HSI"],
+            ["id": "cursed", "title": "Cursed", "names": ["jon"], "detail": "98.7 avg HSI"],
+            ["id": "botFriends", "title": "Some of my best friends are bots", "names": ["ora"], "detail": "23 solo games"],
+            ["id": "helpFromFriends", "title": "A little help from my friends", "names": ["ivy"], "detail": "37 /help uses"],
+            ["id": "anchor", "title": "Anchor", "names": ["hal", "jon", "kim"], "detail": "31% of hands set, +2 more"],
+        ]
+        let r = try XCTUnwrap(GameRecords.from(response: ["success": true, "records": ["allTime": period(superlatives: list)]]))
+        let s = try XCTUnwrap(r.periods[.allTime]).superlatives
+        XCTAssertEqual(s.map(\.id), ["bagBoy", "luckyDuck", "cursed", "botFriends", "helpFromFriends", "anchor"],
+                       "the server's order")
+        XCTAssertEqual(s[0], GameRecords.Superlative(id: "bagBoy", title: "Bag Boy", names: ["kim"], detail: "2.4 bags a game"))
+        XCTAssertEqual(s[5].namesLine, "hal, jon, kim", "ties joined with commas")
+        XCTAssertEqual(s[5].spoken, "Anchor, hal, jon, kim, 31% of hands set, +2 more")
+        XCTAssertEqual(s[3].spoken, "Some of my best friends are bots, ora, 23 solo games")
+        XCTAssertEqual(RecordRow.rows(try XCTUnwrap(r.periods[.allTime])).count, 5, "the five records are unchanged")
+    }
+
+    func testSuperlativesAbsentOrNotAnArray() throws {
+        let reply: [String: Any] = ["success": true, "records": [
+            "allTime": period(superlatives: nil),
+            "thisYear": period(superlatives: NSNull()),
+            "thisMonth": period(superlatives: ["id": "bagBoy", "title": "Bag Boy", "names": ["kim"]]),
+        ] as [String: Any]]
+        let r = try XCTUnwrap(GameRecords.from(response: reply))
+        for p in GameRecords.Period.allCases {
+            XCTAssertEqual(r.periods[p]?.superlatives, [], "\(p): no superlatives section")
+            XCTAssertNotNil(r.periods[p]?.highestScore, "\(p): the records still decode")
+        }
+        XCTAssertEqual(GameRecords.from(response: ["success": true, "records": ["allTime": period(superlatives: [Any]())]])?
+            .periods[.allTime]?.superlatives, [])
+    }
+
+    func testSuperlativesSkipMalformedEntries() throws {
+        let list: [Any] = [
+            "garbled",
+            NSNull(),
+            ["id": "noTitle", "names": ["kim"], "detail": "x"],
+            ["id": "emptyTitle", "title": "", "names": ["kim"]],
+            ["id": "noNames", "title": "No Names", "detail": "x"],
+            ["id": "emptyNames", "title": "Empty Names", "names": [Any]()],
+            ["id": "badNames", "title": "Bad Names", "names": "kim"],
+            ["id": "onlyJunkNames", "title": "Junk", "names": [3, "", NSNull()] as [Any]],
+            ["id": "luckyDuck", "title": "Lucky Duck", "names": ["ora", 7, ""] as [Any], "detail": "141.2 avg HSI"],
+            ["title": "No Id", "names": ["max"], "detail": 12] as [String: Any],
+            ["id": "luckyDuck", "title": "Lucky Duck again", "names": ["kim"], "detail": "dup"],
+            ["id": 5, "title": "Numeric Id", "names": ["ned"]] as [String: Any],
+        ]
+        let r = try XCTUnwrap(GameRecords.from(response: ["success": true, "records": ["allTime": period(superlatives: list)]]))
+        let s = try XCTUnwrap(r.periods[.allTime]).superlatives
+        XCTAssertEqual(s, [
+            .init(id: "luckyDuck", title: "Lucky Duck", names: ["ora"], detail: "141.2 avg HSI"),
+            .init(id: "No Id", title: "No Id", names: ["max"], detail: ""),
+            .init(id: "Numeric Id", title: "Numeric Id", names: ["ned"], detail: ""),
+        ], "a bad entry is skipped, never failing the reply; a repeated id keeps its first entry")
+        XCTAssertEqual(s[1].spoken, "No Id, max", "no detail: nothing after the names")
+    }
+
+    func testSuperlativesUnknownIdRendersTheSameWay() throws {
+        let list: [Any] = [["id": "nightOwl", "title": "Night Owl", "names": ["ivy", "ned"], "detail": "12 games after midnight",
+                            "extra": ["ignored": true]] as [String: Any]]
+        let r = try XCTUnwrap(GameRecords.from(response: ["success": true, "records": ["thisMonth": period(superlatives: list)]]))
+        let s = try XCTUnwrap(r.periods[.thisMonth]?.superlatives.first)
+        XCTAssertEqual(s, .init(id: "nightOwl", title: "Night Owl", names: ["ivy", "ned"], detail: "12 games after midnight"))
+        XCTAssertEqual(s.namesLine, "ivy, ned")
+        XCTAssertEqual(s.spoken, "Night Owl, ivy, ned, 12 games after midnight")
+    }
+
+    func testSuperlativesReachTheRecordsState() throws {
+        let suite = "superlatives-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let state = RecordsState(send: { _ in }, defaults: defaults)
+        XCTAssertEqual(state.scope, .human)
+        state.request()
+        state.apply(response: UIFixture.recordsFixture)
+        let value = try XCTUnwrap(state.load.value)
+        XCTAssertEqual(value.periods[.allTime]?.superlatives.map(\.id),
+                       ["bagBoy", "luckyDuck", "cursed", "helpFromFriends", "anchor"])
+        XCTAssertEqual(value.periods[.thisYear]?.superlatives.first?.namesLine, "hal, kim, ned")
+        XCTAssertNil(value.periods[.thisMonth], "no games this month: no card content, no superlatives")
+        let bots = try XCTUnwrap(GameRecords.from(response: UIFixture.botsRecordsFixture))
+        XCTAssertEqual(bots.periods[.thisMonth]?.superlatives.map(\.id), ["bagBoy", "luckyDuck", "cursed", "botFriends"])
+    }
+
     // MARK: - Request state
 
     func testOneRequestInFlightAndReplies() {
