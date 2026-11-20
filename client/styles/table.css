@@ -123,9 +123,11 @@
 }
 
 /* the seat's bid: a chip on the avatar's top right (text from data-bid, so
-   the seat's text stays its name) */
+   the seat's text stays its name). Above the turn glow (the ring's ::after
+   paints over z-index-less siblings), as the pips are */
 .hud-bid-chip {
     position: absolute;
+    z-index: 1;
     top: calc(-2px * var(--s, 1));
     right: calc(-6px * var(--s, 1));
     display: none;
@@ -160,6 +162,7 @@
    without the tooltip (touch has none). */
 .hud-pips {
     position: absolute;
+    z-index: 1;
     left: 50%;
     bottom: calc(-3px * var(--s, 1));
     transform: translateX(-50%);
