@@ -1732,10 +1732,10 @@ function initializeApp() {
             }
           }
 
-          // Show game log trick indicator as cards are dealt
-          if (gameLogInstance && gameLogInstance.showTrickIndicator && data.hand) {
-            gameLogInstance.showTrickIndicator(data.hand.length);
-          }
+          // The game log's bid chips row, as the cards are dealt: for every
+          // role by the deal's size (a spectator's deal has no hand: its
+          // row used to come only with a refresh, owner 2026-11-19)
+          gameLogInstance?.showTrickIndicator?.(data.currentHand || data.hand?.length || gameState.currentHand);
         };
         director.afterTransition(showCards);
 
@@ -1979,6 +1979,8 @@ function initializeApp() {
         director.settleDeal();
         scene.handleDestroyHands(data);
       });
+      // the all-zero redeal: its bids are gone (the redeal's gameStart redraws the row)
+      gameLogInstance?.updateTrickIndicator?.();
     },
     // Error & connection handlers
     onAbortGame: (data) => {

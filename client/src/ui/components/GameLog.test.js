@@ -238,6 +238,42 @@ describe('createGameLog', () => {
     resetGameState();
   });
 
+  it('a spectator (no seat) reads the row from seat 1: seats 1/3 blue first, never coral, as the score', () => {
+    resetGameState();
+    const state = getGameState();
+    state.isSpectator = true;
+    state.position = null;
+    state.bids = { 1: '2', 2: '3', 3: '1', 4: '2' };
+    gameLog = createGameLog();
+    gameLog.showTrickIndicator(13);
+    const chips = [...gameLog.container.querySelectorAll('.log-chip')];
+    expect(chips).toHaveLength(13);
+    expect(chips.slice(0, 3).every((c) => c.classList.contains('is-team-a') && c.classList.contains('is-team'))).toBe(true);
+    expect(chips.slice(3, 8).every((c) => c.classList.contains('is-team-b') && c.classList.contains('is-opp'))).toBe(true);
+    gameLog.updateFullScore('Ann/Cat', 'Bob/Dan', 0, 0);
+    expect(gameLog.container.querySelector('#teamScoreDisplay').classList.contains('is-team-a')).toBe(true);
+    expect(gameLog.container.querySelector('#oppScoreDisplay').classList.contains('is-team-b')).toBe(true);
+    resetGameState();
+  });
+
+  it('no hand size (a deal without a hand, 0): the row is hidden, never an empty bar; a size draws it', () => {
+    resetGameState();
+    getGameState().position = 1;
+    gameLog = createGameLog();
+    const section = gameLog.container.querySelector('.log-tricks');
+    gameLog.showTrickIndicator(0);
+    expect(section.hidden).toBe(true);
+    gameLog.showTrickIndicator(undefined);
+    expect(section.hidden).toBe(true);
+    gameLog.showTrickIndicator(5);
+    expect(section.hidden).toBe(false);
+    expect(section.querySelectorAll('.log-chip')).toHaveLength(5);
+    gameLog.showTrickIndicator(0);
+    expect(section.hidden).toBe(true);
+    expect(section.querySelectorAll('.log-chip')).toHaveLength(0);
+    resetGameState();
+  });
+
   it('a bore fills the hand for its team (rules/bids.js), not 0', () => {
     resetGameState();
     const state = getGameState();
