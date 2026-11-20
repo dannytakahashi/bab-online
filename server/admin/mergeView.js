@@ -54,6 +54,8 @@ function canonical(plan) {
         sourceAccounts: [...plan.sourceAccounts].sort(byId).map(s => ({ ...s, id: String(s.id), createdAt: iso(s.createdAt) })),
         profilePic: plan.profilePic,
         targetBlockedUsers: plan.targetBlockedUsers,
+        // the tutorial flag (only when it changes, so other plans hash as before)
+        ...(plan.tutorial ? { tutorial: plan.tutorial } : {}),
         gameRecords: [...plan.gameRecords].sort(byId).map(r => ({ ...r, id: String(r.id), completedAt: iso(r.completedAt) })),
         reports: [...plan.reports].sort(byId).map(r => ({ ...r, id: String(r.id) })),
         otherUsersBlocks: [...plan.otherUsersBlocks].sort(byId).map(u => ({ ...u, id: String(u.id) })),

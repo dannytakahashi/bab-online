@@ -5,7 +5,8 @@
  * a table: another human seat owner whose presence is not gone (connected,
  * in reconnect grace, a lazy or resigned owner watching or away), or a
  * spectator. Alone with bots, voice is not started at all; when another
- * human arrives it starts (muted, as every start is); when the last one
+ * human arrives it starts (muted, unless unmuted by hand earlier in this
+ * tab: voiceSessionMute.js); when the last one
  * leaves it stops after VOICE_ALONE_GRACE_MS, so a quick reconnect or step
  * away does not flap. docs/claude/voice.md, "No voice alone".
  *

@@ -11,10 +11,17 @@
  *                 counted)
  *   lastHelpKey   the game.turnKey() of the last counted use, so a re-ask
  *                 on that turn (also after a restore) is not counted again
- *   tutorial, auto, tutorialEver, tips
- *                 reserved for the tutorial (plan H5): saved now with their
- *                 defaults so that PR needs no second codec bump. Nothing
- *                 writes them yet
+ *   tutorial      the tutorial is on for this seat now (/tutorial,
+ *                 the auto-start; server/socket/assistHandlers.js)
+ *   auto          it was turned on by the auto-start (a new account's
+ *                 first game), not by the player; false again once off
+ *   tutorialEver  the tutorial was on at one of this seat's own decisions
+ *                 (or turned on by hand): the game counts as bot-assisted
+ *                 for the owner (plan D12; an auto-start turned off before
+ *                 the seat's first own decision never sets it)
+ *   tips          bitmask of the tutorial tips shown this game
+ *                 (server/game/assist/curriculum.js TIP bits: each topic
+ *                 once per game)
  *
  * Every write to a record must reach the persist store: /help increments
  * before its notice's addLogEntry (whose hook marks the game dirty); a
@@ -89,13 +96,19 @@ function normalizeAssist(assist) {
 
 /**
  * Has the seat owner `owner` made this game bot-assisted for themselves
- * (more than ASSIST_FREE_HELP counted /help uses)? A record that belongs to
- * someone else (a.user is not the owner) never counts.
+ * (more than ASSIST_FREE_HELP counted /help uses, or the tutorial:
+ * a.tutorialEver)? A record that belongs to someone else (a.user is not the
+ * owner) never counts.
  * @param {Object|null|undefined} a - one game.assist record
  * @param {string|null|undefined} owner - the seat's ownerUsername
  */
 function isAssistedSeat(a, owner) {
-    return !!a && !!owner && a.user === owner && a.help > ASSIST_FREE_HELP;
+    return !!a && !!owner && a.user === owner && (a.help > ASSIST_FREE_HELP || a.tutorialEver === true);
+}
+
+/** Did `owner` play with the tutorial in record `a` (a.tutorialEver, their own record)? */
+function usedTutorial(a, owner) {
+    return !!a && !!owner && a.user === owner && a.tutorialEver === true;
 }
 
 /** The counted /help uses of `owner` in record `a` (0 for someone else's record). */
@@ -139,9 +152,22 @@ function assistTally(a, owner, unlimited = false) {
     return { uses: helpUses(a, owner), freeUses: ASSIST_FREE_HELP, assisted: isAssistedSeat(a, owner) };
 }
 
+/**
+ * The tutorial's state of `owner`'s record as snapshot v2's viewer.assist
+ * adds it (2026-11-19, additive): `tutorial: true` (+ `auto: true` when the
+ * auto-start turned it on) only while it is on, else nothing, so a game
+ * without the tutorial keeps the payload it had.
+ */
+function tutorialTally(a, owner) {
+    if (!a || !owner || a.user !== owner || a.tutorial !== true) return {};
+    return a.auto === true ? { tutorial: true, auto: true } : { tutorial: true };
+}
+
 module.exports = {
     ASSIST_FREE_HELP,
     isAssistedSeat,
+    usedTutorial,
+    tutorialTally,
     isFreeHelpGame,
     helpUses,
     assistTally,

@@ -58,7 +58,11 @@ enum ClientHello {
     /// 6 to 11 sent only avatarUrl and stay "legacy" to the server. `assist` (the build after
     /// 1.2.3 (17)): the server answers this socket's /help with the private s2c `assistHint`
     /// (AssistCardView) instead of private plain-text game-log lines; builds <= 17 keep the lines.
-    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist"]
+    /// `tutorial` (the build after 20; $defs.clientCapTutorial): this build renders the
+    /// tutorial's rule tips (assistHint kind `tip`, the welcome's Keep / Turn off) and s2c
+    /// assistState (the "Tutorial on" chip), so the server may auto-start the tutorial in a new
+    /// account's first game (State/Table/Tutorial.swift); older builds never get the auto-start.
+    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial"]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

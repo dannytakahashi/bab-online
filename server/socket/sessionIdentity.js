@@ -132,10 +132,25 @@ async function releaseIdentity(io, socket, nextUsername) {
         delete socket.data.sessionHash;
         delete socket.data.blockedUsers;
         delete socket.data.superseded;
+        delete socket.data.tutorialFlag;
         socket.data.username = undefined;
     }
     authLogger.info('Socket switched accounts: previous identity released', { from: previous, to: nextUsername });
     return previous;
+}
+
+/**
+ * The account's tutorial flag on the socket (users.tutorial: 'pending' for
+ * a new account until it finishes a game, then 'done'; 'dismissed' once
+ * the player turned an auto-started tutorial off; absent on accounts made
+ * before the tutorial), set by signIn, signUp, restoreSession and a token
+ * rejoin, cleared with the other identity fields (releaseIdentity). Read
+ * by assistHandlers.autoStart; null when the account has none.
+ */
+function rememberTutorialFlag(socket, user) {
+    if (!socket || !socket.data) return;
+    const v = user && typeof user.tutorial === 'string' ? user.tutorial : null;
+    socket.data.tutorialFlag = v;
 }
 
 /**
@@ -330,6 +345,7 @@ function _resetOtherClosedTimers() {
 
 module.exports = {
     currentIdentity,
+    rememberTutorialFlag,
     belongsTo,
     releaseIdentity,
     markSuperseding,

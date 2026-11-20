@@ -39,6 +39,12 @@ enum LocalAction: Equatable {
     case assistAskLapsed
     /// The card's close button: my /help answer goes (the suggestion's glow and ring too).
     case assistDismissed
+    /// A rule tip's close button (local: the server is not told).
+    case tutorialTipDismissed
+    /// The welcome's Keep or close button (ActionCoordinator sent /tutorial keep or /tutorial close).
+    case tutorialWelcomeKept
+    /// The chip's switch or the welcome's Turn off (ActionCoordinator sent /tutorial off).
+    case tutorialOffSent
 }
 
 enum TableEffect: Equatable {
@@ -190,6 +196,7 @@ enum TableReducer {
             s.pending = PendingAction(submission: .play(card), reqId: reqId, key: currentKey(s))
             // my card is on its way: the /help card (and its glow) is done
             clearAssist(&s)
+            clearTip(&s)
             // the card shows in its slot now (TableRenderModel), so it sounds now, not a round
             // trip later with the echo (which then stays quiet; a rollback is rare)
             if s.table.phase.kind == .playing { fx.append(.sound(.card)) }
@@ -197,6 +204,7 @@ enum TableReducer {
             guard s.pending == nil, s.table.phase.isBidding else { return }
             s.pending = PendingAction(submission: .bid(bid.uppercased()), reqId: reqId, key: currentKey(s))
             clearAssist(&s)
+            clearTip(&s)
         case .ackTimeout(let reqId, let attempt):
             guard let p = s.pending, p.reqId == reqId else { return }
             if attempt < AckPolicy.maxResyncs {
@@ -232,6 +240,16 @@ enum TableReducer {
             s.table.assistAsking = false
         case .assistDismissed:
             clearAssist(&s)
+        case .tutorialTipDismissed:
+            clearTip(&s)
+        case .tutorialWelcomeKept:
+            welcomeGone(&s, &fx)
+        case .tutorialOffSent:
+            // every tip goes (a rule tip behind the welcome does not come up for the moment
+            // until the server's assistState: its row is in the log)
+            s.table.welcome = nil
+            clearTip(&s)
+            s.table.tutorialOffSent = true
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer
             // whichever request it was: a gap request suppressed behind this one

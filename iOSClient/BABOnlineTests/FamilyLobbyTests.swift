@@ -370,6 +370,8 @@ final class MutedStartVoiceTests: XCTestCase {
         var prompts = 0
         var notes: [String] = []
         let device = SilentAudioDevice()
+        /// iOS's record permission: allowed once a prompt said yes (`micAllowed` sets it first).
+        var micAllowed = false
     }
 
     private var managers: [VoiceChatManager] = []
@@ -380,7 +382,13 @@ final class MutedStartVoiceTests: XCTestCase {
     }
 
     private func make(_ wire: Wire, permission: @escaping @MainActor () async -> Bool = { true }) -> VoiceChatManager {
-        let m = VoiceChatManager.silent(requestRecordPermission: { wire.prompts += 1; return await permission() },
+        let m = VoiceChatManager.silent(requestRecordPermission: {
+                                            wire.prompts += 1
+                                            let granted = await permission()
+                                            if granted { wire.micAllowed = true }
+                                            return granted
+                                        },
+                                        recordPermissionGranted: { wire.micAllowed },
                                         sendOffer: { to, sdp, _ in wire.offers.append((to, sdp)) },
                                         sendAnswer: { to, sdp in wire.answers.append((to, sdp)) },
                                         notify: { wire.notes.append($0) },
@@ -571,20 +579,168 @@ final class MutedStartVoiceTests: XCTestCase {
         XCTAssertFalse(a.isActive)
     }
 
-    /// Every voice session starts muted; an unmuted state never carries into a new one.
-    func testANewSessionStartsMutedAgain() async throws {
+    /// With the microphone not allowed any more at the next start (taken back in Settings), a
+    /// manual unmute earlier does not carry: that session starts muted, as before 2026-11-19,
+    /// and its first unmute asks.
+    func testANewSessionStartsMutedWithoutTheMicAllowed() async throws {
         let w = Wire()
         let a = make(w)
         try await a.initialize()
         a.toggleSelfMute()
         try await waitUntil("unmuted") { !a.isSelfMuted }
         a.shutdown()
+        w.micAllowed = false
         try await a.initialize()
         XCTAssertTrue(a.isSelfMuted)
         XCTAssertEqual(a.localTrackEnabled, false, "a new, disabled track")
         a.toggleSelfMute()
         try await waitUntil("unmuted again") { !a.isSelfMuted }
-        XCTAssertEqual(w.prompts, 2, "each session's first unmute asks (iOS answers at once once answered)")
+        XCTAssertEqual(w.prompts, 2, "that session's first unmute asks")
+    }
+
+    /// Owner 2026-11-19: "once you unmute in a session it should stay unmuted". The app run's
+    /// first start is muted even with the mic allowed; after an unmute by hand every later start
+    /// (a new lobby or table, voice back after company returns: shutdown or suspend, then
+    /// initialize) starts unmuted with no prompt and its calls send the mic from the first offer.
+    func testAfterAnUnmuteByHandTheNextSessionStartsUnmuted() async throws {
+        let w = Wire()
+        w.micAllowed = true  // allowed in an earlier app run
+        let a = make(w)
+        try await a.initialize()
+        XCTAssertTrue(a.isSelfMuted, "the app run's first start is muted")
+        XCTAssertEqual(a.localTrackEnabled, false)
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        XCTAssertTrue(a.sessionUnmuted)
+        a.shutdown()
+        XCTAssertTrue(a.isSelfMuted, "muted while nothing runs")
+        try await a.initialize()
+        XCTAssertFalse(a.isSelfMuted, "a new lobby or table: unmuted")
+        XCTAssertEqual(a.localTrackEnabled, true)
+        a.toggleSelfMute()
+        XCTAssertTrue(a.isSelfMuted, "the mic is allowed: a mute is immediate")
+        a.toggleSelfMute()
+        XCTAssertFalse(a.isSelfMuted, "and the unmute too")
+        XCTAssertEqual(w.prompts, 1, "only the first unmute asked")
+        // voice back after company returns (the gate's suspend, then a start)
+        a.suspend()
+        try await a.initialize()
+        XCTAssertFalse(a.isSelfMuted)
+        // the calls of that session send the enabled track from their first offer
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("A's offer") { w.offers.count == 1 }
+        XCTAssertTrue(a.sendsMic(to: "B"))
+        XCTAssertEqual(a.localTrackEnabled, true)
+        XCTAssertEqual(audioDirection(w.offers[0].sdp), "sendrecv")
+    }
+
+    /// A mute by hand holds the same way: the next session starts muted, asks nothing, and its
+    /// next unmute is immediate (the mic is allowed).
+    func testAMuteByHandHoldsForTheNextSession() async throws {
+        let w = Wire()
+        let a = make(w)
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        a.toggleSelfMute()
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertFalse(a.sessionUnmuted)
+        a.shutdown()
+        try await a.initialize()
+        XCTAssertTrue(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false)
+        XCTAssertEqual(w.prompts, 1)
+    }
+
+    /// Sign Out (or forceLogout, a deleted account, a failed restore): the unmute by hand was
+    /// that person's, so the next account's first start in this app run is muted with the mic
+    /// allowed (iOS mic permission is per app); its first unmute asks as every session's does
+    /// (iOS answers at once, with no prompt shown, once allowed).
+    func testASignOutForgetsTheUnmuteForTheNextAccount() async throws {
+        let w = Wire()
+        w.micAllowed = true
+        let a = make(w)
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        XCTAssertTrue(a.sessionUnmuted)
+        a.shutdown()
+        a.forgetSessionMute()
+        XCTAssertFalse(a.sessionUnmuted)
+        try await a.initialize()
+        XCTAssertTrue(a.isSelfMuted, "the next account starts muted")
+        XCTAssertEqual(a.localTrackEnabled, false)
+        a.toggleSelfMute()
+        try await waitUntil("the next account unmutes") { !a.isSelfMuted }
+        XCTAssertEqual(a.localTrackEnabled, true)
+        XCTAssertTrue(a.sessionUnmuted, "its own choice now holds for its session")
+    }
+
+    /// A reconnect that kept voice running (a new socket id): the server listed a peer again
+    /// (reconnectOwner, /active from the watch view) while the call with it was signaled from the
+    /// old socket, which the peer dropped. The list makes a new call and offers from the new
+    /// socket; the same list on the same socket changes nothing (live check 2026-11-19 on the web).
+    func testAPeerListedAgainAfterAReconnectGetsANewCall() async throws {
+        let w = Wire()
+        var sid: String? = "sock-a"
+        let a = VoiceChatManager.silent(sendOffer: { to, sdp, _ in w.offers.append((to, sdp)) },
+                                        socketId: { sid },
+                                        audioDevice: w.device)
+        managers.append(a)
+        try await a.initialize()
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("the first offer") { w.offers.count == 1 }
+        a.connectToPeer("B", username: "bob")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(w.offers.count, 1, "the same socket: already connected")
+        sid = "sock-a2"
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("an offer from the new socket") { w.offers.count == 2 }
+        XCTAssertEqual(w.offers[1].to, "B")
+        XCTAssertTrue(a.sendsMic(to: "B"), "the new call carries the local track")
+    }
+
+    /// A refused unmute leaves nothing to resume; a mute during the prompt wins for the session.
+    func testARefusalOrAMuteDuringThePromptLeavesTheSessionMuted() async throws {
+        let w = Wire()
+        let a = make(w, permission: { false })
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("refused") { a.micPermissionDenied }
+        XCTAssertFalse(a.sessionUnmuted)
+
+        let w2 = Wire()
+        var release: CheckedContinuation<Bool, Never>?
+        let b = make(w2, permission: { await withCheckedContinuation { release = $0 } })
+        try await b.initialize()
+        b.toggleSelfMute()
+        try await waitUntil("the prompt") { release != nil }
+        b.toggleSelfMute()  // a mute while it is up
+        release?.resume(returning: true)
+        try await waitUntil("answered") { !b.micRequestInFlight }
+        XCTAssertTrue(b.isSelfMuted)
+        XCTAssertFalse(b.sessionUnmuted)
+        b.shutdown()
+        try await b.initialize()
+        XCTAssertTrue(b.isSelfMuted, "the next session too")
+    }
+
+    /// A resumed unmute while the app is in the background: the mic stays off until the
+    /// foreground, then sends.
+    func testAResumedUnmuteInTheBackgroundWaitsForTheForeground() async throws {
+        let w = Wire()
+        let a = make(w)
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        a.shutdown()
+        a.handleBackground()
+        defer { a.handleForeground() }
+        try await a.initialize()
+        XCTAssertFalse(a.isSelfMuted)
+        XCTAssertEqual(a.localTrackEnabled, false, "no live mic in the background")
+        a.handleForeground()
+        XCTAssertEqual(a.localTrackEnabled, true)
     }
 
     /// An unmute while the app is in the background (a voiceSettings-free path, but the same

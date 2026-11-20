@@ -8,7 +8,9 @@
  *      the viewer's own /help count when the snapshot has it
  *      (viewer.assist: the chat autocomplete's exact "(n of 3 free used)"
  *      after a reload or rejoin, and its `unlimited` in a game with a
- *      native bot seat: no count at all; state/assistHint.js)
+ *      native bot seat: no count at all; state/assistHint.js), and
+ *      whether my tutorial is on (viewer.assist.tutorial: the "Tutorial
+ *      on" chip after a reload; state/tutorial.js)
  *   2. MyAction.reconcile (a pending bid/play is confirmed or rolled back);
  *      the table's sounds take it as their baseline (no sound plays)
  *   3. the caller's render (queued behind the scene if it is not ready)
@@ -23,6 +25,7 @@ import { getMyAction } from './MyAction.js';
 import { getSeqGate } from './SeqGate.js';
 import { getTableSounds } from '../audio/tableSounds.js';
 import { noteAssistUses } from './assistHint.js';
+import { noteTutorialState } from './tutorial.js';
 
 /**
  * The snapshot of a payload: its v2 `snapshot` when valid, else one built
@@ -60,6 +63,9 @@ export function applyTableSnapshot(payload, { source = 'other', role, render } =
   if (!snap) return null;
   getGameState().applySnapshot(snap, { players: Array.isArray(payload.players) ? payload.players : null });
   if (snap.viewer?.assist) noteAssistUses(snap.viewer.assist, snap.gameId);
+  // the tutorial: viewer.assist.tutorial / .auto, there only while it is on
+  // (a spectator's snapshot has no viewer.assist: off)
+  noteTutorialState(snap.viewer?.assist || { tutorial: false }, snap.gameId);
   const outcome = getMyAction().reconcile(snap, source);
   // silent: the table it shows (my turn included) is the baseline, not news
   getTableSounds().synced();

@@ -43,6 +43,7 @@ import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { getRestartNotice, LOSS } from './state/restartNotice.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
+import { forgetSessionMute } from './voice/voiceSessionMute.js';
 
 // UI Components
 import { showToast, showError, showSuccess, showWarning, showInfo, showNotice, TOAST_SHORT } from './ui/components/Toast.js';
@@ -200,7 +201,8 @@ function withScene(fn, kind = 'table') {
 
 // UI Components - Game Log
 import { showGameLog } from './ui/components/GameLog.js';
-import { resetAssistUses, forgetAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
+import { resetAssistUses, forgetAssistUses, noteAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
+import { resetTutorial, forgetTutorial, noteTutorialState, resetTutorialRows, tutorialFeedRow } from './state/tutorial.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
 import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
 
@@ -233,6 +235,8 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
       // false (the emit gate refused it, offline): the log keeps the draft
       onChatSubmit: (message) => (window.socket ? window.socket.emit('chatMessage', { message }) : false),
     });
+    // a new log: its first tutorial row says "(only you see this)" again
+    resetTutorialRows();
 
     // The log's grid column (--log-w) comes on
     setTableChrome(true);
@@ -242,23 +246,42 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
 
     if (!isReconnection) {
       gameLogInstance.addGameMessage('Game started!');
+      flushEarlyLogLines();
     }
   }
+  earlyLogLines = null;
 };
+
+// Lines that came between createUI and the log it creates after its fade
+// (the server's room lines right after createUI, e.g. the tutorial's
+// auto-start notice "<name> is playing with the tutorial."): kept and
+// written after the log's 'Game started!' (flushEarlyLogLines), never
+// dropped. Only while a createUI is pending; a replay of the server's log
+// (a rejoin) brings them itself, so they are forgotten there
+const EARLY_LOG_MAX = 20;
+let earlyLogLines = null;
+function flushEarlyLogLines() {
+  const lines = earlyLogLines || [];
+  earlyLogLines = null;
+  for (const [message, playerPosition, at] of lines) gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+}
 
 // Bridge for adding messages to game feed
 window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null) {
-  if (gameLogInstance && gameLogInstance.addGameMessage) {
+  if (gameLogInstance && gameLogInstance.addGameMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addGameMessage(message, playerPosition, at);
+  } else if (earlyLogLines && earlyLogLines.length < EARLY_LOG_MAX) {
+    earlyLogLines.push([message, playerPosition, at]);
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
 };
 
 // The /help reply row only this page shows (never sent or stored;
-// GameScene.handleAssistHint)
+// GameScene.handleAssistHint); a tutorial row keeps "(only you see this)"
+// only as the log's first (tutorialFeedRow)
 window.addPrivateToGameFeed = function(message) {
-  if (message) gameLogInstance?.addPrivateMessage?.(message);
+  if (message && gameLogInstance?.addPrivateMessage) gameLogInstance.addPrivateMessage(tutorialFeedRow(message));
 };
 
 // A set hand's red fault row: the server's stored gameLogEntry with
@@ -347,9 +370,11 @@ socket.io.on('reconnect', (attemptNumber) => {
 
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
-  // The tab's credentials go; the device's saved session stays
+  // The tab's credentials go; the device's saved session stays. So does
+  // this tab's voice unmute (whoever signs in next starts muted)
   safeSessionStorage().removeItem('username');
   safeSessionStorage().removeItem('sessionToken');
+  forgetSessionMute();
   session.clearIdentity();
   setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
@@ -671,7 +696,9 @@ function initializeApp() {
   // start, so a late answer draws no dead mute button (voiceLifecycle.js)
   const voiceLifecycle = createVoiceLifecycle({
     manager: voiceManager,
-    // every start is muted, no microphone prompt (the first unmute asks)
+    // no microphone prompt at a start: muted, or unmuted with the microphone
+    // already allowed once the person unmuted by hand in this tab
+    // (voice/voiceSessionMute.js); the first unmute asks
     connect: (opts) => voiceManager.initialize(socketMgr, opts),
     onStarted: () => showVoiceControls(),
     onUnavailable: (err) => {
@@ -736,7 +763,7 @@ function initializeApp() {
   gameState.onCompanyChange(() => voiceGate.update());
   session.onScreenChange(() => voiceGate.update());
 
-  /** This screen wants voice (muted at the start): it runs while another human is here. */
+  /** This screen wants voice (muted at the tab's first start): it runs while another human is here. */
   function startVoice() {
     voiceGate.want();
   }
@@ -818,7 +845,8 @@ function initializeApp() {
 
   /**
    * voiceSettings (a casual game's voice; private, to this capable tab only):
-   * role player, spectator (voice starts muted when not running: a lobby
+   * role player, spectator (voice starts when not running, muted unless
+   * unmuted by hand earlier in this tab: a lobby
    * extra's lobby session just carries on with its mute as it was) or none
    * (voice is full: watch and chat only). spectatorsCanTalk / canTalk /
    * canChange are always true / true / false now and not read.
@@ -915,8 +943,11 @@ function initializeApp() {
     director.reset();
     seqGate.reset();
     myAction.reset();
-    // this game's /help count is unknown from here (a rejoin learns it again)
+    // this game's /help count is unknown from here (a rejoin learns it again),
+    // and the tutorial off (a rejoin's assistState / snapshot says again)
     forgetAssistUses();
+    forgetTutorial();
+    earlyLogLines = null;
     getTableSounds().reset();
     const scene = getGameScene();
 
@@ -1040,19 +1071,17 @@ function initializeApp() {
    * the stop for EXIT.LOBBY_RETURN). The table's voice settings go, and
    * the controls are drawn again in the lobby's slot (voiceLifecycle.start
    * returns at once while the manager is active and would draw nothing).
-   * The same call carries on, muted again: a game's end is where an
-   * unmuted microphone stops (the next game starts muted; within one
-   * lobby and its game the person's choice holds). The microphone is
-   * kept (a mute disables its track), so the next unmute asks nothing.
+   * The same call carries on with the person's mute as it was (owner
+   * 2026-11-19: "once you unmute in a session it should stay unmuted";
+   * until then Return to Lobby muted again). The microphone is kept.
    * @returns {boolean} voice is running or starting (else the caller starts it)
    */
   function carryVoiceIntoLobby() {
     voiceSettings = null;
     voiceFull = false;
     if (!voiceManager.active) return voiceLifecycle.starting;
-    voiceManager.setMuted(true);
     createMuteButton();
-    setMuteButtonState(true);
+    setMuteButtonState(voiceManager.isMuted());
     refreshTalkView();
     return true;
   }
@@ -1707,10 +1736,10 @@ function initializeApp() {
             }
           }
 
-          // Show game log trick indicator as cards are dealt
-          if (gameLogInstance && gameLogInstance.showTrickIndicator && data.hand) {
-            gameLogInstance.showTrickIndicator(data.hand.length);
-          }
+          // The game log's bid chips row, as the cards are dealt: for every
+          // role by the deal's size (a spectator's deal has no hand: its
+          // row used to come only with a refresh, owner 2026-11-19)
+          gameLogInstance?.showTrickIndicator?.(data.currentHand || data.hand?.length || gameState.currentHand);
         };
         director.afterTransition(showCards);
 
@@ -1767,8 +1796,13 @@ function initializeApp() {
     },
     onCreateUI: (data) => {
       console.log('🎨 onCreateUI callback');
-      // a new game: no /help used yet (the autocomplete's count)
+      // a new game: no /help used yet (the autocomplete's count), the
+      // tutorial off until the server says (an auto-start's assistState
+      // comes right after this createUI)
       resetAssistUses();
+      resetTutorial();
+      // room lines before the log is up again are kept (flushEarlyLogLines)
+      earlyLogLines = [];
       // Remove waiting screen and lobby/main room/tournament UI
       uiManager.removeWaitingScreen();
       removeMainRoom();
@@ -1790,6 +1824,8 @@ function initializeApp() {
               // false (the emit gate refused it, offline): the log keeps the draft
               onChatSubmit: (message) => getSocketManager()?.socket?.emit('chatMessage', { message }) ?? false,
             });
+            // a new log: its first tutorial row says "(only you see this)" again
+            resetTutorialRows();
 
             // The log's grid column (--log-w) comes on
             setTableChrome(true);
@@ -1797,14 +1833,17 @@ function initializeApp() {
             // The canvas takes the narrower column (Phaser then relayouts the table)
             requestAnimationFrame(() => syncCanvasSize(scene));
 
-            // Add initial message
+            // Add initial message, then the lines that came before the log
             gameLogInstance.addGameMessage('Game started!');
+            flushEarlyLogLines();
 
             // Update hand indicator from current game state
             if (gameState.currentHand !== undefined) {
               window.updateHandIndicatorFromLegacy(gameState.currentHand);
             }
           }
+          // (a log kept up: nothing was held, the buffer just closes)
+          flushEarlyLogLines();
         });
       }, 'draw');
     },
@@ -1870,6 +1909,9 @@ function initializeApp() {
       // Nobody's turn any more: the turn ring stops (its animation with it)
       scene?.opponentManager?.removeTurnGlow?.();
       scene?.cardManager?.removeTurnGlow?.();
+      // the tutorial's tips go with the game (T.done is its log row)
+      scene?.clearTips?.({ all: true });
+      scene?.syncTutorial?.();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team
@@ -1945,6 +1987,8 @@ function initializeApp() {
         director.settleDeal();
         scene.handleDestroyHands(data);
       });
+      // the all-zero redeal: its bids are gone (the redeal's gameStart redraws the row)
+      gameLogInstance?.updateTrickIndicator?.();
     },
     // Error & connection handlers
     onAbortGame: (data) => {
@@ -2104,6 +2148,15 @@ function initializeApp() {
     // countdown on the bid sheet (BidManager reads the state's clock)
     onBidClock: () => {
       getGameScene()?.bidManager?.syncClock?.();
+    },
+    // My tutorial's state (private, unsequenced; the clientHello cap
+    // tutorial): on / off and my /help count, at once (it may come between
+    // createUI and the first deal, while gameState.gameId is still the last
+    // game's: so it binds to no game id); the chip and tips follow
+    onAssistState: (data) => {
+      noteTutorialState(data, null);
+      if (!(gameState.isSpectator && !gameState.isLazy)) noteAssistUses(data, null);
+      if (session.isAtTable) getGameScene()?.syncTutorial?.();
     },
     // My /help answer (private): the card above my hand, in table order
     onAssistHint: (data) => {
@@ -2580,6 +2633,7 @@ socket.on('restoreSessionResponse', (data) => {
     forgetSession(safeSessionStorage().getItem('sessionToken'));
     safeSessionStorage().removeItem('username');
     safeSessionStorage().removeItem('sessionToken');
+    forgetSessionMute();
     session.clearIdentity();
     restartNotice.clear();
     setIsAdmin(false);

@@ -12,9 +12,19 @@ import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
 import { helpDescription, helpIsUnlimited, HELP_COMMAND } from '../../state/assistHint.js';
+import { tutorialDescription, tutorialIsOn, TUTORIAL_COMMAND } from '../../state/tutorial.js';
 
 /** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
 const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
+
+/**
+ * The seat the log is read from: a seat's (a lazy watcher's too) own; a
+ * spectator's seat 1, as the score header's names are (seats 1/3 on the
+ * left: scoreHeaderNames) and rules/bids.js bidTotalsFor reads it. Never
+ * null: with no seat, teamOf(null) gave seats 1/3's bids team B's colour
+ * while bidTotalsFor counted them from seat 1.
+ */
+const viewerSeat = (state) => (state.isSpectator ? 1 : (Number(state.position) || 1));
 
 /** A div with a class and text. */
 function line(className, text, id = null) {
@@ -103,7 +113,19 @@ export function createGameLog({ onChatSubmit } = {}) {
     return rect;
   };
 
+  /**
+   * The row for a deal of `handSize` cards (every role: a spectator's deal
+   * has no hand, so callers pass the deal's currentHand, never
+   * hand.length). No hand size (0, unknown): the row is hidden, never an
+   * empty bar.
+   */
   const showTrickIndicator = (handSize) => {
+    const n = Number(handSize);
+    if (!Number.isInteger(n) || n <= 0) {
+      hideTrickIndicator();
+      return;
+    }
+    handSize = Math.min(n, 13);
     trickHandSize = handSize;
     trickIndicatorRow.replaceChildren();
     trickRects = [];
@@ -124,17 +146,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   };
 
   const updateTrickIndicator = () => {
-    if (trickRects.length === 0) return;
+    if (trickHandSize <= 0) return;
 
     const state = getGameState();
     const bids = state.bids || {};
-    const isTeam1 = state.position === 1 || state.position === 3;
+    const seat = viewerSeat(state);
+    const isTeam1 = seat % 2 === 1;
     // team totals ({team1, team2}) as given; bids by position through
     // rules/bids.js: a bore counts as the whole hand, each team capped at
     // the hand size
     const totals = bids.team1 !== undefined
       ? { team: isTeam1 ? bids.team1 : bids.team2, opp: isTeam1 ? bids.team2 : bids.team1 }
-      : bidTotalsFor(bids, state.position, trickHandSize);
+      : bidTotalsFor(bids, seat, trickHandSize);
     const teamBidCount = totals.team;
     const oppBidCount = totals.opp;
 
@@ -153,7 +176,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     }
 
     // by absolute team (team A: positions 1 and 3), as the score above is
-    const mine = teamOf(state.position);
+    const mine = teamOf(seat);
     for (let i = 0; i < trickRects.length; i++) {
       const rect = trickRects[i];
       const isOverbid = i >= trickHandSize;
@@ -192,15 +215,18 @@ export function createGameLog({ onChatSubmit } = {}) {
   // says this game's uses, read when the list is drawn ("Ask a bot for
   // advice (1 of 3 free used)"; after the free ones "the next one makes
   // this game bot-assisted"; just "Ask a bot for advice" in a game with a
-  // native bot seat: helpIsUnlimited)
+  // native bot seat: helpIsUnlimited). /tutorial (state/tutorial.js):
+  // "Tutorial: tips and advice every turn", or while it is on "Turn off the
+  // tutorial" (the plain /tutorial toggles)
   const ALL_SLASH_COMMANDS = [
     {
       command: HELP_COMMAND,
       description: () => {
         const gs = getGameState();
-        return helpDescription(gs.gameId, { unlimited: helpIsUnlimited(gs) });
+        return helpDescription(gs.gameId, { unlimited: helpIsUnlimited(gs), tutorial: tutorialIsOn(gs.gameId) });
       },
     },
+    { command: TUTORIAL_COMMAND, description: () => tutorialDescription(getGameState().gameId) },
     { command: '/lazy', description: 'Have a bot play for you' },
     { command: '/active', description: 'Take back control from bot' },
     { command: '/leave', description: "Leave the game (a bot takes over; ends it if you're the only player)" },
@@ -501,9 +527,9 @@ export function createGameLog({ onChatSubmit } = {}) {
       );
     };
     // each side in its team's color (my seat's team, the other)
-    const pos = getGameState().position;
-    if (pos) {
-      const mine = teamOf(pos);
+    const gs = getGameState();
+    if (gs.position || gs.isSpectator) {
+      const mine = teamOf(viewerSeat(gs));
       const theirs = mine === 'a' ? 'b' : 'a';
       teamDiv?.classList.remove('is-team-a', 'is-team-b');
       teamDiv?.classList.add(`is-team-${mine}`);

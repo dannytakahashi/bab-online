@@ -227,7 +227,8 @@
           "spectatorsUpdated",
           "bidClock",
           "seatLeft",
-          "assistHint"
+          "assistHint",
+          "assistState"
         ]
       },
       {
@@ -538,7 +539,8 @@
           "spectatorsUpdated",
           "bidClock",
           "seatLeft",
-          "assistHint"
+          "assistHint",
+          "assistState"
         ]
       },
       {

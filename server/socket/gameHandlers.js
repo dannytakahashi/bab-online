@@ -31,6 +31,7 @@ const bidClock = require('./bidClock');
 const restoreGame = require('../game/persist/restoreGame');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
+const assistHandlers = require('./assistHandlers');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
 const pacing = require('../game/pacing');
 /** The live persist store (deploy survival), lazily: a no-op with LIVE_PERSIST off. */
@@ -81,6 +82,10 @@ function triggerBotIfNeeded(io, game, actionType) {
         for (let p = 1; p <= 4; p++) game.clearTimer(`afk:${p}`);
         return;
     }
+    // The tutorial (assistHandlers.tutorTick): its tips and advice for this
+    // turn, in a setImmediate after this updateTurn (a no-op unless some
+    // seat has it on; never a timer, the bid clock or AFK)
+    assistHandlers.tutorTick(io, game);
     const seat = game.seat(game.currentTurn);
     // A human seat acts through its own socket; a connected one gets the
     // turn watchdog (seatLifecycle.armAfk: lazy after AFK_TIMEOUT_MS idle).
@@ -611,6 +616,11 @@ async function handleDrawComplete(io, game) {
     // Add game start message to log
     game.addLogEntry('Game started!', null, 'system');
 
+    // The tutorial's auto-start (a new account's first game, clients with
+    // the cap tutorial, never at a tournament table): "<name> is playing
+    // with the tutorial."; its welcome tip comes with the first turn
+    assistHandlers.autoStart(io, game);
+
     // Deal the first hand (emits gameStart to each player)
     await dealHand(game, io, { dealer: game.dealer, handSize: game.currentHand, firstHand: true });
 }
@@ -846,6 +856,7 @@ async function playCard(socket, io, data) {
             // Always AFTER actionRejected (iOS rolls the card back first);
             // never with tournamentId (web would route it as a rejoin)
             socket.emit('restorePlayerState', carrierFor(game, socket));
+            assistHandlers.sendAssistState(io, game, position, socket.id);
         }
         return;
     }
@@ -947,6 +958,10 @@ async function handleHandComplete(game, io) {
         game.broadcast(io, 'gameLogEntry', { message, type: 'system', fault });
     }
 
+    // The tutorial's hand-end tips (the hand's score after hands 1-3, the
+    // graduation after the 2-card hand), private to each tutorial seat
+    assistHandlers.tutorHandEnd(io, game);
+
     // Bot personality hooks: update Zach's partner tracking, trigger chat reactions
     botController.updatePartnerHistory(game);
     botController.handleHandCompleteChat(io, game);
@@ -978,9 +993,10 @@ async function handleHandComplete(game, io) {
         // Check for tournament context
         const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
 
-        // /help: a private line to each player this game counted as
-        // bot-assisted for (before gameEnd: nothing is sent after it)
-        require('./assistHandlers').gameEndLines(io, game);
+        // /help and the tutorial: a private line to each player this game
+        // counted as bot-assisted for, and the tutorial's last tip (before
+        // gameEnd: nothing is sent after it)
+        assistHandlers.gameEndLines(io, game);
 
         // gameEnd goes out first, then ENDED + epoch bump + timer
         // cancellation (synchronously). False: the game was aborted
@@ -990,6 +1006,10 @@ async function handleHandComplete(game, io) {
             playerStats: playerStatsWithNames,
             tournamentId
         })) return;
+
+        // A finished game: every new account that played it to the end is
+        // no longer new (users.tutorial 'pending' -> 'done'; fire-and-forget)
+        assistHandlers.gameFinished(io, game);
 
         // Play again (a lobby-born casual game): who is where, read before
         // _retire clears the spectators and the voice room

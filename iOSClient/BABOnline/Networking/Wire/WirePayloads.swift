@@ -193,17 +193,25 @@ enum WirePayload {
         /// Additive (owner 2026-11-19): true only in a game with a native bot seat (server
         /// assistState.isFreeHelpGame), where /help has no limit and no count is shown.
         var unlimited: Bool?
+        /// The tutorial (additive 2026-11-19; source `tutorial`, kind `tip`): the rule tip's id
+        /// ("T.welcome", "T.trump", ...).
+        var tipId: String?
+        /// The tutorial's welcome tip only: ["keep", "off"] (Keep / Turn off).
+        var actions: [String]?
 
         enum CodingKeys: String, CodingKey {
             case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note, unlimited
+            case tipId, actions
         }
 
         init(v: Int? = 1, source: String? = "help", kind: String?, turnKey: String? = nil, headline: String?, reasons: [String]? = nil,
              uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil, counted: Bool? = nil, details: [String]? = nil,
-             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil, unlimited: Bool? = nil) {
+             confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil, unlimited: Bool? = nil,
+             tipId: String? = nil, actions: [String]? = nil) {
             self.v = v; self.source = source; self.kind = kind; self.turnKey = turnKey; self.headline = headline
             self.reasons = reasons; self.uses = uses; self.freeUses = freeUses; self.assisted = assisted; self.counted = counted
             self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note; self.unlimited = unlimited
+            self.tipId = tipId; self.actions = actions
         }
 
         /// Lenient: a field of the wrong type is absent (a card this build cannot read is no card).
@@ -224,6 +232,49 @@ enum WirePayload {
             confidence = opt(String.self, .confidence)
             suggest = opt(Suggest.self, .suggest)
             note = opt(String.self, .note)
+            unlimited = opt(Bool.self, .unlimited)
+            tipId = opt(String.self, .tipId)
+            // an action this build does not know is left out (a newer server's), the rest kept
+            actions = opt([LenientString].self, .actions)?.compactMap(\.value)
+        }
+    }
+
+    /// One string of an array where a newer server might put something else (never fails).
+    struct LenientString: Decodable, Equatable {
+        var value: String?
+        init(from decoder: Decoder) throws { value = try? decoder.singleValueContainer().decode(String.self) }
+    }
+
+    /// assistState (s2c, private, UNSEQUENCED: decoded with seq nil; the tutorial, 2026-11-19):
+    /// my seat's tutorial and /help state, sent only because this build's clientHello carries
+    /// the cap `tutorial`, on every change and after rejoinSuccess / restorePlayerState
+    /// (contract/src/s2c.js assistState; docs/claude/assist.md, The tutorial). Every field
+    /// optional and lenient, as AssistHint.
+    struct AssistState: Decodable, Equatable {
+        var tutorial: Bool?
+        var auto: Bool?
+        var uses: Int?
+        var freeUses: Int?
+        var assisted: Bool?
+        /// A game with a native bot seat: no count and no limit words (as AssistHint.unlimited).
+        var unlimited: Bool?
+
+        enum CodingKeys: String, CodingKey { case tutorial, auto, uses, freeUses, assisted, unlimited }
+
+        init(tutorial: Bool? = nil, auto: Bool? = nil, uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil,
+             unlimited: Bool? = nil) {
+            self.tutorial = tutorial; self.auto = auto; self.uses = uses; self.freeUses = freeUses
+            self.assisted = assisted; self.unlimited = unlimited
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
+            tutorial = opt(Bool.self, .tutorial)
+            auto = opt(Bool.self, .auto)
+            uses = opt(Int.self, .uses)
+            freeUses = opt(Int.self, .freeUses)
+            assisted = opt(Bool.self, .assisted)
             unlimited = opt(Bool.self, .unlimited)
         }
     }

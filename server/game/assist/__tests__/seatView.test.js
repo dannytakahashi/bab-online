@@ -126,7 +126,7 @@ describe('only seatView.js reads the game', () => {
     const engine = fs.readdirSync(dir).filter((f) => f.endsWith('.js'));
 
     test('the engine files', () => {
-        expect(engine.sort()).toEqual(['advise.js', 'copy.js', 'explain.js', 'reasons.js', 'seatView.js']);
+        expect(engine.sort()).toEqual(['advise.js', 'copy.js', 'curriculum.js', 'explain.js', 'reasons.js', 'seatView.js']);
     });
 
     test.each(engine.filter((f) => f !== 'seatView.js'))('%s has no game. and requires no game module', (f) => {

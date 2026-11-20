@@ -171,7 +171,8 @@ skips exact repeats of a validated (event, target kind, payload).
   gameStart bumps it once per deal and is sent to every connected seat owner
   and every spectator, all with the same value. Private game events (replays,
   rejoin/restore/actionRejected, youDrew, the private
-  updateTurn, assistHint and the private /help gameLogEntry lines) are
+  updateTurn, assistHint, assistState and the private /help and tutorial
+  gameLogEntry lines) are
   unsequenced. Events that carry it: see `seq: true` in
   `events.schema.json` (only the room variant where a private form exists).
 - **R2.** Keep `lastSeq`. `seq === lastSeq + 1`: apply. `seq <= lastSeq`:
@@ -391,6 +392,16 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   /help is the same with or without it: the counter, the room notice
   "<name> used /help.", the stats marker (server/socket/assistHandlers.js;
   docs/claude/assist.md).
+- `tutorial` (`$defs.clientCapTutorial`, its own const for the same reason;
+  2026-11-19, the tutorial): the client renders the tutorial's tips
+  (`assistHint` kind `tip`, `tipId`, `actions` ['keep', 'off'] on the welcome
+  tip) and the private s2c `assistState {tutorial, auto, uses, freeUses,
+  assisted, unlimited?}`; only such a socket gets the tutorial's auto-start
+  in a new account's first game (`users.tutorial` 'pending'). Without it
+  tips come as private "Tip: <text>" lines and there is no auto-start
+  (shipped iOS: none, and a typed `?tutorial` stays chat). The web sends it
+  from the tutorial's web PR; iOS from a build after 20
+  (docs/claude/assist.md, The tutorial).
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 
@@ -426,7 +437,9 @@ they do not apply, Optional in the generated Swift and ignored by every
 shipped build's Codable decoder (frozen floors list neither): `viewer.assist
 {uses, freeUses, assisted}` (`$defs.viewerAssist`), the receiving seat
 owner's own /help count, only for role seat / lazyWatcher, so a client
-shows the exact count after a reload; and a `log[]` item's `fault
+shows the exact count after a reload (+ `tutorial: true` and `auto:
+true` only while the player's tutorial is on, 2026-11-19, so a reload
+shows the "Tutorial on" chip); and a `log[]` item's `fault
 {position, bid, took}` (`$defs.logFault`), only on a hand's fault line
 ("Fault: <name> (bid N, took M)", the s2c gameLogEntry room variant's same
 optional `fault`), so a replay draws it red in place.

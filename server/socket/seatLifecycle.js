@@ -379,9 +379,11 @@ function disconnectOwner(io, game, pos, sid) {
         });
         if (view === 'seat') {
             logEntry(io, game, `${username} disconnected. Bot continues playing.`);
-            // A lazy owner at its seat was in the voice room: voiceSettings
-            // again to the rest
-            gameVoice.refreshVoice(io, game);
+            // A lazy owner at its seat was in the voice room: its peers drop
+            // the call privately (it used to hang until ICE gave up, and the
+            // web listed the name "voice unavailable" beside the owner's new
+            // socket), then voiceSettings again to the rest
+            gameVoice.playerLeftVoice(io, game, sid);
         }
     }
     maybeAbort(io, game);
@@ -417,12 +419,19 @@ function onGraceExpired(io, game, pos) {
  */
 function leaveSpectatingFor(io, game, pos, sid, event) {
     if (!SeatState.checkEdge(game.seat(pos), event).ok) return;
-    // A voice spectator (casual game) drops its spectator-era calls both
-    // ways first: as an owner it connects again from the owner's peer list
-    // (a web client ignores a list entry it is "already connected" to)
+    dropSpectatorVoice(io, sid);
+    gameManager.leaveSpectating(io, sid);
+}
+
+/**
+ * A voice spectator (casual game) about to be a voice member as an owner
+ * drops its spectator-era calls both ways first: as an owner it connects
+ * again from the owner's peer list (a web client ignores a list entry it is
+ * "already connected" to). No-op for any other socket.
+ */
+function dropSpectatorVoice(io, sid) {
     const watched = gameManager.games.get(gameManager.spectatorGames.get(sid));
     if (watched) gameVoice.removeVoiceSpectator(io, watched, sid, { bothWays: true });
-    gameManager.leaveSpectating(io, sid);
 }
 
 /**
@@ -492,6 +501,8 @@ function reconnectOwner(io, game, pos, socket, username) {
     // (dropping cannot buy a fresh 90 s; a newer socket taking a connected
     // seat keeps the running one)
     if (game.currentTurn === pos) armAfk(io, game, pos, { keep: true, resume: true });
+    // The tutorial: its state, and this turn's advice again if it is on
+    require('./assistHandlers').afterRejoin(io, game, pos, socket);
     maybeAbort(io, game);
     return true;
 }
@@ -564,6 +575,8 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     // spectator list never count it), so "<owner> joined as a spectator"
     // was wrong, and nothing else in the notice changed.
     replayPresenceTo(game, socket, pos);
+    // The tutorial's state (a bot plays the seat: no advice)
+    require('./assistHandlers').sendAssistState(io, game, pos, socket.id);
     maybeAbort(io, game);
     return true;
 }
@@ -588,12 +601,10 @@ function reclaimSeat(io, game, pos, socket, username) {
     // A restored table: the gate may open here, before goActive's carrier
     restoreGame.openGateIfReady(io, game);
     // ownerView is 'watch' now: goActive re-sends the seat's full state
-    // (restorePlayerState) and the presence replay to this socket
-    if (!goActive(io, game, pos, socket, { voice: false })) return false;
-    // At the seat again: the same voice peer list as a reconnect (it had
-    // none: a reclaimed seat sat silent until the next reconnect)
-    announceOwnerVoice(io, game, pos, socket, username);
-    return true;
+    // (restorePlayerState), the presence replay and the owner's voice peer
+    // list to this socket (it had none: a reclaimed seat sat silent until
+    // the next reconnect)
+    return goActive(io, game, pos, socket);
 }
 
 // ==================== turn watchdog (AFK) ====================
@@ -802,7 +813,7 @@ function goLazy(io, game, pos, { reason = null } = {}) {
 }
 
 /** /active from the owner socket: the seat is human again. */
-function goActive(io, game, pos, socket, { voice = true } = {}) {
+function goActive(io, game, pos, socket) {
     const released = game.seatGoActive(pos, socket.id);
     if (!released) return false;
     const { bot, ownerView } = released;
@@ -810,7 +821,9 @@ function goActive(io, game, pos, socket, { voice = true } = {}) {
     // Cancels its pending bid/play and chat timers too
     botController.unregisterBot(game.gameId, bot.socketId);
     unmap(game, bot.socketId);
-    gameManager.leaveSpectating(null, socket.id); // defensive: owners are never spectators
+    // defensive: owners are never spectators (nor voice spectators)
+    if (ownerView === 'watch') dropSpectatorVoice(io, socket.id);
+    gameManager.leaveSpectating(null, socket.id);
 
     // One room broadcast: a stock number or null (V1_REMOVALS #19: no
     // inline picture), plus the additive avatarUrl of a custom picture
@@ -825,10 +838,16 @@ function goActive(io, game, pos, socket, { voice = true } = {}) {
         // The watching client switches from its lazy view to the seat
         socket.emit('restorePlayerState', carrierFor(game, socket));
         replayPresenceTo(game, socket, pos);
-        // At the seat again, so in the voice room: who controls spectator
-        // talk can change (reclaimSeat passes voice false: its
-        // announceOwnerVoice refreshes)
-        if (voice) gameVoice.refreshVoice(io, game);
+        // At the seat again, so in the voice room as a returning owner: the
+        // other members and voice spectators get voicePeerJoined, this
+        // socket the peer list (it offers), every capable socket its
+        // voiceSettings. A watching owner is no voice member
+        // (gameVoice.gameVoiceMembers), so nobody had a call with it; until
+        // 2026-11-19 this sent only voiceSettings, and a player back by
+        // /active after a rejoin onto an AFK bot's seat heard nobody and was
+        // heard by nobody until a later reconnect (play test 2026-11-19,
+        // iOS 1.2.2 (13))
+        announceOwnerVoice(io, game, pos, socket, seat.ownerUsername);
     } else if (game.acceptsTurnInput()) {
         // Only while a turn is open (the post-trick updateTurn follows otherwise)
         game.sendToPlayer(io, socket.id, 'updateTurn', { currentTurn: game.currentTurn });
@@ -843,6 +862,8 @@ function goActive(io, game, pos, socket, { voice = true } = {}) {
     }
     // Back in control: earlier timeouts in a row no longer count
     require('./bidClock').clearStrikes(game, pos);
+    // The tutorial: its state, and this turn's advice if it is on
+    require('./assistHandlers').afterRejoin(io, game, pos, socket);
     maybeAbort(io, game);
     return true;
 }
@@ -881,6 +902,9 @@ function resignSeat(io, game, pos) {
 function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
+    // In the voice room until now (a human seat, or a lazy owner at its
+    // seat; a watching owner is not): its peers must drop the call
+    const wasVoiceMember = gameVoice.gameVoiceMembers(game).some((m) => m.socketId === socket.id);
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     // The room learns the owner is gone for good (additive, unsequenced,
@@ -890,8 +914,12 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     // "No voice alone"); shipped iOS builds register no handler for it
     game.emitUnsequenced(io, 'seatLeft', { gameId: game.gameId, position: pos, username: seat.ownerUsername });
     unmap(game, socket.id);
-    // Out of the voice room for good: voiceSettings again to the rest
-    gameVoice.refreshVoice(io, game);
+    // Out of the voice room for good: its peers (owners at their seats and
+    // voice spectators) get a private voicePeerLeft, never the room (it used
+    // to hang until ICE gave up, and the web listed the name "voice
+    // unavailable"); then voiceSettings again to the rest
+    if (wasVoiceMember) gameVoice.playerLeftVoice(io, game, socket.id);
+    else gameVoice.refreshVoice(io, game);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c

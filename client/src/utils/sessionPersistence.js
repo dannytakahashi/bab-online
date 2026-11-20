@@ -9,6 +9,7 @@
  */
 
 import { safeSessionStorage } from './safeStorage.js';
+import { forgetSessionMute } from '../voice/voiceSessionMute.js';
 export const SAVED_SESSION_KEY = 'bab.savedSession';
 
 function readSaved() {
@@ -88,6 +89,8 @@ export function clearAllSessionData() {
     safeSessionStorage().removeItem('gameId');
     safeSessionStorage().removeItem('spectatingGameId');
     safeSessionStorage().removeItem('lobbyId');
+    // The voice mute choice was this person's: the next sign-in here starts muted
+    forgetSessionMute();
   } catch {
     // ignore
   }

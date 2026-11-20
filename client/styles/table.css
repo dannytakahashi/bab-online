@@ -1350,7 +1350,7 @@ body > .voice-btn {
     outline: none;
 }
 
-/* ---------- /help: the suggestion card, the "?" and the suggested card ---------- */
+/* ---------- /help: the suggestion card, the lightbulb and the suggested card ---------- */
 
 /* the card (ui/components/AssistCard.js): its bottom just above my hand */
 .hud-assist {
@@ -1379,12 +1379,24 @@ body > .voice-btn {
 
 .hud-assist[hidden] { display: none; }
 
+/* never taller than the room above my hand (a tip and the advice), and never
+   up over a seat's avatar (--assist-top: just below the seats its column
+   crosses, computeTableLayout assistRoomTop); it scrolls inside, the advice
+   kept in sight (AssistCard render) */
+.hud-assist {
+    max-height: calc(var(--assist-y, 70%) - var(--assist-top, 0px) - var(--space-2));
+    overflow-y: auto;
+}
+
 /* a bid suggestion: above the bid sheet (which covers the felt while I
-   bid), scrolling inside when the room above it is short */
-.hud-assist[data-kind="bid"] {
+   bid), scrolling inside when the room above it is short; the tutorial's
+   tips alone go there too while I bid */
+.hud-assist[data-kind="bid"],
+.hud-assist[data-place="bid"] {
     left: var(--assist-bid-x, 50%);
     top: var(--assist-bid-y, 30%);
-    max-height: calc(var(--assist-bid-y, 30%) - var(--space-2));
+    max-width: min(var(--assist-bid-w, var(--assist-w, 380px)), calc(100% - 2 * var(--space-4)));
+    max-height: calc(var(--assist-bid-y, 30%) - var(--assist-bid-top, 0px) - var(--space-2));
     overflow-y: auto;
 }
 .hud-assist.is-status { border-color: var(--line-strong); }
@@ -1394,6 +1406,13 @@ body > .voice-btn {
     align-items: center;
     gap: var(--space-2);
     min-height: 24px;
+}
+
+.assist-card__bulb {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--gold);
 }
 
 .assist-card__chip {
@@ -1431,7 +1450,11 @@ body > .voice-btn {
     inset: -8px;
 }
 
-.hud-assist-ask::before { inset: min(-6px, calc((var(--assist-ask, 32px) - var(--hit-target, 44px)) / 2)); }
+/* the lightbulb's: the layout's reach to the sides, above and below
+   (assistAskSpot: 44 px across and tall, none below where there is room) */
+.hud-assist-ask::before {
+    inset: calc(-1 * var(--ask-up)) calc(-1 * var(--assist-ask-pad, 6px)) calc(-1 * var(--ask-down));
+}
 
 .assist-card__close:hover { background: rgb(var(--text-primary-rgb) / 0.12); color: var(--text-primary); }
 .assist-card__close:focus-visible,
@@ -1490,14 +1513,26 @@ body > .voice-btn {
     font-size: var(--type-xs);
 }
 
-/* the "?" (my turn at my seat): at the hand box's right end */
+/* the lightbulb (my turn at my seat), as iOS's AssistAskButton: a gold
+   bulb on a dark disc with a gold ring, at the hand box's right end, level
+   with the top of the cards (the layout's assistAskSpot: its right and
+   bottom edges, its size, at least 28 px; its hit area inside the hand box,
+   clear of my seat's box); its ::before above makes the hit area 44 px.
+   While the tutorial chip shows it takes the layout's chip spot (a row up
+   where the hand box is too narrow for both side by side) */
 .hud-assist-ask {
+    --ask-y: var(--assist-ask-y, 70%);
+    --ask-up: var(--assist-ask-up, 12px);
+    --ask-down: var(--assist-ask-down, 0px);
     position: absolute;
     left: var(--assist-ask-x, 70%);
-    top: var(--assist-ask-y, 70%);
+    top: var(--ask-y);
     transform: translate(-100%, -100%);
-    width: var(--assist-ask, 32px);
-    height: var(--assist-ask, 32px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--assist-ask, 36px);
+    height: var(--assist-ask, 36px);
     min-width: 0;
     min-height: 0;
     padding: 0;
@@ -1505,17 +1540,207 @@ body > .voice-btn {
     border-radius: var(--radius-pill);
     background: rgb(var(--surface-1-rgb) / 0.9);
     color: var(--gold);
-    font-family: var(--font-ui);
-    font-size: calc(var(--assist-ask, 32px) * 0.5);
-    font-weight: var(--weight-bold);
     box-shadow: var(--elev-1);
     cursor: pointer;
     pointer-events: auto;
     z-index: var(--z-hud-badge);
+    transition:
+        background-color var(--dur-fast) var(--ease-standard),
+        border-color var(--dur-fast) var(--ease-standard),
+        transform var(--dur-fast) var(--ease-emphasized);
 }
 
-.hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); }
+.hud-assist-ask__bulb {
+    width: 56%;
+    height: 56%;
+    pointer-events: none;
+}
+
+.hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); border-color: var(--gold); }
+/* a press dips it a little (no motion with reduced motion: the durations are 0
+   and the scale is dropped below) */
+.hud-assist-ask:active { transform: translate(-100%, -100%) scale(0.94); }
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-assist-ask:active { transform: translate(-100%, -100%); }
+}
+
 .hud-assist-ask[hidden] { display: none; }
+
+.has-tutorial-chip > .hud-assist-ask {
+    --ask-y: var(--assist-ask-chip-y, var(--assist-ask-y, 70%));
+    --ask-up: var(--assist-ask-chip-up, var(--assist-ask-up, 12px));
+    --ask-down: var(--assist-ask-chip-down, var(--assist-ask-down, 0px));
+}
+
+/* the tutorial's rule tips (AssistCard tipSection): a neutral section at
+   the top of the card, above the advice when both are up */
+.hud-assist.has-tip { border-color: var(--line-strong); }
+.hud-assist.has-tip[data-kind="bid"],
+.hud-assist.has-tip[data-kind="card"] { border-color: rgb(var(--gold-rgb) / 0.55); }
+
+.assist-tip + .assist-tip,
+.assist-tip + .assist-card__advice {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--line-subtle);
+}
+
+.assist-tip__top {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 24px;
+}
+
+/* a card short of room scrolls the tip up to keep the advice's chip and
+   headline in sight (AssistCard keepAdviceInSight): the tip's title and its
+   ✕ (the welcome's own close, /tutorial close) stay pinned at the card's top
+   while any of the tip shows, over its text on the card's own fill (a
+   positioned box paints over the static text after it: no z-index; it
+   never leaves its tip's section, so never meets the advice) */
+.hud-assist.has-tip .assist-tip__top {
+    position: sticky;
+    top: calc(-1 * var(--space-2));
+    margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-3)) 0;
+    padding: var(--space-2) var(--space-3) 0;
+    background: rgb(var(--surface-1-rgb));
+}
+
+.assist-tip__title {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.assist-tip__close {
+    margin-left: auto;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 28px;
+    cursor: pointer;
+    position: relative;
+}
+
+.assist-tip__close::before {
+    content: '';
+    position: absolute;
+    inset: -8px;
+}
+
+.assist-tip__close:hover { background: rgb(var(--text-primary-rgb) / 0.12); color: var(--text-primary); }
+
+.assist-tip__text { margin: 2px 0 0; }
+
+.assist-tip__actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.assist-tip__action {
+    min-height: 32px;
+    padding: 0 var(--space-3);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: var(--weight-semibold);
+    cursor: pointer;
+}
+
+.assist-tip__action.is-keep {
+    border-color: rgb(var(--gold-rgb) / 0.7);
+    background: rgb(var(--gold-rgb) / 0.16);
+    color: var(--gold);
+}
+
+.assist-tip__action:hover { background: rgb(var(--text-primary-rgb) / 0.1); }
+
+.assist-tip__close:focus-visible,
+.assist-tip__action:focus-visible,
+.hud-tutorial__switch:focus-visible {
+    outline: 2px solid var(--text-primary);
+    outline-offset: 2px;
+}
+
+/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, its
+   bottom level with the lightbulb's spot at its right end (tutorialChipSpot;
+   the layout's TUTORIAL_CHIP models this box); under the card */
+.hud-tutorial {
+    position: absolute;
+    left: var(--tutorial-x, 30%);
+    top: var(--tutorial-y, 70%);
+    transform: translate(0, -100%);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 28px;
+    padding: 0 4px 0 var(--space-2);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: rgb(var(--surface-1-rgb) / 0.9);
+    box-shadow: var(--elev-1);
+    color: var(--text-secondary);
+    font-family: var(--font-ui);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    white-space: nowrap;
+    pointer-events: auto;
+    z-index: var(--z-hud-badge);
+}
+
+.hud-tutorial[hidden] { display: none; }
+
+/* while the chip shows, the card above my hand sits a chip higher, so
+   neither covers the other (the bid placement is away from the hand) */
+.has-tutorial-chip > .hud-assist:not([data-place="bid"]) {
+    top: calc(var(--assist-y, 70%) - 34px);
+    max-height: calc(var(--assist-y, 70%) - 34px - var(--assist-top, 0px) - var(--space-2));
+}
+
+/* the switch (on): a pill with its knob on the right; it turns the tutorial off */
+.hud-tutorial__switch {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: rgb(var(--gold-rgb) / 0.75);
+    cursor: pointer;
+}
+
+.hud-tutorial__switch::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-primary);
+}
+
+/* 44 px hit target (HIG) */
+.hud-tutorial__switch::before {
+    content: '';
+    position: absolute;
+    inset: -12px -6px;
+}
+
+.hud-tutorial__switch[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 
 /* the suggested card's gold halo is drawn on the table by CardManager
    (behind its sprite, so it rises with the card on hover and focus); the

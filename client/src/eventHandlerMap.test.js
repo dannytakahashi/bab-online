@@ -153,6 +153,18 @@ describe('server event -> handler map', () => {
     expect(clientHello('1.0.0', 'b', false).caps).toContain('assist');
   });
 
+  it('assistState (the tutorial, 2026-11-19) has one handler, in the game module, outside the seq gate (private, unsequenced); web says the cap tutorial', async () => {
+    expect(managed.get('assistState')).toBe(1);
+    expect((listeners.get('assistState') || []).length).toBe(1);
+    const root = existsSync(resolve(process.cwd(), 'contract')) ? process.cwd() : resolve(process.cwd(), '..');
+    const schema = JSON.parse(readFileSync(resolve(root, 'contract/events.schema.json'), 'utf8'));
+    expect(schema.s2c.assistState.seq).toBeFalsy();
+    expect(schema.s2c.assistState.clientReads.web).toEqual(['client/src/handlers/gameHandlers.js:registerGameHandlers']);
+    const { clientHello } = await import('./utils/avatar.js');
+    expect(clientHello('1.0.0', 'b').caps).toContain('tutorial');
+    expect(clientHello('1.0.0', 'b', false).caps).toContain('tutorial');
+  });
+
   it('lobbyReturn (play again, 2026-11-16) has one handler, in the lobby module (private, unsequenced); releaseLobbyHold is sent by web', () => {
     expect(managed.get('lobbyReturn')).toBe(1);
     expect((listeners.get('lobbyReturn') || []).length).toBe(1);
@@ -220,6 +232,9 @@ describe('server event -> handler map', () => {
       ['abortGame', 'handleAbortGame', { reason: 'test' }],
       // /help: the private answer reaches the scene (handlers/index.js passes onAssistHint)
       ['assistHint', 'handleAssistHint', { v: 1, source: 'help', kind: 'status', turnKey: 'k', headline: 'Nothing to suggest right now.', reasons: [], uses: 0, freeUses: 3, assisted: false, counted: false }],
+      // the tutorial: a tip is an assistHint too; its on / off reaches the chip
+      ['assistHint', 'handleAssistHint', { v: 1, source: 'tutorial', kind: 'tip', turnKey: 'k', headline: 'Trump', reasons: ['Trump this hand is hearts ♥.'], uses: 0, freeUses: 3, assisted: false, counted: false, tipId: 'T.trump' }],
+      ['assistState', 'syncTutorial', { tutorial: true, auto: true, uses: 0, freeUses: 3, assisted: false }],
     ];
     const handlerNames = [...new Set(table.map(([, h]) => h).concat('handleAddToGameFeed'))];
     let spies;
@@ -247,7 +262,7 @@ describe('server event -> handler map', () => {
       const { getClientSession, SCREEN } = await import('./state/ClientSession.js');
       const session = getClientSession();
       const screen = session._screen;
-      if (event === 'assistHint') session._screen = SCREEN.TABLE;
+      if (event === 'assistHint' || event === 'assistState') session._screen = SCREEN.TABLE;
 
       fire(event, data);
       session._screen = screen;

@@ -48,7 +48,7 @@ final class AssistHintTests: XCTestCase {
 
     func testTheCapAndTheRoute() {
         XCTAssertTrue(ClientHello.caps.contains("assist"), "the server answers /help with assistHint only to a socket with the cap")
-        XCTAssertEqual(ClientHello.payload()["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist"])
+        XCTAssertEqual(ClientHello.payload()["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial"])
         XCTAssertTrue(GameSocketHandler.events.contains(SocketEvents.Server.assistHint))
         XCTAssertFalse(ContractSeq.events.contains("assistHint"), "private and unsequenced")
     }
@@ -64,7 +64,7 @@ final class AssistHintTests: XCTestCase {
         let h = try XCTUnwrap(AssistHint(w))
         XCTAssertEqual(h.card, Card(suit: .clubs, rank: .ace))
         XCTAssertNil(AssistHint(WirePayload.AssistHint(v: 2, kind: "bid", headline: "x")), "another version is not ours")
-        XCTAssertNil(AssistHint(WirePayload.AssistHint(kind: "tip", headline: "x")), "the tutorial's kind: not shown yet")
+        XCTAssertNil(AssistHint(WirePayload.AssistHint(kind: "tip", headline: "x")), "a tip only from the tutorial, with its tipId (TutorialTests)")
         XCTAssertNil(AssistHint(WirePayload.AssistHint(kind: "bid", headline: "")))
         let many = try XCTUnwrap(AssistHint(WirePayload.AssistHint(kind: "bid", headline: "Bid 1", reasons: ["a", "b", "c"],
                                                                    details: ["1", "2", "3", "4", "5"], suggest: .init(bid: "b"))))

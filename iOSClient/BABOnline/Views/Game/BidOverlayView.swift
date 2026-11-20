@@ -21,6 +21,9 @@ struct BidOverlayView: View {
     /// The countdown pill's frame in the pane (`BidClockPill.paneSpace`), each time it is laid
     /// out: the /help card keeps its bottom above it while my clock runs (GameContainerView.assistCard).
     var onClockFrame: (CGRect) -> Void = { _ in }
+    /// The lightbulb's frame in the pane (`BidClockPill.paneSpace`) while it shows: the
+    /// tutorial's tips and chip keep above it (GameContainerView.assistColumn).
+    var onAskFrame: (CGRect) -> Void = { _ in }
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -224,13 +227,19 @@ struct BidOverlayView: View {
         // Outside the panel's accessibility container, so "bidOverlay" keeps the panel's frame
         .overlay(alignment: .topLeading) {
             if gameState.showsAssistAsk {
+                // its frame as drawn (measured on the button itself: read past the padding and the
+                // offset, the frame came out 42 pt low, under the lift; TutorialUITests checks it)
                 AssistAskButton(size: AssistLayout.askSize, action: askHelp)
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { onAskFrame($0) }
                     .padding(.leading, Theme.Space.s2 + Theme.Space.s1)
-                    .offset(y: -Theme.hitTarget + (Theme.hitTarget - AssistLayout.askSize) / 2 - 2)
+                    .offset(y: Self.askLift)
                     .transition(.opacity)
             }
         }
     }
+
+    /// The lightbulb's lift above the panel's top edge (over the felt).
+    static let askLift: CGFloat = -Theme.hitTarget + (Theme.hitTarget - AssistLayout.askSize) / 2 - 2
 
     /// VoiceOver hears the countdown twice per clock: when it appears and when it reaches
     /// `lowAt` (the number itself is not live). Equal by (clock, low) only, so the text of

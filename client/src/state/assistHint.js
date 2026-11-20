@@ -38,6 +38,8 @@
  * the hint's own texts come from the server, which lints them.
  */
 
+import { isTipHint, tipLogLine, TUTORIAL_ROW_LABEL } from './tutorial.js';
+
 /** The clientHello cap that asks for assistHint. */
 export const ASSIST_CAP = 'assist';
 
@@ -62,7 +64,7 @@ export const FOOTER_QUICK = 'Quick suggestion: rules only, the server is busy.';
 /** The plain words of the chat command (GameLog's autocomplete). */
 export const HELP_COMMAND = '/help';
 /**
- * What asking is called everywhere (the "?" button, the chat line; owner
+ * What asking is called everywhere (the lightbulb button, the chat line; owner
  * 2026-11-19: the old label read as the player suggesting a move).
  */
 export const HELP_LABEL = 'Ask a bot for advice';
@@ -142,14 +144,19 @@ export function helpIsUnlimited(state = null, hint = null) {
  *        (unknown: no hint or snapshot with viewer.assist yet; the warning
  *        stays, since the uses so far may be spent)
  *   "Ask a bot for advice"   (a game with a native bot seat: `unlimited`,
- *        helpIsUnlimited, or this game's uses say so)
+ *        helpIsUnlimited, or this game's uses say so; or the tutorial is
+ *        on, which /help is never counted under: then "(this game is
+ *        bot-assisted for you)" only once the server says it is)
  * @param {string} [gameId]
  * @param {Object} [o]
  * @param {boolean} [o.unlimited] - the table has a native bot seat
+ * @param {boolean} [o.tutorial] - my tutorial is on (state/tutorial.js)
  */
-export function helpDescription(gameId = null, { unlimited = false } = {}) {
+export function helpDescription(gameId = null, { unlimited = false, tutorial = false } = {}) {
   const u = assistUses(gameId);
   if (unlimited || u?.unlimited) return HELP_LABEL;
+  // the tutorial on: /help is never counted (only the bot-assisted it made)
+  if (tutorial) return u?.assisted ? `${HELP_LABEL} (this game is bot-assisted for you)` : HELP_LABEL;
   if (!u) return `${HELP_LABEL} (after ${DEFAULT_FREE_USES} free, this game counts as bot-assisted)`;
   if (u.assisted || u.uses > u.freeUses) return `${HELP_LABEL} (this game is bot-assisted for you)`;
   if (u.uses >= u.freeUses) return `${HELP_LABEL} (the next one makes this game bot-assisted)`;
@@ -226,11 +233,15 @@ export const ASSIST_LATE_LINE = 'Help: that turn had passed before the answer ca
 /**
  * Where an assistHint goes (main.js): 'scene' at the table (the card, in
  * table order); 'row' on the game-end screen for a status reply ("Nothing
- * to suggest right now.": the log is still up); else null.
+ * to suggest right now.": the log is still up) or a tutorial tip ("Tip:
+ * ..."); else null.
  * @param {{isAtTable: boolean, hasTable: boolean}} session
  */
 export function assistHintRoute(session, hint) {
-  if (!isAssistHint(hint) || !session) return null;
+  if (!session) return null;
+  // a rule tip (the tutorial): the card at the table, else its row
+  if (isTipHint(hint)) return session.isAtTable ? 'scene' : (session.hasTable ? 'row' : null);
+  if (!isAssistHint(hint)) return null;
   if (session.isAtTable) return 'scene';
   if (session.hasTable && hint.kind === 'status') return 'row';
   return null;
@@ -263,15 +274,19 @@ export function confidenceLabel(hint) {
  * In a game with a native bot seat (hint.unlimited, or `o.unlimited` from
  * helpIsUnlimited) no count and no "not counted": just "What our strongest
  * bot would play" (a forced move and a re-ask too), or the Quick note alone.
+ * The same for the tutorial's advice (source tutorial: never counted) and
+ * for /help asked while the tutorial is on (`o.tutorial`: not counted).
  * null for a status reply.
  * @param {Object} hint
  * @param {Object} [o]
  * @param {boolean} [o.unlimited]
+ * @param {boolean} [o.tutorial] - my tutorial is on
  */
-export function assistFooter(hint, { unlimited = false } = {}) {
+export function assistFooter(hint, { unlimited = false, tutorial = false } = {}) {
   if (!isAssistHint(hint) || hint.kind === 'status') return null;
   const lead = hint.confidence === 'quick' ? FOOTER_QUICK : FOOTER_BOT;
   if (unlimited || hint.unlimited === true) return lead;
+  if (hint.source === 'tutorial' || (tutorial && !hint.counted)) return lead;
   const free = count(hint.freeUses, DEFAULT_FREE_USES);
   const n = count(hint.uses);
   if (hint.confidence === 'only') return 'Not counted';
@@ -282,9 +297,20 @@ export function assistFooter(hint, { unlimited = false } = {}) {
   return `${lead} · ${tail}`;
 }
 
-/** The dim local log row (never sent): "Help: Play 9♦ (only you see this)". */
+/**
+ * The dim local log row (never sent): "Help: Play 9♦ (only you see this)";
+ * the tutorial's own status replies (the chip's switch, /tutorial off:
+ * "Tips off. ...") are "Tutorial: ..." rows (TUTORIAL_ROW_LABEL). None for
+ * the tutorial's advice (it comes on every decision; its tips have their
+ * own rows, state/tutorial.js tipLogLine).
+ */
 export function assistLogLine(hint) {
-  return isAssistHint(hint) ? `Help: ${hint.headline} (only you see this)` : null;
+  if (isTipHint(hint)) return tipLogLine(hint);
+  if (!isAssistHint(hint)) return null;
+  if (hint.source === 'tutorial') {
+    return hint.kind === 'status' ? `${TUTORIAL_ROW_LABEL}: ${hint.headline} (only you see this)` : null;
+  }
+  return `Help: ${hint.headline} (only you see this)`;
 }
 
 /**

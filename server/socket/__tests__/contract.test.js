@@ -433,6 +433,58 @@ describe('(b3) /help', () => {
     }, 60000);
 });
 
+// ==================== (b4) the tutorial ====================
+
+describe('(b4) the tutorial', () => {
+    test('auto-start for a new account with the cap tutorial: assistState, tips and advice (assistHint source tutorial), /tutorial off; seq and snapshot invariants hold', async () => {
+        const pacing = require('../../game/pacing');
+        const clientInfo = require('../clientInfo');
+        Math.random = mulberry32(41);
+        const w = world('b4');
+        const seqWatch = watchSeq(w.io);
+        const snaps = watchSnapshots(w);
+        const names = ['b4_ann', 'b4_bob', 'b4_cat', 'b4_dan'];
+        const socks = names.map((n, i) => w.user(`b4-h${i}`, n));
+        // b4_ann is a new account (sign-up wrote users.tutorial 'pending') on a client that renders tips
+        socks[0].data.tutorialFlag = 'pending';
+        clientInfo.handle(socks[0], w.io, { client: 'web', version: '1.0.0', caps: ['assist', 'tutorial'] });
+        mainRoomHandlers.createLobby(socks[0], w.io, { name: 'Tutorial table' });
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+        const draws = socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING && !game.resume, 100);
+        await jest.advanceTimersByTimeAsync(1); // the tutor's setImmediate
+        const me = game.seatByOwnerSocket(socks[0].id);
+        const owner = (pos) => w.sockets.get(game.seat(pos).ownerSocketId);
+        expect(events(w.log, 'assistState').map((l) => [l.to, l.data.tutorial, l.data.auto])[0]).toEqual([socks[0].id, true, true]);
+        expect(events(w.log, 'gameLogEntry').some((l) => l.data.message === 'b4_ann is playing with the tutorial.')).toBe(true);
+        expect(events(w.log, 'assistHint').filter((l) => l.data.kind === 'tip').map((l) => l.data.tipId)[0]).toBe('T.welcome');
+        // Bid to the tutorial seat's turn: its advice comes after the updateTurn
+        while (game.stage === Phase.BIDDING && game.currentTurn !== me) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '1' });
+            await jest.advanceTimersByTimeAsync(1);
+        }
+        const advice = events(w.log, 'assistHint').filter((l) => l.data.source === 'tutorial' && l.data.kind === 'bid');
+        expect(advice).toHaveLength(1);
+        expect(advice[0].data).toMatchObject({ counted: false, uses: 0 });
+        chatHandlers.chatMessage(socks[0], w.io, { message: '/tutorial off' });
+        expect(events(w.log, 'assistState').at(-1).data).toMatchObject({ tutorial: false, auto: false, assisted: true });
+        while (game.stage === Phase.BIDDING) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '1' });
+        }
+        await jest.advanceTimersByTimeAsync(1000);
+        const sq = seqWatch.stop();
+        expect(sq.failures).toEqual([]);
+        const sn = snaps.stop();
+        expect(sn.failures).toEqual([]);
+        await Promise.all([...starting, ...draws]);
+    }, 60000);
+});
+
 // ==================== (f) requestSnapshot ====================
 
 describe('(f) requestSnapshot -> stateSnapshot', () => {

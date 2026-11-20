@@ -73,11 +73,14 @@ describe('sessionPersistence', () => {
     sessionStorage.setItem('username', 'Alan');
     sessionStorage.setItem('sessionToken', 'tok-1');
     sessionStorage.setItem('gameId', 'g1');
+    sessionStorage.setItem('bab.voiceUnmuted', '1');
 
     clearAllSessionData();
 
     expect(sessionStorage.getItem('username')).toBeNull();
     expect(sessionStorage.getItem('gameId')).toBeNull();
+    // the voice unmute was this person's (the next sign-in starts muted)
+    expect(sessionStorage.getItem('bab.voiceUnmuted')).toBeNull();
     expect(adoptSavedSession()).toBe(false);
   });
 

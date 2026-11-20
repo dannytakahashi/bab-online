@@ -15,7 +15,7 @@ const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
-const { isAssistedSeat, helpUses } = require('../game/assistState');
+const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -617,8 +617,9 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * record. No I/O: it reads the game, gameManager.deletedUsernames and the
  * clock (completedAt).
  *
- * /help (plan section 6, D11): a seat whose owner made more than
- * ASSIST_FREE_HELP counted /help uses (assistState.isAssistedSeat) played a
+ * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
+ * made more than ASSIST_FREE_HELP counted /help uses or played with the
+ * tutorial (a.tutorialEver; assistState.isAssistedSeat) played a
  * bot-assisted game, for that player only:
  *   - `statsDeltas.bucketByPosition {<pos>: 'botStats'}` for each such seat
  *     when the whole-game bucket is 'stats' (a game that is a bot game
@@ -627,8 +628,9 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  *     so the game's team records move to the "with bots" Records scope, and
  *     `assistedTeams: [1|2]` (server-only: no Records projection sends it)
  * and every seat with counted uses (assisted or not) is listed in
- * `statsDeltas.assist {<pos>: {help}}` (by position, never by name). A game
- * nobody used /help in gives exactly the document it gave before /help
+ * `statsDeltas.assist {<pos>: {help}}` (by position, never by name; a
+ * tutorial seat `{help, tutorial: true}`). A game
+ * nobody used /help or the tutorial in gives exactly the document it gave before /help
  * (assistRecords.test.js holds it byte for byte).
  * @param {Object} game - a finished game
  * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
@@ -662,7 +664,9 @@ function buildGameEndRecord(game) {
         const a = game.assist?.[position];
         const owner = game.seat(position).ownerUsername;
         const help = helpUses(a, owner);
-        if (help > 0) assist[position] = { help };
+        // The tutorial (plan D12): {help, tutorial: true}
+        if (usedTutorial(a, owner)) assist[position] = { help, tutorial: true };
+        else if (help > 0) assist[position] = { help };
         if (isAssistedSeat(a, owner)) assisted.push(position);
     }
 

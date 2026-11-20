@@ -37,9 +37,18 @@ extension TableReducer {
             next.table.parkedAssist = s.table.parkedAssist
             next.table.assistUses = next.table.assistUses ?? s.table.assistUses
             next.table.assistAsking = s.table.assistAsking
+            // the tutorial: its tips stay up; on / off is the snapshot's word when it says
+            // (viewer.assist), else what this game had (an older server, a spectator's view)
+            next.table.tip = s.table.tip
+            next.table.welcome = s.table.welcome
+            next.table.tipsSeen = s.table.tipsSeen
+            next.table.tipUnheard = s.table.tipUnheard
+            next.table.tutorialOffSent = s.table.tutorialOffSent
+            if snap.viewer.assist == nil { next.table.tutorial = s.table.tutorial }
         }
         s = next
         s.table.myTurn = s.myTurn
+        if !s.table.tutorial.on { endTutorial(&s) }
         settleAssist(&s, abandon: false, &fx)
         fx.append(.animate(.sceneReset))
         if s.table.bidClock != nil { fx.append(.bidClock(.sync)) } else if hadClock { fx.append(.bidClock(.stop(.fade))) }
@@ -72,6 +81,8 @@ extension TableReducer {
         if let a = snap.viewer.assist {
             s.table.assistUses = AssistUses(uses: max(0, a.uses), freeUses: max(0, a.freeUses), assisted: a.assisted,
                                             unlimited: a.unlimited == true, told: true)
+            // the tutorial (additive 2026-11-19): present only while on, so a reload shows the chip
+            s.table.tutorial = TutorialStatus(on: a.tutorial == true, auto: a.tutorial == true && a.auto == true)
         }
         s.table.hand = snap.hand ?? []
         s.table.deal = snap.deal.map {

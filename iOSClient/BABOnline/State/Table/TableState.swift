@@ -32,6 +32,21 @@ struct TableSlice: Equatable {
     /// The lightbulb sent /help and waits for the answer (hidden meanwhile; `assistAskLapsed`
     /// after AssistRules.askWait shows it again).
     var assistAsking = false
+    /// The tutorial (State/Table/Tutorial.swift): on / auto as the server last said (assistState,
+    /// the snapshot's viewer.assist); off for a new game.
+    var tutorial = TutorialStatus()
+    /// The chip's switch or the welcome's Turn off sent /tutorial off: the switch shows off
+    /// until the server's assistState (or its status reply) settles it.
+    var tutorialOffSent = false
+    /// The rule tip up (TutorialTipView, kind `tip`), nil when none.
+    var tip: AssistHint?
+    /// The welcome tip (T.welcome, with Keep / Turn off), until kept, turned off or closed.
+    var welcome: AssistHint?
+    /// Tips already logged this game (TutorialRules.seenKey): each once.
+    var tipsSeen: Set<String> = []
+    /// The rule tip up came while the welcome was (so it is not shown yet) and VoiceOver has not
+    /// heard it: it is announced when the welcome goes.
+    var tipUnheard = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).
@@ -84,6 +99,9 @@ struct PlayersSlice: Equatable {
 struct LogSlice: Equatable {
     var entries: [ChatMessage] = []
     var unread = 0
+    /// This log has a tutorial row: later ones leave off "(only you see this)" (a new log, e.g.
+    /// a snapshot's or the next table's, or a relaunch, has the note on its first again).
+    var tutorialNoted = false
 }
 
 struct SyncState: Equatable {

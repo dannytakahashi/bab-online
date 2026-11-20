@@ -271,8 +271,30 @@ final class GameState: ObservableObject {
     /// The lightbulb by my hand shows (my own turn at my seat, no answer up or on its way).
     var showsAssistAsk: Bool { AssistRules.showsAsk(state) }
     /// The chat command list's /help line ("Ask a bot for advice", with no count in a game with
-    /// a native bot seat).
-    var helpDescription: String { AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state)) }
+    /// a native bot seat or while my tutorial is on: /help is never counted then).
+    var helpDescription: String {
+        AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state), tutorial: table.tutorial.on)
+    }
+
+    // MARK: the tutorial (State/Table/Tutorial.swift)
+
+    /// My seat's tutorial is on (the server's word; the chip, the command list).
+    var tutorialOn: Bool { table.tutorial.on }
+    /// The "Tutorial on" chip: while on, at my own seat (never a spectator or a lazy watcher),
+    /// at the table (not the game-end screen).
+    var showsTutorialChip: Bool {
+        table.tutorial.on && table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
+    }
+    /// The chip's switch went off (/tutorial off sent) and waits for the server.
+    var tutorialOffSent: Bool { table.tutorialOffSent }
+    /// The rule tip shown over the table (my seat only), nil when none. One tip card at a time:
+    /// while the welcome is up it has priority and the rule tip waits behind it (its log row is
+    /// already in; it shows once the welcome goes, if my bid or card has not ended it), as on the web.
+    var tutorialTip: AssistHint? { table.viewer.role == .seat && table.welcome == nil ? table.tip : nil }
+    /// The welcome tip (Keep / Turn off), my seat only.
+    var tutorialWelcome: AssistHint? { table.viewer.role == .seat ? table.welcome : nil }
+    /// The chat command list's /tutorial line.
+    var tutorialDescription: String { TutorialRules.commandDescription(on: table.tutorial.on) }
 
     var gameLog: [ChatMessage] { log.entries }
     var unreadChatCount: Int { log.unread }

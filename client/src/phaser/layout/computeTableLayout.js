@@ -1128,3 +1128,253 @@ export function layoutOf(scene) {
   }
   return scene._layoutFallback.layout;
 }
+
+/** The /help lightbulb's smallest size (px): legible on a small table. */
+export const ASK_MIN = 28;
+/** Its hit area at the least (HIG 44 pt; tokens.css --hit-target). */
+export const ASK_HIT = 44;
+/** The gap (px) between the lightbulb's hit area and the tutorial chip's. */
+const ASK_GAP = 2;
+
+/**
+ * The "Tutorial on" chip's box (TutorialChip.js; table.css .hud-tutorial):
+ * 30 px tall with its border, about 119 px wide at --type-xs (measured in
+ * Chrome; taken a little wide here for other fonts), its switch at the
+ * right end with a 44 px hit area (::before, inset -12px -6px), which
+ * reaches 7 px above and below the chip (8 here) and 6 px past its end.
+ */
+export const TUTORIAL_CHIP = { w: 124, h: 30, hitX: 6, hitY: 8 };
+
+/** The tutorial chip's hit box with its left end at x and its bottom at y. */
+export function tutorialChipHit(x, y) {
+  const c = TUTORIAL_CHIP;
+  return rect(x, y - c.h - c.hitY, c.w + c.hitX, c.h + 2 * c.hitY);
+}
+
+/**
+ * What the lightbulb keeps clear of: everything but the hand box itself,
+ * the log beside the canvas and the chat bubbles (they come and go, over
+ * anything).
+ */
+function askBlockers(L) {
+  return layoutRects(L)
+    .filter((r) => r.id !== 'hand' && r.id !== 'log' && !String(r.group).startsWith('bubble'))
+    .map((r) => r.rect);
+}
+
+/**
+ * The lightbulb's hit box: `pad` to the sides of the bulb whose right and
+ * bottom edges are (x, y), `up` above it and `down` below it.
+ */
+export function assistAskHit({ x, size, pad }, y, up, down) {
+  return rect(x - size - pad, y - size - up, size + 2 * pad, size + up + down);
+}
+
+/**
+ * Where the /help lightbulb goes (AssistCard's .hud-assist-ask; tableHud
+ * sets --assist-ask-* from it): the voice buttons' size, at least ASK_MIN,
+ * at the hand box's right end, its bottom level with the top of the lifted
+ * cards. Its hit area is `pad` (at least 6 px) to the sides, so ASK_HIT
+ * across, and as tall: `up` above the bulb, `down` below it, all above
+ * (down 0) where there is room, so it never reaches over the lifted cards'
+ * tops. It stays inside the hand box sideways, clear of my seat's box
+ * (avatar, frog, plate, HSI, pips, voice buttons) beside it. On a short
+ * table, where the felt's trick zone, the bid sheet (its clock) or the
+ * spectator badge is just above, the hit area reaches below the bulb
+ * instead, and only where the bulb itself would rise into them does it come
+ * down inside the hand box, just far enough to clear them. One spot per
+ * layout: the card count never moves it.
+ *
+ * `chip` is where it goes while the tutorial chip shows (table.css
+ * .has-tutorial-chip; --assist-ask-chip-*): the same spot where the hand box
+ * holds both side by side; on a narrower one, a row up, just above the
+ * chip's hit area, where that clears the felt and the bid sheet (on a
+ * table both too narrow and too short for that, the same spot).
+ * Null without a hand (a spectator).
+ * @returns {{x:number, y:number, size:number, pad:number, up:number, down:number,
+ *   chip:{y:number, up:number, down:number}}|null} x, y: the bulb's right and
+ *   bottom edges
+ */
+export function assistAskSpot(L) {
+  const h = L?.hand;
+  if (!h?.card) return null;
+  const size = Math.max(ASK_MIN, L.voice.button);
+  const pad = Math.max(6, (ASK_HIT - size) / 2);
+  const x = h.rect.x + h.rect.w - pad;
+  const a = { x, size, pad };
+  const blockers = askBlockers(L);
+  const clear = (box) => !blockers.some((r) => intersects(box, r));
+  const handBottom = h.rect.y + h.rect.h;
+  // the bulb itself (with its side pads) clear: a few steps down, each to
+  // just below what it hits, never below the hand box
+  let y = h.y - h.card.h / 2 - (h.lift || 0);
+  for (let i = 0; i < 4; i++) {
+    const box = assistAskHit(a, y, 0, 0);
+    const over = blockers.filter((r) => intersects(box, r));
+    if (!over.length) break;
+    y += Math.max(...over.map((r) => r.y + r.h)) - box.y;
+  }
+  y = Math.min(y, handBottom);
+  // then as much of the hit area above it as is free
+  const over = blockers.filter((r) => intersects(assistAskHit(a, y, 2 * pad, 0), r));
+  const top = over.length ? Math.max(...over.map((r) => r.y + r.h)) : -Infinity;
+  const up = Math.min(2 * pad, Math.max(0, y - size - top));
+  const spot = { x, y, size, pad, up, down: 2 * pad - up };
+  // with the tutorial chip: a row up where the two would meet side by side
+  spot.chip = { y, up: spot.up, down: spot.down };
+  const chip = tutorialChipSpot(L, spot);
+  const chipHit = tutorialChipHit(chip.x, chip.y);
+  if (intersects(assistAskHit(a, y, spot.up, spot.down), chipHit)) {
+    const yUp = chipHit.y - ASK_GAP;
+    const hit = assistAskHit(a, yUp, 2 * pad, 0);
+    if (hit.y >= L.canvas.y && clear(hit)) spot.chip = { y: yUp, up: 2 * pad, down: 0 };
+  }
+  return spot;
+}
+
+/** The /help card's gap below a seat it keeps clear of (assistRoomTop). */
+export const ASSIST_SEAT_GAP = 6;
+/**
+ * The least room the card keeps (the advice's chip and headline, a reason):
+ * a seat that would leave less (a side seat level with my hand on a squat
+ * table) does not cap it.
+ */
+export const ASSIST_MIN_ROOM = 96;
+
+/**
+ * How high the /help card (with a tutorial tip) may reach: just below the
+ * lowest other seat's block (avatar and name plate: partner, opponents),
+ * or the trump card, that its column, `w` wide centred on `cx`, would cross above `bottom`
+ * (the card's foot), so the card never covers a seat's avatar (a seat that
+ * would leave it under ASSIST_MIN_ROOM does not count); 0 when none is in
+ * the way (tableHud --assist-top / --assist-bid-top; table.css caps the
+ * card's height there and it scrolls inside, the advice kept in sight).
+ * @param {Object} L - the layout
+ * @param {number} cx - the card's centre
+ * @param {number} w - the card's widest
+ * @param {number} bottom - the card's foot (its top edge never below it)
+ * @param {Object} [o]
+ * @param {number} [o.minRoom] - a cap that leaves less is ignored (0: every one counts)
+ * @returns {number}
+ */
+export function assistRoomTop(L, cx, w, bottom, { minRoom = ASSIST_MIN_ROOM } = {}) {
+  const left = cx - w / 2;
+  const right = cx + w / 2;
+  let top = 0;
+  const keep = ['partner', 'opp1', 'opp2'].map((k) => L?.seats?.[k]?.block);
+  for (const b of [...keep, L?.trump?.rect]) {
+    if (!b || b.x >= right || b.x + b.w <= left) continue;
+    const below = b.y + b.h + ASSIST_SEAT_GAP;
+    if (below <= bottom - minRoom) top = Math.max(top, below);
+  }
+  return top;
+}
+
+/**
+ * Where the /help card goes above my hand (tableHud --assist-x / -y /
+ * -top): centred on the hand, its foot just above the lifted cards; moved
+ * sideways (as little as it takes, inside the canvas) where its column
+ * would cross my own seat's box beside the hand (a narrow window: the card
+ * is wider than the hand box), or, with no room to the side (a phone), its
+ * foot just above my seat; reaching up no higher than just below the other
+ * seats it crosses (assistRoomTop).
+ * @param {Object} L - the layout
+ * @param {number} w - the card's widest
+ * @returns {{x:number, y:number, top:number}|null} x: its centre, y: its foot; null without a hand
+ */
+export function assistHandSpot(L, w) {
+  const h = L?.hand;
+  if (!h?.card) return null;
+  const gap = Math.max(4, 6 * L.s);
+  const y = h.y - h.card.h / 2 - (h.lift || 0) - gap;
+  const edge = Math.max(8, 8 * L.s);
+  let x = h.cx;
+  const me = L.seats?.self?.block;
+  if (me && me.y < y && me.y + me.h > 0 && x - w / 2 < me.x + me.w && x + w / 2 > me.x) {
+    // to whichever side of my seat the hand is on
+    x = h.cx <= me.x + me.w / 2 ? me.x - gap - w / 2 : me.x + me.w + gap + w / 2;
+  }
+  x = Math.min(Math.max(x, edge + w / 2), L.w - edge - w / 2);
+  // no side room (a phone): its foot above my seat instead, where that leaves room
+  let foot = y;
+  if (me && me.y < y && x - w / 2 < me.x + me.w && x + w / 2 > me.x) {
+    const up = me.y - gap;
+    if (up - assistRoomTop(L, x, w, up) >= ASSIST_MIN_ROOM) foot = up;
+  }
+  return { x, y: foot, top: assistRoomTop(L, x, w, foot) };
+}
+
+/**
+ * The room above the bid sheet the /help card wants on my bid turn (a tip
+ * and the advice's chip, headline and a reason); with less, assistBidSpot
+ * looks beside the sheet.
+ */
+export const ASSIST_BID_ROOM = 160;
+
+/**
+ * Where the /help card goes on my bid turn (a bid answer, the tutorial's tip
+ * with it; tableHud --assist-bid-*): above the bid sheet, centred on it,
+ * reaching up no higher than just below the seats it crosses, where that
+ * leaves ASSIST_BID_ROOM; else (a short window: at 1280 x 800 the partner's
+ * seat is just above the sheet) the tallest free room beside the sheet,
+ * left or right, between the seats (avatar, plate, dealer chip), the
+ * histories, the status pill and the trump card, where it is taller (the
+ * other seats' face-down fans may go under it; the felt's trick slots are
+ * empty while we bid; chat bubbles come and go over anything), its foot no
+ * lower than the sheet's, hugging the sheet; else above it (assistRoomTop:
+ * over a seat only where nothing leaves ASSIST_MIN_ROOM).
+ * @param {Object} L - the layout
+ * @param {number} w - the card's widest
+ * @returns {{x:number, y:number, top:number, w:number, side:'above'|'left'|'right'}}
+ *   x: its centre, y: its foot, top: as high as it may reach, w: its widest there
+ */
+export function assistBidSpot(L, w) {
+  const sheet = L.bidSheet.rect;
+  const gap = Math.max(4, 6 * L.s);
+  const bottom = sheet.y - gap;
+  const above = { x: L.bidSheet.x, y: bottom, top: assistRoomTop(L, L.bidSheet.x, w, bottom), w, side: 'above' };
+  // the room above below every seat (and the trump card) it crosses, however little
+  const clearTop = assistRoomTop(L, above.x, w, bottom, { minRoom: 0 });
+  const aboveRoom = bottom - clearTop;
+  if (aboveRoom >= ASSIST_BID_ROOM) return { ...above, top: clearTop };
+  const skip = new Set(['hand', 'log', 'bidSheet', 'zone', 'spectators']);
+  const blockers = layoutRects(L)
+    .filter((r) => !skip.has(r.id) && r.group !== 'zone' && !String(r.group).startsWith('trick') &&
+      !String(r.group).startsWith('bubble') && !r.id.endsWith('.cards'))
+    .map((r) => r.rect);
+  const edge = Math.max(8, 8 * L.s);
+  const floor = sheet.y + sheet.h;
+  let best = null;
+  for (const side of ['left', 'right']) {
+    const x0 = side === 'left' ? edge : sheet.x + sheet.w + gap;
+    const x1 = side === 'left' ? sheet.x - gap : L.w - edge;
+    const width = Math.min(w, x1 - x0);
+    if (width < Math.min(240, w)) continue;
+    const left = side === 'left' ? x1 - width : x0;
+    // the free stretches of that column, top to the sheet's foot
+    const spans = blockers
+      .filter((r) => r.x < left + width && r.x + r.w > left && r.y < floor)
+      .map((r) => [r.y - gap, r.y + r.h + gap])
+      .sort((a, b) => a[0] - b[0]);
+    let y = edge;
+    for (const [a, b] of [...spans, [floor, floor]]) {
+      const room = Math.min(a, floor) - y;
+      if (room > 0 && (!best || room > best.y - best.top)) best = { x: left + width / 2, y: y + room, top: y, w: width, side };
+      y = Math.max(y, b);
+    }
+  }
+  return best && best.y - best.top >= ASSIST_MIN_ROOM && best.y - best.top > aboveRoom ? best : above;
+}
+
+/**
+ * Where the "Tutorial on" chip goes (TutorialChip.js; tableHud sets
+ * --tutorial-x / -y from it): the hand box's left end, its bottom level with
+ * the lightbulb's (assistAskSpot y). Null without a hand.
+ * @param {Object} L - the layout
+ * @param {Object} [ask] - assistAskSpot(L), when it is already at hand
+ * @returns {{x:number, y:number}|null} its left and bottom edges
+ */
+export function tutorialChipSpot(L, ask = assistAskSpot(L)) {
+  if (!ask) return null;
+  return { x: L.hand.rect.x, y: ask.y };
+}

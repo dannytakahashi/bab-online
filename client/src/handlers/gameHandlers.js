@@ -5,7 +5,7 @@
  *          createUI, bidReceived, doneBidding, updateTurn, cardPlayed, trickComplete,
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
- *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint,
+ *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint, assistState,
  *          seatLeft
  *
  * Each handler applies its event to GameState (the one writer of table
@@ -77,6 +77,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onBidTimedOut,
     // My /help answer (private, unsequenced)
     onAssistHint,
+    // My tutorial's state (private, unsequenced)
+    onAssistState,
   } = callbacks;
 
   const state = getGameState();
@@ -362,6 +364,15 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.ASSIST_HINT, (data) => {
     if (!data || typeof data !== 'object') return;
     onAssistHint?.(data);
+  });
+
+  // My tutorial's state (s2c assistState, only to this socket: the
+  // clientHello cap tutorial; docs/claude/assist.md, The tutorial): on /
+  // off and my /help count, on every change and after a rejoin. Private
+  // and unsequenced: never in GameState (state/tutorial.js keeps it)
+  socketManager.on(SERVER_EVENTS.ASSIST_STATE, (data) => {
+    if (!data || typeof data !== 'object' || typeof data.tutorial !== 'boolean') return;
+    onAssistState?.(data);
   });
 
   // ==================== RESIGNATION & LAZY MODE ====================

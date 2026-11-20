@@ -24,6 +24,8 @@ final class GameSocketHandler {
         SocketEvents.Server.spectatorsUpdated, SocketEvents.Server.bidClock, SocketEvents.Server.seatLeft,
         // my own /help answer (private; the clientHello cap `assist`)
         SocketEvents.Server.assistHint,
+        // my seat's tutorial and /help state (private; the clientHello cap `tutorial`)
+        SocketEvents.Server.assistState,
     ]
 
     /// Snapshot carriers that open the game screen when they apply.

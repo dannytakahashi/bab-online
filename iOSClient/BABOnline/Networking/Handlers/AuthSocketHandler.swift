@@ -181,6 +181,7 @@ final class AuthSocketHandler {
             print("[Auth] Force logout: \(reason)")
             self.stopRestoreRetry()
             self.authState.clearCredentials()
+            VoiceChatManager.shared.forgetSessionMute()
             self.gameState.reset()
             self.safetyState.reset()
             self.appState.screen = .signIn
@@ -294,6 +295,7 @@ final class AuthSocketHandler {
                 // Clear stale credentials and show sign-in
                 self.authState.sessionToken = ""
                 self.authState.saveCredentials()
+                VoiceChatManager.shared.forgetSessionMute()
                 self.appState.screen = .signIn
             }
         }
@@ -377,6 +379,7 @@ final class AuthSocketHandler {
                 // auto-reconnect won't restore a session.
                 print("[Auth] Account deleted")
                 self.authState.clearCredentials()
+                VoiceChatManager.shared.forgetSessionMute()
                 self.gameState.reset()
                 self.safetyState.reset()
                 self.appState.screen = .signIn

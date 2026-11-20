@@ -28,6 +28,8 @@
  * <body> and keep their CSS fallbacks.
  */
 
+import { assistAskSpot, tutorialChipSpot, assistHandSpot, assistBidSpot } from '../phaser/layout/computeTableLayout.js';
+
 /** OpponentManager's 'bottom' slot (a spectator's view) is the self seat. */
 export const SEAT_KEYS = ['self', 'partner', 'opp1', 'opp2'];
 export const seatKeyOf = (slot) => (slot === 'bottom' || slot === 'me' ? 'self' : slot);
@@ -198,20 +200,47 @@ function applyRootVars(hud, L) {
   set('--bid-scale', String(L.bidSheet.scale));
   // the /help card (ui/components/AssistCard.js): its bottom just above my
   // hand's lifted cards, centred on the hand; a bid suggestion above the
-  // bid sheet instead (the sheet covers the felt while I bid); the "?" at
-  // the hand box's right end, at the same height (no hand, a spectator:
-  // never shown)
-  set('--assist-bid-x', L.bidSheet.x);
-  set('--assist-bid-y', L.bidSheet.rect.y - Math.max(4, 6 * L.s));
+  // bid sheet instead (the sheet covers the felt while I bid); the lightbulb
+  // at the hand box's right end, clear of my seat's box (assistAskSpot; no
+  // hand, a spectator: never shown)
+  // The card's widest: --assist-w (380 at most), never past the HUD's sides
+  // (table.css: 100% less 2 x 16 px); it reaches up no higher than just below
+  // the seats its column crosses (assistRoomTop: never over an avatar)
+  // (a short window: beside the bid sheet while I bid, assistBidSpot)
+  const cardW = (w) => Math.max(Math.min(240, L.w - 32), Math.min(w, L.w - 32));
   const h = L.hand;
+  const assistW = h?.card ? Math.min(h.rect.w, 380) : 380;
+  // (above the bid sheet the hand's width does not matter: 380 at most)
+  const bid = assistBidSpot(L, cardW(380));
+  set('--assist-bid-x', bid.x);
+  set('--assist-bid-y', bid.y);
+  set('--assist-bid-top', bid.top);
+  set('--assist-bid-w', bid.w);
+  hud.dataset.assistBid = bid.side;
   if (h?.card) {
-    const cardsTop = h.y - h.card.h / 2 - (h.lift || 0);
-    set('--assist-x', h.cx);
-    set('--assist-y', cardsTop - Math.max(4, 6 * L.s));
-    set('--assist-w', Math.min(h.rect.w, 380));
-    set('--assist-ask-x', h.rect.x + h.rect.w);
-    set('--assist-ask-y', cardsTop);
-    set('--assist-ask', L.voice.button);
+    const spot = assistHandSpot(L, cardW(assistW));
+    set('--assist-x', spot.x);
+    set('--assist-y', spot.y);
+    set('--assist-w', assistW);
+    set('--assist-top', spot.top);
+    // the lightbulb (assistAskSpot): its right and bottom edges, its size,
+    // its hit area's reach to the sides, above and below; and its spot while
+    // the tutorial chip shows (table.css .has-tutorial-chip)
+    const ask = assistAskSpot(L);
+    set('--assist-ask-x', ask.x);
+    set('--assist-ask-y', ask.y);
+    set('--assist-ask', ask.size);
+    set('--assist-ask-pad', ask.pad);
+    set('--assist-ask-up', ask.up);
+    set('--assist-ask-down', ask.down);
+    set('--assist-ask-chip-y', ask.chip.y);
+    set('--assist-ask-chip-up', ask.chip.up);
+    set('--assist-ask-chip-down', ask.chip.down);
+    // the "Tutorial on" chip (ui/components/TutorialChip.js): the hand
+    // box's left end, level with the lightbulb's spot (tutorialChipSpot)
+    const chip = tutorialChipSpot(L, ask);
+    set('--tutorial-x', chip.x);
+    set('--tutorial-y', chip.y);
   }
   const vr = L.voice.rect;
   set('--voice-x', vr.x);

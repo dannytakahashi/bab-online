@@ -46,6 +46,9 @@ enum ServerEvent: Equatable {
     /// assistHint: my own /help answer, private and UNSEQUENCED (decoded with seq nil);
     /// never opens or fills a gap (TableReducer+Assist)
     case assistHint(WirePayload.AssistHint)
+    /// assistState: my seat's tutorial and /help state (the cap `tutorial`), private and
+    /// UNSEQUENCED (decoded with seq nil); never opens or fills a gap (TableReducer+Assist)
+    case assistState(WirePayload.AssistState)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -194,6 +197,9 @@ extension ServerEvent {
                 seq = nil
             case "assistHint":
                 event = .assistHint(try d(WirePayload.AssistHint.self))
+                seq = nil
+            case "assistState":
+                event = .assistState(try d(WirePayload.AssistState.self))
                 seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else

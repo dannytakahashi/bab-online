@@ -156,8 +156,9 @@ extension TableReducer {
                 s.table.viewer.role = .lazyWatcher
                 s.table.viewer.ownerView = "seat"
                 s.pending = nil
-                // a bot plays my seat now: my /help answer is moot
+                // a bot plays my seat now: my /help answer is moot (and a rule tip with it)
                 clearAssist(&s)
+                clearTip(&s)
                 s.table.assistAsking = false
             } else if s.players.leaveCheck != .idle {
                 // another owner's /lazy or /leave while my Leave is up (whatever it opened
@@ -214,6 +215,8 @@ extension TableReducer {
             seatLeft(&s, p)
         case .assistHint(let p):
             assistHint(&s, p, &fx)
+        case .assistState(let p):
+            assistState(&s, p, &fx)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -425,7 +428,7 @@ extension TableReducer {
         b.bids.recomputeMults()
         s.table.phase = .bidding(b)
         // my own bid: the /help card is done
-        if pos == s.table.viewer.position && s.table.viewer.holdsSeat { clearAssist(&s) }
+        if pos == s.table.viewer.position && s.table.viewer.holdsSeat { clearAssist(&s); clearTip(&s) }
         addLog(&s, "\(s.players.name(pos)) bid \(bid)")
         if pos == s.table.viewer.position, let pending = s.pending, case .bid = pending.submission {
             s.pending = nil
@@ -463,7 +466,7 @@ extension TableReducer {
         mutateSeat(&s, pos) { $0.cardsInHand = max(0, $0.cardsInHand - 1) }
         let mine = pos == s.table.viewer.position && s.table.viewer.holdsSeat
         // my own card: the /help card is done
-        if mine { clearAssist(&s) }
+        if mine { clearAssist(&s); clearTip(&s) }
         if mine, let i = s.table.hand.firstIndex(of: p.card) { s.table.hand.remove(at: i) }  // also a lazy bot's play for me
         var confirmsMine = false
         if mine, let pending = s.pending, case .play(let c) = pending.submission {

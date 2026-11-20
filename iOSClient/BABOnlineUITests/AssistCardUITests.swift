@@ -68,8 +68,17 @@ final class AssistCardUITests: XCTestCase {
         XCTAssertTrue(waitFor(app, "table.assist", contains: "bid=2"), Fixture.probe(app, "table.assist"))
         XCTAssertEqual(element(app, "bidOverlay").buttons["2"].value as? String, "Suggested")
         XCTAssertEqual(element(app, "bidOverlay").buttons["3"].value as? String ?? "", "")
-        // above the bid panel, not over it
-        XCTAssertLessThanOrEqual(card.frame.maxY, chips.minY, "card \(card.frame) chips \(chips)")
+        // above the bid panel, not over it (what of the card shows: a column short of room,
+        // below the partner's seat on the iPhone Duo open, scrolls inside: probe frame=)
+        let probe = Fixture.probe(app, "table.assist")
+        let f = probe.components(separatedBy: "frame=").last?.split(separator: " ").prefix(4).compactMap { Double($0) } ?? []
+        XCTAssertEqual(f.count, 4, probe)
+        let shown = f.count == 4 ? card.frame.intersection(CGRect(x: f[0], y: f[1], width: f[2], height: f[3])) : card.frame
+        XCTAssertLessThanOrEqual(shown.maxY, chips.minY + 0.5, "card \(card.frame) shown \(shown) chips \(chips)")
+        // never over the partner's seat (a phone in portrait may put the side seats under it)
+        let seats = probe.components(separatedBy: " seats=").last ?? ""
+        let over = seats.hasPrefix("over:") ? seats.dropFirst(5).split(separator: ",").filter { !$0.hasPrefix("side.") } : []
+        XCTAssertTrue(over.isEmpty, "over the partner's seat: \(probe)")
         XCTAssertGreaterThanOrEqual(card.frame.minX, 0)
         XCTAssertLessThanOrEqual(card.frame.maxX, app.windows.firstMatch.frame.maxX)
         // Why? opens the details

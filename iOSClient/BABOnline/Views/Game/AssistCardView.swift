@@ -18,6 +18,8 @@ import SwiftUI
 /// the headline and the main reason once (TableEffect.announce); the card never takes focus.
 struct AssistCardView: View {
     let hint: AssistHint
+    /// My tutorial is on: a /help answer then is never counted (AssistRules.footer).
+    var tutorialOn = false
     var onClose: () -> Void
 
     @State private var showsWhy = false
@@ -55,6 +57,8 @@ struct AssistCardView: View {
                 .foregroundColor(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("assist.headline")
+                // the column scrolls this into sight when it is short (GameContainerView.assistColumn)
+                .id(AssistLayout.adviceHeadId)
             if !isStatus {
                 ForEach(Array(hint.reasons.enumerated()), id: \.offset) { _, reason in
                     HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {
@@ -103,7 +107,7 @@ struct AssistCardView: View {
                     }
                 }
             }
-            if let footer = AssistRules.footer(hint) {
+            if let footer = AssistRules.footer(hint, tutorial: tutorialOn) {
                 Text(footer)
                     .font(.caption)
                     .foregroundColor(Theme.textDim)

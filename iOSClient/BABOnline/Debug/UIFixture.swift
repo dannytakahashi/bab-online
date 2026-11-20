@@ -228,6 +228,7 @@ enum UIFixture {
             }
             seedTableExtras(store, snap, auth: auth)
             seedAssist(store, auth: auth)
+            seedTutorial(store, auth: auth)
             seedFaults(store, snap)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
@@ -422,6 +423,8 @@ enum UIFixture {
             message = m
             // -uiAssist YES: the server's private answer to /help (UIFixture+Assist)
             if m == AssistRules.command { answerHelpLater() }
+            // -uiTutorial YES: the server's answer to /tutorial (UIFixture+Tutorial)
+            if m == TutorialRules.command || m.hasPrefix(TutorialRules.command + " ") { answerTutorialLater(m) }
         case SocketEvents.Client.removeBot where name == "game-lobby-bots":
             message = "removeBot:\(data["botSocketId"] as? String ?? "-")"
         case SocketEvents.Client.addBot where name == "game-lobby-bots":
@@ -786,16 +789,41 @@ final class TableDebugProbe: ObservableObject {
     /// in a flight or a fade now, the deck up or not).
     @Published var tableDeal = "-"
     /// My /help answer on the table (AssistCardView's hint, TableReducer+Assist):
-    /// "card=<id> bid=<b> frame=<x y w h> clear=ok|over:<what>|- keeps=<what>|-" from the scene's
+    /// "card=<id> bid=<b> frame=<x y w h> clear=ok|over:<what>|- keeps=<what>|- seats=ok|over:<what>|-" from the scene's
     /// ringed hand card, the bid panel's ringed bid, the card's frame in the pane's points, what
     /// it covers of what it keeps clear of, and those (my bid clock, my seat's row, the fold:
     /// AssistLayout.Keeps; "-": no card, nothing).
-    @Published var tableAssist = "card=- bid=- frame=- clear=- keeps=-"
+    @Published var tableAssist = "card=- bid=- frame=- clear=- keeps=- seats=-"
     var assistParts = "card=- bid=-" { didSet { updateAssist() } }
     /// The /help card's frame in the pane's points (GameContainerView).
     var assistFrame: CGRect? { didSet { updateAssist() } }
     /// What the card keeps clear of (AssistLayout.Keeps.probe).
-    var assistKeeps: [String: CGRect] = [:] { didSet { updateAssist() } }
+    var assistKeeps: [String: CGRect] = [:] { didSet { updateAssist(); updateTutorial() } }
+    /// The other seats' parts (AssistLayout.Keeps.seats: "seat<n>" avatar and name, "bubble<n>",
+    /// "dealer<n>"): the probe's "seats=ok|over:<what>" (what of them the cards cover).
+    var assistSeats: [String: CGRect] = [:] { didSet { updateAssist() } }
+    /// The tutorial (TutorialChipView): "chip=<x y w h>|- clear=ok|over:<what>|-" from the chip's
+    /// frame in the pane's points against what the column keeps clear of (AssistLayout.Keeps:
+    /// my bid clock, my seat's row, the fold, the lightbulb), then "ask=<x y w h>|-": the
+    /// lightbulb's frame as the column knows it, then " pin=<x y w h>|-": the tip's title row
+    /// pinned at a short column's top.
+    @Published var tableTutorial = "chip=- clear=- pin=-"
+    var tutorialChipFrame: CGRect? { didSet { updateTutorial() } }
+    /// The tip's title row pinned at a short column's top (GameContainerView.pinnedTipHead):
+    /// the probe's " pin=<x y w h>|-".
+    var tutorialPinFrame: CGRect? { didSet { updateTutorial() } }
+
+    private func updateTutorial() {
+        var text = "chip=- clear=-"
+        if let f = tutorialChipFrame {
+            let over = assistKeeps.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
+            let ask = assistKeeps["ask"].map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
+            text = String(format: "chip=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+                + " clear=\(over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")) ask=\(ask)"
+        }
+        text += " pin=" + (tutorialPinFrame.map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-")
+        if text != tableTutorial { tableTutorial = text }
+    }
 
     private func updateAssist() {
         let frame = assistFrame.map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
@@ -805,8 +833,13 @@ final class TableDebugProbe: ObservableObject {
             let over = assistKeeps.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
             clear = over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")
         }
+        var seats = "-"
+        if let f = assistFrame {
+            let over = assistSeats.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
+            seats = over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")
+        }
         let kept = assistKeeps.keys.sorted().joined(separator: ",")
-        let text = "\(assistParts) frame=\(frame) clear=\(clear) keeps=\(kept.isEmpty ? "-" : kept)"
+        let text = "\(assistParts) frame=\(frame) clear=\(clear) keeps=\(kept.isEmpty ? "-" : kept) seats=\(seats)"
         if text != tableAssist { tableAssist = text }
     }
     /// The lightbulb on my play turn (AssistLayout.askFrame): "frame=<x y w h> clear=ok|over:<what>
@@ -927,6 +960,7 @@ struct FixtureProbes: View {
             dot("table.bidClock", probe.bidClock)
             dot("table.assist", probe.tableAssist)
             dot("table.assistAsk", probe.tableAssistAsk)
+            dot("table.tutorial", probe.tableTutorial)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
