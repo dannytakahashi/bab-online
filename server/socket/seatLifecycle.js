@@ -33,6 +33,7 @@ const { openTrick } = require('../game/tableView');
 // false / a no-op for a game that was not adopted
 const restoreGame = require('../game/persist/restoreGame');
 const { serverErrorOf } = require('./serverError');
+const onlinePresence = require('./onlinePresence');
 
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 const { Controller, Presence, RECONNECT_GRACE_MS, ABANDON_MS, SOLO_ABANDON_MS, DRAW_WATCHDOG_MS, AFK_TIMEOUT_MS, AFK_RESUME_MIN_MS } = SeatState;
@@ -460,6 +461,17 @@ function announceOwnerVoice(io, game, pos, socket, username) {
 }
 
 /**
+ * registerUser for a seat owner back on `socket`. A token rejoin signs in
+ * here without a restoreSession first, so a name that was offline is
+ * announced to the main room (onlinePresence).
+ */
+function registerOnline(io, socket, username) {
+    const wasOnline = onlinePresence.isOnline(username);
+    gameManager.registerUser(socket.id, username);
+    onlinePresence.announceOnline(io, username, wasOnline);
+}
+
+/**
  * The owner of a human seat is back on `socket` (from grace / resignable,
  * or with an older socket still attached: the newest socket owns the seat;
  * the old one is unmapped and taken out of the room without an emit).
@@ -474,7 +486,7 @@ function reconnectOwner(io, game, pos, socket, username) {
     }
     gameManager.playerGames.set(socket.id, game.gameId);
     game.joinToRoom(io, socket.id);
-    gameManager.registerUser(socket.id, username);
+    registerOnline(io, socket, username);
     const tournament = reattachTournament(io, socket, game.gameId, username);
     // A restored table: the gate may open here, and its kick runs before the
     // carrier is built (the snapshot's seq and resume count the kick)
@@ -549,7 +561,7 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     }
     gameManager.playerGames.set(socket.id, game.gameId);
     game.joinToRoom(io, socket.id);
-    gameManager.registerUser(socket.id, username);
+    registerOnline(io, socket, username);
     if (via === 'spectate') {
         socket.leave('mainRoom');
         gameManager.leaveMainRoom(socket.id);
@@ -596,7 +608,7 @@ function reclaimSeat(io, game, pos, socket, username) {
     if (game.seatWatch(pos, socket.id) !== null || seat.ownerSocketId !== socket.id) return false;
     gameManager.playerGames.set(socket.id, game.gameId);
     game.joinToRoom(io, socket.id);
-    gameManager.registerUser(socket.id, username);
+    registerOnline(io, socket, username);
     socketLogger.info('Owner reclaimed bot-controlled seat from a spectating socket', { username, gameId: game.gameId, position: pos });
     // A restored table: the gate may open here, before goActive's carrier
     restoreGame.openGateIfReady(io, game);
