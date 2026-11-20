@@ -94,8 +94,11 @@ afterEach(() => {
 });
 afterAll(() => rateLimiter.shutdown());
 
-// The record before /help, byte for byte (completedAt is the fake clock)
-const NO_HELP_RECORD = '{"gameId":"g-1","team1Score":420,"team2Score":150,"team1Players":["Ann","Cat"],"team2Players":["Ben","Dan"],"team1Bags":1,"team2Bags":-2,"completedAt":"2027-01-15T08:00:00.000Z","statsDeltas":{"bucket":"stats","byPosition":{"1":{"gamesPlayed":1,"wins":1,"losses":0,"draws":0,"totalPoints":420,"totalTricksBid":5,"totalTricksTaken":6,"totalHands":13,"totalSets":1,"totalSetPoints":20,"totalFaults":0,"totalHSI":300},"2":{"gamesPlayed":1,"wins":0,"losses":1,"draws":0,"totalPoints":150,"totalTricksBid":4,"totalTricksTaken":3,"totalHands":13,"totalSets":3,"totalSetPoints":90,"totalFaults":2,"totalHSI":250},"3":{"gamesPlayed":1,"wins":1,"losses":0,"draws":0,"totalPoints":420,"totalTricksBid":2,"totalTricksTaken":2,"totalHands":13,"totalSets":1,"totalSetPoints":20,"totalFaults":1,"totalHSI":200},"4":{"gamesPlayed":1,"wins":0,"losses":1,"draws":0,"totalPoints":150,"totalTricksBid":3,"totalTricksTaken":2,"totalHands":13,"totalSets":3,"totalSetPoints":90,"totalFaults":1,"totalHSI":150}}},"statsPending":[{"position":1,"username":"Ann"},{"position":2,"username":"Ben"},{"position":3,"username":"Cat"},{"position":4,"username":"Dan"}]}';
+// The record before /help, byte for byte (completedAt is the fake clock),
+// plus the superlatives' seat names (statsDeltas.names, 2026-11-20); this
+// fake game has no bag counter (no game.seatBags), so no
+// statsDeltas.bags, and byPosition is the 12 bucket counters as before
+const NO_HELP_RECORD = '{"gameId":"g-1","team1Score":420,"team2Score":150,"team1Players":["Ann","Cat"],"team2Players":["Ben","Dan"],"team1Bags":1,"team2Bags":-2,"completedAt":"2027-01-15T08:00:00.000Z","statsDeltas":{"bucket":"stats","byPosition":{"1":{"gamesPlayed":1,"wins":1,"losses":0,"draws":0,"totalPoints":420,"totalTricksBid":5,"totalTricksTaken":6,"totalHands":13,"totalSets":1,"totalSetPoints":20,"totalFaults":0,"totalHSI":300},"2":{"gamesPlayed":1,"wins":0,"losses":1,"draws":0,"totalPoints":150,"totalTricksBid":4,"totalTricksTaken":3,"totalHands":13,"totalSets":3,"totalSetPoints":90,"totalFaults":2,"totalHSI":250},"3":{"gamesPlayed":1,"wins":1,"losses":0,"draws":0,"totalPoints":420,"totalTricksBid":2,"totalTricksTaken":2,"totalHands":13,"totalSets":1,"totalSetPoints":20,"totalFaults":1,"totalHSI":200},"4":{"gamesPlayed":1,"wins":0,"losses":1,"draws":0,"totalPoints":150,"totalTricksBid":3,"totalTricksTaken":2,"totalHands":13,"totalSets":3,"totalSetPoints":90,"totalFaults":1,"totalHSI":150}},"names":{"1":"Ann","2":"Ben","3":"Cat","4":"Dan"}},"statsPending":[{"position":1,"username":"Ann"},{"position":2,"username":"Ben"},{"position":3,"username":"Cat"},{"position":4,"username":"Dan"}]}';
 
 describe('buildGameEndRecord', () => {
     test('no /help: the record of before, byte for byte (also with a record that belongs to someone else)', () => {
@@ -167,8 +170,9 @@ test('recordGameStats: the assisted player is credited to botStats, the other th
     expect(doc).not.toHaveProperty('statsPending');
     // the Records projections never carry it
     const src = require('fs').readFileSync(require.resolve('../profileHandlers'), 'utf8');
-    const projections = src.match(/const RECORDS_PROJECTION[^\n]*\n[^\n]*\nconst RECORDS_PROJECTION_WITH_BOTS[^\n]*/)[0];
-    expect(projections).not.toMatch(/assist/);
+    const projections = src.match(/const RECORDS_PROJECTION = \{[\s\S]*?\};\n[\s\S]*?const RECORDS_PROJECTION_WITH_BOTS[^\n]*/)[0];
+    expect(projections).toMatch(/RECORDS_PROJECTION_WITH_BOTS/);
+    expect(projections).not.toMatch(/assistedTeams/);
 });
 
 // ------------------------------------------------------------ a tournament table

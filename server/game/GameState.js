@@ -30,7 +30,7 @@ const {
 } = SeatState;
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
-const { isValidBid, isLegalPlay, firstLegalCard } = require('./rules');
+const { isValidBid, isLegalPlay, firstLegalCard, normalizeSeatBags } = require('./rules');
 // The persist store's change hooks (persist/hooks.js): passive, one null
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
@@ -147,6 +147,17 @@ class GameState {
             3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
             4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
         };
+
+        // Per-seat bags (server-only, the superlatives' Bag Boy;
+        // rules.normalizeSeatBags): the hands counted and each seat's bags
+        // in them (gameHandlers.handleHandComplete). Its own field, not in
+        // playerStats: the release before restores playerStats whole and
+        // spreads it into gameEnd, whose schema is closed. It starts here,
+        // so a game restored from a doc without it (a process without the
+        // counter) has none (restoreFrom: null), and a record whose hands
+        // differ from handStats.totalHands carries no bags
+        // (profileHandlers.buildGameEndRecord)
+        this.seatBags = { hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } };
 
         // Per-hand trick tracking (reset each hand) for determining set responsibility
         this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -1335,6 +1346,11 @@ class GameState {
             this.rainbows = clone(state.rainbows);
             this.handStats = clone(state.handStats);
             this.playerStats = clone(state.playerStats);
+            // A pre-release build of the superlatives kept its bag counter
+            // here: never on the wire (gameEnd's playerStats is closed)
+            for (const ps of Object.values(this.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
+            // A doc without it (written by a process without the counter): none
+            this.seatBags = normalizeSeatBags(state.seatBags);
             this.handTricks = clone(state.handTricks);
             this.hsiValues = clone(state.hsiValues) || {};
             // A CODEC_V 1 doc has none: every seat starts with no /help use

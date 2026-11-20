@@ -145,6 +145,22 @@ const sock = () => {
     return s;
 };
 const last = (event) => log.filter(l => l.event === event).pop()?.data;
+/**
+ * A records reply without each period's superlatives (additive
+ * 2026-11-20), for comparing with the 3db87b1 reference; the seed's records
+ * predate statsDeltas (they count as games, with no per-seat values), so
+ * every list is empty.
+ */
+function withoutSuperlatives(reply, expected = {}) {
+    const records = {};
+    for (const [period, rec] of Object.entries(reply.records || {})) {
+        if (rec === null) { records[period] = null; continue; }
+        const { superlatives, ...rest } = rec;
+        expect(superlatives).toEqual(expected[period] || []);
+        records[period] = rest;
+    }
+    return { ...reply, records };
+}
 
 beforeEach(async () => {
     if (!client) return;
@@ -333,7 +349,7 @@ describe('real mongod', () => {
         require('../testUtils/contractCheck').takeViolations();
         await profile.getRecords(b, io);
         const before = log.filter(l => l.to === `self:${a.id}`).pop().data;
-        const after = log.filter(l => l.to === `self:${b.id}`).pop().data;
+        const after = withoutSuperlatives(log.filter(l => l.to === `self:${b.id}`).pop().data);
         // the 3db87b1 reply plus periodGames (additive 2026-11-14)
         const { periodGames, ...rest } = after;
         expect(rest).toEqual(before);
@@ -768,7 +784,10 @@ describe('real mongod', () => {
         const ref = makeReference(database);
         const a = sock();
         const b = sock();
-        const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
+        const reply = (s, expected) => {
+            const data = log.filter(l => l.to === `self:${s.id}`).pop().data;
+            return s === b && data.records ? withoutSuperlatives(data, expected) : data;
+        };
         // 'all' on human-only data is the reference exactly (plus the echo)
         await ref.getRecords(a, io);
         require('../testUtils/contractCheck').takeViolations(); // the reference predates periodGames
@@ -803,8 +822,13 @@ describe('real mongod', () => {
         expect(bots.records.thisMonth.highestScore).toEqual({ score: 990, players: ['Cy', '🤖 Mary'] });
         expect(bots.records.thisMonth.lowestScore).toEqual({ score: 100, players: ['Alan', 'Bea'] });
         await profile.getRecords(b, io, { scope: 'all' });
-        expect(reply(b).totalGames).toBe(7);
-        expect(reply(b).periodGames).toEqual({ allTime: 7, thisYear: 5, thisMonth: 5 });
+        // Cy's solo game b1 has no statsDeltas (like every seed game) but
+        // names its one human: with Cy's 4 older games all time, 5 games
+        // and one solo game (no per-seat values from any of them)
+        const cySolo = [{ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Cy'], detail: '1 solo game' }];
+        const all = reply(b, { allTime: cySolo });
+        expect(all.totalGames).toBe(7);
+        expect(all.periodGames).toEqual({ allTime: 7, thisYear: 5, thisMonth: 5 });
 
         // leaderboard: human = the reference (with V1_REMOVALS #19 B applied:
         // every row's customProfilePic null, as in (e)); bots = Cy only
@@ -816,6 +840,94 @@ describe('real mongod', () => {
         expect(reply(b).leaderboard.map(r => r.username)).toEqual(['Cy', 'Population']);
         await profile.getLeaderboard(b, io, { scope: 'all' });
         expect(reply(b).leaderboard.find(r => r.username === 'Cy').gamesPlayed).toBe(5);
+    });
+
+    test('(q) superlatives on the real driver: the dotted statsDeltas projection, names map and legacy rebuild, per scope; rename / merge / delete keep the names map in step', async () => {
+        if (!client) return;
+        const reply = (s) => log.filter(l => l.to === `self:${s.id}`).pop().data;
+        const seat = (o = {}) => ({
+            gamesPlayed: 1, wins: 1, losses: 0, draws: 0, totalPoints: 300, totalTricksBid: 20, totalTricksTaken: 20,
+            totalHands: 13, totalSets: 1, totalSetPoints: 10, totalFaults: 0, totalHSI: 1300, ...o
+        });
+        const recs = [];
+        for (let i = 0; i < 5; i++) {
+            const legacy = i >= 3; // the last two are older records: no names map (rebuilt from the teams), no bags (the net)
+            recs.push({
+                gameId: `s${i}`, team1Score: 300, team2Score: 200, team1Players: ['Alan', 'Cy'], team2Players: ['Bea', 'Eve'], team1Bags: 0, team2Bags: 0,
+                completedAt: new Date(now - 100 - i),
+                statsDeltas: {
+                    bucket: 'stats',
+                    byPosition: { 1: seat(legacy ? { totalTricksTaken: 23 } : {}), 2: seat(), 3: seat({ totalHSI: 2600 }), 4: seat() },
+                    ...(legacy ? {} : { bags: { 1: 3, 2: 0, 3: 0, 4: 0 }, names: { 1: 'Alan', 2: 'Bea', 3: 'Cy', 4: 'Eve' } }),
+                    assist: { 2: { help: 2 } }
+                }
+            });
+            recs.push({
+                gameId: `solo${i}`, withBots: true, team1Score: 400, team2Score: 100, team1Players: ['Dot'], team2Players: [],
+                team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Ivy', '🤖 Mary'], team1Bags: 1, team2Bags: 0, completedAt: new Date(now - 50 - i),
+                statsDeltas: { bucket: 'botStats', byPosition: { 1: seat() }, bags: { 1: 0 }, names: { 1: 'Dot' } }
+            });
+            // all time only: a table from last year (a Date before this year) ...
+            recs.push({
+                gameId: `old${i}`, team1Score: 300, team2Score: 200, team1Players: ['Gil', 'Ike'], team2Players: ['Hal', 'Jan'], team1Bags: 0, team2Bags: 0,
+                completedAt: new Date(new Date(now).getFullYear() - 1, 5, 15),
+                statsDeltas: { bucket: 'stats', byPosition: { 1: seat(), 2: seat(), 3: seat(), 4: seat() }, bags: { 1: 9, 2: 0, 3: 0, 4: 0 }, names: { 1: 'Gil', 2: 'Hal', 3: 'Ike', 4: 'Jan' } }
+            });
+            // ... and one whose completedAt is not a Date: the period finds' $gte never matches it
+            recs.push({
+                gameId: `str${i}`, team1Score: 300, team2Score: 200, team1Players: ['Kai', 'Max'], team2Players: ['Lou', 'Ned'], team1Bags: 0, team2Bags: 0,
+                completedAt: new Date(now).toISOString(),
+                statsDeltas: { bucket: 'stats', byPosition: { 1: seat(), 2: seat(), 3: seat(), 4: seat() }, names: { 1: 'Kai', 2: 'Lou', 3: 'Max', 4: 'Ned' }, assist: { 1: { help: 20 } } }
+            });
+        }
+        await mockHolder.gameRecords.insertMany(recs);
+        profile.invalidateRecords();
+
+        const b = sock();
+        await profile.getRecords(b, io);
+        const human = Object.fromEntries(reply(b).records.thisMonth.superlatives.map((x) => [x.id, x]));
+        expect(Object.keys(human)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'anchor']);
+        expect(human.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Alan'], detail: '3.0 bags a game' });
+        expect(human.luckyDuck.names).toEqual(['Cy']);
+        expect(human.cursed.names).toEqual(['Alan', 'Bea', 'Eve']);
+        expect(human.helpFromFriends).toMatchObject({ names: ['Bea'], detail: '10 /help uses' });
+        // this year is this month here; all time adds last year's Gil and the
+        // string-dated Kai, exactly as the period finds' completedAt $gte
+        // would (the superlatives are routed from the allTime find)
+        const periodOf = (period) => Object.fromEntries(reply(b).records[period].superlatives.map((x) => [x.id, x]));
+        expect(reply(b).records.thisYear.superlatives).toEqual(reply(b).records.thisMonth.superlatives);
+        const all = periodOf('allTime');
+        expect(all.bagBoy).toMatchObject({ names: ['Gil'], detail: '9.0 bags a game' });
+        expect(all.helpFromFriends).toMatchObject({ names: ['Kai'], detail: '100 /help uses' });
+        const { computeSuperlatives } = require('../utils/superlatives');
+        for (const [period, filter] of [['thisYear', { completedAt: { $gte: new Date(new Date(now).getFullYear(), 0, 1) } }],
+            ['thisMonth', { completedAt: { $gte: new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1) } }]]) {
+            const docs = await mockHolder.gameRecords.find({ withBots: { $ne: true }, ...filter }).toArray();
+            expect(reply(b).records[period].superlatives).toEqual(computeSuperlatives(docs));
+        }
+
+        await profile.getRecords(b, io, { scope: 'bots' });
+        expect(reply(b).records.thisMonth.superlatives.find((x) => x.id === 'botFriends'))
+            .toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Dot'], detail: '5 solo games' });
+        expect(reply(b).records.thisMonth.superlatives.flatMap((x) => x.names)).toEqual(expect.not.arrayContaining(['Alan', '🤖 Zach']));
+        await profile.getRecords(b, io, { scope: 'all' });
+        expect(reply(b).records.thisMonth.superlatives.map((x) => x.id)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'anchor']);
+
+        // rename, merge and delete on the real driver keep the map in step
+        const { renameEverywhere } = require('../admin/accountRename');
+        const { eraseAccount } = require('../admin/accountDelete');
+        const { planMerge, applyMerge } = require('../admin/accountMerge');
+        const mapOf = async (gameId) => (await mockHolder.gameRecords.findOne({ gameId })).statsDeltas.names;
+        const user = (username) => mockHolder.users.findOne({ username });
+        await renameEverywhere(mockHolder, 'Cy', 'Cyd', { selfId: (await user('Cy'))._id });
+        expect(await mapOf('s0')).toEqual({ 1: 'Alan', 2: 'Bea', 3: 'Cyd', 4: 'Eve' });
+        expect(await mapOf('s4')).toBeUndefined();
+        expect((await mockHolder.gameRecords.findOne({ gameId: 's4' })).team1Players).toEqual(['Alan', 'Cyd']);
+        await eraseAccount(mockHolder, await user('Bea'));
+        expect(await mapOf('s1')).toEqual({ 1: 'Alan', 2: '[deleted]', 3: 'Cyd', 4: 'Eve' });
+        await applyMerge(mockHolder, await planMerge(mockHolder, { target: 'Alan', sources: ['Dot'] }));
+        expect(await mapOf('solo2')).toEqual({ 1: 'Alan' });
+        expect((await mockHolder.gameRecords.findOne({ gameId: 'solo2' })).team1Players).toEqual(['Alan']);
     });
 
     test('(p) end-of-game writes on the real driver: unique gameId index (partial, used by the lookup), a replay counts once, a duplicate falls back to a non-unique index', async () => {

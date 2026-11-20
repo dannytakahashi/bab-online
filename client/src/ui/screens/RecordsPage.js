@@ -15,6 +15,13 @@
  * its period holds, from the reply's periodGames. The overall line is shown
  * only without periodGames (a reply from before it), where it is the
  * all-time count it always was; with them it would only repeat All Time's.
+ *
+ * Superlatives (owner-approved 2026-11-20): each box ends with the
+ * period's player titles from the reply (records.<period>.superlatives:
+ * [{id, title, names, detail}]), drawn GENERICALLY (title, the names
+ * joined with ", ", detail) whatever the id, so a new title needs no web
+ * release. Nothing is drawn for an absent or empty list; an entry without
+ * a title or a name is skipped.
  */
 
 import { el, openModal } from '../kit/index.js';
@@ -64,6 +71,44 @@ function createRecordEntry(label, tone, data, type) {
   return entry;
 }
 
+/**
+ * The entries of a superlatives list the page can draw: a non-empty title
+ * and at least one name (strings); detail optional.
+ */
+export function drawableSuperlatives(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const s of list) {
+    if (!s || typeof s !== 'object' || typeof s.title !== 'string' || !s.title) continue;
+    const names = Array.isArray(s.names) ? s.names.filter((n) => typeof n === 'string' && n.length > 0) : [];
+    if (names.length === 0) continue;
+    out.push({ id: typeof s.id === 'string' ? s.id : '', title: s.title, names, detail: typeof s.detail === 'string' ? s.detail : '' });
+  }
+  return out;
+}
+
+/** The period's "Superlatives" section, or null when it has none to draw. */
+function createSuperlatives(list) {
+  const entries = drawableSuperlatives(list);
+  if (entries.length === 0) return null;
+  const items = entries.map((s) => el('li', {
+    className: 'superlative',
+    dataset: s.id ? { id: s.id } : {},
+    children: [
+      el('div', { className: 'record__label', text: s.title }),
+      el('div', { className: 'superlative__names', text: s.names.join(', ') }),
+      s.detail ? el('div', { className: 'record__sub', text: s.detail }) : null,
+    ],
+  }));
+  return el('div', {
+    className: 'records-superlatives',
+    children: [
+      el('h4', { className: 'records-superlatives__title', text: 'Superlatives' }),
+      el('ul', { className: 'records-superlatives__list', children: items }),
+    ],
+  });
+}
+
 /** A game count as the page writes it: the bold number, then "game(s) played". */
 function gamesPlayed(count) {
   return [el('strong', { text: count.toLocaleString() }), document.createTextNode(count === 1 ? ' game played' : ' games played')];
@@ -99,6 +144,8 @@ function createPeriodBox(title, periodData, games = null) {
   box.appendChild(createRecordEntry('Biggest Win', 'warning', periodData.biggestWin, 'win'));
   box.appendChild(createRecordEntry('Most Bags', 'neutral', periodData.mostBags, 'bags'));
   box.appendChild(createRecordEntry('Least Bags', 'neutral', periodData.leastBags, 'bags'));
+  const superlatives = createSuperlatives(periodData.superlatives);
+  if (superlatives) box.appendChild(superlatives);
 
   return box;
 }

@@ -1221,6 +1221,43 @@
     font-style: italic;
 }
 
+/* The period's player titles (records.<period>.superlatives), drawn
+   generically: label, names, detail */
+.records-superlatives {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--line-subtle);
+}
+
+.records-superlatives__title {
+    margin: 0 0 var(--space-3);
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+    text-align: center;
+}
+
+.records-superlatives__list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.superlative {
+    margin-bottom: var(--space-3);
+}
+
+.superlative:last-child {
+    margin-bottom: 0;
+}
+
+.superlative__names {
+    color: var(--text-primary);
+    font-size: var(--type-md);
+    font-weight: var(--weight-bold);
+    overflow-wrap: anywhere;
+}
+
 /* ---------- Admin panel (ui/screens/AdminPanel.js) ---------- */
 
 /* the admin modal fills the window (inside the backdrop's padding) up to a
