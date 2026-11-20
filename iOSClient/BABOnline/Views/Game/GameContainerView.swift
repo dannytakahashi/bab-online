@@ -74,6 +74,10 @@ private struct GameScreen: View {
     }()
 
     @State private var showGameLog = false
+    /// The tip card's frame in a short column's scroll view (AssistLayout.scrollSpace), and its
+    /// pinned title row's height: the row stays at the column's top while the tip is scrolled up.
+    @State private var assistTipFrame: CGRect?
+    @State private var pinnedTipHeight: CGFloat = 0
     @State private var showVoicePanel = false
     /// The Leave confirmation (a UIKit alert: LeaveAlertPresenter says why).
     @State private var leaveAlert = LeaveAlertPresenter()
@@ -858,6 +862,21 @@ private struct GameScreen: View {
         return [lead, trail]
     }
 
+    /// The other seats' parts the column keeps clear of (AssistLayout.Keeps.seats / .sides), in
+    /// the pane's points: each one's avatar and name, its bid bubble's spot and the dealer
+    /// button; the seat across (the partner's, for a spectator seat 1's opposite) or the two
+    /// side seats.
+    private func otherSeats(_ layout: TableLayout, sides: Bool) -> [String: CGRect] {
+        let model = TableRenderModel(gameState.state)
+        var out: [String: CGRect] = [:]
+        for o in model.opponents where (o.rel == .left || o.rel == .right) == sides {
+            out["seat\(o.position)"] = layout.window(layout.seatFootprint(o.rel))
+            out["bubble\(o.position)"] = layout.window(layout.bubbleRect(o.rel))
+            if model.dealer == o.position { out["dealer\(o.position)"] = layout.window(layout.dealerChip(o.rel)) }
+        }
+        return out
+    }
+
     /// Something of the column is up: my answer, a tutorial tip or its welcome, the tutorial's chip.
     private var showsAssistColumn: Bool {
         gameState.assistHint != nil || gameState.tutorialTip != nil || gameState.tutorialWelcome != nil
@@ -880,37 +899,28 @@ private struct GameScreen: View {
             seatRow: bidding ? nil : layout.window(layout.seatRow.content),
             fold: layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window),
             ask: ask,
-            corners: cornerRects(layout, full: full))
+            corners: cornerRects(layout, full: full),
+            seats: otherSeats(layout, sides: false),
+            sides: otherSeats(layout, sides: true))
         let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width,
                                    top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
-                                   safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
-        let cards = VStack(alignment: .leading, spacing: AssistLayout.gap) {
-            if let welcome = gameState.tutorialWelcome {
-                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff)
-                    .transition(.opacity)
-            }
-            if let tip = gameState.tutorialTip {
-                TutorialTipView(tip: tip, onClose: { gameState.apply(.local(.tutorialTipDismissed)) })
-                    .transition(.opacity)
-            }
-            if let hint = gameState.assistHint {
-                AssistCardView(hint: hint, tutorialOn: gameState.tutorialOn, onClose: { gameState.apply(.local(.assistDismissed)) })
-                    .transition(.opacity)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+                                   safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right,
+                                   foot: gameState.showsTutorialChip ? Theme.hitTarget + AssistLayout.gap : 0)
         let hasCards = gameState.tutorialWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
-        // the chip stays at the column's foot; only the cards scroll when the room is short
+        // the chip stays at the column's foot; only the cards scroll when the room is short (the
+        // column is bottom-aligned in its box, so a short column's scroll view has all its room)
         return VStack(alignment: .leading, spacing: AssistLayout.gap) {
-            Spacer(minLength: 0)
             if hasCards {
                 ViewThatFits(in: .vertical) {
-                    cards
-                    // short of room (the iPhone Duo open: a tip and the advice are taller than
-                    // the room above the bid panel): the advice's chip and headline in sight at
-                    // the foot, the tip above scrolled up as far as needed (its row is in the log)
+                    assistCards(inScroll: false)
+                    // short of room (a phone or the iPhone Duo open: a tip and the advice are
+                    // taller than the room above the bid panel and below the other seats): the
+                    // advice's chip and headline in sight at the foot, the tip above scrolled up
+                    // as far as needed (its row is in the log), its title and × pinned at the top
                     ScrollViewReader { proxy in
-                        ScrollView { cards }
+                        ScrollView { assistCards(inScroll: true) }
+                            .coordinateSpace(name: AssistLayout.scrollSpace)
+                            .overlay(alignment: .top) { pinnedTipHead }
                             .scrollBounceBehavior(.basedOnSize)
                             .onAppear { showAdviceHead(proxy) }
                             .onChange(of: gameState.assistHint) { _, _ in showAdviceHead(proxy) }
@@ -944,11 +954,85 @@ private struct GameScreen: View {
         .onChange(of: keeps.probe, initial: true) { _, k in
             if UIFixture.isActive { TableDebugProbe.shared.assistKeeps = k }
         }
+        .onChange(of: keeps.seatProbe, initial: true) { _, k in
+            if UIFixture.isActive { TableDebugProbe.shared.assistSeats = k }
+        }
         #endif
-        .frame(width: f.width, height: f.height)
+        .frame(width: f.width, height: f.height, alignment: .bottomLeading)
         .offset(x: f.minX, y: f.minY)
         .animation(.easeInOut(duration: 0.2), value: gameState.tutorialTip)
         .transition(.opacity)
+    }
+
+    /// The column's cards: the tip up (the welcome, else a rule tip: one at a time), then my
+    /// answer. `inScroll`: the short column's copy, whose tip reports its frame in the scroll
+    /// view (`pinnedTipHead`).
+    private func assistCards(inScroll: Bool) -> some View {
+        VStack(alignment: .leading, spacing: AssistLayout.gap) {
+            if let welcome = gameState.tutorialWelcome {
+                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff)
+                    .background { if inScroll { tipFrameReporter } }
+                    .transition(.opacity)
+            }
+            if let tip = gameState.tutorialTip {
+                TutorialTipView(tip: tip, onClose: tutorialTipClose)
+                    .background { if inScroll { tipFrameReporter } }
+                    .transition(.opacity)
+            }
+            if let hint = gameState.assistHint {
+                AssistCardView(hint: hint, tutorialOn: gameState.tutorialOn, onClose: { gameState.apply(.local(.assistDismissed)) })
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var tipFrameReporter: some View {
+        Color.clear
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(AssistLayout.scrollSpace)) }) { r in
+                assistTipFrame = r
+            }
+    }
+
+    private func tutorialTipClose() { gameState.apply(.local(.tutorialTipDismissed)) }
+
+    /// The tip's title row and × pinned at the short column's top while the tip's top is
+    /// scrolled out of sight (the web's sticky .assist-tip__top): drawn over the tip's text on
+    /// the card's fill, pushed up with the tip's foot as that leaves (the advice never under it).
+    /// The welcome's Keep and Turn off come into the row (identifiers "tip.pinned…").
+    private var tipHeadPinned: Bool {
+        guard gameState.tutorialWelcome ?? gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
+        return f.minY < -0.5 && f.maxY > 0
+    }
+
+    @ViewBuilder private var pinnedTipHead: some View {
+        if let tip = gameState.tutorialWelcome ?? gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
+            let welcome = TutorialRules.isWelcome(tip)
+            TutorialTipHead(tip: tip, onClose: welcome ? tutorialClose : tutorialTipClose,
+                            onKeep: tutorialKeep, onTurnOff: tutorialOff, pinned: true)
+                .padding(.horizontal, Theme.Space.s3)
+                .padding(.vertical, Theme.Space.s1)
+                .background(
+                    UnevenRoundedRectangle(topLeadingRadius: Theme.Radius.md, topTrailingRadius: Theme.Radius.md, style: .continuous)
+                        .fill(Theme.surface)
+                )
+                .overlay(
+                    UnevenRoundedRectangle(topLeadingRadius: Theme.Radius.md, topTrailingRadius: Theme.Radius.md, style: .continuous)
+                        .strokeBorder(Theme.inputBorder, lineWidth: 1)
+                )
+                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("tip.pinned")
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pinnedTipHeight = $0 }
+                // pushed up as the tip's foot comes up past it
+                .offset(y: min(0, f.maxY - pinnedTipHeight))
+                #if DEBUG
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                    if UIFixture.isActive { TableDebugProbe.shared.tutorialPinFrame = r }
+                }
+                .onDisappear { if UIFixture.isActive { TableDebugProbe.shared.tutorialPinFrame = nil } }
+                #endif
+        }
     }
 
     /// Scroll the short column so the advice's headline (and its chip above it) is in sight; a
@@ -1151,10 +1235,16 @@ enum AssistLayout {
     /// chip and headline are always in sight, with the tip above it (bottom first: its Keep /
     /// Turn off) as far as the room goes.
     static let adviceHeadId = "assistAdviceHead"
+    /// The short column's scroll view (where its tip reports its frame: the pinned title row).
+    static let scrollSpace = "assistScroll"
     static let askSize: CGFloat = 36
     /// The least box worth lifting the card into to clear my seat's row (a headline and a line;
     /// the card scrolls inside): with less room it keeps the hand's anchor.
     static let minRoom: CGFloat = 96
+    /// The least room a cap below the side seats leaves the cards (a tip's title and a few
+    /// lines, the advice's chip and headline): with less (a phone in portrait) the column may
+    /// cover them rather than hide the tip.
+    static let sideRoom: CGFloat = 160
 
     /// What the card keeps clear of, in the pane's points.
     struct Keeps: Equatable {
@@ -1173,8 +1263,27 @@ enum AssistLayout {
         /// Exit and the game log's button under the score bar: where the column spans one, its
         /// box starts below it (the buttons stay in reach and readable).
         var corners: [CGRect] = []
+        /// The seat across the table (the partner): its avatar and name ("seat<n>"), bid bubble
+        /// ("bubble<n>") and dealer button ("dealer<n>"). Where the column spans one, its box
+        /// starts below it while that leaves the cards `minRoom` (the web's assistRoomTop): the
+        /// tips and the advice never cover the partner's avatar or bid.
+        var seats: [String: CGRect] = [:]
+        /// The side seats' parts (same keys). Where the column crosses one, it narrows to the
+        /// room between them (at least `minWidth`), else its box starts below them while that
+        /// leaves the cards `sideRoom`; else (a phone in portrait: the side seats are level with
+        /// the only room above the bid panel) it may cover them, as the room for a tip and the
+        /// advice comes first.
+        var sides: [String: CGRect] = [:]
 
-        /// For the fixture probe "table.assist" (the card's frame against these).
+        /// Every other seat's part, the side seats' as "side.<key>" (the probe's "seats=").
+        var seatProbe: [String: CGRect] {
+            var out = seats
+            for (k, v) in sides { out["side." + k] = v }
+            return out
+        }
+
+        /// For the fixture probe "table.assist" (the card's frame against these; the other
+        /// seats are its "seats=" part).
         var probe: [String: CGRect] {
             var out: [String: CGRect] = [:]
             if let clock { out["bidClock"] = clock }
@@ -1185,8 +1294,10 @@ enum AssistLayout {
         }
     }
 
+    /// `foot`: what the column holds under its cards (the "Tutorial on" chip and its gap), so a
+    /// seat's cap leaves the cards themselves `minRoom`.
     static func frame(paneWidth: CGFloat, handMidX: CGFloat, handWidth: CGFloat, top: CGFloat, keeps: Keeps,
-                      safeLeft: CGFloat = 0, safeRight: CGFloat = 0) -> CGRect {
+                      safeLeft: CGFloat = 0, safeRight: CGFloat = 0, foot: CGFloat = 0) -> CGRect {
         var top = top
         var bottom = keeps.anchor
         if let c = keeps.clock { bottom = min(bottom, c.minY) }
@@ -1194,8 +1305,8 @@ enum AssistLayout {
         if let f = keeps.fold, f.width > f.height, f.maxY <= bottom { top = max(top, f.maxY + gap) }
         let lo = safeLeft + Theme.Space.s4, hi = paneWidth - safeRight - Theme.Space.s4
         let room = max(0, hi - lo)
-        let width = min(room, min(maxWidth, max(minWidth, handWidth)))
-        let x = min(max(handMidX - width / 2, lo), hi - width)
+        var width = min(room, min(maxWidth, max(minWidth, handWidth)))
+        var x = min(max(handMidX - width / 2, lo), hi - width)
         for c in keeps.corners where c.minX < x + width && c.maxX > x && c.maxY > top && c.maxY + gap < bottom {
             top = c.maxY + gap
         }
@@ -1208,6 +1319,32 @@ enum AssistLayout {
         // the lightbulb under the column's span (my play turn's at my hand's right end, my bid
         // turn's on the bid panel's corner): above it, as the countdown
         if let a = keeps.ask, a.minX < x + width, a.maxX > x, a.minY < bottom { bottom = min(bottom, a.minY) }
+        // the seat across (the partner's avatar above the bid panel or my hand) under the
+        // column's span: its top goes below it, while that leaves the cards minRoom
+        func crosses(_ s: CGRect) -> Bool { s.minX < x + width && s.maxX > x && s.minY < bottom && s.maxY > top }
+        for s in keeps.seats.values where crosses(s) {
+            let below = s.maxY + gap
+            if below > top, bottom - gap - foot - below >= minRoom { top = below }
+        }
+        // the side seats beside the box: between them where that leaves minWidth (the iPhone
+        // Duo open above my hand), else below them where that leaves sideRoom
+        let level = keeps.sides.values.filter { $0.maxY > top && $0.minY < bottom }
+        if level.contains(where: crosses) {
+            var l = lo, r = hi
+            for s in level {
+                if s.maxX <= handMidX { l = max(l, s.maxX + gap) } else if s.minX >= handMidX { r = min(r, s.minX - gap) }
+            }
+            if r - l >= minWidth {
+                width = min(width, r - l)
+                x = min(max(handMidX - width / 2, l), r - width)
+            }
+        }
+        // below every side seat's part it crosses (all of them, or none: a cap below one part
+        // that leaves another under the cards clears nothing)
+        let crossing = keeps.sides.values.filter(crosses)
+        if let lowest = crossing.map(\.maxY).max(), bottom - gap - foot - (lowest + gap) >= sideRoom {
+            top = max(top, lowest + gap)
+        }
         let height = max(0, bottom - gap - top)
         return CGRect(x: x, y: top, width: width, height: height)
     }

@@ -75,6 +75,20 @@ describe('HUD hit targets (HIG 44 pt)', () => {
   });
 });
 
+describe('the tutorial tip in a card short of room', () => {
+  const table = readClientFile('styles/table.css');
+
+  it('keeps its title and its x pinned at the card\'s top on the card\'s own fill while the card scrolls to the advice', () => {
+    const r = ruleOf(table, '.hud-assist.has-tip .assist-tip__top');
+    expect(r).toContain('position: sticky');
+    expect(r).toContain('top: calc(-1 * var(--space-2))');
+    expect(r).toContain('background: rgb(var(--surface-1-rgb))');
+    expect(r).toMatch(/z-index:\s*1/);
+    // the close is in that row (AssistCard tipSection)
+    expect(readClientFile('src/ui/components/AssistCard.js')).toContain('top.append(title, close)');
+  });
+});
+
 describe('the /help lightbulb', () => {
   const table = readClientFile('styles/table.css');
 

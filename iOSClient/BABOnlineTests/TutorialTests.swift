@@ -439,4 +439,43 @@ final class TutorialTests: XCTestCase {
         let n = AssistLayout.frame(paneWidth: 1000, handMidX: 500, handWidth: 300, top: 100, keeps: narrow)
         XCTAssertEqual(n.minY, 100, "a column clear of the corners keeps its top (an iPad)")
     }
+
+    /// The other seats (avatar and name, bid bubble, dealer button): the column starts below
+    /// the partner's while that leaves the cards minRoom (the web's assistRoomTop); it narrows
+    /// between the side seats, else starts below them where that leaves sideRoom, else (a phone
+    /// in portrait) may cover them.
+    func testTheColumnKeepsOffTheOtherSeats() {
+        var keeps = AssistLayout.Keeps(anchor: 700, clock: nil, seatRow: nil, fold: nil)
+        keeps.seats = ["seat3": CGRect(x: 170, y: 120, width: 60, height: 80),     // the partner, above
+                       "bubble3": CGRect(x: 240, y: 140, width: 60, height: 36)]
+        let f = AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: keeps)
+        XCTAssertEqual(f.minY, 200 + AssistLayout.gap, "below the partner's avatar and name")
+        XCTAssertEqual(f.maxY, 700 - AssistLayout.gap)
+        XCTAssertFalse(keeps.seats.values.contains { $0.intersects(f.insetBy(dx: 0.5, dy: 0.5)) })
+        // a partner's part that would leave the cards under minRoom is no cap
+        var tight = keeps
+        tight.seats["bubble3"] = CGRect(x: 240, y: 560, width: 60, height: 36)  // 694 - 50 - 602 = 42
+        XCTAssertEqual(AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: tight, foot: 50).minY,
+                       200 + AssistLayout.gap)
+        // side seats on a phone (no room between them): below them while that leaves sideRoom
+        keeps.sides = ["seat2": CGRect(x: 20, y: 400, width: 60, height: 80), "seat4": CGRect(x: 330, y: 400, width: 60, height: 80)]
+        let side = AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: keeps)
+        XCTAssertEqual(side.minY, 480 + AssistLayout.gap, "694 - 486 = 208 of room")
+        XCTAssertEqual(side.width, 368, "no room between them: the width stays")
+        // less than sideRoom (the chip's foot): they may be covered, the partner's cap holds
+        let covered = AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: keeps, foot: 50)
+        XCTAssertEqual(covered.minY, 200 + AssistLayout.gap, "694 - 50 - 486 = 158 < sideRoom")
+        // a wide pane: the column narrows between them, its height kept
+        var wide = AssistLayout.Keeps(anchor: 700, clock: nil, seatRow: nil, fold: nil)
+        wide.sides = ["seat2": CGRect(x: 260, y: 400, width: 100, height: 80), "seat4": CGRect(x: 700, y: 400, width: 100, height: 80)]
+        let n = AssistLayout.frame(paneWidth: 1000, handMidX: 500, handWidth: 380, top: 100, keeps: wide)
+        XCTAssertEqual(n, CGRect(x: 366, y: 100, width: 328, height: 594))
+        XCTAssertFalse(wide.sides.values.contains { $0.intersects(n) })
+        // a seat beside the column's span is no matter
+        var aside = AssistLayout.Keeps(anchor: 700, clock: nil, seatRow: nil, fold: nil)
+        aside.sides = ["seat2": CGRect(x: 0, y: 300, width: 10, height: 80)]
+        XCTAssertEqual(AssistLayout.frame(paneWidth: 1000, handMidX: 500, handWidth: 300, top: 100, keeps: aside).minY, 100)
+        XCTAssertNil(keeps.probe["seat3"], "the seats are the probe's own part")
+        XCTAssertNotNil(keeps.seatProbe["side.seat2"])
+    }
 }

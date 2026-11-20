@@ -11,32 +11,11 @@ struct TutorialTipView: View {
     var onClose: () -> Void
     var onKeep: () -> Void = {}
     var onTurnOff: () -> Void = {}
-
     private var isWelcome: Bool { TutorialRules.isWelcome(tip) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s1) {
-            HStack(spacing: Theme.Space.s2) {
-                Image(systemName: "graduationcap.fill")
-                    .font(.footnote)
-                    .foregroundColor(Theme.textSecondary)
-                    .accessibilityHidden(true)
-                Text(tip.headline)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundColor(Theme.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("tip.title")
-                Spacer(minLength: Theme.Space.s2)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(Theme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
-                }
-                .accessibilityLabel(TutorialRules.closeLabel)
-                .accessibilityIdentifier("tip.close")
-            }
+            TutorialTipHead(tip: tip, onClose: onClose)
             if let text = tip.reasons.first {
                 Text(text)
                     .font(.footnote)
@@ -47,30 +26,7 @@ struct TutorialTipView: View {
             if isWelcome && !tip.actions.isEmpty {
                 HStack(spacing: Theme.Space.s2) {
                     Spacer(minLength: 0)
-                    if tip.actions.contains("off") {
-                        Button(action: onTurnOff) {
-                            Text(TutorialRules.offLabel)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundColor(Theme.textPrimary)
-                                .padding(.horizontal, Theme.Space.s3)
-                                .frame(minHeight: 32)
-                                .background(Capsule().strokeBorder(Theme.inputBorder, lineWidth: 1))
-                                .contentShape(Capsule())
-                        }
-                        .accessibilityIdentifier("tip.off")
-                    }
-                    if tip.actions.contains("keep") {
-                        Button(action: onKeep) {
-                            Text(TutorialRules.keepLabel)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundColor(Theme.buttonForeground)
-                                .padding(.horizontal, Theme.Space.s4)
-                                .frame(minHeight: 32)
-                                .background(Capsule().fill(Theme.primary))
-                                .contentShape(Capsule())
-                        }
-                        .accessibilityIdentifier("tip.keep")
-                    }
+                    TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff)
                 }
                 .padding(.top, Theme.Space.s1)
             }
@@ -92,6 +48,88 @@ struct TutorialTipView: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel(isWelcome ? TutorialRules.chipText : "Tip")
         .accessibilityIdentifier(isWelcome ? "tutorialWelcome" : "tutorialTip")
+    }
+}
+
+/// A tip's title row: the cap, its title and its close (×). TutorialTipView's first row, and
+/// the row a short column pins at its top while the tip is scrolled up to keep the advice in
+/// sight (GameContainerView.pinnedTipHead; the web's sticky .assist-tip__top).
+struct TutorialTipHead: View {
+    let tip: AssistHint
+    var onClose: () -> Void
+    var onKeep: () -> Void = {}
+    var onTurnOff: () -> Void = {}
+    /// The pinned copy: the welcome's Keep and Turn off come into its row (the card's own,
+    /// at its foot, may be under it), before the ×; its identifiers are "tip.pinned…" (the
+    /// card's own row is still in the tree, scrolled up).
+    var pinned = false
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s2) {
+            Image(systemName: "graduationcap.fill")
+                .font(.footnote)
+                .foregroundColor(Theme.textSecondary)
+                .accessibilityHidden(true)
+            Text(tip.headline)
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier(pinned ? "tip.pinnedTitle" : "tip.title")
+            Spacer(minLength: Theme.Space.s2)
+            if pinned && TutorialRules.isWelcome(tip) && !tip.actions.isEmpty {
+                TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: true)
+            }
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(Theme.textSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
+            }
+            .accessibilityLabel(TutorialRules.closeLabel)
+            .accessibilityIdentifier(pinned ? "tip.pinnedClose" : "tip.close")
+        }
+    }
+}
+
+/// The welcome's Turn off and Keep (the card's foot, or its pinned title row).
+struct TutorialWelcomeActions: View {
+    let actions: [String]
+    var onKeep: () -> Void
+    var onTurnOff: () -> Void
+    var pinned = false
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s2) {
+            if actions.contains("off") {
+                Button(action: onTurnOff) {
+                    Text(TutorialRules.offLabel)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .foregroundColor(Theme.textPrimary)
+                        .padding(.horizontal, Theme.Space.s3)
+                        .frame(minHeight: 32)
+                        .background(Capsule().strokeBorder(Theme.inputBorder, lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .accessibilityIdentifier(pinned ? "tip.pinnedOff" : "tip.off")
+            }
+            if actions.contains("keep") {
+                Button(action: onKeep) {
+                    Text(TutorialRules.keepLabel)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                        .foregroundColor(Theme.buttonForeground)
+                        .padding(.horizontal, Theme.Space.s4)
+                        .frame(minHeight: 32)
+                        .background(Capsule().fill(Theme.primary))
+                        .contentShape(Capsule())
+                }
+                .accessibilityIdentifier(pinned ? "tip.pinnedKeep" : "tip.keep")
+            }
+        }
     }
 }
 

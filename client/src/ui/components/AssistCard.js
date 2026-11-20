@@ -221,8 +221,9 @@ function tipSection(hint) {
  * Short of room (the card scrolls inside): the advice's chip and headline
  * stay in sight at the card's foot, the tip above them scrolled up only as
  * far as that takes (its foot, the welcome's Keep / Turn off, first in
- * sight; the tip's row is in the log). Again when the card's room changes
- * (a resize: ResizeObserver in slot).
+ * sight; the tip's row is in the log), its title and ✕ pinned at the card's
+ * top meanwhile (table.css: .assist-tip__top is sticky while the card has a
+ * tip). Again when the card's room changes (a resize: ResizeObserver in slot).
  */
 function keepAdviceInSight(root) {
   const wrap = root.querySelector(':scope > .assist-card__advice');

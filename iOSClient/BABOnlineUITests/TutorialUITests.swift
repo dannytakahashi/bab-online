@@ -83,11 +83,64 @@ final class TutorialUITests: XCTestCase {
         }
     }
 
+    /// The cards cover nothing of the partner's seat (avatar, name, bid bubble, dealer button:
+    /// probe "table.assist" seats=), and on a wide screen (the iPhone Duo open, an iPad) nothing
+    /// of the side seats either. On a phone in portrait the side seats are level with the only
+    /// room above the bid panel; clearing them would leave the cards under AssistLayout.sideRoom.
+    private func clearOfSeats(_ app: XCUIApplication, _ tag: String) {
+        let probe = Fixture.probe(app, "table.assist")
+        let part = probe.components(separatedBy: " seats=").last ?? ""
+        XCTAssertFalse(part.isEmpty || part == "-", "\(tag): \(probe)")
+        let over = part.hasPrefix("over:") ? part.dropFirst(5).split(separator: ",").map(String.init) : []
+        print("[TutorialUITests] \(tag) seats=\(part)")
+        XCTAssertFalse(over.contains { !$0.hasPrefix("side.") }, "\(tag): the cards over the partner: \(probe) [\(Fixture.probe(app, "ui.pose"))]")
+        if app.windows.firstMatch.frame.width > 700 {
+            XCTAssertEqual(part, "ok", "\(tag): \(probe) [\(Fixture.probe(app, "ui.pose"))]")
+        }
+    }
+
+    /// The tip's title and × are in sight: the card's own row inside the column, or (a short
+    /// column scrolled to the advice) the row pinned at the column's top (probe pin=).
+    private func tipHeadInSight(_ app: XCUIApplication, _ card: XCUIElement, _ tag: String) {
+        let column = columnFrame(app).insetBy(dx: -1, dy: -1)
+        let pinned = element(app, "tip.pinned").exists
+        let title = app.staticTexts[pinned ? "tip.pinnedTitle" : "tip.title"].frame
+        let close = tipButton(app, "tip.close")
+        XCTAssertTrue(column.contains(title) && column.contains(close.frame), "\(tag): title \(title) × \(close.frame) column \(column)")
+        if !pinned { XCTAssertTrue(close.isHittable, tag); return }
+        let probe = Fixture.probe(app, "table.tutorial")
+        let parts = probe.components(separatedBy: "pin=").last?.split(separator: " ").prefix(4).compactMap { Double($0) } ?? []
+        XCTAssertEqual(parts.count, 4, "\(tag): the tip's row is scrolled up and not pinned: \(probe) title \(title) column \(column)")
+        guard parts.count == 4 else { return }
+        let pin = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+        XCTAssertTrue(column.contains(pin), "\(tag): pinned row \(pin) outside the column \(column)")
+        XCTAssertEqual(pin.minY, column.minY + 1, accuracy: 2, "\(tag): pinned at the column's top")
+        XCTAssertGreaterThanOrEqual(pin.height, 28, "\(tag): the whole row (the × is 28 pt)")
+        let head = element(app, "assist.headline").frame
+        XCTAssertLessThanOrEqual(pin.maxY, head.minY, "\(tag): the pinned row over the advice's headline")
+        // the welcome's Keep and Turn off come into the pinned row (the card's own may be under it)
+        if card.identifier == "tutorialWelcome" {
+            for id in ["tip.pinnedKeep", "tip.pinnedOff"] {
+                XCTAssertTrue(app.buttons[id].exists && pin.contains(app.buttons[id].frame), "\(tag): \(id) \(app.buttons[id].frame) in \(pin)")
+            }
+        }
+    }
+
+    /// A tip's control: its copy in the row pinned at a short column's top while that shows,
+    /// else the card's own ("tip.keep" / "tip.off" / "tip.close").
+    private func tipButton(_ app: XCUIApplication, _ id: String) -> XCUIElement {
+        let pinnedId = "tip.pinned" + id.dropFirst(4).prefix(1).uppercased() + id.dropFirst(5)
+        let pinned = app.buttons[pinnedId]
+        // (XCUITest calls the pinned row's buttons not hittable, the scroll view under the
+        // overlay answering its hit test; a tap there lands on them: testTheWelcomesCloseSendsItsOwnLine)
+        return pinned.exists ? pinned : app.buttons[id]
+    }
+
     func testTheWelcomeThenTheRuleTipWithTheAdviceOnMyBidTurn() {
         let app = launch("bidding-mid")
         let welcome = element(app, "tutorialWelcome")
         XCTAssertTrue(welcome.waitForExistence(timeout: 5))
-        XCTAssertEqual(welcome.staticTexts["tip.title"].label, "Tutorial on")
+        XCTAssertEqual(app.staticTexts["tip.title"].label, "Tutorial on")
         XCTAssertTrue(welcome.staticTexts["tip.text"].label.hasPrefix("Tips will appear above your cards. Only you see them."))
         XCTAssertTrue(app.buttons["tip.keep"].exists)
         XCTAssertTrue(app.buttons["tip.off"].exists)
@@ -116,16 +169,18 @@ final class TutorialUITests: XCTestCase {
         XCTAssertFalse(welcome.frame.intersects(app.buttons["leave"].frame), "welcome \(welcome.frame) leave \(app.buttons["leave"].frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
         adviceInSight(app, "bid welcome")
+        clearOfSeats(app, "bid welcome")
+        tipHeadInSight(app, welcome, "bid welcome")
         shot(app, "welcome")
         // Keep: /tutorial keep, and the rule tip that waited shows now, still one tip card
-        app.buttons["tip.keep"].tap()
+        tipButton(app, "tip.keep").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial keep"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))
         XCTAssertTrue(tip.waitForExistence(timeout: 3), "the rule tip behind the welcome shows now")
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tip.title").count, 1, "one tip card")
         XCTAssertTrue(element(app, "assistCard").exists, "the advice stays")
         XCTAssertGreaterThanOrEqual(element(app, "assistCard").frame.minY, tip.frame.maxY - 1, "the advice under the tip")
-        XCTAssertEqual(tip.staticTexts["tip.title"].label, "Bidding")
+        XCTAssertEqual(app.staticTexts["tip.title"].label, "Bidding")
         XCTAssertTrue(tip.staticTexts["tip.text"].label.hasPrefix("Bid how many tricks you expect to win."))
         XCTAssertFalse(app.buttons["tip.keep"].exists, "a rule tip has no buttons but its close")
         chipClear(app, "bid rule tip")
@@ -133,9 +188,11 @@ final class TutorialUITests: XCTestCase {
         XCTAssertFalse(tip.frame.intersects(app.buttons["leave"].frame), "tip \(tip.frame) leave \(app.buttons["leave"].frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
         adviceInSight(app, "bid rule tip")
+        clearOfSeats(app, "bid rule tip")
+        tipHeadInSight(app, tip, "bid rule tip")
         shot(app, "rule-tip")
         // its close: the tip goes, the tutorial stays on
-        app.buttons["tip.close"].tap()
+        tipButton(app, "tip.close").tap()
         XCTAssertTrue(tip.waitForNonExistence(timeout: 3))
         XCTAssertTrue(chip.exists)
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial off"))
@@ -145,7 +202,7 @@ final class TutorialUITests: XCTestCase {
         let app = launch("trick-mid-lead3", ["-uiTutorialWelcome", "NO"])
         let tip = element(app, "tutorialTip")
         XCTAssertTrue(tip.waitForExistence(timeout: 5))
-        XCTAssertEqual(tip.staticTexts["tip.title"].label, "Following suit")
+        XCTAssertEqual(app.staticTexts["tip.title"].label, "Following suit")
         XCTAssertEqual(tip.staticTexts["tip.text"].label, "Clubs were led: you must play a club if you have one.")
         XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
         XCTAssertEqual(element(app, "assist.headline").label, "Play 10 of Clubs")
@@ -154,6 +211,8 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), Fixture.probe(app, "table.assist"))
         chipClear(app, "play advice")
         adviceInSight(app, "play advice")
+        clearOfSeats(app, "play advice")
+        tipHeadInSight(app, tip, "play advice")
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         shot(app, "advice")
         // the advice closed: the lightbulb is back, and the tip and the chip keep above it
@@ -178,7 +237,7 @@ final class TutorialUITests: XCTestCase {
     func testTurnOffOnTheWelcome() {
         let app = launch("bidding-mid")
         XCTAssertTrue(app.buttons["tip.off"].waitForExistence(timeout: 5))
-        app.buttons["tip.off"].tap()
+        tipButton(app, "tip.off").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial keep"))
         XCTAssertTrue(element(app, "tutorialWelcome").waitForNonExistence(timeout: 3))
@@ -193,7 +252,7 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(welcome.waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
         XCTAssertFalse(element(app, "tutorialTip").exists, "behind the welcome")
-        welcome.buttons["tip.close"].tap()
+        tipButton(app, "tip.close").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial close"), Fixture.probe(app, "fixture.sent"))
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial keep"), "× is not Keep")
         XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))

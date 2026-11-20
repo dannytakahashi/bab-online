@@ -92,7 +92,7 @@ final class LiveTutorialTests: XCTestCase {
         // the auto-start: the welcome tip with Keep / Turn off, the chip
         let welcome = element(app, "tutorialWelcome")
         XCTAssertTrue(welcome.waitForExistence(timeout: 90), "no welcome tip in a new account's first game")
-        XCTAssertEqual(welcome.staticTexts["tip.title"].label, "Tutorial on")
+        XCTAssertEqual(app.staticTexts["tip.title"].label, "Tutorial on")
         XCTAssertTrue(app.buttons["tip.keep"].exists)
         XCTAssertTrue(app.buttons["tip.off"].exists)
         XCTAssertTrue(element(app, "tutorial.chip").waitForExistence(timeout: 10), "no Tutorial on chip")
