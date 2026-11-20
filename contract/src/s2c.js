@@ -289,9 +289,9 @@ const s2c = {
     mainRoomPlayerLeft: {
         payload: obj({ username: str(), onlineCount: int({ minimum: 0 }), onlineUsers: arr(str()) }),
         status: 'active', to: 'mainRoom',
-        clientReads: reads([], []),
+        clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/onlinePresence.js:announceOffline'],
-        notes: "New: a name went offline (the online list shrank): its last socket disconnected (queueHandlers.handleDisconnect, also an account switch on the socket) or it was signed out (authHandlers.signOutSocket: sign out everywhere, a password reset, an admin action). Counterpart of mainRoomPlayerJoined. Current builds ignore it and keep a stale count (ctr-21).",
+        notes: "New: a name went offline (the online list shrank): its last socket disconnected (queueHandlers.handleDisconnect, also an account switch on the socket) or it was signed out (authHandlers.signOutSocket: sign out everywhere, a password reset, an admin action). Counterpart of mainRoomPlayerJoined. Both clients replace the online count and list from it, as for mainRoomPlayerJoined: the web from 2026-11-20, iOS from the build after 1.2.3 (24) (LobbySocketHandler.applyOnlineList); iOS 1.2.3 (24) and older ignore it and keep a stale list until the next join.",
     },
     lobbiesUpdated: {
         payload: obj(lobbyLists),

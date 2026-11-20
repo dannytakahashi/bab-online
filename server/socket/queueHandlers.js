@@ -88,7 +88,8 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     gameManager.removeUserSocket(socket.id);
 
     // The user's last socket is gone: the main room's online count and list
-    // shrink (new event; current clients keep their stale count, ctr-21).
+    // shrink (mainRoomPlayerLeft: the web reads it from 2026-11-20, iOS from the
+    // build after 1.2.3 (24); older iOS builds keep a stale list until the next join).
     // A forced sign-out outside a game dropped the entry already and is
     // announced by authHandlers.signOutSocket; an account switch on the
     // socket comes through here (releaseIdentity)

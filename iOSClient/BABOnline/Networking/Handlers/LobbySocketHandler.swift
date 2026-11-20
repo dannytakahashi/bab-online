@@ -119,14 +119,15 @@ final class LobbySocketHandler {
             }
         }
 
-        socket.on(SocketEvents.Server.mainRoomPlayerJoined) { [weak self] data, _ in
-            guard let dict = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async {
-                if let count = dict["onlineCount"] as? Int {
-                    self?.mainRoomState.onlineCount = count
-                }
-                if let users = dict["onlineUsers"] as? [String] {
-                    self?.mainRoomState.onlineUsers = users
+        // The online count and list: a name came online (mainRoomPlayerJoined) or went
+        // offline (mainRoomPlayerLeft, read from the build after 1.2.3 (24); before it a
+        // player who left stayed listed until the next join). Both carry the whole list.
+        for event in [SocketEvents.Server.mainRoomPlayerJoined, SocketEvents.Server.mainRoomPlayerLeft] {
+            socket.on(event) { [weak self] data, _ in
+                guard let dict = data.first as? [String: Any] else { return }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    Self.applyOnlineList(dict, to: self.mainRoomState)
                 }
             }
         }
@@ -247,5 +248,14 @@ final class LobbySocketHandler {
                 self.appState.screen = .game
             }
         }
+    }
+}
+
+extension LobbySocketHandler {
+    /// mainRoomPlayerJoined / mainRoomPlayerLeft: the server's count and list replace ours
+    /// (each key only when present and of the right type). Called on the main queue.
+    static func applyOnlineList(_ dict: [String: Any], to state: MainRoomState) {
+        if let count = dict["onlineCount"] as? Int { state.onlineCount = count }
+        if let users = dict["onlineUsers"] as? [String] { state.onlineUsers = users }
     }
 }
