@@ -1286,7 +1286,7 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
   const sent = () => window.socket.emit.mock.calls.filter(([e]) => e === 'chatMessage').map(([, d]) => d.message);
   const on = (auto = false) => tut.noteTutorialState({ tutorial: true, auto, uses: 0, freeUses: 3, assisted: false });
 
-  it('a tip and the advice of one decision: the tip above the advice, a "Tip:" row, each said once; no "Help:" row for the advice', () => {
+  it('a tip and the advice of one decision: the tip above the advice, a "Tutorial:" row, each said once; no "Help:" row for the advice', () => {
     on();
     const { scene } = mySeat({ bidding: true });
     scene.handleAssistHint(trump());
@@ -1299,7 +1299,7 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(card.querySelector('.assist-card__advice')).not.toBeNull();
     expect(card.dataset.place).toBe('bid');
     expect(card.getAttribute('aria-label')).toBe('Suggestion');
-    expect(rows).toEqual(['Tip: Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps.']);
+    expect(rows).toEqual(['Tutorial: Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps. (only you see this)']);
     expect(said()).toEqual([
       'Tip: Trump. Trump this hand is hearts ♥. Any heart beats any card of another suit, and the two jokers are the highest trumps.',
       'Suggestion: Bid 3. Your hand is worth about 3 tricks.',
@@ -1311,13 +1311,47 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(assist.helpDescription('g1', { tutorial: tut.tutorialIsOn('g1') })).toBe('Ask a bot for advice');
   });
 
+  it('one tip card at a time: a rule tip waits behind the welcome (its row in, not said), shows and is said after Keep', () => {
+    on(true);
+    const { scene } = mySeat({ bidding: true });
+    scene.handleAssistHint(welcome());
+    scene.handleAssistHint(trump());
+    scene.handleAssistHint(tip('T.bid', 'Bidding', 'Bid how many tricks you expect to win.'));
+    scene.handleAssistHint(bidAdvice());
+    expect(titles()).toEqual(['Tutorial on']);
+    expect(document.querySelectorAll('.hud-assist .assist-tip')).toHaveLength(1);
+    expect(head()).toBe('Bid 3');
+    // every tip in the log, shown or not
+    expect(rows.filter((r) => r.startsWith('Tutorial: '))).toHaveLength(3);
+    expect(rows.every((r) => r.endsWith('(only you see this)'))).toBe(true);
+    // the announcer says only the card shown (and the advice)
+    expect(said().filter((t) => t.startsWith('Tip: ')).map((t) => t.split('.')[0])).toEqual(['Tip: Tutorial on']);
+    q('.assist-tip__action.is-keep').click();
+    // the newest rule tip replaced the older behind the welcome; said now, once
+    expect(titles()).toEqual(['Bidding']);
+    expect(head()).toBe('Bid 3');
+    expect(said().filter((t) => t.startsWith('Tip: ')).map((t) => t.split('.')[0])).toEqual(['Tip: Tutorial on', 'Tip: Bidding']);
+    scene.drawTips();
+    expect(said().filter((t) => t.startsWith('Tip: '))).toHaveLength(2);
+  });
+
+  it('Turn off on the welcome takes every tip down at once (a waiting rule tip never comes up)', () => {
+    on(true);
+    const { scene } = mySeat({ bidding: true });
+    scene.handleAssistHint(welcome());
+    scene.handleAssistHint(trump());
+    q('.assist-tip__action.is-off').click();
+    expect(titles()).toEqual([]);
+    expect(said().filter((t) => t.startsWith('Tip: Trump'))).toEqual([]);
+  });
+
   it('my own bid takes the rule tip and the advice down; the welcome stays until Keep / Turn off / ✕', () => {
     on(true);
     const { scene, state } = mySeat({ bidding: true });
     scene.handleAssistHint(welcome());
     scene.handleAssistHint(trump());
     scene.handleAssistHint(bidAdvice());
-    expect(titles()).toEqual(['Tutorial on', 'Trump']);
+    expect(titles()).toEqual(['Tutorial on']);
     state.bids[1] = '3';
     scene.handleBidReceived({ position: 1, bid: '3' });
     expect(titles()).toEqual(['Tutorial on']);
@@ -1387,7 +1421,7 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(titles()).toEqual(['Hand score']);
     scene.handleAssistHint(tip('T.done', 'Tutorial complete', 'Thanks for playing with the tutorial. Type /help any time for a suggestion.'));
     expect(titles()).toEqual(['Hand score']);
-    expect(rows.at(-1)).toBe('Tip: Thanks for playing with the tutorial. Type /help any time for a suggestion.');
+    expect(rows.at(-1)).toBe('Tutorial: Thanks for playing with the tutorial. Type /help any time for a suggestion. (only you see this)');
   });
 
   it('the chip: only while on, at my own seat; its switch sends /tutorial off once and waits', () => {

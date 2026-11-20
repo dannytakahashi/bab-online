@@ -57,6 +57,8 @@ struct AssistCardView: View {
                 .foregroundColor(Theme.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("assist.headline")
+                // the column scrolls this into sight when it is short (GameContainerView.assistColumn)
+                .id(AssistLayout.adviceHeadId)
             if !isStatus {
                 ForEach(Array(hint.reasons.enumerated()), id: \.offset) { _, reason in
                     HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s1) {

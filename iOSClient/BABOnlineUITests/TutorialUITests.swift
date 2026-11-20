@@ -2,7 +2,8 @@ import XCTest
 
 /// The tutorial on iOS (State/Table/Tutorial.swift), in fixture mode: `-uiTutorial YES` turns it
 /// on as an auto-start does and pushes this turn's welcome tip, rule tip and advice as the server
-/// does (UIFixture+Tutorial). The welcome with Keep / Turn off, the rule tip in its neutral card,
+/// does (UIFixture+Tutorial). One tip card at a time (the welcome first; the rule tip waits behind
+/// it until Keep or ×), the advice's chip and headline in sight. The welcome with Keep / Turn off, the rule tip in its neutral card,
 /// the advice in the /help card with its ring and no count, the "Tutorial on" chip and its off
 /// switch, /tutorial in the chat list, and what the column keeps clear of (my bid clock, my
 /// seat's row, the lightbulb, the fold: probes "table.assist" and "table.tutorial").
@@ -57,6 +58,31 @@ final class TutorialUITests: XCTestCase {
         return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
     }
 
+    /// The column's visible frame from the probe "table.assist" (frame=x y w h).
+    private func columnFrame(_ app: XCUIApplication) -> CGRect {
+        let probe = Fixture.probe(app, "table.assist")
+        let parts = probe.components(separatedBy: "frame=").last?.split(separator: " ").prefix(4).compactMap { Double($0) } ?? []
+        guard parts.count == 4 else { return .null }
+        return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    }
+
+    /// The advice's confidence chip and headline are fully in sight: inside the screen and inside
+    /// the column's visible frame (not scrolled out of it), and hittable.
+    private func adviceInSight(_ app: XCUIApplication, _ tag: String) {
+        let chip = element(app, "assist.confidence")
+        let head = element(app, "assist.headline")
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), tag)
+        XCTAssertTrue(head.waitForExistence(timeout: 5), tag)
+        let screen = app.windows.firstMatch.frame
+        let column = columnFrame(app).insetBy(dx: -1, dy: -1)
+        for (name, e) in [("chip", chip), ("headline", head)] {
+            XCTAssertTrue(screen.contains(e.frame), "\(tag): the advice's \(name) \(e.frame) off the screen \(screen)")
+            XCTAssertTrue(column.contains(e.frame),
+                          "\(tag): the advice's \(name) \(e.frame) scrolled out of the column \(column) [\(Fixture.probe(app, "ui.pose"))]")
+            XCTAssertTrue(e.isHittable, "\(tag): the advice's \(name)")
+        }
+    }
+
     func testTheWelcomeThenTheRuleTipWithTheAdviceOnMyBidTurn() {
         let app = launch("bidding-mid")
         let welcome = element(app, "tutorialWelcome")
@@ -65,12 +91,13 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(welcome.staticTexts["tip.text"].label.hasPrefix("Tips will appear above your cards. Only you see them."))
         XCTAssertTrue(app.buttons["tip.keep"].exists)
         XCTAssertTrue(app.buttons["tip.off"].exists)
-        // the rule tip under the welcome (each tip comes once a game: never hidden behind it)
-        let tip = element(app, "tutorialTip")
-        XCTAssertTrue(tip.waitForExistence(timeout: 5))
-        XCTAssertGreaterThanOrEqual(tip.frame.minY, welcome.frame.maxY - 1, "tip \(tip.frame) welcome \(welcome.frame)")
         // the advice: the /help card, never counted
         XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
+        // one tip card at a time: the rule tip (pushed before the advice) waits behind the welcome
+        let tip = element(app, "tutorialTip")
+        XCTAssertFalse(tip.exists, "one tip card at a time: the welcome has priority")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tip.title").count, 1, "one tip card")
+        XCTAssertGreaterThanOrEqual(element(app, "assistCard").frame.minY, welcome.frame.maxY - 1, "the advice under the welcome")
         XCTAssertEqual(element(app, "assist.headline").label, "Bid 2")
         XCTAssertEqual(element(app, "assist.footer").label, "What our strongest bot would play")
         XCTAssertTrue(waitFor(app, "table.assist", contains: "bid=2"), Fixture.probe(app, "table.assist"))
@@ -88,16 +115,24 @@ final class TutorialUITests: XCTestCase {
         // (Exit is above the column on a phone, in the side rail on a wide screen: the iPhone Duo open)
         XCTAssertFalse(welcome.frame.intersects(app.buttons["leave"].frame), "welcome \(welcome.frame) leave \(app.buttons["leave"].frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
+        adviceInSight(app, "bid welcome")
         shot(app, "welcome")
-        // Keep: /tutorial keep, and the rule tip stays
+        // Keep: /tutorial keep, and the rule tip that waited shows now, still one tip card
         app.buttons["tip.keep"].tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial keep"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(tip.waitForExistence(timeout: 3))
+        XCTAssertTrue(tip.waitForExistence(timeout: 3), "the rule tip behind the welcome shows now")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tip.title").count, 1, "one tip card")
+        XCTAssertTrue(element(app, "assistCard").exists, "the advice stays")
+        XCTAssertGreaterThanOrEqual(element(app, "assistCard").frame.minY, tip.frame.maxY - 1, "the advice under the tip")
         XCTAssertEqual(tip.staticTexts["tip.title"].label, "Bidding")
         XCTAssertTrue(tip.staticTexts["tip.text"].label.hasPrefix("Bid how many tricks you expect to win."))
         XCTAssertFalse(app.buttons["tip.keep"].exists, "a rule tip has no buttons but its close")
         chipClear(app, "bid rule tip")
+        XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), Fixture.probe(app, "table.assist"))
+        XCTAssertFalse(tip.frame.intersects(app.buttons["leave"].frame), "tip \(tip.frame) leave \(app.buttons["leave"].frame)")
+        XCTAssertTrue(app.buttons["leave"].isHittable)
+        adviceInSight(app, "bid rule tip")
         shot(app, "rule-tip")
         // its close: the tip goes, the tutorial stays on
         app.buttons["tip.close"].tap()
@@ -118,6 +153,7 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(waitFor(app, "table.assist", contains: "card=10_clubs"), Fixture.probe(app, "table.assist"))
         XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), Fixture.probe(app, "table.assist"))
         chipClear(app, "play advice")
+        adviceInSight(app, "play advice")
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         shot(app, "advice")
         // the advice closed: the lightbulb is back, and the tip and the chip keep above it
@@ -155,12 +191,13 @@ final class TutorialUITests: XCTestCase {
         let app = launch("bidding-mid")
         let welcome = element(app, "tutorialWelcome")
         XCTAssertTrue(welcome.waitForExistence(timeout: 5))
-        XCTAssertTrue(element(app, "tutorialTip").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
+        XCTAssertFalse(element(app, "tutorialTip").exists, "behind the welcome")
         welcome.buttons["tip.close"].tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial close"), Fixture.probe(app, "fixture.sent"))
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial keep"), "× is not Keep")
         XCTAssertTrue(welcome.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(element(app, "tutorialTip").exists, "the rule tip stays")
+        XCTAssertTrue(element(app, "tutorialTip").waitForExistence(timeout: 3), "the rule tip behind it shows now")
         XCTAssertTrue(element(app, "tutorial.chip").exists, "the tutorial stays on")
     }
 
@@ -177,8 +214,10 @@ final class TutorialUITests: XCTestCase {
         field.typeText("utorial off\n")
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
-        // the tip's row stays in the log (dim, private)
-        XCTAssertTrue(app.staticTexts["Tip: Clubs were led: you must play a club if you have one."].exists)
+        // the tip's row stays in the log (dim, private), and the off's reply is the tutorial's, not /help's
+        XCTAssertTrue(app.staticTexts["Tutorial: Clubs were led: you must play a club if you have one. (only you see this)"].exists)
+        XCTAssertTrue(app.staticTexts["Tutorial: Tips off. /help still works any time. (only you see this)"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["Help: Tips off. /help still works any time. (only you see this)"].exists)
         field.tap()
         field.typeText("/t")
         XCTAssertTrue(app.staticTexts["Tutorial: tips and advice every turn"].waitForExistence(timeout: 5))

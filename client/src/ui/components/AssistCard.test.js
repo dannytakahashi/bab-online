@@ -264,20 +264,25 @@ describe('the tutorial\'s tips on the card', () => {
     const onClose = vi.fn();
     const w = welcome();
     showAssistTips([w, tip()], { onAction, onClose });
-    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome', 'T.trump']);
+    // one tip card at a time: the welcome first
+    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome']);
     const buttons = [...sections()[0].querySelectorAll('.assist-tip__action')];
     expect(buttons.map((b) => b.textContent)).toEqual(['Keep', 'Turn off']);
     buttons[0].click();
     buttons[1].click();
     expect(onAction.mock.calls).toEqual([[w, 'keep'], [w, 'off']]);
-    sections()[1].querySelector('.assist-tip__close').click();
-    expect(onClose).toHaveBeenCalledWith(expect.objectContaining({ tipId: 'T.trump' }));
+    sections()[0].querySelector('.assist-tip__close').click();
+    expect(onClose).toHaveBeenCalledWith(w);
+    showAssistTips([tip()], { onAction, onClose });
+    sections()[0].querySelector('.assist-tip__close').click();
+    expect(onClose).toHaveBeenLastCalledWith(expect.objectContaining({ tipId: 'T.trump' }));
   });
 
   it('without callbacks a ✕ or a button just takes that tip down', () => {
-    showAssistTips([welcome(), tip()]);
-    sections()[1].querySelector('.assist-tip__close').click();
-    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome']);
+    showAssistTips([tip()]);
+    sections()[0].querySelector('.assist-tip__close').click();
+    expect(q('.hud-assist').hidden).toBe(true);
+    showAssistTips([welcome()]);
     sections()[0].querySelector('.assist-tip__action').click();
     expect(q('.hud-assist').hidden).toBe(true);
   });
@@ -292,10 +297,42 @@ describe('the tutorial\'s tips on the card', () => {
     expect(onTip).toHaveBeenCalledTimes(1);
   });
 
-  it('at most two tips; never what is not a tip; texts are text', () => {
+  it('one tip card at a time (the welcome while up, else the newest); never what is not a tip; texts are text', () => {
     showAssistTips([tip({ headline: 'a' }), tip({ headline: 'b' }), tip({ headline: '<b>c</b>' }), { kind: 'tip', headline: 'x' }]);
-    expect(sections().map((s) => s.querySelector('.assist-tip__title').textContent)).toEqual(['b', '<b>c</b>']);
+    expect(sections().map((s) => s.querySelector('.assist-tip__title').textContent)).toEqual(['<b>c</b>']);
     expect(q('.hud-assist b')).toBeNull();
+    showAssistTips([tip({ headline: 'a' }), welcome(), tip({ headline: 'b' })]);
+    expect(sections().map((s) => s.dataset.tipId)).toEqual(['T.welcome']);
+    // with the advice: one tip above it
+    showAssistCard(hint());
+    expect(q('.hud-assist').querySelectorAll('.assist-tip')).toHaveLength(1);
+    expect(q('.hud-assist .assist-card__advice')).not.toBeNull();
+  });
+
+  it('short of room (it scrolls inside), the advice\'s chip and headline are scrolled into sight at its foot, below the tip', () => {
+    showAssistTips([welcome()]);
+    showAssistCard(hint());
+    const root = q('.hud-assist');
+    const wrap = root.querySelector('.assist-card__advice');
+    // jsdom has no layout: give the card a short box and a tall content
+    Object.defineProperty(root, 'clientHeight', { configurable: true, value: 100 });
+    Object.defineProperty(root, 'scrollHeight', { configurable: true, value: 260 });
+    // the advice 140 px down, its headline 170 px down (offsetTop from the card) and 20 tall: its foot at 190 (+ 8)
+    const at = (e) => (e.classList?.contains('assist-card__advice') ? 140 : e.classList?.contains('assist-card__head') ? 170 : 0);
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get() { return at(this); } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return 20; } });
+    try {
+      showAssistCard(hint({ headline: 'Lead A♣' }));
+      expect(root.scrollTop).toBe(198 - 100);
+      expect(wrap.isConnected).toBe(false);
+      // a very short card: no further than the advice's top
+      Object.defineProperty(root, 'clientHeight', { configurable: true, value: 40 });
+      showAssistCard(hint({ headline: 'Lead K♣' }));
+      expect(root.scrollTop).toBe(140);
+    } finally {
+      delete HTMLElement.prototype.offsetTop;
+      delete HTMLElement.prototype.offsetHeight;
+    }
   });
 
   it('never takes focus; a tip drawn while focus is in the card keeps it there', () => {

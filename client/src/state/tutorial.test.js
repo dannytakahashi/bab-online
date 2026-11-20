@@ -119,9 +119,9 @@ describe('tips', () => {
     expect(isTipHint(null)).toBe(false);
   });
 
-  it('its text, its row, its announcement (once: the scene says it on arrival)', () => {
+  it('its text, its row, its announcement (once: the scene says it when it shows)', () => {
     expect(tipText(tip())).toMatch(/^Trump this hand is hearts ♥\./);
-    expect(tipLogLine(tip())).toBe(`Tip: ${tip().reasons[0]}`);
+    expect(tipLogLine(tip())).toBe(`Tutorial: ${tip().reasons[0]} (only you see this)`);
     expect(tipAnnouncement(tip())).toBe(`Tip: Trump. ${tip().reasons[0]}`);
     expect(tipLogLine({ kind: 'card' })).toBeNull();
     expect(tipAnnouncement({})).toBe('');

@@ -219,8 +219,11 @@ enum AssistRules {
         return "\(lead) \u{00B7} \(tail)"
     }
 
-    /// The dim private log row (never sent): "Help: Play 9♦ (only you see this)".
-    static func logLine(_ h: AssistHint) -> String { "Help: \(h.headline) (only you see this)" }
+    /// The dim private log row (never sent): "Help: Play 9♦ (only you see this)"; the
+    /// tutorial's own replies (a /tutorial status, e.g. "Tips off. ...") are "Tutorial: ...".
+    static func logLine(_ h: AssistHint) -> String {
+        "\(h.isTutorial ? TutorialRules.rowLabel : "Help"): \(h.headline) (only you see this)"
+    }
 
     /// What VoiceOver hears: the headline and the main reason (the last one: the first is the
     /// contract line when there are two, as the server's plain-text line chooses), and the note.

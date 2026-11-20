@@ -287,11 +287,10 @@ final class GameState: ObservableObject {
     }
     /// The chip's switch went off (/tutorial off sent) and waits for the server.
     var tutorialOffSent: Bool { table.tutorialOffSent }
-    /// The rule tip up over the table (my seat only), nil when none. Drawn under the welcome when
-    /// both are up, as on the web (the column scrolls inside when the room is short): each tip
-    /// comes once a game and goes with my own bid or card, so one hidden behind the welcome would
-    /// never be seen, though VoiceOver had read it.
-    var tutorialTip: AssistHint? { table.viewer.role == .seat ? table.tip : nil }
+    /// The rule tip shown over the table (my seat only), nil when none. One tip card at a time:
+    /// while the welcome is up it has priority and the rule tip waits behind it (its log row is
+    /// already in; it shows once the welcome goes, if my bid or card has not ended it), as on the web.
+    var tutorialTip: AssistHint? { table.viewer.role == .seat && table.welcome == nil ? table.tip : nil }
     /// The welcome tip (Keep / Turn off), my seat only.
     var tutorialWelcome: AssistHint? { table.viewer.role == .seat ? table.welcome : nil }
     /// The chat command list's /tutorial line.

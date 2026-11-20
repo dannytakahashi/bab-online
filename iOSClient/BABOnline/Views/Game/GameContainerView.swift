@@ -906,7 +906,17 @@ private struct GameScreen: View {
             if hasCards {
                 ViewThatFits(in: .vertical) {
                     cards
-                    ScrollView { cards }.scrollBounceBehavior(.basedOnSize)
+                    // short of room (the iPhone Duo open: a tip and the advice are taller than
+                    // the room above the bid panel): the advice's chip and headline in sight at
+                    // the foot, the tip above scrolled up as far as needed (its row is in the log)
+                    ScrollViewReader { proxy in
+                        ScrollView { cards }
+                            .scrollBounceBehavior(.basedOnSize)
+                            .onAppear { showAdviceHead(proxy) }
+                            .onChange(of: gameState.assistHint) { _, _ in showAdviceHead(proxy) }
+                            .onChange(of: gameState.tutorialTip) { _, _ in showAdviceHead(proxy) }
+                            .onChange(of: gameState.tutorialWelcome) { _, _ in showAdviceHead(proxy) }
+                    }
                 }
                 #if DEBUG
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
@@ -939,6 +949,14 @@ private struct GameScreen: View {
         .offset(x: f.minX, y: f.minY)
         .animation(.easeInOut(duration: 0.2), value: gameState.tutorialTip)
         .transition(.opacity)
+    }
+
+    /// Scroll the short column so the advice's headline (and its chip above it) is in sight; a
+    /// scroll that would go past the top stops there, so a column whose headline shows already
+    /// stays as it is.
+    private func showAdviceHead(_ proxy: ScrollViewProxy) {
+        guard gameState.assistHint != nil else { return }
+        DispatchQueue.main.async { proxy.scrollTo(AssistLayout.adviceHeadId, anchor: .bottom) }
     }
 
     private var isConnectedForTutorial: Bool {
@@ -1129,6 +1147,10 @@ enum AssistLayout {
     static let maxWidth: CGFloat = 380
     static let minWidth: CGFloat = 240
     static let gap: CGFloat = 6
+    /// The advice's headline (AssistCardView): where a short column scrolls to, so the advice's
+    /// chip and headline are always in sight, with the tip above it (bottom first: its Keep /
+    /// Turn off) as far as the room goes.
+    static let adviceHeadId = "assistAdviceHead"
     static let askSize: CGFloat = 36
     /// The least box worth lifting the card into to clear my seat's row (a headline and a line;
     /// the card scrolls inside): with less room it keeps the hand's anchor.

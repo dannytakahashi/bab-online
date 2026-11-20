@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, assistAskSpot, assistAskHit, tutorialChipSpot, tutorialChipHit, TUTORIAL_CHIP, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
+  intersects, contains, assistAskSpot, assistAskHit, assistRoomTop, assistBidSpot, assistHandSpot, ASSIST_SEAT_GAP, ASSIST_MIN_ROOM, tutorialChipSpot, tutorialChipHit, TUTORIAL_CHIP, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
 } from './computeTableLayout.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
 
@@ -691,6 +691,66 @@ function chipMeetsAsk(L) {
   const c = tutorialChipSpot(L);
   return intersects(askBoxes(L, { chip: true }).hit, tutorialChipHit(c.x, c.y));
 }
+
+describe('the /help card never reaches over a seat (assistRoomTop)', () => {
+  // as tableHud sets it: the card's widest centred on my hand (or the bid sheet), its foot just above
+  const column = (L, bid) => {
+    const h = L.hand;
+    const w = Math.max(Math.min(240, L.w - 32), Math.min(Math.min(h.rect.w, 380), L.w - 32));
+    if (bid) {
+      const spot = assistBidSpot(L, Math.max(Math.min(240, L.w - 32), Math.min(380, L.w - 32)));
+      return { cx: spot.x, w: spot.w, bottom: spot.y, top: spot.top, side: spot.side };
+    }
+    const spot = assistHandSpot(L, w);
+    return { cx: spot.x, w, bottom: spot.y, top: spot.top };
+  };
+  const covered = (L, c) => ['partner', 'opp1', 'opp2', 'self', 'trump'].filter((k) => {
+    const b = k === 'trump' ? L.trump.rect : L.seats[k].block;
+    const card = { x: c.cx - c.w / 2, y: c.top, w: c.w, h: c.bottom - c.top };
+    return intersects(card, b);
+  });
+
+  it('at the owner\'s sizes (1280 x 800, a narrow portrait window 820 x 1180 and 600 x 900, phones): no avatar under it, with room for the advice', () => {
+    for (const [vw, vh] of [[1920, 1080], [1280, 800], [1024, 768], [820, 1180], [600, 900], [390, 844], [768, 1024]]) {
+      const L = layoutForViewport({ vw, vh });
+      for (const bid of [false, true]) {
+        const c = column(L, bid);
+        expect(covered(L, c), `${vw}x${vh} ${bid ? 'bid' : 'hand'} top ${c.top} bottom ${c.bottom}`).toEqual([]);
+        expect(c.bottom - c.top, `${vw}x${vh}`).toBeGreaterThanOrEqual(ASSIST_MIN_ROOM);
+      }
+    }
+  });
+
+  it('stops just below the seats its column crosses, and ignores those beside it or too low to leave room', () => {
+    const L = layoutForViewport({ vw: 820, vh: 1180 });
+    const p = L.seats.partner.block;
+    const cx = p.x + p.w / 2;
+    expect(assistRoomTop(L, cx, 200, 2000)).toBeGreaterThanOrEqual(p.y + p.h + ASSIST_SEAT_GAP);
+    // a column far from every seat: no cap
+    expect(assistRoomTop({ seats: { partner: { block: { x: 0, y: 0, w: 10, h: 10 } } } }, 500, 100, 900)).toBe(0);
+    // a seat that would leave less than the advice needs does not cap it
+    expect(assistRoomTop({ seats: { opp1: { block: { x: 0, y: 0, w: 100, h: 100 } } } }, 50, 100, 150)).toBe(0);
+    expect(assistRoomTop({ seats: { opp1: { block: { x: 0, y: 0, w: 100, h: 100 } } } }, 50, 100, 400)).toBe(100 + ASSIST_SEAT_GAP);
+  });
+
+  it('on my bid turn: above the bid sheet where there is room, else beside it (1280 x 800: the partner is just above the sheet)', () => {
+    const tall = layoutForViewport({ vw: 820, vh: 1180 });
+    const t = column(tall, true);
+    expect(t.side).toBe('above');
+    expect(t.cx).toBe(tall.bidSheet.x);
+    const L = layoutForViewport({ vw: 1280, vh: 800 });
+    const c = column(L, true);
+    expect(['left', 'right']).toContain(c.side);
+    expect(c.bottom - c.top).toBeGreaterThanOrEqual(ASSIST_MIN_ROOM);
+    // clear of the sheet itself, the histories, the trump card and every seat's avatar, plate and dealer chip
+    const card = { x: c.cx - c.w / 2, y: c.top, w: c.w, h: c.bottom - c.top };
+    const hits = layoutRects(L).filter((r) => intersects(card, r.rect) && !['log', 'zone', 'spectators'].includes(r.id) &&
+      r.group !== 'zone' && !String(r.group).startsWith('trick') && !String(r.group).startsWith('bubble') && !r.id.endsWith('.cards')).map((r) => r.id);
+    expect(hits).toEqual([]);
+    expect(card.x).toBeGreaterThanOrEqual(0);
+    expect(card.x + card.w).toBeLessThanOrEqual(L.w);
+  });
+});
 
 describe('the /help lightbulb by my hand (assistAskSpot)', () => {
   it('never covers my seat (avatar, frog, plate, HSI, voice), the bid sheet, the piles or the felt, 800-2560 x 500-1440', () => {

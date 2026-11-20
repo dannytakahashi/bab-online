@@ -13,7 +13,11 @@
  *    card: the same card, rings and announcer as /help; never counted) and
  *    rule tips (kind tip: headline = the tip's title, reasons = [its text],
  *    tipId). A tip and the advice of the same decision arrive tip first, so
- *    the card shows both: the tip above the advice.
+ *    the card shows both: the tip above the advice. One tip card at a time
+ *    (shownTip): the welcome first, then the newest rule tip; every tip
+ *    leaves its private row "Tutorial: <text> (only you see this)", and the
+ *    announcer says only the tip shown (one kept behind the welcome when it
+ *    comes into view).
  *  - T.welcome carries actions ['keep', 'off']: Keep sends `/tutorial keep`
  *    (an acknowledgement: the account stays as it is), Turn off `/tutorial
  *    off`, its ✕ `/tutorial close` (the server marks an auto-started
@@ -141,9 +145,30 @@ export function tipActionCommand(action) {
   return null;
 }
 
-/** The local log row (never sent): "Tip: <text>". */
+/** The private log rows' label for what the tutorial says (its tips and status replies; /help's keep "Help"). */
+export const TUTORIAL_ROW_LABEL = 'Tutorial';
+
+/**
+ * The local log row (never sent): "Tutorial: <text> (only you see this)".
+ * Every tip gets one, shown as a card or not (one tip card at a time).
+ */
 export function tipLogLine(hint) {
-  return isTipHint(hint) ? `Tip: ${tipText(hint)}` : null;
+  return isTipHint(hint) ? `${TUTORIAL_ROW_LABEL}: ${tipText(hint)} (only you see this)` : null;
+}
+
+/**
+ * ONE TIP CARD AT A TIME (lead 2026-11-19: the welcome, a rule tip and the
+ * advice stacked over the partner's seat): of the tips up, the one shown.
+ * The welcome has priority while it is up (until Keep, ✕ or Turn off); after
+ * it, the newest rule tip (a newer one replaces an older). A rule tip that
+ * came behind the welcome shows once the welcome goes, if my bid or card
+ * has not ended it. Null when none.
+ * @param {Object[]} tips - assistHint tips, oldest first
+ * @returns {Object|null}
+ */
+export function shownTip(tips) {
+  const list = (Array.isArray(tips) ? tips : []).filter(isTipHint);
+  return list.find(isWelcomeTip) || list[list.length - 1] || null;
 }
 
 /** What the screen reader hears, once per tip: "Tip: Trump. <text>". */

@@ -26,7 +26,8 @@
  * neutral style, above the advice when both are up (a tip and the advice
  * of the same decision arrive together):
  *
- *     .assist-tip          one tip (at most the welcome and the latest one)
+ *     .assist-tip          one tip at a time (state/tutorial.js shownTip:
+ *                          the welcome while it is up, else the latest)
  *       .assist-tip__title   its title ("Trump") and ✕ ("Dismiss tip")
  *       .assist-tip__text    its text
  *       .assist-tip__actions the welcome's Keep / Turn off
@@ -43,7 +44,7 @@
  */
 import { hudRoot } from '../tableHud.js';
 import { confidenceLabel, assistFooter, isAssistHint, HELP_LABEL } from '../../state/assistHint.js';
-import { isTipHint, tipText, tipActions, TIP_ACTION_LABEL } from '../../state/tutorial.js';
+import { isTipHint, tipText, tipActions, shownTip, TIP_ACTION_LABEL } from '../../state/tutorial.js';
 
 let card = null;
 let current = null;
@@ -105,6 +106,10 @@ function slot({ create = true } = {}) {
       dismissAll();
     }
   });
+  if (typeof ResizeObserver !== 'undefined') {
+    const node = card;
+    new ResizeObserver(() => { if (!node.hidden) keepAdviceInSight(node); }).observe(node);
+  }
   hudRoot().appendChild(card);
   return card;
 }
@@ -213,6 +218,25 @@ function tipSection(hint) {
 }
 
 /**
+ * Short of room (the card scrolls inside): the advice's chip and headline
+ * stay in sight at the card's foot, the tip above them scrolled up only as
+ * far as that takes (its foot, the welcome's Keep / Turn off, first in
+ * sight; the tip's row is in the log). Again when the card's room changes
+ * (a resize: ResizeObserver in slot).
+ */
+function keepAdviceInSight(root) {
+  const wrap = root.querySelector(':scope > .assist-card__advice');
+  const head = wrap?.querySelector('.assist-card__head');
+  if (wrap && head && root.scrollHeight > root.clientHeight) {
+    // (offsetTop: from the card itself, the advice's wrap is not positioned)
+    const footOfHead = head.offsetTop + head.offsetHeight + 8;
+    root.scrollTop = Math.min(wrap.offsetTop, Math.max(0, footOfHead - root.clientHeight));
+  } else {
+    root.scrollTop = 0;
+  }
+}
+
+/**
  * Draw the card from what is up (tips, then the advice); hidden when
  * nothing is. Focus that was in the card (or on the lightbulb) lands on the
  * advice's ✕, else the first tip's.
@@ -251,6 +275,7 @@ function render({ focusFromAsk = false } = {}) {
   }
   root.replaceChildren(...parts);
   root.hidden = false;
+  keepAdviceInSight(root);
   if (hadFocus) (root.querySelector('.assist-card__close') || root.querySelector('.assist-tip__close'))?.focus({ preventScroll: true });
   return root;
 }
@@ -275,9 +300,9 @@ export function showAssistCard(hint, { onClose = null, unlimited = false, tutori
 }
 
 /**
- * Show the tutorial's tips (state/tutorial.js isTipHint; at most two: the
- * welcome and the latest), above the advice if one is up; [] takes them
- * down. Never takes focus.
+ * Show the tutorial's tip (state/tutorial.js isTipHint): one tip card at a
+ * time, shownTip of `list` (the welcome while it is up, else the newest),
+ * above the advice if one is up; [] takes it down. Never takes focus.
  * @param {Object[]} list - assistHint tips
  * @param {Object} [o]
  * @param {Function} [o.onClose] - (hint): its ✕ (or Escape)
@@ -286,7 +311,8 @@ export function showAssistCard(hint, { onClose = null, unlimited = false, tutori
  * @returns {HTMLElement|null} the card
  */
 export function showAssistTips(list, { onClose = null, onAction = null, place = 'hand' } = {}) {
-  tips = (Array.isArray(list) ? list : []).filter(isTipHint).slice(-2);
+  const one = shownTip(list);
+  tips = one ? [one] : [];
   tipOpts = { onClose, onAction, place };
   return render();
 }

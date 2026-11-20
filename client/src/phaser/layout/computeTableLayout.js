@@ -1232,6 +1232,140 @@ export function assistAskSpot(L) {
   return spot;
 }
 
+/** The /help card's gap below a seat it keeps clear of (assistRoomTop). */
+export const ASSIST_SEAT_GAP = 6;
+/**
+ * The least room the card keeps (the advice's chip and headline, a reason):
+ * a seat that would leave less (a side seat level with my hand on a squat
+ * table) does not cap it.
+ */
+export const ASSIST_MIN_ROOM = 96;
+
+/**
+ * How high the /help card (with a tutorial tip) may reach: just below the
+ * lowest other seat's block (avatar and name plate: partner, opponents),
+ * or the trump card, that its column, `w` wide centred on `cx`, would cross above `bottom`
+ * (the card's foot), so the card never covers a seat's avatar (a seat that
+ * would leave it under ASSIST_MIN_ROOM does not count); 0 when none is in
+ * the way (tableHud --assist-top / --assist-bid-top; table.css caps the
+ * card's height there and it scrolls inside, the advice kept in sight).
+ * @param {Object} L - the layout
+ * @param {number} cx - the card's centre
+ * @param {number} w - the card's widest
+ * @param {number} bottom - the card's foot (its top edge never below it)
+ * @param {Object} [o]
+ * @param {number} [o.minRoom] - a cap that leaves less is ignored (0: every one counts)
+ * @returns {number}
+ */
+export function assistRoomTop(L, cx, w, bottom, { minRoom = ASSIST_MIN_ROOM } = {}) {
+  const left = cx - w / 2;
+  const right = cx + w / 2;
+  let top = 0;
+  const keep = ['partner', 'opp1', 'opp2'].map((k) => L?.seats?.[k]?.block);
+  for (const b of [...keep, L?.trump?.rect]) {
+    if (!b || b.x >= right || b.x + b.w <= left) continue;
+    const below = b.y + b.h + ASSIST_SEAT_GAP;
+    if (below <= bottom - minRoom) top = Math.max(top, below);
+  }
+  return top;
+}
+
+/**
+ * Where the /help card goes above my hand (tableHud --assist-x / -y /
+ * -top): centred on the hand, its foot just above the lifted cards; moved
+ * sideways (as little as it takes, inside the canvas) where its column
+ * would cross my own seat's box beside the hand (a narrow window: the card
+ * is wider than the hand box), or, with no room to the side (a phone), its
+ * foot just above my seat; reaching up no higher than just below the other
+ * seats it crosses (assistRoomTop).
+ * @param {Object} L - the layout
+ * @param {number} w - the card's widest
+ * @returns {{x:number, y:number, top:number}|null} x: its centre, y: its foot; null without a hand
+ */
+export function assistHandSpot(L, w) {
+  const h = L?.hand;
+  if (!h?.card) return null;
+  const gap = Math.max(4, 6 * L.s);
+  const y = h.y - h.card.h / 2 - (h.lift || 0) - gap;
+  const edge = Math.max(8, 8 * L.s);
+  let x = h.cx;
+  const me = L.seats?.self?.block;
+  if (me && me.y < y && me.y + me.h > 0 && x - w / 2 < me.x + me.w && x + w / 2 > me.x) {
+    // to whichever side of my seat the hand is on
+    x = h.cx <= me.x + me.w / 2 ? me.x - gap - w / 2 : me.x + me.w + gap + w / 2;
+  }
+  x = Math.min(Math.max(x, edge + w / 2), L.w - edge - w / 2);
+  // no side room (a phone): its foot above my seat instead, where that leaves room
+  let foot = y;
+  if (me && me.y < y && x - w / 2 < me.x + me.w && x + w / 2 > me.x) {
+    const up = me.y - gap;
+    if (up - assistRoomTop(L, x, w, up) >= ASSIST_MIN_ROOM) foot = up;
+  }
+  return { x, y: foot, top: assistRoomTop(L, x, w, foot) };
+}
+
+/**
+ * The room above the bid sheet the /help card wants on my bid turn (a tip
+ * and the advice's chip, headline and a reason); with less, assistBidSpot
+ * looks beside the sheet.
+ */
+export const ASSIST_BID_ROOM = 160;
+
+/**
+ * Where the /help card goes on my bid turn (a bid answer, the tutorial's tip
+ * with it; tableHud --assist-bid-*): above the bid sheet, centred on it,
+ * reaching up no higher than just below the seats it crosses, where that
+ * leaves ASSIST_BID_ROOM; else (a short window: at 1280 x 800 the partner's
+ * seat is just above the sheet) the tallest free room beside the sheet,
+ * left or right, between the seats (avatar, plate, dealer chip), the
+ * histories, the status pill and the trump card, where it is taller (the
+ * other seats' face-down fans may go under it; the felt's trick slots are
+ * empty while we bid; chat bubbles come and go over anything), its foot no
+ * lower than the sheet's, hugging the sheet; else above it (assistRoomTop:
+ * over a seat only where nothing leaves ASSIST_MIN_ROOM).
+ * @param {Object} L - the layout
+ * @param {number} w - the card's widest
+ * @returns {{x:number, y:number, top:number, w:number, side:'above'|'left'|'right'}}
+ *   x: its centre, y: its foot, top: as high as it may reach, w: its widest there
+ */
+export function assistBidSpot(L, w) {
+  const sheet = L.bidSheet.rect;
+  const gap = Math.max(4, 6 * L.s);
+  const bottom = sheet.y - gap;
+  const above = { x: L.bidSheet.x, y: bottom, top: assistRoomTop(L, L.bidSheet.x, w, bottom), w, side: 'above' };
+  // the room above below every seat (and the trump card) it crosses, however little
+  const clearTop = assistRoomTop(L, above.x, w, bottom, { minRoom: 0 });
+  const aboveRoom = bottom - clearTop;
+  if (aboveRoom >= ASSIST_BID_ROOM) return { ...above, top: clearTop };
+  const skip = new Set(['hand', 'log', 'bidSheet', 'zone', 'spectators']);
+  const blockers = layoutRects(L)
+    .filter((r) => !skip.has(r.id) && r.group !== 'zone' && !String(r.group).startsWith('trick') &&
+      !String(r.group).startsWith('bubble') && !r.id.endsWith('.cards'))
+    .map((r) => r.rect);
+  const edge = Math.max(8, 8 * L.s);
+  const floor = sheet.y + sheet.h;
+  let best = null;
+  for (const side of ['left', 'right']) {
+    const x0 = side === 'left' ? edge : sheet.x + sheet.w + gap;
+    const x1 = side === 'left' ? sheet.x - gap : L.w - edge;
+    const width = Math.min(w, x1 - x0);
+    if (width < Math.min(240, w)) continue;
+    const left = side === 'left' ? x1 - width : x0;
+    // the free stretches of that column, top to the sheet's foot
+    const spans = blockers
+      .filter((r) => r.x < left + width && r.x + r.w > left && r.y < floor)
+      .map((r) => [r.y - gap, r.y + r.h + gap])
+      .sort((a, b) => a[0] - b[0]);
+    let y = edge;
+    for (const [a, b] of [...spans, [floor, floor]]) {
+      const room = Math.min(a, floor) - y;
+      if (room > 0 && (!best || room > best.y - best.top)) best = { x: left + width / 2, y: y + room, top: y, w: width, side };
+      y = Math.max(y, b);
+    }
+  }
+  return best && best.y - best.top >= ASSIST_MIN_ROOM && best.y - best.top > aboveRoom ? best : above;
+}
+
 /**
  * Where the "Tutorial on" chip goes (TutorialChip.js; tableHud sets
  * --tutorial-x / -y from it): the hand box's left end, its bottom level with

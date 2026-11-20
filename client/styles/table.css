@@ -1376,9 +1376,12 @@ body > .voice-btn {
 
 .hud-assist[hidden] { display: none; }
 
-/* never taller than the room above my hand (tips and advice stacked) */
+/* never taller than the room above my hand (a tip and the advice), and never
+   up over a seat's avatar (--assist-top: just below the seats its column
+   crosses, computeTableLayout assistRoomTop); it scrolls inside, the advice
+   kept in sight (AssistCard render) */
 .hud-assist {
-    max-height: calc(var(--assist-y, 70%) - var(--space-2));
+    max-height: calc(var(--assist-y, 70%) - var(--assist-top, 0px) - var(--space-2));
     overflow-y: auto;
 }
 
@@ -1389,7 +1392,8 @@ body > .voice-btn {
 .hud-assist[data-place="bid"] {
     left: var(--assist-bid-x, 50%);
     top: var(--assist-bid-y, 30%);
-    max-height: calc(var(--assist-bid-y, 30%) - var(--space-2));
+    max-width: min(var(--assist-bid-w, var(--assist-w, 380px)), calc(100% - 2 * var(--space-4)));
+    max-height: calc(var(--assist-bid-y, 30%) - var(--assist-bid-top, 0px) - var(--space-2));
     overflow-y: auto;
 }
 .hud-assist.is-status { border-color: var(--line-strong); }
@@ -1684,7 +1688,7 @@ body > .voice-btn {
    neither covers the other (the bid placement is away from the hand) */
 .has-tutorial-chip > .hud-assist:not([data-place="bid"]) {
     top: calc(var(--assist-y, 70%) - 34px);
-    max-height: calc(var(--assist-y, 70%) - 34px - var(--space-2));
+    max-height: calc(var(--assist-y, 70%) - 34px - var(--assist-top, 0px) - var(--space-2));
 }
 
 /* the switch (on): a pill with its knob on the right; it turns the tutorial off */

@@ -38,7 +38,7 @@
  * the hint's own texts come from the server, which lints them.
  */
 
-import { isTipHint, tipLogLine } from './tutorial.js';
+import { isTipHint, tipLogLine, TUTORIAL_ROW_LABEL } from './tutorial.js';
 
 /** The clientHello cap that asks for assistHint. */
 export const ASSIST_CAP = 'assist';
@@ -298,13 +298,18 @@ export function assistFooter(hint, { unlimited = false, tutorial = false } = {})
 }
 
 /**
- * The dim local log row (never sent): "Help: Play 9♦ (only you see this)".
- * None for the tutorial's advice (it comes on every decision; its tips
- * have their own rows, state/tutorial.js tipLogLine).
+ * The dim local log row (never sent): "Help: Play 9♦ (only you see this)";
+ * the tutorial's own status replies (the chip's switch, /tutorial off:
+ * "Tips off. ...") are "Tutorial: ..." rows (TUTORIAL_ROW_LABEL). None for
+ * the tutorial's advice (it comes on every decision; its tips have their
+ * own rows, state/tutorial.js tipLogLine).
  */
 export function assistLogLine(hint) {
   if (isTipHint(hint)) return tipLogLine(hint);
-  if (!isAssistHint(hint) || (hint.source === 'tutorial' && hint.kind !== 'status')) return null;
+  if (!isAssistHint(hint)) return null;
+  if (hint.source === 'tutorial') {
+    return hint.kind === 'status' ? `${TUTORIAL_ROW_LABEL}: ${hint.headline} (only you see this)` : null;
+  }
   return `Help: ${hint.headline} (only you see this)`;
 }
 

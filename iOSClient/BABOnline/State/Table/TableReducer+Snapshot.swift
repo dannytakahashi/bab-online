@@ -42,6 +42,7 @@ extension TableReducer {
             next.table.tip = s.table.tip
             next.table.welcome = s.table.welcome
             next.table.tipsSeen = s.table.tipsSeen
+            next.table.tipUnheard = s.table.tipUnheard
             next.table.tutorialOffSent = s.table.tutorialOffSent
             if snap.viewer.assist == nil { next.table.tutorial = s.table.tutorial }
         }

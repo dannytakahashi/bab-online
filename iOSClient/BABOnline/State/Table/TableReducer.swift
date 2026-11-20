@@ -241,11 +241,14 @@ enum TableReducer {
         case .assistDismissed:
             clearAssist(&s)
         case .tutorialTipDismissed:
-            s.table.tip = nil
+            clearTip(&s)
         case .tutorialWelcomeKept:
-            s.table.welcome = nil
+            welcomeGone(&s, &fx)
         case .tutorialOffSent:
+            // every tip goes (a rule tip behind the welcome does not come up for the moment
+            // until the server's assistState: its row is in the log)
             s.table.welcome = nil
+            clearTip(&s)
             s.table.tutorialOffSent = true
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer

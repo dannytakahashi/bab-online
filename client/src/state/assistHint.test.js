@@ -310,8 +310,9 @@ describe('the tutorial (source tutorial, 2026-11-19)', () => {
     expect(assistFooter(bidHint({ source: 'tutorial', counted: false, uses: 2 }))).toBe(FOOTER_BOT);
     expect(assistFooter(cardHint({ source: 'tutorial', counted: false, confidence: 'quick' }))).toBe('Quick suggestion: rules only, the server is busy.');
     expect(assistLogLine(cardHint({ source: 'tutorial', counted: false }))).toBeNull();
-    // its status replies keep their row (the game-end screen)
-    expect(assistLogLine(statusHint({ source: 'tutorial', headline: 'Tips off. /help still works any time.' }))).toBe('Help: Tips off. /help still works any time. (only you see this)');
+    // its status replies keep their row, labelled the tutorial's (the chip's switch, /tutorial off); /help's keep "Help:"
+    expect(assistLogLine(statusHint({ source: 'tutorial', headline: 'Tips off. /help still works any time.' }))).toBe('Tutorial: Tips off. /help still works any time. (only you see this)');
+    expect(assistLogLine(statusHint({ headline: '/help is for players only.' }))).toBe('Help: /help is for players only. (only you see this)');
   });
 
   it('/help while the tutorial is on is never counted: no count in its footer or chat line', () => {
@@ -330,12 +331,12 @@ describe('the tutorial (source tutorial, 2026-11-19)', () => {
     expect(helpDescription(null, { tutorial: true })).toBe(HELP_LABEL);
   });
 
-  it('a tip is not a /help card (its own section); it goes to the scene at the table, else its "Tip:" row', () => {
+  it('a tip is not a /help card (its own section); it goes to the scene at the table, else its "Tutorial:" row', () => {
     expect(isAssistHint(tipHint())).toBe(false);
     expect(assistHintRoute({ isAtTable: true, hasTable: true }, tipHint())).toBe('scene');
     expect(assistHintRoute({ isAtTable: false, hasTable: true }, tipHint())).toBe('row');
     expect(assistHintRoute({ isAtTable: false, hasTable: false }, tipHint())).toBeNull();
-    expect(assistLogLine(tipHint())).toBe('Tip: Bid how many tricks you expect to win.');
+    expect(assistLogLine(tipHint())).toBe('Tutorial: Bid how many tricks you expect to win. (only you see this)');
     // a tutorial bid or card answer goes to the scene like /help's; off the table nowhere
     expect(assistHintRoute({ isAtTable: true, hasTable: true }, cardHint({ source: 'tutorial' }))).toBe('scene');
     expect(assistHintRoute({ isAtTable: false, hasTable: true }, cardHint({ source: 'tutorial' }))).toBeNull();

@@ -64,7 +64,7 @@ describe('the tutorial after a reload', () => {
     });
     replay.advance(50);
     expect(tipTitles()).toEqual(['Scoring']);
-    expect(rows().at(-1)).toMatch(/^Tip: Win at least your combined bid/);
+    expect(rows().at(-1)).toMatch(/^Tutorial: Win at least your combined bid.*\(only you see this\)$/);
   });
 
   it('the chip\'s switch sends /tutorial off; the server\'s assistState off takes the chip and the tips down', () => {

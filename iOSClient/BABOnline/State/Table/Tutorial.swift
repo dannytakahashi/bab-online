@@ -10,10 +10,13 @@ import Foundation
 //    counted: its footer has no count and it adds no log row (one per turn would flood the log).
 //  - assistHint {source 'tutorial', kind 'tip', tipId}: a rule tip (headline = its title,
 //    reasons = [its text]) in the neutral TutorialTipView above the answer, with a dim private
-//    log row "Tip: <text>". Not tied to the turn: up until closed, the next tip, or my own bid
-//    or card. VoiceOver hears each tip once. The welcome (T.welcome, `actions` keep / off) has
-//    its own slot with Keep / Turn off, so the first decision's tip and advice never push it away;
-//    a rule tip shows under it (GameState.tutorialTip), never hidden while the welcome is up.
+//    log row "Tutorial: <text> (only you see this)". Not tied to the turn: up until closed, the
+//    next tip, or my own bid or card. ONE TIP CARD AT A TIME (lead 2026-11-19; the stack pushed
+//    the advice below the fold): the welcome (T.welcome, `actions` keep / off) has its own slot
+//    with Keep / Turn off and priority while it is up, so a rule tip that comes meanwhile is
+//    its log row only until the welcome goes (Keep, ×, Turn off), then shows if still up
+//    (GameState.tutorialTip); a newer rule tip replaces an older one. VoiceOver hears only the
+//    card shown: a tip kept behind the welcome is announced when it comes into view.
 //  - assistHint {source 'tutorial', kind 'status'}: the private reply to /tutorial (a /help status).
 //  - s2c assistState {tutorial, auto, uses, freeUses, assisted, unlimited?}: on every change and
 //    after a rejoin; the snapshot's viewer.assist.tutorial / auto after a relaunch. While on, my
@@ -60,9 +63,13 @@ enum TutorialRules {
     static let offLabel = "Turn off"
     static let closeLabel = "Close tip"
 
-    /// The dim private log row of a tip (never sent): "Tip: <text>" (the server's own line for a
-    /// client without the cap), the title when a tip has no text.
-    static func logLine(_ h: AssistHint) -> String { "Tip: \(h.reasons.first ?? h.headline)" }
+    /// The private log rows' label for what the tutorial says (tips and its status replies;
+    /// /help's own rows keep "Help").
+    static let rowLabel = "Tutorial"
+
+    /// The dim private log row of a tip (never sent): "Tutorial: <text> (only you see this)",
+    /// the title when a tip has no text. Every tip gets one, shown as a card or not.
+    static func logLine(_ h: AssistHint) -> String { "\(rowLabel): \(h.reasons.first ?? h.headline) (only you see this)" }
 
     /// What VoiceOver hears, once per tip: "Tip: Trump. Trump this hand is hearts ♥. ...".
     static func announcement(_ h: AssistHint) -> String {

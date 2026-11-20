@@ -95,14 +95,16 @@ extension TableReducer {
         s.table.parkedAssist = nil
         s.table.assistAsking = false
         s.table.tip = nil
+        s.table.tipUnheard = false
         s.table.welcome = nil
     }
 
     // MARK: - The tutorial (State/Table/Tutorial.swift)
 
-    /// A rule tip: a dim private row and one VoiceOver announcement (each tip once a game), and
-    /// up over the table while at it (the welcome in its own slot); on the game-end screen, at
-    /// the draw or without a table, the row only.
+    /// A rule tip: a dim private row (each tip once a game), and up over the table while at it
+    /// (the welcome in its own slot); on the game-end screen, at the draw or without a table, the
+    /// row only. One tip card at a time: a rule tip that comes while the welcome is up waits
+    /// behind it (GameState.tutorialTip), and VoiceOver hears it only when it shows.
     static func tutorialTip(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
         let key = TutorialRules.seenKey(h)
         let fresh = !s.table.tipsSeen.contains(key)
@@ -118,13 +120,29 @@ extension TableReducer {
         }
         // only a seat holder sees it over the table (a bot playing my seat: the row only)
         guard s.table.viewer.role == .seat else { return }
-        if TutorialRules.isWelcome(h) && !h.actions.isEmpty { s.table.welcome = h } else { s.table.tip = h }
-        if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
+        if TutorialRules.isWelcome(h) && !h.actions.isEmpty {
+            s.table.welcome = h
+            if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
+            return
+        }
+        s.table.tip = h
+        // behind the welcome: heard when it shows (tipShows)
+        s.table.tipUnheard = fresh && s.table.welcome != nil
+        if fresh && s.table.welcome == nil { fx.append(.announce(TutorialRules.announcement(h))) }
+    }
+
+    /// The welcome went (Keep, ×): the rule tip behind it shows now, and VoiceOver hears it if
+    /// it has not.
+    static func welcomeGone(_ s: inout TableState, _ fx: inout [TableEffect]) {
+        s.table.welcome = nil
+        if s.table.tipUnheard, let tip = s.table.tip { fx.append(.announce(TutorialRules.announcement(tip))) }
+        s.table.tipUnheard = false
     }
 
     /// My own bid or card (or a bot taking my seat): the rule tip about it is done (the welcome stays).
     static func clearTip(_ s: inout TableState) {
         s.table.tip = nil
+        s.table.tipUnheard = false
     }
 
     /// assistState: my seat's tutorial and /help uses. Off: its tips, its welcome and its advice go.
@@ -142,6 +160,7 @@ extension TableReducer {
     /// The tutorial is off: what it put up goes (a /help answer stays).
     static func endTutorial(_ s: inout TableState) {
         s.table.tip = nil
+        s.table.tipUnheard = false
         s.table.welcome = nil
         if s.table.assist?.isTutorial == true && s.table.assist?.kind != .status { s.table.assist = nil }
         if s.table.parkedAssist?.isTutorial == true { s.table.parkedAssist = nil }

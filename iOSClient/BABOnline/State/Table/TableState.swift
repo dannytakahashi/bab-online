@@ -42,8 +42,11 @@ struct TableSlice: Equatable {
     var tip: AssistHint?
     /// The welcome tip (T.welcome, with Keep / Turn off), until kept, turned off or closed.
     var welcome: AssistHint?
-    /// Tips already logged and announced this game (TutorialRules.seenKey): each once.
+    /// Tips already logged this game (TutorialRules.seenKey): each once.
     var tipsSeen: Set<String> = []
+    /// The rule tip up came while the welcome was (so it is not shown yet) and VoiceOver has not
+    /// heard it: it is announced when the welcome goes.
+    var tipUnheard = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).

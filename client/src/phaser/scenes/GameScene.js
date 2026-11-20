@@ -60,7 +60,7 @@ import {
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
-  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible,
+  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible, shownTip,
   TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND,
 } from '../../state/tutorial.js';
 import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
@@ -1698,20 +1698,26 @@ export class GameScene extends Phaser.Scene {
   // ============================================
 
   /**
-   * A rule tip (assistHint source tutorial, kind tip): its log row ("Tip:
-   * ..."), said once by the announcer, and a section at the top of the card
-   * (the welcome and the latest tip at most; a newer tip replaces the one
-   * up). The game-end tip is the row alone (the end screen follows it).
-   * A rule tip stays until its ✕, the next tip, or my own bid or card; the
-   * welcome until its Keep / Turn off / ✕.
+   * A rule tip (assistHint source tutorial, kind tip): its log row
+   * ("Tutorial: ... (only you see this)") always, and a section at the top
+   * of the card. ONE TIP CARD AT A TIME (state/tutorial.js shownTip): the
+   * welcome while it is up, else the newest rule tip; a rule tip that comes
+   * behind the welcome waits (kept, not drawn) and shows when the welcome
+   * goes, if still up. The announcer says only the tip shown, once (a
+   * waiting one when it comes into view). The game-end tip is the row and
+   * its announcement (the end screen follows it). A rule tip stays until
+   * its ✕, the next tip, or my own bid or card; the welcome until its
+   * Keep / Turn off / ✕.
    * @param {Object} hint
    */
   handleTutorialTip(hint) {
     const s = this.state || getGameState();
     if (!(s.isSpectator && !s.isLazy)) noteAssistUses(hint, s.gameId);
     window.addPrivateToGameFeed?.(tipLogLine(hint));
-    announce(tipAnnouncement(hint));
-    if (isRowOnlyTip(hint)) return;
+    if (isRowOnlyTip(hint)) {
+      announce(tipAnnouncement(hint));
+      return;
+    }
     const tips = this._tips || [];
     const welcome = isWelcomeTip(hint);
     const other = tips.filter((t) => isWelcomeTip(t) !== welcome);
@@ -1732,10 +1738,21 @@ export class GameScene extends Phaser.Scene {
     return bidding ? 'bid' : 'hand';
   }
 
-  /** Draw the tips (the card keeps the advice up below them). */
+  /**
+   * Draw the tip shown (one at a time; the card keeps the advice up below
+   * it) and say it if it has not been said.
+   */
   drawTips() {
     this._tipPlaceDrawn = this._tipPlace();
-    showAssistTips(this._tips || [], {
+    const shown = shownTip(this._tips || []);
+    if (shown) {
+      this._tipsHeard ??= new WeakSet();
+      if (!this._tipsHeard.has(shown)) {
+        this._tipsHeard.add(shown);
+        announce(tipAnnouncement(shown));
+      }
+    }
+    showAssistTips(shown ? [shown] : [], {
       place: this._tipPlaceDrawn,
       onClose: (h) => this.closeTip(h),
       onAction: (h, a) => this.tipAction(h, a),
@@ -1753,7 +1770,12 @@ export class GameScene extends Phaser.Scene {
     const cmd = tipActionCommand(action);
     if (!cmd) return;
     if (!this._sendTutorial(cmd)) return;
-    if (action === 'off') this._noteOffSent();
+    // Turn off: every tip goes now (a rule tip waiting behind the welcome never comes up)
+    if (action === 'off') {
+      this._noteOffSent();
+      this.clearTips({ all: true });
+      return;
+    }
     this._dropTip(hint);
   }
 
