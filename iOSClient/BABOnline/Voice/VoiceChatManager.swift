@@ -75,6 +75,7 @@ final class VoiceChatManager: ObservableObject {
     /// start (play again's lobby, a new lobby or table, voice back after company returns, a
     /// reconnect) starts unmuted while it holds and the microphone is already allowed
     /// (`Hooks.recordPermissionGranted`: no prompt at a start); else muted, as the first start.
+    /// One person's: a sign-out forgets it (`forgetSessionMute`).
     private(set) var sessionUnmuted = false
     /// The casual game's voice settings for this socket (voiceSettings), nil elsewhere. Only
     /// the role is acted on (spectators always may talk since 2026-11-18).
@@ -656,6 +657,14 @@ final class VoiceChatManager: ObservableObject {
         peerInfos[socketId]?.isMuted = false
         if let name = peerInfos[socketId]?.username { savedMutes[name] = false }
         peers[socketId]?.remoteTrack?.isEnabled = true
+    }
+
+    /// The app drops its identity (Sign Out, forceLogout, a deleted account, a failed session
+    /// restore): the unmute by hand was that person's, so whoever signs in next in this app run
+    /// starts muted (as the first start) and never inherits a live mic. The current call, if
+    /// any, keeps its state (the screens that run voice are gone by then).
+    func forgetSessionMute() {
+        sessionUnmuted = false
     }
 
     /// Sign-out: the next account on this device starts every player at 100%, unmuted.

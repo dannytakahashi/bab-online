@@ -652,6 +652,28 @@ final class MutedStartVoiceTests: XCTestCase {
         XCTAssertEqual(w.prompts, 1)
     }
 
+    /// Sign Out (or forceLogout, a deleted account, a failed restore): the unmute by hand was
+    /// that person's, so the next account's first start in this app run is muted with the mic
+    /// allowed (iOS mic permission is per app), and its unmute needs no prompt.
+    func testASignOutForgetsTheUnmuteForTheNextAccount() async throws {
+        let w = Wire()
+        w.micAllowed = true
+        let a = make(w)
+        try await a.initialize()
+        a.toggleSelfMute()
+        try await waitUntil("unmuted") { !a.isSelfMuted }
+        XCTAssertTrue(a.sessionUnmuted)
+        a.shutdown()
+        a.forgetSessionMute()
+        XCTAssertFalse(a.sessionUnmuted)
+        try await a.initialize()
+        XCTAssertTrue(a.isSelfMuted, "the next account starts muted")
+        XCTAssertEqual(a.localTrackEnabled, false)
+        a.toggleSelfMute()
+        XCTAssertFalse(a.isSelfMuted, "the mic is allowed: its unmute is immediate")
+        XCTAssertEqual(w.prompts, 1)
+    }
+
     /// A refused unmute leaves nothing to resume; a mute during the prompt wins for the session.
     func testARefusalOrAMuteDuringThePromptLeavesTheSessionMuted() async throws {
         let w = Wire()

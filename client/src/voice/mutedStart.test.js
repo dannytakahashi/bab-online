@@ -13,6 +13,7 @@ import { VoiceChatManager, REOFFER_DELAY_MS } from './VoiceChatManager.js';
 import { CLIENT_EVENTS } from '../constants/events.js';
 import { getGameState } from '../state/GameState.js';
 import { forgetSessionMute, sessionWantsUnmuted, SESSION_MUTE_KEY } from './voiceSessionMute.js';
+import { clearAllSessionData } from '../utils/sessionPersistence.js';
 
 const TURN = { iceServers: [{ urls: ['stun:stun.cloudflare.com:3478'] }], turn: true, expiresInSec: 4 * 3600 };
 
@@ -358,6 +359,22 @@ describe('the session keeps a manual unmute (owner 2026-11-19)', () => {
     await vm.connectToPeer('sock-b', 'bob');
     expect(senderOf(vm, 'sock-b').track).toBe(micTracks[1]);
     vm.shutdown();
+  });
+
+  it('a sign-out forgets it: the next person to sign in on the tab starts muted with no microphone', async () => {
+    allowMic('granted');
+    const vm = new VoiceChatManager();
+    await start(vm, fakeSocketManager());
+    expect(await vm.toggleSelfMute()).toBe(false);
+    vm.shutdown();
+    clearAllSessionData();
+    expect(sessionWantsUnmuted()).toBe(false);
+    // a new page (Sign Out reloads the tab)
+    const next = new VoiceChatManager();
+    await start(next, fakeSocketManager());
+    expect(next.isMuted()).toBe(true);
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+    next.shutdown();
   });
 
   it('a mute by hand holds too: the next session starts muted with no microphone', async () => {

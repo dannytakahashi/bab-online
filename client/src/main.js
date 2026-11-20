@@ -43,6 +43,7 @@ import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { getRestartNotice, LOSS } from './state/restartNotice.js';
 import { speakingSlotFor } from './voice/speakingSlot.js';
 import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
+import { forgetSessionMute } from './voice/voiceSessionMute.js';
 
 // UI Components
 import { showToast, showError, showSuccess, showWarning, showInfo, showNotice, TOAST_SHORT } from './ui/components/Toast.js';
@@ -347,9 +348,11 @@ socket.io.on('reconnect', (attemptNumber) => {
 
 socket.io.on('reconnect_failed', () => {
   console.log('Reconnection failed after all attempts');
-  // The tab's credentials go; the device's saved session stays
+  // The tab's credentials go; the device's saved session stays. So does
+  // this tab's voice unmute (whoever signs in next starts muted)
   safeSessionStorage().removeItem('username');
   safeSessionStorage().removeItem('sessionToken');
+  forgetSessionMute();
   session.clearIdentity();
   setIsAdmin(false);
   displaySignInScreen(EXIT.RECONNECT_FAILED);
@@ -2573,6 +2576,7 @@ socket.on('restoreSessionResponse', (data) => {
     forgetSession(safeSessionStorage().getItem('sessionToken'));
     safeSessionStorage().removeItem('username');
     safeSessionStorage().removeItem('sessionToken');
+    forgetSessionMute();
     session.clearIdentity();
     restartNotice.clear();
     setIsAdmin(false);

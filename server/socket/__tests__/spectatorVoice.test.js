@@ -421,6 +421,49 @@ describe('leaving the voice room', () => {
         expect(list).toEqual([socks[0].id, socks[1].id, socks[3].id, x.id]);
     });
 
+    test('/leave from a human seat with a voice spectator present: a private voicePeerLeft to the other seats and the spectator, none to the room', () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        const mark = log.length;
+        chatHandlers.chatMessage(socks[1], io, { message: '/leave' });
+        expect(game.seat(2).presence).toBe('gone');
+        const left = log.slice(mark).filter((l) => l.event === 'voicePeerLeft');
+        expect(left.map((l) => l.data.socketId)).toEqual(left.map(() => socks[1].id));
+        expect(left.map((l) => l.to).sort()).toEqual([socks[0].id, socks[2].id, socks[3].id, x.id].sort());
+        expect(gameVoice.gameVoiceMembers(game).map((m) => m.socketId)).not.toContain(socks[1].id);
+        // voiceSettings again to the rest (playerLeftVoice -> refreshVoice)
+        expect(to(x, 'voiceSettings', mark)).not.toHaveLength(0);
+    });
+
+    test('/leave from a lazy owner at its seat tells its voice peers; from a watching owner (no voice member) nothing', async () => {
+        const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
+        const x = user('x');
+        spectate(game, x);
+        expect(seatLifecycle.goLazy(io, game, 2, { reason: 'afk' })).toBe(true);
+        expect(game.seat(2)).toMatchObject({ controller: 'lazyBot', ownerView: 'seat' });
+        let mark = log.length;
+        chatHandlers.chatMessage(socks[1], io, { message: '/leave' });
+        expect(log.slice(mark).filter((l) => l.event === 'voicePeerLeft' && l.data.socketId === socks[1].id).map((l) => l.to).sort())
+            .toEqual([socks[0].id, socks[2].id, socks[3].id, x.id].sort());
+
+        // seat 3's owner drops and rejoins watching (not in voice), then /leave
+        const owner = nameOf(socks[2]);
+        expect(seatLifecycle.goLazy(io, game, 3, { reason: 'afk' })).toBe(true);
+        io.sockets.sockets.delete(socks[2].id);
+        await queueHandlers.handleDisconnect(socks[2], io);
+        const w = makeSocket(`sv${seq}-w`, log, io);
+        gameManager.registerUser(w.id, owner);
+        voice.rememberBlockList(w, []);
+        clientInfo.handle(w, io, { client: 'ios', version: '1.2.2', build: '13', caps: ['avatarUrl', 'casualSpectators', 'playAgain'] });
+        await reconnectHandlers.rejoinGame(w, io, { gameId: game.gameId, username: owner });
+        expect(game.seat(3)).toMatchObject({ ownerSocketId: w.id, ownerView: 'watch' });
+        mark = log.length;
+        chatHandlers.chatMessage(w, io, { message: '/leave' });
+        expect(game.seat(3).presence).toBe('gone');
+        expect(log.slice(mark).filter((l) => l.event === 'voicePeerLeft')).toEqual([]);
+    });
+
     test('a block ends a live call both ways (spectator and player)', async () => {
         const { game, socks } = casualGame(['a', 'b', 'c', 'd']);
         const x = user('x');

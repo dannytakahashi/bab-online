@@ -246,6 +246,11 @@ describe('seat transcripts (wire characterization)', () => {
             'room:gameLogEntry{message,type}',
             // unsequenced, additive 2026-11-19: the owner is gone for good
             'room:seatLeft{gameId,position,username}@1',
+            // CHANGED (2026-11-19): it was in the voice room, so its peers
+            // drop the call (private; gameVoice.playerLeftVoice)
+            'h2:voicePeerLeft{socketId}',
+            'h3:voicePeerLeft{socketId}',
+            'h4:voicePeerLeft{socketId}',
             'self(h1):leftGame{}',
         ]);
         expect(gameManager.playerGames.has(t.ids[0])).toBe(false);

@@ -6,7 +6,8 @@
  * lobby, a new table, voice back after company returns, a reconnect, a
  * reload of the tab) starts unmuted, and a mute by hand is kept the same
  * way. Kept in sessionStorage, so a reload keeps it and a new tab starts
- * muted; with storage blocked it lasts for this page (safeStorage).
+ * muted; with storage blocked it lasts for this page (safeStorage). The
+ * choice is one person's: a sign-out forgets it (forgetSessionMute).
  *
  * An unmuted start needs the microphone already allowed (no prompt at a
  * voice start): `micAlreadyAllowed`. Otherwise the start is muted as before.
@@ -26,7 +27,12 @@ export function rememberSessionMute(muted) {
   safeSessionStorage().setItem(SESSION_MUTE_KEY, muted ? '0' : '1');
 }
 
-/** Tests: a fresh tab. */
+/**
+ * A new voice session in this tab: the tab drops its identity (Sign Out, a
+ * deleted account, a failed restore or reconnect; clearAllSessionData and
+ * main.js), so the next person to sign in here starts muted and never
+ * inherits a live microphone. Tests: a fresh tab.
+ */
 export function forgetSessionMute() {
   safeSessionStorage().removeItem(SESSION_MUTE_KEY);
 }

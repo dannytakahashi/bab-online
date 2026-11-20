@@ -896,6 +896,9 @@ function resignSeat(io, game, pos) {
 function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     const seat = game.seat(pos);
     if (seat.controller === Controller.HUMAN && !goLazy(io, game, pos, { reason: 'leave' })) return false;
+    // In the voice room until now (a human seat, or a lazy owner at its
+    // seat; a watching owner is not): its peers must drop the call
+    const wasVoiceMember = gameVoice.gameVoiceMembers(game).some((m) => m.socketId === socket.id);
     if (!game.seatLeave(pos)) return false;
     game.leaveRoom(io, socket.id);
     // The room learns the owner is gone for good (additive, unsequenced,
@@ -905,8 +908,12 @@ function leaveSeat(io, game, pos, socket, { notify = true } = {}) {
     // "No voice alone"); shipped iOS builds register no handler for it
     game.emitUnsequenced(io, 'seatLeft', { gameId: game.gameId, position: pos, username: seat.ownerUsername });
     unmap(game, socket.id);
-    // Out of the voice room for good: voiceSettings again to the rest
-    gameVoice.refreshVoice(io, game);
+    // Out of the voice room for good: its peers (owners at their seats and
+    // voice spectators) get a private voicePeerLeft, never the room (it used
+    // to hang until ICE gave up, and the web listed the name "voice
+    // unavailable"); then voiceSettings again to the rest
+    if (wasVoiceMember) gameVoice.playerLeftVoice(io, game, socket.id);
+    else gameVoice.refreshVoice(io, game);
     // Lets them create / join new lobbies and tournaments
     gameManager.clearActiveGame(seat.ownerUsername, game.gameId);
     // leftGame only, from either view (the watch view's extra s2c
