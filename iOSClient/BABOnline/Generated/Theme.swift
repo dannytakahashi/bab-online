@@ -85,6 +85,10 @@ enum Theme {
             static let border = ThemeColor(0xb3b3b3)
             static let red = ThemeColor(0xd91a1a)
             static let black = ThemeColor(0x1a1a1a)
+            static let blue = ThemeColor(0x1f5bd8)
+            static let green = ThemeColor(0x0f7a33)
+            static let blueOnDark = ThemeColor(0x8ea2ff)
+            static let greenOnDark = ThemeColor(0x5fcf86)
             static let joker = ThemeColor(0x800080)
             static let back = ThemeColor(0x1a4d26)
             static let backBorder = ThemeColor(0x33803f)
@@ -219,6 +223,10 @@ enum Theme {
         "card.border": ThemeColor(0xb3b3b3),
         "card.red": ThemeColor(0xd91a1a),
         "card.black": ThemeColor(0x1a1a1a),
+        "card.blue": ThemeColor(0x1f5bd8),
+        "card.green": ThemeColor(0x0f7a33),
+        "card.blueOnDark": ThemeColor(0x8ea2ff),
+        "card.greenOnDark": ThemeColor(0x5fcf86),
         "card.joker": ThemeColor(0x800080),
         "card.back": ThemeColor(0x1a4d26),
         "card.backBorder": ThemeColor(0x33803f),
@@ -275,6 +283,12 @@ enum Theme {
         ContrastPair(fg: "card.red", bg: ["card.face"], min: 4.5, use: "red card index"),
         ContrastPair(fg: "card.black", bg: ["card.face"], min: 4.5, use: "black card index"),
         ContrastPair(fg: "card.joker", bg: ["card.face"], min: 4.5, use: "joker index"),
+        ContrastPair(fg: "card.blue", bg: ["card.face"], min: 4.5, use: "diamond index (iOS four-colour deck)"),
+        ContrastPair(fg: "card.green", bg: ["card.face"], min: 4.5, use: "club index (iOS four-colour deck)"),
+        ContrastPair(fg: "card.blueOnDark", bg: ["surface.s1"], min: 4.5, use: "iOS diamond trump in the score bar"),
+        ContrastPair(fg: "card.blueOnDark", bg: ["surface.s2"], min: 4.5, use: nil),
+        ContrastPair(fg: "card.greenOnDark", bg: ["surface.s1"], min: 4.5, use: "iOS club trump in the score bar"),
+        ContrastPair(fg: "card.greenOnDark", bg: ["surface.s2"], min: 4.5, use: nil),
         ContrastPair(fg: "text.primary", bg: ["scrim", "felt.light"], min: 4.5, use: "score modal"),
         ContrastPair(fg: "text.secondary", bg: ["scrim", "felt.light"], min: 4.5, use: nil),
         ContrastPair(fg: "text.secondary", bg: ["surface.s0"], min: 4.5, use: "screens: chat wells, inputs (item 18b)"),

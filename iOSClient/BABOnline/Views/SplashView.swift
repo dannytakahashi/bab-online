@@ -242,7 +242,7 @@ private struct SplashCard: View {
 
     var body: some View {
         let u = width / 300, height = width * 435 / 300
-        let ink = (suit == .hearts || suit == .diamonds ? Theme.CardInk.red : Theme.CardInk.black).color
+        let ink = Theme.CardInk.ink(suit).color
         let glyph = Self.glyph(suit)
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 24 * u, style: .continuous)

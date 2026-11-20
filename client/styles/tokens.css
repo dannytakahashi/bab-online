@@ -64,6 +64,14 @@
     --card-red-rgb: 217 26 26;
     --card-black: #1a1a1a;
     --card-black-rgb: 26 26 26;
+    --card-blue: #1f5bd8;
+    --card-blue-rgb: 31 91 216;
+    --card-green: #0f7a33;
+    --card-green-rgb: 15 122 51;
+    --card-blue-on-dark: #8ea2ff;
+    --card-blue-on-dark-rgb: 142 162 255;
+    --card-green-on-dark: #5fcf86;
+    --card-green-on-dark-rgb: 95 207 134;
     --card-joker: #800080;
     --card-joker-rgb: 128 0 128;
     --card-back: #1a4d26;

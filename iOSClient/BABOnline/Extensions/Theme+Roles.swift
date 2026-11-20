@@ -130,10 +130,25 @@ extension Theme {
 
     // MARK: Cards (the drawn faces of CardTextureGenerator and the draw phase)
 
+    /// A four-colour deck on iOS (owner, 2026-11-20: older players mix up spades and clubs):
+    /// spades black, hearts red, diamonds blue, clubs green. The web keeps two colours.
     enum CardInk {
         static let red = Palette.Card.red
         static let black = Palette.Card.black
+        static let blue = Palette.Card.blue
+        static let green = Palette.Card.green
         static let joker = Palette.Card.joker
+
+        /// The ink of a suit's pips and index on a white face.
+        static func ink(_ suit: Suit) -> ThemeColor {
+            switch suit {
+            case .spades: return black
+            case .hearts: return red
+            case .diamonds: return blue
+            case .clubs: return green
+            case .joker: return joker
+            }
+        }
     }
 
     /// The card back (CardTextureGenerator.renderCardBack): the web's lattice (cardFaces.js
@@ -170,11 +185,15 @@ extension Theme {
         static let wordPatch = Palette.Card.face
     }
 
-    /// Suit glyphs on a dark surface (trump in the score bar): hearts and diamonds in danger.text.
+    /// Suit glyphs on a dark surface (trump in the score bar, the lobby's empty state), in the
+    /// four-colour deck's lighter inks: hearts danger.text, diamonds blue, clubs green, spades
+    /// primary text.
     static func suitOnDark(_ suit: Suit) -> Color {
         switch suit {
-        case .hearts, .diamonds: return Palette.Danger.text.color
-        case .spades, .clubs: return Palette.Text.primary.color
+        case .hearts: return Palette.Danger.text.color
+        case .diamonds: return Palette.Card.blueOnDark.color
+        case .clubs: return Palette.Card.greenOnDark.color
+        case .spades: return Palette.Text.primary.color
         case .joker: return Palette.gold.color
         }
     }
