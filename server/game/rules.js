@@ -339,16 +339,18 @@ function handFaults({ teamBids, teamTricks, playerBids, handTricks } = {}) {
  * One seat's bags in a hand (superlatives, owner 2026-11-20): the tricks it
  * took over its own bid, never below 0. A bore bid counts as bidding every
  * trick of the hand (as GameState.recordBid totals it), so a bore never
- * bags.
+ * bags; nor does its partner: the team's contract was the whole hand (its
+ * team total is capped at it), so no trick of that team was over its bid,
+ * the same as the team's bags in the record (team1Bags / team2Bags).
  * @param {string|number} bid - the seat's bid ('0'..'13', 'B', '2B', ...)
  * @param {number} took - tricks the seat won this hand
- * @param {number} handSize - cards dealt this hand
+ * @param {string|number} [partnerBid] - the partner's bid this hand
  * @returns {number}
  */
-function seatBags(bid, took, handSize) {
+function seatBags(bid, took, partnerBid) {
     const s = String(bid ?? '');
-    const bidValue = s.includes('B') ? (Number(handSize) || 0) : parseInt(s, 10) || 0;
-    return Math.max(0, (Number(took) || 0) - bidValue);
+    if (s.includes('B') || String(partnerBid ?? '').includes('B')) return 0;
+    return Math.max(0, (Number(took) || 0) - (parseInt(s, 10) || 0));
 }
 
 /**

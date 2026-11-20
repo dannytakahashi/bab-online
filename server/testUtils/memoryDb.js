@@ -536,6 +536,23 @@ class MemoryCollection {
         return { matchedCount: targets.length, modifiedCount: modified };
     }
 
+    /**
+     * bulkWrite of updateOne / updateMany ops (the only kinds the server
+     * sends), one after another; the counts summed as the driver does.
+     */
+    async bulkWrite(ops) {
+        let matchedCount = 0;
+        let modifiedCount = 0;
+        for (const op of ops || []) {
+            const [kind, spec] = Object.entries(op)[0] || [];
+            if (kind !== 'updateOne' && kind !== 'updateMany') throw new Error(`memoryDb: unsupported bulkWrite op ${kind}`);
+            const res = await this[kind](spec.filter, spec.update, spec.arrayFilters ? { arrayFilters: spec.arrayFilters } : {});
+            matchedCount += res.matchedCount;
+            modifiedCount += res.modifiedCount;
+        }
+        return { ok: 1, matchedCount, modifiedCount };
+    }
+
     /** replaceOne as the driver does it: the whole document but its _id. */
     async replaceOne(filter, replacement, options = {}) {
         if (options.upsert) throw new Error('memoryDb: upsert is unsupported in replaceOne');

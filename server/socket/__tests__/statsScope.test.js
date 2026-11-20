@@ -151,8 +151,8 @@ describe('default / invalid payloads give today\'s exact reply', () => {
         for (const [filter, opts] of find.mock.calls) {
             expect(filter.withBots).toEqual({ $ne: true });
             expect(opts.projection).toEqual({ _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1,
-                // superlatives (utils/superlatives.js)
-                'statsDeltas.byPosition': 1, 'statsDeltas.names': 1, 'statsDeltas.assist': 1
+                // superlatives (utils/superlatives.js): routed by completedAt, only the fields they read
+                completedAt: 1, ...require('../../utils/superlatives').SUPERLATIVES_PROJECTION
             });
         }
         for (const data of [{}, null, 'all', [1]]) expect(JSON.stringify(await records(data))).toBe(JSON.stringify(base));

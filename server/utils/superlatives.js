@@ -12,26 +12,40 @@
  * render the entries generically (title, names joined with ", ", detail),
  * so a new title needs no client release.
  *
- * Which records count: only those whose seats can be named, i.e. with
- * per-seat counters (`statsDeltas.byPosition`, written since 2026-11-15):
- *   - `statsDeltas.names {<pos>: username}` (written since 2026-11-20,
- *     kept in step by the account rename / merge / delete code), else
- *   - a read-time reconstruction, only when unambiguous: per team, the
- *     byPosition seats of that team in seat order against the record's
- *     teamNPlayers (human owners in seat order) with equal counts;
- *     any other record is skipped whole.
- * A player's games are the records they are named in (once per record).
+ * Which records count, for whom:
+ *   - games (the SUPERLATIVE_MIN_GAMES threshold) and solo games: every
+ *     record of the period, once per record per human it names (a merge
+ *     can leave one player in two seats). The seat names when the record
+ *     has them (below), else its teamNPlayers: a record from before the
+ *     per-seat counters (2026-11-15) still names who played, so it counts
+ *     as a game (and a solo game) without per-seat values;
+ *   - the per-seat values (bags, HSI, sets, /help): only records with
+ *     per-seat counters (`statsDeltas.byPosition`, since 2026-11-15) whose
+ *     seats can be named: `statsDeltas.names {<pos>: username}` (since
+ *     2026-11-20, kept in step by the account rename / merge / delete
+ *     code), else a read-time reconstruction, only when unambiguous: per
+ *     team, the byPosition seats of that team in seat order against the
+ *     record's teamNPlayers (human owners in seat order) with equal
+ *     counts. A record with per-seat counters that cannot be named that
+ *     way is skipped whole (not even a game).
  * Never a winner: '[deleted]', a non-string or empty name, or a name the
  * record also lists as a bot persona (teamNBots). Bots have no
  * byPosition seat, so they never get a value anyway.
  *
  * The titles (value per player, over their counted games):
- *   bagBoy          bags / games. A bag is a trick over the seat's own bid
- *                   in a hand (a bore never bags): byPosition.totalBags
- *                   (since 2026-11-20), else, for an older record,
- *                   max(0, totalTricksTaken - totalTricksBid) of that seat
+ *   bagBoy          bags per seat-game (each named seat of a record is one
+ *                   seat-game, so a merged player in two seats averages
+ *                   them). A bag is a trick over the seat's own bid in a
+ *                   hand; a hand in which either seat of the team bid a
+ *                   bore has none (the team's contract was the whole hand,
+ *                   rules.seatBags): `statsDeltas.bags[pos]` (since
+ *                   2026-11-20, only for a game that counted it from hand
+ *                   1), else max(0, totalTricksTaken - totalTricksBid) of
+ *                   that seat
  *   luckyDuck       highest sum totalHSI / sum totalHands
- *   cursed          lowest sum totalHSI / sum totalHands
+ *   cursed          lowest sum totalHSI / sum totalHands; left out when it
+ *                   equals Lucky Duck's (one qualifier, or all tied: the
+ *                   same people would be both lucky and cursed)
  *   botFriends      solo games: exactly one human seat and three native bot
  *                   seats (teamNPlayers 1 name, teamNBots 3; a resign bot
  *                   keeps its owner in teamNPlayers, lazy bots too). Only
@@ -46,7 +60,8 @@
  *                   the player's own team took fewer tricks than its bid),
  *                   so this is the share of their hands their team was set
  * Count-like titles (bagBoy, botFriends, helpFromFriends, anchor) are left
- * out when the best value is 0; the HSI titles need totalHands > 0.
+ * out when the best value SHOWS as 0 ("0.0 bags a game", "0% of hands
+ * set"); the per-seat titles need per-seat data (seat-games / hands > 0).
  * Ties: up to MAX_NAMES names, alphabetical (case-insensitive); more tied
  * players add " (+N more)" to the detail.
  */
@@ -61,18 +76,33 @@ const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArr
 const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const plural = (n, one, many) => (n === 1 ? one : many);
 
+/** The fields add() reads, as a find projection (profileHandlers.fillRecords). */
+const SEAT_FIELDS = ['totalTricksTaken', 'totalTricksBid', 'totalHSI', 'totalHands', 'totalSets'];
+const SUPERLATIVES_PROJECTION = Object.freeze({
+    ...Object.fromEntries([1, 2, 3, 4].flatMap((pos) => SEAT_FIELDS.map((f) => [`statsDeltas.byPosition.${pos}.${f}`, 1]))),
+    'statsDeltas.bags': 1,
+    'statsDeltas.names': 1,
+    'statsDeltas.assist': 1
+});
+
+/** The record's byPosition seats ('1'..'4' with an object), in seat order. */
+function seatPositions(record) {
+    const sd = record && record.statsDeltas;
+    if (!isPlainObject(sd) || !isPlainObject(sd.byPosition)) return [];
+    return Object.keys(sd.byPosition)
+        .filter((k) => /^[1-4]$/.test(k) && isPlainObject(sd.byPosition[k]))
+        .map(Number)
+        .sort((a, b) => a - b);
+}
+
 /**
  * {pos: name} for a record's human seats, or null when the record has no
  * per-seat counters or its seats cannot be named unambiguously.
  */
 function seatNames(record) {
-    const sd = record && record.statsDeltas;
-    if (!isPlainObject(sd) || !isPlainObject(sd.byPosition)) return null;
-    const positions = Object.keys(sd.byPosition)
-        .filter((k) => /^[1-4]$/.test(k) && isPlainObject(sd.byPosition[k]))
-        .map(Number)
-        .sort((a, b) => a - b);
+    const positions = seatPositions(record);
     if (positions.length === 0) return null;
+    const sd = record.statsDeltas;
 
     const out = {};
     if (isPlainObject(sd.names)) {
@@ -103,32 +133,49 @@ function botNames(record) {
     return bots;
 }
 
-/** A solo game: one human seat and three native bot seats. */
-function isSolo(record) {
-    const humans = [1, 2].reduce((sum, n) => {
+/** The record's human names (teamNPlayers), as stored. */
+function teamPlayers(record) {
+    const out = [];
+    for (const n of [1, 2]) {
         const list = record[`team${n}Players`];
-        return sum + (Array.isArray(list) ? list.length : 0);
-    }, 0);
-    return humans === 1 && botNames(record).length === 3;
+        if (Array.isArray(list)) out.push(...list);
+    }
+    return out;
 }
 
-/** A seat's bags in one game: the per-hand counter, else the legacy net fallback. */
-function seatBags(delta) {
-    if (delta.totalBags !== undefined && Number.isFinite(Number(delta.totalBags))) return Math.max(0, Number(delta.totalBags));
+/** A solo game: one human seat and three native bot seats. */
+function isSolo(record) {
+    return teamPlayers(record).length === 1 && botNames(record).length === 3;
+}
+
+/**
+ * A seat's bags in one game: the per-hand counter (statsDeltas.bags, only
+ * present for a game that counted it from hand 1), else the legacy net
+ * fallback of that seat.
+ */
+function seatBags(sd, posKey) {
+    const counted = isPlainObject(sd.bags) ? sd.bags[posKey] : undefined;
+    if (typeof counted === 'number' && Number.isFinite(counted)) return Math.max(0, counted);
+    const delta = sd.byPosition[posKey];
     return Math.max(0, num(delta.totalTricksTaken) - num(delta.totalTricksBid));
 }
 
-const fmt1 = (v) => (Math.round(v * 10) / 10).toFixed(1);
+const round1 = (v) => Math.round(v * 10) / 10;
+const fmt1 = (v) => round1(v).toFixed(1);
+const pct = (v) => Math.round(v * 100);
 
 /**
  * The titles, in wire order. `value(p)` is the player's value or null (no
  * value: not a candidate); `best` 'max' | 'min'; `zeroOmits` leaves the
- * title out when the best value is 0.
+ * title out when the best value shows as 0 (`shown(v)`, the number the
+ * detail prints); `notSameAs` leaves it out when that earlier title's best
+ * value is the same.
  */
 const TITLES = Object.freeze([
     {
         id: 'bagBoy', title: 'Bag Boy', best: 'max', zeroOmits: true,
-        value: (p) => p.bags / p.games,
+        value: (p) => (p.seatGames > 0 ? p.bags / p.seatGames : null),
+        shown: round1,
         detail: (v) => `${fmt1(v)} bags a game`
     },
     {
@@ -137,24 +184,27 @@ const TITLES = Object.freeze([
         detail: (v) => `${fmt1(v)} avg HSI`
     },
     {
-        id: 'cursed', title: 'Cursed', best: 'min', zeroOmits: false,
+        id: 'cursed', title: 'Cursed', best: 'min', zeroOmits: false, notSameAs: 'luckyDuck',
         value: (p) => (p.hands > 0 ? p.hsi / p.hands : null),
         detail: (v) => `${fmt1(v)} avg HSI`
     },
     {
         id: 'botFriends', title: 'Some of my best friends are bots', best: 'max', zeroOmits: true,
         value: (p) => p.solo,
+        shown: (v) => v,
         detail: (v) => `${v} solo ${plural(v, 'game', 'games')}`
     },
     {
         id: 'helpFromFriends', title: 'A little help from my friends', best: 'max', zeroOmits: true,
         value: (p) => p.help,
+        shown: (v) => v,
         detail: (v) => `${v} /help ${plural(v, 'use', 'uses')}`
     },
     {
         id: 'anchor', title: 'Anchor', best: 'max', zeroOmits: true,
         value: (p) => (p.hands > 0 ? p.sets / p.hands : null),
-        detail: (v) => `${Math.round(v * 100)}% of hands set`
+        shown: pct,
+        detail: (v) => `${pct(v)}% of hands set`
     }
 ]);
 
@@ -179,7 +229,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
     const player = (name) => {
         let p = players.get(name);
         if (!p) {
-            p = { name, games: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0 };
+            p = { name, games: 0, seatGames: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0 };
             players.set(name, p);
         }
         return p;
@@ -187,23 +237,30 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
 
     function add(record) {
         if (!record) return;
-        const names = seatNames(record);
-        if (!names) return;
-        const sd = record.statsDeltas;
+        const hasSeats = seatPositions(record).length > 0;
+        const names = hasSeats ? seatNames(record) : null;
+        if (hasSeats && !names) return; // per-seat counters we cannot name: skipped whole
         const bots = new Set(botNames(record));
+        const human = (name) => typeof name === 'string' && name.length > 0 && name !== DELETED_NAME && !bots.has(name);
+
+        // Games and solo games: once per record per player (a merge can
+        // leave one player in two seats)
         const solo = isSolo(record);
-        const seen = new Set();
+        for (const name of new Set((names ? Object.values(names) : teamPlayers(record)).filter(human))) {
+            const p = player(name);
+            p.games++;
+            if (solo) p.solo++;
+        }
+        if (!names) return; // no per-seat counters (before 2026-11-15)
+
+        // Per-seat values: every named seat is one seat-game
+        const sd = record.statsDeltas;
         for (const [posKey, name] of Object.entries(names)) {
-            if (typeof name !== 'string' || name.length === 0 || name === DELETED_NAME || bots.has(name)) continue;
+            if (!human(name)) continue;
             const delta = sd.byPosition[posKey];
             const p = player(name);
-            // Once per record (a merge can leave one player in two seats)
-            if (!seen.has(name)) {
-                seen.add(name);
-                p.games++;
-                if (solo) p.solo++;
-            }
-            p.bags += seatBags(delta);
+            p.seatGames++;
+            p.bags += seatBags(sd, posKey);
             p.hsi += num(delta.totalHSI);
             p.hands += num(delta.totalHands);
             p.sets += num(delta.totalSets);
@@ -215,6 +272,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
     function result() {
         const eligible = [...players.values()].filter((p) => p.games >= minGames);
         const out = [];
+        const bests = {};
         for (const t of TITLES) {
             let bestValue = null;
             let winners = [];
@@ -229,7 +287,9 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
                 }
             }
             if (bestValue === null) continue;
-            if (t.zeroOmits && same(bestValue, 0)) continue;
+            bests[t.id] = bestValue;
+            if (t.zeroOmits && t.shown(bestValue) === 0) continue;
+            if (t.notSameAs && bests[t.notSameAs] !== undefined && same(bests[t.notSameAs], bestValue)) continue;
             winners.sort(byName);
             const more = winners.length - MAX_NAMES;
             const detail = t.detail(bestValue) + (more > 0 ? ` (+${more} more)` : '');
@@ -250,6 +310,7 @@ function computeSuperlatives(records, opts) {
 
 module.exports = {
     SUPERLATIVE_MIN_GAMES,
+    SUPERLATIVES_PROJECTION,
     TITLE_IDS: TITLES.map((t) => t.id),
     createSuperlatives,
     computeSuperlatives,

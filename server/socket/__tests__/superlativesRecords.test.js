@@ -40,17 +40,28 @@ const LAST_YEAR = () => new Date(now.getFullYear() - 1, 5, 15);
 // earlier this year but before this month (null in January: no such day)
 const EARLIER_THIS_YEAR = () => (now.getMonth() > 0 ? new Date(now.getFullYear(), 0, 2, 12) : null);
 
-const seat = (o = {}) => ({
+/** One seat's 12 bucket counters (a `totalBags` override is the seat's statsDeltas.bags entry instead). */
+const seat = ({ totalBags: _bags, ...o } = {}) => ({
     gamesPlayed: 1, wins: 1, losses: 0, draws: 0, totalPoints: 300, totalTricksBid: 20, totalTricksTaken: 20,
-    totalHands: 13, totalSets: 1, totalSetPoints: 10, totalFaults: 0, totalHSI: 1300, totalBags: 0, ...o
+    totalHands: 13, totalSets: 1, totalSetPoints: 10, totalFaults: 0, totalHSI: 1300, ...o
 });
+/** statsDeltas.bags for seats {pos: overrides}: 0 unless overridden (undefined: not counted). */
+const bagsOf = (seats) => {
+    const out = {};
+    for (const [pos, o] of Object.entries(seats)) {
+        const b = o && 'totalBags' in o ? o.totalBags : 0;
+        if (b !== undefined) out[pos] = b;
+    }
+    return out;
+};
 
 let id = 0;
-/** A human game of four with a names map (or, legacy, without). */
+/** A human game of four with a names map (or, legacy, without: no bags either). */
 function humanGame(names, completedAt, { overrides = {}, legacy = false, assist, extra = {} } = {}) {
     const byPosition = {};
     names.forEach((name, i) => { byPosition[i + 1] = seat(overrides[name]); });
     const sd = { bucket: 'stats', byPosition };
+    if (!legacy) sd.bags = bagsOf(Object.fromEntries(names.map((name, i) => [i + 1, overrides[name]])));
     if (!legacy) sd.names = Object.fromEntries(names.map((name, i) => [i + 1, name]));
     if (assist) sd.assist = assist;
     return {
@@ -62,7 +73,7 @@ function soloGame(name, completedAt, o = {}) {
     return {
         gameId: `s${++id}`, withBots: true, team1Score: 400, team2Score: 100, team1Players: [name], team2Players: [],
         team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Ivy', '🤖 Mary'], team1Bags: 1, team2Bags: -1, completedAt,
-        statsDeltas: { bucket: 'botStats', byPosition: { 1: seat(o) }, names: { 1: name } }
+        statsDeltas: { bucket: 'botStats', byPosition: { 1: seat(o) }, bags: bagsOf({ 1: o }), names: { 1: name } }
     };
 }
 const times = (k, f) => Array.from({ length: k }, (_, i) => f(i));
@@ -217,7 +228,7 @@ describe('cache, throttle and the wire', () => {
         expect(byId((await records()).records.thisMonth.superlatives).bagBoy).toMatchObject({ names: ['Bo'], detail: '12.0 bags a game' });
     });
 
-    test('over the soft limit: the cached (stale) records, superlatives included', async () => {
+    test('over the soft limit (the real limiter, a fresh entry): the cached records, superlatives included', async () => {
         const s = sock();
         for (let i = 0; i < 10; i++) await records(undefined, s);
         const first = lastTo(s, 'recordsResponse');
@@ -226,6 +237,44 @@ describe('cache, throttle and the wire', () => {
         expect(find).not.toHaveBeenCalled();
         expect(res.records.thisMonth.superlatives).toEqual(first.records.thisMonth.superlatives);
         expect(res.records.thisMonth.superlatives.length).toBeGreaterThan(0);
+    });
+
+    test('over the soft limit with the entry EXPIRED (past 60 s, never invalidated): the stale records, superlatives included, no find', async () => {
+        const first = await records();
+        expect(profile._peekRecordsCache()).toBeDefined();
+        // a game the stale reply must not show yet (inserted behind the handlers' back: no invalidation)
+        for (const g of times(5, () => humanGame(['Bo', 'Cy', 'Di', 'Ed'], THIS_MONTH(), { overrides: { Bo: { totalBags: 12 } } }))) await mockDb.current.gameRecords.insertOne(g);
+        const realNow = Date.now();
+        jest.spyOn(Date, 'now').mockReturnValue(realNow + 61 * 1000);
+        const over = jest.spyOn(rateLimiter, 'check').mockReturnValue(false);
+        const find = jest.spyOn(mockDb.current.gameRecords, 'find');
+
+        const stale = await records();
+        expect(find).not.toHaveBeenCalled();
+        expect(stale.success).toBe(true);
+        expect(stale.records.thisMonth.superlatives).toEqual(first.records.thisMonth.superlatives);
+        expect(byId(stale.records.thisMonth.superlatives).bagBoy.names).toEqual(['Ann']);
+
+        // under the limit at the same moment the entry refills: it really was expired
+        over.mockRestore();
+        const fresh = await records();
+        expect(find).toHaveBeenCalled();
+        expect(byId(fresh.records.thisMonth.superlatives).bagBoy).toMatchObject({ names: ['Bo'], detail: '12.0 bags a game' });
+    });
+
+    test('over the soft limit while a fill is running (nothing cached): that fill\'s records, superlatives included', async () => {
+        expect(profile._peekRecordsCache()).toBeUndefined();
+        const find = jest.spyOn(mockDb.current.gameRecords, 'find');
+        const pending = records(); // starts the fill; not awaited
+        const over = jest.spyOn(rateLimiter, 'check').mockReturnValue(false);
+        const throttled = await records();
+        over.mockRestore();
+        const normal = await pending;
+        expect(throttled.success).toBe(true);
+        expect(throttled.records.thisMonth.superlatives.length).toBeGreaterThan(0);
+        expect(throttled.records).toEqual(normal.records);
+        // one fill: the three period finds, once
+        expect(find).toHaveBeenCalledTimes(3);
     });
 
     test('every reply passes the contract (recordsSuperlative: id, title, 1-3 names, detail)', async () => {
@@ -239,7 +288,8 @@ describe('cache, throttle and the wire', () => {
             expect(s.names).toEqual(['Ana', 'bo', 'Cy']);
             expect(s.detail).toMatch(/\(\+2 more\)$/);
         }
-        expect(res.records.thisMonth.superlatives.map((s) => s.id)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'anchor']);
+        // all five tied on HSI too: Cursed would name the Lucky Ducks again, so it is left out
+        expect(res.records.thisMonth.superlatives.map((s) => s.id)).toEqual(['bagBoy', 'luckyDuck', 'botFriends', 'anchor']);
         // the always-on contract guard (makeIo) saw no violation
         expect(require('../../testUtils/contractCheck').takeViolations()).toEqual([]);
     });

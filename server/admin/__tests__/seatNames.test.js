@@ -14,7 +14,7 @@ const { planMerge, applyMerge, countChanges, formatPlan } = require('../accountM
 const { planView, planHash } = require('../mergeView');
 const { computeSuperlatives } = require('../../utils/superlatives');
 
-const seat = (o = {}) => ({ gamesPlayed: 1, totalHands: 13, totalHSI: 1300, totalSets: 2, totalTricksBid: 20, totalTricksTaken: 24, totalBags: 4, ...o });
+const seat = (o = {}) => ({ gamesPlayed: 1, totalHands: 13, totalHSI: 1300, totalSets: 2, totalTricksBid: 20, totalTricksTaken: 24, ...o });
 
 /** Ann/Cat vs Ben/Dan with a names map; a legacy record without one; a solo bot game. */
 function seed() {
@@ -120,4 +120,66 @@ test('a merge of two players who sat at one table: the map names the target twic
     // g-names and g-solo by the map, g-legacy rebuilt from its teams: 3 games
     const all = computeSuperlatives(db.gameRecords.all(), { minGames: 3 });
     expect(all.find((s) => s.id === 'botFriends')).toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Ann'], detail: '1 solo game' });
+});
+
+describe('renameSeatNames (seatNames.js): one scan for the four seat paths, not one per seat', () => {
+    const { renameSeatNames } = require('../seatNames');
+
+    test('one find and one bulkWrite of exact-match updates; every seat holding the name, nothing else; safe to repeat', async () => {
+        const db = seed();
+        // a merge left Ann in two seats of this one
+        await db.gameRecords.insertOne({
+            gameId: 'g-twice', team1Players: ['Ann', 'Ann'], team2Players: ['Ben', 'Dan'], team1Score: 1, team2Score: 2,
+            statsDeltas: { bucket: 'stats', byPosition: { 1: seat(), 2: seat(), 3: seat(), 4: seat() }, names: { 1: 'Ann', 2: 'Ben', 3: 'Ann', 4: 'Dan' } }
+        });
+        const find = jest.spyOn(db.gameRecords, 'find');
+        const updateMany = jest.spyOn(db.gameRecords, 'updateMany');
+        const bulkWrite = jest.spyOn(db.gameRecords, 'bulkWrite');
+        expect(await renameSeatNames(db.gameRecords, 'Ann', 'Anna')).toBe(3);
+        expect(find).toHaveBeenCalledTimes(1);
+        expect(find.mock.calls[0][0]).toEqual({ $or: [1, 2, 3, 4].map((pos) => ({ [`statsDeltas.names.${pos}`]: 'Ann' })) });
+        expect(bulkWrite).toHaveBeenCalledTimes(1);
+        expect(updateMany).not.toHaveBeenCalled();
+        for (const [op] of bulkWrite.mock.calls[0][0].map((o) => Object.entries(o)[0])) expect(op).toBe('updateOne');
+        expect(rec(db, 'g-twice').statsDeltas.names).toEqual({ 1: 'Anna', 2: 'Ben', 3: 'Anna', 4: 'Dan' });
+        expect(rec(db, 'g-names').statsDeltas.names).toEqual({ 1: 'Anna', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        expect(rec(db, 'g-solo').statsDeltas.names).toEqual({ 1: 'Ann2' });
+        expect(rec(db, 'g-legacy').statsDeltas).not.toHaveProperty('names');
+        // nothing left: a find, no write
+        expect(await renameSeatNames(db.gameRecords, 'Ann', 'Anna')).toBe(0);
+        expect(bulkWrite).toHaveBeenCalledTimes(1);
+    });
+
+    test('a seat renamed between the find and the write is not overwritten (each update matches only while it still holds the name)', async () => {
+        const db = seed();
+        const realFind = db.gameRecords.find.bind(db.gameRecords);
+        jest.spyOn(db.gameRecords, 'find').mockImplementation((...args) => {
+            const cursor = realFind(...args);
+            const toArray = cursor.toArray.bind(cursor);
+            cursor.toArray = async () => {
+                const out = await toArray();
+                // meanwhile something else re-points seat 1
+                await db.gameRecords.updateOne({ gameId: 'g-names' }, { $set: { 'statsDeltas.names.1': 'Zed' } });
+                return out;
+            };
+            return cursor;
+        });
+        expect(await renameSeatNames(db.gameRecords, 'Ann', 'Anna')).toBe(0);
+        expect(rec(db, 'g-names').statsDeltas.names[1]).toBe('Zed');
+    });
+
+    test('rename and delete use it (no per-seat updateMany on the names map)', async () => {
+        for (const run of [
+            (db) => renameEverywhere(db, 'Ann', 'Anna', { selfId: db.users.all().find((u) => u.username === 'Ann')._id }),
+            (db) => eraseAccount(db, db.users.all().find((u) => u.username === 'Ann'))
+        ]) {
+            const db = seed();
+            const updateMany = jest.spyOn(db.gameRecords, 'updateMany');
+            const bulkWrite = jest.spyOn(db.gameRecords, 'bulkWrite');
+            await run(db);
+            for (const [filter] of updateMany.mock.calls) expect(Object.keys(filter).join()).not.toMatch(/statsDeltas\.names/);
+            expect(bulkWrite).toHaveBeenCalledTimes(1);
+            expect(rec(db, 'g-names').statsDeltas.names[1]).not.toBe('Ann');
+        }
+    });
 });

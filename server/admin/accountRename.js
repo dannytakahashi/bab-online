@@ -75,9 +75,8 @@
 
 const { REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
 const { revokeOpenResetLinks } = require('./setPassword');
+const { renameSeatNames } = require('./seatNames');
 
-/** gameRecords' per-seat names (profileHandlers.buildGameEndRecord, superlatives). */
-const SEAT_NAME_PATHS = [1, 2, 3, 4].map((pos) => `statsDeltas.names.${pos}`);
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -167,9 +166,7 @@ async function renameEverywhere(db, from, to, { selfId, now = new Date() }) {
             out.gameRecords += res?.modifiedCount || 0;
         }
         // The superlatives' seat names (the same records: not counted again)
-        for (const path of SEAT_NAME_PATHS) {
-            await db.gameRecords.updateMany({ [path]: from }, { $set: { [path]: to } });
-        }
+        await renameSeatNames(db.gameRecords, from, to);
     }
     if (db.reports) {
         for (const [field, deletedMark] of [['reporter', 'reporterDeletedAt'], ['reported', 'reportedDeletedAt'], ['resolvedBy', null]]) {

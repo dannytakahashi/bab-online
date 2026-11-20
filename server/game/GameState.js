@@ -140,12 +140,16 @@ class GameState {
         this.handStats = { totalHands: 0, team1Sets: 0, team2Sets: 0 };
 
         // Per-player stats for final score screen
-        // position (1-4) → { totalBids, totalTricks, setsCaused, totalHSI }
+        // position (1-4) → { totalBids, totalTricks, setsCaused, totalHSI,
+        // totalBags }. totalBags (server-only, the superlatives' Bag Boy)
+        // starts here, so a game restored from a doc without it (an older
+        // process) never counts a partial game's bags
+        // (gameHandlers.handleHandComplete)
         this.playerStats = {
-            1: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            2: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
-            4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0 },
+            1: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0, totalBags: 0 },
+            2: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0, totalBags: 0 },
+            3: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0, totalBags: 0 },
+            4: { totalBids: 0, totalTricks: 0, setsCaused: 0, totalHSI: 0, totalBags: 0 },
         };
 
         // Per-hand trick tracking (reset each hand) for determining set responsibility

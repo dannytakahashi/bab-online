@@ -76,6 +76,7 @@
 'use strict';
 
 const { revokeOpenResetLinks } = require('./setPassword');
+const { renameSeatNames } = require('./seatNames');
 const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('admin');
@@ -143,10 +144,7 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
                 out.gameRecords += res?.modifiedCount || 0;
             }
             // The superlatives' seat names (the same records: not counted again)
-            for (const pos of [1, 2, 3, 4]) {
-                const path = `statsDeltas.names.${pos}`;
-                await db.gameRecords.updateMany({ [path]: name }, { $set: { [path]: DELETED_NAME } });
-            }
+            await renameSeatNames(db.gameRecords, name, DELETED_NAME);
             // Nothing left to credit; the sweep clears an emptied list
             await db.gameRecords.updateMany(
                 { 'statsPending.username': name },

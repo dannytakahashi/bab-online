@@ -916,13 +916,18 @@ async function handleHandComplete(game, io) {
             if (game.playerStats[f.position]) game.playerStats[f.position].setsCaused++;
         }
         // Bags per seat (superlatives: Bag Boy): tricks over the seat's own
-        // bid this hand, a bore never bags (rules.seatBags). Server-only:
-        // the gameEnd playerStats leave it out
+        // bid this hand, none on a team with a bore (rules.seatBags).
+        // Only a game that counts them from hand 1 (GameState starts
+        // totalBags at 0): one adopted from a process without the counter
+        // has none, and its record falls back to the net per seat
+        // (profileHandlers.buildGameEndRecord). Server-only: the gameEnd
+        // playerStats leave it out
         if (game.handTricks && Array.isArray(game.playerBids)) {
             for (const pos of [1, 2, 3, 4]) {
                 const ps = game.playerStats[pos];
-                if (!ps) continue;
-                ps.totalBags = (ps.totalBags || 0) + seatBags(game.playerBids[pos - 1], game.handTricks[pos], game.currentHand);
+                if (!ps || typeof ps.totalBags !== 'number') continue;
+                const partner = pos > 2 ? pos - 2 : pos + 2;
+                ps.totalBags += seatBags(game.playerBids[pos - 1], game.handTricks[pos], game.playerBids[partner - 1]);
             }
         }
     }

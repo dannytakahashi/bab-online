@@ -14,7 +14,7 @@ const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
-const { createSuperlatives, SUPERLATIVE_MIN_GAMES } = require('../utils/superlatives');
+const { createSuperlatives, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
 const { DELETED_NAME } = require('../admin/nameHold');
@@ -392,10 +392,10 @@ function buildGameRecord(game, { withBots = false } = {}) {
 }
 
 /**
- * One human seat's counters for this game: the 12 it adds to its bucket
- * (STAT_KEYS) plus `totalBags` (tricks over its own bid, summed per hand:
- * superlatives' Bag Boy; record-only, never $inc'd into users.stats /
- * botStats, see applyPendingStats).
+ * The 12 counters one human seat adds to its bucket for this game
+ * (STAT_KEYS). The superlatives' per-seat bags are NOT here
+ * (buildGameEndRecord: statsDeltas.bags), so no version's
+ * applyPendingStats ever $incs them into users.stats / botStats.
  */
 function seatStatsDelta(game, position) {
     const team1Won = game.score.team1 > game.score.team2;
@@ -418,8 +418,7 @@ function seatStatsDelta(game, position) {
         // Points lost to sets - for the "drag" stat
         totalSetPoints: isTeam1 ? (game.handStats.team1SetPoints || 0) : (game.handStats.team2SetPoints || 0),
         totalFaults: playerStats.setsCaused || 0,
-        totalHSI: playerStats.totalHSI || 0,
-        totalBags: playerStats.totalBags || 0
+        totalHSI: playerStats.totalHSI || 0
     };
 }
 
@@ -527,8 +526,8 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
             return;
         }
         const bucket = seatBucket(record.statsDeltas, entry.position);
-        // Only the bucket's 12 fields: record-only counters (totalBags)
-        // stay in the record, so a profile's raw bucket keeps its shape
+        // Only the bucket's 12 fields, so a profile's raw bucket keeps its
+        // shape whatever else a delta may carry
         const $inc = {};
         for (const field of STAT_KEYS) {
             if (delta[field] !== undefined) $inc[`${bucket}.${field}`] = delta[field];
@@ -635,6 +634,12 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * record name ('[deleted]' for a player deleted mid-game, as in
  * teamNPlayers); humans only. Kept in step with teamNPlayers by
  * server/admin/accountRename.js, accountMerge.js and accountDelete.js.
+ * `statsDeltas.bags {<pos>: n}` (Bag Boy): the seat's tricks over its own
+ * bid, counted per hand (gameHandlers.handleHandComplete), only for seats
+ * whose game counted them from hand 1 (a game adopted from a process
+ * without the counter has none, and the superlatives fall back to the net
+ * of that seat). Beside byPosition on purpose: an applyPendingStats that
+ * $incs every byPosition field (the release before) never sees it.
  *
  * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
  * made more than ASSIST_FREE_HELP counted /help uses or played with the
@@ -650,7 +655,7 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * `statsDeltas.assist {<pos>: {help}}` (by position, never by name; a
  * tutorial seat `{help, tutorial: true}`). A game
  * nobody used /help or the tutorial in gives exactly the document it gave before /help
- * (plus the superlatives' totalBags and names since 2026-11-20;
+ * (plus the superlatives' names, and bags when counted, since 2026-11-20;
  * assistRecords.test.js holds it byte for byte).
  * @param {Object} game - a finished game
  * @returns {Object|null} null when no seat has a human owner (nothing is recorded)
@@ -671,9 +676,12 @@ function buildGameEndRecord(game) {
 
     const byPosition = {};
     const names = {};
+    const bags = {};
     for (const { position, player } of players) {
         byPosition[position] = seatStatsDelta(game, position);
         names[position] = gameManager.deletedUsernames.has(player.username) ? DELETED_NAME : player.username;
+        const counted = game.playerStats?.[position]?.totalBags;
+        if (typeof counted === 'number' && Number.isFinite(counted)) bags[position] = counted;
     }
     // A player who deleted their account mid-game has nothing to credit, and
     // their name must not go into the record
@@ -696,6 +704,7 @@ function buildGameEndRecord(game) {
 
     const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });
     doc.statsDeltas = { bucket, byPosition, names };
+    if (Object.keys(bags).length > 0) doc.statsDeltas.bags = bags;
     if (assisted.length > 0 && bucket !== 'botStats') {
         doc.statsDeltas.bucketByPosition = Object.fromEntries(assisted.map((pos) => [pos, 'botStats']));
     }
@@ -1173,12 +1182,13 @@ function recordsKey(now) {
     return `${now.getFullYear()}-${now.getMonth()}`;
 }
 
-// Only the fields the reduction below reads: the team records, plus the
-// per-seat counters, seat names and /help uses the superlatives read
-// (utils/superlatives.js)
+// Only the fields the reduction below reads: the team records, plus what
+// the superlatives read (utils/superlatives.js: the five per-seat counters
+// they use, not the whole byPosition; seat names, bags, /help uses) and
+// completedAt (they are routed to their periods from the allTime find)
 const RECORDS_PROJECTION = {
     _id: 0, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1, team1Bags: 1, team2Bags: 1,
-    'statsDeltas.byPosition': 1, 'statsDeltas.names': 1, 'statsDeltas.assist': 1
+    completedAt: 1, ...SUPERLATIVES_PROJECTION
 };
 // Bot games also list their bot personas (team1Bots / team2Bots)
 const RECORDS_PROJECTION_WITH_BOTS = { ...RECORDS_PROJECTION, team1Bots: 1, team2Bots: 1 };
@@ -1223,9 +1233,13 @@ function recordTeam(game, n, scope) {
  * on one side.
  *
  * Superlatives (2026-11-20, utils/superlatives.js): each non-null period
- * also carries `superlatives` [{id, title, names, detail}], accumulated in
- * the same loop over the same documents (so the same scope filter and
- * period boundaries), from players with SUPERLATIVE_MIN_GAMES games there.
+ * also carries `superlatives` [{id, title, names, detail}], from players
+ * with SUPERLATIVE_MIN_GAMES games there. They do not depend on order, so
+ * they take ONE pass over the allTime documents (same scope filter), each
+ * also added to thisYear / thisMonth when its completedAt is a Date on or
+ * after that period's start: exactly the period finds' `$gte` (a Date
+ * bound never matches another type), without adding the same documents
+ * again from the overlapping period arrays.
  */
 async function fillRecords(now, scope = 'human') {
     const gameRecordsCollection = getGameRecordsCollection();
@@ -1249,6 +1263,15 @@ async function fillRecords(now, scope = 'human') {
     const records = {};
     const periodGames = {};
 
+    const superlatives = Object.fromEntries(periods.map((period) => [period, createSuperlatives({ minGames: SUPERLATIVE_MIN_GAMES })]));
+    for (const game of results[periods.indexOf('allTime')]) {
+        superlatives.allTime.add(game);
+        const at = game.completedAt;
+        if (!(at instanceof Date)) continue;
+        if (at >= startOfYear) superlatives.thisYear.add(game);
+        if (at >= startOfMonth) superlatives.thisMonth.add(game);
+    }
+
     for (let p = 0; p < periods.length; p++) {
         const period = periods[p];
         const games = results[p];
@@ -1264,10 +1287,8 @@ async function fillRecords(now, scope = 'human') {
         let biggestWin = null;
         let mostBags = null;
         let leastBags = null;
-        const superlatives = createSuperlatives({ minGames: SUPERLATIVE_MIN_GAMES });
 
         for (const game of games) {
-            superlatives.add(game);
             const team1 = recordTeam(game, 1, scope);
             const team2 = recordTeam(game, 2, scope);
 
@@ -1319,7 +1340,7 @@ async function fillRecords(now, scope = 'human') {
             }
         }
 
-        records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags, superlatives: superlatives.result() };
+        records[period] = { highestScore, lowestScore, biggestWin, mostBags, leastBags, superlatives: superlatives[period].result() };
     }
 
     return { records, totalGames, periodGames };

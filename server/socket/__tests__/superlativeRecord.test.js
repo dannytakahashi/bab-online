@@ -1,9 +1,12 @@
 /**
  * What a finished game's record carries for the Records superlatives
  * (2026-11-20, server/utils/superlatives.js):
- *   - statsDeltas.byPosition[pos].totalBags: tricks over the seat's own bid,
- *     summed per hand (rules.seatBags; a bore never bags), record-only: it
- *     is never $inc'd into users.stats / botStats and never on gameEnd
+ *   - statsDeltas.bags[pos]: tricks over the seat's own bid, summed per
+ *     hand (rules.seatBags; no bags on a team with a bore), only for a game
+ *     that counted them from hand 1 (GameState starts playerStats.totalBags
+ *     at 0; a game adopted from a process without it has none). Beside
+ *     byPosition, so no applyPendingStats $incs it into users.stats /
+ *     botStats; never on gameEnd
  *   - statsDeltas.names {pos: username}: the durable seat -> player map
  *     (statsPending leaves the record once the stats are applied)
  *
@@ -128,13 +131,20 @@ async function settle() {
 
 describe('rules.seatBags', () => {
     test('tricks over the own bid, never below 0; a bore bids the whole hand, so it never bags', () => {
-        expect(rules.seatBags('1', 4, 4)).toBe(3);
-        expect(rules.seatBags('3', 3, 6)).toBe(0);
-        expect(rules.seatBags('5', 2, 6)).toBe(0);
-        expect(rules.seatBags('0', 2, 6)).toBe(2);
-        for (const bore of ['B', '2B', '3B', '4B']) expect(rules.seatBags(bore, 4, 4)).toBe(0);
-        expect(rules.seatBags(undefined, 2, 4)).toBe(2);
-        expect(rules.seatBags('2', undefined, 4)).toBe(0);
+        expect(rules.seatBags('1', 4, '0')).toBe(3);
+        expect(rules.seatBags('3', 3, '1')).toBe(0);
+        expect(rules.seatBags('5', 2, '1')).toBe(0);
+        expect(rules.seatBags('0', 2, '3')).toBe(2);
+        for (const bore of ['B', '2B', '3B', '4B']) expect(rules.seatBags(bore, 4, '0')).toBe(0);
+        expect(rules.seatBags(undefined, 2)).toBe(2);
+        expect(rules.seatBags('2', undefined, '1')).toBe(0);
+    });
+
+    test('nor does the partner of a bore: the team contract was every trick (as team1Bags / team2Bags count it)', () => {
+        // 13 cards: seat 1 bores and takes 9, seat 3 bid 3 and takes 4
+        expect(rules.seatBags('3', 4, 'B')).toBe(0);
+        for (const bore of ['B', '2B', '3B', '4B']) expect(rules.seatBags('1', 5, bore)).toBe(0);
+        expect(rules.seatBags('3', 4, undefined)).toBe(1);
     });
 });
 
@@ -170,10 +180,59 @@ describe('per hand: playerStats.totalBags', () => {
         expect(t.game.playerStats[1].totalTricks).toBe(4);
         expect([1, 2, 3, 4].map((p) => t.game.playerStats[p].totalBags)).toEqual([0, 0, 0, 0]);
     });
+
+    test('the partner of a bore does not bag either; the other team still does', async () => {
+        const t = await setup();
+        const { game, io } = t;
+        game.playerBids = ['B', '1', '0', '0'];
+        game.bids = { team1: 4, team2: 1 };
+        game.team1Mult = 2;
+        game.team2Mult = 1;
+        game.tricks = { team1: 3, team2: 1 };
+        // seat 3 bid 0 and took 1: no bag (its team bored); seat 4 bid 0 and took 1: a bag
+        game.handTricks = { 1: 2, 2: 0, 3: 1, 4: 1 };
+        game.forcePhase('HAND_RESOLVING');
+        await gameHandlers.handleHandComplete(game, io);
+        expect([1, 2, 3, 4].map((p) => game.playerStats[p].totalBags)).toEqual([0, 0, 0, 1]);
+    });
+
+    test('a game adopted from a process without the counter (no totalBags in playerStats) never starts one mid-game', async () => {
+        const t = await setup();
+        const { game, io } = t;
+        for (const p of [1, 2, 3, 4]) delete game.playerStats[p].totalBags; // as an older CODEC doc restores it
+        game.playerBids = ['0', '1', '2', '0'];
+        game.bids = { team1: 2, team2: 1 };
+        game.team1Mult = 1;
+        game.team2Mult = 1;
+        game.tricks = { team1: 3, team2: 1 };
+        game.handTricks = { 1: 2, 2: 1, 3: 1, 4: 0 };
+        game.forcePhase('HAND_RESOLVING');
+        await gameHandlers.handleHandComplete(game, io);
+        for (const p of [1, 2, 3, 4]) expect(game.playerStats[p]).not.toHaveProperty('totalBags');
+        // its record has no bags: the superlatives fall back to each seat's net
+        const rec = profile.buildGameEndRecord(game);
+        expect(rec.statsDeltas).not.toHaveProperty('bags');
+        expect(Object.keys(rec.statsDeltas.byPosition[1])).not.toContain('totalBags');
+    });
+
+    test('a new game starts every seat at totalBags 0; a save and restore keeps the count, an older doc has none', async () => {
+        const t = await setup();
+        expect([1, 2, 3, 4].map((p) => t.game.playerStats[p].totalBags)).toEqual([0, 0, 0, 0]);
+        t.game.playerStats[2].totalBags = 3;
+        const codec = require('../../game/persist/gameCodec');
+        const doc = JSON.parse(JSON.stringify(codec.serialize(t.game, { tournamentId: null, getBot: () => null })));
+        gameManager.abortGame(t.game.gameId);
+        const restored = codec.hydrate(doc).game;
+        expect([1, 2, 3, 4].map((p) => restored.playerStats[p].totalBags)).toEqual([0, 3, 0, 0]);
+        // the doc of a process without the counter
+        for (const p of [1, 2, 3, 4]) delete doc.state.playerStats[p].totalBags;
+        const old = codec.hydrate(doc).game;
+        for (const p of [1, 2, 3, 4]) expect(old.playerStats[p]).not.toHaveProperty('totalBags');
+    });
 });
 
 describe('the record written at game end', () => {
-    test('byPosition carries totalBags and statsDeltas.names the seat names; neither users.stats nor gameEnd carries totalBags', async () => {
+    test('statsDeltas.bags carries the bags (not byPosition) and statsDeltas.names the seat names; neither users.stats nor gameEnd carries totalBags', async () => {
         const t = await setup({ handSize: 13 });
         await bidAll(t, ['1', '1', '1', '1']);
         const from = t.log.length;
@@ -191,7 +250,11 @@ describe('the record written at game end', () => {
         const rec = docs[0];
         const [ann, bob, cat, dan] = t.names;
         expect(rec.statsDeltas.names).toEqual({ 1: ann, 2: bob, 3: cat, 4: dan });
-        expect([1, 2, 3, 4].map((p) => rec.statsDeltas.byPosition[p].totalBags)).toEqual([12, 0, 0, 0]);
+        expect(rec.statsDeltas.bags).toEqual({ 1: 12, 2: 0, 3: 0, 4: 0 });
+        // byPosition is exactly the 12 bucket counters (an older
+        // applyPendingStats $incs every field of it)
+        const { STAT_KEYS } = require('../../utils/statsScope');
+        for (const p of [1, 2, 3, 4]) expect(Object.keys(rec.statsDeltas.byPosition[p]).sort()).toEqual([...STAT_KEYS].sort());
         // the stats were applied: the pending list (with its names) is gone,
         // the seat names stay
         expect(rec.statsPending).toBeUndefined();
@@ -218,7 +281,8 @@ describe('the record written at game end', () => {
         expect(await profile.recordEndedGame(rec)).toBe(true);
         const stored = mockDb.current.gameRecords.docs[0];
         expect(stored.statsDeltas.names).toEqual({ 1: t.names[0], 2: t.names[1], 3: t.names[2], 4: t.names[3] });
-        expect(stored.statsDeltas.byPosition[1].totalBags).toBe(4);
+        expect(stored.statsDeltas.bags).toEqual({ 1: 4, 2: 0, 3: 0, 4: 0 });
+        expect(stored.statsDeltas.byPosition[1]).not.toHaveProperty('totalBags');
         const ann = mockDb.current.users.docs.find((d) => d.username === t.names[0]);
         expect(ann.stats.gamesPlayed).toBe(1);
         expect(ann.stats).not.toHaveProperty('totalBags');
