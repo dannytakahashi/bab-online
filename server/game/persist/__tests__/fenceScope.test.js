@@ -1,11 +1,9 @@
 /**
- * What a lost doc means in LIVE_PERSIST=on (deploy survival PR 5;
- * persist/liveStore.js lost() and the terminal claim): only a doc another
- * instance could have adopted (ownerMode 'on', a casual table) is a fence.
- * A tournament and its tables are written 'write' until PR 6, so nothing
- * adopts them: a lost one (another instance's sweep discarded it after a
- * false death of this one) stops persisting and plays on, and its end
- * still records stats and scores the round, exactly as in write mode.
+ * What a lost doc means in LIVE_PERSIST=on (deploy survival PR 5/6;
+ * persist/liveStore.js lost() and the terminal claim): a doc another
+ * instance could have adopted (ownerMode 'on': since PR 6 casual tables,
+ * tournaments and their tables) is a fence. A 'write' doc (write mode)
+ * lost elsewhere stops persisting and plays on: nothing adopts it.
  */
 
 // Integration test (real Socket.IO / two instances / chaos): CI's slower runners take
@@ -24,7 +22,6 @@ const liveStore = require('../liveStore');
 const adopt = require('../adopt');
 const tournamentHandlers = require('../../../socket/tournamentHandlers');
 const { setupTournament, liveTables, advanceUntil } = require('../../../testUtils/tournamentDriver');
-const chatHandlers = require('../../../socket/chatHandlers');
 const profileHandlers = require('../../../socket/profileHandlers');
 const { gameLogger, socketLogger, authLogger, logger, dbLogger } = require('../../../utils/logger');
 
@@ -58,7 +55,7 @@ afterEach(() => {
 
 const db = () => mockDb.current;
 
-/** An 'on' store, a 4-human tournament, its one round-1 table saved ('write'). */
+/** An 'on' store, a 4-human tournament, its one round-1 table saved ('on' since PR 6). */
 async function onTournamentTable() {
     const ctx = await setupTournament(4);
     const store = kit.installOnStore(mockDb, { bootId: 'boot-A', getIo: () => ctx.io, monoNow: h.createMonoClock().now });
@@ -69,67 +66,53 @@ async function onTournamentTable() {
     const [game] = liveTables(ctx.t);
     await h.flushStore(store);
     const saved = kit.savedGame(db(), game.gameId);
-    expect(saved).toMatchObject({ owner: 'boot-A', ownerMode: 'write', tournamentId: ctx.t.tournamentId });
+    expect(saved).toMatchObject({ owner: 'boot-A', ownerMode: 'on', tournamentId: ctx.t.tournamentId });
     return { ctx, store, game, id: game.gameId };
 }
 
-/** What another instance's sweep does to a dead owner's 'write' doc: adopt.js discard (verdict, then the owner/rev compare-and-set delete). */
-async function discardAsB(id) {
-    const env = kit.savedGame(db(), id);
-    expect(adopt.classify(env, { ownerState: 'dead', ownerInst: null, me: 'boot-B', now: Date.now(), readVersions: [env.v] })).toMatchObject({ act: 'discard', why: 'mode' });
-    const res = await db().liveGames.deleteOne({ _id: id, owner: env.owner, rev: env.rev });
-    expect(res.deletedCount).toBe(1);
+/** Another instance adopted the table's doc (after a false death of this one): its owner changes. */
+function adoptedByB(id) {
+    const doc = db().liveGames.docs.find((d) => d._id === id);
+    expect(doc).toBeTruthy();
+    expect(adopt.classify(doc, { ownerState: 'dead', ownerInst: null, me: 'boot-B', now: Date.now(), readVersions: [doc.v] })).toMatchObject({ act: 'tournament', inner: { act: 'adopt' } });
+    doc.owner = 'boot-B';
+    doc.rev += 1;
 }
 
-test("'on': a tournament table whose 'write' doc was discarded elsewhere plays on (not fenced) and stops persisting", async () => {
-    const { store, game, id, ctx } = await onTournamentTable();
-    await discardAsB(id);
-    game.addLogEntry('a change after the discard', null, 'system');
+test("'on' (PR 6): a tournament table's lost doc is a fence (another instance adopts tournament tables now)", async () => {
+    const { store, game, id } = await onTournamentTable();
+    adoptedByB(id);
+    game.addLogEntry('a change after the adoption', null, 'system');
     await h.flushStore(store);
-    expect(game.frozen).toBeFalsy();
-    expect(gameManager.games.get(id)).toBe(game);
-    expect(gameManager.getTournamentById(ctx.t.tournamentId)).toBe(ctx.t);
-    expect(store.logs.some((l) => /fenced/.test(l.msg))).toBe(false);
-    expect(store.logs.some((l) => /Live doc lost; no longer saved, play goes on/.test(l.msg))).toBe(true);
-    // Not re-inserted: the lost doc stays lost
-    game.addLogEntry('another change', null, 'system');
-    await h.flushStore(store);
-    expect(kit.savedGame(db(), id)).toBeNull();
-    expect(store.claimable(game)).toBe(false);
+    expect(game.frozen).toBe(true);
+    expect(gameManager.games.has(id)).toBe(false);
+    expect(store.logs.some((l) => /Live doc fenced/.test(l.msg))).toBe(true);
 });
 
-test("'on': the same table's terminal claim with its doc gone is not 'fenced': the round is scored", async () => {
+test("'on' (PR 6): the same table's terminal claim with its doc another's answers 'fenced': no score from this copy", async () => {
     const { store, game, id, ctx } = await onTournamentTable();
-    // The claim's own update finds nothing (the write before it went through first)
-    await discardAsB(id);
-    const st = store._state(game);
+    adoptedByB(id);
     const claim = store.claimEnded(game, { record: null, tournamentId: ctx.t.tournamentId });
-    // Never written since the discard, so the claim itself meets the gone doc
-    expect(st.inserted).toBe(true);
-    await expect(claim).resolves.not.toBe('fenced');
-    expect(store.logs.some((l) => /Terminal claim fenced/.test(l.msg))).toBe(false);
+    await expect(claim).resolves.toBe('fenced');
+    expect(store.logs.some((l) => /Terminal claim fenced/.test(l.msg))).toBe(true);
 });
 
-test("'on': a tournament table played to its end after a discard records stats and completes the round", async () => {
-    const { store, game, id, ctx } = await onTournamentTable();
-    await discardAsB(id);
-    for (let step = 0; step < 800 && ctx.t.phase === 'round_active'; step++) {
-        if (!game.isTerminal()) {
-            for (const seat of game.seatList()) {
-                if (seat.controller !== 'human' || seat.presence !== 'connected') continue;
-                const s = ctx.sockets.find((x) => x.id === seat.ownerSocketId);
-                if (s) chatHandlers.chatMessage(s, ctx.io, { message: '/lazy' });
-            }
-        }
-        await jest.advanceTimersByTimeAsync(5000);
-    }
-    expect(game.stage).toBe(Phase.ENDED);
-    expect(game.frozen).toBeFalsy();
-    expect(ctx.t.phase).not.toBe('round_active');
-    expect(ctx.t.roundOfGame(id).completedGames).toContain(id);
+test("a 'write' doc (write mode) lost elsewhere stops persisting and plays on", async () => {
+    const ctx = await setupTournament(4);
+    const store = kit.installStore(mockDb, { bootId: 'boot-W', mode: 'write' });
+    await store.start({ io: ctx.io });
+    ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+    await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => g.entrants === null && g.stage === Phase.BIDDING), 100, 120000);
+    await ctx.starting;
+    const [game] = liveTables(ctx.t);
     await h.flushStore(store);
-    expect(db().gameRecords.docs.map((r) => r.gameId)).toContain(id);
-}, 120000);
+    expect(kit.savedGame(db(), game.gameId)).toMatchObject({ ownerMode: 'write' });
+    await db().liveGames.deleteOne({ _id: game.gameId });
+    game.addLogEntry('a change after the delete', null, 'system');
+    await h.flushStore(store);
+    expect(game.frozen).toBeFalsy();
+    expect(gameManager.games.get(game.gameId)).toBe(game);
+});
 
 test("'on': a casual table's lost doc is still a fence (another instance may own it)", async () => {
     const io = require('../../../testUtils/gameDriver').makeIo([]);
