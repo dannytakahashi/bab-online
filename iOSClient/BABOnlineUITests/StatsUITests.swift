@@ -176,6 +176,17 @@ final class StatsUITests: XCTestCase {
                        "Biggest Win, 705 pt margin, 610 - -95, winners kim & ora, losers pat & hal")
         XCTAssertEqual(allTime.descendants(matching: .any)["records.Least Bags"].label, "Least Bags, 0 bags, jon & hal")
         keepScreenshot(app, "stats-records")
+        // superlatives (additive 2026-11-20): under the records, rendered from the reply alone
+        XCTAssertTrue(allTime.descendants(matching: .any)["records.superlatives"].exists, "the Superlatives header")
+        XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.bagBoy"].label, "Bag Boy, kim, 2.4 bags a game")
+        XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.helpFromFriends"].label,
+                       "A little help from my friends, ivy, 37 /help uses")
+        XCTAssertFalse(allTime.descendants(matching: .any)["records.superlative.botFriends"].exists, "absent from the reply")
+        let anchor = allTime.descendants(matching: .any)["records.superlative.anchor"]
+        for _ in 0..<4 where !anchor.isHittable { element(app, "records.list").swipeUp() }
+        keepScreenshot(app, "stats-records-superlatives")
+        element(app, "records.list").swipeDown()
+        element(app, "records.list").swipeDown()
         // owner 2026-11-14: each period says its own count (the one total never changed)
         XCTAssertEqual(countLabel(app, "thisYear", title: "This Year"), "317 games played")
         if picker.exists { keepScreenshot(app, "stats-records-this-year") }
@@ -185,8 +196,18 @@ final class StatsUITests: XCTestCase {
         let thisYear = element(app, "records.period.thisYear")
         XCTAssertEqual(thisYear.descendants(matching: .any)["records.Most Bags"].label, "Most Bags, no games yet",
                        "legacy games have no bag records")
+        XCTAssertEqual(thisYear.descendants(matching: .any)["records.superlative.bagBoy"].label,
+                       "Bag Boy, hal, kim, ned, 2.1 bags a game (+2 more)", "a tie: names joined with commas")
+        if picker.exists {
+            let yearAnchor = thisYear.descendants(matching: .any)["records.superlative.anchor"]
+            for _ in 0..<4 where !yearAnchor.isHittable { element(app, "records.list").swipeUp() }
+            keepScreenshot(app, "stats-records-this-year-superlatives")
+            element(app, "records.list").swipeDown()
+            element(app, "records.list").swipeDown()
+        }
         showPeriod(app, "This Month")
         let thisMonth = element(app, "records.period.thisMonth")
+        XCTAssertFalse(thisMonth.descendants(matching: .any)["records.superlatives"].exists, "no games: no Superlatives section")
         XCTAssertTrue(thisMonth.staticTexts["This Month"].exists)
         XCTAssertTrue(thisMonth.staticTexts["No games yet"].exists, "a period without games")
         if picker.exists { keepScreenshot(app, "stats-records-this-month") }
@@ -225,6 +246,9 @@ final class StatsUITests: XCTestCase {
         XCTAssertTrue(waitForAllTimeCount(app, "6 games played"))
         XCTAssertFalse(element(app, "records.botsNote").exists, "the note is for an empty page")
         keepScreenshot(app, "stats-scope-bots-records")
+        // the solo-games title appears only where the reply has it (Bots), rendered like any other
+        XCTAssertEqual(element(app, "records.superlative.botFriends").label,
+                       "Some of my best friends are bots, ora, 4 solo games")
 
         scope.buttons["All games"].tap()
         XCTAssertTrue(waitForAllTimeCount(app, "1,240 games played"), "All asks again")
@@ -394,6 +418,47 @@ final class StatsUITests: XCTestCase {
         sleep(1)
         let menu = element(app, "leaderboard.sortMenu")
         XCTAssertTrue(!menu.exists || menu.frame.minY < bar - 100, "the sort bar scrolled with the rows")
+        app.terminate()
+    }
+
+    /// The Records tab at the largest accessibility size: the cards stack (no period control) and
+    /// every superlative row is reachable, inside the window's width (it wraps, never runs off
+    /// the side) and keeps its one VoiceOver label.
+    func testRecordsSuperlativesLargeType() {
+        let app = openStats(["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        app.segmentedControls["stats.tabs"].buttons["Records"].tap()
+        XCTAssertTrue(waitForRecords(app))
+        XCTAssertFalse(app.segmentedControls["records.periods"].exists, "accessibility sizes stack the cards")
+        let window = app.windows.firstMatch.frame
+        let allTime = element(app, "records.period.allTime")
+        let expected = [
+            ("bagBoy", "Bag Boy, kim, 2.4 bags a game"),
+            ("luckyDuck", "Lucky Duck, ora, 141.2 avg HSI"),
+            ("cursed", "Cursed, jon, 98.7 avg HSI"),
+            ("helpFromFriends", "A little help from my friends, ivy, 37 /help uses"),
+            ("anchor", "Anchor, hal, 31% of hands set"),
+        ]
+        var shot = false
+        for (id, label) in expected {
+            let row = allTime.descendants(matching: .any)["records.superlative.\(id)"]
+            for _ in 0..<12 where !row.isHittable { element(app, "records.list").swipeUp() }
+            XCTAssertTrue(row.isHittable, "\(id) reachable")
+            XCTAssertEqual(row.label, label)
+            XCTAssertGreaterThanOrEqual(row.frame.minX, window.minX, "\(id) inside the window")
+            XCTAssertLessThanOrEqual(row.frame.maxX, window.maxX, "\(id) inside the window")
+            if id == "helpFromFriends", !shot { keepScreenshot(app, "stats-records-superlatives-ax5"); shot = true }
+        }
+        let tie = element(app, "records.period.thisYear").descendants(matching: .any)["records.superlative.bagBoy"]
+        for _ in 0..<12 where !tie.isHittable { element(app, "records.list").swipeUp() }
+        XCTAssertEqual(tie.label, "Bag Boy, hal, kim, ned, 2.1 bags a game (+2 more)")
+        XCTAssertLessThanOrEqual(tie.frame.maxX, window.maxX)
+        // short drags until the whole tie (names and the wrapped detail) is on screen for the shot
+        let list = element(app, "records.list")
+        for _ in 0..<6 where tie.frame.maxY > window.maxY - 40 {
+            let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -220)))
+        }
+        keepScreenshot(app, "stats-records-superlatives-ax5-tie")
         app.terminate()
     }
 

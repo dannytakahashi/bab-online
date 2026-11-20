@@ -3,7 +3,8 @@ import Foundation
 /// `recordsResponse` (profileHandlers fillRecords; $defs.recordsPeriod): highest / lowest
 /// team score, biggest win and most / least bags for All Time, This Year and This Month
 /// (server-local year and month), plus the total game count and each period's game count
-/// (`periodGames`, additive 2026-11-14; 1.2.1 build 9). Decoded field by field and
+/// (`periodGames`, additive 2026-11-14; 1.2.1 build 9) and each period's superlatives
+/// (`superlatives`, additive 2026-11-20; owner-approved titles such as "Bag Boy"). Decoded field by field and
 /// optionally: a period that is null, missing or not an object has no games yet, and so
 /// does a record that is null or lacks its core fields (the web's "No games yet").
 struct GameRecords: Equatable {
@@ -41,6 +42,46 @@ struct GameRecords: Equatable {
         var biggestWin: WinRecord?
         var mostBags: TeamRecord?
         var leastBags: TeamRecord?
+        /// The period's superlatives in the server's order (empty: none, or a server from before
+        /// them). Rendered generically, so a title this build does not know shows the same way.
+        var superlatives: [Superlative] = []
+    }
+
+    /// One superlative (`recordsPeriod.superlatives[]`, additive 2026-11-20): a title the server
+    /// names (`id` "bagBoy", title "Bag Boy"), its human winners (ties: up to 3, alphabetical)
+    /// and a detail line ("2.4 bags a game"; the server appends " (+2 more)" for a longer tie). The client never reads
+    /// `id` for anything but identity, so a future title needs no client release.
+    struct Superlative: Equatable, Identifiable {
+        let id: String
+        let title: String
+        let names: [String]
+        let detail: String
+
+        /// The winners as the row shows them.
+        var namesLine: String { names.joined(separator: ", ") }
+
+        /// What VoiceOver reads for the row.
+        var spoken: String {
+            ([title, namesLine] + (detail.isEmpty ? [] : [detail])).joined(separator: ", ")
+        }
+
+        /// One entry, leniently: it needs a title and at least one name (a non-empty string);
+        /// `id` falls back to the title, `detail` to "" when missing or not a string. Anything
+        /// else (not an object, no title, no names) is nil and skipped, never failing the reply.
+        static func from(_ any: Any?) -> Superlative? {
+            guard let d = any as? [String: Any], let title = StatsWire.string(d["title"]) else { return nil }
+            let names = (StatsWire.strings(d["names"]) ?? []).filter { !$0.isEmpty }
+            guard !names.isEmpty else { return nil }
+            return Superlative(id: StatsWire.string(d["id"]) ?? title, title: title, names: names,
+                               detail: StatsWire.string(d["detail"]) ?? "")
+        }
+
+        /// A period's list: entries that decode, in order; a repeated id keeps its first entry
+        /// (ids identify the rows). Not an array: none.
+        static func list(_ any: Any?) -> [Superlative] {
+            var seen = Set<String>()
+            return (any as? [Any] ?? []).compactMap(from).filter { seen.insert($0.id).inserted }
+        }
     }
 
     /// The total (all-time) number of recorded games; nil when the reply has none.
@@ -90,7 +131,8 @@ struct GameRecords: Equatable {
             lowestScore: team(d["lowestScore"], key: "score"),
             biggestWin: win(d["biggestWin"]),
             mostBags: team(d["mostBags"], key: "bags"),
-            leastBags: team(d["leastBags"], key: "bags")
+            leastBags: team(d["leastBags"], key: "bags"),
+            superlatives: Superlative.list(d["superlatives"])
         )
     }
 

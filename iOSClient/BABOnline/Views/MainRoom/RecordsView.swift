@@ -10,7 +10,10 @@ import SwiftUI
 /// control ("records.total"; owner 2026-11-14: one total that never changed with the period);
 /// at accessibility sizes (where three segments cannot be read) the cards stack, each with
 /// its count. A count the reply does not give (a server from before periodGames: This Year
-/// and This Month) is not shown.
+/// and This Month) is not shown. Under a period's records, its superlatives (additive
+/// 2026-11-20) in a "Superlatives" section: each title, its names joined ", " and its detail,
+/// rendered generically (a title this build does not know shows the same way); no section
+/// when the period has none.
 struct RecordsView: View {
     @EnvironmentObject var state: RecordsState
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -143,6 +146,9 @@ private struct PeriodCard: View {
                 ForEach(RecordRow.rows(records)) { row in
                     RecordEntry(row: row)
                 }
+                if !records.superlatives.isEmpty {
+                    SuperlativesSection(superlatives: records.superlatives)
+                }
             } else {
                 Text("No games yet")
                     .font(.subheadline)
@@ -158,6 +164,53 @@ private struct PeriodCard: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.divider, lineWidth: 1))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("records.period.\(period.rawValue)")
+    }
+}
+
+/// A period's superlatives under its records: a divider, the "Superlatives" header, one entry
+/// per title in the server's order.
+private struct SuperlativesSection: View {
+    let superlatives: [GameRecords.Superlative]
+
+    var body: some View {
+        Divider().background(Theme.divider)
+        Text("Superlatives")
+            .font(.headline)
+            .foregroundStyle(Theme.textPrimary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("records.superlatives")
+        ForEach(superlatives) { SuperlativeEntry(superlative: $0) }
+    }
+}
+
+/// One superlative, styled as a record: the title in gold, the names as the value, the detail
+/// under them.
+private struct SuperlativeEntry: View {
+    let superlative: GameRecords.Superlative
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(superlative.title)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Theme.gold)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(superlative.namesLine)
+                .font(.body.weight(.bold))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            if !superlative.detail.isEmpty {
+                Text(superlative.detail)
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(Theme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(superlative.spoken)
+        .accessibilityIdentifier("records.superlative.\(superlative.id)")
     }
 }
 
