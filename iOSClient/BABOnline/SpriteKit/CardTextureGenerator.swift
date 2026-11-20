@@ -722,14 +722,7 @@ enum CardTextureGenerator {
     // MARK: - Helpers
 
     private static func suitColor(_ suit: Suit) -> UIColor {
-        switch suit {
-        case .hearts, .diamonds:
-            return Theme.CardInk.red.uiColor
-        case .spades, .clubs:
-            return Theme.CardInk.black.uiColor
-        case .joker:
-            return Theme.CardInk.joker.uiColor
-        }
+        Theme.CardInk.ink(suit).uiColor
     }
 
     private static func suitSymbol(_ suit: Suit) -> String {
