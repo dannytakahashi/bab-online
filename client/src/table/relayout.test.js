@@ -72,7 +72,16 @@ function expectRendered(scene, layout) {
   const { trump } = layout;
   const bg = scene.tableCardBackground;
   expect(bg?.active).toBe(true);
-  expectRect(bg.getBounds(), { x: trump.x - trump.box / 2, y: trump.y - trump.box / 2, w: trump.box, h: trump.box }, 'trump box');
+  // the frame hugs the card (GameScene.drawTrumpFrame: 8% of its width
+  // each side), drawn in the graphics' local space around its position
+  const pad = trump.card.w * 0.08;
+  const fw = trump.card.w + 2 * pad;
+  const fh = trump.card.h + 2 * pad;
+  expect(bg.drawn.map((d) => d.op)).toEqual(['fill', 'stroke']);
+  for (const d of bg.drawn) {
+    expectRect({ x: bg.x + d.x, y: bg.y + d.y, width: d.w, height: d.h },
+      { x: trump.x - fw / 2, y: trump.y - fh / 2, w: fw, h: fh }, `trump box (${d.op})`);
+  }
   const card = scene.tableCardSprite.getBounds();
   near(card.centerX, trump.x, 'trump card x');
   near(card.centerY, trump.y, 'trump card y');

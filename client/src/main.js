@@ -1641,10 +1641,8 @@ function initializeApp() {
           }
         }
 
-        // Update player's HSI display (only shown for self, not opponents)
-        if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
-          scene.updatePlayerHsi(data.hsiValues[gameState.position]);
-        }
+        // Reset the HSI display; the new hand's value shows with its cards
+        scene.clearPlayerHsi?.();
 
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
@@ -1688,6 +1686,12 @@ function initializeApp() {
           // Display player hand via CardManager
           if (scene.handleDisplayHand && data.hand) {
             scene.handleDisplayHand(data.hand, false);
+          }
+
+          // Update player's HSI display (only shown for self, not
+          // opponents), a beat after the cards land
+          if (data.hsiValues && scene.updatePlayerHsi && gameState.position) {
+            director.delay(1000, () => scene.updatePlayerHsi(data.hsiValues[gameState.position]), { scope: 'deal' });
           }
 
           // In lazy mode, disable card interaction after dealing
@@ -1930,7 +1934,11 @@ function initializeApp() {
       });
     },
     onRainbow: (data) => {
-      withScene((scene) => scene.handleRainbow(data));
+      withScene((scene) => {
+        scene.handleRainbow(data);
+        // The log line a rejoin replays from the server's game log
+        window.addToGameFeedFromLegacy?.(`${getPlayerName(data.position, gameState.playerData)} has a rainbow!`, data.position);
+      });
     },
     onDestroyHands: (data) => {
       withScene((scene) => {
