@@ -1934,7 +1934,11 @@ function initializeApp() {
       });
     },
     onRainbow: (data) => {
-      withScene((scene) => scene.handleRainbow(data));
+      withScene((scene) => {
+        scene.handleRainbow(data);
+        // The log line a rejoin replays from the server's game log
+        window.addToGameFeedFromLegacy?.(`${getPlayerName(data.position, gameState.playerData)} has a rainbow!`, data.position);
+      });
     },
     onDestroyHands: (data) => {
       withScene((scene) => {
