@@ -83,7 +83,7 @@ describe('the tutorial tip in a card short of room', () => {
     expect(r).toContain('position: sticky');
     expect(r).toContain('top: calc(-1 * var(--space-2))');
     expect(r).toContain('background: rgb(var(--surface-1-rgb))');
-    expect(r).toMatch(/z-index:\s*1/);
+    expect(r).not.toMatch(/z-index/);
     // the close is in that row (AssistCard tipSection)
     expect(readClientFile('src/ui/components/AssistCard.js')).toContain('top.append(title, close)');
   });

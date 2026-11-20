@@ -1593,11 +1593,12 @@ body > .voice-btn {
 /* a card short of room scrolls the tip up to keep the advice's chip and
    headline in sight (AssistCard keepAdviceInSight): the tip's title and its
    ✕ (the welcome's own close, /tutorial close) stay pinned at the card's top
-   while any of the tip shows, over its text on the card's own fill */
+   while any of the tip shows, over its text on the card's own fill (a
+   positioned box paints over the static text after it: no z-index; it
+   never leaves its tip's section, so never meets the advice) */
 .hud-assist.has-tip .assist-tip__top {
     position: sticky;
     top: calc(-1 * var(--space-2));
-    z-index: 1;
     margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-3)) 0;
     padding: var(--space-2) var(--space-3) 0;
     background: rgb(var(--surface-1-rgb));
