@@ -336,6 +336,45 @@ function handFaults({ teamBids, teamTricks, playerBids, handTricks } = {}) {
 }
 
 /**
+ * One seat's bags in a hand (superlatives, owner 2026-11-20): the tricks it
+ * took over its own bid, never below 0. A bore bid counts as bidding every
+ * trick of the hand (as GameState.recordBid totals it), so a bore never
+ * bags; nor does its partner: the team's contract was the whole hand (its
+ * team total is capped at it), so no trick of that team was over its bid,
+ * the same as the team's bags in the record (team1Bags / team2Bags).
+ * @param {string|number} bid - the seat's bid ('0'..'13', 'B', '2B', ...)
+ * @param {number} took - tricks the seat won this hand
+ * @param {string|number} [partnerBid] - the partner's bid this hand
+ * @returns {number}
+ */
+function seatBags(bid, took, partnerBid) {
+    const s = String(bid ?? '');
+    if (s.includes('B') || String(partnerBid ?? '').includes('B')) return 0;
+    return Math.max(0, (Number(took) || 0) - (parseInt(s, 10) || 0));
+}
+
+/**
+ * The game's bag counter (game.seatBags, superlatives' Bag Boy):
+ * `{hands, byPos: {1..4: n}}`, `hands` the hands it counted (each counted
+ * hand adds rules.seatBags to every seat and 1 to hands, together). A copy
+ * of a well-formed one (non-negative safe integers, all four seats), else
+ * null: no counter (a game saved by a process without it), so its record
+ * falls back to the net per seat.
+ * @param {*} v
+ * @returns {{hands: number, byPos: Object}|null}
+ */
+function normalizeSeatBags(v) {
+    const count = (n) => Number.isSafeInteger(n) && n >= 0;
+    if (!v || typeof v !== 'object' || !count(v.hands) || !v.byPos || typeof v.byPos !== 'object') return null;
+    const byPos = {};
+    for (const pos of [1, 2, 3, 4]) {
+        if (!count(v.byPos[pos])) return null;
+        byPos[pos] = v.byPos[pos];
+    }
+    return { hands: v.hands, byPos };
+}
+
+/**
  * Find the index of the highest bidder starting from a position
  * @param {number} startPosition - Position to start checking from (1-4)
  * @param {Array} bids - Array of bid strings
@@ -506,6 +545,8 @@ module.exports = {
     calculateScore,
     personalBidValue,
     handFaults,
+    seatBags,
+    normalizeSeatBags,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,

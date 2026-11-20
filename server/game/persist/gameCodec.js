@@ -47,6 +47,17 @@
  * fault lines, nothing to convert) and serialize always writes CODEC_V; any
  * other v is a CodecError('version').
  *
+ * `state.seatBags` (2026-11-20, superlatives; GameState.seatBags,
+ * rules.normalizeSeatBags: {hands, byPos}, or null for a game without the
+ * counter) joined SAVED WITHOUT a CODEC_V bump, on purpose: a v4 doc is
+ * one the release before cannot read at all (READ_VERSIONS [1, 2, 3]), so
+ * a rollback would discard every live game. It is optional both ways: the
+ * release before's restoreFrom reads named state fields only and drops
+ * it (and its own saves leave it out), and a v3 doc without it restores
+ * here as null (no counter: that game's record carries no bags, the
+ * superlatives use the net per seat). Its pins in
+ * gameCodec.fieldGuard.test.js were re-taken for v3.
+ *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
  * fresh reconnect grace keyed by restored:<gameId>:<pos>, lazy / resign
@@ -92,6 +103,7 @@ const { Phase } = require('../GamePhase');
 const { Controller, Presence } = require('../SeatState');
 const { isStockPic } = require('../../avatar/stockAvatars');
 const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
+const { normalizeSeatBags } = require('../rules');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
 const CODEC_V = 3;
@@ -127,6 +139,7 @@ const SAVED = deepFreeze({
         'trump', 'isTrumpBroken', 'cardIndex',
         'tricks', 'trickHistory', 'score', 'rainbows',
         'handStats', 'playerStats', 'handTricks', 'hsiValues',
+        'seatBags',                                   // the superlatives' bag counter (2026-11-20, still v3): below
         'hands', 'seats', 'gameLog', 'logTotal',
         'players',                                    // only its key order, as state.seatOrder (the deal order)
         'casualVoice', 'lobbyOrigin',                 // a lobby-born casual game (null otherwise): below
@@ -346,6 +359,7 @@ function serialize(game, { tournamentId, getBot } = {}) {
         rainbows: json(game.rainbows),
         handStats: json(game.handStats),
         playerStats: json(game.playerStats),
+        seatBags: normalizeSeatBags(game.seatBags),
         handTricks: json(game.handTricks),
         hsiValues: json(game.hsiValues) || {},
         hands,
@@ -464,6 +478,8 @@ function expectedAfterRestore(doc) {
     const out = json(doc);
     out.v = CODEC_V;
     out.state.assist = normalizeAssist(out.state.assist);
+    out.state.seatBags = normalizeSeatBags(out.state.seatBags);
+    for (const ps of Object.values(out.state.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
     out.state.eventSeq += EVENT_SEQ_OFFSET;
     for (const s of Object.values(out.state.seats)) {
         if (s.controller === Controller.HUMAN) s.presence = Presence.GRACE;

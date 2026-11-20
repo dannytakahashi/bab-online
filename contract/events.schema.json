@@ -932,6 +932,12 @@
             "players"
           ],
           "additionalProperties": true
+        },
+        "superlatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recordsSuperlative"
+          }
         }
       },
       "required": [
@@ -942,6 +948,37 @@
         "leastBags"
       ],
       "additionalProperties": true
+    },
+    "recordsSuperlative": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "maxItems": 3
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "names",
+        "detail"
+      ],
+      "additionalProperties": false
     },
     "playerSearchRow": {
       "type": "object",
@@ -8892,7 +8929,7 @@
         "scope",
         "periodGames"
       ],
-      "notes": "iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows \"No games yet\"). In the bots / all scopes a record's `players` lists the humans, then the bot personas ('🤖 Mary'); a team of two bots never holds a team record. totalGames is the scope's ALL-TIME game count (unchanged for shipped clients); periodGames (additive 2026-11-14) is the game count of each period, the same scope filter and period boundaries (server-local year / month) as that period's records, so periodGames.allTime equals totalGames. The web shows each period's count on its column; iOS 1.2.1 build 9 shows the selected period's (falling back to totalGames for All Time only, against a server without periodGames). scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
+      "notes": "iOS reads it from the next iOS build (after 1.2.0 build 6: the Records tab of Stats); every field optional there (a missing period or record shows \"No games yet\"). In the bots / all scopes a record's `players` lists the humans, then the bot personas ('🤖 Mary'); a team of two bots never holds a team record. totalGames is the scope's ALL-TIME game count (unchanged for shipped clients); periodGames (additive 2026-11-14) is the game count of each period, the same scope filter and period boundaries (server-local year / month) as that period's records, so periodGames.allTime equals totalGames. The web shows each period's count on its column; iOS 1.2.1 build 9 shows the selected period's (falling back to totalGames for All Time only, against a server without periodGames). Each non-null period carries superlatives (additive 2026-11-20, $defs.recordsSuperlative): player titles from the same records (same scope filter and period boundaries), each won by the human player(s) with the best value among players with at least 5 games there whose seats the record names (statsDeltas.byPosition with statsDeltas.names, or an unambiguous teamNPlayers match for 2026-11-15..20 records); never a bot persona or [deleted]. The web shows a Superlatives list in each period box; clients ignore an absent or empty list. scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
       "clientReads": {
         "web": [
           "client/src/handlers/recordsHandlers.js:registerRecordsHandlers"

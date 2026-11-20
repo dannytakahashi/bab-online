@@ -45,7 +45,9 @@ function finishedGame({ gameId = 'g-1', bots = [] } = {}) {
             2: { totalBids: 4, totalTricks: 3, setsCaused: 2, totalHSI: 250 },
             3: { totalBids: 2, totalTricks: 2, setsCaused: 1, totalHSI: 200 },
             4: { totalBids: 3, totalTricks: 2, setsCaused: 1, totalHSI: 150 }
-        }
+        },
+        // the superlatives' bag counter, in step with handStats.totalHands
+        seatBags: { hands: 13, byPos: { 1: 2, 2: 0, 3: 0, 4: 0 } }
     };
 }
 
@@ -101,6 +103,9 @@ const EXPECTED_ANN = {
     gamesPlayed: 1, wins: 1, losses: 0, draws: 0, totalPoints: 420, totalTricksBid: 5, totalTricksTaken: 6,
     totalHands: 13, totalSets: 1, totalSetPoints: 20, totalFaults: 0, totalHSI: 300
 };
+// The record's delta is exactly the bucket's 12 counters; the superlatives'
+// per-seat bags sit beside it (statsDeltas.bags), never $inc'd into a bucket
+const EXPECTED_ANN_DELTA = EXPECTED_ANN;
 
 describe('one game, no failures', () => {
     test('one record with the deltas by position and no pending list; each player counted once and guarded by the game id', async () => {
@@ -110,9 +115,13 @@ describe('one game, no failures', () => {
         expect(rec.statsPending).toBeUndefined();
         expect(rec.statsDeltas.bucket).toBe('stats');
         expect(Object.keys(rec.statsDeltas.byPosition).sort()).toEqual(['1', '2', '3', '4']);
-        expect(rec.statsDeltas.byPosition[1]).toEqual(EXPECTED_ANN);
-        // No usernames in the deltas
-        expect(JSON.stringify(rec.statsDeltas)).not.toMatch(/Ann|Ben|Cat|Dan/);
+        expect(rec.statsDeltas.byPosition[1]).toEqual(EXPECTED_ANN_DELTA);
+        // Usernames only in the durable seat names (superlatives), never in the deltas
+        const { names, ...deltas } = rec.statsDeltas;
+        expect(names).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // bags for every human seat, the counter having seen all 13 hands
+        expect(rec.statsDeltas.bags).toEqual({ 1: 2, 2: 0, 3: 0, 4: 0 });
+        expect(JSON.stringify(deltas)).not.toMatch(/Ann|Ben|Cat|Dan/);
         expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
         expect(statsOf('Ben')).toMatchObject({ gamesPlayed: 1, wins: 0, losses: 1, totalPoints: 150, totalFaults: 2 });
         for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) {
@@ -256,7 +265,7 @@ describe('failing writes are retried, never double counted', () => {
         await profile.recordGameStats(finishedGame());
         expect(records().docs).toHaveLength(0);
         expect(errors.map(e => e.msg)).toEqual(['Error recording game result']);
-        expect(errors[0].meta.statsDeltas.byPosition[1]).toEqual(EXPECTED_ANN);
+        expect(errors[0].meta.statsDeltas.byPosition[1]).toEqual(EXPECTED_ANN_DELTA);
         expect(statsOf('Ann')).toEqual(EXPECTED_ANN);
         // and a later replay of the same game still adds nothing
         jest.restoreAllMocks();
@@ -294,7 +303,7 @@ describe('the guard window and accounts that changed', () => {
         expect(records().docs.find(r => r.gameId === 'g-0').statsPending).toBeUndefined();
         const notCredited = warns.filter(w => w.msg === 'Game stats not credited: the guard window no longer reaches this game');
         expect(notCredited.map(w => w.meta.username).sort()).toEqual(['Ann', 'Ben', 'Cat', 'Dan']);
-        expect(notCredited.find(w => w.meta.username === 'Ann').meta).toMatchObject({ gameId: 'g-0', bucket: 'stats', delta: EXPECTED_ANN });
+        expect(notCredited.find(w => w.meta.username === 'Ann').meta).toMatchObject({ gameId: 'g-0', bucket: 'stats', delta: EXPECTED_ANN_DELTA });
     });
 
     test('a full window that reaches back past the game: credited as usual', async () => {
@@ -510,10 +519,10 @@ describe('per-seat buckets (statsDeltas.bucketByPosition)', () => {
         return { stats: doc.stats?.gamesPlayed || 0, botStats: doc.botStats?.gamesPlayed || 0 };
     };
 
-    test('nothing writes it yet: a finished game\'s record carries only bucket and byPosition', async () => {
+    test('nothing writes it yet: a finished game\'s record carries only bucket, byPosition, the seat names and bags', async () => {
         await profile.recordGameStats(finishedGame());
         await profile.recordGameStats(finishedGame({ gameId: 'g-2', bots: [2, 4] }));
-        for (const rec of records().docs) expect(Object.keys(rec.statsDeltas).sort()).toEqual(['bucket', 'byPosition']);
+        for (const rec of records().docs) expect(Object.keys(rec.statsDeltas).sort()).toEqual(['bags', 'bucket', 'byPosition', 'names']);
     });
 
     test('the boot sweep routes a mixed-bucket record per seat: the marked seat to its bucket, every other seat to the whole game\'s; once', async () => {

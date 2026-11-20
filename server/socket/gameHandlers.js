@@ -16,6 +16,7 @@ const {
     calculateHSI,
     calculateScore,
     handFaults,
+    seatBags,
     nextHandSize: handSizeAfter,
     BID_RANKS
 } = require('../game/rules');
@@ -914,6 +915,22 @@ async function handleHandComplete(game, io) {
         for (const f of faults) {
             if (game.playerStats[f.position]) game.playerStats[f.position].setsCaused++;
         }
+    }
+    // Bags per seat (superlatives: Bag Boy): tricks over the seat's own bid
+    // this hand, none on a team with a bore (rules.seatBags), into
+    // game.seatBags with the hand itself (hands + 1), so a record can tell
+    // a counter that saw every hand (hands === handStats.totalHands) from
+    // one that missed some. Only a game that has the counter (GameState
+    // starts it; a game adopted from a process without it has null, and
+    // its record falls back to the net per seat:
+    // profileHandlers.buildGameEndRecord). Server-only, never on the wire
+    const sb = game.seatBags;
+    if (sb && sb.byPos && game.handTricks && Array.isArray(game.playerBids)) {
+        for (const pos of [1, 2, 3, 4]) {
+            const partner = pos > 2 ? pos - 2 : pos + 2;
+            sb.byPos[pos] += seatBags(game.playerBids[pos - 1], game.handTricks[pos], game.playerBids[partner - 1]);
+        }
+        sb.hands++;
     }
 
     gameLogger.debug('Score update', {

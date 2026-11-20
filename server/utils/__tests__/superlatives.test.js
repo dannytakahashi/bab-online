@@ -1,0 +1,426 @@
+/**
+ * The Records superlatives (server/utils/superlatives.js): pure, over
+ * gameRecords documents as fillRecords projects them.
+ */
+
+const {
+    computeSuperlatives, createSuperlatives, seatNames, isSolo, SUPERLATIVE_MIN_GAMES, TITLE_IDS
+} = require('../superlatives');
+
+/** One seat's counters (the 12 of seatStatsDelta; `totalBags` is not one of them). */
+const delta = ({ totalBags: _bags, ...o } = {}) => ({
+    gamesPlayed: 1, wins: 0, losses: 1, draws: 0, totalPoints: 100,
+    totalTricksBid: 20, totalTricksTaken: 20, totalHands: 13, totalSets: 0,
+    totalSetPoints: 0, totalFaults: 0, totalHSI: 1300, ...o
+});
+
+/**
+ * statsDeltas for seats {pos: overrides}: a `totalBags` override goes to
+ * statsDeltas.bags[pos] (where buildGameEndRecord writes it), the rest to
+ * byPosition[pos].
+ */
+function deltas(bucket, seatOverrides) {
+    const sd = { bucket, byPosition: {} };
+    for (const [pos, o] of Object.entries(seatOverrides)) {
+        sd.byPosition[pos] = delta(o);
+        if (o && o.totalBags !== undefined) (sd.bags = sd.bags || {})[pos] = o.totalBags;
+    }
+    return sd;
+}
+
+/**
+ * A human game: seats {pos: [name, deltaOverrides]} for all four; names
+ * map written unless `legacy`.
+ */
+function humanGame(seats, { legacy = false, assist, extra = {} } = {}) {
+    const names = {};
+    for (const [pos, [name]] of Object.entries(seats)) names[pos] = name;
+    const team = (a, b) => [a, b].filter((p) => seats[p]).map((p) => seats[p][0]);
+    const sd = deltas('stats', Object.fromEntries(Object.entries(seats).map(([pos, [, o]]) => [pos, o])));
+    if (!legacy) sd.names = names;
+    if (assist) sd.assist = assist;
+    return { team1Score: 300, team2Score: 200, team1Players: team(1, 3), team2Players: team(2, 4), statsDeltas: sd, ...extra };
+}
+
+/** A solo game: `name` at seat 1, three native bots. */
+function soloGame(name, o = {}, { legacy = false } = {}) {
+    const sd = deltas('botStats', { 1: o });
+    if (!legacy) sd.names = { 1: name };
+    return {
+        withBots: true, team1Score: 300, team2Score: 200,
+        team1Players: [name], team2Players: [], team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Ivy', '🤖 Mary'], statsDeltas: sd
+    };
+}
+
+const times = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+const byId = (list) => Object.fromEntries(list.map((s) => [s.id, s]));
+/** Four regulars who each played `n` identical games together. */
+const regulars = (n, overrides = {}) => times(n, () => humanGame({
+    1: ['Ann', overrides.Ann], 2: ['Ben', overrides.Ben], 3: ['Cat', overrides.Cat], 4: ['Dan', overrides.Dan]
+}));
+
+describe('the titles', () => {
+    test('each of the six, in wire order, with its detail', () => {
+        const games = [
+            ...regulars(5, {
+                Ann: { totalTricksBid: 10, totalTricksTaken: 13, totalBags: 3, totalHSI: 2000, totalSets: 4 },
+                Ben: { totalBags: 1, totalHSI: 1000 },
+                Cat: { totalBags: 0, totalHSI: 1500, totalSets: 1 },
+                Dan: { totalBags: 2, totalHSI: 1300 }
+            }),
+            // Ben also asked for /help in two of them
+            humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 2: { help: 4 } } }),
+            humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 2: { help: 3 }, 4: { help: 1 } } }),
+            ...times(5, () => soloGame('Eve')),
+            soloGame('Ann')
+        ];
+        const out = computeSuperlatives(games);
+        expect(out.map((s) => s.id)).toEqual(TITLE_IDS);
+        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'anchor']);
+        const s = byId(out);
+        // Ann: 15 bags in 8 games (the two help games and her solo game: 0)
+        expect(s.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann'], detail: '1.9 bags a game' });
+        // Ann: (5*2000 + 3*1300) / (8*13) = 133.65...
+        expect(s.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ann'], detail: '133.7 avg HSI' });
+        // Ben: (5*1000 + 2*1300) / (7*13) = 83.5
+        expect(s.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Ben'], detail: '83.5 avg HSI' });
+        expect(s.botFriends).toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Eve'], detail: '5 solo games' });
+        expect(s.helpFromFriends).toEqual({ id: 'helpFromFriends', title: 'A little help from my friends', names: ['Ben'], detail: '7 /help uses' });
+        // Ann: 20 sets / 104 hands = 19%
+        expect(s.anchor).toEqual({ id: 'anchor', title: 'Anchor', names: ['Ann'], detail: '19% of hands set' });
+    });
+
+    test('a count title whose best value is 0 is left out; the HSI titles still show', () => {
+        const out = computeSuperlatives(regulars(5, { Ann: { totalBags: 0 }, Ben: { totalBags: 0 }, Cat: { totalBags: 0 }, Dan: { totalBags: 0 } }));
+        expect(out.map((s) => s.id)).toEqual(['luckyDuck']);
+        // everyone tied on HSI: Lucky Duck lists all four's first three, and
+        // Cursed (the same value, the same people) is left out
+        expect(byId(out).luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ann', 'Ben', 'Cat'], detail: '100.0 avg HSI (+1 more)' });
+    });
+
+    test('no records, or nobody with enough games: an empty list', () => {
+        expect(computeSuperlatives([])).toEqual([]);
+        expect(computeSuperlatives(regulars(SUPERLATIVE_MIN_GAMES - 1, { Ann: { totalBags: 9 } }))).toEqual([]);
+    });
+
+    test('singular details', () => {
+        const s = byId(computeSuperlatives([...regulars(5), soloGame('Ann')].map((g, i) => (i === 0
+            ? { ...g, statsDeltas: { ...g.statsDeltas, assist: { 1: { help: 1 } } } } : g)), { minGames: 1 }));
+        expect(s.botFriends.detail).toBe('1 solo game');
+        expect(s.helpFromFriends.detail).toBe('1 /help use');
+    });
+});
+
+describe('who qualifies', () => {
+    test('the minimum is SUPERLATIVE_MIN_GAMES (5) games in the period; 4 is not enough', () => {
+        expect(SUPERLATIVE_MIN_GAMES).toBe(5);
+        const games = [
+            ...regulars(4, { Ann: { totalBags: 9 } }),
+            // Ben, Cat and Dan have a 5th game, Ann does not
+            humanGame({ 1: ['Zed'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] })
+        ];
+        const s = byId(computeSuperlatives(games));
+        expect(s.bagBoy).toBeUndefined(); // only Ann bagged, and she has 4 games
+        expect(s.luckyDuck.names).toEqual(['Ben', 'Cat', 'Dan']);
+        // one more game and she qualifies
+        const more = byId(computeSuperlatives([...games, humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] })]));
+        expect(more.bagBoy.names).toEqual(['Ann']);
+    });
+
+    test('humans only: bot personas, [deleted] and empty names never win', () => {
+        const games = [
+            ...times(6, () => humanGame({ 1: ['[deleted]', { totalBags: 9, totalSets: 13 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] })),
+            // a record that would name a bot persona at a seat (it never
+            // should): skipped for that seat, never a winner
+            ...times(6, () => ({ ...soloGame('🤖 Zach', { totalBags: 9 }) })),
+            ...times(6, () => humanGame({ 1: ['', { totalBags: 9 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))
+        ];
+        const all = computeSuperlatives(games, { minGames: 1 });
+        const names = all.flatMap((s) => s.names);
+        expect(names).not.toContain('[deleted]');
+        expect(names).not.toContain('🤖 Zach');
+        expect(names).not.toContain('');
+        expect(byId(all).bagBoy).toBeUndefined();
+        expect(byId(all).botFriends).toBeUndefined();
+    });
+
+    test('bots never get a value: only byPosition (human owner) seats are counted', () => {
+        const s = byId(computeSuperlatives(times(5, () => soloGame('Eve', { totalBags: 2 }))));
+        expect(s.bagBoy.names).toEqual(['Eve']);
+        for (const t of Object.values(s)) expect(t.names).toEqual(['Eve']);
+    });
+});
+
+describe('ties', () => {
+    test('up to 3 names, alphabetical ignoring case; more add (+N more) to the detail', () => {
+        const names = ['dora', 'Bob', 'alice', 'Carl', 'Eve'];
+        const games = names.flatMap((n) => times(5, () => soloGame(n, { totalBags: 2 })));
+        const s = byId(computeSuperlatives(games));
+        expect(s.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['alice', 'Bob', 'Carl'], detail: '2.0 bags a game (+2 more)' });
+        expect(s.botFriends.names).toEqual(['alice', 'Bob', 'Carl']);
+        expect(s.botFriends.detail).toBe('5 solo games (+2 more)');
+    });
+
+    test('exactly 3 tied: no (+N more); a ratio that only rounds the same is not a tie', () => {
+        const games = [
+            ...times(5, () => soloGame('Ann', { totalBags: 2 })),
+            ...times(5, () => soloGame('Ben', { totalBags: 2 })),
+            ...times(5, () => soloGame('Cat', { totalBags: 2 })),
+            // 2.04 a game: shows as 2.0, but more
+            ...times(4, () => soloGame('Dan', { totalBags: 2 })), soloGame('Dan', { totalBags: 2.2 })
+        ];
+        expect(byId(computeSuperlatives(games)).bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Dan'], detail: '2.0 bags a game' });
+        expect(byId(computeSuperlatives(games.slice(0, 15))).bagBoy.detail).toBe('2.0 bags a game');
+        expect(byId(computeSuperlatives(games.slice(0, 15))).bagBoy.names).toEqual(['Ann', 'Ben', 'Cat']);
+    });
+
+    test('ratios tie exactly across different game counts (2 a game over 5 and over 10 games)', () => {
+        const games = [...times(5, () => soloGame('Ann', { totalBags: 2 })), ...times(10, () => soloGame('Ben', { totalBags: 2 }))];
+        const s = byId(computeSuperlatives(games));
+        expect(s.bagBoy.names).toEqual(['Ann', 'Ben']);
+        expect(s.botFriends.names).toEqual(['Ben']);
+    });
+});
+
+describe('solo games (Some of my best friends are bots)', () => {
+    test('one human seat and three native bots', () => {
+        expect(isSolo(soloGame('Eve'))).toBe(true);
+    });
+
+    test('a resign bot keeps its owner in teamNPlayers: not solo (two humans, two native bots)', () => {
+        const resigned = {
+            withBots: true, team1Players: ['Eve', 'Fay'], team2Players: [], team1Bots: [], team2Bots: ['🤖 Ivy', '🤖 Mary'],
+            statsDeltas: { bucket: 'botStats', byPosition: { 1: delta(), 3: delta() }, names: { 1: 'Eve', 3: 'Fay' } }
+        };
+        expect(isSolo(resigned)).toBe(false);
+        const s = byId(computeSuperlatives(times(5, () => resigned)));
+        expect(s.botFriends).toBeUndefined();
+        expect(s.luckyDuck.names).toEqual(['Eve', 'Fay']);
+    });
+
+    test('lazy seats are human (their owner is in teamNPlayers): a lazy game with 3 other humans is not solo', () => {
+        expect(isSolo(humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))).toBe(false);
+    });
+
+    test('a game the /help or tutorial marking moved to the bot scope (withBots, empty teamNBots) is not solo', () => {
+        const assisted = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { extra: { withBots: true, team1Bots: [], team2Bots: [] } });
+        expect(isSolo(assisted)).toBe(false);
+    });
+
+    test('two humans and two bots, or a human record without bots (the human scope projection): not solo', () => {
+        const two = { team1Players: ['Eve'], team2Players: ['Fay'], team1Bots: ['🤖 Zach'], team2Bots: ['🤖 Ivy'] };
+        expect(isSolo(two)).toBe(false);
+        const noBots = { team1Players: ['Eve'], team2Players: [] };
+        expect(isSolo(noBots)).toBe(false);
+    });
+});
+
+describe('/help (A little help from my friends)', () => {
+    test('counts statsDeltas.assist[pos].help only: a tutorial seat with no /help of its own counts 0 (its tips are not /help)', () => {
+        const tutorial = times(5, () => humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 1: { help: 0, tutorial: true } } }));
+        expect(byId(computeSuperlatives(tutorial)).helpFromFriends).toBeUndefined();
+        const mixed = times(5, () => humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 1: { help: 2, tutorial: true }, 3: { help: 1 } } }));
+        expect(byId(computeSuperlatives(mixed)).helpFromFriends).toMatchObject({ names: ['Ann'], detail: '10 /help uses' });
+    });
+
+    test('a malformed assist entry is ignored', () => {
+        const games = times(5, () => humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 1: { help: '9' }, 2: { help: -3 }, 3: 'x' } }));
+        expect(byId(computeSuperlatives(games)).helpFromFriends).toBeUndefined();
+    });
+});
+
+describe('bags (Bag Boy)', () => {
+    test('the per-hand totalBags wins over the net: a bore that took every trick has totalBags 0', () => {
+        // took 24 on a bid of 20 overall, but the extra 4 came on bore hands (0 bags)
+        const games = times(5, () => soloGame('Eve', { totalTricksBid: 20, totalTricksTaken: 24, totalBags: 0 }));
+        expect(byId(computeSuperlatives(games)).bagBoy).toBeUndefined();
+    });
+
+    test('an older record (no totalBags) falls back to max(0, taken - bid) of that seat in that game', () => {
+        const games = [
+            ...times(3, () => soloGame('Eve', { totalTricksBid: 20, totalTricksTaken: 23 })),
+            ...times(2, () => soloGame('Eve', { totalTricksBid: 20, totalTricksTaken: 15 }))
+        ];
+        expect(byId(computeSuperlatives(games)).bagBoy).toMatchObject({ names: ['Eve'], detail: '1.8 bags a game' });
+    });
+});
+
+describe('seat names', () => {
+    test('the names map when present', () => {
+        expect(seatNames(humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+    });
+
+    test('an older record (byPosition, no names): each team\'s seats in seat order against teamNPlayers', () => {
+        const g = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { legacy: true });
+        expect(seatNames(g)).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // a bot game: only the human seats are in byPosition and in teamNPlayers
+        expect(seatNames(soloGame('Eve', {}, { legacy: true }))).toEqual({ 1: 'Eve' });
+        const mixed = {
+            withBots: true, team1Players: ['Ann'], team2Players: ['Ben', 'Dan'], team1Bots: ['🤖 Zach'], team2Bots: [],
+            statsDeltas: { byPosition: { 3: delta(), 2: delta(), 4: delta() } }
+        };
+        expect(seatNames(mixed)).toEqual({ 2: 'Ben', 3: 'Ann', 4: 'Dan' });
+    });
+
+    test('ambiguous (counts differ) or no per-seat counters: the record is skipped', () => {
+        const g = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { legacy: true });
+        expect(seatNames({ ...g, team1Players: ['Ann'] })).toBeNull();
+        expect(seatNames({ ...g, team2Players: ['Ben', 'Dan', 'Eve'] })).toBeNull();
+        expect(seatNames({ ...g, team1Players: undefined })).toBeNull();
+        // before 2026-11-15: no statsDeltas at all
+        expect(seatNames({ team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'] })).toBeNull();
+        expect(seatNames({ statsDeltas: { byPosition: {} } })).toBeNull();
+        expect(seatNames({ statsDeltas: { names: { 1: 'Ann' } } })).toBeNull();
+        // a names map missing a seat of byPosition is not trusted: seat order
+        // against teamNPlayers instead, and skipped if that is ambiguous too
+        expect(seatNames({ ...g, statsDeltas: { ...g.statsDeltas, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat' } } }))
+            .toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        expect(seatNames({ ...g, team1Players: ['Ann'], statsDeltas: { ...g.statsDeltas, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat' } } })).toBeNull();
+
+        // skipped whole: Ann's ambiguous games do not count toward her 5
+        const games = [...times(4, () => g), ...times(3, () => ({ ...g, team1Players: ['Ann'] }))];
+        expect(computeSuperlatives(games)).toEqual([]);
+        expect(computeSuperlatives([...games, g]).length).toBeGreaterThan(0);
+    });
+
+    test('the names map only while every seat\'s name is in its own team\'s teamNPlayers (odd seats team1, even team2)', () => {
+        const g = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] });
+        // seat 1 named on the other team: not trusted, seat order instead
+        expect(seatNames({ ...g, team1Players: ['Ben', 'Cat'], team2Players: ['Ann', 'Dan'] }))
+            .toEqual({ 1: 'Ben', 2: 'Ann', 3: 'Cat', 4: 'Dan' });
+        // a merged player in two seats: as often as the seats name them
+        const merged = humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Ann'], 4: ['Dan'] });
+        expect(seatNames(merged)).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Ann', 4: 'Dan' });
+        expect(seatNames({ ...merged, team1Players: ['Ann', 'Cat'] })).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // a non-string name in the map: seat order
+        expect(seatNames({ ...g, statsDeltas: { ...g.statsDeltas, names: { ...g.statsDeltas.names, 2: 7 } } }))
+            .toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        // a bot game: only the human seats
+        const solo = soloGame('Eve');
+        expect(seatNames({ ...solo, team1Players: ['Eva'] })).toEqual({ 1: 'Eva' });
+    });
+
+    test('a delete / rename / merge by the release before (teamNPlayers only) never lets the stale names map win', () => {
+        // Ann has the most bags, Cat the best HSI
+        const rec = () => humanGame({
+            1: ['Ann', { totalBags: 9 }], 2: ['Ben', { totalBags: 1 }],
+            3: ['Cat', { totalBags: 1, totalHSI: 2600 }], 4: ['Dan', { totalBags: 1 }]
+        });
+        // the release before's eraseAccount and renameEverywhere: '[deleted]'
+        // and 'Kit' in team1Players, statsDeltas.names untouched
+        const games = times(6, () => ({ ...rec(), team1Players: ['[deleted]', 'Kit'] }));
+        expect(games[0].statsDeltas.names).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' });
+        expect(seatNames(games[0])).toEqual({ 1: '[deleted]', 2: 'Ben', 3: 'Kit', 4: 'Dan' });
+        const out = computeSuperlatives(games);
+        const shown = out.flatMap((s) => s.names);
+        for (const stale of ['Ann', 'Cat', '[deleted]']) expect(shown).not.toContain(stale);
+        expect(byId(out).luckyDuck.names).toEqual(['Kit']);
+        // the deleted seat's bags are nobody's: Bag Boy goes to the 1-bag seats
+        expect(byId(out).bagBoy).toMatchObject({ names: ['Ben', 'Dan', 'Kit'], detail: '1.0 bags a game' });
+
+        // a merge of Cat into Ann by the release before: Ann in both team1 seats
+        const mergedGames = times(6, () => ({ ...rec(), team1Players: ['Ann', 'Ann'] }));
+        expect(seatNames(mergedGames[0])).toEqual({ 1: 'Ann', 2: 'Ben', 3: 'Ann', 4: 'Dan' });
+        expect(byId(computeSuperlatives(mergedGames)).luckyDuck.names).toEqual(['Ann']);
+        expect(computeSuperlatives(mergedGames).flatMap((s) => s.names)).not.toContain('Cat');
+    });
+
+    test('a legacy record and a names-map record of the same player add up', () => {
+        const games = [
+            ...times(3, () => humanGame({ 1: ['Ann', { totalBags: 2 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] })),
+            ...times(2, () => humanGame({ 1: ['Ann', { totalTricksBid: 20, totalTricksTaken: 22 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { legacy: true }))
+        ];
+        expect(byId(computeSuperlatives(games)).bagBoy).toMatchObject({ names: ['Ann'], detail: '2.0 bags a game' });
+    });
+});
+
+test('createSuperlatives accumulates like computeSuperlatives (one add per record, then result)', () => {
+    const games = [...regulars(5, { Ann: { totalBags: 3 } }), ...times(5, () => soloGame('Eve'))];
+    const acc = createSuperlatives();
+    for (const g of games) acc.add(g);
+    acc.add(null);
+    expect(acc.result()).toEqual(computeSuperlatives(games));
+});
+
+describe('review fixes (2026-11-20)', () => {
+    test('Bag Boy is per seat-game: a merge that left one player in two seats of a game averages them, not adds them', () => {
+        // every seat 2 bags; Ann holds seats 1 and 3 in the first game
+        const games = times(5, (i) => humanGame({
+            1: ['Ann', { totalBags: 2 }], 2: ['Ben', { totalBags: 2 }], 3: [i === 0 ? 'Ann' : 'Cat', { totalBags: 2 }], 4: ['Dan', { totalBags: 2 }]
+        }));
+        expect(byId(computeSuperlatives(games)).bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann', 'Ben', 'Dan'], detail: '2.0 bags a game' });
+        // and a better real rate still wins: Ben 3 a game over Ann's 2 + 2 in one game
+        const ben = times(5, (i) => humanGame({
+            1: ['Ann', { totalBags: 2 }], 2: ['Ben', { totalBags: 3 }], 3: [i === 0 ? 'Ann' : 'Cat', { totalBags: 2 }], 4: ['Dan', { totalBags: 0 }]
+        }));
+        expect(byId(computeSuperlatives(ben)).bagBoy).toMatchObject({ names: ['Ben'], detail: '3.0 bags a game' });
+        // that game counts once toward her 5: in 4 games (5 seats) nobody qualifies
+        expect(computeSuperlatives(ben.slice(0, 4))).toEqual([]);
+    });
+
+    test('a record from before the per-seat counters still counts as a game (and a solo game) for whoever its teams name', () => {
+        // 2026-11-13..15: bot personas, no statsDeltas
+        const oldSolo = { withBots: true, team1Players: ['Eve'], team2Players: [], team1Bots: ['🤖 Mary'], team2Bots: ['🤖 A', '🤖 B'] };
+        const s = byId(computeSuperlatives(times(5, () => oldSolo)));
+        expect(s.botFriends).toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Eve'], detail: '5 solo games' });
+        // no per-seat values from it: no HSI, bags or sets titles
+        expect(Object.keys(s)).toEqual(['botFriends']);
+
+        // old games make up the 5, the per-seat values come from the new one
+        const mixed = [...times(4, () => ({ team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'] })), ...regulars(1, { Ann: { totalBags: 3 } })];
+        expect(byId(computeSuperlatives(mixed)).bagBoy).toMatchObject({ names: ['Ann'], detail: '3.0 bags a game' });
+        // '[deleted]', bot personas and a merge duplicate in the teams: as for named seats
+        const odd = times(5, () => ({ withBots: true, team1Players: ['[deleted]', 'Fay'], team2Players: ['Fay'], team1Bots: [], team2Bots: ['🤖 Ivy'] }));
+        const acc = createSuperlatives();
+        for (const g of odd) acc.add(g);
+        expect(acc.result()).toEqual([]);
+        expect(computeSuperlatives([...odd, ...times(5, () => soloGame('Fay'))], { minGames: 10 }).map((t) => t.names)).toEqual([['Fay'], ['Fay']]);
+    });
+
+    test('Cursed is left out when it is the same value as Lucky Duck (one qualifier); shown when they differ', () => {
+        const one = byId(computeSuperlatives(times(5, () => soloGame('Eve', { totalHSI: 1700 }))));
+        expect(one.luckyDuck).toMatchObject({ names: ['Eve'], detail: '130.8 avg HSI' });
+        expect(one.cursed).toBeUndefined();
+        const two = byId(computeSuperlatives([...times(5, () => soloGame('Eve', { totalHSI: 1700 })), ...times(5, () => soloGame('Fay'))]));
+        expect(two.luckyDuck.names).toEqual(['Eve']);
+        expect(two.cursed).toMatchObject({ names: ['Fay'], detail: '100.0 avg HSI' });
+    });
+
+    test('a count title whose best value only shows as 0 ("0.0 bags a game", "0% of hands set") is left out', () => {
+        // one bag and one set in 30 games of 13 hands: 0.03 a game, 0.26% of hands
+        const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1, totalSets: 1 })];
+        const s = byId(computeSuperlatives(games));
+        expect(s.bagBoy).toBeUndefined();
+        expect(s.anchor).toBeUndefined();
+        // 0.05 a game shows as 0.1 (rounded half up): shown
+        const half = [...times(19, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
+        expect(byId(computeSuperlatives(half)).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.1 bags a game' });
+        // 1 set in 100 hands shows as 1%
+        const sets = times(5, (i) => soloGame('Ann', { totalHands: 20, totalSets: i === 0 ? 1 : 0 }));
+        expect(byId(computeSuperlatives(sets)).anchor).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
+    });
+
+    test('bags come from statsDeltas.bags only; a byPosition totalBags (never written) is ignored for the net', () => {
+        const g = soloGame('Eve', { totalTricksBid: 20, totalTricksTaken: 22 });
+        g.statsDeltas.byPosition[1].totalBags = 9;
+        expect(byId(computeSuperlatives(times(5, () => g))).bagBoy.detail).toBe('2.0 bags a game');
+        // counted (bags) wins over the net, also when 0
+        const counted = soloGame('Eve', { totalTricksBid: 20, totalTricksTaken: 22, totalBags: 1 });
+        expect(byId(computeSuperlatives(times(5, () => counted))).bagBoy.detail).toBe('1.0 bags a game');
+    });
+
+    test('the projection names exactly what add() reads', () => {
+        const { SUPERLATIVES_PROJECTION } = require('../superlatives');
+        const keys = Object.keys(SUPERLATIVES_PROJECTION);
+        expect(keys).toEqual(expect.arrayContaining(['statsDeltas.bags', 'statsDeltas.names', 'statsDeltas.assist',
+            'statsDeltas.byPosition.1.totalHSI', 'statsDeltas.byPosition.4.totalSets', 'statsDeltas.byPosition.3.totalTricksBid']));
+        expect(keys).toHaveLength(23);
+        expect(keys).not.toContain('statsDeltas.byPosition');
+        // a record cut down to it gives the same superlatives
+        const { applyProjection } = require('../../testUtils/memoryDb');
+        const games = [...regulars(5, { Ann: { totalBags: 3, totalSets: 2 } }), ...times(5, () => soloGame('Eve'))].map((g, i) => (i === 0
+            ? { ...g, statsDeltas: { ...g.statsDeltas, assist: { 2: { help: 4 } } } } : g));
+        const cut = games.map((g) => applyProjection(g, { team1Players: 1, team2Players: 1, team1Bots: 1, team2Bots: 1, ...SUPERLATIVES_PROJECTION }));
+        expect(computeSuperlatives(cut)).toEqual(computeSuperlatives(games));
+    });
+});

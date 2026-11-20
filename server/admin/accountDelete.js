@@ -13,7 +13,8 @@
  *     a bot game's personas in team1Bots / team2Bots are not names of
  *     accounts and stay as they are), and its entry leaves `statsPending`
  *     (a game still being credited: profileHandlers.recordGameStats);
- *     `statsDeltas` has no names (by seat, which then reads '[deleted]');
+ *     `statsDeltas.names.<pos>` (the seat names the Records superlatives
+ *     read, 2026-11-20) becomes '[deleted]' too;
  *   - other players' blockedUsers: for an ADMIN delete the name is pulled,
  *     so a new account that later takes the freed name does not start out
  *     blocked; a player's OWN delete keeps them (pullBlocks: false), so a
@@ -75,6 +76,7 @@
 'use strict';
 
 const { revokeOpenResetLinks } = require('./setPassword');
+const { renameSeatNames } = require('./seatNames');
 const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('admin');
@@ -141,6 +143,8 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
                 );
                 out.gameRecords += res?.modifiedCount || 0;
             }
+            // The superlatives' seat names (the same records: not counted again)
+            await renameSeatNames(db.gameRecords, name, DELETED_NAME);
             // Nothing left to credit; the sweep clears an emptied list
             await db.gameRecords.updateMany(
                 { 'statsPending.username': name },
