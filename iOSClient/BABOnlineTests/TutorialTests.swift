@@ -461,7 +461,7 @@ final class TutorialTests: XCTestCase {
         keeps.sides = ["seat2": CGRect(x: 20, y: 400, width: 60, height: 80), "seat4": CGRect(x: 330, y: 400, width: 60, height: 80)]
         let side = AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: keeps)
         XCTAssertEqual(side.minY, 480 + AssistLayout.gap, "694 - 486 = 208 of room")
-        XCTAssertEqual(side.width, 368, "no room between them: the width stays")
+        XCTAssertEqual(side.width, 360, "no room between them (238 < minWidth): the hand's width stays")
         // less than sideRoom (the chip's foot): they may be covered, the partner's cap holds
         let covered = AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 360, top: 100, keeps: keeps, foot: 50)
         XCTAssertEqual(covered.minY, 200 + AssistLayout.gap, "694 - 50 - 486 = 158 < sideRoom")
