@@ -27,11 +27,10 @@
  * PR 6 shape; reattachPlayerByUsername re-keys it, the creator role with
  * it); no spectators, timers or epoch history. A doc naming a member twice
  * (or a member without a name) is malformed.
- * Until a member reattaches, its synthetic id is on the wire:
- * getClientState() emits every player's `socketId` and `creatorSocketId`
- * (tournamentJoined, tournamentPlayerJoined / Left and friends carry it).
- * Nothing calls hydrate in production yet; the tournament adoption (PR 6)
- * must mask restored:* ids there (or reattach first) before any emit.
+ * Until a member reattaches its synthetic id is never on the wire: on an
+ * adopted tournament (t.restored, PR 6) getClientState() sends away:<username> for
+ * a restored:* `socketId` / `creatorSocketId`. hydrate's one production
+ * caller is persist/restoreTournament.adoptTournament (PR 6).
  *
  * Field guard: every key of a TournamentState, member entry, round and
  * round game entry is in SAVED or DERIVED (gameCodec.fieldGuard.test.js).
@@ -67,7 +66,10 @@ const DERIVED = deepFreeze({
     tournament: [
         'roomName', 'createdBy', 'readyPlayers', 'spectators',  // socket ids; people re-spectate
         'epoch', 'retired', 'timers',                           // a new generation, timers re-armed
-        'maxMessages', '_debugMode'
+        'maxMessages', '_debugMode',
+        // Deploy survival PR 6 (LIVE_PERSIST=on): set on the old instance by
+        // the handoff (frozen, handedOff) and on an adopted one (restored)
+        'frozen', 'handedOff', 'restored'
     ],
     player: ['ready', 'connected'],                             // false after a restore
     round: [],

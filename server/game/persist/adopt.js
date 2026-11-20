@@ -16,8 +16,11 @@
  *   pending      not released and its owner not seen dead: left alone
  *                (a live owner's doc is never deleted, whatever its mode)
  *   tournament   a released / dead owner's tournament table with ownerMode
- *                'on' (PR 6): left alone. PR 5 writes tournament tables
- *                as 'write', so theirs are discarded as below
+ *                'on' (PR 6): adopted WITH its tournament (below); if its
+ *                tournament is live here already (it was pending then), it
+ *                joins it (a live table adopted, a tombstone scored); if no
+ *                doc of its tournament exists, it is discarded (a tombstone's
+ *                record still inserted)
  *   discard      ownerMode 'write' (never adoptable), a live doc whose
  *                codec version this process cannot read, too old (released
  *                more than 15 min ago, or its owner's last beat more than
@@ -49,6 +52,20 @@
  *                delete that fails is retried by every sweep, and resolve()
  *                removes such an orphan and answers 'gone': an own live doc
  *                nothing here holds is never 'pending' for good)
+ * Tournaments (PR 6; liveTournaments, swept BEFORE the games): the same
+ * rule (pending / discard / adopt; a crash loop counted the same way). A
+ * tournament is adopted only once none of its tables' docs is pending (a
+ * live owner still holds one). Adopt: one users.find over its members and
+ * chat senders (a deleted or merged member is removed, a deleted sender's
+ * lines dropped), the compare-and-set on liveTournaments, then
+ * restoreTournament.adoptTournament (hydrate, ghosts, timers); then each of
+ * its tables' docs by its own verdict (a live one adopted with the 5-minute
+ * tournament abandon, an ENDED tombstone claimed), then
+ * restoreTournament.normalizeRound (scores what did not survive, or rolls
+ * the round back), then the claimed tombstones are recorded and deleted. A
+ * discarded tournament's members' activeTournamentId pointers are cleared
+ * (scoped). resolveTournament(tid) answers like resolve() for a game.
+ *
  * adoptAttempts: an adopter that dies (killed, or a crash release) within
  * QUICK_DEATH_MS of its adoptedAt counts once; a doc whose adopters died
  * quickly MAX_QUICK_DEATHS times in a row is discarded (a crash loop under
@@ -109,6 +126,18 @@ const ms = (v) => {
 
 const isBotName = (name) => typeof name === 'string' && name.startsWith('🤖 ');
 
+/** What the sweep reads of a tournament doc: the envelope and its members (pointer clears). */
+const TOURNAMENT_ENVELOPE_PROJECTION = Object.freeze({
+    _id: 1, v: 1, kind: 1, owner: 1, ownerMode: 1, released: 1, releasedAt: 1, releaseKind: 1,
+    rev: 1, createdAt: 1, updatedAt: 1, adoptAttempts: 1, adoptedBy: 1, adoptedAt: 1,
+    phase: 1, 'state.players.username': 1
+});
+
+/** The members a tournament doc names. */
+function tournamentMembers(doc) {
+    return (doc?.state?.players || []).map((p) => p && p.username).filter((u) => typeof u === 'string' && u);
+}
+
 /** Every human username a doc names as a seat owner (live or tombstone). */
 function seatOwners(doc) {
     const out = new Set();
@@ -158,14 +187,15 @@ function createLiveness({ monoNow, staleMs = STALE_MS }) {
  * The adoption rule for one doc of another owner (pure).
  * @returns {{act: 'tournament'|'pending'|'discard'|'tombstone'|'adopt', why?: string, attempts?: number}}
  */
-function classify(doc, { ownerState, ownerInst, me, myStartedAt, myDeploymentId, now, readVersions, maxAgeMs = ADOPT_MAX_AGE_MS, quickDeathMs = QUICK_DEATH_MS }) {
+function classify(doc, { ownerState, ownerInst, me, myStartedAt, myDeploymentId, now, readVersions, maxAgeMs = ADOPT_MAX_AGE_MS, quickDeathMs = QUICK_DEATH_MS, inTournament = false }) {
     if (!doc || doc.owner === me) return { act: 'pending', why: 'mine' };
     const released = doc.released === true;
     if (!released && ownerState !== 'dead') return { act: 'pending', why: 'owner alive' };
-    // A tournament table PR 6 may adopt (its tournament first). In PR 5
-    // they all say ownerMode 'write' and are discarded below like any
-    // 'write' doc of a released or dead owner
-    if (doc.tournamentId && doc.ownerMode === 'on') return { act: 'tournament' };
+    // A tournament table (PR 6) is adopted with its tournament: `inner` is
+    // what its own rule says (inTournament: that verdict alone)
+    if (!inTournament && doc.tournamentId && doc.ownerMode === 'on') {
+        return { act: 'tournament', inner: classify(doc, { ownerState, ownerInst, me, myStartedAt, myDeploymentId, now, readVersions, maxAgeMs, quickDeathMs, inTournament: true }) };
+    }
     if (doc.ownerMode !== 'on') return { act: 'discard', why: 'mode' };
     if (doc.kind !== 'live' && doc.kind !== 'ended') return { act: 'discard', why: 'kind' };
     if (doc.kind === 'live' && !readVersions.includes(doc.v)) return { act: 'discard', why: 'version' };
@@ -267,6 +297,15 @@ function createAdopter(ctx) {
         isShuttingDown = () => false,
         getIo = () => null,
         trackAdopted,
+        trackAdoptedTournament = () => null,
+        findTournament = (tid) => require('../GameManager').getTournamentById(tid),
+        holdsTournamentLocally = () => true,
+        adoptTournament = (io, doc, opts) => require('./restoreTournament').adoptTournament(io, doc, opts),
+        normalizeRound = (io, t, opts) => require('./restoreTournament').normalizeRound(io, t, opts),
+        scoreLateTable = (io, t, gameId, ended) => require('./restoreTournament').scoreLateTable(io, t, gameId, ended),
+        clearTournamentPointer = (username, tid) => require('../GameManager').clearActiveTournament(username, tid),
+        tournamentReadVersions = [require('./tournamentCodec').TOURNAMENT_CODEC_V],
+        tournamentAbandonMs = TOURNAMENT_RESTORE_ABANDON_MS,
         isOn = () => true,
         isClosed = () => false,
         // gameId -> true while this process's store still holds the game
@@ -306,6 +345,7 @@ function createAdopter(ctx) {
 
     const liveness = createLiveness({ monoNow, staleMs });
     const adopting = new Map();       // gameId -> promise of the adopt / discard / tombstone op
+    const adoptingT = new Map();      // tournamentId -> promise of its adopt / discard op (PR 6)
     const waiters = new Map();        // gameId -> Set of (game|null) => void
     const heldTombstones = new Map(); // gameId -> doc: adopted tombstones whose record has not landed yet
     const orphans = new Map();        // gameId -> seat owners: own live docs nothing here holds (a failed cleanup), retried each sweep
@@ -327,7 +367,7 @@ function createAdopter(ctx) {
     async function readInstances() {
         const coll = collections().serverInstances;
         if (!coll) throw Object.assign(new Error('no serverInstances'), { name: 'NoCollection' });
-        const list = await coll.find({}, { projection: { _id: 1, deploymentId: 1, mode: 1, startedAt: 1, beatAt: 1, beatSeq: 1, shuttingDown: 1, gameIds: 1 } }).toArray();
+        const list = await coll.find({}, { projection: { _id: 1, deploymentId: 1, mode: 1, startedAt: 1, beatAt: 1, beatSeq: 1, shuttingDown: 1, gameIds: 1, tournamentIds: 1 } }).toArray();
         const out = new Map();
         for (const inst of list) {
             out.set(inst._id, inst);
@@ -346,7 +386,7 @@ function createAdopter(ctx) {
         return 'alive';
     }
 
-    function verdict(doc, instances) {
+    function verdict(doc, instances, extra = {}) {
         return classify(doc, {
             ownerState: ownerState(doc.owner, instances),
             ownerInst: instances.get(doc.owner) || null,
@@ -356,7 +396,8 @@ function createAdopter(ctx) {
             now: now(),
             readVersions,
             maxAgeMs,
-            quickDeathMs
+            quickDeathMs,
+            ...extra
         });
     }
 
@@ -447,8 +488,8 @@ function createAdopter(ctx) {
         return { goneOwners, scrubbed, ownerPics };
     }
 
-    /** Adopt a live doc (verdict 'adopt'). */
-    async function adoptLive(env, attempts) {
+    /** Adopt a live doc (verdict 'adopt'); a tournament table with the tournament abandon. */
+    async function adoptLive(env, attempts, { tableAbandonMs = abandonMs } = {}) {
         const coll = collections().liveGames;
         if (!coll) return { state: 'pending' };
         const records = gameRecords();
@@ -495,7 +536,7 @@ function createAdopter(ctx) {
         const doc = screenDoc({ ...full, ...claimed, gameId: env._id }, { goneOwners, scrubbed, now: now() });
         let game;
         try {
-            game = adoptGame(getIo(), doc, { now: now(), abandonMs, ownerPics });
+            game = adoptGame(getIo(), doc, { now: now(), abandonMs: tableAbandonMs, ownerPics });
         } catch (err) {
             logFailure('adopt', null, err, { gameId: env._id, why: err?.reason || err?.name || 'error' });
             // Not restorable: the doc goes, and so do its pointers (a
@@ -557,6 +598,20 @@ function createAdopter(ctx) {
         return true;
     }
 
+    /** Claim an ENDED tombstone (compare-and-set); the claimed doc, or null. */
+    async function claimTombstone(env, attempts) {
+        const coll = collections().liveGames;
+        if (!coll) return null;
+        const at = new Date(now());
+        const claimed = await coll.findOneAndUpdate(
+            { _id: env._id, owner: env.owner, rev: env.rev },
+            { $set: { owner: me, released: false, releasedAt: null, releaseKind: null, adoptedBy: me, adoptedAt: at, adoptAttempts: attempts, rev: env.rev + 1, updatedAt: at } },
+            { returnDocument: 'after' }
+        );
+        if (claimed) heldTombstones.set(env._id, claimed);
+        return claimed || null;
+    }
+
     async function adoptTombstone(env, attempts) {
         const coll = collections().liveGames;
         if (!coll) return { state: 'pending' };
@@ -578,9 +633,10 @@ function createAdopter(ctx) {
         const id = env._id;
         if (adopting.has(id)) return adopting.get(id);
         const v = verdict(env, instances);
-        if (v.act === 'pending' || v.act === 'tournament') return Promise.resolve({ state: 'pending', act: v.act });
+        if (v.act === 'pending' || (v.act === 'tournament' && v.inner.act === 'pending')) return Promise.resolve({ state: 'pending', act: v.act });
         if (stopping()) return Promise.resolve({ state: 'pending' });
         const op = (async () => {
+            if (v.act === 'tournament') return tournamentTable(env, v.inner, instances);
             if (v.act === 'discard') return (await discard(env, v.why)) ? { state: 'gone' } : { state: 'lost' };
             if (v.act === 'tombstone') return adoptTombstone(env, v.attempts);
             return adoptLive(env, v.attempts);
@@ -594,6 +650,292 @@ function createAdopter(ctx) {
         return op;
     }
 
+    // ---------- tournaments (PR 6) ----------
+
+    const gameHere = (gameId) => {
+        try {
+            const g = require('../GameManager').games.get(gameId);
+            return g && !g.isTerminal?.() && !g.frozen ? g : null;
+        } catch {
+            return null;
+        }
+    };
+
+    /**
+     * A tournament table's doc, by its own verdict `inner`, when the game
+     * sweep or resolve() meets it: with its tournament live here it joins
+     * it; else the tournament is adopted first (which handles its tables);
+     * with no doc of its tournament anywhere it goes (a tombstone's record
+     * still inserted).
+     */
+    async function tournamentTable(env, inner, instances) {
+        const tid = env.tournamentId;
+        // Its tournament's adoption in flight handles it
+        if (adoptingT.has(tid)) {
+            await adoptingT.get(tid);
+            const g = gameHere(env._id);
+            if (g) return { state: 'adopted', game: g };
+        }
+        const t = findTournament(tid);
+        if (!t) {
+            const tcoll = collections().liveTournaments;
+            if (!tcoll) return { state: 'pending' };
+            const tenv = await tcoll.findOne({ _id: tid }, { projection: TOURNAMENT_ENVELOPE_PROJECTION });
+            if (!tenv) {
+                if (inner.act === 'tombstone') return adoptTombstone(env, inner.attempts);
+                if (inner.act === 'discard') return (await discard(env, inner.why)) ? { state: 'gone' } : { state: 'lost' };
+                return (await discard(env, 'no tournament')) ? { state: 'gone' } : { state: 'lost' };
+            }
+            if (tenv.owner === me) return { state: 'pending' };
+            await handleTournament(tenv, instances);
+            const g = gameHere(env._id);
+            if (g) return { state: 'adopted', game: g };
+            return findTournament(tid) ? { state: 'gone' } : { state: 'pending' };
+        }
+        // Its tournament is live here: the table joins it (it was pending then)
+        const round = t.roundOfGame(env._id);
+        const open = !!round && !round.completedGames.has(env._id);
+        if (inner.act === 'discard') return (await discard(env, inner.why)) ? { state: 'gone' } : { state: 'lost' };
+        if (inner.act === 'tombstone') {
+            const claimed = await claimTombstone(env, inner.attempts);
+            if (!claimed) return { state: 'lost' };
+            notify(env._id, null);
+            if (open) {
+                try {
+                    await scoreLateTable(getIo(), t, env._id, claimed.ended || {});
+                } catch (err) {
+                    logFailure('tournament table score', null, err, { gameId: env._id });
+                }
+            }
+            await finishTombstone(claimed);
+            return { state: 'gone' };
+        }
+        if (!open) return (await discard(env, 'scored')) ? { state: 'gone' } : { state: 'lost' };
+        return adoptLive(env, inner.attempts, { tableAbandonMs: tournamentAbandonMs });
+    }
+
+    /** Delete another owner's tournament doc (CAS on owner and rev), then clear its members' pointers. */
+    async function discardTournament(tenv, why) {
+        const coll = collections().liveTournaments;
+        if (!coll) return false;
+        const res = await coll.deleteOne({ _id: tenv._id, owner: tenv.owner, rev: tenv.rev });
+        if (!res || !res.deletedCount) return false;
+        logger.info('Live tournament doc discarded', { tournamentId: tenv._id, rev: tenv.rev, why });
+        await Promise.all(tournamentMembers(tenv).map(async (u) => {
+            try {
+                await clearTournamentPointer(u, tenv._id);
+            } catch (err) {
+                logFailure('pointer clear', null, err, { tournamentId: tenv._id });
+            }
+        }));
+        notify(tenv._id, null);
+        return true;
+    }
+
+    /** One users.find over a tournament's members and chat senders. */
+    async function screenTournament(doc) {
+        const members = tournamentMembers(doc);
+        const senders = new Set();
+        for (const m of doc?.state?.messages || []) if (m && typeof m.username === 'string' && m.username && !isBotName(m.username)) senders.add(m.username);
+        const names = [...new Set([...members, ...senders])];
+        const removed = new Set();
+        const scrubbed = new Set();
+        if (names.length === 0) return { removed, scrubbed };
+        const coll = users();
+        if (!coll) throw Object.assign(new Error('no users collection'), { name: 'NoCollection' });
+        const found = await coll.find({ username: { $in: names } }, { projection: { username: 1, mergedInto: 1, deletedAt: 1 } }).toArray();
+        const byName = new Map(found.map((u) => [u.username, u]));
+        const DELETED = '[deleted]';
+        for (const name of names) {
+            const u = byName.get(name);
+            const deleted = !u || u.mergedInto === DELETED;
+            const merged = !!u && typeof u.mergedInto === 'string' && u.mergedInto !== DELETED;
+            if (u && u.mergedInto === DELETED && ms(u.deletedAt) !== null) {
+                try {
+                    noteDeleted(name, ms(u.deletedAt));
+                } catch (err) {
+                    logFailure('note deleted', null, err);
+                }
+            }
+            if (members.includes(name) && (deleted || merged)) removed.add(name);
+            if (senders.has(name) && deleted) scrubbed.add(name);
+        }
+        return { removed, scrubbed };
+    }
+
+    /** Adopt a tournament doc and its tables (verdict 'adopt'). */
+    async function adoptTournamentDoc(tenv, attempts, instances) {
+        const tcoll = collections().liveTournaments;
+        const gcoll = collections().liveGames;
+        if (!tcoll || !gcoll) return { state: 'pending' };
+        // Its tables first: one a live owner still holds keeps it waiting
+        const tables = await gcoll.find({ tournamentId: tenv._id }, { projection: ENVELOPE_PROJECTION }).toArray();
+        const verdicts = new Map();
+        for (const env of tables) {
+            if (env.owner === me) continue;
+            const v = verdict(env, instances, { inTournament: true });
+            if (v.act === 'pending') return { state: 'pending' };
+            verdicts.set(env._id, { env, v });
+        }
+        const full = await tcoll.findOne({ _id: tenv._id, owner: tenv.owner, rev: tenv.rev });
+        if (!full) return { state: 'lost' };
+        const { removed, scrubbed } = await screenTournament(full);
+        if (stopping()) return { state: 'pending' };
+        const at = new Date(now());
+        const claimed = await tcoll.findOneAndUpdate(
+            { _id: tenv._id, owner: tenv.owner, rev: tenv.rev },
+            {
+                $set: {
+                    owner: me, ownerMode: 'on', released: false, releasedAt: null, releaseKind: null,
+                    adoptedBy: me, adoptedAt: at, adoptAttempts: attempts, rev: tenv.rev + 1, updatedAt: at
+                }
+            },
+            { returnDocument: 'after' }
+        );
+        if (!claimed) return { state: 'lost' };
+        if (isClosed()) {
+            // A handoff froze this process meanwhile: straight back, released
+            try {
+                await tcoll.updateOne({ _id: tenv._id, owner: me, rev: claimed.rev }, { $set: { released: true, releasedAt: new Date(now()), releaseKind: 'handoff' } });
+            } catch (err) {
+                logFailure('adopt give-back', null, err, { tournamentId: tenv._id });
+            }
+            return { state: 'pending' };
+        }
+        const io = getIo();
+        let adopted;
+        try {
+            adopted = adoptTournament(io, { ...full, ...claimed, tournamentId: tenv._id }, { now: now(), removed: [...removed], scrubFrom: [...scrubbed] });
+        } catch (err) {
+            logFailure('adopt', null, err, { tournamentId: tenv._id, why: err?.reason || err?.name || 'error' });
+            try {
+                const res = await tcoll.deleteOne({ _id: tenv._id, owner: me });
+                if (res?.deletedCount) {
+                    await Promise.all(tournamentMembers(full).map((u) => Promise.resolve(clearTournamentPointer(u, tenv._id)).catch(() => {})));
+                }
+            } catch (e) {
+                logFailure('adopt discard', null, e, { tournamentId: tenv._id });
+            }
+            notify(tenv._id, null);
+            return { state: 'gone' };
+        }
+        const t = adopted.tournament;
+        trackAdoptedTournament(t, claimed);
+        adoptedCount++;
+        logger.info('Live tournament adopted', { tournamentId: tenv._id, rev: claimed.rev, from: String(tenv.owner).slice(0, 8), attempts, tables: verdicts.size });
+        // Its tables, each by its own verdict
+        const kept = new Set();
+        const ended = new Map();
+        const claimedTombstones = [];
+        for (const { env, v } of verdicts.values()) {
+            if (stopping()) break;
+            try {
+                if (v.act === 'discard') {
+                    await discard(env, v.why);
+                } else if (v.act === 'tombstone') {
+                    const tb = await claimTombstone(env, v.attempts);
+                    if (tb) {
+                        ended.set(env._id, tb.ended || {});
+                        claimedTombstones.push(tb);
+                        notify(env._id, null);
+                    }
+                } else {
+                    const round = t.roundOfGame(env._id);
+                    if (!round || round.completedGames.has(env._id)) {
+                        await discard(env, 'scored');
+                        continue;
+                    }
+                    const r = await adoptLive(env, v.attempts, { tableAbandonMs: tournamentAbandonMs });
+                    if (r.state === 'adopted' && r.game) kept.add(env._id);
+                }
+            } catch (err) {
+                logFailure('adopt', null, err, { gameId: env._id });
+            }
+        }
+        try {
+            await normalizeRound(io, t, { tableScores: adopted.tableScores || {}, kept, ended });
+        } catch (err) {
+            logFailure('tournament normalize', null, err, { tournamentId: tenv._id });
+        }
+        for (const tb of claimedTombstones) {
+            try {
+                await finishTombstone(tb);
+            } catch (err) {
+                logFailure('tombstone record', null, err, { gameId: tb._id });
+            }
+        }
+        notify(tenv._id, t);
+        return { state: 'adopted', tournament: t };
+    }
+
+    /** The one op for a tournament doc (single flight per id), by its verdict. */
+    function handleTournament(tenv, instances) {
+        const id = tenv._id;
+        if (adoptingT.has(id)) return adoptingT.get(id);
+        const v = verdict(tenv, instances, { readVersions: tournamentReadVersions });
+        if (v.act === 'pending') return Promise.resolve({ state: 'pending' });
+        if (stopping()) return Promise.resolve({ state: 'pending' });
+        const op = (async () => {
+            if (v.act === 'discard') return (await discardTournament(tenv, v.why)) ? { state: 'gone' } : { state: 'lost' };
+            return adoptTournamentDoc(tenv, v.attempts, instances);
+        })().catch((err) => {
+            logFailure('adopt', null, err, { tournamentId: id });
+            return { state: 'pending' };
+        }).finally(() => {
+            if (adoptingT.get(id) === op) adoptingT.delete(id);
+        });
+        adoptingT.set(id, op);
+        return op;
+    }
+
+    /** resolve() for a tournament (liveStore.resolveTournament's 'on' path). */
+    async function resolveTournament(tid, { waitMs, inMemory, whenDbReady }) {
+        const bound = (p) => Promise.race([Promise.resolve(p).catch(() => null), new Promise((r) => {
+            const t = safeTimeout(() => r(null), waitMs, 'adopt:resolveWait');
+            t.unref?.();
+        })]);
+        await bound(whenDbReady(waitMs));
+        await bound(bootSweptPromise);
+        const here = inMemory();
+        if (here) return { state: 'memory', tournament: here };
+        if (isShuttingDown()) return { state: 'pending' };
+        if (adoptingT.has(tid)) {
+            const r = await adoptingT.get(tid);
+            const t = inMemory();
+            if (t) return { state: r?.state === 'adopted' ? 'adopted' : 'memory', tournament: t };
+        }
+        const tcoll = collections().liveTournaments;
+        if (!tcoll) return { state: 'pending' };
+        const tenv = await tcoll.findOne({ _id: tid }, { projection: TOURNAMENT_ENVELOPE_PROJECTION });
+        const instances = await readInstances();
+        if (tenv) {
+            if (tenv.owner === me) {
+                if (holdsTournamentLocally(tid)) return { state: 'pending' };
+                // An own doc nothing here holds (a failed adoption's): it goes
+                try {
+                    await tcoll.deleteOne({ _id: tid, owner: me });
+                } catch (err) {
+                    logFailure('adopt discard', null, err, { tournamentId: tid });
+                    return { state: 'pending' };
+                }
+                return { state: 'gone' };
+            }
+            const r = await handleTournament(tenv, instances);
+            const t = inMemory();
+            if (t) return { state: 'adopted', tournament: t };
+            if (r.state === 'gone') return { state: 'gone' };
+            return { state: 'pending' };
+        }
+        const myStart = ms(startedAt());
+        for (const [id, inst] of instances) {
+            if (id === me) continue;
+            if (ownerState(id, instances) === 'dead') continue;
+            if (Array.isArray(inst.tournamentIds) && inst.tournamentIds.includes(tid)) return { state: 'pending' };
+            if (inst.mode === 'on' && myStart !== null && ms(inst.startedAt) !== null && ms(inst.startedAt) < myStart) return { state: 'pending' };
+        }
+        return { state: 'gone' };
+    }
+
     // ---------- the sweep ----------
 
     async function sweepOnce() {
@@ -601,8 +943,16 @@ function createAdopter(ctx) {
         const coll = collections().liveGames;
         if (!coll) return null;
         const instances = await readInstances();
-        const docs = await coll.find({ owner: { $ne: me } }, { projection: ENVELOPE_PROJECTION }).toArray();
         let adopted = 0;
+        // Tournaments first (PR 6): each adopts its tables with it
+        const tcoll = collections().liveTournaments;
+        const tdocs = tcoll ? await tcoll.find({ owner: { $ne: me } }, { projection: TOURNAMENT_ENVELOPE_PROJECTION }).toArray() : [];
+        for (const tenv of tdocs) {
+            if (stopping()) break;
+            const r = await handleTournament(tenv, instances);
+            if (r && r.state === 'adopted') adopted++;
+        }
+        const docs = await coll.find({ owner: { $ne: me } }, { projection: ENVELOPE_PROJECTION }).toArray();
         for (const env of docs) {
             if (stopping()) break;
             const r = await handle(env, instances);
@@ -740,9 +1090,12 @@ function createAdopter(ctx) {
                 return false;
             }
         },
-        inFlight: () => [...adopting.values()],
+        inFlight: () => [...adopting.values(), ...adoptingT.values()],
         /** Ids with an adopt / discard / tombstone op not settled yet (the handoff's deletes skip them). */
         inFlightIds: () => [...adopting.keys()],
+        /** Tournament ids with an adopt / discard op not settled yet (PR 6). */
+        inFlightTournamentIds: () => [...adoptingT.keys()],
+        resolveTournament,
         liveness,
         readInstances,
         get bootSwept() { return bootSwept; },
@@ -769,5 +1122,6 @@ module.exports = {
     RESTORE_ABANDON_MS,
     TOURNAMENT_RESTORE_ABANDON_MS,
     RESUMED_LINE,
-    ENVELOPE_PROJECTION
+    ENVELOPE_PROJECTION,
+    TOURNAMENT_ENVELOPE_PROJECTION
 };
