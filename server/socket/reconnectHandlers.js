@@ -10,6 +10,7 @@ const { carrierFor } = require('./snapshotHandlers');
 const { getUsersCollection } = require('../database');
 const { verifySession } = require('../utils/sessionTokens');
 const { rememberBlockList } = require('./voiceHandlers');
+const { rememberTutorialFlag } = require('./sessionIdentity');
 const { claimSocket, releaseClaim } = require('./authHandlers');
 const { releaseIdentity } = require('./sessionIdentity');
 const { deletedSince } = require('../admin/accountDelete');
@@ -41,7 +42,7 @@ async function isAuthorizedForUser(io, socket, username, sessionToken) {
         }
         const user = await usersCollection.findOne(
             { username },
-            { projection: { sessionTokens: 1, sessionToken: 1, sessionEpoch: 1, blockedUsers: 1 } }
+            { projection: { sessionTokens: 1, sessionToken: 1, sessionEpoch: 1, blockedUsers: 1, tutorial: 1 } }
         );
         // Per-device tokens (server/utils/sessionTokens.js); also accepts and
         // migrates a legacy plaintext sessionToken
@@ -72,6 +73,8 @@ async function isAuthorizedForUser(io, socket, username, sessionToken) {
         // (a web reload rejoins first): load the block list the same way,
         // or voice signaling would have none to check
         rememberBlockList(socket, user.blockedUsers || []);
+        // The account's tutorial flag (users.tutorial; the auto-start reads it)
+        rememberTutorialFlag(socket, user);
         // Lets a later restore from another device tell this one apart
         if (socket.data) socket.data.sessionHash = session.hash;
         return true;
@@ -236,6 +239,7 @@ function seatRejoin(socket, io, game, gameId, username) {
             isLazy: true,
             tournamentId: tournamentId && gameManager.getTournamentById(tournamentId) ? tournamentId : null
         }));
+        require('./assistHandlers').sendAssistState(io, game, position, socket.id);
         return;
     }
     seatLifecycle.watchSeat(io, game, position, socket, username, { via: 'rejoin' });

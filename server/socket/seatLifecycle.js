@@ -492,6 +492,8 @@ function reconnectOwner(io, game, pos, socket, username) {
     // (dropping cannot buy a fresh 90 s; a newer socket taking a connected
     // seat keeps the running one)
     if (game.currentTurn === pos) armAfk(io, game, pos, { keep: true, resume: true });
+    // The tutorial: its state, and this turn's advice again if it is on
+    require('./assistHandlers').afterRejoin(io, game, pos, socket);
     maybeAbort(io, game);
     return true;
 }
@@ -564,6 +566,8 @@ function watchSeat(io, game, pos, socket, username, { via }) {
     // spectator list never count it), so "<owner> joined as a spectator"
     // was wrong, and nothing else in the notice changed.
     replayPresenceTo(game, socket, pos);
+    // The tutorial's state (a bot plays the seat: no advice)
+    require('./assistHandlers').sendAssistState(io, game, pos, socket.id);
     maybeAbort(io, game);
     return true;
 }
@@ -843,6 +847,8 @@ function goActive(io, game, pos, socket, { voice = true } = {}) {
     }
     // Back in control: earlier timeouts in a row no longer count
     require('./bidClock').clearStrikes(game, pos);
+    // The tutorial: its state, and this turn's advice if it is on
+    require('./assistHandlers').afterRejoin(io, game, pos, socket);
     maybeAbort(io, game);
     return true;
 }

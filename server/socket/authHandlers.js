@@ -20,7 +20,7 @@ const pointerResolve = require('./pointerResolve');
 const { checkPasswordRule, revokeOpenResetLinks, PASSWORD_RULE_MESSAGE } = require('../admin/setPassword');
 const {
     belongsTo, releaseIdentity, markSuperseding, cancelSupersede, confirmSupersede, clearSuperseded,
-    reparkClosedNotices
+    reparkClosedNotices, rememberTutorialFlag
 } = require('./sessionIdentity');
 
 /**
@@ -473,6 +473,7 @@ async function signIn(socket, io, data) {
 
         const blockedUsers = user.blockedUsers || [];
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
+        rememberTutorialFlag(socket, user); // the tutorial's auto-start reads it
 
         if (where.game || where.held) {
             // User has an active game - notify client
@@ -701,6 +702,10 @@ async function signUp(socket, io, data) {
             socketId: socket.id,  // Set socketId immediately for auto-login
             sessionTokens: session.update.$set.sessionTokens,
             profilePic,
+            // A new account: its first finished game makes it 'done'; until
+            // then a client with the cap tutorial starts with the tutorial
+            // on (assistHandlers.autoStart)
+            tutorial: 'pending',
             stats: {
                 wins: 0,
                 losses: 0,
@@ -738,6 +743,7 @@ async function signUp(socket, io, data) {
         gameManager.registerUser(socket.id, username);
         clearSuperseded(socket, io);
         rememberBlockList(socket, []);
+        rememberTutorialFlag(socket, { tutorial: 'pending' });
 
         socket.emit('signUpResponse', { success: true, username, sessionToken, autoLoggedIn: true });
         authLogger.info('New user registered and auto-logged in', { username, socketId: socket.id });
@@ -897,6 +903,7 @@ async function restoreSession(socket, io, data) {
         if (typeof where.then === 'function') where = await where;
         const blockedUsers = user.blockedUsers || [];
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
+        rememberTutorialFlag(socket, user); // the tutorial's auto-start reads it
 
         if (where.game || where.held) {
             socket.emit('restoreSessionResponse', {

@@ -165,6 +165,7 @@ export const SERVER_EVENTS = {
   BID_CLOCK: 'bidClock',
   SEAT_LEFT: 'seatLeft',
   ASSIST_HINT: 'assistHint',
+  ASSIST_STATE: 'assistState',
 
   // Connection
   CONNECT: 'connect',

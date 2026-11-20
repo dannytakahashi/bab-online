@@ -281,6 +281,12 @@ const defs = {
     // comes as private gameLogEntry lines (contract/README.md "Client
     // capabilities")
     clientCapAssist: konst('assist'),
+    // A fifth, its own const for the same reason (2026-11-19, the tutorial):
+    // the client renders the tutorial's tips (assistHint kind tip, tipId,
+    // actions) and s2c assistState; only such a socket gets the tutorial's
+    // auto-start in a new account's first game (contract/README.md "Client
+    // capabilities")
+    clientCapTutorial: konst('tutorial'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)
@@ -379,7 +385,11 @@ const defs = {
         assisted: bool({ description: 'this game counts as bot-assisted for the player' }),
         // additive (2026-11-19, owner): as s2c assistHint's unlimited
         unlimited: bool({ description: 'true only in a game with a native bot seat (assistState.isFreeHelpGame): /help has no limit there and clients show no count or free/limit words; absent otherwise' }),
-    }, { optional: ['unlimited'] }),
+        // additive (2026-11-19, the tutorial): present (true) only while the
+        // player's tutorial is on, so a reload shows the 'Tutorial on' chip
+        tutorial: bool({ description: 'the tutorial is on for this player (only present while on)' }),
+        auto: bool({ description: 'the tutorial was turned on by the auto-start (only present while on)' }),
+    }, { optional: ['unlimited', 'tutorial', 'auto'] }),
     // A hand's fault line (2026-11-19, owner): a player on a SET team (fewer
     // tricks than its combined bid) who took fewer tricks than they bid (a
     // bore counts as 0). Rule: server/game/rules.js handFaults (the

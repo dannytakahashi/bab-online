@@ -39,8 +39,13 @@ const { socketLogger } = require('../utils/logger');
  *   assist            renders the private s2c assistHint (/help answers);
  *                     without it the answer comes as private system lines
  *                     (server/socket/assistHandlers.js)
+ *   tutorial          renders the tutorial's tips (assistHint kind tip,
+ *                     tipId, actions Keep / Turn off) and s2c assistState;
+ *                     only such a socket gets the tutorial's auto-start in
+ *                     a new account's first game (assistHandlers.autoStart);
+ *                     without it tips come as private "Tip: ..." lines
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

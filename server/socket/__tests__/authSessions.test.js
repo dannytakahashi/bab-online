@@ -245,6 +245,39 @@ describe('merged (retired) accounts', () => {
     });
 });
 
+describe('the tutorial flag (users.tutorial, socket.data.tutorialFlag)', () => {
+    test('sign-up writes pending on the account and the socket', async () => {
+        const socket = connect();
+        await auth.signUp(socket, io, { username: 'Newbie', password: 'pw-long-1' });
+        expect(lastEmit(socket, 'signUpResponse')).toMatchObject({ success: true });
+        expect((await getUser('Newbie')).tutorial).toBe('pending');
+        expect(socket.data.tutorialFlag).toBe('pending');
+    });
+
+    test('sign-in and restore copy the account flag; an account without one has none', async () => {
+        const plain = connect();
+        await signIn(plain);
+        expect(plain.data.tutorialFlag).toBe(null);
+        await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { tutorial: 'done' } });
+        const again = connect();
+        const { sessionToken } = await signIn(again);
+        expect(again.data.tutorialFlag).toBe('done');
+        await mockDb.current.users.updateOne({ username: 'Alan' }, { $set: { tutorial: 'pending' } });
+        const restored = connect();
+        expect(await restore(restored, sessionToken)).toMatchObject({ success: true });
+        expect(restored.data.tutorialFlag).toBe('pending');
+    });
+
+    test('signing in as another account on the socket replaces it (that account has none)', async () => {
+        const socket = connect();
+        await auth.signUp(socket, io, { username: 'Newbie', password: 'pw-long-1' });
+        expect(socket.data.tutorialFlag).toBe('pending');
+        gameManager.getUserBySocketId.mockReturnValue({ username: 'Newbie', socketId: socket.id });
+        await signIn(socket);
+        expect(socket.data.tutorialFlag).toBe(null);
+    });
+});
+
 describe('sign-up', () => {
     test('new accounts get a per-device session', async () => {
         const socket = connect();

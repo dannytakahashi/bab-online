@@ -22,6 +22,13 @@
  *   users.username / users.stats / users.botStats / users.profilePic /
  *   users.customProfilePic
  *   users.blockedUsers (own list, and other users' lists naming the source)
+ *   users.tutorial (the tutorial's account flag: 'pending' for a new
+ *   account until it finishes a game, 'done', 'dismissed'; absent on older
+ *   accounts). Not keyed by name, but classified: the target keeps its own
+ *   unless it is 'pending' and a source being merged is not (an older or
+ *   experienced account: absent counts as not pending), then it takes
+ *   that source's value ('done' for one without a flag), so the kept
+ *   account never auto-starts the tutorial again; a tombstone drops it
  *   users.mergedInto (earlier tombstones that point at a source)
  *   gameRecords.team1Players / team2Players (humans only; the bot personas
  *   of a bot game are in gameRecords.team1Bots / team2Bots, which are never
@@ -55,7 +62,9 @@ const TOMBSTONE_UNSET = [
     'profilePic', 'customProfilePic', 'blockedUsers', 'activeGameId',
     'activeGameStartedAt', 'activeTournamentId',
     // a tombstone is never an admin (server/admin/adminRole.js)
-    'isAdmin', 'adminSince', 'adminSetBy'
+    'isAdmin', 'adminSince', 'adminSetBy',
+    // the tutorial's account flag (assistHandlers.autoStart)
+    'tutorial'
 ];
 
 function addStats(a, b) {
@@ -98,6 +107,8 @@ async function planMerge(db, { target, sources }) {
         sourceAccounts: [],
         profilePic: null,
         targetBlockedUsers: null,
+        // {before, after}: the target's users.tutorial changes (see the header)
+        tutorial: null,
         gameRecords: [],
         reports: [],
         otherUsersBlocks: [],
@@ -209,6 +220,16 @@ async function planMerge(db, { target, sources }) {
         plan.targetBlockedUsers = { before: targetDoc.blockedUsers || [], after: unionBlocked };
     }
 
+    // The tutorial's flag: a 'pending' target merged with an account that is
+    // not new is not new either (only sources not merged before count)
+    if (targetDoc.tutorial === 'pending') {
+        const notNew = sourceDocs.find(({ doc, statsDone }) => !statsDone && doc.tutorial !== 'pending');
+        if (notNew) {
+            const v = notNew.doc.tutorial;
+            plan.tutorial = { before: 'pending', after: v === 'dismissed' || v === 'done' ? v : 'done' };
+        }
+    }
+
     // Other players who blocked a source now block the target
     const blockers = await db.users.find({
         blockedUsers: { $in: plan.sources },
@@ -272,6 +293,7 @@ function countChanges(plan) {
     return plan.sourceAccounts.filter(s => s.action === 'add-stats').length
         + (plan.profilePic ? 1 : 0)
         + (plan.targetBlockedUsers ? 1 : 0)
+        + (plan.tutorial ? 1 : 0)
         + plan.otherUsersBlocks.length
         + plan.chainedTombstones.length
         + plan.gameRecords.length
@@ -292,7 +314,7 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     const { target, sources } = plan;
     const result = {
         gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0,
-        statsMerged: [], profilePic: false, targetBlockedUsers: false, retired: [],
+        statsMerged: [], profilePic: false, targetBlockedUsers: false, tutorial: false, retired: [],
         // sources whose retire was refused (see step 3): a partial merge
         notRetired: []
     };
@@ -348,6 +370,11 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     if (plan.targetBlockedUsers) {
         await db.users.updateOne({ _id: plan.targetId }, { $set: { blockedUsers: plan.targetBlockedUsers.after } });
         result.targetBlockedUsers = true;
+    }
+    if (plan.tutorial) {
+        // Only while still 'pending' (a finished game may have made it 'done')
+        await db.users.updateOne({ _id: plan.targetId, tutorial: 'pending' }, { $set: { tutorial: plan.tutorial.after } });
+        result.tutorial = true;
     }
 
     // 3. Retire sources last, after their stats are safely on the target.
@@ -433,6 +460,8 @@ function formatPlan(plan) {
     if (plan.targetBlockedUsers) {
         lines.push('', `Block list of "${plan.target}": [${plan.targetBlockedUsers.before.join(', ')}] → [${plan.targetBlockedUsers.after.join(', ')}]`);
     }
+
+    if (plan.tutorial) lines.push('', `Tutorial flag of "${plan.target}": ${plan.tutorial.before} → ${plan.tutorial.after} (no tutorial auto-start).`);
 
     lines.push('', `Game records to re-point: ${plan.gameRecords.length}`);
     for (const r of plan.gameRecords) {

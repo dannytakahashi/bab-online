@@ -13,7 +13,10 @@
  *
  * /help and the exact line ?help (shipped iOS cannot send an unknown /
  * command) go to assistHandlers for every role and are never chat: a seat
- * owner gets a suggestion, a spectator or entrant a private line.
+ * owner gets a suggestion, a spectator or entrant a private line. So does
+ * /tutorial (on, off, keep; no ?tutorial keyword: a typed "?tutorial" is
+ * plain chat): a seat owner turns the tutorial on or off, a spectator or
+ * entrant gets its private line.
  */
 
 const gameManager = require('../game/GameManager');
@@ -89,6 +92,11 @@ function ownerCommand(socket, io, game, pos, message) {
         assistHandlers.help(socket, io, game, pos);
         return;
     }
+    // /tutorial [on|off|keep]: the same guards as /help
+    if (assistHandlers.isTutorialCommand(command)) {
+        assistHandlers.tutorialCommand(socket, io, game, pos, command);
+        return;
+    }
 
     if (seat.controller === Controller.HUMAN) {
         if (command === '/lazy') {
@@ -154,13 +162,13 @@ function recordedSeat(socket, game) {
  * whose recorded user owns a seat here is told why it can't ask from this
  * socket (a bot holds the seat: /active first) rather than "players only".
  */
-function helpRequest(socket, io, sender) {
+function helpRequest(socket, io, sender, { tutorial = null } = {}) {
     let spectatorLine = null;
     if (sender.role === 'spectator') {
         const owned = recordedSeat(socket, sender.game);
         if (owned) spectatorLine = owned.state === 'reclaim' ? assistHandlers.TEXT.botSeat : RECORDED_SEAT_LINES[owned.state];
     }
-    assistHandlers.request(socket, io, sender, { spectatorLine });
+    assistHandlers.request(socket, io, sender, { spectatorLine, tutorial });
 }
 
 /**
@@ -174,6 +182,10 @@ function spectatorCommand(socket, io, game, message) {
     const command = message.trim().toLowerCase();
     if (assistHandlers.isHelpCommand(command)) {
         helpRequest(socket, io, { game, role: 'spectator', pos: null });
+        return;
+    }
+    if (assistHandlers.isTutorialCommand(command)) {
+        helpRequest(socket, io, { game, role: 'spectator', pos: null }, { tutorial: command });
         return;
     }
     if (command === '/leave') {
@@ -266,6 +278,8 @@ function chatMessage(socket, io, data) {
             handleDrawPhaseLeave(socket, io, game);
         } else if (isCommand && assistHandlers.isHelpCommand(command)) {
             helpRequest(socket, io, sender);
+        } else if (isCommand && assistHandlers.isTutorialCommand(command)) {
+            helpRequest(socket, io, sender, { tutorial: command });
         } else {
             socketLogger.debug('Chat rejected: no position', { socketId: socket.id });
         }

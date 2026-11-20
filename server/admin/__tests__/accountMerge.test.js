@@ -270,3 +270,38 @@ describe('findDuplicateCandidates', () => {
         expect(nameKey('1234')).toBe('1234');
     });
 });
+
+describe('the tutorial flag (users.tutorial)', () => {
+    const db2 = (target, source) => createMemoryDb({
+        users: [
+            { username: 'Neo', password: 'hash-n', stats: stats({ gamesPlayed: 0 }), ...(target === undefined ? {} : { tutorial: target }) },
+            { username: 'Neo2', password: 'hash-n2', stats: stats({ gamesPlayed: 4 }), ...(source === undefined ? {} : { tutorial: source }) }
+        ],
+        gameRecords: [],
+        reports: []
+    });
+
+    test.each([
+        // target, source -> target after
+        ['pending', undefined, 'done'],
+        ['pending', 'done', 'done'],
+        ['pending', 'dismissed', 'dismissed'],
+        ['pending', 'pending', 'pending'],
+        ['done', 'pending', 'done'],
+        ['dismissed', undefined, 'dismissed'],
+        [undefined, 'pending', undefined]
+    ])('target %s + source %s -> target %s; the tombstone drops it', async (target, source, after) => {
+        const db = db2(target, source);
+        const plan = await planMerge(db, { target: 'Neo', sources: ['Neo2'] });
+        expect(plan.errors).toEqual([]);
+        const changes = target === 'pending' && source !== 'pending';
+        expect(plan.tutorial).toEqual(changes ? { before: 'pending', after } : null);
+        if (changes) expect(formatPlan(plan)).toContain(`Tutorial flag of "Neo": pending → ${after}`);
+        await applyMerge(db, plan);
+        expect(user(db, 'Neo').tutorial).toBe(after);
+        expect(user(db, 'Neo2').mergedInto).toBe('Neo');
+        expect('tutorial' in user(db, 'Neo2')).toBe(false);
+        // a second run plans nothing for it
+        expect((await planMerge(db, { target: 'Neo', sources: ['Neo2'] })).tutorial).toBe(null);
+    });
+});
