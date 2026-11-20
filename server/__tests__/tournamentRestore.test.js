@@ -385,6 +385,39 @@ describe('round_active', () => {
         void B;
     }, 120000);
 
+    test('a table whose final write failed (its doc deleted, no tombstone): scored on B from the tournament doc\'s tableScores as an abort; the other plays on, the round completes once', async () => {
+        const { A, ctx, tid } = await bootTournament(5);
+        const tables = await beginRound(ctx, A.io);
+        expect(tables).toHaveLength(2);
+        await jest.advanceTimersByTimeAsync(3000);
+        await h.flushStore(A.store);
+        // The first final write (a table's replaceOne) fails: that doc is deleted at the handoff
+        db().faults.fail({ collections: 'liveGames', ops: 'replaceOne', instances: A.name, times: 1 });
+        const B = await deploy.restart({ kind: 'handoff' });
+        const t = T(tid);
+        const lost = tables.filter((g) => !gameManager.games.has(g.gameId)).map((g) => g.gameId);
+        const kept = tables.filter((g) => gameManager.games.has(g.gameId)).map((g) => g.gameId);
+        expect(lost).toHaveLength(1);
+        expect(kept).toHaveLength(1);
+        expect(db().liveGames.docs.find((d) => d._id === lost[0])).toBeUndefined();
+        expect(t.phase).toBe('round_active');
+        expect(t.getCurrentRound().completedGames.has(lost[0])).toBe(true);
+        const rows = Object.values(t.scoreboard).flatMap((e) => e.roundDetails).filter((d) => d.gameId === lost[0]);
+        // One row per human seated there (a bot seat scores nobody)
+        expect(rows.length).toBe(t.getCurrentRound().games.get(lost[0]).humanPlayers.length);
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.every((d) => d.aborted === true)).toBe(true);
+        // Seated rows (position, partner): the saved tableScores, not the pre-deal fallback
+        expect(rows.every((d) => Number.isInteger(d.position) && typeof d.partner === 'string')).toBe(true);
+        expect(ended).not.toContain(lost[0]);
+        const sockets = await everyoneBack(B, tid, ctx.usernames);
+        await playOut(t, B.io, (sid) => sockets.get(sid));
+        expect(t.phase).toBe('between_rounds');
+        expect(ended).toEqual(kept);
+        expect(events(B, 'tournamentRoundComplete')).toHaveLength(1);
+        expect(db().gameRecords.docs.filter((r) => r.gameId === lost[0])).toHaveLength(0);
+    }, 120000);
+
     test('nobody returns: the tables abort at 5 minutes (running scores), the tournament is torn down at 10 (pointers cleared, doc gone)', async () => {
         const { A, ctx, tid } = await bootTournament(4);
         const [table] = await beginRound(ctx, A.io);
@@ -480,9 +513,12 @@ describe('between rounds', () => {
         for (const u of ctx.usernames) expect(user(u).activeTournamentId).toBeUndefined();
     }, 120000);
 
-    test('a member deleted and one merged across the restore: removed, their rows kept, never a winner', async () => {
-        const { ctx, tid } = await betweenRounds(4);
+    test('a member deleted and one merged across the restore: removed, their rows kept, never a winner; the deleted one\'s chat lines dropped', async () => {
+        const { A, ctx, tid } = await betweenRounds(4);
         const [, gone, merged] = ctx.usernames;
+        tournamentHandlers.tournamentChat(ctx.sockets.find((s) => gameManager.getUserBySocketId(s.id)?.username === gone), A.io, { message: 'from the deleted one' });
+        tournamentHandlers.tournamentChat(ctx.sockets.find((s) => gameManager.getUserBySocketId(s.id)?.username === merged), A.io, { message: 'from the merged one' });
+        await h.flushStore(A.store);
         const before = shape(ctx.t).scoreboard;
         db().users.docs.find((d) => d.username === gone).mergedInto = '[deleted]';
         db().users.docs.find((d) => d.username === merged).mergedInto = 'someoneElse';
@@ -491,6 +527,9 @@ describe('between rounds', () => {
         expect(members(t)).not.toContain(gone);
         expect(members(t)).not.toContain(merged);
         expect(t.getScoreboard()).toEqual(before);
+        // A deleted sender's lines go; a merged account's stay (as restoreGame's scrub)
+        expect(t.messages.map((m) => m.message)).not.toContain('from the deleted one');
+        expect(t.messages.map((m) => m.message)).toContain('from the merged one');
         // Give them the best score: still never a winner
         t.scoreboard[gone].totalScore = 10000;
         expect(t.getWinners()).not.toContain(gone);
