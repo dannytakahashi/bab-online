@@ -95,7 +95,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
-    onSearchPlayersResult,
     onPlayerProfileReceived,
     // Leaderboard callbacks
     onLeaderboardReceived,
@@ -200,7 +199,6 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
-    onSearchPlayersResult,
     onPlayerProfileReceived,
   });
 

@@ -60,7 +60,6 @@ import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
-import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
@@ -2266,9 +2265,6 @@ function initializeApp() {
     },
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
-    },
-    onSearchPlayersResult: (players, query) => {
-      updatePlayerSearchResults(players, query);
     },
     onPlayerProfileReceived: (profile, scope) => {
       if (isStaleScopeReply(scope)) return;

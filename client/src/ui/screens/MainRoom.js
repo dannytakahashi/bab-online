@@ -9,7 +9,6 @@
 import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel } from '../kit/index.js';
 import { chatLine, chatForm, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
-import { showPlayerSearchPage } from './PlayerSearchPage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
 import { scopePayload } from '../../state/statsScope.js';
@@ -240,7 +239,6 @@ export function showMainRoom(data, socket, username = null) {
   // Stats pages ask for the device's stats scope (state/statsScope.js)
   navButton('Leaderboard', () => socket.emit('getLeaderboard', scopePayload()));
   navButton('Records', () => socket.emit('getRecords', scopePayload()));
-  navButton('Players', () => showPlayerSearchPage(socket));
   navButton('Profile', () => socket.emit('getProfile', scopePayload()));
   // Admins only (display: the server checks every admin request)
   const adminButton = createButton({
