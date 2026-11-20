@@ -75,6 +75,42 @@ describe('HUD hit targets (HIG 44 pt)', () => {
   });
 });
 
+describe('the /help lightbulb', () => {
+  const table = readClientFile('styles/table.css');
+
+  it('is a gold bulb on a dark disc with a gold ring, all from tokens, with a 44 px hit area', () => {
+    const r = ruleOf(table, '.hud-assist-ask');
+    expect(r).toContain('color: var(--gold)');
+    expect(r).toContain('border: 1px solid rgb(var(--gold-rgb) / 0.7)');
+    expect(r).toContain('background: rgb(var(--surface-1-rgb) / 0.9)');
+    expect(r).toContain('border-radius: var(--radius-pill)');
+    expect(r).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    // the ::before reaches the hit target round any button size
+    expect(ruleOf(table, '.hud-assist-ask::before')).toContain('position: absolute');
+    // (the layout's assistAskSpot: pad to the sides, up above, down below;
+    // tableHud's --assist-ask-pad / -up / -down)
+    const hit = [...table.matchAll(/\n\.hud-assist-ask::before \{([^}]*)\}/g)].map((m) => m[1]).join('');
+    expect(hit).toContain('inset: calc(-1 * var(--ask-up)) calc(-1 * var(--assist-ask-pad, 6px)) calc(-1 * var(--ask-down));');
+    expect(r).toContain('--ask-up: var(--assist-ask-up, 12px)');
+    expect(r).toContain('--ask-down: var(--assist-ask-down, 0px)');
+    expect(r).toContain('top: var(--ask-y)');
+    // while the tutorial chip shows: the layout's chip spot
+    const chip = ruleOf(table, '.has-tutorial-chip > .hud-assist-ask');
+    expect(chip).toContain('--ask-y: var(--assist-ask-chip-y');
+    expect(chip).toContain('--ask-up: var(--assist-ask-chip-up');
+    expect(chip).toContain('--ask-down: var(--assist-ask-chip-down');
+    expect(r).toContain('width: var(--assist-ask, 36px)');
+    // its right and bottom edges are the spot's
+    expect(r).toContain('transform: translate(-100%, -100%)');
+    expect(ruleOf(table, '.hud-assist-ask:focus-visible')).toContain('outline: 2px solid');
+  });
+
+  it('its press dip is dropped with reduced motion', () => {
+    const i = table.indexOf('@media (prefers-reduced-motion: reduce) {\n    .hud-assist-ask:active');
+    expect(i).toBeGreaterThan(-1);
+  });
+});
+
 describe('the spectator badge\'s bubble', () => {
   const table = readClientFile('styles/table.css');
   const components = readClientFile('styles/components.css');

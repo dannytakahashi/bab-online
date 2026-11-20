@@ -1,11 +1,16 @@
 /**
  * The "Tutorial on" chip (the tutorial, 2026-11-19; words in
  * state/tutorial.js): while my tutorial is on, a small pill at the left end
- * of my hand box, level with the "?" at its right end, with an on/off
- * switch that turns it off (GameScene sends `/tutorial off`). Only the seat
- * owner sees it (state/tutorial.js chipVisible). It sits under the
- * suggestion card in the stacking order (the card's own buttons win), and
- * never over the bid sheet (its clock), my seat's box or the "?".
+ * of my hand box, its bottom level with the lightbulb's spot at its right
+ * end (computeTableLayout tutorialChipSpot), with an on/off switch that
+ * turns it off (GameScene sends `/tutorial off`). Only the seat owner sees
+ * it (state/tutorial.js chipVisible). It sits under the suggestion card in
+ * the stacking order (the card's own buttons win), and never over the bid
+ * sheet (its clock) or my seat's box. While it shows, the lightbulb takes
+ * the layout's chip spot (assistAskSpot chip: a row up where the hand box
+ * is too narrow for both side by side), so their hit areas never meet,
+ * except on a table both too narrow and too short for that row (at most
+ * 560 x 640), where they share the row.
  *
  *   .hud-tutorial            role group "Tutorial"
  *     .hud-tutorial__label   "Tutorial on"

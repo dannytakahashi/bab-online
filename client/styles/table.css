@@ -1347,7 +1347,7 @@ body > .voice-btn {
     outline: none;
 }
 
-/* ---------- /help: the suggestion card, the "?" and the suggested card ---------- */
+/* ---------- /help: the suggestion card, the lightbulb and the suggested card ---------- */
 
 /* the card (ui/components/AssistCard.js): its bottom just above my hand */
 .hud-assist {
@@ -1401,6 +1401,13 @@ body > .voice-btn {
     min-height: 24px;
 }
 
+.assist-card__bulb {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    color: var(--gold);
+}
+
 .assist-card__chip {
     padding: 1px var(--space-2);
     border-radius: var(--radius-pill);
@@ -1436,7 +1443,11 @@ body > .voice-btn {
     inset: -8px;
 }
 
-.hud-assist-ask::before { inset: min(-6px, calc((var(--assist-ask, 32px) - var(--hit-target, 44px)) / 2)); }
+/* the lightbulb's: the layout's reach to the sides, above and below
+   (assistAskSpot: 44 px across and tall, none below where there is room) */
+.hud-assist-ask::before {
+    inset: calc(-1 * var(--ask-up)) calc(-1 * var(--assist-ask-pad, 6px)) calc(-1 * var(--ask-down));
+}
 
 .assist-card__close:hover { background: rgb(var(--text-primary-rgb) / 0.12); color: var(--text-primary); }
 .assist-card__close:focus-visible,
@@ -1495,14 +1506,26 @@ body > .voice-btn {
     font-size: var(--type-xs);
 }
 
-/* the "?" (my turn at my seat): at the hand box's right end */
+/* the lightbulb (my turn at my seat), as iOS's AssistAskButton: a gold
+   bulb on a dark disc with a gold ring, at the hand box's right end, level
+   with the top of the cards (the layout's assistAskSpot: its right and
+   bottom edges, its size, at least 28 px; its hit area inside the hand box,
+   clear of my seat's box); its ::before above makes the hit area 44 px.
+   While the tutorial chip shows it takes the layout's chip spot (a row up
+   where the hand box is too narrow for both side by side) */
 .hud-assist-ask {
+    --ask-y: var(--assist-ask-y, 70%);
+    --ask-up: var(--assist-ask-up, 12px);
+    --ask-down: var(--assist-ask-down, 0px);
     position: absolute;
     left: var(--assist-ask-x, 70%);
-    top: var(--assist-ask-y, 70%);
+    top: var(--ask-y);
     transform: translate(-100%, -100%);
-    width: var(--assist-ask, 32px);
-    height: var(--assist-ask, 32px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--assist-ask, 36px);
+    height: var(--assist-ask, 36px);
     min-width: 0;
     min-height: 0;
     padding: 0;
@@ -1510,17 +1533,38 @@ body > .voice-btn {
     border-radius: var(--radius-pill);
     background: rgb(var(--surface-1-rgb) / 0.9);
     color: var(--gold);
-    font-family: var(--font-ui);
-    font-size: calc(var(--assist-ask, 32px) * 0.5);
-    font-weight: var(--weight-bold);
     box-shadow: var(--elev-1);
     cursor: pointer;
     pointer-events: auto;
     z-index: var(--z-hud-badge);
+    transition:
+        background-color var(--dur-fast) var(--ease-standard),
+        border-color var(--dur-fast) var(--ease-standard),
+        transform var(--dur-fast) var(--ease-emphasized);
 }
 
-.hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); }
+.hud-assist-ask__bulb {
+    width: 56%;
+    height: 56%;
+    pointer-events: none;
+}
+
+.hud-assist-ask:hover { background: rgb(var(--gold-rgb) / 0.2); border-color: var(--gold); }
+/* a press dips it a little (no motion with reduced motion: the durations are 0
+   and the scale is dropped below) */
+.hud-assist-ask:active { transform: translate(-100%, -100%) scale(0.94); }
+
+@media (prefers-reduced-motion: reduce) {
+    .hud-assist-ask:active { transform: translate(-100%, -100%); }
+}
+
 .hud-assist-ask[hidden] { display: none; }
+
+.has-tutorial-chip > .hud-assist-ask {
+    --ask-y: var(--assist-ask-chip-y, var(--assist-ask-y, 70%));
+    --ask-up: var(--assist-ask-chip-up, var(--assist-ask-up, 12px));
+    --ask-down: var(--assist-ask-chip-down, var(--assist-ask-down, 0px));
+}
 
 /* the tutorial's rule tips (AssistCard tipSection): a neutral section at
    the top of the card, above the advice when both are up */
@@ -1608,8 +1652,9 @@ body > .voice-btn {
     outline-offset: 2px;
 }
 
-/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, level
-   with the "?" at its right end; under the card, never over the bid sheet */
+/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, its
+   bottom level with the lightbulb's spot at its right end (tutorialChipSpot;
+   the layout's TUTORIAL_CHIP models this box); under the card */
 .hud-tutorial {
     position: absolute;
     left: var(--tutorial-x, 30%);

@@ -34,8 +34,12 @@
  * With tips only, the card is labelled "Tutorial tip" (data-kind tip) and
  * sits above the hand, or above the bid sheet while I bid (`place` 'bid').
  *
- *   .hud-assist-ask        the "?" button by my hand on my own turn at my
- *                          seat ("Ask a bot for advice", which sends /help)
+ *   .hud-assist-ask        the lightbulb button by my hand on my own turn at
+ *                          my seat ("Ask a bot for advice", which sends /help)
+ *
+ * The lightbulb (lightbulbIcon) is our own drawing (not Apple's SF Symbol,
+ * which is licensed for Apple platforms only): a filled bulb and two base
+ * bars in currentColor, so it themes with the gold token.
  */
 import { hudRoot } from '../tableHud.js';
 import { confidenceLabel, assistFooter, isAssistHint, HELP_LABEL } from '../../state/assistHint.js';
@@ -49,6 +53,35 @@ let idSeq = 0;
 // the tutorial's tips up (state/tutorial.js), and what their buttons call
 let tips = [];
 let tipOpts = {};
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+// a 24-unit bulb: a circle of radius 6.75 round (12, 9) that narrows to a
+// 6-wide neck, then two rounded base bars
+const BULB_GLASS = 'M12 2.25A6.75 6.75 0 0 0 8.1 14.51c.56.4.9 1.04.9 1.73v.51h6v-.51c0-.69.34-1.33.9-1.73A6.75 6.75 0 0 0 12 2.25Z';
+const BULB_BARS = [[9, 18, 6], [10, 20.5, 4]];
+
+/** The lightbulb glyph (aria-hidden, currentColor). */
+export function lightbulbIcon(className) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', className);
+  svg.setAttribute('fill', 'currentColor');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  const glass = document.createElementNS(SVG_NS, 'path');
+  glass.setAttribute('d', BULB_GLASS);
+  svg.appendChild(glass);
+  for (const [x, y, w] of BULB_BARS) {
+    const bar = document.createElementNS(SVG_NS, 'rect');
+    bar.setAttribute('x', String(x));
+    bar.setAttribute('y', String(y));
+    bar.setAttribute('width', String(w));
+    bar.setAttribute('height', '1.5');
+    bar.setAttribute('rx', '0.75');
+    svg.appendChild(bar);
+  }
+  return svg;
+}
 
 function el(tag, className, text = null) {
   const e = document.createElement(tag);
@@ -101,6 +134,7 @@ function closeTip(hint) {
 function adviceParts(hint, { unlimited = false, tutorial = false } = {}) {
   const status = hint.kind === 'status';
   const top = el('div', 'assist-card__top');
+  top.appendChild(lightbulbIcon('assist-card__bulb'));
   const label = status ? null : confidenceLabel(hint);
   if (label) top.appendChild(el('span', `assist-card__chip is-${hint.confidence}`, label));
   const close = el('button', 'assist-card__close');
@@ -180,7 +214,7 @@ function tipSection(hint) {
 
 /**
  * Draw the card from what is up (tips, then the advice); hidden when
- * nothing is. Focus that was in the card (or on the "?") lands on the
+ * nothing is. Focus that was in the card (or on the lightbulb) lands on the
  * advice's ✕, else the first tip's.
  */
 function render({ focusFromAsk = false } = {}) {
@@ -236,7 +270,7 @@ export function showAssistCard(hint, { onClose = null, unlimited = false, tutori
   onCloseCb = onClose;
   adviceOpts = { unlimited, tutorial };
   // focus moves to the card only from the card itself (a replace) or from
-  // the "?" that asked for it (it hides while the card is up)
+  // the lightbulb that asked for it (it hides while the card is up)
   return render({ focusFromAsk: true });
 }
 
@@ -278,12 +312,12 @@ export function assistCardHint() {
   return card && card.isConnected && !card.hidden ? current : null;
 }
 
-// ------------------------------------------------------------ the "?" button
+// ------------------------------------------------------- the lightbulb button
 
 let ask = null;
 
 /**
- * The "?" button by my hand: shown while `visible`, a click calls `onAsk`
+ * The lightbulb button by my hand: shown while `visible`, a click calls `onAsk`
  * (GameScene: sends /help). Hidden while the card is up.
  */
 export function syncAssistButton({ visible = false, onAsk = null } = {}) {
@@ -291,7 +325,8 @@ export function syncAssistButton({ visible = false, onAsk = null } = {}) {
   if (ask && !ask.isConnected) ask = null;
   if (!ask) {
     if (!visible) return null;
-    ask = el('button', 'hud-assist-ask', '?');
+    ask = el('button', 'hud-assist-ask');
+    ask.appendChild(lightbulbIcon('hud-assist-ask__bulb'));
     ask.type = 'button';
     ask.setAttribute('aria-label', HELP_LABEL);
     ask.title = `${HELP_LABEL} (/help)`;
