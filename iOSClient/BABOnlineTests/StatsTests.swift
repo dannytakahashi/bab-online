@@ -209,7 +209,7 @@ final class StatsTests: XCTestCase {
             ["id": "cursed", "title": "Cursed", "names": ["jon"], "detail": "98.7 avg HSI"],
             ["id": "botFriends", "title": "Some of my best friends are bots", "names": ["ora"], "detail": "23 solo games"],
             ["id": "helpFromFriends", "title": "A little help from my friends", "names": ["ivy"], "detail": "37 /help uses"],
-            ["id": "anchor", "title": "Anchor", "names": ["hal", "jon", "kim"], "detail": "31% of hands set, +2 more"],
+            ["id": "anchor", "title": "Anchor", "names": ["hal", "jon", "kim"], "detail": "31% of hands set (+2 more)"],
         ]
         let r = try XCTUnwrap(GameRecords.from(response: ["success": true, "records": ["allTime": period(superlatives: list)]]))
         let s = try XCTUnwrap(r.periods[.allTime]).superlatives
@@ -217,7 +217,7 @@ final class StatsTests: XCTestCase {
                        "the server's order")
         XCTAssertEqual(s[0], GameRecords.Superlative(id: "bagBoy", title: "Bag Boy", names: ["kim"], detail: "2.4 bags a game"))
         XCTAssertEqual(s[5].namesLine, "hal, jon, kim", "ties joined with commas")
-        XCTAssertEqual(s[5].spoken, "Anchor, hal, jon, kim, 31% of hands set, +2 more")
+        XCTAssertEqual(s[5].spoken, "Anchor, hal, jon, kim, 31% of hands set (+2 more)")
         XCTAssertEqual(s[3].spoken, "Some of my best friends are bots, ora, 23 solo games")
         XCTAssertEqual(RecordRow.rows(try XCTUnwrap(r.periods[.allTime])).count, 5, "the five records are unchanged")
     }
@@ -287,6 +287,40 @@ final class StatsTests: XCTestCase {
         XCTAssertNil(value.periods[.thisMonth], "no games this month: no card content, no superlatives")
         let bots = try XCTUnwrap(GameRecords.from(response: UIFixture.botsRecordsFixture))
         XCTAssertEqual(bots.periods[.thisMonth]?.superlatives.map(\.id), ["bagBoy", "luckyDuck", "cursed", "botFriends"])
+    }
+
+    /// The reply as the socket hands it over (JSON-parsed Foundation objects, not Swift literals),
+    /// shaped as the server's fillRecords sends it: every non-null period carries `superlatives`
+    /// (possibly []), a null period stays null, a longer tie says " (+N more)" in `detail`, and a
+    /// garbled entry or a wrongly typed list beside good ones never costs the other periods.
+    func testSuperlativesFromServerShapedJSON() throws {
+        let json = """
+        {"success": true, "totalGames": 40, "periodGames": {"allTime": 40, "thisYear": 40, "thisMonth": 0},
+         "records": {
+          "allTime": {"highestScore": {"score": 410, "players": ["kim", "ora"]}, "lowestScore": null,
+            "biggestWin": null, "mostBags": null, "leastBags": null,
+            "superlatives": [
+              {"id": "bagBoy", "title": "Bag Boy", "names": ["hal", "kim", "ned"], "detail": "2.1 bags a game (+2 more)"},
+              {"id": "luckyDuck", "title": "Lucky Duck", "names": ["ora"], "detail": "141.2 avg HSI"},
+              {"id": "cursed", "title": "Cursed", "names": ["ora"], "detail": "141.2 avg HSI"},
+              {"id": "anchor", "title": "Anchor", "names": ["jon"], "detail": "31% of hands set"},
+              {"id": "nightOwl", "title": "Night Owl", "names": [true, 1.5, "ivy"], "detail": null},
+              {"id": "broken", "title": 7, "names": ["kim"], "detail": "x"},
+              [], 42, "text", null]},
+          "thisYear": {"highestScore": {"score": 410, "players": ["kim", "ora"]}, "superlatives": []},
+          "thisMonth": null}}
+        """
+        let dict = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
+        let r = try XCTUnwrap(GameRecords.from(response: dict))
+        let all = try XCTUnwrap(r.periods[.allTime])
+        XCTAssertEqual(all.superlatives.map(\.id), ["bagBoy", "luckyDuck", "cursed", "anchor", "nightOwl"])
+        XCTAssertEqual(all.superlatives[0].spoken, "Bag Boy, hal, kim, ned, 2.1 bags a game (+2 more)")
+        XCTAssertEqual(all.superlatives[4], .init(id: "nightOwl", title: "Night Owl", names: ["ivy"], detail: ""),
+                       "JSON booleans and numbers are not names; a null detail is none")
+        XCTAssertEqual(all.highestScore?.value, 410, "the records beside them still decode")
+        XCTAssertEqual(r.periods[.thisYear]?.superlatives, [], "an empty list: no section")
+        XCTAssertNil(r.periods[.thisMonth])
+        XCTAssertEqual(r.games(in: .thisMonth), 0)
     }
 
     // MARK: - Request state

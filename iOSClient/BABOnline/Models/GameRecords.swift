@@ -49,7 +49,7 @@ struct GameRecords: Equatable {
 
     /// One superlative (`recordsPeriod.superlatives[]`, additive 2026-11-20): a title the server
     /// names (`id` "bagBoy", title "Bag Boy"), its human winners (ties: up to 3, alphabetical)
-    /// and a detail line ("2.4 bags a game", "+2 more" for a longer tie). The client never reads
+    /// and a detail line ("2.4 bags a game"; the server appends " (+2 more)" for a longer tie). The client never reads
     /// `id` for anything but identity, so a future title needs no client release.
     struct Superlative: Equatable, Identifiable {
         let id: String

@@ -188,7 +188,7 @@ extension UIFixture {
                 "mostBags": NSNull(),
                 "leastBags": NSNull(),
                 "superlatives": [
-                    ["id": "bagBoy", "title": "Bag Boy", "names": ["hal", "kim", "ned"], "detail": "2.1 bags a game, +2 more"],
+                    ["id": "bagBoy", "title": "Bag Boy", "names": ["hal", "kim", "ned"], "detail": "2.1 bags a game (+2 more)"],
                     ["id": "luckyDuck", "title": "Lucky Duck", "names": ["max"], "detail": "139.9 avg HSI"],
                     ["id": "anchor", "title": "Anchor", "names": ["jon"], "detail": "27% of hands set"],
                 ],
