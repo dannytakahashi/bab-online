@@ -85,7 +85,8 @@ final class TutorialUITests: XCTestCase {
         // the column stays above the bid panel and below Exit and the log's button
         let panel = element(app, "bidOverlay").frame
         XCTAssertLessThanOrEqual(chip.frame.maxY, panel.minY + 1, "chip \(chip.frame) panel \(panel)")
-        XCTAssertGreaterThanOrEqual(welcome.frame.minY, app.buttons["leave"].frame.maxY, "welcome \(welcome.frame)")
+        // (Exit is above the column on a phone, in the side rail on a wide screen: the iPhone Duo open)
+        XCTAssertFalse(welcome.frame.intersects(app.buttons["leave"].frame), "welcome \(welcome.frame) leave \(app.buttons["leave"].frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
         shot(app, "welcome")
         // Keep: /tutorial keep, and the rule tip stays
