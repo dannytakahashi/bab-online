@@ -44,7 +44,6 @@ import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubb
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
 import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud } from '../../ui/tableHud.js';
 import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
-import { resizeShape } from '../shapes.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { tableBackFrame } from '../cards/tableBack.js';
@@ -290,12 +289,30 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.tableCardBackground && this.tableCardBackground.active) {
       this.tableCardBackground.setPosition(trump.x, trump.y);
-      resizeShape(this.tableCardBackground, trump.box, trump.box);
+      this.drawTrumpFrame(this.tableCardBackground, trump);
     }
     if (this.tableCardLabel && this.tableCardLabel.active) {
       this.tableCardLabel.setPosition(trump.label.x, trump.label.y);
       this.tableCardLabel.setFontSize?.(trump.label.font);
     }
+  }
+
+  /**
+   * (Re)draw the trump's frame: a rounded surface tile tight to the card
+   * (sized from the card, not the layout's square box) with a gold border.
+   * @param {Phaser.GameObjects.Graphics} g - positioned at the card's centre
+   * @param {Object} trump - the layout's trump spot ({card: {w, h}})
+   */
+  drawTrumpFrame(g, trump) {
+    const pad = trump.card.w * 0.08;
+    const w = trump.card.w + 2 * pad;
+    const h = trump.card.h + 2 * pad;
+    const r = Math.max(4, trump.card.w * 0.1);
+    g.clear();
+    g.fillStyle(hex(COLOR.surface.s1), 0.55);
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, r);
+    g.lineStyle(2, hex(COLOR.gold), 0.7);
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, r);
   }
 
   /** Destroy the trump card, its box and its label. */
@@ -354,16 +371,16 @@ export class GameScene extends Phaser.Scene {
     // hand's gameStart has moved GameState.handNo on)
     this.tableCardSprite.setData('backFrame', handBack);
 
-    // Background - box around card with padding (the layout's box): a
-    // surface tile with a gold hairline (gold marks the trump)
-    this.tableCardBackground = this.add.rectangle(trumpX, trumpY, trump.box, trump.box, hex(COLOR.surface.s1), 0.55);
-    this.tableCardBackground.setStrokeStyle(1, hex(COLOR.gold), 0.55);
+    // Background - a rounded surface tile hugging the card, with a gold
+    // border (gold marks the trump)
+    this.tableCardBackground = this.add.graphics({ x: trumpX, y: trumpY });
+    this.drawTrumpFrame(this.tableCardBackground, trump);
     this.tableCardBackground.setDepth(99);
 
     // Label - above the card (a readable size: ui-7)
-    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'TRUMP', uiTextStyle(this, {
+    this.tableCardLabel = this.add.text(trump.label.x, trump.label.y, 'Trump', uiTextStyle(this, {
       fontSize: `${trump.label.font}px`,
-      weight: 'semibold',
+      weight: 'regular',
       color: COLOR.gold,
     }));
     this.tableCardLabel.setOrigin(0.5);
@@ -2126,11 +2143,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Show the hand's HSI in the own avatar box.
+   * Show the hand's HSI in the own avatar box, colored red (weak) through
+   * yellow (an average deal, ~132) to green (strong).
    */
   updatePlayerHsi(hsi) {
     if (this._playerInfo?.hsiBox && hsi !== undefined) {
       this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
+      const hue = 120 * Math.min(1, Math.max(0, (hsi - 70) / 125));
+      this._playerInfo.hsiBox.style.setProperty('--hsi-color', `hsl(${hue}, 75%, 55%)`);
+    }
+  }
+
+  /**
+   * Reset the own avatar box's HSI to the placeholder (a new deal: the
+   * value shows with the dealt cards).
+   */
+  clearPlayerHsi() {
+    if (this._playerInfo?.hsiBox) {
+      this._playerInfo.hsiBox.textContent = 'HSI: --';
+      this._playerInfo.hsiBox.style.removeProperty('--hsi-color');
     }
   }
 
