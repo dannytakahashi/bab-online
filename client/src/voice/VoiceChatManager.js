@@ -573,8 +573,17 @@ export class VoiceChatManager {
       return;
     }
     if (this.peers.has(socketId)) {
-      console.log('[Voice] already connected to', socketId);
-      return;
+      if (!this._isStaleCall(socketId)) {
+        console.log('[Voice] already connected to', socketId);
+        return;
+      }
+      // The server lists a peer whose call is dead: made from this tab's
+      // previous socket (a reconnect without a reload: the server told the
+      // peer my old socket left, and it waits for my new socket's offer, as
+      // after /active from the watch view), failed or given up on. A new
+      // call, with a fresh recovery count
+      console.log('[Voice] replacing a dead call to', socketId);
+      this._closePeer(socketId);
     }
     console.log('[Voice] connectToPeer', socketId, username);
 
@@ -1210,7 +1219,9 @@ export class VoiceChatManager {
       connection: pc,
       audioEl,
       username,
-      stream: null
+      stream: null,
+      // This tab's socket the call was signaled from (a reconnect makes it stale)
+      viaSocketId: this.socketManager?.id ?? null
     });
 
     // ICE candidate handling
@@ -1276,6 +1287,21 @@ export class VoiceChatManager {
     }, CONNECT_TIMEOUT_MS));
 
     return pc;
+  }
+
+  /**
+   * Is the call with `socketId` dead for good, so a voicePeerList naming it
+   * must make a new one? It was signaled from another socket of this tab
+   * (the peer dropped it when that socket left), or it failed, was closed or
+   * was marked unavailable. A call being set up on this socket is kept.
+   */
+  _isStaleCall(socketId) {
+    const peer = this.peers.get(socketId);
+    if (!peer) return false;
+    if ((peer.viaSocketId ?? null) !== (this.socketManager?.id ?? null)) return true;
+    if (this._unavailable.has(socketId)) return true;
+    const state = peer.connection?.connectionState;
+    return state === 'failed' || state === 'closed' || peer.connection?.signalingState === 'closed';
   }
 
   _onPeerConnected(socketId) {

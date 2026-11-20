@@ -674,6 +674,30 @@ final class MutedStartVoiceTests: XCTestCase {
         XCTAssertEqual(w.prompts, 1)
     }
 
+    /// A reconnect that kept voice running (a new socket id): the server listed a peer again
+    /// (reconnectOwner, /active from the watch view) while the call with it was signaled from the
+    /// old socket, which the peer dropped. The list makes a new call and offers from the new
+    /// socket; the same list on the same socket changes nothing (live check 2026-11-19 on the web).
+    func testAPeerListedAgainAfterAReconnectGetsANewCall() async throws {
+        let w = Wire()
+        var sid: String? = "sock-a"
+        let a = VoiceChatManager.silent(sendOffer: { to, sdp, _ in w.offers.append((to, sdp)) },
+                                        socketId: { sid },
+                                        audioDevice: w.device)
+        managers.append(a)
+        try await a.initialize()
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("the first offer") { w.offers.count == 1 }
+        a.connectToPeer("B", username: "bob")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(w.offers.count, 1, "the same socket: already connected")
+        sid = "sock-a2"
+        a.connectToPeer("B", username: "bob")
+        try await waitUntil("an offer from the new socket") { w.offers.count == 2 }
+        XCTAssertEqual(w.offers[1].to, "B")
+        XCTAssertTrue(a.sendsMic(to: "B"), "the new call carries the local track")
+    }
+
     /// A refused unmute leaves nothing to resume; a mute during the prompt wins for the session.
     func testARefusalOrAMuteDuringThePromptLeavesTheSessionMuted() async throws {
         let w = Wire()

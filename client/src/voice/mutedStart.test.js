@@ -626,3 +626,49 @@ describe('signals before voice runs (no voice alone)', () => {
     vm.shutdown();
   });
 });
+
+/**
+ * A reconnect without a reload keeps the voice session and its calls, but
+ * the server told every peer my old socket left; a voicePeerList that
+ * names them again (reconnectOwner, /active from the watch view) must make
+ * new calls from the new socket (live check 2026-11-19: the call stayed
+ * 'failed' and the list was skipped as "already connected").
+ */
+describe('a voicePeerList after a reconnect without a reload', () => {
+  it('a call made from the previous socket is replaced: a new connection and an offer from the new socket', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-a');
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    const old = vm.peers.get('sock-b').connection;
+    expect(sm.offers()).toHaveLength(1);
+    // the same list again on the same socket: nothing new
+    await vm.connectToPeer('sock-b', 'bob');
+    expect(FakePC.all).toHaveLength(1);
+    // the tab's socket reconnects (new id); the server lists bob again
+    sm.id = 'sock-a2';
+    await vm.connectToPeer('sock-b', 'bob');
+    expect(FakePC.all).toHaveLength(2);
+    expect(old.signalingState).toBe('closed');
+    expect(vm.peers.get('sock-b').connection).toBe(FakePC.all[1]);
+    expect(vm.peers.get('sock-b').viaSocketId).toBe('sock-a2');
+    expect(sm.offers()).toHaveLength(2);
+    expect(sm.offers()[1].data.targetSocketId).toBe('sock-b');
+    vm.shutdown();
+  });
+
+  it('a failed call on the same socket is replaced too; one being set up is kept', async () => {
+    const vm = new VoiceChatManager();
+    const sm = fakeSocketManager('sock-a');
+    await start(vm, sm);
+    await vm.connectToPeer('sock-b', 'bob');
+    vm.peers.get('sock-b').connection.connectionState = 'connecting';
+    await vm.connectToPeer('sock-b', 'bob');
+    expect(FakePC.all).toHaveLength(1);
+    vm.peers.get('sock-b').connection.connectionState = 'failed';
+    await vm.connectToPeer('sock-b', 'bob');
+    expect(FakePC.all).toHaveLength(2);
+    expect(sm.offers()).toHaveLength(2);
+    vm.shutdown();
+  });
+});

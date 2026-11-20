@@ -110,6 +110,9 @@ final class VoiceChatManager: ObservableObject {
         var sendAnswer: @MainActor (_ target: String, _ answer: RTCSessionDescription) -> Void
         /// An info toast (a refused microphone).
         var notify: @MainActor (_ message: String) -> Void = { _ in }
+        /// This app's socket id now (a call signaled from an earlier socket is dead: the
+        /// server told the peer that socket left).
+        var socketId: @MainActor () -> String? = { nil }
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
@@ -120,7 +123,8 @@ final class VoiceChatManager: ObservableObject {
             deactivateAudioSession: { VoiceAudioSession.shared.deactivate() },
             sendOffer: { VoiceEmitter.sendOffer(targetSocketId: $0, offer: $1, username: $2) },
             sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) },
-            notify: { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) })
+            notify: { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) },
+            socketId: { SocketService.shared.socketId })
     }
     private let hooks: Hooks
 
@@ -194,6 +198,8 @@ final class VoiceChatManager: ObservableObject {
     private struct PeerState {
         let connection: RTCPeerConnection
         let username: String
+        /// This app's socket the call was signaled from (a reconnect makes it stale).
+        let viaSocketId: String?
         var remoteTrack: RTCAudioTrack?
     }
 
@@ -449,8 +455,16 @@ final class VoiceChatManager: ObservableObject {
         }
 
         if peers[socketId] != nil {
-            print("[Voice] Already connected to \(socketId)")
-            return
+            guard isStaleCall(socketId) else {
+                print("[Voice] Already connected to \(socketId)")
+                return
+            }
+            // The server lists a peer whose call is dead: signaled from this app's previous
+            // socket (a reconnect that kept voice running: the server told the peer the old
+            // socket left, and it waits for the new socket's offer, as after /active from the
+            // watch view), failed or given up on. A new call, with a fresh recovery count
+            print("[Voice] Replacing a dead call to \(socketId)")
+            closePeer(socketId)
         }
 
         print("[Voice] connectToPeer \(socketId) \(username)")
@@ -753,7 +767,7 @@ final class VoiceChatManager: ObservableObject {
         // Store delegate to keep it alive (stored on the peer state, referenced via associated object)
         objc_setAssociatedObject(pc, "delegate", delegate, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
 
-        peers[socketId] = PeerState(connection: pc, username: username)
+        peers[socketId] = PeerState(connection: pc, username: username, viaSocketId: hooks.socketId())
         // this socket's row (a replaced call), else my mute of this person on any socket
         let muted = peerInfos[socketId]?.isMuted ?? savedMutes[username] ?? false
         let volume = peerInfos[socketId]?.volume ?? savedVolumes[username] ?? VoiceVolume.normal
@@ -868,6 +882,17 @@ final class VoiceChatManager: ObservableObject {
         case .markUnavailable:
             markUnavailable(socketId)
         }
+    }
+
+    /// The call with `socketId` is dead for good, so a voicePeerList naming it makes a new one:
+    /// signaled from another socket of this app, or failed, closed or marked unavailable. A
+    /// call being set up on this socket is kept.
+    private func isStaleCall(_ socketId: String) -> Bool {
+        guard let peer = peers[socketId] else { return false }
+        if peer.viaSocketId != hooks.socketId() { return true }
+        if peerInfos[socketId]?.isUnavailable == true { return true }
+        return peer.connection.connectionState == .failed || peer.connection.connectionState == .closed
+            || peer.connection.signalingState == .closed
     }
 
     /// Voice unavailable for this peer: the connection closes, its row stays (marked).

@@ -65,6 +65,7 @@ extension VoiceChatManager {
                        sendOffer: @escaping @MainActor (String, RTCSessionDescription, String?) -> Void = { _, _, _ in },
                        sendAnswer: @escaping @MainActor (String, RTCSessionDescription) -> Void = { _, _ in },
                        notify: @escaping @MainActor (String) -> Void = { _ in },
+                       socketId: @escaping @MainActor () -> String? = { nil },
                        audioDevice: SilentAudioDevice = SilentAudioDevice(),
                        after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
         VoiceChatManager(hooks: .init(requestRecordPermission: requestRecordPermission,
@@ -73,7 +74,8 @@ extension VoiceChatManager {
                                       deactivateAudioSession: {},
                                       sendOffer: sendOffer,
                                       sendAnswer: sendAnswer,
-                                      notify: notify),
+                                      notify: notify,
+                                      socketId: socketId),
                          iceStore: IceServerStore(timeout: 0.05, emit: { _ in }),
                          audioDevice: audioDevice,
                          after: after)
