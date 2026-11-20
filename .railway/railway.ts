@@ -15,9 +15,17 @@ export default defineRailway(() => {
     source: github("dannytakahashi/bab-online", { branch: "main", checkSuites: true }),
     // Railpack (2026-11-19; Nixpacks is frozen and has no Node 26) picks
     // Node from package.json engines (26.x), then .nvmrc; it runs
-    // `npm ci`, `npm run build` (vite) and `npm start`, as Nixpacks did
+    // `npm ci` and `npm run build` (vite), as Nixpacks did; the start is
+    // deploy.startCommand below
     build: { buildEnvironment: "V3", builder: "RAILPACK" },
     deploy: {
+      // The server itself must receive the deploy's SIGTERM. The builders'
+      // default start, `npm start` (npm -> sh -c -> node), gets the signal in
+      // npm, which dies with "signal SIGTERM" and the server is killed without
+      // its graceful shutdown (no "Graceful shutdown complete" in any deploy's
+      // log before 2026-11-19): no shutdown notice to players, no drain, and
+      // with LIVE_PERSIST=on no handoff
+      startCommand: "node server/index.js",
       // Restart policy: Railway's default, ON_FAILURE with 10 retries (not
       // set here: Railway stores the default as null, so an explicit value
       // shows in every plan). A crash exits 1 (server/utils/shutdown.js) and
