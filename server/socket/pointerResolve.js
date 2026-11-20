@@ -36,6 +36,11 @@
  *                      (no answer of its own), so an adoption seats the
  *                      socket once. A socket that drops meanwhile gets
  *                      nothing
+ *   resolveTournament(id) / resolveTournamentThen(...) / parkTournament(...)
+ *                      the same for a tournament (PR 6: liveStore
+ *                      resolveTournament / whenTournamentAdopted): signIn,
+ *                      restoreSession, joinTournament, spectateTournament,
+ *                      returnToTournament
  *   tracked(handler)   counts a socket's restore requests in flight
  *                      (signIn, restoreSession, rejoinGame, joinAsSpectator,
  *                      spectateTournamentGame; a park included) for
@@ -106,6 +111,36 @@ async function resolveGame(gameId, opts) {
     }
 }
 
+/** Where tournament `tournamentId` is (liveStore.resolveTournament; never throws). */
+async function resolveTournament(tournamentId, opts) {
+    const s = store();
+    if (!s || typeof s.resolveTournament !== 'function') return { state: 'gone' };
+    try {
+        return await s.resolveTournament(tournamentId, opts);
+    } catch (err) {
+        socketLogger.warn('Pointer resolve failed', { tournamentId, error: err.message });
+        return { state: 'pending' };
+    }
+}
+
+/**
+ * Whether another instance's saved doc of tournament `tournamentId` lists
+ * `username` as a member: true | false | null (no doc, or unreadable).
+ */
+async function savedTournamentMember(tournamentId, username) {
+    const s = store();
+    if (!s || typeof s.collections !== 'function') return null;
+    try {
+        const coll = s.collections().liveTournaments;
+        if (!coll) return null;
+        const doc = await coll.findOne({ _id: tournamentId }, { projection: { 'state.players.username': 1 } });
+        if (!doc) return null;
+        return (doc.state?.players || []).some((p) => p && p.username === username);
+    } catch {
+        return null;
+    }
+}
+
 /** True while this process, in 'on', is shutting down: pointer clears are skipped. */
 function holdsPointers() {
     const s = store();
@@ -150,22 +185,35 @@ const sleep = (ms) => new Promise((r) => {
  *                 answers instead, or the wait ran out (the socket is
  *                 engine-closed here)
  */
-function park(socket, gameId, label = 'restore') {
+function park(socket, gameId, label = 'restore', kind = 'game') {
     let mine = parks.get(socket);
     if (!mine) parks.set(socket, (mine = new Map()));
-    if (mine.has(gameId)) {
+    const key = `${kind}:${gameId}`;
+    if (mine.has(key)) {
         socketLogger.debug('Restore pending: joined a park', { gameId, socketId: socket.id, via: label });
-        return mine.get(gameId).then(() => null);
+        return mine.get(key).then(() => null);
     }
-    const p = parkOnce(socket, gameId, label).finally(() => {
-        if (mine.get(gameId) === p) mine.delete(gameId);
+    const p = parkOnce(socket, gameId, label, kind).finally(() => {
+        if (mine.get(key) === p) mine.delete(key);
     });
-    mine.set(gameId, p);
+    mine.set(key, p);
     return p;
 }
 
-async function parkOnce(socket, gameId, label) {
-    const s = store();
+/** park() for a tournament: resolves {tournament} | {gone: true} | null. */
+function parkTournament(socket, tournamentId, label = 'restore') {
+    return park(socket, tournamentId, label, 'tournament')
+        .then((r) => (r && r.game ? { tournament: r.game } : r));
+}
+
+async function parkOnce(socket, gameId, label, kind = 'game') {
+    const s0 = store();
+    // The same loop for a game and a tournament (PR 6)
+    const s = kind === 'game' ? s0 : {
+        adopter: s0?.adopter,
+        whenAdopted: (id, ms) => s0.whenTournamentAdopted(id, ms)
+    };
+    const ask = kind === 'game' ? resolveGame : (id, opts) => resolveTournament(id, opts).then((r) => ({ ...r, game: r.tournament }));
     const deadline = Date.now() + PARK_MS;
     socketLogger.info('Restore pending: socket parked', { gameId, socketId: socket.id, via: label });
     for (let round = 0; ; round++) {
@@ -182,7 +230,7 @@ async function parkOnce(socket, gameId, label) {
         if (Date.now() >= deadline || round + 1 >= PARK_ROUNDS) break;
         // Answered early with no game: the doc went (not adoptable), or the
         // store had nothing to wait on. Ask again
-        const r = await resolveGame(gameId, { waitMs: Math.max(0, deadline - Date.now()) });
+        const r = await ask(gameId, { waitMs: Math.max(0, deadline - Date.now()) });
         if (!isLive(socket)) return null;
         if (r.game) return { game: r.game };
         if (r.state === 'gone') return { gone: true };
@@ -208,6 +256,22 @@ async function resolveThen(socket, gameId, label, { onGame, onGone }) {
     const parked = await park(socket, gameId, label);
     if (!parked || !isLive(socket)) return;
     if (parked.game) return onGame(parked.game);
+    if (parked.gone) return onGone();
+}
+
+/**
+ * resolveThen for a tournament not in memory, in 'on': onTournament(t)
+ * (live here now: re-run the call site), onGone() (today's failure), or
+ * park then the same. Nothing runs for a socket that dropped meanwhile.
+ */
+async function resolveTournamentThen(socket, tournamentId, label, { onTournament, onGone }) {
+    const r = await resolveTournament(tournamentId);
+    if (!isLive(socket)) return;
+    if (r.tournament) return onTournament(r.tournament);
+    if (r.state === 'gone') return onGone();
+    const parked = await parkTournament(socket, tournamentId, label);
+    if (!parked || !isLive(socket)) return;
+    if (parked.tournament) return onTournament(parked.tournament);
     if (parked.gone) return onGone();
 }
 
@@ -329,6 +393,10 @@ module.exports = {
     holdsPointers,
     resolveThen,
     park,
+    resolveTournament,
+    resolveTournamentThen,
+    savedTournamentMember,
+    parkTournament,
     tracked,
     restoring,
     deferSnapshot,

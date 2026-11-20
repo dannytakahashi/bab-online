@@ -2036,9 +2036,13 @@ function initializeApp() {
       session.noteRejoinFailed(reason);
       if (reason === 'Already connected') return;
       // The game is gone (or was left): take any table down, route out
+      const inTournament = !!session.tournamentId;
       session.exitTable(EXIT.REJOIN_FAILED);
-      // After a server restart: say what ended
-      explainRestartLoss();
+      // After a server restart: say what ended. Not for a tournament table:
+      // the tournament goes on (deploy survival PR 6: a table the restart
+      // did not keep is scored or its round restarts), and the tournament
+      // route says what ended if the tournament did
+      if (!inTournament) explainRestartLoss();
     },
     onPlayerReconnected: (data) => {
       console.log(`Player at position ${data.position} (${data.username}) reconnected`);
