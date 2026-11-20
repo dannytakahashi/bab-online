@@ -23,14 +23,25 @@ import Foundation
 //    positionUpdate's isBot alone, which a draw-phase leaver's resign bot has too). Once the
 //    server has said (a hint, a snapshot's viewer.assist), its word wins, as on the web.
 //
+//  - The tutorial (2026-11-19, the LEAN scope with the fade-out; State/Table/Tutorial.swift):
+//    the same hint with `source` "tutorial" is advice pushed on my own decision (kind bid /
+//    card, never counted: no count in its footer, no log row) or a rule tip (kind `tip`,
+//    `tipId`, the welcome's `actions`), kept apart from the answer (TableSlice.tip / welcome).
+//
 // Names only in every text (never team numbers, "your team", "opponents"); the hint's own
 // texts come from the server, which lints them.
 
 /// A /help answer this build can show (WirePayload.AssistHint, checked and trimmed).
 struct AssistHint: Equatable {
-    enum Kind: String, Equatable { case bid, card, status }
+    enum Kind: String, Equatable { case bid, card, status, tip }
 
     var kind: Kind
+    /// Who sent it: /help's answer (`help`) or the tutorial's push (`tutorial`).
+    var source = "help"
+    /// A rule tip's id ("T.welcome", "T.trump", ...): kind `tip` only.
+    var tipId: String?
+    /// The welcome tip's buttons (["keep", "off"]): kind `tip` only, actions this build knows.
+    var actions: [String] = []
     var turnKey: String?
     /// The suggestion ("Bid 4", "Lead A♣") or, for a status reply, the whole reply.
     var headline: String
@@ -60,8 +71,15 @@ struct AssistHint: Equatable {
         self.kind = kind
         self.turnKey = w.turnKey
         self.headline = headline
+        source = w.source == "tutorial" ? "tutorial" : "help"
         let clean = { (xs: [String]?, n: Int) in Array((xs ?? []).filter { !$0.isEmpty }.prefix(n)) }
-        if kind != .status {
+        if kind == .tip {
+            // a rule tip: headline = its title, reasons = [its text]; nothing else to show
+            guard source == "tutorial", let id = w.tipId, !id.isEmpty else { return nil }
+            tipId = id
+            reasons = clean(w.reasons, 1)
+            actions = (w.actions ?? []).filter { TutorialRules.knownActions.contains($0) }
+        } else if kind != .status {
             reasons = clean(w.reasons, 2)
             details = clean(w.details, 4)
             confidence = w.confidence
@@ -81,6 +99,9 @@ struct AssistHint: Equatable {
         self.headline = headline
         self.turnKey = turnKey
     }
+
+    /// The tutorial sent it (its advice, a rule tip, a reply to /tutorial).
+    var isTutorial: Bool { source == "tutorial" }
 }
 
 /// This game's /help uses as the latest hint said (`TableSlice.assistUses`; nil: unknown).
@@ -114,7 +135,7 @@ enum AssistRules {
         "quick": "Quick suggestion",
     ]
     static func confidenceLabel(_ h: AssistHint) -> String? {
-        h.kind == .status ? nil : h.confidence.flatMap { confidenceLabels[$0] }
+        h.kind == .status || h.kind == .tip ? nil : h.confidence.flatMap { confidenceLabels[$0] }
     }
 
     /// The footer's first part (copy.js FOOTER, without its second sentence).
@@ -178,9 +199,11 @@ enum AssistRules {
     ///   "Quick suggestion: rules only, the server is busy. · Help 1 of 3 free"
     /// In a game with a native bot seat (`unlimited`) no count: just "What our strongest bot
     /// would play" (a forced move and a re-ask too), or the Quick note alone.
+    /// The tutorial's advice (never counted) has no count either: "What our strongest bot would
+    /// play", or the Quick note.
     static func footer(_ h: AssistHint) -> String? {
-        guard h.kind != .status else { return nil }
-        if h.unlimited { return h.confidence == "quick" ? footerQuick : footerBot }
+        guard h.kind != .status, h.kind != .tip else { return nil }
+        if h.unlimited || h.isTutorial { return h.confidence == "quick" ? footerQuick : footerBot }
         if h.confidence == "only" { return "Not counted" }
         let lead = h.confidence == "quick" ? footerQuick : footerBot
         let tail: String
@@ -197,7 +220,7 @@ enum AssistRules {
     /// contract line when there are two, as the server's plain-text line chooses), and the note.
     static func announcement(_ h: AssistHint) -> String {
         func end(_ s: String) -> String { [".", "!", "?"].contains(where: s.hasSuffix) ? s : s + "." }
-        var parts = [h.kind == .status ? end(h.headline) : "Suggestion: \(end(h.headline))"]
+        var parts = [h.kind == .status || h.kind == .tip ? end(h.headline) : "Suggestion: \(end(h.headline))"]
         if h.kind != .status, let main = h.reasons.last { parts.append(end(main)) }
         if let note = h.note { parts.append(end(note)) }
         return parts.joined(separator: " ")
@@ -228,7 +251,7 @@ enum AssistRules {
     /// Is `h` still showable? A status reply always is (the next turn change clears it); a bid
     /// or card only on my own turn at my seat with nothing of mine on its way, matching its turnKey.
     static func isLive(_ h: AssistHint, _ s: TableState) -> Bool {
-        if h.kind == .status { return true }
+        if h.kind == .status || h.kind == .tip { return true }
         guard s.table.viewer.role == .seat, let me = s.table.viewer.position, s.pending == nil,
               s.table.phase.turn == me else { return false }
         let k = parseTurnKey(h.turnKey)
@@ -248,7 +271,7 @@ enum AssistRules {
                 if let at = cardIndex(s), let i = k.cardIndex, i != at { return false }
             }
             return true
-        case .status:
+        case .status, .tip:
             return true
         }
     }
@@ -256,7 +279,7 @@ enum AssistRules {
     /// A bid or card answer still this turn's by its turnKey (a status reply, or one without a
     /// turnKey, ends at a turn change).
     static func stillLive(_ h: AssistHint, _ s: TableState) -> Bool {
-        h.kind != .status && parseTurnKey(h.turnKey) != nil && isLive(h, s)
+        h.kind != .status && h.kind != .tip && parseTurnKey(h.turnKey) != nil && isLive(h, s)
     }
 
     /// My own bid or play turn at my seat, with nothing of mine on its way (where the lightbulb

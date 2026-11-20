@@ -459,7 +459,7 @@ private struct GameScreen: View {
                         // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
-                            BidOverlayView(zoom: layout.zoom, onClockFrame: { bidClockFrame = $0 })
+                            BidOverlayView(zoom: layout.zoom, onClockFrame: { bidClockFrame = $0 }, onAskFrame: { bidAskFrame = $0 })
                                 .frame(maxWidth: layout.window(layout.bidBand).width)
                             Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
                         }
@@ -484,8 +484,9 @@ private struct GameScreen: View {
                     if showsTable && !showsBidOverlay && gameState.showsAssistAsk {
                         assistAsk(layout)
                     }
-                    if showsTable, let hint = gameState.assistHint {
-                        assistCard(layout, hint, full: full)
+                    // my answer's card, and the tutorial's tips and chip above it (one column)
+                    if showsTable && showsAssistColumn {
+                        assistColumn(layout, full: full)
                     }
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
@@ -672,6 +673,9 @@ private struct GameScreen: View {
     /// My bid clock's pill on the bid panel's edge, in the pane, as last laid out (nil: never
     /// shown): the /help card stays above it while my clock runs (`myBidClockRuns`).
     @State private var bidClockFrame: CGRect?
+    /// The lightbulb on the bid panel's corner, in the pane, as last laid out: the tutorial's
+    /// tips and chip keep above it while it shows (the /help card never shows with it).
+    @State private var bidAskFrame: CGRect?
 
     /// My seat's bid clock runs (BidOverlayView.myClock: a seat holder's own clock).
     private var myBidClockRuns: Bool {
@@ -816,42 +820,125 @@ private struct GameScreen: View {
         if actions.askHelp(connected: connected) { HapticManager.selection() }
     }
 
-    /// The card: centred on my hand, its bottom just above the lifted cards and my seat's row
-    /// (HSI, the voice button, my pips), or above the bid panel and its countdown while it
-    /// shows; in a tabletop pose it stays below the fold with them; scrolls inside when the
+    /// The lightbulb's frame on my play turn (at my hand's right end, just above the lifted cards).
+    private func assistAskFrame(_ layout: TableLayout) -> CGRect {
+        let box = handBox(layout)
+        let size = AssistLayout.askSize
+        let hit = max(size, Theme.hitTarget)
+        return CGRect(x: max(0, box.maxX - hit + (hit - size) / 2), y: max(0, box.minY - hit + (hit - size) / 2 - 2),
+                      width: hit, height: hit)
+    }
+
+    /// Exit and the game log's button under the score bar (cornerButtons), in the pane's
+    /// points: the column's box starts below them where it spans them (a phone's width).
+    private func cornerRects(_ layout: TableLayout, full: CGSize) -> [CGRect] {
+        guard inGame && !usesVerticalBar, cornerSize != .zero else { return [] }
+        let y = paneSafeArea.top + chrome.topBar + 8
+        let lead = CGRect(x: paneSafeArea.left + 12 + layout.paneOccludedLeft, y: y, width: cornerSize.width, height: cornerSize.height)
+        let trail = CGRect(x: full.width - paneSafeArea.right - 12 - layout.paneOccludedRight - cornerSize.width, y: y,
+                           width: cornerSize.width, height: cornerSize.height)
+        return [lead, trail]
+    }
+
+    /// Something of the column is up: my answer, a tutorial tip or its welcome, the tutorial's chip.
+    private var showsAssistColumn: Bool {
+        gameState.assistHint != nil || gameState.tutorialTip != nil || gameState.tutorialWelcome != nil
+            || gameState.showsTutorialChip
+    }
+
+    /// The column: the welcome, a rule tip, my answer's card, then the "Tutorial on" chip at its
+    /// leading foot, centred on my hand, its bottom just above the lifted cards and my seat's
+    /// row (HSI, the voice button, my pips), or above the bid panel and its countdown while it
+    /// shows, and above the lightbulb while that shows (the tutorial's tips and chip may be up
+    /// with it); in a tabletop pose it stays below the fold with them; scrolls inside when the
     /// room up to the score bar (or the fold) is short.
-    private func assistCard(_ layout: TableLayout, _ hint: AssistHint, full: CGSize) -> some View {
+    private func assistColumn(_ layout: TableLayout, full: CGSize) -> some View {
         let box = handBox(layout)
         let bidding = showsBidOverlay
+        let ask: CGRect? = gameState.showsAssistAsk ? (bidding ? bidAskFrame : assistAskFrame(layout)) : nil
         let keeps = AssistLayout.Keeps(
             anchor: bidding ? layout.window(layout.bidBand).minY : box.minY,
             clock: bidding && myBidClockRuns ? bidClockFrame : nil,
             seatRow: bidding ? nil : layout.window(layout.seatRow.content),
-            fold: layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window))
+            fold: layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window),
+            ask: ask,
+            corners: cornerRects(layout, full: full))
         let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width,
                                    top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
                                    safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
-        let card = AssistCardView(hint: hint, onClose: { gameState.apply(.local(.assistDismissed)) })
-        return VStack(spacing: 0) {
-            Spacer(minLength: 0)
-            ViewThatFits(in: .vertical) {
-                card
-                ScrollView { card }.scrollBounceBehavior(.basedOnSize)
+        let cards = VStack(alignment: .leading, spacing: AssistLayout.gap) {
+            if let welcome = gameState.tutorialWelcome {
+                TutorialTipView(tip: welcome, onClose: tutorialKeep, onKeep: tutorialKeep, onTurnOff: tutorialOff)
+                    .transition(.opacity)
             }
-            #if DEBUG
-            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
-                if UIFixture.isActive { TableDebugProbe.shared.assistFrame = r }
+            if let tip = gameState.tutorialTip {
+                TutorialTipView(tip: tip, onClose: { gameState.apply(.local(.tutorialTipDismissed)) })
+                    .transition(.opacity)
             }
-            // only once the card is gone: a removed copy's onDisappear may come after a new one's frame
-            .onDisappear { if UIFixture.isActive && gameState.assistHint == nil { TableDebugProbe.shared.assistFrame = nil } }
-            .onChange(of: keeps.probe, initial: true) { _, k in
-                if UIFixture.isActive { TableDebugProbe.shared.assistKeeps = k }
+            if let hint = gameState.assistHint {
+                AssistCardView(hint: hint, onClose: { gameState.apply(.local(.assistDismissed)) })
+                    .transition(.opacity)
             }
-            #endif
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        let hasCards = gameState.tutorialWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
+        // the chip stays at the column's foot; only the cards scroll when the room is short
+        return VStack(alignment: .leading, spacing: AssistLayout.gap) {
+            Spacer(minLength: 0)
+            if hasCards {
+                ViewThatFits(in: .vertical) {
+                    cards
+                    ScrollView { cards }.scrollBounceBehavior(.basedOnSize)
+                }
+                #if DEBUG
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                    if UIFixture.isActive { TableDebugProbe.shared.assistFrame = r }
+                }
+                // only once the cards are gone: a removed copy's onDisappear may come after a new one's frame
+                .onDisappear {
+                    if UIFixture.isActive && gameState.assistHint == nil && gameState.tutorialTip == nil && gameState.tutorialWelcome == nil {
+                        TableDebugProbe.shared.assistFrame = nil
+                    }
+                }
+                #endif
+            }
+            if gameState.showsTutorialChip {
+                TutorialChipView(switchingOff: gameState.tutorialOffSent, action: tutorialOff)
+                    #if DEBUG
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                        if UIFixture.isActive { TableDebugProbe.shared.tutorialChipFrame = r }
+                    }
+                    .onDisappear { if UIFixture.isActive && !gameState.showsTutorialChip { TableDebugProbe.shared.tutorialChipFrame = nil } }
+                    #endif
+            }
+        }
+        #if DEBUG
+        .onChange(of: keeps.probe, initial: true) { _, k in
+            if UIFixture.isActive { TableDebugProbe.shared.assistKeeps = k }
+        }
+        #endif
         .frame(width: f.width, height: f.height)
         .offset(x: f.minX, y: f.minY)
+        .animation(.easeInOut(duration: 0.2), value: gameState.tutorialTip)
         .transition(.opacity)
+    }
+
+    private var isConnectedForTutorial: Bool {
+        #if DEBUG
+        SocketService.shared.isConnected || UIFixture.isActive
+        #else
+        SocketService.shared.isConnected
+        #endif
+    }
+
+    /// The welcome's Keep or close button: /tutorial keep.
+    private func tutorialKeep() {
+        actions.tutorialKeep(connected: isConnectedForTutorial)
+    }
+
+    /// The chip's switch or the welcome's Turn off: /tutorial off.
+    private func tutorialOff() {
+        if actions.tutorialOff(connected: isConnectedForTutorial) { HapticManager.selection() }
     }
 
     // MARK: - Spectator badge (layout.spectatorBadge: by HSI / voice, a spectator's in the corner)
@@ -1035,6 +1122,12 @@ enum AssistLayout {
         /// The fold (none when the layout ignored it): in a tabletop pose the card stays in
         /// the lower half, with the hand and the bid panel.
         var fold: CGRect?
+        /// The lightbulb while it shows (only with the tutorial's tips or chip: the /help card
+        /// hides it): under the column's span, the column's bottom goes above it.
+        var ask: CGRect? = nil
+        /// Exit and the game log's button under the score bar: where the column spans one, its
+        /// box starts below it (the buttons stay in reach and readable).
+        var corners: [CGRect] = []
 
         /// For the fixture probe "table.assist" (the card's frame against these).
         var probe: [String: CGRect] {
@@ -1042,6 +1135,7 @@ enum AssistLayout {
             if let clock { out["bidClock"] = clock }
             if let seatRow { out["seatRow"] = seatRow }
             if let fold { out["fold"] = fold }
+            if let ask { out["ask"] = ask }
             return out
         }
     }
@@ -1057,12 +1151,18 @@ enum AssistLayout {
         let room = max(0, hi - lo)
         let width = min(room, min(maxWidth, max(minWidth, handWidth)))
         let x = min(max(handMidX - width / 2, lo), hi - width)
+        for c in keeps.corners where c.minX < x + width && c.maxX > x && c.maxY > top && c.maxY + gap < bottom {
+            top = c.maxY + gap
+        }
         // my seat's row under the card's span (not one above the box, beside the trick cards
         // in a tabletop pose): the card's bottom goes above it while that leaves room
         if let r = keeps.seatRow, r.minX < x + width, r.maxX > x, r.maxY > top, r.minY < bottom,
            r.minY - gap - top >= minRoom {
             bottom = r.minY
         }
+        // the lightbulb under the column's span (my play turn's at my hand's right end, my bid
+        // turn's on the bid panel's corner): above it, as the countdown
+        if let a = keeps.ask, a.minX < x + width, a.maxX > x, a.minY < bottom { bottom = min(bottom, a.minY) }
         let height = max(0, bottom - gap - top)
         return CGRect(x: x, y: top, width: width, height: height)
     }

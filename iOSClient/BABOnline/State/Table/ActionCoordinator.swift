@@ -179,6 +179,28 @@ final class ActionCoordinator: ObservableObject {
         return true
     }
 
+    /// The welcome tip's Keep or close button: /tutorial keep (silent; an auto-start's account
+    /// stops being "pending"), and the welcome goes. Offline it just goes (nothing to keep).
+    func tutorialKeep(connected: Bool) {
+        if connected { emitter.chat(TutorialRules.keepCommand) }
+        store.apply(.local(.tutorialWelcomeKept))
+    }
+
+    /// The chip's switch or the welcome's Turn off: /tutorial off (the server answers with
+    /// assistState and "Tips off. /help still works any time."). Offline: the reconnecting
+    /// notice, and the tutorial stays on. false when nothing was sent.
+    @discardableResult
+    func tutorialOff(connected: Bool) -> Bool {
+        guard store.state.table.tutorial.on, !store.state.table.tutorialOffSent else { return false }
+        guard connected else {
+            store.postNotice(AssistRules.reconnecting)
+            return false
+        }
+        emitter.chat(TutorialRules.offCommand)
+        store.apply(.local(.tutorialOffSent))
+        return true
+    }
+
     private func arm(_ id: UInt32, attempt: Int) {
         timers[id]?.cancel()
         timers[id] = clock.after(AckPolicy.timeout) { [weak self] in

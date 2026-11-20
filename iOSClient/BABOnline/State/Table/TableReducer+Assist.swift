@@ -15,7 +15,8 @@ extension TableReducer {
     /// passed). Off the table: the draw's status is a toast, the game-end screen's a log row.
     static func assistHint(_ s: inout TableState, _ w: WirePayload.AssistHint, _ fx: inout [TableEffect]) {
         guard let wire = AssistHint(w) else { return }
-        s.table.assistAsking = false
+        // the tutorial's push is not the answer the lightbulb waits for
+        if !wire.isTutorial { s.table.assistAsking = false }
         // a pure spectator's reply ("players only") says nothing about my uses
         if s.table.viewer.role != .spectator {
             s.table.assistUses = AssistUses(uses: wire.uses, freeUses: wire.freeUses, assisted: wire.assisted, unlimited: wire.unlimited,
@@ -24,6 +25,9 @@ extension TableReducer {
         // a game with a native bot seat: no count, no note, never bot-assisted (the card's
         // footer and VoiceOver); the hint's own flag decides (the server's verdict)
         let h = AssistRules.inFreeHelpGame(wire)
+        if h.kind == .tip { tutorialTip(&s, h, &fx); return }
+        // a reply to /tutorial (e.g. the rate limit after the chip's switch): the switch settles
+        if h.kind == .status && h.isTutorial { s.table.tutorialOffSent = false }
         switch s.table.phase.kind {
         case .ended:
             if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h)) }
@@ -48,17 +52,19 @@ extension TableReducer {
     }
 
     /// Put a live answer up (the card, the glow or ring, the row, the announcement).
+    /// The tutorial's advice adds no row: it comes on every decision while the tutorial is on.
     static func showAssist(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
-        addPrivateLog(&s, AssistRules.logLine(h))
+        if !(h.isTutorial && h.kind != .status) { addPrivateLog(&s, AssistRules.logLine(h)) }
         s.table.assist = h
         fx.append(.announce(AssistRules.announcement(h)))
     }
 
     /// A held (not yet live) answer is given up: its row says the turn had passed.
+    /// The tutorial's advice goes quietly (never asked for, never counted).
     static func abandonParked(_ s: inout TableState) {
-        guard s.table.parkedAssist != nil else { return }
+        guard let parked = s.table.parkedAssist else { return }
         s.table.parkedAssist = nil
-        addPrivateLog(&s, AssistRules.lateLine)
+        if !parked.isTutorial { addPrivateLog(&s, AssistRules.lateLine) }
     }
 
     /// My /help answer is done (and a held one with it, said in its row).
@@ -88,6 +94,57 @@ extension TableReducer {
         s.table.assist = nil
         s.table.parkedAssist = nil
         s.table.assistAsking = false
+        s.table.tip = nil
+        s.table.welcome = nil
+    }
+
+    // MARK: - The tutorial (State/Table/Tutorial.swift)
+
+    /// A rule tip: a dim private row and one VoiceOver announcement (each tip once a game), and
+    /// up over the table while at it (the welcome in its own slot); on the game-end screen, at
+    /// the draw or without a table, the row only.
+    static func tutorialTip(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
+        let key = TutorialRules.seenKey(h)
+        let fresh = !s.table.tipsSeen.contains(key)
+        if fresh {
+            s.table.tipsSeen.insert(key)
+            addPrivateLog(&s, TutorialRules.logLine(h))
+        }
+        switch s.table.phase.kind {
+        case .none, .waiting, .draw, .ended:
+            return
+        default:
+            break
+        }
+        // only a seat holder sees it over the table (a bot playing my seat: the row only)
+        guard s.table.viewer.role == .seat else { return }
+        if TutorialRules.isWelcome(h) && !h.actions.isEmpty { s.table.welcome = h } else { s.table.tip = h }
+        if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
+    }
+
+    /// My own bid or card (or a bot taking my seat): the rule tip about it is done (the welcome stays).
+    static func clearTip(_ s: inout TableState) {
+        s.table.tip = nil
+    }
+
+    /// assistState: my seat's tutorial and /help uses. Off: its tips, its welcome and its advice go.
+    static func assistState(_ s: inout TableState, _ p: WirePayload.AssistState, _ fx: inout [TableEffect]) {
+        if let uses = p.uses {
+            s.table.assistUses = AssistUses(uses: max(0, uses), freeUses: max(0, p.freeUses ?? AssistRules.defaultFreeUses),
+                                            assisted: p.assisted == true, unlimited: p.unlimited == true, told: true)
+        }
+        let on = p.tutorial == true
+        s.table.tutorial = TutorialStatus(on: on, auto: on && p.auto == true)
+        s.table.tutorialOffSent = false
+        if !on { endTutorial(&s) }
+    }
+
+    /// The tutorial is off: what it put up goes (a /help answer stays).
+    static func endTutorial(_ s: inout TableState) {
+        s.table.tip = nil
+        s.table.welcome = nil
+        if s.table.assist?.isTutorial == true && s.table.assist?.kind != .status { s.table.assist = nil }
+        if s.table.parkedAssist?.isTutorial == true { s.table.parkedAssist = nil }
     }
 
     /// A row only this device shows (never sent or stored), dim in the suggestion's gold.

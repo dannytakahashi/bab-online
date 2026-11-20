@@ -32,6 +32,18 @@ struct TableSlice: Equatable {
     /// The lightbulb sent /help and waits for the answer (hidden meanwhile; `assistAskLapsed`
     /// after AssistRules.askWait shows it again).
     var assistAsking = false
+    /// The tutorial (State/Table/Tutorial.swift): on / auto as the server last said (assistState,
+    /// the snapshot's viewer.assist); off for a new game.
+    var tutorial = TutorialStatus()
+    /// The chip's switch or the welcome's Turn off sent /tutorial off: the switch shows off
+    /// until the server's assistState (or its status reply) settles it.
+    var tutorialOffSent = false
+    /// The rule tip up (TutorialTipView, kind `tip`), nil when none.
+    var tip: AssistHint?
+    /// The welcome tip (T.welcome, with Keep / Turn off), until kept, turned off or closed.
+    var welcome: AssistHint?
+    /// Tips already logged and announced this game (TutorialRules.seenKey): each once.
+    var tipsSeen: Set<String> = []
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).

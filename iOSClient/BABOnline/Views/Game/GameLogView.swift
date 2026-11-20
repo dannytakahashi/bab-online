@@ -44,13 +44,14 @@ struct GameLogPanel: View {
 
     private var availableCommands: [SlashCommand] {
         Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome,
-                      help: gameState.helpDescription)
+                      help: gameState.helpDescription, tutorial: gameState.tutorialDescription)
     }
 
     /// The command list: a pure spectator (not lazy) only has /leave, which exits spectating;
     /// at a seat /leave says what it will do (LeaveOutcome) and /help how many free uses are
-    /// spent (`help`: AssistRules.helpDescription; nil leaves it out).
-    static func commands(pureSpectator: Bool, leave: LeaveOutcome, help: String? = nil) -> [SlashCommand] {
+    /// spent (`help`: AssistRules.helpDescription; nil leaves it out), and /tutorial whether it
+    /// turns the tutorial on or off (`tutorial`: TutorialRules.commandDescription; nil leaves it out).
+    static func commands(pureSpectator: Bool, leave: LeaveOutcome, help: String? = nil, tutorial: String? = nil) -> [SlashCommand] {
         if pureSpectator {
             return [SlashCommand(command: "/leave", description: "Exit spectating")]
         }
@@ -60,6 +61,7 @@ struct GameLogPanel: View {
             SlashCommand(command: "/leave", description: leave.commandHelp),
         ]
         if let help { list.append(SlashCommand(command: AssistRules.command, description: help)) }
+        if let tutorial { list.append(SlashCommand(command: TutorialRules.command, description: tutorial)) }
         return list
     }
 
@@ -302,13 +304,16 @@ enum ChatCommand {
     /// Commands the server answers from anyone (server/socket/chatHandlers.js spectatorCommand):
     /// typed in full they are sent whatever the list shows. A spectator recorded as a seat's
     /// owner takes it back with `/active`, though a spectator's list shows only `/leave`.
-    /// `/help` too (the server answers a spectator "/help is for players only.").
-    static let server = ["/active", "/leave", "/help"]
+    /// `/help` too (the server answers a spectator "/help is for players only."), and `/tutorial`
+    /// ("/tutorial is for players only.").
+    static let server = ["/active", "/leave", "/help", "/tutorial"]
 
     static func resolve(_ text: String, commands: [String]) -> Resolution {
         let line = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = line.lowercased()
         if server.contains(query) { return .send(query) }
+        // "/tutorial on" / "off" / "keep" (or a unique prefix of /tutorial with a word): sent with it
+        if let tutorial = TutorialRules.typedLine(line, commands: commands) { return .send(tutorial) }
         if query != "/" {
             let matches = commands.filter { $0.hasPrefix(query) }
             if matches.count == 1 { return .send(matches[0]) }

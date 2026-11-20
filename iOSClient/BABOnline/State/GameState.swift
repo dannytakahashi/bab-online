@@ -274,6 +274,25 @@ final class GameState: ObservableObject {
     /// a native bot seat).
     var helpDescription: String { AssistRules.helpDescription(table.assistUses, free: AssistRules.isFreeHelpGame(state)) }
 
+    // MARK: the tutorial (State/Table/Tutorial.swift)
+
+    /// My seat's tutorial is on (the server's word; the chip, the command list).
+    var tutorialOn: Bool { table.tutorial.on }
+    /// The "Tutorial on" chip: while on, at my own seat (never a spectator or a lazy watcher),
+    /// at the table (not the game-end screen).
+    var showsTutorialChip: Bool {
+        table.tutorial.on && table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
+    }
+    /// The chip's switch went off (/tutorial off sent) and waits for the server.
+    var tutorialOffSent: Bool { table.tutorialOffSent }
+    /// The rule tip up over the table (my seat only), nil when none. It waits while the welcome
+    /// is up (the welcome says tips will come; three cards at once would not fit a phone).
+    var tutorialTip: AssistHint? { table.viewer.role == .seat && table.welcome == nil ? table.tip : nil }
+    /// The welcome tip (Keep / Turn off), my seat only.
+    var tutorialWelcome: AssistHint? { table.viewer.role == .seat ? table.welcome : nil }
+    /// The chat command list's /tutorial line.
+    var tutorialDescription: String { TutorialRules.commandDescription(on: table.tutorial.on) }
+
     var gameLog: [ChatMessage] { log.entries }
     var unreadChatCount: Int { log.unread }
     var gameEndData: GameEndData? { if case .ended(let d) = table.phase { return d } else { return nil } }
