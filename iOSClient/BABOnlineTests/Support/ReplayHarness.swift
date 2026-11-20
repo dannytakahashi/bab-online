@@ -65,11 +65,14 @@ final class ReplayHarness {
     let store = GameState()
     let emitter = FakeEmitter()
     let clock = ManualClock()
+    /// The HSI reveal's clock (HSIScale.revealDelay), kept with `clock` but apart from it:
+    /// `clock.fired` counts only ack timeouts.
+    let hsiClock = ManualClock()
     let renderer = RecordingRenderer()
     let appState = AppState()
     /// The bid clock's tune player (silent unless a test passes a recorder).
     let tunePlayer: TunePlaying?
-    lazy var actions = ActionCoordinator(store: store, emitter: emitter, clock: clock, tunePlayer: tunePlayer)
+    lazy var actions = ActionCoordinator(store: store, emitter: emitter, clock: clock, tunePlayer: tunePlayer, hsiClock: hsiClock)
     lazy var handler = GameSocketHandler(socket: SocketService.shared, gameState: store, appState: appState)
     var effects: [TableEffect] = []
     private var reqId: UInt32 = 1000
@@ -90,6 +93,7 @@ final class ReplayHarness {
     /// One recorded entry, routed the way the app's handlers route it.
     func apply(_ e: RecordedGame.Entry) throws {
         clock.advance(to: TimeInterval(e.t) / 1000)
+        hsiClock.advance(to: TimeInterval(e.t) / 1000)
         if e.dir == "c2s" {
             guard let d = e.data as? [String: Any] else { return }
             switch e.event {

@@ -58,6 +58,63 @@ final class SeatRowUITests: XCTestCase {
         app.terminate()
     }
 
+    // MARK: A live deal's HSI (the web's PR #345)
+
+    /// A live deal (`-uiDeal`, 8 s after launch) with my seat's HSI `-uiDealHSI <value>`: the
+    /// rejoin's 119.2 goes to "HSI --" with the deal and the new value shows a second after it
+    /// (HSIScale.revealDelay), in my seat's row or, on my bid turn, the bid panel. The colour
+    /// (red to green, HSIScale.color) is in the screenshot, `hsi-<name>` (`BAB_SHOTS` saves it).
+    private func checkLiveDealHSI(_ value: String, shot name: String) {
+        let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiDealHSI", value])
+        XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        let row = element(app, "hsi"), panel = element(app, "bidOverlay.hsi")
+        func reading() -> String? {
+            if panel.exists { return panel.label }
+            return row.exists ? row.label : nil
+        }
+        let shown = "Hand strength index \(value)"
+        var labels: [String] = []
+        var pendingAt: Date?, shownAt: Date?
+        let deadline = Date().addingTimeInterval(25)
+        while Date() < deadline, shownAt == nil {
+            guard let label = reading() else { Thread.sleep(forTimeInterval: 0.05); continue }
+            if labels.last != label { labels.append(label) }
+            if label == "Hand strength index pending", pendingAt == nil { pendingAt = Date() }
+            if label == shown { shownAt = Date() }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        XCTAssertNotNil(shownAt, "\(name): never showed \(shown): \(labels)")
+        // read before the deal (the rejoin's value), then "HSI --" for the reveal's second
+        if labels.first == "Hand strength index 119.2" {
+            XCTAssertEqual(labels, ["Hand strength index 119.2", "Hand strength index pending", shown], name)
+            if let pendingAt, let shownAt {
+                XCTAssertLessThan(shownAt.timeIntervalSince(pendingAt), 2.5, "\(name): held too long")
+            }
+        } else {
+            XCTAssertEqual(labels.last, shown, "\(name): \(labels)")
+        }
+        let png = app.screenshot()
+        let a = XCTAttachment(screenshot: png)
+        a.name = "hsi-\(name)"
+        a.lifetime = .keepAlways
+        add(a)
+        if let dir = ProcessInfo.processInfo.environment["BAB_SHOTS"], !dir.isEmpty {
+            try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try? png.pngRepresentation.write(to: URL(fileURLWithPath: dir).appendingPathComponent("hsi-\(name).png"))
+        }
+        app.terminate()
+    }
+
+    /// A weak hand (64.0: under 70, full red, lifted for contrast).
+    func testALiveDealShowsAWeakHSIAfterTheDashes() {
+        checkLiveDealHSI("64.0", shot: "weak")
+    }
+
+    /// A strong hand (182.0: near green).
+    func testALiveDealShowsAStrongHSIAfterTheDashes() {
+        checkLiveDealHSI("182.0", shot: "strong")
+    }
+
     // MARK: HSI in the bid panel
 
     /// bidding-mid (I am seat 4, my turn; seat 2 bid B, seat 3 1) with its bids changed so each

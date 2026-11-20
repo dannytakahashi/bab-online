@@ -345,11 +345,13 @@ enum UIFixture {
         // `-uiDeal YES`: 8 s after launch (the UI test is reading the probe by then) the next
         // hand is dealt live (gameStart as the server sends it: 13 cards, dealer 4), so the
         // deal's fly-in plays (probe "table.deal"); `-uiDealSize <n>` deals n cards instead
-        // (HandSequence: 10 is hand 2, a blue deck and blue backs);
+        // (HandSequence: 10 is hand 2, a blue deck and blue backs); its hsiValues give my seat
+        // `-uiDealHSI <v>` (172.4 by default), shown "HSI --" until HSIScale.revealDelay later;
         // `-uiReduceMotion YES` pins Reduce Motion on (Theme.Motion.reduceMotionOverride)
         if defaults.bool(forKey: "uiReduceMotion") { Theme.Motion.reduceMotionOverride = true }
         if defaults.bool(forKey: "uiDeal") {
             let size = Int(defaults.string(forKey: "uiDealSize") ?? "").flatMap { (1...13).contains($0) ? $0 : nil } ?? 13
+            let dealHSI = Double(defaults.string(forKey: "uiDealHSI") ?? "") ?? 172.4
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 let ranks = ["A", "K", "Q", "J", "10", "9", "8"]
                 let thirteen: [[String: Any]] = (ranks.map { ["suit": "spades", "rank": $0] } + ranks.prefix(6).map { ["suit": "hearts", "rank": $0] })
@@ -359,6 +361,10 @@ enum UIFixture {
                     "dealer": 4, "currentHand": size, "seq": (store.state.sync.lastSeq ?? snap.seq) + 1,
                     "playerInfo": snap.seats.map { ["position": $0.position, "username": $0.username ?? "P\($0.position)"] as [String: Any] },
                 ]
+                // every seat's, mine `dealHSI`
+                var hsi: [String: Double] = ["1": 101.5, "2": 118.0, "3": 133.0, "4": 96.0]
+                if let pos = snap.viewer.position { hsi[String(pos)] = dealHSI }
+                payload["hsiValues"] = hsi
                 if let pos = snap.viewer.position, snap.viewer.role == .seat { payload["position"] = pos }
                 _ = store.apply(serverEvent: "gameStart", payload: [payload])
             }

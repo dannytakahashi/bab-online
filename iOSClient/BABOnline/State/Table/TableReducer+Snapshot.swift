@@ -52,7 +52,7 @@ extension TableReducer {
         settleAssist(&s, abandon: false, &fx)
         fx.append(.animate(.sceneReset))
         if s.table.bidClock != nil { fx.append(.bidClock(.sync)) } else if hadClock { fx.append(.bidClock(.stop(.fade))) }
-        catchUp(&fx) { fx in
+        catchUp(&s, &fx) { s, fx in
             for ev in buffered.sorted(by: { ($0.seq ?? 0) < ($1.seq ?? 0) }) where (ev.seq ?? Int.max) > snap.seq {
                 gate(&s, ev, &fx)
             }
