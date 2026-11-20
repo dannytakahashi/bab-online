@@ -28,9 +28,9 @@
  * <body> and keep their CSS fallbacks.
  */
 
-/** OpponentManager's 'bottom' slot (a spectator's view) is the self seat. */
-import { assistAskSpot } from '../phaser/layout/computeTableLayout.js';
+import { assistAskSpot, tutorialChipSpot } from '../phaser/layout/computeTableLayout.js';
 
+/** OpponentManager's 'bottom' slot (a spectator's view) is the self seat. */
 export const SEAT_KEYS = ['self', 'partner', 'opp1', 'opp2'];
 export const seatKeyOf = (slot) => (slot === 'bottom' || slot === 'me' ? 'self' : slot);
 
@@ -211,15 +211,24 @@ function applyRootVars(hud, L) {
     set('--assist-x', h.cx);
     set('--assist-y', cardsTop - Math.max(4, 6 * L.s));
     set('--assist-w', Math.min(h.rect.w, 380));
-    // the lightbulb: its right and bottom edges and its size (assistAskSpot)
+    // the lightbulb (assistAskSpot): its right and bottom edges, its size,
+    // its hit area's reach to the sides, above and below; and its spot while
+    // the tutorial chip shows (table.css .has-tutorial-chip)
     const ask = assistAskSpot(L);
     set('--assist-ask-x', ask.x);
     set('--assist-ask-y', ask.y);
     set('--assist-ask', ask.size);
+    set('--assist-ask-pad', ask.pad);
+    set('--assist-ask-up', ask.up);
+    set('--assist-ask-down', ask.down);
+    set('--assist-ask-chip-y', ask.chip.y);
+    set('--assist-ask-chip-up', ask.chip.up);
+    set('--assist-ask-chip-down', ask.chip.down);
     // the "Tutorial on" chip (ui/components/TutorialChip.js): the hand
-    // box's left end, level with the lightbulb at its right end
-    set('--tutorial-x', h.rect.x);
-    set('--tutorial-y', cardsTop);
+    // box's left end, level with the lightbulb's spot (tutorialChipSpot)
+    const chip = tutorialChipSpot(L, ask);
+    set('--tutorial-x', chip.x);
+    set('--tutorial-y', chip.y);
   }
   const vr = L.voice.rect;
   set('--voice-x', vr.x);

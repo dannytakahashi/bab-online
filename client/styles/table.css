@@ -1443,7 +1443,11 @@ body > .voice-btn {
     inset: -8px;
 }
 
-.hud-assist-ask::before { inset: min(-6px, calc((var(--assist-ask, 36px) - var(--hit-target, 44px)) / 2)); }
+/* the lightbulb's: the layout's reach to the sides, above and below
+   (assistAskSpot: 44 px across and tall, none below where there is room) */
+.hud-assist-ask::before {
+    inset: calc(-1 * var(--ask-up)) calc(-1 * var(--assist-ask-pad, 6px)) calc(-1 * var(--ask-down));
+}
 
 .assist-card__close:hover { background: rgb(var(--text-primary-rgb) / 0.12); color: var(--text-primary); }
 .assist-card__close:focus-visible,
@@ -1506,11 +1510,16 @@ body > .voice-btn {
    bulb on a dark disc with a gold ring, at the hand box's right end, level
    with the top of the cards (the layout's assistAskSpot: its right and
    bottom edges, its size, at least 28 px; its hit area inside the hand box,
-   clear of my seat's box); its ::before above makes the hit area 44 px */
+   clear of my seat's box); its ::before above makes the hit area 44 px.
+   While the tutorial chip shows it takes the layout's chip spot (a row up
+   where the hand box is too narrow for both side by side) */
 .hud-assist-ask {
+    --ask-y: var(--assist-ask-y, 70%);
+    --ask-up: var(--assist-ask-up, 12px);
+    --ask-down: var(--assist-ask-down, 0px);
     position: absolute;
     left: var(--assist-ask-x, 70%);
-    top: var(--assist-ask-y, 70%);
+    top: var(--ask-y);
     transform: translate(-100%, -100%);
     display: inline-flex;
     align-items: center;
@@ -1550,6 +1559,12 @@ body > .voice-btn {
 }
 
 .hud-assist-ask[hidden] { display: none; }
+
+.has-tutorial-chip > .hud-assist-ask {
+    --ask-y: var(--assist-ask-chip-y, var(--assist-ask-y, 70%));
+    --ask-up: var(--assist-ask-chip-up, var(--assist-ask-up, 12px));
+    --ask-down: var(--assist-ask-chip-down, var(--assist-ask-down, 0px));
+}
 
 /* the tutorial's rule tips (AssistCard tipSection): a neutral section at
    the top of the card, above the advice when both are up */
@@ -1637,8 +1652,9 @@ body > .voice-btn {
     outline-offset: 2px;
 }
 
-/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, level
-   with the lightbulb at its right end; under the card, never over the bid sheet */
+/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, its
+   bottom level with the lightbulb's spot at its right end (tutorialChipSpot;
+   the layout's TUTORIAL_CHIP models this box); under the card */
 .hud-tutorial {
     position: absolute;
     left: var(--tutorial-x, 30%);

@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, assistAskSpot, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
+  intersects, contains, assistAskSpot, assistAskHit, tutorialChipSpot, tutorialChipHit, TUTORIAL_CHIP, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
 } from './computeTableLayout.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
 
@@ -659,17 +659,19 @@ describe('computeTableLayout contract', () => {
 /**
  * The /help lightbulb (AssistCard's .hud-assist-ask; tableHud places it at
  * assistAskSpot: its right and bottom edges, drawn up and left from there,
- * with its hit area `pad` round it, as table.css's ::before).
+ * with its hit area `pad` to the sides, `up` above and `down` below, as
+ * table.css's ::before), at its own spot or its tutorial-chip one.
  */
-function askBoxes(L) {
-  const { x, y, size, pad } = assistAskSpot(L);
-  const bulb = { x: x - size, y: y - size, w: size, h: size };
-  return { size, pad, bulb, hit: { x: bulb.x - pad, y: bulb.y - pad, w: size + 2 * pad, h: size + 2 * pad } };
+function askBoxes(L, { chip = false } = {}) {
+  const a = assistAskSpot(L);
+  const { y, up, down } = chip ? a.chip : a;
+  const bulb = { x: a.x - a.size, y: y - a.size, w: a.size, h: a.size };
+  return { ...a, y, up, down, bulb, hit: assistAskHit(a, y, up, down) };
 }
 
 /** What the lightbulb or its hit area covers (my seat's box, the bid sheet, the piles, the felt...). */
-function askProblems(L) {
-  const { bulb, hit } = askBoxes(L);
+function askProblems(L, opts) {
+  const { bulb, hit, up, down, pad, size } = askBoxes(L, opts);
   const out = [];
   for (const r of layoutRects(L)) {
     // the hand box is its home; the log is beside the canvas; a chat bubble comes and goes
@@ -677,9 +679,17 @@ function askProblems(L) {
     if (intersects(hit, r.rect)) out.push(`hit x ${r.id}`);
   }
   if (!contains(L.canvas, bulb)) out.push('bulb outside the canvas');
-  // sideways inside the hand box (my seat's box is beside it)
+  if (Math.abs(size + up + down - (size + 2 * pad)) > 0.01 || up < 0 || down < 0) out.push('hit area not 2 * pad tall');
+  // sideways inside the hand box (my seat's box is beside it), never below it
   if (hit.x < L.hand.rect.x - 0.01 || hit.x + hit.w > L.hand.rect.x + L.hand.rect.w + 0.01) out.push('hit area outside the hand box sideways');
+  if (hit.y + hit.h > L.hand.rect.y + L.hand.rect.h + 0.01) out.push('hit area below the hand box');
   return out;
+}
+
+/** Where the bulb's hit area (at its tutorial-chip spot) meets the chip's, switch hit area and all. */
+function chipMeetsAsk(L) {
+  const c = tutorialChipSpot(L);
+  return intersects(askBoxes(L, { chip: true }).hit, tutorialChipHit(c.x, c.y));
 }
 
 describe('the /help lightbulb by my hand (assistAskSpot)', () => {
@@ -705,16 +715,30 @@ describe('the /help lightbulb by my hand (assistAskSpot)', () => {
     expect(bad).toEqual([]);
   });
 
-  it('sits at the hand box\'s right end level with the lifted cards\' top where there is room (the owner\'s sizes)', () => {
-    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768], [820, 1180]]) {
+  it('sits at the hand box\'s right end level with the lifted cards\' top, its hit area all above it, where there is room (the owner\'s sizes)', () => {
+    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 768], [820, 1180], [820, 560]]) {
       const L = layoutForViewport({ vw, vh });
       const h = L.hand;
-      const { x, y, size, pad } = assistAskSpot(L);
+      const { x, y, size, pad, up, down, chip } = assistAskSpot(L);
       expect(x, `${vw}x${vh}`).toBeCloseTo(h.rect.x + h.rect.w - pad, 5);
       expect(y, `${vw}x${vh}`).toBeCloseTo(h.y - h.card.h / 2 - h.lift, 5);
       expect(size).toBe(Math.max(ASK_MIN, L.voice.button));
       expect(size + 2 * pad).toBeGreaterThanOrEqual(ASK_HIT);
+      // none of it over the lifted cards' tops (a hovered top card plays, not /help)
+      expect([up, down], `${vw}x${vh}`).toEqual([2 * pad, 0]);
+      // the hand box holds the chip and the bulb side by side: the same spot
+      expect(chip, `${vw}x${vh}`).toEqual({ y, up, down });
     }
+  });
+
+  it('on a short table its hit area reaches below the bulb before the bulb comes down (800 x 500)', () => {
+    const L = layoutForViewport({ vw: 800, vh: 500 });
+    const h = L.hand;
+    const { y, up, down, pad } = assistAskSpot(L);
+    expect(y).toBeCloseTo(h.y - h.card.h / 2 - h.lift, 5);
+    expect(down).toBeGreaterThan(0);
+    expect(up + down).toBeCloseTo(2 * pad, 5);
+    expect(askProblems(L)).toEqual([]);
   });
 
   it('on a short table comes down inside the hand box, clear of the bid sheet (560 x 360)', () => {
@@ -724,6 +748,58 @@ describe('the /help lightbulb by my hand (assistAskSpot)', () => {
     expect(y).toBeGreaterThan(h.y - h.card.h / 2 - h.lift);
     expect(y).toBeLessThanOrEqual(h.rect.y + h.rect.h);
     expect(askProblems(L)).toEqual([]);
+  });
+
+  it('its tutorial-chip spot covers nothing either (360-2560 x 360-1440)', () => {
+    const bad = [];
+    for (let vw = 360; vw <= 2560; vw += vw < 840 ? 20 : 80) {
+      for (let vh = 360; vh <= 1440; vh += 40) {
+        const p = askProblems(layoutForViewport({ vw, vh }), { chip: true });
+        if (p.length) bad.push({ vw, vh, p });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('keeps clear of the "Tutorial on" chip and its switch\'s hit area, a row up where the hand box is too narrow for both', () => {
+    const bad = [];
+    const crowded = [];
+    // fine where hand boxes are narrow (and short), coarser elsewhere
+    const sizes = [];
+    for (let vw = 360; vw <= 2560; vw += vw < 600 ? 20 : 80) {
+      for (let vh = 360; vh <= 1440; vh += vw < 600 && vh < 700 ? 20 : 80) sizes.push([vw, vh]);
+    }
+    for (const [vw, vh] of sizes) {
+      if (!chipMeetsAsk(layoutForViewport({ vw, vh }))) continue;
+      // only a table both too narrow and too short for the row up
+      if (vw > 560 || vh > 640) bad.push(`${vw}x${vh}`);
+      else crowded.push(`${vw}x${vh}`);
+    }
+    // the sweep reaches the narrow tables where the row up is needed
+    expect(sizes.some(([vw]) => vw === 540)).toBe(true);
+    expect(bad).toEqual([]);
+    // where they share the row, the bulb keeps its own spot
+    for (const k of crowded) {
+      const [vw, vh] = k.split('x').map(Number);
+      const a = assistAskSpot(layoutForViewport({ vw, vh }));
+      expect(a.chip, k).toEqual({ y: a.y, up: a.up, down: a.down });
+    }
+  });
+
+  it('the chip sits at the hand box\'s left end, its bottom level with the bulb\'s; the bulb goes a row up on a narrow hand box (540 x 800)', () => {
+    for (const [vw, vh] of [[1280, 800], [820, 560], [540, 800], [800, 500]]) {
+      const L = layoutForViewport({ vw, vh });
+      expect(tutorialChipSpot(L), `${vw}x${vh}`).toEqual({ x: L.hand.rect.x, y: assistAskSpot(L).y });
+    }
+    const L = layoutForViewport({ vw: 540, vh: 800 });
+    expect(L.hand.rect.w).toBeLessThan(TUTORIAL_CHIP.w + TUTORIAL_CHIP.hitX + ASK_HIT);
+    const a = assistAskSpot(L);
+    const c = tutorialChipSpot(L);
+    // its hit area's bottom (down 0) above the chip's switch hit area
+    expect(a.chip.y).toBeLessThanOrEqual(tutorialChipHit(c.x, c.y).y);
+    expect(a.chip).toMatchObject({ up: 2 * a.pad, down: 0 });
+    expect(chipMeetsAsk(L)).toBe(false);
+    expect(tutorialChipSpot(layoutForViewport({ vw: 1280, vh: 800, isSpectator: true }))).toBeNull();
   });
 
   it('depends on the layout only (one spot per hand, whatever its cards) and is null without a hand', () => {

@@ -87,8 +87,18 @@ describe('the /help lightbulb', () => {
     expect(r).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     // the ::before reaches the hit target round any button size
     expect(ruleOf(table, '.hud-assist-ask::before')).toContain('position: absolute');
-    // (the layout's assistAskSpot pad: max(6, (44 - size) / 2))
-    expect(table).toMatch(/\n\.hud-assist-ask::before \{ inset: min\(-6px, calc\(\(var\(--assist-ask, 36px\) - var\(--hit-target, 44px\)\) \/ 2\)\); \}/);
+    // (the layout's assistAskSpot: pad to the sides, up above, down below;
+    // tableHud's --assist-ask-pad / -up / -down)
+    const hit = [...table.matchAll(/\n\.hud-assist-ask::before \{([^}]*)\}/g)].map((m) => m[1]).join('');
+    expect(hit).toContain('inset: calc(-1 * var(--ask-up)) calc(-1 * var(--assist-ask-pad, 6px)) calc(-1 * var(--ask-down));');
+    expect(r).toContain('--ask-up: var(--assist-ask-up, 12px)');
+    expect(r).toContain('--ask-down: var(--assist-ask-down, 0px)');
+    expect(r).toContain('top: var(--ask-y)');
+    // while the tutorial chip shows: the layout's chip spot
+    const chip = ruleOf(table, '.has-tutorial-chip > .hud-assist-ask');
+    expect(chip).toContain('--ask-y: var(--assist-ask-chip-y');
+    expect(chip).toContain('--ask-up: var(--assist-ask-chip-up');
+    expect(chip).toContain('--ask-down: var(--assist-ask-chip-down');
     expect(r).toContain('width: var(--assist-ask, 36px)');
     // its right and bottom edges are the spot's
     expect(r).toContain('transform: translate(-100%, -100%)');
