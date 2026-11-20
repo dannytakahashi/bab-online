@@ -67,7 +67,8 @@ the test and the release step alike:
 | iOS 1.2.3 (20) | `ios-1.2.3-b20.*` | ee85eecc (branch ios/bulb-clear-seat-row, frozen 2026-11-19 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (19) plus the play-turn lightbulb kept off my seat row; no wire change, so the contract and decodes match build 19's; still 1.2.3; the `stateSnapshot.requestId` waiver holds; archived from 5bb751f5, the #342 merge) | uploaded to TestFlight 2026-11-19 |
 | iOS 1.2.3 (21) | `ios-1.2.3-b21.*` | dd4a491c (branch ios/build-21, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (20) plus the tutorial and the session unmute; additive: decodes the private s2c `assistState`, `assistHint` source tutorial / kind tip (`tipId`, `actions`) and the snapshot's optional `viewer.assist.tutorial` / `auto`; sends the cap `tutorial`; still 1.2.3; the `stateSnapshot.requestId` waiver holds) archived from 3e66adbf, the #347 merge | uploaded to TestFlight 2026-11-20 |
 | iOS 1.2.3 (22) | `ios-1.2.3-b22.*` | b394f499 (branch ios/build-22-hsi, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (21) plus the HSI reveal and colour and the live rainbow row; no wire change, so the contract and decodes match build 21's; still 1.2.3; the `stateSnapshot.requestId` waiver holds) archived from 66c25297, the #348 merge | uploaded to TestFlight 2026-11-20 |
-| iOS 1.2.3 (23) | `ios-1.2.3-b23.*` | e7666dee (branch ios/four-colour, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (22) plus the four-colour deck; no wire change, so the contract and decodes match build 22's; still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
+| iOS 1.2.3 (23) | `ios-1.2.3-b23.*` | e7666dee (branch ios/four-colour, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (22) plus the four-colour deck; no wire change, so the contract and decodes match build 22's; still 1.2.3; the `stateSnapshot.requestId` waiver holds) archived from bb3cff4d, the #350 merge | uploaded to TestFlight 2026-11-20 |
+| iOS 1.2.3 (24) | `ios-1.2.3-b24.*` | BUMP24 (branch ios/superlatives, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (23) plus the Records superlatives, read by hand from `recordsResponse.records.<period>.superlatives` (#351; `recordsPeriod` is open, so the frozen decodes are unchanged); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -88,8 +89,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 23                  # HEAD must be build 23 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 23 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 24                  # HEAD must be build 24 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 24 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
