@@ -424,6 +424,27 @@ body > .bid-sheet {
     color: var(--text-on-primary);
 }
 
+/* a watcher's read-only sheet of the watched seat (BidManager readOnly,
+   the over-the-shoulder view): the same look, its choices static text;
+   nothing reacts to a pointer, nothing is focusable */
+.bid-sheet--readonly { pointer-events: none; }
+.bid-sheet--readonly .bid-sheet__title {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    padding: 0 calc(2 * var(--space-4));
+}
+.bid-sheet--readonly .bid-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+}
+.bid-sheet--readonly .bid-button.is-disabled {
+    opacity: 0.4;
+    background: var(--surface-2);
+}
+
 /* the /help suggestion (ui/components/AssistCard.js): a gold ring, the
    lightbulb colour of the iOS card; a selected bid keeps its own fill */
 .bid-button.is-suggested {
@@ -1747,7 +1768,7 @@ body > .voice-btn {
     .hud-assist { animation: none; }
 }
 
-/* ---------- The over-the-shoulder view (state/shoulder.js, ui/components/ShoulderHud.js) ---------- */
+/* ---------- The over-the-shoulder view (state/shoulder.js, ui/components/ShoulderHud.js; its read-only bid sheet is with the bid sheet above) ---------- */
 
 /* the spectating pill while watching: whose hand (shortened first when
    short of room) and its Table view control, always whole (the pill itself
@@ -1787,29 +1808,6 @@ body > #spectating-indicator.is-watching {
     outline: 2px solid var(--text-primary);
     outline-offset: 2px;
 }
-
-/* the watched seat's bid clock, where the bid sheet would be (a watcher has none) */
-.hud-shoulder-clock {
-    position: absolute;
-    left: var(--bid-x, 50%);
-    top: var(--bid-y, 50%);
-    transform: translate(-50%, -50%);
-    z-index: var(--z-panel);
-    padding: var(--space-1) var(--space-3);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-pill);
-    background: rgb(var(--surface-1-rgb) / 0.92);
-    color: var(--text-secondary);
-    font-family: var(--font-ui);
-    font-size: var(--type-sm);
-    font-weight: var(--weight-semibold);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    box-shadow: var(--elev-1);
-    pointer-events: none;
-}
-
-.hud-shoulder-clock.is-low { color: var(--warning); border-color: var(--warning); }
 
 /* the watched hand area while the table is paused (no stale cards) */
 .hud-shoulder-paused {

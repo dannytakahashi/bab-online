@@ -459,3 +459,67 @@ describe('the /help suggested bid', () => {
     expect(rule('.bid-button.is-suggested')).toMatch(/var\(--gold\)/);
   });
 });
+
+describe('the read-only sheet (a watcher\'s view of the watched seat, owner 2026-11-21)', () => {
+  let bm;
+  beforeEach(() => {
+    resetGameState();
+    bm = new BidManager({});
+  });
+  afterEach(() => {
+    bm.hideBidUI(false);
+    document.getElementById('bidContainer')?.remove();
+  });
+
+  it('names the bidder, shows the legal choices as static text: nothing focusable, nothing to click, never sent', () => {
+    const send = vi.fn(() => true);
+    getGameState().tempBids = ['B'];
+    bm.showBidUI(5, send, { readOnly: true, owner: 'alicew' });
+    const sheet = document.getElementById('bidContainer');
+    expect(sheet.classList.contains('bid-sheet--readonly')).toBe(true);
+    expect(sheet.getAttribute('aria-label')).toBe('alicew is bidding');
+    expect(sheet.querySelector('.bid-sheet__title').textContent).toBe('alicew is bidding');
+    expect(sheet.querySelectorAll('button, [tabindex], input, a')).toHaveLength(0);
+    const choices = [...sheet.querySelectorAll('.bid-button')];
+    expect(choices.map((c) => [c.tagName, c.textContent])).toEqual(
+      ['0', '1', '2', '3', '4', '5', 'B', '2B', '3B', '4B'].map((t) => ['SPAN', t]),
+    );
+    // the bores so far decide what is open (public: the bids made)
+    const bore = (b) => sheet.querySelector(`.bid-button[data-bid="${b}"]`);
+    expect([bore('B'), bore('2B'), bore('3B'), bore('4B')].map((e) => e.classList.contains('is-disabled'))).toEqual([true, false, true, true]);
+    // the hint's ring, never a selection
+    bm.setSuggestedBid('2');
+    expect(choices[2].classList.contains('is-suggested')).toBe(true);
+    for (const c of choices) {
+      c.click();
+      c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    bm.chooseBid(choices[2], '2', send);
+    expect(send).not.toHaveBeenCalled();
+    expect(sheet.querySelector('.is-selected')).toBeNull();
+    expect(bm.selectedBid).toBeNull();
+  });
+
+  it('lets no pointer through and keeps the choices\' look (CSS)', () => {
+    expect(rule('.bid-sheet--readonly')).toMatch(/pointer-events:\s*none/);
+    expect(rule('.bid-sheet--readonly .bid-button.is-disabled')).toMatch(/opacity:\s*0\.4/);
+  });
+
+  it('my own sheet after it is as before: buttons, "Your bid", a click sends', () => {
+    bm.showBidUI(3, vi.fn(), { readOnly: true, owner: 'alicew' });
+    const send = vi.fn(() => true);
+    getGameState().isBidding = true;
+    getGameState().position = 2;
+    getGameState().currentTurn = 2;
+    bm.showBidUI(3, send);
+    const sheet = document.getElementById('bidContainer');
+    expect(sheet.classList.contains('bid-sheet--readonly')).toBe(false);
+    expect(sheet.getAttribute('aria-label')).toBe('Your bid');
+    expect(sheet.querySelector('.bid-sheet__title').textContent).toBe('Bid!');
+    const buttons = [...sheet.querySelectorAll('button.bid-button')];
+    expect(buttons).toHaveLength(8);
+    buttons[1].click();
+    expect(send).toHaveBeenCalledWith('1');
+    expect(bm.readOnly).toBe(false);
+  });
+});

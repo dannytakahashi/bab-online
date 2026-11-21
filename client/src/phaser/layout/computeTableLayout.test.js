@@ -864,3 +864,48 @@ describe('the Tutorial button\'s slot in my voice row (owner 2026-11-21: with my
     expect(noSlot.every((k) => k.startsWith('360x'))).toBe(true);
   });
 });
+
+describe('a watcher\'s layout (the over-the-shoulder view, owner 2026-11-21)', () => {
+  const cardRect = (spot, w) => spot && ({ x: spot.x - w / 2, y: spot.top, w, h: spot.y - spot.top });
+
+  it('is the seated layout but for my own voice row: the corner\'s, right above the spectator badge, never under the watched box', () => {
+    const bad = [];
+    let n = 0;
+    const sizes = [];
+    for (let vw = 800; vw <= 2560; vw += 80) for (let vh = 500; vh <= 1440; vh += 80) sizes.push([vw, vh]);
+    sizes.push([1024, 640], [1280, 800], [1920, 1080], [768, 1024], ...NAMED.filter(([w]) => w >= 768));
+    for (const [vw, vh] of sizes) {
+      const L = layoutForViewport({ vw, vh, watcher: true });
+      n++;
+      const label = `${vw}x${vh}`;
+      if (L.degraded || findIntersections(L).length || findOutside(L).length) bad.push({ label, degraded: L.degraded, hits: findIntersections(L), out: findOutside(L) });
+      const more = [...badgeProblems(L), ...bubbleProblems(L)];
+      if (more.length) bad.push({ label, more });
+      if (!L.watcher || L.isSpectator || L.seats.self.voice || L.voice.tutorial) bad.push({ label, shape: true });
+      const v = L.voice.rect;
+      const b = L.spectators.rect;
+      // the corner: right edge on the margin, the badge right under the row
+      if (Math.abs(v.x + v.w - (L.w - L.margin)) > 0.5) bad.push({ label, voiceNotRight: v });
+      if (!(b.y >= v.y + v.h - 0.5 && b.x + b.w >= v.x)) bad.push({ label, badgeNotUnder: { v, b } });
+      // clear of the watched box, the hand, the bid sheet and the cards above the hand or the sheet
+      const me = L.seats.self.block;
+      for (const [id, r] of [['self', me], ['hand', L.hand.rect], ['bidSheet', L.bidSheet.rect],
+        ['handCard', cardRect(assistHandSpot(L, 380), 380)], ['bidCard', cardRect(assistBidSpot(L, 380), assistBidSpot(L, 380).w)]]) {
+        if (r && (intersects(v, r) || intersects(b, r))) bad.push({ label, covers: id });
+      }
+    }
+    expect(n).toBeGreaterThan(200);
+    expect(bad).toEqual([]);
+  });
+
+  it('changes nothing for anyone else: watcher false is the default, and a pure spectator ignores it', () => {
+    for (const [w, h] of [[1280, 800], [1920, 1080], [768, 1024], [1024, 640]]) {
+      expect(JSON.stringify(computeTableLayout({ w, h, watcher: false }))).toBe(JSON.stringify(computeTableLayout({ w, h })));
+      expect(JSON.stringify(computeTableLayout({ w, h, isSpectator: true, watcher: true }))).toBe(JSON.stringify(computeTableLayout({ w, h, isSpectator: true })));
+      expect(JSON.stringify(computeTableLayout({ w, h, tutorial: true, watcher: false }))).toBe(JSON.stringify(computeTableLayout({ w, h, tutorial: true })));
+      const W = computeTableLayout({ w, h, watcher: true, tutorial: true });
+      expect(W.voice.tutorial).toBeUndefined();
+      expect(computeTableLayout({ w, h }).watcher).toBeUndefined();
+    }
+  });
+});

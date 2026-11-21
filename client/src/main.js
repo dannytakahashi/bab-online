@@ -1731,6 +1731,11 @@ function initializeApp() {
         // Show the bid panel once the trump is face up (this deal only: the
         // flip is the director's, keyed to the deal; cli-19, ui-22)
         const showBidUIAfterFlip = () => {
+          // a watcher: the watched seat's read-only sheet (the over-the-shoulder view)
+          if (isShoulder(gameState)) {
+            if (gameState.bids[gameState.position] === undefined && data.hand?.length) scene.showWatchedBidSheet?.(data.hand.length);
+            return;
+          }
           if (gameState.isLazy || gameState.isSpectator) return;
           if (gameState.bids[gameState.position] !== undefined) return;
           if (scene.bidManager && data.hand) {
@@ -2209,7 +2214,7 @@ function initializeApp() {
     // countdown on the bid sheet (BidManager reads the state's clock)
     onBidClock: () => {
       getGameScene()?.bidManager?.syncClock?.();
-      // a watched seat's clock pill (the over-the-shoulder view)
+      // (a watched seat's countdown is its read-only sheet's; the paused area follows the state)
       if (session.isAtTable) syncShoulderHud(gameState);
     },
     // My tutorial's state (private, unsequenced; the clientHello cap

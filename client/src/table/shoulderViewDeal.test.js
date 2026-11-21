@@ -79,24 +79,41 @@ describe('watching seat 1 through a deal, a bid clock and a pause', () => {
     const sprites = page.scene.cardManager._handSprites.filter((s) => s.active !== false);
     expect(sprites.every((s) => s.interactive === false)).toBe(true);
     expect(document.getElementById('player-hsi-box').textContent).toBe(`HSI: ${own.data.hsiValues[1].toFixed(1)}`);
-    expect(page.scene.tableCounts().bidPanel).toBe(false);
+    // the watched seat's read-only sheet, up after the trump's flip (open on its turn)
+    expect(page.scene.tableCounts().bidPanel).toBe(true);
+    expect(document.getElementById('bidContainer').classList.contains('bid-sheet--readonly')).toBe(true);
     // it was served: nothing to ask
     expect(watchSent()).toEqual([]);
   });
 
-  it('the watched seat\'s bid clock is a pill where the bid sheet would be; its bid takes it down', () => {
-    page.socket.fire('bidClock', { gameId: rec.gameId, position: 1, running: true, inMs: 30000, durationMs: 30000 });
-    const el = () => document.querySelector('#table-hud > .hud-shoulder-clock');
-    expect(el()?.textContent).toBe('ios_ann is bidding · 30');
-    replay.advance(21000);
-    expect(el()?.textContent).toBe('ios_ann is bidding · 9');
-    expect(el().classList.contains('is-low')).toBe(true);
-    page.socket.fire('bidClock', { gameId: rec.gameId, position: 1, running: false, reason: 'bid' });
-    expect(el()).toBeNull();
-    // another seat's clock: no pill for the watcher
+  it('the watched seat\'s bid clock counts on its read-only sheet (never announced); its bid takes the sheet down', () => {
+    // another seat's turn and clock: the sheet is closed, no countdown
+    page.socket.fire('updateTurn', { currentTurn: 2 });
     page.socket.fire('bidClock', { gameId: rec.gameId, position: 2, running: true, inMs: 30000, durationMs: 30000 });
-    expect(el()).toBeNull();
+    const sheet = () => document.getElementById('bidContainer');
+    const clock = () => sheet()?.querySelector('.bid-sheet__clock') || null;
+    expect(sheet().classList.contains('is-open')).toBe(false);
+    expect(clock()).toBeNull();
     page.socket.fire('bidClock', { gameId: rec.gameId, position: 2, running: false, reason: 'bid' });
+    // seat 1's turn: open, its countdown
+    const said = document.querySelector('#table-hud > .hud-announcer')?.textContent || '';
+    page.socket.fire('updateTurn', { currentTurn: 1 });
+    page.socket.fire('bidClock', { gameId: rec.gameId, position: 1, running: true, inMs: 30000, durationMs: 30000 });
+    expect(sheet().classList.contains('is-open')).toBe(true);
+    expect(clock().textContent).toBe('30');
+    expect(clock().getAttribute('aria-label')).toBe('ios_ann: 30 seconds to bid');
+    replay.advance(21000);
+    expect(clock().textContent).toBe('9');
+    expect(clock().classList.contains('bid-sheet__clock--low')).toBe(true);
+    expect(document.querySelector('#table-hud > .hud-announcer')?.textContent || '').not.toMatch(/seconds to bid/);
+    void said;
+    // its bid: the sheet goes; nothing was ever sent
+    page.socket.clearEmits();
+    page.socket.fire('bidClock', { gameId: rec.gameId, position: 1, running: false, reason: 'bid' });
+    page.socket.fire('bidReceived', { position: 1, bid: '2' });
+    replay.advance(300);
+    expect(sheet()).toBeNull();
+    expect(page.socket.emitted('playerBid')).toEqual([]);
   });
 
   it('a pause keeps the seat, shows its hand area as paused, and never shows stale cards', () => {

@@ -121,11 +121,13 @@ export class GameScene extends Phaser.Scene {
     // my voice row reserves the Tutorial button's slot while I play my own
     // seat (not lazy): a lazy watcher's table is as before
     const tutorial = this._tutorialSlot();
+    // a watcher: its own voice row in the corner, above the spectator badge
+    const watcher = !spectator && isShoulder(state);
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
+    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }) });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);
@@ -643,6 +645,8 @@ export class GameScene extends Phaser.Scene {
       this.clearAssist();
       this.clearTips();
     }
+    // the watched seat bid: its read-only sheet goes
+    if (isShoulder(this.state) && data.position === this.state.position) this.bidManager?.hideBidUI();
 
     // Show bid bubble at the appropriate position
     const positionKey = this.getPositionKey(data.position);
@@ -1807,7 +1811,8 @@ export class GameScene extends Phaser.Scene {
   /** Where tips alone go: above the bid sheet on my bid turn, else above the hand. */
   _tipPlace() {
     const s = this.state;
-    const bidding = !!s && s.isBidding && !!s.position && !s.isSpectator && !s.isLazy &&
+    // my bid turn, or the watched seat's (its read-only sheet is up)
+    const bidding = !!s && s.isBidding && !!s.position && isViewedSeat(s, s.position) && !s.isLazy &&
       s.currentTurn === s.position && s.bids?.[s.position] === undefined;
     return bidding ? 'bid' : 'hand';
   }
@@ -2155,12 +2160,25 @@ export class GameScene extends Phaser.Scene {
     if (m.isBidding && role === 'seat' && m.hand?.length && m.bids[pos] === undefined &&
         !getMyAction().isPending('bid') && this.bidManager) {
       this.bidManager.showBidUI(m.hand.length, (bid) => this.submitBid(bid));
+    } else if (shoulder && !m.viewer.shoulder.paused && m.isBidding && m.hand?.length && m.bids[pos] === undefined) {
+      this.showWatchedBidSheet(m.hand.length);
     }
 
     this.syncAssist();
     this.renderScoreHeader();
     syncShoulderHud(this.state);
     return m;
+  }
+
+  /**
+   * A watcher's read-only sheet of the watched seat (BidManager readOnly):
+   * its choices, chips, countdown and the mirrored hint's ring; nothing sends.
+   * Open on that seat's bid turn (updateVisibility), gone on its bid.
+   */
+  showWatchedBidSheet(handSize) {
+    const s = this.state;
+    if (!this.bidManager || !isShoulder(s) || s.shoulder.paused) return;
+    this.bidManager.showBidUI(handSize, null, { readOnly: true, owner: s.getPlayerNameByPosition(s.position) });
   }
 
   /** What is on the table (render checks and tests). */
