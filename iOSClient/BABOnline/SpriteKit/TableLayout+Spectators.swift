@@ -1,4 +1,23 @@
 import CoreGraphics
+import Foundation
+
+/// The last few watcher clusters solved (TableLayout.watcherCluster), by layout and phase.
+private final class WatcherClusterCache: @unchecked Sendable {
+    static let shared = WatcherClusterCache()
+    private let lock = NSLock()
+    private var entries: [(layout: TableLayout, bidding: Bool, cluster: TableLayout.WatcherCluster)] = []
+
+    func get(_ layout: TableLayout, _ bidding: Bool) -> TableLayout.WatcherCluster? {
+        lock.lock(); defer { lock.unlock() }
+        return entries.first { $0.bidding == bidding && $0.layout == layout }?.cluster
+    }
+
+    func put(_ layout: TableLayout, _ bidding: Bool, _ cluster: TableLayout.WatcherCluster) {
+        lock.lock(); defer { lock.unlock() }
+        entries.insert((layout, bidding, cluster), at: 0)
+        if entries.count > 8 { entries.removeLast() }
+    }
+}
 
 /// The spectator badge (eye + count, a 44 pt target) and its chat bubble
 /// (V1_REMOVALS "iOS spectator badge" 5 and 7), placed from the solved
@@ -138,10 +157,10 @@ extension TableLayout {
     /// with it; else left of it; else below it; else up the badge's edge; else the clear
     /// spot nearest the first; clear of the same keeps where it can be, and always of the
     /// badge and the bottom pill, inside the safe rect below the top bar.
-    func spectatorBubbleCenter(badge: CGRect, bubbleSize size: CGSize, spectating: Bool, keepsVoice: Bool = false) -> CGPoint {
+    func spectatorBubbleCenter(badge: CGRect, bubbleSize size: CGSize, spectating: Bool, voice watcherVoice: CGRect? = nil) -> CGPoint {
         let G = Self.gap, M = Self.margin
         // a watcher's own voice button by the badge (watcherVoiceSpot) is never covered
-        let voice: [CGRect] = keepsVoice && !spectating ? [watcherVoiceSpot()] : []
+        let voice: [CGRect] = spectating ? [] : watcherVoice.map { [$0] } ?? []
         // the bid panel covers the transient layer on my bid turn: keep the bubble off its band
         let keeps = spectatorKeeps(spectating: spectating) + (spectating ? [] : [bidBand]) + [badge, bottomBarRect] + voice
         let hard = spectatorBubbleHardKeeps(spectating: spectating) + [badge, bottomBarRect] + voice
@@ -196,31 +215,149 @@ extension TableLayout {
                       y: c(r.minY, safeRect.minY + chrome.bottomBar, top - r.height), width: r.width, height: r.height)
     }
 
-    /// The over-the-shoulder view: the watcher's OWN voice button (owner 2026-11-21: "when
-    /// spectating your unmute controls should be above the eye", never in the watched seat's row,
-    /// which shows only that player), with the spectator badge of the seated layout: stacked
-    /// right above it; else higher up the badge's edge; else left of it; else the clear spot
-    /// nearest the first. Clear of everything the badge keeps clear of (the hand, the seat row,
-    /// the seats, the trick cards, the piles, the corner buttons, the fold), of the badge, and of
-    /// the bid band (the watched seat's read-only bid sheet, under which the badge hides: the
-    /// button never does). Scene coordinates, `voiceButtonSize` square.
-    func watcherVoiceSpot() -> CGRect {
+    /// The over-the-shoulder view's eye and the watcher's OWN voice button as one cluster (owner
+    /// 2026-11-21: "when spectating your unmute controls should be above the eye", then "mic
+    /// and eye as one cluster"): the mic directly above the eye badge, centred on it, `gap`
+    /// between them, on every device and pose. The cluster sits where the badge of the seated
+    /// layout sits when the mic's place above it is clear; else the two move TOGETHER to the
+    /// clear spot nearest it (up and down the right and left edges, along the badge's row, then
+    /// anywhere), never splitting. Clear of the hand, my seat's row (the watched seat's), the
+    /// seats (with their bid bubbles and dealer buttons), the card backs, the trick cards, the
+    /// piles, the corner buttons, the fold, and the bid band with the clock pill above it (the
+    /// watched seat's read-only bid sheet), so neither ever hides under the sheet; the /help
+    /// column keeps off the cluster (`AssistLayout.Keeps.cluster`). A watcher always has the
+    /// mic's place, shown or not, so the eye never moves when voice starts. Scene coordinates.
+    struct WatcherCluster: Equatable {
+        var badge: CGRect
+        var voice: CGRect
+        var union: CGRect { badge.union(voice) }
+    }
+
+    /// The badge of `watcherCluster` for a watcher, else the usual spot.
+    func spectatorBadge(spectating: Bool, watching: Bool, bidding: Bool) -> CGRect {
+        watching && !spectating ? watcherCluster(bidding: bidding).badge : spectatorBadge(spectating: spectating)
+    }
+
+    /// The watcher's voice button (`watcherCluster(bidding:).voice`).
+    func watcherVoiceSpot(bidding: Bool) -> CGRect { watcherCluster(bidding: bidding).voice }
+
+    /// The bid clock's pill above the bid band's trailing top corner (BidOverlayView: its
+    /// bottom on the panel's top edge, Theme.Space.s3 in from the trailing edge), at its largest
+    /// (the pill's type stops at xLarge), scene units.
+    static let bidClockPillBox = CGSize(width: 80, height: 32)
+
+    /// The read-only bid sheet: its band (and a gap above it) and the clock's pill.
+    private var bidSheetKeeps: [CGRect] {
+        let p = Self.bidClockPillBox
+        return [CGRect(x: bidBand.minX, y: bidBand.minY, width: bidBand.width, height: bidBand.height + 2),
+                CGRect(x: bidBand.maxX - 12 - p.width, y: bidBand.maxY, width: p.width + 12, height: p.height)]
+    }
+
+    /// The cluster: one spot for the whole hand where one keeps clear of the trick cards and
+    /// the read-only bid sheet both; else (a small pane: an SE, the Duo closed) a spot for the
+    /// bidding (`bidding`: the sheet may show, no trick cards on the table) and one for the play
+    /// (trick cards, no sheet).
+    func watcherCluster(bidding: Bool) -> WatcherCluster {
+        // a few searches per layout, asked for by several views each render: kept per layout
+        if let hit = WatcherClusterCache.shared.get(self, bidding) { return hit }
+        let c = solveWatcherCluster(bidding: bidding)
+        WatcherClusterCache.shared.put(self, bidding, c)
+        return c
+    }
+
+    private func solveWatcherCluster(bidding: Bool) -> WatcherCluster {
         let s = Self.voiceButtonSize, G = Self.gap
-        let badge = spectatorBadge(spectating: false)
-        let keeps = spectatorKeeps(spectating: false) + [bidBand, badge]
-        func at(_ x: CGFloat, _ y: CGFloat) -> CGRect { CGRect(x: x, y: y, width: s, height: s) }
-        var spots = [at(badge.maxX - s, badge.maxY + G)]
-        var y = badge.maxY + G + 4
-        while y + s <= topLimit {
-            spots.append(at(badge.maxX - s, y))
+        let w = Self.spectatorBadgeSize.width, h = Self.spectatorBadgeSize.height
+        func cluster(_ x: CGFloat, _ y: CGFloat) -> WatcherCluster {
+            let badge = CGRect(x: x, y: y, width: w, height: h)
+            return WatcherCluster(badge: badge, voice: CGRect(x: badge.midX - s / 2, y: badge.maxY + G, width: s, height: s))
+        }
+        func clear(_ c: WatcherCluster, _ keeps: [CGRect]) -> Bool { isClear(c.badge, keeps: keeps) && isClear(c.voice, keeps: keeps) }
+        let tricks = [Positions.RelativePosition.top, .left, .right, .bottom].map(trickRect)
+        func phase(_ k: [CGRect]) -> [CGRect] { bidding ? k.filter { !tricks.contains($0) } + bidSheetKeeps : k }
+        let extra = [Positions.RelativePosition.top, .left, .right].map(dealerChip) + Array((fans(spectating: false) ?? [:]).values)
+        let base = spectatorBadge(spectating: false)
+        let home = cluster(base.minX, base.minY)
+        // the whole hand's spot (the eye and mic stay put from the deal to the last trick)
+        let both = spectatorKeeps(spectating: false) + bidSheetKeeps + extra
+        if clear(home, both) { return home }
+        if let c = nearestClearCluster(to: base, keeps: both, make: cluster, clear: clear) { return c }
+        let keeps = phase(spectatorKeeps(spectating: false)) + extra
+        if clear(home, keeps) { return home }
+        if let c = nearestClearCluster(to: base, keeps: keeps, make: cluster, clear: clear) { return c }
+        // a packed table (an SE-size pane while the score bar shows a bore): over a seat's card
+        // backs at worst, still clear of its avatar, name, bid bubble and dealer button
+        let dealers = [Positions.RelativePosition.top, .left, .right].map(dealerChip)
+        let noFans = phase(spectatorKeeps(spectating: false)) + dealers
+        if let c = nearestClearCluster(to: base, keeps: noFans, make: cluster, clear: clear) { return c }
+        // then clear of what is always on screen (never the hand, a seat or the sheet)
+        let hard = phase(spectatorKeeps(spectating: false, soft: false)) + extra
+        if let c = nearestClearCluster(to: base, keeps: hard, make: cluster, clear: clear) { return c }
+        let top = min(safeRect.maxY, topLimit)
+        let y = min(max(base.minY, safeRect.minY), max(safeRect.minY, top - h - G - s))
+        let x = min(max(base.minX, safeRect.minX), max(safeRect.minX, safeRect.maxX - w))
+        return cluster(x, y)
+    }
+
+    /// What the watcher's cluster covers, by name ([] = clear; the probe "table.shoulder"
+    /// cluster= and the tests): the hand, the watched seat's row, the seats' avatars, names, bid
+    /// bubbles and dealer buttons, the card backs, the piles, the corner buttons, the fold, the
+    /// safe area, and the trick cards (play) or the read-only bid sheet with its clock (bidding).
+    func watcherClusterProblems(bidding: Bool) -> [String] {
+        let c = watcherCluster(bidding: bidding)
+        var keeps = watchKeeps(spectating: false).filter { k in
+            k.0 != "spectators" && k.0 != "banner" && k.0 != "bidPanel" && !(bidding && k.0.hasPrefix("trick."))
+        }
+        if bidding { keeps += bidSheetKeeps.map { ("bidPanel", $0) } }
+        var out: [String] = []
+        for part in [c.badge, c.voice] {
+            if part.minX < safeRect.minX - 0.01 || part.maxX > safeRect.maxX + 0.01 || part.minY < safeRect.minY + chrome.bottomBar - 0.01
+                || part.maxY > topLimit + 0.01 { out.append("safeArea") }
+            for (name, k) in keeps where Self.overlaps(k, part) { out.append(name) }
+        }
+        if TableLayout.overlaps(c.badge, c.voice) { out.append("eachOther") }
+        var seen = Set<String>()
+        return out.filter { seen.insert($0).inserted }
+    }
+
+
+    /// The clear cluster nearest `base`: up and down the right and left edges and along the
+    /// badge's row (2 pt steps), else anywhere on a 4 pt grid.
+    private func nearestClearCluster(to base: CGRect, keeps: [CGRect], make: (CGFloat, CGFloat) -> WatcherCluster,
+                                     clear: (WatcherCluster, [CGRect]) -> Bool) -> WatcherCluster? {
+        let w = Self.spectatorBadgeSize.width, M = Self.margin
+        let tall = Self.spectatorBadgeSize.height + Self.gap + Self.voiceButtonSize
+        let top = min(safeRect.maxY, topLimit) - tall
+        var best: WatcherCluster?
+        var bestD = CGFloat.infinity
+        func consider(_ x: CGFloat, _ y: CGFloat) {
+            let d = hypot(x - base.minX, y - base.minY)
+            guard d < bestD else { return }
+            let c = make(x, y)
+            if clear(c, keeps) { best = c; bestD = d }
+        }
+        var y = safeRect.minY
+        while y <= top {
+            consider(safeRect.maxX - M - w, y)
+            consider(safeRect.minX + M, y)
+            y += 2
+        }
+        var x = safeRect.minX + M
+        while x <= safeRect.maxX - M - w {
+            consider(x, base.minY)
+            x += 2
+        }
+        if best != nil { return best }
+        y = safeRect.minY
+        while y <= top {
+            x = safeRect.minX + M
+            while x <= safeRect.maxX - M - w {
+                consider(x, y)
+                x += 4
+            }
             y += 4
         }
-        spots.append(at(badge.minX - G - s, badge.midY - s / 2))
-        if let r = spots.first(where: { isClear($0, keeps: keeps) }) { return r }
-        if let r = nearestClearBubble(to: spots[0], size: CGSize(width: s, height: s), keeps: keeps) { return r }
-        // a packed table: clear of what is always on screen (never the hand or a seat)
-        let hard = spectatorKeeps(spectating: false, soft: false) + [badge]
-        return spots.first { isClear($0, keeps: hard) } ?? clampIntoSafe(spots[0])
+        return best
     }
 
     /// What a spectator chat bubble never covers.

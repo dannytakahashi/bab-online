@@ -125,6 +125,8 @@ private struct GameScreen: View {
 
     /// A pure spectator watching a seat's hand over the shoulder (State/Table/Shoulder.swift).
     private var isWatching: Bool { gameState.watchedSeat != nil }
+    /// The bidding phase: a watcher's eye and mic have their bidding spot (TableLayout.watcherCluster).
+    private var watchBidding: Bool { gameState.table.phase.isBidding }
 
     /// The voice button in my seat's row: a seat's only (the plain spectator's is the pill's,
     /// 1.2.2 (12); a watcher's own is above the eye, `watcherVoice`: owner 2026-11-21, the watched
@@ -571,7 +573,8 @@ private struct GameScreen: View {
                     if showsTable && isWatching && showsSpectatorVoice {
                         watcherVoice(layout)
                     }
-                    if showsTable && !bidSheetUp && gameState.watching.count > 0 {
+                    // (a watcher's eye and mic are one cluster clear of the read-only sheet: both stay)
+                    if showsTable && (isWatching || !bidSheetUp) && gameState.watching.count > 0 {
                         spectatorBadge(layout)
                     }
                     // /help: the lightbulb at my hand's right end on my play turn (on my bid turn
@@ -612,8 +615,15 @@ private struct GameScreen: View {
         }.joined(separator: ";")
         return "watch=\(gameState.watchedSeat.map(String.init) ?? "-") paused=\(gameState.watchPaused ? 1 : 0) "
             + "hand=\(model.hand?.cards.count ?? -1) readOnly=\(model.hand?.readOnly == true ? 1 : 0) seats=\(seats) "
-            + "row=\(r(layout.window(layout.seatRow.content))) voice=\(gameState.watchedSeat == nil ? "-" : r(layout.window(layout.watcherVoiceSpot()))) "
-            + "badge=\(r(layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand))))"
+            + "row=\(r(layout.window(layout.seatRow.content))) voice=\(gameState.watchedSeat == nil ? "-" : r(layout.window(layout.watcherVoiceSpot(bidding: watchBidding)))) "
+            + "badge=\(r(layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand, watching: isWatching, bidding: watchBidding)))) "
+            + "cluster=\(isWatching ? clusterCheck(layout) : "-")"
+    }
+
+    /// "ok", or "over:<what>" (TableLayout.watcherClusterProblems).
+    private func clusterCheck(_ layout: TableLayout) -> String {
+        let p = layout.watcherClusterProblems(bidding: watchBidding)
+        return p.isEmpty ? "ok" : "over:" + p.joined(separator: ",")
     }
 
     /// The table the bidder's countdown keeps off (fixture probe "table.bidClock"), in the pane's points.
@@ -956,7 +966,7 @@ private struct GameScreen: View {
     /// The watcher's own voice button (mute / headphones, its long press the panel, its own
     /// speaking state), stacked above the spectator badge (TableLayout.watcherVoiceSpot).
     private func watcherVoice(_ layout: TableLayout) -> some View {
-        let rect = layout.window(layout.watcherVoiceSpot())
+        let rect = layout.window(layout.watcherVoiceSpot(bidding: watchBidding))
         return VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: TableLayout.voiceButtonSize * layout.zoom,
                                forceListenOnly: fixtureSpectatorVoice == "denied")
             .frame(width: rect.width, height: rect.height)
@@ -1045,7 +1055,7 @@ private struct GameScreen: View {
     private func assistAskKeeps(_ layout: TableLayout) -> AssistLayout.AskKeeps {
         let voice = seatRowVoice
         let badge = gameState.watching.count > 0
-            ? layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand)) : nil
+            ? layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand, watching: isWatching, bidding: watchBidding)) : nil
         return AssistLayout.askKeeps(layout, handCount: gameState.myCards.count,
                                      pipSlots: TableRenderModel(gameState.state).myPips?.slots ?? 0,
                                      hsi: gameState.myHSIReading != nil, voice: voice, spectatorBadge: badge)
@@ -1129,15 +1139,15 @@ private struct GameScreen: View {
     private func assistColumn(_ layout: TableLayout, full: CGSize) -> some View {
         let box = handBox(layout)
         let bidding = bidSheetUp
-        // (a watcher has no lightbulb: its own mic above the eye is kept clear the same way)
-        let ask: CGRect? = gameState.showsAssistAsk && !showsBarControls ? (bidding ? bidAskFrame : assistAskFrame(layout))
-            : (isWatching && showsSpectatorVoice ? layout.window(layout.watcherVoiceSpot()) : nil)
+        let ask: CGRect? = gameState.showsAssistAsk && !showsBarControls ? (bidding ? bidAskFrame : assistAskFrame(layout)) : nil
         let keeps = AssistLayout.Keeps(
             anchor: bidding ? layout.window(layout.bidBand).minY : box.minY,
             clock: bidding && myBidClockRuns ? bidClockFrame : nil,
             seatRow: bidding ? nil : layout.window(layout.seatRow.content),
             fold: layout.foldIgnored ? nil : layout.chrome.fold.map(layout.window),
             ask: ask,
+            // a watcher's eye and its own mic above it (one cluster; no lightbulb for a watcher)
+            cluster: isWatching ? layout.window(layout.watcherCluster(bidding: watchBidding).union) : nil,
             corners: cornerRects(layout, full: full),
             seats: otherSeats(layout, sides: false),
             sides: otherSeats(layout, sides: true))
@@ -1165,6 +1175,8 @@ private struct GameScreen: View {
                             .onChange(of: gameState.watchedAdvice) { _, _ in showAdviceHead(proxy) }
                             .onChange(of: gameState.watchedTip) { _, _ in showAdviceHead(proxy) }
                             .onChange(of: gameState.tutorialTip) { _, _ in showAdviceHead(proxy) }
+                            // the box moves (a watcher's mic and eye, the bid sheet, the clock): in sight again
+                            .onChange(of: f.size) { _, _ in showAdviceHead(proxy) }
                     }
                 }
                 #if DEBUG
@@ -1298,6 +1310,9 @@ private struct GameScreen: View {
     private func showAdviceHead(_ proxy: ScrollViewProxy) {
         guard gameState.assistHint != nil || gameState.watchedAdvice != nil else { return }
         DispatchQueue.main.async { proxy.scrollTo(AssistLayout.adviceHeadId, anchor: .bottom) }
+        // once more after the column settles (a scroll view that just replaced the plain stack
+        // in ViewThatFits may not have its content laid out on the first pass)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { proxy.scrollTo(AssistLayout.adviceHeadId, anchor: .bottom) }
     }
 
     private var isConnectedForTutorial: Bool {
@@ -1336,10 +1351,11 @@ private struct GameScreen: View {
     // MARK: - Spectator badge (layout.spectatorBadge: by HSI / voice, a spectator's in the corner)
 
     private func spectatorBadge(_ layout: TableLayout) -> some View {
-        let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand))
+        let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand, watching: isWatching, bidding: watchBidding))
         return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username,
                                   seatNames: gameState.state.players.watchedSeatNames)
-            .frame(width: rect.width, height: rect.height, alignment: .trailing)
+            // a watcher's eye is centred under its mic (TableLayout.watcherCluster)
+            .frame(width: rect.width, height: rect.height, alignment: isWatching ? .center : .trailing)
             .offset(x: rect.minX, y: rect.minY)
     }
 
@@ -1559,6 +1575,11 @@ enum AssistLayout {
         /// The lightbulb while it shows (only with the tutorial's tips or chip: the /help card
         /// hides it): under the column's span, the column's bottom goes above it.
         var ask: CGRect? = nil
+        /// A watcher's eye and mic (TableLayout.watcherCluster): the column narrows beside it
+        /// where that leaves `minWidth` (it sits at a pane edge), else it ends above it, else
+        /// starts below it. Never the column's bottom pushed up over a short room by it alone:
+        /// the advice's chip and headline stay in sight (`showAdviceHead`).
+        var cluster: CGRect? = nil
         /// Exit and the game log's button under the score bar: where the column spans one, its
         /// box starts below it (the buttons stay in reach and readable).
         var corners: [CGRect] = []
@@ -1589,6 +1610,7 @@ enum AssistLayout {
             if let seatRow { out["seatRow"] = seatRow }
             if let fold { out["fold"] = fold }
             if let ask { out["ask"] = ask }
+            if let cluster { out["cluster"] = cluster }
             return out
         }
     }
@@ -1628,6 +1650,7 @@ enum AssistLayout {
         }
         // the side seats beside the box: between them where that leaves minWidth (the iPhone
         // Duo open above my hand), else below them where that leaves sideRoom
+        var bandL = lo, bandR = hi
         let level = keeps.sides.values.filter { $0.maxY > top && $0.minY < bottom }
         if level.contains(where: crosses) {
             var l = lo, r = hi
@@ -1637,6 +1660,7 @@ enum AssistLayout {
             if r - l >= minWidth {
                 width = min(width, r - l)
                 x = min(max(handMidX - width / 2, l), r - width)
+                bandL = l; bandR = r
             }
         }
         // below every side seat's part it crosses (all of them, or none: a cap below one part
@@ -1644,6 +1668,19 @@ enum AssistLayout {
         let crossing = keeps.sides.values.filter(crosses)
         if let lowest = crossing.map(\.maxY).max(), bottom - gap - foot - (lowest + gap) >= sideRoom {
             top = max(top, lowest + gap)
+        }
+        // a watcher's eye and mic: beside it, else above it, else below it
+        if let c = keeps.cluster, crosses(c) {
+            let l = c.midX >= handMidX ? bandL : max(bandL, c.maxX + gap)
+            let r = c.midX >= handMidX ? min(bandR, c.minX - gap) : bandR
+            if r - l >= minWidth {
+                width = min(width, r - l)
+                x = min(max(handMidX - width / 2, l), r - width)
+            } else if c.minY - gap - top >= minRoom {
+                bottom = min(bottom, c.minY)
+            } else {
+                top = max(top, c.maxY + gap)
+            }
         }
         let height = max(0, bottom - gap - top)
         return CGRect(x: x, y: top, width: width, height: height)

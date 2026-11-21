@@ -285,15 +285,58 @@ final class ShoulderViewUITests: XCTestCase {
         let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.waitForExistence(timeout: 5), "the watcher's own mic", file: file, line: line)
         XCTAssertEqual(app.buttons.matching(identifier: "Unmute microphone").count, 1, "one mic, not the pill's too", file: file, line: line)
-        let row = probeRect(app, "row"), badge = probeRect(app, "badge")
-        if let row { XCTAssertFalse(mic.frame.insetBy(dx: 1, dy: 1).intersects(row), "not in the watched seat's row: \(mic.frame) \(row)", file: file, line: line) }
-        if let badge {
-            XCTAssertFalse(mic.frame.insetBy(dx: 1, dy: 1).intersects(badge), "not on the eye", file: file, line: line)
-            XCTAssertTrue(mic.frame.maxY <= badge.minY + 1 || mic.frame.maxX <= badge.minX + 1,
-                          "above the eye (else beside it): \(mic.frame) \(badge)", file: file, line: line)
+        // one cluster (owner 2026-11-21): the mic directly above the eye, a small gap, centred on it
+        let eye = app.buttons["table.spectators"]
+        XCTAssertTrue(eye.waitForExistence(timeout: 5), "the eye", file: file, line: line)
+        let m = mic.frame, e = eye.frame
+        XCTAssertTrue(m.maxY <= e.minY + 1 && e.minY - m.maxY <= 14, "the mic right above the eye: \(m) \(e)", file: file, line: line)
+        XCTAssertEqual(m.midX, e.midX, accuracy: 2, "the mic centred on the eye: \(m) \(e)", file: file, line: line)
+        XCTAssertTrue(mic.isHittable, "the mic", file: file, line: line)
+        XCTAssertTrue(eye.isHittable, "the eye", file: file, line: line)
+        let cluster = m.union(e).insetBy(dx: 1, dy: 1)
+        let row = probeRect(app, "row")
+        if let row { XCTAssertFalse(cluster.intersects(row), "not in the watched seat's row: \(cluster) \(row)", file: file, line: line) }
+        XCTAssertLessThan(cluster.maxY, pill(app).frame.minY, "above the pill", file: file, line: line)
+        // clear of the hand, the seats and their bid bubbles, the card backs, the trick cards, the
+        // piles, the corners, the read-only sheet and its clock (the layout's own check), and of
+        // the sheet, the clock, the cards and the /help column as drawn
+        let probe = Fixture.probe(app, "table.shoulder")
+        XCTAssertTrue(probe.contains("cluster=ok"), "the eye and mic cover nothing: \(probe)", file: file, line: line)
+        if let b = probeRect(app, "badge"), let v = probeRect(app, "voice") {
+            XCTAssertEqual(v.midX, b.midX, accuracy: 1, "the layout's mic centred on its eye: \(v) \(b)", file: file, line: line)
+            XCTAssertTrue(v.maxY <= b.minY + 0.5, "the layout's mic above its eye: \(v) \(b)", file: file, line: line)
         }
-        XCTAssertLessThan(mic.frame.maxY, pill(app).frame.minY, "not beside the pill", file: file, line: line)
+        for id in ["bidOverlay.watched", "bidClock", "assistCard", "tutorialTip"] where any(app, id).exists {
+            XCTAssertFalse(cluster.intersects(any(app, id).frame), "over \(id): \(cluster) \(any(app, id).frame)", file: file, line: line)
+        }
+        let column = assistColumn(app)
+        if !column.isNull { XCTAssertFalse(cluster.intersects(column), "over the /help column: \(cluster) \(column)", file: file, line: line) }
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", file: file, line: line)
         return mic
+    }
+
+    /// The /help column's visible frame from "table.assist" (frame=x y w h), null without one.
+    private func assistColumn(_ app: XCUIApplication) -> CGRect {
+        let probe = Fixture.probe(app, "table.assist")
+        let parts = probe.components(separatedBy: "frame=").last?.split(separator: " ").prefix(4).compactMap { Double($0) } ?? []
+        guard parts.count == 4 else { return .null }
+        return CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
+    }
+
+    /// The watched advice's chip and headline fully in sight: inside the screen and the column's
+    /// visible frame (not scrolled out of it), and hittable.
+    private func assertAdviceInSight(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        let chip = any(app, "assist.confidence"), head = any(app, "assist.headline")
+        XCTAssertTrue(chip.waitForExistence(timeout: 8), "the advice's chip", file: file, line: line)
+        XCTAssertTrue(head.waitForExistence(timeout: 2), "the advice's headline", file: file, line: line)
+        Thread.sleep(forTimeInterval: 0.6)  // the column's scroll settles
+        let screen = app.windows.firstMatch.frame
+        let column = assistColumn(app).insetBy(dx: -1, dy: -1)
+        for (name, e) in [("chip", chip), ("headline", head)] {
+            XCTAssertTrue(screen.contains(e.frame), "the advice's \(name) \(e.frame) off the screen \(screen)", file: file, line: line)
+            XCTAssertTrue(column.contains(e.frame), "the advice's \(name) \(e.frame) scrolled out of the column \(column)", file: file, line: line)
+            XCTAssertTrue(e.isHittable, "the advice's \(name)", file: file, line: line)
+        }
     }
 
     func testTheWatchersMicIsAboveTheEyeAndTheWatchedPlayerTalks() {
@@ -311,12 +354,27 @@ final class ShoulderViewUITests: XCTestCase {
         waitPill(bidding, "Watching ned's hand")
         let sheet = any(bidding, "bidOverlay.watched")
         XCTAssertTrue(sheet.waitForExistence(timeout: 8))
+        // the watched advice is up with the tip: its chip and headline in sight (the cluster
+        // never shortens the column out of sight)
+        assertAdviceInSight(bidding)
         let mic = assertWatcherMic(bidding)
         XCTAssertFalse(mic.frame.insetBy(dx: 1, dy: 1).intersects(sheet.frame), "not under the read-only sheet: \(mic.frame) \(sheet.frame)")
-        if any(bidding, "assist.headline").exists {
-            XCTAssertFalse(mic.frame.insetBy(dx: 1, dy: 1).intersects(any(bidding, "assist.headline").frame), "not under the advice")
-        }
+        XCTAssertFalse(mic.frame.insetBy(dx: 1, dy: 1).intersects(any(bidding, "assist.headline").frame), "not under the advice")
         shot(bidding, "voice-bidding")
+    }
+
+    func testHintsShowOnlyForTheWatchedSeatsOwnTurn() {
+        // bidding-mid: ned (4) bids. Watching ora (the default), nothing is mirrored; ned's turn is his
+        let app = launch("bidding-mid", ["-uiAsSpectator", "YES", "-uiShoulder", "auto", "-uiShoulderHint", "YES"])
+        waitPill(app, "Watching ora's hand")
+        Thread.sleep(forTimeInterval: 2)
+        XCTAssertFalse(any(app, "tutorialTip").exists, "no tip for ora off her turn")
+        XCTAssertFalse(any(app, "assistCard").exists, "no advice for ora off her turn")
+        tapSeat(app, 4, name: "ned")
+        waitPill(app, "Watching ned's hand")
+        XCTAssertTrue(any(app, "tutorialTip").waitForExistence(timeout: 8), "ned's tip on his bid turn")
+        XCTAssertEqual(any(app, "tutorialTip").label, "Tip for ned")
+        assertAdviceInSight(app)
     }
 
     // MARK: - A seat's screen is unchanged

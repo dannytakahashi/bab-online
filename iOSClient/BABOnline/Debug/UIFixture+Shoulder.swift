@@ -212,6 +212,9 @@ extension UIFixture {
         let bids = s.table.phase.bids?.byPosition.compactMap { $0 }.count ?? 0
         let cardIndex = AssistRules.cardIndex(s) ?? 0
         let key = "\(dealSeq)|\(stage)|\(s.table.phase.turn ?? 0)|\(bids)|\(cardIndex)"
+        // only for the watched seat's own decision: the server mirrors the hints that seat is
+        // given, on its own turn (bidding-mid with `auto` watches ora while ned bids: nothing)
+        guard s.table.phase.turn == seat else { return }
         let name = s.players.name(seat)
         _ = store.apply(serverEvent: "assistHint", payload: [[
             "v": 1, "source": "tutorial", "kind": "tip", "tipId": bidding ? "T.bid" : "T.follow", "turnKey": key,
@@ -220,7 +223,6 @@ extension UIFixture {
                         : "Clubs were led: you must play a club if you have one."],
             "uses": 2, "freeUses": 3, "assisted": false, "counted": false, "watched": seat,
         ] as [String: Any]])
-        guard s.table.phase.turn == seat else { return }
         let hand = s.table.hand
         var p: [String: Any] = [
             "v": 1, "source": "help", "turnKey": key, "uses": 2, "freeUses": 3, "assisted": false, "counted": true,

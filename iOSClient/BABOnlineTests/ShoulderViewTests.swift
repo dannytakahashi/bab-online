@@ -342,6 +342,68 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertEqual(watches(fx), [])
     }
 
+    /// The draw's positionUpdate for the fixture's four (ivy, kim, hal, jon), kim's seat on `kimSocket`.
+    private func positionUpdate(_ s: TableState, kimSocket: String) -> TableEvent {
+        T.ev("positionUpdate", ["positions": [1, 2, 3, 4], "sockets": ["sid-ivy", kimSocket, "sid-hal", "sid-jon"],
+                                "usernames": [["username": "ivy"], ["username": "kim"], ["username": "hal"], ["username": "jon"]],
+                                "pics": [1, 2, 3, 4], "seq": seq(s)])
+    }
+
+    func testASecondDeviceSpectatingDuringTheDrawNeverTakesTheSeat() throws {
+        // kim's phone spectates kim's own game in the draw; the seat is kim's other socket. The
+        // draw's positionUpdate names "kim": this socket stays a spectator (no seat, no chime, no
+        // live bid panel), and the first deal watches kim's own seat
+        var (s, fx) = try joined(me: "kim") { r in r["deal"] = NSNull() }
+        XCTAssertEqual(watches(fx), [])
+        TableReducer.reduce(&s, positionUpdate(s, kimSocket: "sid-kim-laptop"))
+        XCTAssertEqual(s.table.viewer.role, .spectator, "my username's seat on another device is not mine here")
+        XCTAssertNil(s.table.viewer.position)
+        XCTAssertFalse(s.table.viewer.holdsSeat)
+        XCTAssertEqual(ShoulderRules.ownSeat(s), 2)
+        fx = TableReducer.reduce(&s, T.ev("gameStart", ["gameId": gid(s), "hand": [Any](), "trump": T.card("clubs", "5"),
+                                                        "score1": 0, "score2": 0, "dealer": 1, "currentHand": 12, "seq": seq(s)]))
+        XCTAssertEqual(watches(fx), [2], "the own-seat watch")
+        XCTAssertTrue(s.table.phase.isBidding)
+        fx += TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 2, "seq": seq(s)]))
+        XCTAssertFalse(fx.contains(.sound(.turn)), "no chime")
+        TableReducer.reduce(&s, .local(.submitBid("2", reqId: 1)))
+        XCTAssertNil(s.pending, "never a bid")
+
+        // this socket's own id still seats it (the server put this socket in the seat)
+        (s, _) = try joined(me: "kim") { r in r["deal"] = NSNull() }
+        TableReducer.reduce(&s, positionUpdate(s, kimSocket: "sid-kim"))
+        XCTAssertEqual(s.table.viewer.role, .seat)
+        XCTAssertEqual(s.table.viewer.position, 2)
+    }
+
+    func testAnEntrantARejoinAndADrawReconnectStillTakeTheirSeat() throws {
+        // an entrant (the room's draw, no snapshot yet): by username, as before
+        for role in [ViewerRole.none, .entrant] {
+            var s = TableState()
+            TableReducer.reduce(&s, .local(.identity(username: "kim", playerId: "sid-new")))
+            TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+            s.table.viewer.role = role
+            TableReducer.reduce(&s, positionUpdate(s, kimSocket: "sid-old"))
+            XCTAssertEqual(s.table.viewer.role, .seat, "\(role): my seat by username")
+            XCTAssertEqual(s.table.viewer.position, 2)
+        }
+        // a rejoin or a draw-phase reconnect: the snapshot seats this socket; a positionUpdate
+        // that still lists the old socket keeps the seat
+        var s = TableState()
+        TableReducer.reduce(&s, .local(.identity(username: "kim", playerId: "sid-new")))
+        TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        s.table.viewer.role = .seat
+        s.table.viewer.position = 2
+        TableReducer.reduce(&s, positionUpdate(s, kimSocket: "sid-old"))
+        XCTAssertEqual(s.table.viewer.role, .seat)
+        XCTAssertEqual(s.table.viewer.position, 2)
+        // a lazy watcher of its own seat keeps it
+        s.table.viewer.role = .lazyWatcher
+        TableReducer.reduce(&s, positionUpdate(s, kimSocket: "sid-old"))
+        XCTAssertTrue(s.table.viewer.holdsSeat)
+        XCTAssertEqual(s.table.viewer.position, 2)
+    }
+
     func testNeverAtATournamentTable() throws {
         // a spectator of a tournament table: nothing sent, every avatar a profile
         var (s, fx) = try joined("tournament-game")
@@ -683,6 +745,39 @@ final class ShoulderViewTests: XCTestCase {
         sub.cancel()
     }
 
+    func testTheWatchedPlayersChatBubbleShowsAtTheBottomSeat() throws {
+        // a seat never sees its own line in a bubble (the log has it); a watcher's bottom seat is
+        // the watched player's, whose lines show where a seated player's partner would see them
+        let h = ReplayHarness()
+        h.store.apply(.local(.identity(username: "viewer", playerId: "sid-viewer")))
+        let raw = try snapDict { r in
+            var v = r["viewer"] as! [String: Any]
+            v["role"] = "spectator"; v["position"] = NSNull(); v["canAct"] = false; v["ownerView"] = NSNull()
+            v.removeValue(forKey: "assist")
+            v["shoulder"] = ["position": 1, "hand": self.cards(12), "hsi": 120.0] as [String: Any]
+            r["viewer"] = v; r["hand"] = NSNull(); r["hsi"] = NSNull()
+        }
+        h.store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": raw, "requestId": "gap-1"]])
+        XCTAssertEqual(h.store.watchedSeat, 1)
+        let size = CGSize(width: 466, height: 678)
+        let scene = GameSKScene(size: size)
+        scene.animator = HoldingAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        func say(_ pos: Int, _ name: String, _ text: String) {
+            h.store.apply(T.ev("chatMessage", ["username": name, "message": text, "position": pos, "type": "player",
+                                               "seq": (h.store.state.sync.lastSeq ?? 0) + 1]))
+        }
+        say(1, "ivy", "nice hand")
+        let bubble = try XCTUnwrap(scene.transientLayer.childNode(withName: "chat.1"), "the watched player's bubble")
+        let layout = scene.layout
+        XCTAssertEqual(bubble.position.x, layout.chatPosition(.bottom, bubbleSize: bubble.calculateAccumulatedFrame().size).x, accuracy: 1,
+                       "at the bottom seat's spot")
+        XCTAssertLessThan(bubble.position.y, layout.seatAnchor(.left).y, "below the side seats: the bottom seat's")
+        say(3, "hal", "gl")
+        XCTAssertNotNil(scene.transientLayer.childNode(withName: "chat.3"), "the other seats' as before")
+    }
+
     func testASeatsAvatarTapStillOpensTheProfile() throws {
         let h = ReplayHarness()
         _ = h.actions  // the coordinator sends what the store asks for
@@ -707,23 +802,75 @@ final class ShoulderViewTests: XCTestCase {
             if c.bottomBar == 0 { c.bottomBar = 54 }
             let L = TableLayout(size: size, chrome: c)
             guard !L.isDegraded else { continue }
-            let mic = L.watcherVoiceSpot()
-            let badge = L.spectatorBadge(spectating: false)
-            let o = { (a: CGRect, b: CGRect) in TableLayout.overlaps(a, b) }
-            XCTAssertFalse(o(mic, L.seatRow.content), "\(name): in the watched seat's row")
-            XCTAssertFalse(o(mic, badge), "\(name): on the eye")
-            XCTAssertFalse(o(mic, L.bidBand), "\(name): under the read-only bid sheet")
-            XCTAssertGreaterThanOrEqual(mic.minY, L.liftTop - 0.01, "\(name): on the hand")
-            XCTAssertTrue(L.safeRect.insetBy(dx: -0.5, dy: -0.5).contains(mic), "\(name): outside the safe area")
-            XCTAssertLessThanOrEqual(mic.maxY, L.topLimit + 0.01, "\(name): under the score bar")
-            for r in [Positions.RelativePosition.top, .left, .right] {
-                XCTAssertFalse(o(mic, L.seatFootprint(r)), "\(name): on the \(r) seat")
+            for bidding in [true, false] {
+                let tag = "\(name) \(bidding ? "bidding" : "playing")"
+                let mic = L.watcherVoiceSpot(bidding: bidding)
+                let badge = L.spectatorBadge(spectating: false, watching: true, bidding: bidding)
+                let o = { (a: CGRect, b: CGRect) in TableLayout.overlaps(a, b) }
+                // one cluster: the mic directly above the eye, centred, the layout's gap between
+                XCTAssertEqual(mic.midX, badge.midX, accuracy: 0.01, "\(tag): centred on the eye")
+                XCTAssertEqual(mic.minY - badge.maxY, TableLayout.gap, accuracy: 0.01, "\(tag): right above the eye")
+                // (an SE-size pane bidding under a two-line score bar has no clear spot: the
+                // cluster may cover a seat's card backs there, nothing else)
+                let problems = L.watcherClusterProblems(bidding: bidding)
+                if size.height <= 667 {
+                    XCTAssertEqual(problems.filter { !$0.hasPrefix("fan.") }, [], "\(tag): the cluster covers something")
+                } else {
+                    XCTAssertEqual(problems, [], "\(tag): the cluster covers something")
+                }
+                for part in [mic, badge] {
+                    if bidding { XCTAssertFalse(o(part, L.bidBand), "\(tag): under the read-only bid sheet") }
+                    XCTAssertFalse(o(part, L.seatRow.content), "\(tag): in the watched seat's row")
+                    XCTAssertGreaterThanOrEqual(part.minY, L.liftTop - 0.01, "\(tag): on the hand")
+                    XCTAssertTrue(L.safeRect.insetBy(dx: -0.5, dy: -0.5).contains(part), "\(tag): outside the safe area")
+                    XCTAssertLessThanOrEqual(part.maxY, L.topLimit + 0.01, "\(tag): under the score bar")
+                    for r in [Positions.RelativePosition.top, .left, .right] {
+                        XCTAssertFalse(o(part, L.seatFootprint(r)), "\(tag): on the \(r) seat")
+                        XCTAssertFalse(o(part, L.bubbleRect(r)), "\(tag): on the \(r) seat's bid bubble")
+                        if !bidding { XCTAssertFalse(o(part, L.trickRect(r)), "\(tag): on the \(r) trick card") }
+                    }
+                }
             }
-            XCTAssertTrue(mic.minY >= badge.maxY - 0.01 || mic.maxX <= badge.minX + 0.01, "\(name): above the eye, else beside it")
         }
+        // a seat's and a plain spectator's badge are unchanged
+        let (_, size, chrome, _, _) = SeatExtrasTests.devices[0]
+        let L = TableLayout(size: size, chrome: chrome)
+        XCTAssertEqual(L.spectatorBadge(spectating: false, watching: false, bidding: true), L.spectatorBadge(spectating: false))
+        XCTAssertEqual(L.spectatorBadge(spectating: true, watching: true, bidding: false), L.spectatorBadge(spectating: true))
     }
 
     // MARK: - The watcher's GameState accessors
+
+    func testOnlyASeatOwnerIsOfferedReplaceWithBot() throws {
+        // the server refuses a non-player's forceResign ("Not a player in this game"), so a
+        // spectator, a watcher too, never sees Replace with Bot; the seat owner does
+        func offer(role: String, me: String, shoulder: Int? = nil) throws -> (ResignationOffer?, ResignationOffer?, Bool) {
+            let h = ReplayHarness()
+            h.store.apply(.local(.identity(username: me, playerId: "sid-\(me)")))
+            let raw = try snapDict("bidding-mid") { r in
+                var v = r["viewer"] as! [String: Any]
+                if role == "spectator" {
+                    v["role"] = "spectator"; v["position"] = NSNull(); v["canAct"] = false; v["ownerView"] = NSNull()
+                    v.removeValue(forKey: "assist")
+                    if let shoulder { v["shoulder"] = ["position": shoulder, "hand": self.cards(12), "hsi": 120.0] as [String: Any] }
+                    r["hand"] = NSNull(); r["hsi"] = NSNull()
+                }
+                r["viewer"] = v
+            }
+            h.store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": raw, "requestId": "gap-1"]])
+            h.store.apply(serverEvent: "resignationAvailable", payload: [["position": 3, "username": "pat", "idle": true]])
+            return (h.store.players.resignationOffer, h.store.resignationOffer, h.store.showsPresenceBanner)
+        }
+        let seat = try offer(role: "seat", me: "ned")
+        XCTAssertEqual(seat.1, ResignationOffer(position: 3, username: "pat", idle: true), "my table: Replace with Bot")
+        XCTAssertTrue(seat.2)
+        for (label, shoulder) in [("a plain spectator", nil), ("a watcher", 4)] as [(String, Int?)] {
+            let o = try offer(role: "spectator", me: "viewer", shoulder: shoulder)
+            XCTAssertNotNil(o.0, "\(label): the offer is still known")
+            XCTAssertNil(o.1, "\(label): never offered")
+            XCTAssertFalse(o.2, "\(label): an idle seat shows no banner")
+        }
+    }
 
     func testTheStoresAccessorsForTheViews() throws {
         let h = ReplayHarness()

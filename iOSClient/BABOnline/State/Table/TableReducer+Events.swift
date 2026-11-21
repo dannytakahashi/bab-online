@@ -357,9 +357,14 @@ extension TableReducer {
             seat.lazy = false
             s.players.seats[pos] = seat
             if let sid { s.players.socketBySeat[pos] = sid }
-            // My seat: matched by socket id or username (as the old setPlayerData did)
+            // My seat: matched by socket id or username (as the old setPlayerData did). A pure
+            // spectator never claims a seat by username (the web keeps isSpectator there too): it
+            // is my account's seat on another device (a second device spectating during the
+            // draw), and claiming it would make this socket a seat (the chime, a live bid panel
+            // sending playerBid) and lose the own-seat watch. Only this socket's id seats it.
             if let sid, sid == s.table.me.playerId { s.table.viewer.position = pos; s.table.viewer.role = .seat }
-            else if let name, let me = s.table.me.username, name == me, s.table.viewer.position == nil || s.table.viewer.role != .seat {
+            else if let name, let me = s.table.me.username, name == me, s.table.viewer.role != .spectator,
+                    s.table.viewer.position == nil || s.table.viewer.role != .seat {
                 s.table.viewer.position = pos
                 s.table.viewer.role = .seat
             }

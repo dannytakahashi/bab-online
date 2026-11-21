@@ -88,6 +88,9 @@ struct TableRenderModel: Equatable {
     /// The seat this spectator watches over the shoulder (the bottom seat, drawn as the seated
     /// layout with its hand read-only), nil otherwise.
     var watchedSeat: Int?
+    /// The bidding phase (a watcher's eye and mic have a spot of their own then:
+    /// TableLayout.watcherCluster(bidding:)).
+    var bidding: Bool
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
@@ -95,6 +98,7 @@ struct TableRenderModel: Equatable {
         gameId = s.table.gameId
         viewPosition = view
         watchedSeat = viewer.watchedSeat
+        bidding = s.table.phase.isBidding
         // the plain spectator view (all four seats round the table); a watcher has the seated layout
         isSpectator = viewer.role == .spectator && viewer.watchedSeat == nil
         showsTable = s.table.phase.showsTable

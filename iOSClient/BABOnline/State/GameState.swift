@@ -289,7 +289,10 @@ final class GameState: ObservableObject {
     /// The same offer with its wording (`idle`: the tournament table's idle-seat offer, whose
     /// seat stays connected; any other offer shows only while its seat is resignable).
     var resignationOffer: ResignationOffer? {
-        guard let offer = players.resignationOffer else { return nil }
+        // only a seat owner (at its seat, or watching its bot) may replace a player: the server
+        // refuses anyone else's forceResign ("Not a player in this game"), so a spectator (a
+        // watcher too) is never offered it; the absent player's row still shows
+        guard table.viewer.holdsSeat, let offer = players.resignationOffer else { return nil }
         let seat = players.seats[offer.position]
         let presence = seat?.presence
         if offer.idle, waitedOffer == offer { return nil }
