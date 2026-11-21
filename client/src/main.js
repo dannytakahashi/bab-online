@@ -1248,6 +1248,7 @@ function initializeApp() {
     // its color is the kind's (table.css #spectating-indicator.is-lazy / .is-spectating)
     indicator.classList.toggle('is-lazy', kind === 'lazy');
     indicator.classList.toggle('is-spectating', kind !== 'lazy');
+    indicator.classList.toggle('is-watching', kind === 'watching');
     indicator.setAttribute('role', 'status');
     indicator.dataset.kind = kind;
     if (kind !== 'watching') {

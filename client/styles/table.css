@@ -1734,17 +1734,35 @@ body > .voice-btn {
 
 /* ---------- The over-the-shoulder view (state/shoulder.js, ui/components/ShoulderHud.js) ---------- */
 
-/* the spectating pill while watching: its Table view control (the pill itself lets clicks through) */
+/* the spectating pill while watching: whose hand (shortened first when
+   short of room) and its Table view control, always whole (the pill itself
+   lets clicks through) */
+#table-hud > #spectating-indicator.is-watching,
+body > #spectating-indicator.is-watching {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding-right: calc(6px * var(--s, 1));
+}
+
+#spectating-indicator .spectating-indicator__text {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 #spectating-indicator .spectating-indicator__action {
+    flex: 0 0 auto;
     pointer-events: auto;
-    margin-left: var(--space-2);
-    padding: 0 var(--space-2);
+    padding: 0 calc(10px * var(--s, 1));
     border: 1px solid currentColor;
     border-radius: var(--radius-pill);
     background: transparent;
     color: inherit;
     font: inherit;
-    line-height: 1.6;
+    font-size: 0.9em;
+    line-height: 1.7;
     cursor: pointer;
 }
 
