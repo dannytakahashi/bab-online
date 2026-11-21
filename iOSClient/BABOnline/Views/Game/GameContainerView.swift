@@ -200,6 +200,16 @@ private struct GameScreen: View {
                 // keeps its identity in every pose
                 HStack(spacing: 0) {
                     tablePane
+                        // the draw covers the table pane only (owner play test 2026-11-21, the
+                        // iPhone Duo open: over the whole window it was centred on table + log
+                        // with the docked log dimmed under it, and in book pose it crossed the
+                        // hinge); DrawMetrics fits its four cards to the pane's width
+                        .overlay {
+                            if gameState.phase == .draw {
+                                DrawPhaseView()
+                                    .transition(.opacity)
+                            }
+                        }
                         .frame(width: tablePaneWidth(mode))
                     if showsDocked(mode) {
                         if case .book(let hinge) = mode {
@@ -228,12 +238,6 @@ private struct GameScreen: View {
             .modifier(HingeTick(tick: $hingeTick))
             // the felt behind everything: what the vertical bar shows beside the docked log
             .background(Theme.Palette.Felt.edge.color.ignoresSafeArea())
-
-            // Draw phase overlay
-            if gameState.phase == .draw {
-                DrawPhaseView()
-                    .transition(.opacity)
-            }
 
             // Game end modal
             if gameState.phase == .ended, gameState.gameEndData != nil {
