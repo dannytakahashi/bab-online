@@ -230,6 +230,7 @@ enum UIFixture {
             seedAssist(store, auth: auth)
             seedTutorial(store, auth: auth)
             seedFaults(store, snap)
+            seedWatchers(store, snap)  // -uiWatchers (UIFixture+Watchers.swift)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
                 seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),

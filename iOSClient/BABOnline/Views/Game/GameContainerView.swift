@@ -514,6 +514,7 @@ private struct GameScreen: View {
                     }
                     if showsTable {
                         pipsAccessibility(layout)
+                        SeatWatchAccessibility(state: gameState.state, layout: layout)  // the seat eyes
                     }
                     // my seat's row (my pips are the scene's; HSI and voice here); on my bid turn
                     // the panel covers its spot and shows HSI itself (BidOverlayView)
@@ -1212,7 +1213,8 @@ private struct GameScreen: View {
 
     private func spectatorBadge(_ layout: TableLayout) -> some View {
         let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.holdsSeat))
-        return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username)
+        return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username,
+                                  seatNames: gameState.state.players.watchedSeatNames)
             .frame(width: rect.width, height: rect.height, alignment: .trailing)
             .offset(x: rect.minX, y: rect.minY)
     }
