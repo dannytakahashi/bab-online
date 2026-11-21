@@ -46,16 +46,55 @@ final class AssistCardUITests: XCTestCase {
         return false
     }
 
+    /// The vertical bar's column in screen points (the iPhone Duo closed, open in landscape, book
+    /// pose: probe "ui.pose" ends "vbar <edge>"), nil where the system shows none.
+    private func verticalBarColumn(_ app: XCUIApplication) -> ClosedRange<CGFloat>? {
+        let pose = Fixture.probe(app, "ui.pose")
+        guard let edge = pose.split(separator: " ").last, edge != "-", pose.contains(" vbar "),
+              let size = Fixture.windowSize(pose), let insets = Fixture.insets(pose) else { return nil }
+        switch edge {
+        case "trailing": return (size.width - insets.right)...size.width
+        case "leading": return 0...insets.left
+        default:
+            XCTFail("unexpected vertical bar edge in \(pose)")
+            return nil
+        }
+    }
+
+    /// The lightbulb can be tapped now: on the felt it shows only then; in the iPhone Duo's
+    /// vertical bar it is there all game and enabled only then (GameContainerView.askBarButton).
+    private func askShown(_ app: XCUIApplication) -> Bool {
+        let ask = app.buttons["assist.ask"]
+        return ask.exists && ask.isEnabled
+    }
+
+    private func waitForAsk(_ app: XCUIApplication, shown: Bool, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if askShown(app) == shown { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        } while Date() < deadline
+        return false
+    }
+
     func testOnMyBidTurnTheLightbulbAsksAndTheBidIsRinged() {
         let app = launch("bidding-mid")
         let ask = app.buttons["assist.ask"]
         XCTAssertTrue(ask.waitForExistence(timeout: 5), "my bid turn: the lightbulb")
         XCTAssertEqual(ask.label, "Ask a bot for advice")
-        // the panel's accessibility container takes the lightbulb in: its chip row is the panel's top
         let panel = element(app, "bidOverlay").frame
         let chips = element(app, "bidChips").frame
-        XCTAssertLessThan(ask.frame.midY, chips.minY, "on the bid panel's top edge, over the felt")
-        XCTAssertLessThan(ask.frame.midX, panel.midX, "at its leading corner (the countdown keeps the trailing one)")
+        if let bar = verticalBarColumn(app) {
+            // the iPhone Duo's vertical bar: the lightbulb is its item, enabled on my turn
+            XCTAssertTrue(waitForAsk(app, shown: true), "enabled on my bid turn")
+            XCTAssertTrue(bar.contains(ask.frame.midX), "lightbulb \(ask.frame) bar \(bar)")
+            XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "bar on"), Fixture.probe(app, "table.assistAsk"))
+            XCTAssertEqual(app.buttons.matching(identifier: "assist.ask").count, 1, "none on the bid panel")
+        } else {
+            // the panel's accessibility container takes the lightbulb in: its chip row is the panel's top
+            XCTAssertLessThan(ask.frame.midY, chips.minY, "on the bid panel's top edge, over the felt")
+            XCTAssertLessThan(ask.frame.midX, panel.midX, "at its leading corner (the countdown keeps the trailing one)")
+        }
         shot(app, "bid-ask")
         ask.tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/help"), Fixture.probe(app, "fixture.sent"))
@@ -64,7 +103,7 @@ final class AssistCardUITests: XCTestCase {
         XCTAssertEqual(element(app, "assist.headline").label, "Bid 2")
         XCTAssertEqual(element(app, "assist.confidence").label, "Clear choice")
         XCTAssertEqual(element(app, "assist.footer").label, "What our strongest bot would play \u{00B7} Help 1 of 3 free")
-        XCTAssertFalse(app.buttons["assist.ask"].exists, "hidden while the card is up")
+        XCTAssertTrue(waitForAsk(app, shown: false), "hidden (in the bar: greyed) while the card is up")
         XCTAssertTrue(waitFor(app, "table.assist", contains: "bid=2"), Fixture.probe(app, "table.assist"))
         XCTAssertEqual(element(app, "bidOverlay").buttons["2"].value as? String, "Suggested")
         XCTAssertEqual(element(app, "bidOverlay").buttons["3"].value as? String ?? "", "")
@@ -90,7 +129,7 @@ final class AssistCardUITests: XCTestCase {
         app.buttons["assist.close"].tap()
         XCTAssertTrue(card.waitForNonExistence(timeout: 3))
         XCTAssertTrue(waitFor(app, "table.assist", contains: "bid=-"), Fixture.probe(app, "table.assist"))
-        XCTAssertTrue(app.buttons["assist.ask"].waitForExistence(timeout: 3))
+        XCTAssertTrue(waitForAsk(app, shown: true))
     }
 
     func testOnMyPlayTurnTheSuggestedCardIsRinged() {
@@ -266,11 +305,12 @@ final class AssistCardUITests: XCTestCase {
     /// button that asks (`-uiAssistHandSize`, the probe "table.assistAsk": AssistLayout.askFrame).
     /// From 2 cards to 1 it does not jump: never right, never to another height, at most a card's
     /// step left (AssistLayout.askLane: one spot while the row is in the way).
-    func testOnAShortHandTheLightbulbClearsMySeatRow() {
+    func testOnAShortHandTheLightbulbClearsMySeatRow() throws {
         var frames: [Int: CGRect] = [:]
         for (n, voice) in [(2, false), (1, false), (2, true)] {
             let tag = "\(n) card\(n == 1 ? "" : "s")\(voice ? " voice" : "")"
             let app = launch("trick-mid-lead3", ["-uiAssistHandSize", "\(n)"] + (voice ? ["-uiVoice", "YES"] : []))
+            if verticalBarColumn(app) != nil { throw XCTSkip("the lightbulb is the vertical bar's item here") }
             let ask = app.buttons["assist.ask"]
             XCTAssertTrue(ask.waitForExistence(timeout: 5), tag)
             XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "clear=ok"), "\(tag): \(Fixture.probe(app, "table.assistAsk"))")
@@ -313,6 +353,13 @@ final class AssistCardUITests: XCTestCase {
 
     func testOffMyTurnThereIsNoLightbulb() {
         let app = launch("between-tricks")
+        if verticalBarColumn(app) != nil {
+            // the iPhone Duo's vertical bar keeps it all game, greyed off my turn
+            XCTAssertTrue(app.buttons["assist.ask"].waitForExistence(timeout: 5))
+            XCTAssertFalse(app.buttons["assist.ask"].isEnabled, "seat 2 is on turn, not me")
+            XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "bar off"), Fixture.probe(app, "table.assistAsk"))
+            return
+        }
         XCTAssertFalse(app.buttons["assist.ask"].waitForExistence(timeout: 2), "seat 2 is on turn, not me")
     }
 }

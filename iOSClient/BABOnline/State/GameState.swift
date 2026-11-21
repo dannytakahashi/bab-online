@@ -293,6 +293,11 @@ final class GameState: ObservableObject {
     var showsTutorialChip: Bool {
         table.tutorial.on && table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
     }
+    /// /help's lightbulb as the iPhone Duo's vertical bar item: there for the whole game at my own
+    /// seat (never a spectator or a lazy watcher), enabled only while `showsAssistAsk`.
+    var showsAssistBarItem: Bool {
+        table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
+    }
     /// The chip's switch went off (/tutorial off sent) and waits for the server.
     var tutorialOffSent: Bool { table.tutorialOffSent }
     /// The rule tip shown over the table (my seat only), nil when none. One tip card at a time:

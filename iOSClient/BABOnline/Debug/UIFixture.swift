@@ -808,20 +808,25 @@ final class TableDebugProbe: ObservableObject {
     /// The other seats' parts (AssistLayout.Keeps.seats: "seat<n>" avatar and name, "bubble<n>",
     /// "dealer<n>"): the probe's "seats=ok|over:<what>" (what of them the cards cover).
     var assistSeats: [String: CGRect] = [:] { didSet { updateAssist() } }
-    /// The tutorial (TutorialChipView): "chip=<x y w h>|- clear=ok|over:<what>|-" from the chip's
+    /// The tutorial (TutorialChipView): "chip=<x y w h>|bar|- clear=ok|over:<what>|-" from the chip's
     /// frame in the pane's points against what the column keeps clear of (AssistLayout.Keeps:
     /// my bid clock, my seat's row, the fold, the lightbulb), then "ask=<x y w h>|-": the
     /// lightbulb's frame as the column knows it, then " pin=<x y w h>|-": the tip's title row
     /// pinned at a short column's top.
     @Published var tableTutorial = "chip=- clear=- pin=-"
     var tutorialChipFrame: CGRect? { didSet { updateTutorial() } }
+    /// The switch is the vertical bar's item (GameContainerView.tutorialBarToggle): the probe's
+    /// "chip=bar clear=ok" (the bar is the system's column, beside the table).
+    var tutorialInBar = false { didSet { updateTutorial() } }
     /// The tip's title row pinned at a short column's top (GameContainerView.pinnedTipHead):
     /// the probe's " pin=<x y w h>|-".
     var tutorialPinFrame: CGRect? { didSet { updateTutorial() } }
 
     private func updateTutorial() {
         var text = "chip=- clear=-"
-        if let f = tutorialChipFrame {
+        if tutorialInBar {
+            text = "chip=bar clear=ok ask=-"
+        } else if let f = tutorialChipFrame {
             let over = assistKeeps.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
             let ask = assistKeeps["ask"].map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
             text = String(format: "chip=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
@@ -852,17 +857,21 @@ final class TableDebugProbe: ObservableObject {
     /// keeps=<pips,hsi,voice,spectators>|-" (its tap square in the pane's points, what it covers,
     /// what of my seat's row it keeps clear of); "-": no lightbulb on the table.
     @Published var tableAssistAsk = "-"
-    var assistAsk: (frame: CGRect, problems: [String], keeps: [String])? {
-        didSet {
-            var text = "-"
-            if let a = assistAsk {
-                let f = a.frame
-                text = String(format: "frame=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
-                    + " clear=\(a.problems.isEmpty ? "ok" : "over:" + a.problems.joined(separator: ","))"
-                    + " keeps=\(a.keeps.isEmpty ? "-" : a.keeps.sorted().joined(separator: ","))"
-            }
-            if text != tableAssistAsk { tableAssistAsk = text }
+    /// The lightbulb is the vertical bar's item (GameContainerView.askBarButton): the probe's
+    /// "bar on" (enabled) / "bar off" (greyed); nil: not in the bar.
+    var assistAskInBar: Bool? { didSet { updateAssistAsk() } }
+    var assistAsk: (frame: CGRect, problems: [String], keeps: [String])? { didSet { updateAssistAsk() } }
+    private func updateAssistAsk() {
+        var text = "-"
+        if let inBar = assistAskInBar {
+            text = inBar ? "bar on" : "bar off"
+        } else if let a = assistAsk {
+            let f = a.frame
+            text = String(format: "frame=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+                + " clear=\(a.problems.isEmpty ? "ok" : "over:" + a.problems.joined(separator: ","))"
+                + " keeps=\(a.keeps.isEmpty ? "-" : a.keeps.sorted().joined(separator: ","))"
         }
+        if text != tableAssistAsk { tableAssistAsk = text }
     }
     /// The bidder's countdown (BidClockPill) against the table, in the pane's points:
     /// "x y w h seats=ok|over:<what> fold=ok|over|-" ("-": no countdown shown).

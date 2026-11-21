@@ -24,6 +24,9 @@ struct BidOverlayView: View {
     /// The lightbulb's frame in the pane (`BidClockPill.paneSpace`) while it shows: the
     /// tutorial's tips and chip keep above it (GameContainerView.assistColumn).
     var onAskFrame: (CGRect) -> Void = { _ in }
+    /// The lightbulb is the vertical bar's item (the iPhone Duo: GameContainerView.askBarButton),
+    /// not on the panel's corner.
+    var askInBar = false
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -226,7 +229,7 @@ struct BidOverlayView: View {
         // (the countdown keeps the trailing one); hidden while an answer is up or on its way.
         // Outside the panel's accessibility container, so "bidOverlay" keeps the panel's frame
         .overlay(alignment: .topLeading) {
-            if gameState.showsAssistAsk {
+            if gameState.showsAssistAsk && !askInBar {
                 // its frame as drawn (measured on the button itself: read past the padding and the
                 // offset, the frame came out 42 pt low, under the lift; TutorialUITests checks it)
                 AssistAskButton(size: AssistLayout.askSize, action: askHelp)
