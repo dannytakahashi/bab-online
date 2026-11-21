@@ -475,6 +475,20 @@ Semantics:
   `spectator`, `entrant` (before seating), `none`. `canAct` is true only for a
   seat on turn that has not bid/played yet.
 - `hand`: the seat's cards for `seat` / `lazyWatcher`, else null.
+- `hsi`: for `seat` / `lazyWatcher` once dealt, 4 items in position order
+  with a number ONLY at the viewer's own position and null at the other
+  three (2026-11-21: all four were sent, which let a modified client read
+  the opponents' hand strength); null for every other role and before the
+  first deal. gameStart's `hsiValues` likewise holds only the receiver's
+  own position's key (a spectator's gameStart none). Same schema (items
+  were already `number | null`, `hsiValues` has no required key), and every
+  client reads only its own position: web `main.js` gameStart
+  (`data.hsiValues[gameState.position]`) and `GameState.applySnapshot` /
+  `tableModel().hsi`; iOS from 1.2.0 (6) `GameState.myHSI` over `table.hsi`,
+  filled from `WirePayload.GameStart.hsiValues` (`[String: Double]?`) and
+  `TableSnapshot.hsi` (`[Double?]?`), both optional in every frozen floor.
+  No socket ever receives another seat's HSI: `server/testUtils/hsiGuard.js`
+  checks every recorded emit of every Jest suite.
 - `deal`: null before the first deal (and through TEAMS_ANNOUNCED).
 - `turn`: null outside BIDDING / PLAYING (hides the stale currentTurn during
   DEALING, TRICK_RESOLVING, HAND_RESOLVING).
