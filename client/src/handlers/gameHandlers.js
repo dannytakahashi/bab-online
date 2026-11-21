@@ -6,7 +6,7 @@
  *          handComplete, gameEnd, rainbow, destroyHands, abortGame,
  *          playerDisconnected, playerReconnected, rejoinSuccess, rejoinFailed,
  *          actionRejected, stateSnapshot, spectatorsUpdated, bidClock, assistHint, assistState,
- *          seatLeft
+ *          seatLeft, watchHandRefused
  *
  * Each handler applies its event to GameState (the one writer of table
  * state; sequenced events reach it in seq order through SocketManager's
@@ -23,6 +23,7 @@ import { getClientSession } from '../state/ClientSession.js';
 import { getMyAction } from '../state/MyAction.js';
 import { getTableDirector } from '../phaser/TableDirector.js';
 import { getTableSounds } from '../audio/tableSounds.js';
+import { getShoulderWatch, isShoulder, isPureSpectator } from '../state/shoulder.js';
 
 /**
  * Register game event handlers.
@@ -79,6 +80,10 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onAssistHint,
     // My tutorial's state (private, unsequenced)
     onAssistState,
+    // The over-the-shoulder view: my watchHand was refused; a deal changed
+    // what this spectator's table is drawn from (redraw it)
+    onWatchHandRefused,
+    onShoulderViewChanged,
   } = callbacks;
 
   const state = getGameState();
@@ -92,6 +97,9 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     director.noteChange();
   };
   const mine = (position) => !!position && position === state.position && !state.isSpectator;
+  const shoulder = getShoulderWatch();
+  // what a spectator's table is drawn from: the plain view, or a watched seat
+  const viewKey = () => (isShoulder(state) ? `seat${state.shoulder.position}` : (isPureSpectator(state) ? 'plain' : 'own'));
 
   // ==================== SETUP PHASE ====================
 
@@ -111,7 +119,18 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
 
     // A new deal: whatever I had pending belonged to the last one
     myAction.reset();
+    // a watcher's deal carries the watched seat's hand (gameStart.shoulder);
+    // one sent before my own Table view landed is not shown
+    if (data?.shoulder && state.isSpectator && shoulder.selected === null) {
+      const { shoulder: _dropped, ...rest } = data;
+      data = rest;
+    }
+    const viewBefore = viewKey();
     state.applyDeal(data);
+    // the scene deals the watched seat's hand as it deals mine
+    const view = isShoulder(state)
+      ? { ...data, hand: state.myCards.map((c) => ({ ...c })), hsiValues: { ...state.hsiValues } }
+      : data;
 
     // Persist the gameId for a reconnect: a seat's gameStart only (a
     // spectator's has no position; spectators re-spectate instead)
@@ -119,7 +138,13 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     touched();
     sounds.deal();
 
-    onGameStart?.(data);
+    onGameStart?.(view);
+    // a spectator's first deal (after the draw) sends the watch; a deal that
+    // switched the view (plain <-> a seat) redraws the table from it
+    if (state.isSpectator) {
+      shoulder.onDeal(data);
+      if (viewKey() !== viewBefore) onShoulderViewChanged?.();
+    }
   });
 
   // Start draw phase
@@ -364,6 +389,15 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.ASSIST_HINT, (data) => {
     if (!data || typeof data !== 'object') return;
     onAssistHint?.(data);
+  });
+
+  // My watchHand was refused (private, unsequenced; the over-the-shoulder
+  // view, state/shoulder.js): ShoulderWatch decides (the own seat, paused,
+  // a tournament table)
+  socketManager.on(SERVER_EVENTS.WATCH_HAND_REFUSED, (data) => {
+    if (!data || typeof data !== 'object') return;
+    const outcome = shoulder.onRefused(data);
+    onWatchHandRefused?.(data, outcome);
   });
 
   // My tutorial's state (s2c assistState, only to this socket: the

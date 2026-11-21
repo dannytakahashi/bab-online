@@ -14,6 +14,7 @@
 
 import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
 import { validBidClock } from './bidClock.js';
+import { validShoulder } from './shoulder.js';
 
 export const SNAPSHOT_VERSION = 2;
 export const STAGES = Object.freeze(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED', 'DEALING', 'BIDDING',
@@ -239,6 +240,14 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
       delete copy.viewer.assist;
     }
   }
+  // viewer.shoulder (2026-11-21, the over-the-shoulder view): the watched
+  // seat {position, hand, hsi}; malformed: dropped with a warning
+  if (copy.viewer && copy.viewer.shoulder !== undefined) {
+    if (!validShoulder(copy.viewer.shoulder)) {
+      c.warnings.push(`$.viewer.shoulder: malformed, dropped`);
+      delete copy.viewer.shoulder;
+    }
+  }
   return { ok: true, snapshot: deepFreeze(copy), warnings: c.warnings };
 }
 
@@ -258,7 +267,7 @@ const AVATAR_URL = /^\/avatar\/[^/?#\s]+\?v=[0-9a-f]{16}$/;
 
 /**
  * Who is watching, from spectatorsUpdated or snapshot.watching:
- * {spectators: [{username, pic, avatarUrl?}], count} with pic a stock
+ * {spectators: [{username, pic, avatarUrl?, shoulder?}], count} with pic a stock
  * number (STOCK_MIN..STOCK_MAX) or null and avatarUrl an /avatar URL; count is the true
  * total (at least the list's length). null when malformed.
  */
@@ -273,6 +282,8 @@ export function parseWatching(raw) {
     const pic = Number.isInteger(s.pic) && s.pic >= STOCK_MIN && s.pic <= STOCK_MAX ? s.pic : null;
     const entry = { username: s.username, pic };
     if (typeof s.avatarUrl === 'string' && AVATAR_URL.test(s.avatarUrl)) entry.avatarUrl = s.avatarUrl;
+    // the seat this watcher looks over the shoulder of (2026-11-21; only to a socket with the cap shoulderView)
+    if ([1, 2, 3, 4].includes(s.shoulder)) entry.shoulder = s.shoulder;
     list.push(entry);
   }
   return { spectators: list, count };

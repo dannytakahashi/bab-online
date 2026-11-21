@@ -54,8 +54,10 @@ import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
 import {
   isAssistHint, hintIsLive, noteAssistUses, helpIsUnlimited, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
-  parseTurnKey, ASSIST_LATE_LINE, tutorialNeedsConfirm,
+  parseTurnKey, ASSIST_LATE_LINE, tutorialNeedsConfirm, isWatchedHint,
 } from '../../state/assistHint.js';
+import { isPureSpectator, isShoulder, isViewedSeat } from '../../state/shoulder.js';
+import { syncShoulderHud, clearShoulderHud } from '../../ui/components/ShoulderHud.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
@@ -114,7 +116,8 @@ export class GameScene extends Phaser.Scene {
     const h = css.h || 953;
     const dpr = css.dpr;
     const state = this.state;
-    const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    // a watcher (the over-the-shoulder view) has the seated layout of the watched seat
+    const spectator = this._spectatorView ?? isPureSpectator(state);
     // my voice row reserves the Tutorial button's slot while I play my own
     // seat (not lazy): a lazy watcher's table is as before
     const tutorial = this._tutorialSlot();
@@ -130,11 +133,11 @@ export class GameScene extends Phaser.Scene {
     return this._layout.layout;
   }
 
-  /** Does my table reserve the Tutorial button's slot (I play my own seat: not a spectator, not lazy)? */
+  /** Does my table reserve the Tutorial button's slot (I play my own seat: not a spectator, not lazy, not a watcher)? */
   _tutorialSlot() {
     const state = this.state;
-    const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
-    return !spectator && !state?.isLazy;
+    const spectator = this._spectatorView ?? isPureSpectator(state);
+    return !spectator && !state?.isLazy && !isShoulder(state);
   }
 
   /** A sprite scale of the current layout ('hand', 'trick', 'back', 'trump', ...). */
@@ -635,8 +638,8 @@ export class GameScene extends Phaser.Scene {
       this.bidManager.updateBoreButtonStates();
     }
 
-    // my own bid: the /help card (and the tutorial's rule tip) is done
-    if (data.position === this.state.position && !this.state.isSpectator) {
+    // my own bid (or the watched seat's): the /help card (and the tutorial's rule tip) is done
+    if (isViewedSeat(this.state, data.position)) {
       this.clearAssist();
       this.clearTips();
     }
@@ -682,7 +685,7 @@ export class GameScene extends Phaser.Scene {
     }
     const pos = state.position || 1;
     // Player names only, '' until they are known (never a placeholder)
-    const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: !!state.isSpectator });
+    const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: isPureSpectator(state) });
     const bid = (p) => state.bids?.[p] ?? '-';
     const anyBid = Object.keys(state.bids || {}).length > 0;
     const teamBids = anyBid ? `${bid(pos)}/${bid(team(pos))}` : '-/-';
@@ -700,6 +703,8 @@ export class GameScene extends Phaser.Scene {
   updateSeatPlates() {
     const hud = getHud({ create: false });
     if (hud && this.state) updateSeatPlates(hud, this.state);
+    // the watched seat's clock pill follows the bids (the over-the-shoulder view)
+    if (hud && this.state) syncShoulderHud(this.state);
   }
 
   /**
@@ -726,8 +731,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update turn glow
-    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
-    if (this.cardManager && !isPureSpectator) {
+    const pureSpectator = isPureSpectator(this.state);
+    if (this.cardManager && !pureSpectator) {
       this.cardManager.updatePlayerTurnGlow(this.state.currentTurn, this.state.position);
     }
     if (this.opponentManager) {
@@ -772,7 +777,7 @@ export class GameScene extends Phaser.Scene {
 
     const currentTurn = data.currentTurn;
     const myPosition = this.state.position;
-    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
+    const pureSpectator = isPureSpectator(this.state);
 
     // a turn change ends a /help answer (plan 4.4): one still live by its
     // turnKey stays (a repeat of this turn, a resync); an answer that came
@@ -786,7 +791,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Update turn glow for player's hand (skip for pure spectators — no hand area)
-    if (this.cardManager && !isPureSpectator) {
+    if (this.cardManager && !pureSpectator) {
       this.cardManager.updatePlayerTurnGlow(currentTurn, myPosition);
     }
 
@@ -800,7 +805,7 @@ export class GameScene extends Phaser.Scene {
     this._turnToken = (this._turnToken || 0) + 1;
     if (this.cardManager && !this.state.isBidding) {
       const canPlay = currentTurn === myPosition && !this.state.hasPlayedCard && !this.state.isLazy &&
-        !isPureSpectator && !this._myActionPending();
+        !this.state.isSpectator && !this._myActionPending();
       const gameState = this.state;
       const legalityChecker = this.legalityChecker();
 
@@ -828,6 +833,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.syncAssistButton();
     this.syncTutorial();
+    syncShoulderHud(this.state);
   }
 
   /**
@@ -841,7 +847,7 @@ export class GameScene extends Phaser.Scene {
 
     if (gamePosition === myPosition) {
       // Pure spectators see position 1 as 'bottom' opponent slot
-      if (this.state.isSpectator && !this.state.isLazy) return 'bottom';
+      if (isPureSpectator(this.state)) return 'bottom';
       return 'me';
     }
     if (gamePosition === team(myPosition)) return 'partner';
@@ -869,8 +875,8 @@ export class GameScene extends Phaser.Scene {
 
     announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
 
-    // my own card: the /help card (and the tutorial's rule tip) is done
-    if (playedPosition === myPosition && !this.state.isSpectator) {
+    // my own card (or the watched seat's): the /help card (and the tutorial's rule tip) is done
+    if (isViewedSeat(this.state, playedPosition)) {
       this.clearAssist();
       this.clearTips();
     }
@@ -893,8 +899,7 @@ export class GameScene extends Phaser.Scene {
     const positionKey = this.getPositionKey(playedPosition);
 
     // Handle opponent card animation (includes spectator's view of position 1)
-    const isPureSpectator = this.state.isSpectator && !this.state.isLazy;
-    const isOpponentPlay = playedPosition !== myPosition || isPureSpectator;
+    const isOpponentPlay = playedPosition !== myPosition || isPureSpectator(this.state);
     if (isOpponentPlay && this.opponentManager && this.trickManager) {
       const sprite = this.opponentManager.removeCard(positionKey);
       if (sprite) {
@@ -1095,7 +1100,7 @@ export class GameScene extends Phaser.Scene {
     const isMyTeam = winner % 2 === myPosition % 2;
 
     // the announcer: who took it, and (for a seat) the hand's tricks so far
-    const tally = this.state.isSpectator ? '' : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
+    const tally = isPureSpectator(this.state) ? '' : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
     announce(`${this._seatName(winner)} won the trick.${tally}`);
 
     // Animate cards to winner's stack via TrickManager
@@ -1171,11 +1176,11 @@ export class GameScene extends Phaser.Scene {
 
     // Update game log score display (player names only, as renderScoreHeader)
     if (window.updateGameLogScoreFromLegacy) {
-      const { teamName, oppName } = scoreHeaderNames(myPosition, state.playerData, { spectator: !!state.isSpectator });
+      const { teamName, oppName } = scoreHeaderNames(myPosition, state.playerData, { spectator: isPureSpectator(state) });
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
     }
 
-    announce(state.isSpectator ? 'Hand over.' : `Hand over.${this._teamsSaid(' Score:', teamScore, oppScore)}`);
+    announce(isPureSpectator(state) ? 'Hand over.' : `Hand over.${this._teamsSaid(' Score:', teamScore, oppScore)}`);
 
     // Clear hand cards
     if (this.cardManager) {
@@ -1313,7 +1318,7 @@ export class GameScene extends Phaser.Scene {
         username: state.getPlayerNameByPosition(position),
         pic: state.playerData.pics?.[i] ?? null,
       };
-      if (position === state.position && !state.isSpectator) this.updatePlayerInfoBox(display);
+      if (isViewedSeat(state, position)) this.updatePlayerInfoBox(display);
       else this.opponentManager?.updatePlayerInfo(position, display);
     }
     this.renderScoreHeader();
@@ -1500,7 +1505,7 @@ export class GameScene extends Phaser.Scene {
    */
   _teamsSaid(lead, mine, theirs) {
     const s = this.state;
-    const pairs = scoreHeaderPairs(s.position, s.playerData, { spectator: !!s.isSpectator });
+    const pairs = scoreHeaderPairs(s.position, s.playerData, { spectator: isPureSpectator(s) });
     if (!pairs.mine || !pairs.theirs) return '';
     return `${lead} ${pairs.mine.join(' and ')} ${mine}, ${pairs.theirs.join(' and ')} ${theirs}.`;
   }
@@ -1557,6 +1562,13 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (!isAssistHint(hint)) return;
+    // the watched seat's hint (the over-the-shoulder view): shown read-only
+    // while it is that seat's turn, never held, never counted
+    if (isWatchedHint(hint)) {
+      if (hint.kind === 'status' || !hintIsLive(hint, s)) return;
+      this._showAssist(hint);
+      return;
+    }
     this._endAsking();
     const watching = s.isSpectator && !s.isLazy;
     // a spectator's reply ("players only") says nothing about my uses
@@ -1580,12 +1592,19 @@ export class GameScene extends Phaser.Scene {
 
   /** Put a live answer up (the card, the rings, the row, the announcement). */
   _showAssist(hint) {
-    window.addPrivateToGameFeed?.(assistLogLine(hint));
+    const watched = isWatchedHint(hint);
+    // (a watched seat's hint has no row: it is not mine)
+    if (!watched) window.addPrivateToGameFeed?.(assistLogLine(hint));
     this._assistHint = hint;
     // no count in a game with a native bot seat (the hint says, or the table)
     const st = this.state || getGameState();
-    const unlimited = helpIsUnlimited(st, hint);
-    showAssistCard(hint, { onClose: () => this.clearAssist(), unlimited, tutorial: tutorialIsOn(st.gameId || null) });
+    const unlimited = watched || helpIsUnlimited(st, hint);
+    showAssistCard(hint, {
+      onClose: () => this.clearAssist(),
+      unlimited,
+      tutorial: !watched && tutorialIsOn(st.gameId || null),
+      owner: watched ? st.getPlayerNameByPosition?.(hint.watched) || null : null,
+    });
     this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
     this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
     announce(assistAnnouncement(hint));
@@ -1597,8 +1616,8 @@ export class GameScene extends Phaser.Scene {
     const held = this._parkedAssist;
     if (!held) return;
     this._parkedAssist = null;
-    // the tutorial's advice is never counted: no trace needed
-    if (held.source !== 'tutorial') window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
+    // the tutorial's advice is never counted: no trace needed (nor a watched seat's)
+    if (held.source !== 'tutorial' && !isWatchedHint(held)) window.addPrivateToGameFeed?.(ASSIST_LATE_LINE);
   }
 
   /**
@@ -1673,8 +1692,19 @@ export class GameScene extends Phaser.Scene {
       this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
       this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
     }
+    this._dropStaleWatchedTips();
     this.syncAssistButton();
     this.syncTutorial();
+  }
+
+  /** A watched seat's tips go with a switch or a stop (the seat watched now keeps its own). */
+  _dropStaleWatchedTips() {
+    const tips = this._tips || [];
+    const s = this.state;
+    const keep = tips.filter((t) => !isWatchedHint(t) || (isShoulder(s) && !s.shoulder.paused && t.watched === s.position));
+    if (keep.length === tips.length) return;
+    this._tips = keep;
+    this.drawTips();
   }
 
   /**
@@ -1745,6 +1775,14 @@ export class GameScene extends Phaser.Scene {
    */
   handleTutorialTip(hint) {
     const s = this.state || getGameState();
+    // the watched seat's rule tip (the over-the-shoulder view): its card
+    // only, while that seat is watched (no row, never counted, no buttons)
+    if (isWatchedHint(hint)) {
+      if (!isShoulder(s) || s.shoulder.paused || hint.watched !== s.position || isWelcomeTip(hint) || isRowOnlyTip(hint)) return;
+      this._tips = [...(this._tips || []).filter((t) => !isWatchedHint(t) || t.watched === hint.watched), hint];
+      this.drawTips();
+      return;
+    }
     if (!(s.isSpectator && !s.isLazy)) noteAssistUses(hint, s.gameId);
     // The welcome is a card only (owner 2026-11-20: its card and a matching
     // log row under "<name> turned on the tutorial." read as the start
@@ -1792,17 +1830,20 @@ export class GameScene extends Phaser.Scene {
       place: this._tipPlaceDrawn,
       onClose: (h) => this.closeTip(h),
       onAction: (h, a) => this.tipAction(h, a),
+      owner: shown && isWatchedHint(shown) ? this.state?.getPlayerNameByPosition?.(shown.watched) || null : null,
     });
   }
 
   /** A tip's ✕ (Escape): the welcome's sends /tutorial close (it dismisses an auto-start; Keep does not). */
   closeTip(hint) {
-    if (isWelcomeTip(hint)) this._sendTutorial(TUTORIAL_CLOSE_COMMAND);
+    if (isWelcomeTip(hint) && !isWatchedHint(hint)) this._sendTutorial(TUTORIAL_CLOSE_COMMAND);
     this._dropTip(hint);
   }
 
   /** The welcome's Keep / Turn off. */
   tipAction(hint, action) {
+    // a watched seat's tip sends nothing (the server drops its actions anyway)
+    if (isWatchedHint(hint)) return;
     const cmd = tipActionCommand(action);
     if (!cmd) return;
     if (!this._sendTutorial(cmd)) return;
@@ -1953,9 +1994,13 @@ export class GameScene extends Phaser.Scene {
       clearTimeout(this._tutorialOffTimer);
       this._tutorialOffTimer = null;
       this._tutorialOffSent = false;
-      if (this._tips?.length) this.clearTips({ all: true });
+      // (a watched seat's tutorial is that player's, not mine: its tips and advice stay)
+      if (this._tips?.some((t) => !isWatchedHint(t))) {
+        this._tips = this._tips.filter(isWatchedHint);
+        this.drawTips();
+      }
       if (this._parkedAssist?.source === 'tutorial') this._parkedAssist = null;
-      if (this._assistHint?.source === 'tutorial') this.clearAssist();
+      if (this._assistHint?.source === 'tutorial' && !isWatchedHint(this._assistHint)) this.clearAssist();
     } else {
       // the server says on: the button's on is answered
       clearTimeout(this._tutorialOnTimer);
@@ -1979,8 +2024,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.opponentManager.displayOpponentHands(cardCount, dealerPosition, playerData, skipAnimation);
     }
-    const isPureSpectator = gameState.isSpectator && !gameState.isLazy;
-    if (!this._playerInfo && !isPureSpectator) {
+    if (!this._playerInfo && !isPureSpectator(gameState)) {
       if (gameState.position && gameState.playerData) {
         this.createPlayerInfoBox(gameState.playerData, gameState.position);
       }
@@ -2026,12 +2070,16 @@ export class GameScene extends Phaser.Scene {
     this._turnToken = (this._turnToken || 0) + 1;
 
     const role = m.viewer?.role || 'seat';
-    const spectator = role === 'spectator';
+    // a watcher (the over-the-shoulder view) is drawn as the watched seat's
+    // own table, its hand read-only: a lazy watcher's view, nothing to act on
+    const shoulder = role === 'spectator' && !!m.viewer?.shoulder;
+    const spectator = role === 'spectator' && !shoulder;
     const lazy = role === 'lazyWatcher';
     const pos = m.viewer?.position || 1;
 
     // The role picks the layout (a spectator's bottom seat has no hand)
     this._spectatorView = spectator;
+    this.cardManager?.setReadOnly?.(shoulder);
     applyHudLayout(this.getLayout());
     this.ensureCardTextures();
 
@@ -2051,7 +2099,8 @@ export class GameScene extends Phaser.Scene {
       const preDraw = !!m.draw || m.stage === 'CREATED';
       if (m.live || !preDraw) this.layoutManager.createDomBackgrounds({ skipHandArea: spectator });
     }
-    if (spectator) this.clearPlayerInfo();
+    // (a watcher's box is the watched seat's: another seat, another box)
+    if (spectator || (this._playerInfo && this._playerInfo.position !== undefined && this._playerInfo.position !== pos)) this.clearPlayerInfo();
     if (m.playerData) this.opponentManager?.displayAvatars(m.playerData);
     if (!spectator && !this._playerInfo && m.playerData) this.createPlayerInfoBox(m.playerData, pos);
     else if (!spectator && m.playerData) {
@@ -2059,7 +2108,8 @@ export class GameScene extends Phaser.Scene {
       const u = m.playerData.username?.[i];
       if (i !== -1 && u) this.updatePlayerInfoBox({ username: u.username || u, pic: m.playerData.pics?.[i] ?? null });
     }
-    if (!spectator) this.updatePlayerHsi(m.hsi);
+    if (shoulder && m.hsi === undefined) this.clearPlayerHsi();
+    else if (!spectator) this.updatePlayerHsi(m.hsi);
     // the voice buttons' slot moves with the role (my box, or the corner)
     reattachMuteButton();
     placeSoundToggle();
@@ -2072,6 +2122,7 @@ export class GameScene extends Phaser.Scene {
       if (m.draw) this.drawManager?.renderDraw(m);
       this.syncAssist();
       this.renderScoreHeader();
+      syncShoulderHud(this.state);
       return m;
     }
 
@@ -2108,6 +2159,7 @@ export class GameScene extends Phaser.Scene {
 
     this.syncAssist();
     this.renderScoreHeader();
+    syncShoulderHud(this.state);
     return m;
   }
 
@@ -2197,7 +2249,7 @@ export class GameScene extends Phaser.Scene {
     placeSoundToggle();
     this._syncTutorialButton();
 
-    this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
+    this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox, position: myPosition };
     return this._playerInfo;
   }
 
@@ -2275,6 +2327,8 @@ export class GameScene extends Phaser.Scene {
   cleanup() {
     // a held answer means nothing once the table goes (no row)
     this._parkedAssist = null;
+    clearShoulderHud();
+    this.cardManager?.setReadOnly?.(false);
     this._endAsking();
     this.clearAssist();
     // the tutorial's tips and button (its state goes with the table: main.js)

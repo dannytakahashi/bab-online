@@ -39,6 +39,7 @@
  */
 
 import { isTipHint, tipLogLine, TUTORIAL_ROW_LABEL } from './tutorial.js';
+import { isShoulder } from './shoulder.js';
 
 /** The clientHello cap that asks for assistHint. */
 export const ASSIST_CAP = 'assist';
@@ -224,7 +225,14 @@ export function hintIsLive(hint, state, { pending = false } = {}) {
   if (!isAssistHint(hint) || !state) return false;
   // a status reply (off turn, a refusal, "players only") is for whoever asked
   if (hint.kind === 'status') return true;
-  if (!seated(state)) return false;
+  if (isWatchedHint(hint)) {
+    // a watched seat's hint (the over-the-shoulder view): that seat's turn,
+    // while this page watches it; nothing of mine is ever pending
+    if (!isShoulder(state) || state.shoulder.paused || hint.watched !== state.position) return false;
+    pending = false;
+  } else if (!seated(state)) {
+    return false;
+  }
   if (pending || state.currentTurn !== state.position) return false;
   const k = parseTurnKey(hint.turnKey);
   if (k && k.currentTurn !== state.position) return false;
@@ -241,6 +249,14 @@ export function hintIsLive(hint, state, { pending = false } = {}) {
   const at = clientCardIndex(state);
   if (k && at !== null && Number.isSafeInteger(k.cardIndex) && k.cardIndex !== at) return false;
   return true;
+}
+
+/**
+ * A copy of the watched seat's hint (assistHint `watched`, the
+ * over-the-shoulder view): read-only, no counts, nothing that sends.
+ */
+export function isWatchedHint(hint) {
+  return !!hint && typeof hint === 'object' && [1, 2, 3, 4].includes(hint.watched);
 }
 
 /** The private row for a bid or card answer that came after its turn had passed. */
@@ -287,6 +303,8 @@ export function confidenceLabel(hint) {
  *   "Not counted"                              (forced: nothing to guess)
  *   "What our strongest bot would play · Asked again this turn: not counted"
  *   "Quick suggestion: rules only, the server is busy. · Help 1 of 3 free"
+ * A watched seat's hint (`watched`, the over-the-shoulder view): just the
+ * first part, never a count, "not counted" or bot-assisted words.
  * In a game with a native bot seat (hint.unlimited, or `o.unlimited` from
  * helpIsUnlimited) no count and no "not counted": just "What our strongest
  * bot would play" (a forced move and a re-ask too), or the Quick note alone.
@@ -301,6 +319,8 @@ export function confidenceLabel(hint) {
 export function assistFooter(hint, { unlimited = false, tutorial = false } = {}) {
   if (!isAssistHint(hint) || hint.kind === 'status') return null;
   const lead = hint.confidence === 'quick' ? FOOTER_QUICK : FOOTER_BOT;
+  // a watched seat's hint: its counts are the watched player's (never shown)
+  if (isWatchedHint(hint)) return lead;
   if (unlimited || hint.unlimited === true) return lead;
   if (hint.source === 'tutorial' || (tutorial && !hint.counted)) return lead;
   const free = count(hint.freeUses, DEFAULT_FREE_USES);

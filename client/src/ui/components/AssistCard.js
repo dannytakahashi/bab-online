@@ -275,7 +275,11 @@ function render({ focusFromAsk = false } = {}) {
   root.dataset.place = kind === 'bid' || (!current && tipOpts.place === 'bid') ? 'bid' : 'hand';
   root.classList.toggle('is-status', kind === 'status' && !tips.length);
   root.classList.toggle('has-tip', tips.length > 0);
-  root.setAttribute('aria-label', current ? 'Suggestion' : 'Tutorial tip');
+  // a watched seat's hint (the over-the-shoulder view): whose it is
+  const owner = current ? adviceOpts.owner : (tips[0]?.watched ? tipOpts.owner : null);
+  root.setAttribute('aria-label', current ? (owner ? `Suggestion for ${owner}` : 'Suggestion') : (owner ? `Tutorial tip for ${owner}` : 'Tutorial tip'));
+  if (owner) root.dataset.watched = owner;
+  else delete root.dataset.watched;
   const parts = tips.map(tipSection);
   if (current) {
     const advice = adviceParts(current, adviceOpts);
@@ -301,13 +305,14 @@ function render({ focusFromAsk = false } = {}) {
  * @param {Function} [o.onClose] - the player dismissed it (✕, Escape)
  * @param {boolean} [o.unlimited] - a game with a native bot seat (no count)
  * @param {boolean} [o.tutorial] - my tutorial is on (/help not counted)
+ * @param {string} [o.owner] - a watched seat's hint: its player's name (the over-the-shoulder view)
  * @returns {HTMLElement|null} the card
  */
-export function showAssistCard(hint, { onClose = null, unlimited = false, tutorial = false } = {}) {
+export function showAssistCard(hint, { onClose = null, unlimited = false, tutorial = false, owner = null } = {}) {
   if (!isAssistHint(hint)) return null;
   current = hint;
   onCloseCb = onClose;
-  adviceOpts = { unlimited, tutorial };
+  adviceOpts = { unlimited, tutorial, owner };
   // focus moves to the card only from the card itself (a replace) or from
   // the lightbulb that asked for it (it hides while the card is up)
   return render({ focusFromAsk: true });
@@ -322,12 +327,13 @@ export function showAssistCard(hint, { onClose = null, unlimited = false, tutori
  * @param {Function} [o.onClose] - (hint): its ✕ (or Escape)
  * @param {Function} [o.onAction] - (hint, 'keep' | 'off'): the welcome's buttons
  * @param {string} [o.place] - 'bid': above the bid sheet (my bid turn), else above the hand
+ * @param {string} [o.owner] - a watched seat's tip: its player's name
  * @returns {HTMLElement|null} the card
  */
-export function showAssistTips(list, { onClose = null, onAction = null, place = 'hand' } = {}) {
+export function showAssistTips(list, { onClose = null, onAction = null, place = 'hand', owner = null } = {}) {
   const one = shownTip(list);
   tips = one ? [one] : [];
-  tipOpts = { onClose, onAction, place };
+  tipOpts = { onClose, onAction, place, owner };
   return render();
 }
 
