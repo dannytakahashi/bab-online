@@ -40,6 +40,7 @@ export const CLIENT_EVENTS = {
   FORCE_RESIGN: 'forceResign',
   JOIN_AS_SPECTATOR: 'joinAsSpectator',
   REQUEST_SNAPSHOT: 'requestSnapshot',
+  WATCH_HAND: 'watchHand',
 
   // Tournament
   CREATE_TOURNAMENT: 'createTournament',
@@ -166,6 +167,7 @@ export const SERVER_EVENTS = {
   SEAT_LEFT: 'seatLeft',
   ASSIST_HINT: 'assistHint',
   ASSIST_STATE: 'assistState',
+  WATCH_HAND_REFUSED: 'watchHandRefused',
 
   // Connection
   CONNECT: 'connect',
