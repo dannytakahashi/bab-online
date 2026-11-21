@@ -160,9 +160,9 @@ struct AssistCardView: View {
         .accessibilityIdentifier("assist.close")
     }
 
-    /// A watched card's first rows: "Alice's advice" beside the chip where both fit on one
-    /// line, else the heading on its own line with the close (its name cut with "…", never its
-    /// "'s advice") and the chip under it, whole.
+    /// A watched card's first rows: "Alice's advice" beside the chip where both fit whole on one
+    /// line, else the heading on a full-width line of its own (its name cut with "…" only where
+    /// even that is short, never its "'s advice") over the card's own row, chip and close whole.
     @ViewBuilder private var watchedTopRows: some View {
         if let name = AssistRules.watchedHeadingName(watchedName) {
             ViewThatFits(in: .horizontal) {
@@ -174,22 +174,23 @@ struct AssistCardView: View {
                     closeButton
                 }
                 VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                    HStack(spacing: Theme.Space.s2) {
-                        bulb
-                        WatchedHeading(name: name, suffix: AssistRules.watchedSuffix, id: "assist.watched")
-                        Spacer(minLength: Theme.Space.s2)
-                        closeButton
-                    }
-                    confidenceChip
+                    WatchedHeading(name: name, suffix: AssistRules.watchedSuffix, id: "assist.watched")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, Theme.Space.s1)
+                    ownTopRow
                 }
             }
         } else {
-            HStack(spacing: Theme.Space.s2) {
-                bulb
-                confidenceChip
-                Spacer(minLength: Theme.Space.s2)
-                closeButton
-            }
+            ownTopRow
+        }
+    }
+
+    private var ownTopRow: some View {
+        HStack(spacing: Theme.Space.s2) {
+            bulb
+            confidenceChip
+            Spacer(minLength: Theme.Space.s2)
+            closeButton
         }
     }
 }

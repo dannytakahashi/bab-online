@@ -52,9 +52,9 @@ struct TutorialTipView: View {
 /// sight (GameContainerView.pinnedTipHead; the web's sticky .assist-tip__top).
 struct TutorialTipHead: View {
     let tip: AssistHint
-    /// A watched seat's tip (TutorialTipView.watchedName): the cap, "Alice's tip" (the name cut
-    /// with "…" where the line is short, never "'s tip") and the ×, then the title under them on
-    /// its own full-width line. nil: today's one row.
+    /// A watched seat's tip (TutorialTipView.watchedName): "Alice's tip" on a full-width line of
+    /// its own (the name cut with "…" only where even that is short, never "'s tip") over
+    /// today's row. nil: today's one row.
     var watchedName: String? = nil
     var onClose: () -> Void
     /// The pinned copy (identifiers "tip.pinned…": the card's own row is still in the tree,
@@ -64,21 +64,22 @@ struct TutorialTipHead: View {
     var body: some View {
         if let name = watchedName.flatMap(AssistRules.watchedHeadingName) {
             VStack(alignment: .leading, spacing: Theme.Space.s1) {
-                HStack(spacing: Theme.Space.s2) {
-                    cap
-                    WatchedHeading(name: name, suffix: TutorialRules.watchedSuffix, id: pinned ? "tip.pinnedWatched" : "tip.watched")
-                    Spacer(minLength: Theme.Space.s2)
-                    closeButton
-                }
-                title
+                WatchedHeading(name: name, suffix: TutorialRules.watchedSuffix, id: pinned ? "tip.pinnedWatched" : "tip.watched")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, Theme.Space.s1)
+                ownRow
             }
         } else {
-            HStack(spacing: Theme.Space.s2) {
-                cap
-                title
-                Spacer(minLength: Theme.Space.s2)
-                closeButton
-            }
+            ownRow
+        }
+    }
+
+    private var ownRow: some View {
+        HStack(spacing: Theme.Space.s2) {
+            cap
+            title
+            Spacer(minLength: Theme.Space.s2)
+            closeButton
         }
     }
 
