@@ -91,6 +91,27 @@ function keep(w, name, description, sid, from, event = 'stateSnapshot') {
     return snapshot;
 }
 
+// The over-the-shoulder view's payloads, as the watcher got them
+// (contract/fixtures/shoulder/events.json; docs/claude/spectators.md
+// "Over-the-shoulder view"): one of each, schema-checked
+const SHOULDER_DIR = path.join(__dirname, '..', '..', '..', 'contract', 'fixtures', 'shoulder');
+let shoulderEvents = null;
+function captureEvents(wire) {
+    const out = [];
+    for (const [event, entry] of Object.entries(wire)) {
+        if (event === 'watchHand') {
+            expect({ event, errors: contract.validateC2S(event, entry).errors }).toEqual({ event, errors: [] });
+            out.push({ direction: 'c2s', event, data: entry });
+            continue;
+        }
+        expect({ event, found: !!entry }).toEqual({ event, found: true });
+        const data = JSON.parse(JSON.stringify(entry.data));
+        expect({ event, errors: contract.validateS2C(event, data).errors }).toEqual({ event, errors: [] });
+        out.push({ direction: 's2c', event, to: String(entry.to).startsWith('self:') ? 'self' : 'socket', data });
+    }
+    shoulderEvents = { description: 'The over-the-shoulder view on the wire (clientHello cap shoulderView), one of each, from a real game: the watcher\'s watchHand, its stateSnapshot reply (reason watchHand), a refusal (own_seat: a seat owner\'s second tab), the watched seat\'s /help answer mirrored (assistHint watched), the wide spectatorsUpdated (shoulder on the entry) and the next deal\'s spectator gameStart (shoulder). Rewrite with npm run contract:fixtures.', events: out };
+}
+
 /** requestSnapshot from `s` (custom pictures opted in) and keep the reply. */
 function ask(w, s, name, description, data = { customPics: true }) {
     const from = w.log.length;
@@ -357,6 +378,58 @@ describe('snapshot v2 fixtures from real games', () => {
         expect(tg.stage).toBe('BIDDING');
     }, 30000);
 
+    test('the over-the-shoulder view (contract/fixtures/shoulder/events.json)', async () => {
+        const clientInfo = require('../clientInfo');
+        const shoulderView = require('../shoulderView');
+        const { SPECTATORS_COALESCE_MS } = require('../../game/spectatorRoster');
+        process.env.BID_CLOCK = 'off';
+        Math.random = mulberry32(108);
+        const w = world('fx-sh');
+        const t = await lobbyTable(w, ['ola', 'pia', 'quin', 'rex']);
+        await toBidding(w, t);
+        const { game } = t;
+        const pos = game.currentTurn;
+        clientInfo.handle(owner(w, game, pos), w.io, { client: 'web', version: '1.0.0', caps: ['avatarUrl', 'assist'] });
+        const fan = w.user('fx-sh-fan', 'sid');
+        clientInfo.handle(fan, w.io, { client: 'web', version: '1.0.0', caps: ['avatarUrl', 'shoulderView'] });
+        await mainRoomHandlers.joinAsSpectator(fan, w.io, { gameId: game.gameId });
+        const tab = w.user('fx-sh-tab', game.seat(1).ownerUsername, { db: false }); // seat 1's own second tab
+        clientInfo.handle(tab, w.io, { client: 'web', version: '1.0.0', caps: ['avatarUrl', 'shoulderView'] });
+        await mainRoomHandlers.joinAsSpectator(tab, w.io, { gameId: game.gameId });
+        await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);
+
+        const from = w.log.length;
+        shoulderView.watchHand(fan, w.io, { gameId: game.gameId, position: pos, requestId: 'w1' });
+        // Not a v2 fixture: the iOS and web suites iterate contract/fixtures/v2
+        // (TableSnapshotDecodingTests pins its count), and no client reads
+        // the shoulder yet; the snapshot is in shoulder/events.json instead
+        const sw = w.log.slice(from).find((l) => l.to === `self:${fan.id}` && l.event === 'stateSnapshot').data.snapshot;
+        expect(validate(JSON.parse(JSON.stringify(sw)))).toEqual([]);
+        expect(sw.viewer.shoulder.position).toBe(pos);
+        shoulderView.watchHand(tab, w.io, { gameId: game.gameId, position: pos === 1 ? 2 : pos });
+        chatHandlers.chatMessage(owner(w, game, pos), w.io, { message: '/help' });
+        await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);
+        const dealSeq = game.dealSeq;
+        while (game.stage === Phase.BIDDING && game.dealSeq === dealSeq) await bid(w, game, '0');
+        await advanceUntil(() => game.dealSeq > dealSeq && game.stage === Phase.BIDDING, 100);
+        const mine = (event, pred = () => true) => w.log.slice(from).find((l) => (l.to === fan.id || l.to === `self:${fan.id}`) && l.event === event && pred(l.data));
+        const wire = {
+            watchHand: { gameId: game.gameId, position: pos, requestId: 'w1' },
+            stateSnapshot: mine('stateSnapshot'),
+            watchHandRefused: w.log.slice(from).find((l) => l.to === `self:${tab.id}` && l.event === 'watchHandRefused'),
+            assistHint: mine('assistHint'),
+            spectatorsUpdated: mine('spectatorsUpdated'),
+            gameStart: mine('gameStart', (d) => !!d.shoulder),
+        };
+        captureEvents(wire);
+        expect(wire.watchHandRefused.data).toMatchObject({ reason: 'own_seat', ownPosition: 1 });
+        expect(wire.assistHint.data.watched).toBe(pos);
+        expect(wire.spectatorsUpdated.data.spectators.find((e) => e.username === 'sid').shoulder).toBe(pos);
+        expect(wire.gameStart.data.shoulder.position).toBe(pos);
+        delete process.env.BID_CLOCK;
+        await Promise.all([...t.draws, ...t.starting]);
+    }, 30000);
+
     test('the committed fixtures are what the server produces (run npm run contract:fixtures)', () => {
         const names = [...captured.keys()].sort();
         expect(names).toEqual(['action-rejected', 'between-tricks', 'bid-clock-running', 'bidding-mid', 'created-countdown', 'draw-in-progress',
@@ -381,6 +454,20 @@ describe('snapshot v2 fixtures from real games', () => {
         const extra = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => !files[f]) : [];
         if (stale.length || extra.length) {
             throw new Error(`contract/fixtures/v2 is out of date (${[...stale, ...extra].join(', ')}): run npm run contract:fixtures`);
+        }
+    });
+
+    test('contract/fixtures/shoulder/events.json is what the server produces (run npm run contract:fixtures)', () => {
+        expect(shoulderEvents).not.toBeNull();
+        const file = path.join(SHOULDER_DIR, 'events.json');
+        const content = JSON.stringify(shoulderEvents, null, 2) + '\n';
+        if (UPDATE) {
+            fs.mkdirSync(SHOULDER_DIR, { recursive: true });
+            fs.writeFileSync(file, content);
+            return;
+        }
+        if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) {
+            throw new Error('contract/fixtures/shoulder/events.json is out of date: run npm run contract:fixtures');
         }
     });
 });
