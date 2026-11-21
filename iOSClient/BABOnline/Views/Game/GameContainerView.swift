@@ -1111,16 +1111,27 @@ private struct GameScreen: View {
     private func assistCards(inScroll: Bool) -> some View {
         VStack(alignment: .leading, spacing: AssistLayout.gap) {
             if let tip = gameState.tutorialTip {
-                TutorialTipView(tip: tip, onClose: tutorialTipClose)
+                TutorialTipView(tip: tip, watchedName: watchedHintName, onClose: tutorialTipClose)
                     .background { if inScroll { tipFrameReporter } }
                     .transition(.opacity)
             }
             if let hint = gameState.assistHint {
-                AssistCardView(hint: hint, tutorialOn: gameState.tutorialOn, onClose: { gameState.apply(.local(.assistDismissed)) })
+                AssistCardView(hint: hint, tutorialOn: gameState.tutorialOn, watchedName: watchedHintName,
+                               onClose: { gameState.apply(.local(.assistDismissed)) })
                     .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The watched player's name on the column's cards (the over-the-shoulder view's mirrored
+    /// hints: AssistCardView / TutorialTipView `watchedName`); nil: my own cards. Only the
+    /// fixture `-uiWatchedHint <name>` sets it so far (UIFixture+WatchedHint).
+    private var watchedHintName: String? {
+        #if DEBUG
+        if let name = UIFixture.watchedHintName { return name }
+        #endif
+        return nil
     }
 
     private var tipFrameReporter: some View {
@@ -1142,7 +1153,7 @@ private struct GameScreen: View {
 
     @ViewBuilder private var pinnedTipHead: some View {
         if let tip = gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
-            TutorialTipHead(tip: tip, onClose: tutorialTipClose, pinned: true)
+            TutorialTipHead(tip: tip, watchedName: watchedHintName, onClose: tutorialTipClose, pinned: true)
                 .padding(.horizontal, Theme.Space.s3)
                 .padding(.vertical, Theme.Space.s1)
                 .background(

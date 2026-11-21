@@ -236,6 +236,53 @@ enum AssistRules {
         return parts.joined(separator: " ")
     }
 
+    // MARK: - A watched seat's hint (the over-the-shoulder view)
+
+    // A pure spectator watching a seat's hand gets that seat's /help answers and tutorial
+    // advice as copies (assistHint `watched`; docs/claude/spectators.md "Over-the-shoulder
+    // view"). Owner 2026-11-21: the card names whose hand it is ("Alice's advice"; names only,
+    // never seat or team numbers) and shows no count anywhere: the copy's uses / freeUses /
+    // assisted / counted / unlimited describe the WATCHED player, so no "Help n of 3 free", no
+    // "Not counted", no "bot-assisted", no note. AssistCardView(watchedName:) draws it.
+
+    /// The heading's words after the name: "Alice" + "'s advice".
+    static let watchedSuffix = "'s advice"
+
+    /// The name a watched card shows: trimmed; nil when blank (the card then has no heading but
+    /// still no count).
+    static func watchedHeadingName(_ name: String?) -> String? {
+        guard let n = name?.trimmingCharacters(in: .whitespacesAndNewlines), !n.isEmpty else { return nil }
+        return n
+    }
+
+    /// "Alice's advice" (nil for a blank name).
+    static func watchedHeading(_ name: String?) -> String? {
+        watchedHeadingName(name).map { $0 + watchedSuffix }
+    }
+
+    /// A watched card's footer: "What our strongest bot would play", or the Quick note for a
+    /// quick suggestion; never a count, "Not counted" (a forced move too) or bot-assisted words.
+    /// nil for a status reply or a tip (the server mirrors neither as advice).
+    static func watchedFooter(_ h: AssistHint) -> String? {
+        guard h.kind != .status, h.kind != .tip else { return nil }
+        return h.confidence == "quick" ? footerQuick : footerBot
+    }
+
+    /// The card's VoiceOver label: "Suggestion for Alice" ("Suggestion" for a blank name).
+    static func watchedLabel(_ name: String?) -> String {
+        watchedHeadingName(name).map { "Suggestion for \($0)" } ?? "Suggestion"
+    }
+
+    /// What VoiceOver hears for a watched card: "Suggestion for Alice: Bid 2. <main reason>."
+    /// (`announcement` without the note, which the server drops from the copy anyway).
+    static func watchedAnnouncement(_ h: AssistHint, name: String?) -> String {
+        var copy = h
+        copy.note = nil
+        let own = announcement(copy)
+        guard h.kind != .status, h.kind != .tip, own.hasPrefix("Suggestion: ") else { return own }
+        return "\(watchedLabel(name)): " + own.dropFirst("Suggestion: ".count)
+    }
+
     // MARK: - Is it still my turn's?
 
     struct TurnKey: Equatable {

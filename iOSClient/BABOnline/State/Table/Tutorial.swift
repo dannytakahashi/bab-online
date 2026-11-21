@@ -106,6 +106,27 @@ enum TutorialRules {
         return parts.joined(separator: " ")
     }
 
+    // A watched seat's rule tip (the over-the-shoulder view; AssistRules "A watched seat's
+    // hint"): the card names whose hand it is, "Alice's tip"; its × only takes it down.
+
+    /// The heading's words after the name: "Alice" + "'s tip".
+    static let watchedSuffix = "'s tip"
+
+    /// "Alice's tip" (nil for a blank name).
+    static func watchedHeading(_ name: String?) -> String? {
+        AssistRules.watchedHeadingName(name).map { $0 + watchedSuffix }
+    }
+
+    /// The tip card's VoiceOver label: "Tip for Alice" ("Tip" for a blank name).
+    static func watchedLabel(_ name: String?) -> String {
+        AssistRules.watchedHeadingName(name).map { "Tip for \($0)" } ?? "Tip"
+    }
+
+    /// What VoiceOver hears, once per watched tip: "Tip for Alice: Trump. Trump this hand is ...".
+    static func watchedAnnouncement(_ h: AssistHint, name: String?) -> String {
+        "\(watchedLabel(name)): " + announcement(h).dropFirst("Tip: ".count)
+    }
+
     /// The same tip again (a welcome re-sent after a rejoin, a restated hand score): one row and
     /// one announcement only.
     static func seenKey(_ h: AssistHint) -> String { "\(h.tipId ?? "-")|\(h.reasons.first ?? h.headline)" }
