@@ -39,8 +39,8 @@ const { watchShoulders, shouldersInvariant } = require('../../testUtils/shoulder
 
 const SEEDS = Number(process.env.SHOULDER_SEEDS) || 60;
 // Seat owners' own HSI only: the HSI fix's rule (gameStart.hsiValues /
-// snapshot hsi). 'any' while that fix has not landed on this branch
-const OWNER_HSI = process.env.SHOULDER_OWNER_HSI || 'any';
+// snapshot hsi), on main since #362; SHOULDER_OWNER_HSI=any relaxes it
+const OWNER_HSI = process.env.SHOULDER_OWNER_HSI || 'own';
 
 let errorLogs;
 let realRandom;

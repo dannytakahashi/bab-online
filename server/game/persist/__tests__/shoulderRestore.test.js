@@ -51,7 +51,7 @@ beforeEach(() => {
     }
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'warn').mockImplementation(() => {});
-    scan = watchShoulders(() => currentIo);
+    scan = watchShoulders(() => currentIo, { ownerHsi: 'own' });
 });
 
 afterEach(() => {
