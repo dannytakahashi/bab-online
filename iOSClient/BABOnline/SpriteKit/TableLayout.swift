@@ -16,6 +16,14 @@ struct TableChrome: Equatable {
     var topBar: CGFloat = 0
     /// max(Leave, Log) measured size: an obstacle at both top corners, below the top bar.
     var cornerButton: CGSize = .zero
+    /// The tutorial's round button in the trailing corner (owner 2026-11-21), as measured (zero:
+    /// not shown). TableLayout.init places it under the log's button, or beside it where that
+    /// keeps a bigger table (`tutorialPlacement`), and solves with `cornerTrailingExtra` for it.
+    var tutorialButton: CGSize = .zero
+    /// The trailing corner's extra room the solve keeps (set by TableLayout.init from
+    /// `tutorialButton`): its height under the log's button, or its width beside it. Only that
+    /// corner grows.
+    var cornerTrailingExtra: CGSize = .zero
     /// Lazy / spectator pill height + 12 padding; 0 when hidden.
     var bottomBar: CGFloat = 0
     /// The active fold (division) region in scene coordinates (item 27); nil when none.
@@ -33,6 +41,8 @@ struct TableChrome: Equatable {
         let i = safeArea
         return TableChrome(safeArea: TableInsets(top: i.top * k, left: i.left * k, bottom: i.bottom * k, right: i.right * k),
                            topBar: topBar * k, cornerButton: CGSize(width: cornerButton.width * k, height: cornerButton.height * k),
+                           tutorialButton: CGSize(width: tutorialButton.width * k, height: tutorialButton.height * k),
+                           cornerTrailingExtra: CGSize(width: cornerTrailingExtra.width * k, height: cornerTrailingExtra.height * k),
                            bottomBar: bottomBar * k, fold: fold.map(r), occlusions: occlusions.map(r), banner: banner * k)
     }
 }
@@ -150,6 +160,9 @@ struct TableLayout: Equatable {
     /// itself, with its 8 pt clearances, is `seatRow`.
     let accessory: CGRect
     /// My seat's row: my pips, HSI, voice (TableLayout+SeatRow.swift), derived from the rest.
+    /// The tutorial's corner button sits beside the log's (left of it), not under it
+    /// (`tutorialPlacement`; false without the button).
+    private(set) var tutorialBeside = false
     private(set) var seatRow = SeatRow(mode: .compact, content: .zero, pips: .zero, hsi: .zero, voice: .zero, fits: false)
 
     private let tcx: CGFloat, cc: CGFloat, ox: CGFloat, oy: CGFloat
@@ -174,8 +187,48 @@ struct TableLayout: Equatable {
             self = L
             return
         }
-        self = Self.zoomed(size: size, chrome: chrome)
+        if chrome.tutorialButton != .zero {
+            let place = Self.tutorialPlacement(size: size, chrome: chrome)
+            var c = chrome
+            c.tutorialButton = .zero
+            c.cornerTrailingExtra = place.extra
+            var L = TableLayout(size: size, chrome: c)
+            L.tutorialBeside = place.beside
+            self = L
+        } else {
+            self = Self.zoomed(size: size, chrome: chrome)
+        }
         Self.layoutCache.store(key, self)
+    }
+
+    /// The gap between the log's button and the tutorial's (GameContainerView's corner stack).
+    static let tutorialGap: CGFloat = 8
+    /// The score bar's tallest in a game (71, 81, 90 pt measured: two lines of names and the
+    /// bid row), what `tutorialPlacement` decides with.
+    static let placementTopBar: CGFloat = 90
+
+    /// Where the tutorial's corner button goes: under the log's button (the trailing corner
+    /// `button.height + tutorialGap` taller), unless beside it (left of it: the corner wider by
+    /// what the pair needs past the corner's width, the log's button taken as the same size)
+    /// keeps a bigger table: not degraded, a larger hand, then larger trick cards, then a larger
+    /// zoom. Under costs nothing on a phone in portrait or an iPad; beside keeps a full-size hand
+    /// on a short pane (an iPhone SE, the iPhone Duo without its bar), where under shrank it.
+    /// Decided with the score bar at its tallest in a game (`placementTopBar`), so a score bar
+    /// that grows mid-game never moves the button.
+    static func tutorialPlacement(size: CGSize, chrome: TableChrome) -> (extra: CGSize, beside: Bool) {
+        let b = chrome.tutorialButton
+        let under = CGSize(width: 0, height: b.height + tutorialGap)
+        let beside = CGSize(width: max(0, 2 * b.width + tutorialGap - chrome.cornerButton.width),
+                            height: max(0, b.height - chrome.cornerButton.height))
+        var cu = chrome
+        cu.topBar = max(chrome.topBar, placementTopBar)
+        cu.tutorialButton = .zero
+        cu.cornerTrailingExtra = under
+        var cb = cu
+        cb.cornerTrailingExtra = beside
+        let lu = TableLayout(size: size, chrome: cu), lb = TableLayout(size: size, chrome: cb)
+        func score(_ l: TableLayout) -> (Int, CGFloat, CGFloat, CGFloat) { (l.isDegraded ? 0 : 1, l.handScale, l.trickScale, l.zoom) }
+        return score(lb) > score(lu) ? (beside, true) : (under, false)
     }
 
     /// The zoom search. The zoom is chosen for the pane's `zoomChrome` (the parts of the chrome
@@ -567,7 +620,9 @@ struct TableLayout: Equatable {
         let bw = chrome.cornerButton.width, bh = chrome.cornerButton.height
         let cornerBottom = y1 - S - 8 - bh - G
         var cornerL = CGRect(x: x0, y: cornerBottom, width: 12 + bw + G, height: (y1 - S) - cornerBottom)
-        var cornerR = CGRect(x: x1 - 12 - bw - G, y: cornerBottom, width: 12 + bw + G, height: (y1 - S) - cornerBottom)
+        let cornerBottomR = cornerBottom - chrome.cornerTrailingExtra.height
+        let bwR = bw + chrome.cornerTrailingExtra.width
+        var cornerR = CGRect(x: x1 - 12 - bwR - G, y: cornerBottomR, width: 12 + bwR + G, height: (y1 - S) - cornerBottomR)
         // occlusions in the top quarter join the corner obstacle on their side (only their
         // part inside the quarter; a full-height edge strip is an inset instead, above)
         let topQuarter = CGRect(x: x0, y: y1 - safe.height / 4, width: safe.width, height: safe.height / 4)
@@ -788,7 +843,8 @@ struct LayoutKey: Hashable {
         func r(_ r: CGRect) -> [CGFloat] { [r.minX, r.minY, r.width, r.height] }
         w = size.width; h = size.height
         insets = [c.safeArea.top, c.safeArea.left, c.safeArea.bottom, c.safeArea.right]
-        topBar = c.topBar; corner = [c.cornerButton.width, c.cornerButton.height]; bottomBar = c.bottomBar; banner = c.banner
+        topBar = c.topBar; corner = [c.cornerButton.width, c.cornerButton.height, c.cornerTrailingExtra.width, c.cornerTrailingExtra.height,
+                  c.tutorialButton.width, c.tutorialButton.height]; bottomBar = c.bottomBar; banner = c.banner
         fold = c.fold.map(r); occlusions = c.occlusions.map(r)
     }
 }

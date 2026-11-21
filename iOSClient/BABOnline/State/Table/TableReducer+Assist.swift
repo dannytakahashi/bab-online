@@ -150,7 +150,9 @@ extension TableReducer {
         let key = TutorialRules.seenKey(w) + "#row"
         if !s.table.tipsSeen.contains(key) {
             s.table.tipsSeen.insert(key)
-            addPrivateLog(&s, TutorialRules.logLine(w, note: tutorialNote(&s)))
+            var row = w
+            row.reasons = [TutorialRules.hiddenWelcomeText]
+            addPrivateLog(&s, TutorialRules.logLine(row, note: tutorialNote(&s)))
         }
         welcomeGone(&s, &fx)
     }

@@ -808,16 +808,18 @@ final class TableDebugProbe: ObservableObject {
     /// The other seats' parts (AssistLayout.Keeps.seats: "seat<n>" avatar and name, "bubble<n>",
     /// "dealer<n>"): the probe's "seats=ok|over:<what>" (what of them the cards cover).
     var assistSeats: [String: CGRect] = [:] { didSet { updateAssist() } }
-    /// The tutorial (TutorialChipView): "chip=<x y w h>|bar|- clear=ok|over:<what>|-" from the chip's
-    /// frame in the pane's points against what the column keeps clear of (AssistLayout.Keeps:
-    /// my bid clock, my seat's row, the fold, the lightbulb), then "ask=<x y w h>|-": the
-    /// lightbulb's frame as the column knows it, then " pin=<x y w h>|-": the tip's title row
-    /// pinned at a short column's top.
+    /// The tutorial's switch: "chip=bar clear=ok ask=-" (the vertical bar's item), or
+    /// "chip=corner <x y w h> clear=ok|over:<what> ask=<x y w h>|-" (TutorialCornerButton: its frame
+    /// in the pane's points against what the column keeps clear of, AssistLayout.Keeps, and the
+    /// lightbulb's frame as the column knows it), else "chip=- clear=-"; then " pin=<x y w h>|-":
+    /// the tip's title row pinned at a short column's top.
     @Published var tableTutorial = "chip=- clear=- pin=-"
     var tutorialChipFrame: CGRect? { didSet { updateTutorial() } }
     /// The switch is the vertical bar's item (GameContainerView.tutorialBarToggle): the probe's
     /// "chip=bar clear=ok" (the bar is the system's column, beside the table).
     var tutorialInBar = false { didSet { updateTutorial() } }
+    /// The switch is the corner's button (GameContainerView.showsCornerTutorial).
+    var tutorialInCorner = false { didSet { updateTutorial() } }
     /// The tip's title row pinned at a short column's top (GameContainerView.pinnedTipHead):
     /// the probe's " pin=<x y w h>|-".
     var tutorialPinFrame: CGRect? { didSet { updateTutorial() } }
@@ -826,10 +828,10 @@ final class TableDebugProbe: ObservableObject {
         var text = "chip=- clear=-"
         if tutorialInBar {
             text = "chip=bar clear=ok ask=-"
-        } else if let f = tutorialChipFrame {
+        } else if tutorialInCorner, let f = tutorialChipFrame {
             let over = assistKeeps.filter { $0.value.intersection(f.insetBy(dx: 0.5, dy: 0.5)).isNull == false }.keys.sorted()
             let ask = assistKeeps["ask"].map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-"
-            text = String(format: "chip=%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+            text = String(format: "chip=corner %.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
                 + " clear=\(over.isEmpty ? "ok" : "over:" + over.joined(separator: ",")) ask=\(ask)"
         }
         text += " pin=" + (tutorialPinFrame.map { String(format: "%.1f %.1f %.1f %.1f", $0.minX, $0.minY, $0.width, $0.height) } ?? "-")

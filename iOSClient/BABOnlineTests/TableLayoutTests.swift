@@ -251,6 +251,53 @@ final class TableLayoutTests: XCTestCase {
         XCTAssertEqual(checked, Self.listedSizes.count * 4 + Self.reachableFolds.count * 2)
     }
 
+    /// The tutorial's round button (owner 2026-11-21, 52 pt as measured): under the log's button
+    /// where that costs the table nothing (a phone in portrait, every iPad), else beside it (a
+    /// short pane: the iPhone SE, the iPhone Duo without its bar), the trailing corner alone
+    /// growing by it. Never a degraded table or a smaller hand where there was none, and nothing
+    /// over anything.
+    func testTheTutorialsCornerButtonGoesUnderTheLogsOrBesideIt() {
+        let button = CGSize(width: 52, height: 52)
+        let landscapes: [(CGSize, TableInsets)] = [
+            (CGSize(width: 852, height: 393), Self.insets(0, 59, 21, 59)),
+            (CGSize(width: 874, height: 402), Self.insets(0, 62, 21, 62)),
+        ]
+        var placed: [String: Bool] = [:]
+        for (size, ins) in Self.listedSizes + landscapes {
+            for topBar in [CGFloat(70), 84] {
+                let base = Self.chrome(ins, topBar: topBar)
+                var with = base
+                with.tutorialButton = button
+                let L0 = TableLayout(size: size, chrome: base), L = TableLayout(size: size, chrome: with)
+                let tag = "\(size) \(ins) topBar \(topBar)"
+                if ins.top > 0 || ins.right > 0 || ins.left > 0 { placed["\(size.width)x\(size.height)"] = L.tutorialBeside }
+                XCTAssertEqual(L.chrome.tutorialButton, .zero, tag)
+                XCTAssertEqual(L.cornerRects[0], L0.cornerRects[0], "\(tag): Exit's corner as it was")
+                let extra = L.chrome.cornerTrailingExtra
+                if L.tutorialBeside {
+                    XCTAssertEqual(extra.height, 0, tag)
+                    XCTAssertGreaterThanOrEqual(L.cornerRects[1].width, L0.cornerRects[1].width, tag)
+                } else {
+                    XCTAssertEqual(extra.width, 0, tag)
+                    XCTAssertEqual(extra.height, (52 + TableLayout.tutorialGap) / L.zoom, accuracy: 0.001, tag)
+                    XCTAssertLessThan(L.cornerRects[1].minY, L0.cornerRects[1].minY - 1, "\(tag): the log's corner taller")
+                }
+                if !L0.isDegraded {
+                    XCTAssertFalse(L.isDegraded, tag)
+                    XCTAssertEqual(L.handScale, L0.handScale, accuracy: 0.051, "\(tag): the hand (at most a step)")
+                    XCTAssertTrue(Self.problems(L).isEmpty, "\(tag): \(Self.problems(L))")
+                }
+            }
+        }
+        XCTAssertEqual(placed["393.0x852.0"], false, "a phone in portrait: under")
+        XCTAssertEqual(placed["820.0x1180.0"], false, "an iPad: under")
+        XCTAssertEqual(placed["1180.0x820.0"], false, "an iPad: under")
+        XCTAssertEqual(placed["375.0x667.0"], true, "the iPhone SE: beside")
+        XCTAssertNotEqual(LayoutKey(size: CGSize(width: 393, height: 852), chrome: TableChrome(tutorialButton: button)),
+                          LayoutKey(size: CGSize(width: 393, height: 852), chrome: TableChrome()), "the memo tells them apart")
+        XCTAssertEqual(TableChrome(cornerTrailingExtra: CGSize(width: 0, height: 60)).scaled(by: 0.5).cornerTrailingExtra.height, 30)
+    }
+
     /// (fold, size, insets, topBar): the folds the app hands TableLayout, the hinge moved +-10
     /// in portrait; topBar 70 and the measured 75.5 (at 84 a landscape tabletop is ignored, below).
     static var reachableFolds: [(CGRect, CGSize, TableInsets, CGFloat)] {
