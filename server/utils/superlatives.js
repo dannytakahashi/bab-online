@@ -66,11 +66,12 @@
  *                   over records that carry the counter only (games ended
  *                   after it shipped; rules.seatSpotOn: own tricks equal a
  *                   numeric bid, or a bore team that took every trick)
- *   anchor          sum totalSets / sum totalHands: totalSets is TEAM
+ *   delusionsOfGrandeur (was Anchor; renamed 2026-11-20, owner: "stupidly optimistic")
+ *                   sum totalSets / sum totalHands: totalSets is TEAM
  *                   based (seatStatsDelta: handStats.teamNSets, the hands
  *                   the player's own team took fewer tricks than its bid),
  *                   so this is the share of their hands their team was set
- * Count-like titles (bagBoy, botFriends, helpFromFriends, myQuantitative, anchor) are left
+ * Count-like titles (bagBoy, botFriends, helpFromFriends, myQuantitative, delusionsOfGrandeur) are left
  * out when the best value SHOWS as 0 ("0.0 bags a game", "0% of hands
  * set"); the per-seat titles need per-seat data (seat-games / hands > 0).
  * Ties: up to MAX_NAMES names, alphabetical (case-insensitive); more tied
@@ -241,7 +242,7 @@ const TITLES = Object.freeze([
         detail: (v) => `${pct(v)}% of bids spot on`
     },
     {
-        id: 'anchor', title: 'Anchor', best: 'max', zeroOmits: true,
+        id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', best: 'max', zeroOmits: true,
         value: (p) => (p.hands > 0 ? p.sets / p.hands : null),
         shown: pct,
         detail: (v) => `${pct(v)}% of hands set`

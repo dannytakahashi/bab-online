@@ -98,7 +98,7 @@ describe('the titles', () => {
         ];
         const out = computeSuperlatives(games);
         expect(out.map((s) => s.id)).toEqual(TITLE_IDS);
-        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'myQuantitative', 'anchor']);
+        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'myQuantitative', 'delusionsOfGrandeur']);
         const s = byId(out);
         // Ann: 15 bags in 8 games (the two help games and her solo game: 0)
         expect(s.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann'], detail: '1.9 bags a game' });
@@ -112,7 +112,7 @@ describe('the titles', () => {
         // help and solo games carry no counter: neither counted nor diluting)
         expect(s.myQuantitative).toEqual({ id: 'myQuantitative', title: 'My Quantitative', names: ['Cat'], detail: '62% of bids spot on' });
         // Ann: 20 sets / 104 hands = 19%
-        expect(s.anchor).toEqual({ id: 'anchor', title: 'Anchor', names: ['Ann'], detail: '19% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19% of hands set' });
     });
 
     test('a count title whose best value is 0 is left out; the HSI titles still show', () => {
@@ -416,13 +416,13 @@ describe('review fixes (2026-11-20)', () => {
         const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1, totalSets: 1 })];
         const s = byId(computeSuperlatives(games));
         expect(s.bagBoy).toBeUndefined();
-        expect(s.anchor).toBeUndefined();
+        expect(s.delusionsOfGrandeur).toBeUndefined();
         // 0.05 a game shows as 0.1 (rounded half up): shown
         const half = [...times(19, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
         expect(byId(computeSuperlatives(half)).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.1 bags a game' });
         // 1 set in 100 hands shows as 1%
         const sets = times(5, (i) => soloGame('Ann', { totalHands: 20, totalSets: i === 0 ? 1 : 0 }));
-        expect(byId(computeSuperlatives(sets)).anchor).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
+        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
     });
 
     test('bags come from statsDeltas.bags only; a byPosition totalBags (never written) is ignored for the net', () => {
