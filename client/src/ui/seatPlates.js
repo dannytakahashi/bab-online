@@ -107,7 +107,7 @@ function updateWatchChip(ring, names, s, pos) {
     return;
   }
   const player = s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
-  const text = watchTitle(names, player, { me: s.username || null });
+  const text = watchTitle(names, player, { me: s.username || null, mine: !s.isSpectator && pos === s.position });
   eye.title = text;
   eye.setAttribute('role', 'img');
   eye.setAttribute('aria-label', text);

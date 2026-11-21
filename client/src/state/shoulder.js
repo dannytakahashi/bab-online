@@ -117,12 +117,13 @@ function nameList(names) {
 
 /**
  * The eye chip's words on a watched seat: "Zach is watching Alice's hand",
- * "Zach and Yan are watching Alice's hand"; `me` (my username) reads "You".
+ * "Zach and Yan are watching Alice's hand"; `me` (my username) reads "You";
+ * `mine` (the seat is my own): "Zach is watching your hand".
  */
-export function watchTitle(names, player, { me = null } = {}) {
+export function watchTitle(names, player, { me = null, mine = false } = {}) {
   const shown = names.map((n) => (n === me ? 'You' : n));
   const verb = shown.length === 1 && shown[0] !== 'You' ? 'is' : 'are';
-  return `${nameList(shown)} ${verb} watching ${possessive(player)} hand`;
+  return `${nameList(shown)} ${verb} watching ${mine ? 'your' : possessive(player)} hand`;
 }
 
 /** A spectator list row: "Zach · watching Alice" (or just the name). */
@@ -238,7 +239,8 @@ export class ShoulderWatch {
     const c = this.choice();
     if (c === 'table') return null;
     if (isSeat(c)) return c;
-    return firstHumanSeat(s);
+    // the seat watched now (the server's last word), else the first human seat
+    return this.selected || firstHumanSeat(s);
   }
 
   _noteGame(gameId) {
@@ -421,10 +423,18 @@ export class ShoulderWatch {
     return had;
   }
 
-  /** The game ended (gameEnd / abortGame): the selection goes. */
+  /**
+   * The game ended (gameEnd / abortGame): the selection goes, and the table
+   * is the plain spectator's again (the end screen names the sides from
+   * seat 1, as for any spectator). Nothing is sent: the server forgets the
+   * watch with the game.
+   */
   ended() {
+    const s = this._state();
     this.selected = null;
-    this._unpause();
+    this.paused = false;
+    s?.setShoulderHold?.(null);
+    if (isShoulder(s)) s.applyShoulderStop();
   }
 
   _unpause() {
