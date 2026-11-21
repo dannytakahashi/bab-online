@@ -116,7 +116,7 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(s.table.assist?.bid, "3", "what /help answered stays")
     }
 
-    func testOneTipCardAtATimeTheWelcomeFirstAndEveryTipInTheLog() {
+    func testOneTipCardAtATimeTheWelcomeFirstAndEveryRuleTipInTheLog() {
         let store = GameState()
         var said: [String] = []
         store.announce = { said.append($0) }
@@ -130,12 +130,14 @@ final class TutorialTests: XCTestCase {
         XCTAssertNil(store.tutorialTip, "one tip card at a time: the welcome has priority while it is up")
         XCTAssertEqual(store.state.table.tip?.tipId, "T.bid", "kept behind it")
         XCTAssertEqual(said, ["Tip: Tutorial on. \(UIFixture.welcomeText)"], "VoiceOver hears only the card shown")
-        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(UIFixture.welcomeText) (only you see this)",
-                                                  "Tutorial: \(bidText)"], "every tip is in the log (the note on the first only)")
-        // the same tip again (a rejoin's welcome): no second row or announcement
+        // every rule tip is in the log; the welcome is its card only (owner 2026-11-20: card + row
+        // under "<name> turned on the tutorial." read as the start message twice), so the rule
+        // tip's row is the log's first tutorial row and carries the note
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(bidText) (only you see this)"], "every rule tip is in the log, the welcome is not")
+        // the same tip again (a rejoin's welcome): no row or second announcement
         store.apply(welcome)
         XCTAssertEqual(said.count, 1)
-        XCTAssertEqual(privateRows(store.state).count, 2)
+        XCTAssertEqual(privateRows(store.state).count, 1)
         // Keep: the welcome goes, the rule tip behind it shows and is heard now
         store.apply(.local(.tutorialWelcomeKept))
         XCTAssertNil(store.tutorialWelcome)
@@ -145,6 +147,15 @@ final class TutorialTests: XCTestCase {
         store.apply(.local(.tutorialTipDismissed))
         XCTAssertNil(store.tutorialTip)
         XCTAssertTrue(store.showsTutorialChip, "closing a tip leaves the tutorial on")
+    }
+
+    func testAWelcomeThatCannotShowAsACardStillLeavesItsRow() {
+        // no table yet (as at the draw): the row is the welcome's only copy
+        let store = GameState()
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(welcome)
+        XCTAssertNil(store.tutorialWelcome)
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(UIFixture.welcomeText) (only you see this)"])
     }
 
     func testANewerRuleTipReplacesTheOneBehindTheWelcome() {
@@ -158,7 +169,7 @@ final class TutorialTests: XCTestCase {
         store.apply(tip("T.trump", "Trump", "Trump this hand is diamonds."))
         store.apply(tip("T.bid", "Bidding", bidText))
         XCTAssertNil(store.tutorialTip)
-        XCTAssertEqual(privateRows(store.state).count, 3, "both rule tips are in the log")
+        XCTAssertEqual(privateRows(store.state).count, 2, "both rule tips are in the log (the welcome is its card only)")
         store.apply(.local(.tutorialWelcomeKept))
         XCTAssertEqual(store.tutorialTip?.tipId, "T.bid", "the newer replaced the older")
         XCTAssertEqual(said.last, "Tip: Bidding. \(bidText)")

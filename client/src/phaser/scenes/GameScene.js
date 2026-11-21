@@ -1717,7 +1717,7 @@ export class GameScene extends Phaser.Scene {
   /**
    * A rule tip (assistHint source tutorial, kind tip): its log row
    * ("Tutorial: ..."; the log's first ends "(only you see this)", main.js
-   * tutorialFeedRow) always, and a section at the top
+   * tutorialFeedRow), except the welcome's (a card only), and a section at the top
    * of the card. ONE TIP CARD AT A TIME (state/tutorial.js shownTip): the
    * welcome while it is up, else the newest rule tip; a rule tip that comes
    * behind the welcome waits (kept, not drawn) and shows when the welcome
@@ -1731,7 +1731,10 @@ export class GameScene extends Phaser.Scene {
   handleTutorialTip(hint) {
     const s = this.state || getGameState();
     if (!(s.isSpectator && !s.isLazy)) noteAssistUses(hint, s.gameId);
-    window.addPrivateToGameFeed?.(tipLogLine(hint));
+    // The welcome is a card only (owner 2026-11-20: its card and a matching
+    // log row under "<name> turned on the tutorial." read as the start
+    // message twice); every other tip also leaves its row
+    if (!isWelcomeTip(hint)) window.addPrivateToGameFeed?.(tipLogLine(hint));
     if (isRowOnlyTip(hint)) {
       announce(tipAnnouncement(hint));
       return;

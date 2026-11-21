@@ -1321,8 +1321,10 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(titles()).toEqual(['Tutorial on']);
     expect(document.querySelectorAll('.hud-assist .assist-tip')).toHaveLength(1);
     expect(head()).toBe('Bid 3');
-    // every tip in the log, shown or not
-    expect(rows.filter((r) => r.startsWith('Tutorial: '))).toHaveLength(3);
+    // every rule tip in the log, shown or not; the welcome is its card only
+    // (owner 2026-11-20: card + row read as the start message twice)
+    expect(rows.filter((r) => r.startsWith('Tutorial: '))).toHaveLength(2);
+    expect(rows.some((r) => r.includes('Tips will appear above your cards'))).toBe(false);
     // (as built; the page's feed keeps the note on its first only: tutorial.test.js tutorialFeedRow)
     expect(rows.every((r) => r.endsWith('(only you see this)'))).toBe(true);
     // the announcer says only the card shown (and the advice)

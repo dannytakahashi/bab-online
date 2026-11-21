@@ -102,25 +102,28 @@ extension TableReducer {
     // MARK: - The tutorial (State/Table/Tutorial.swift)
 
     /// A rule tip: a dim private row (each tip once a game), and up over the table while at it
-    /// (the welcome in its own slot); on the game-end screen, at the draw or without a table, the
-    /// row only. One tip card at a time: a rule tip that comes while the welcome is up waits
+    /// (the welcome in its own slot, with no row: its card only); on the game-end screen, at the
+    /// draw or without a table, the row only. One tip card at a time: a rule tip that comes while the welcome is up waits
     /// behind it (GameState.tutorialTip), and VoiceOver hears it only when it shows.
     static func tutorialTip(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
         let key = TutorialRules.seenKey(h)
         let fresh = !s.table.tipsSeen.contains(key)
-        if fresh {
-            s.table.tipsSeen.insert(key)
-            addPrivateLog(&s, TutorialRules.logLine(h, note: tutorialNote(&s)))
-        }
+        let atTable: Bool
         switch s.table.phase.kind {
-        case .none, .waiting, .draw, .ended:
-            return
-        default:
-            break
+        case .none, .waiting, .draw, .ended: atTable = false
+        default: atTable = true
         }
         // only a seat holder sees it over the table (a bot playing my seat: the row only)
-        guard s.table.viewer.role == .seat else { return }
-        if TutorialRules.isWelcome(h) && !h.actions.isEmpty {
+        let overTable = atTable && s.table.viewer.role == .seat
+        let welcomeCard = overTable && TutorialRules.isWelcome(h) && !h.actions.isEmpty
+        if fresh {
+            s.table.tipsSeen.insert(key)
+            // The welcome shown as its card leaves no row (owner 2026-11-20: its card and a
+            // matching row under "<name> turned on the tutorial." read as the start message twice)
+            if !welcomeCard { addPrivateLog(&s, TutorialRules.logLine(h, note: tutorialNote(&s))) }
+        }
+        guard overTable else { return }
+        if welcomeCard {
             s.table.welcome = h
             if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
             return
