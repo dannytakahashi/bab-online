@@ -27,6 +27,8 @@ extension TableLayout {
     static let watchClear: CGFloat = 31
     /// The clear gap around it.
     static let watchGap: CGFloat = 1
+    /// Its least distance from the safe area's sides.
+    static let watchEdge: CGFloat = 4
 
     /// The pill's size for `count` watchers.
     static func watchChipSize(count: Int) -> CGSize {
@@ -111,7 +113,9 @@ extension TableLayout {
     /// What `chip` on seat `seat` covers or leaves ([] = a clear spot).
     func watchProblems(_ chip: CGRect, seat: Positions.RelativePosition, keeps: [(String, CGRect)], spectating: Bool) -> [String] {
         var out: [String] = []
-        if chip.minX < safeRect.minX - 0.01 || chip.maxX > safeRect.maxX + 0.01 { out.append("safeArea") }
+        // a few points in from the screen's sides (flush with the edge it reads as cut off)
+        let E = Self.watchEdge
+        if chip.minX < safeRect.minX + E - 0.01 || chip.maxX > safeRect.maxX - E + 0.01 { out.append("safeArea") }
         if chip.maxY > topLimit + 0.01 { out.append("topBar") }
         if chip.minY < safeRect.minY + chrome.bottomBar - 0.01 { out.append("bottomBar") }
         let a = seatAnchor(seat)
