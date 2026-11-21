@@ -229,6 +229,7 @@ enum UIFixture {
             seedTableExtras(store, snap, auth: auth)
             seedAssist(store, auth: auth)
             seedTutorial(store, auth: auth)
+            seedWatchedHint(store, auth: auth)
             seedFaults(store, snap)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {

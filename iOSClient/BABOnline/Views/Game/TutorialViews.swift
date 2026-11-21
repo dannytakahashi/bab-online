@@ -9,11 +9,16 @@ import SwiftUI
 /// the card never takes focus.
 struct TutorialTipView: View {
     let tip: AssistHint
+    /// A watched seat's tip (the over-the-shoulder view, assistHint `watched`): the name of the
+    /// player whose hand it is ("Alice's tip" over the title; VoiceOver "Tip for Alice"). nil: my
+    /// own tip, drawn exactly as before.
+    var watchedName: String? = nil
+    /// The close (×). For a watched tip it must only take the card down (nothing is sent).
     var onClose: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s1) {
-            TutorialTipHead(tip: tip, onClose: onClose)
+            TutorialTipHead(tip: tip, watchedName: watchedName, onClose: onClose)
             if let text = tip.reasons.first {
                 Text(text)
                     .font(.footnote)
@@ -37,7 +42,7 @@ struct TutorialTipView: View {
         // over the table: a few lines at most at the largest sizes (as AssistCardView)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Tip")
+        .accessibilityLabel(watchedName == nil ? "Tip" : TutorialRules.watchedLabel(watchedName))
         .accessibilityIdentifier("tutorialTip")
     }
 }
@@ -47,33 +52,61 @@ struct TutorialTipView: View {
 /// sight (GameContainerView.pinnedTipHead; the web's sticky .assist-tip__top).
 struct TutorialTipHead: View {
     let tip: AssistHint
+    /// A watched seat's tip (TutorialTipView.watchedName): the cap, "Alice's tip" (the name cut
+    /// with "…" where the line is short, never "'s tip") and the ×, then the title under them on
+    /// its own full-width line. nil: today's one row.
+    var watchedName: String? = nil
     var onClose: () -> Void
     /// The pinned copy (identifiers "tip.pinned…": the card's own row is still in the tree,
     /// scrolled up).
     var pinned = false
 
     var body: some View {
-        HStack(spacing: Theme.Space.s2) {
-            Image(systemName: "graduationcap.fill")
-                .font(.footnote)
-                .foregroundColor(Theme.textSecondary)
-                .accessibilityHidden(true)
-            Text(tip.headline)
-                .font(.subheadline.weight(.semibold))
-                .foregroundColor(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityIdentifier(pinned ? "tip.pinnedTitle" : "tip.title")
-            Spacer(minLength: Theme.Space.s2)
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundColor(Theme.textSecondary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
+        if let name = watchedName.flatMap(AssistRules.watchedHeadingName) {
+            VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                HStack(spacing: Theme.Space.s2) {
+                    cap
+                    WatchedHeading(name: name, suffix: TutorialRules.watchedSuffix, id: pinned ? "tip.pinnedWatched" : "tip.watched")
+                    Spacer(minLength: Theme.Space.s2)
+                    closeButton
+                }
+                title
             }
-            .accessibilityLabel(TutorialRules.closeLabel)
-            .accessibilityIdentifier(pinned ? "tip.pinnedClose" : "tip.close")
+        } else {
+            HStack(spacing: Theme.Space.s2) {
+                cap
+                title
+                Spacer(minLength: Theme.Space.s2)
+                closeButton
+            }
         }
+    }
+
+    private var cap: some View {
+        Image(systemName: "graduationcap.fill")
+            .font(.footnote)
+            .foregroundColor(Theme.textSecondary)
+            .accessibilityHidden(true)
+    }
+
+    private var title: some View {
+        Text(tip.headline)
+            .font(.subheadline.weight(.semibold))
+            .foregroundColor(Theme.textPrimary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier(pinned ? "tip.pinnedTitle" : "tip.title")
+    }
+
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(Theme.textSecondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
+        }
+        .accessibilityLabel(TutorialRules.closeLabel)
+        .accessibilityIdentifier(pinned ? "tip.pinnedClose" : "tip.close")
     }
 }
 

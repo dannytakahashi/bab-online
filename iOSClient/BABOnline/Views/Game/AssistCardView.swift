@@ -20,37 +20,30 @@ struct AssistCardView: View {
     let hint: AssistHint
     /// My tutorial is on: a /help answer then is never counted (AssistRules.footer).
     var tutorialOn = false
+    /// A watched seat's hint (the over-the-shoulder view, assistHint `watched`): the name of the
+    /// player whose hand it is. The card then says whose it is ("Alice's advice") and shows no
+    /// count, no "Not counted", no bot-assisted words and no note (AssistRules.watchedFooter);
+    /// VoiceOver "Suggestion for Alice". nil: my own answer, drawn exactly as before.
+    var watchedName: String? = nil
+    /// The close (×). For a watched card it must only take the card down (nothing is sent).
     var onClose: () -> Void
 
     @State private var showsWhy = false
 
     private var isStatus: Bool { hint.kind == .status }
+    private var isWatched: Bool { watchedName != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s1) {
-            HStack(spacing: Theme.Space.s2) {
-                Image(systemName: "lightbulb.fill")
-                    .foregroundColor(Theme.gold)
-                    .accessibilityHidden(true)
-                if let label = AssistRules.confidenceLabel(hint) {
-                    Text(label)
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(hint.confidence == "quick" ? Theme.warning : Theme.gold)
-                        .padding(.horizontal, Theme.Space.s2)
-                        .padding(.vertical, 1)
-                        .background(Capsule().fill((hint.confidence == "quick" ? Theme.warning : Theme.gold).opacity(0.18)))
-                        .accessibilityIdentifier("assist.confidence")
+            if isWatched {
+                watchedTopRows
+            } else {
+                HStack(spacing: Theme.Space.s2) {
+                    bulb
+                    confidenceChip
+                    Spacer(minLength: Theme.Space.s2)
+                    closeButton
                 }
-                Spacer(minLength: Theme.Space.s2)
-                Button(action: onClose) {
-                    Image(systemName: "xmark")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundColor(Theme.textSecondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
-                }
-                .accessibilityLabel(AssistRules.dismissLabel)
-                .accessibilityIdentifier("assist.close")
             }
             Text(hint.headline)
                 .font(isStatus ? .subheadline.weight(.medium) : .headline)
@@ -71,7 +64,7 @@ struct AssistCardView: View {
                     .accessibilityIdentifier("assist.reason")
                 }
             }
-            if let note = hint.note {
+            if !isWatched, let note = hint.note {
                 Text(note)
                     .font(.footnote.weight(.semibold))
                     .foregroundColor(Theme.warning)
@@ -107,7 +100,7 @@ struct AssistCardView: View {
                     }
                 }
             }
-            if let footer = AssistRules.footer(hint, tutorial: tutorialOn) {
+            if let footer = isWatched ? AssistRules.watchedFooter(hint) : AssistRules.footer(hint, tutorial: tutorialOn) {
                 Text(footer)
                     .font(.caption)
                     .foregroundColor(Theme.textDim)
@@ -131,10 +124,102 @@ struct AssistCardView: View {
         // over the table: a few lines at most at the largest sizes (as the disconnect banner)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Suggestion")
+        .accessibilityLabel(isWatched ? AssistRules.watchedLabel(watchedName) : "Suggestion")
         .accessibilityIdentifier("assistCard")
         // a new answer starts with its details closed
         .onChange(of: hint) { showsWhy = false }
+    }
+
+    private var bulb: some View {
+        Image(systemName: "lightbulb.fill")
+            .foregroundColor(Theme.gold)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var confidenceChip: some View {
+        if let label = AssistRules.confidenceLabel(hint) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundColor(hint.confidence == "quick" ? Theme.warning : Theme.gold)
+                .padding(.horizontal, Theme.Space.s2)
+                .padding(.vertical, 1)
+                .background(Capsule().fill((hint.confidence == "quick" ? Theme.warning : Theme.gold).opacity(0.18)))
+                .accessibilityIdentifier("assist.confidence")
+        }
+    }
+
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.semibold))
+                .foregroundColor(Theme.textSecondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle().inset(by: -8))  // a 44 pt target
+        }
+        .accessibilityLabel(AssistRules.dismissLabel)
+        .accessibilityIdentifier("assist.close")
+    }
+
+    /// A watched card's first rows: "Alice's advice" beside the chip where both fit on one
+    /// line, else the heading on its own line with the close (its name cut with "…", never its
+    /// "'s advice") and the chip under it, whole.
+    @ViewBuilder private var watchedTopRows: some View {
+        if let name = AssistRules.watchedHeadingName(watchedName) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: Theme.Space.s2) {
+                    bulb
+                    WatchedHeading(name: name, suffix: AssistRules.watchedSuffix, id: "assist.watched", fits: true)
+                    confidenceChip.fixedSize()
+                    Spacer(minLength: Theme.Space.s2)
+                    closeButton
+                }
+                VStack(alignment: .leading, spacing: Theme.Space.s1) {
+                    HStack(spacing: Theme.Space.s2) {
+                        bulb
+                        WatchedHeading(name: name, suffix: AssistRules.watchedSuffix, id: "assist.watched")
+                        Spacer(minLength: Theme.Space.s2)
+                        closeButton
+                    }
+                    confidenceChip
+                }
+            }
+        } else {
+            HStack(spacing: Theme.Space.s2) {
+                bulb
+                confidenceChip
+                Spacer(minLength: Theme.Space.s2)
+                closeButton
+            }
+        }
+    }
+}
+
+/// A watched card's heading (AssistCardView, TutorialTipHead): the player's name and the words
+/// after it ("'s advice", "'s tip") on one line. `fits`: drawn at its full width (a
+/// ViewThatFits candidate); else the name gives way with "…" and the words always show.
+/// VoiceOver reads it as one text, "Alice's advice".
+struct WatchedHeading: View {
+    let name: String
+    let suffix: String
+    let id: String
+    var fits = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: fits, vertical: false)
+            Text(suffix)
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundColor(Theme.textSecondary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(name + suffix)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityIdentifier(id)
     }
 }
 
