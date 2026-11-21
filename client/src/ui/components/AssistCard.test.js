@@ -436,6 +436,16 @@ describe('a watched seat\'s card (the over-the-shoulder view, owner 2026-11-21)'
     expect(card.hidden).toBe(true);
   });
 
+  it('a watched bid answer sits above the hand (a watcher has no bid sheet); my own above the sheet as before', () => {
+    const bid = hint({ kind: 'bid', headline: 'Bid 2', suggest: { bid: '2' }, turnKey: '1|BIDDING|2|1|0' });
+    const card = showAssistCard({ ...bid, watched: 2 }, { owner: 'alicew', unlimited: true });
+    expect(card.dataset.place).toBe('hand');
+    expect(owner().textContent).toBe("alicew's advice");
+    showAssistCard(bid);
+    expect(card.dataset.place).toBe('bid');
+    expect(owner()).toBeNull();
+  });
+
   it('my own card is unchanged: no heading, "Suggestion" / "Tutorial tip"', () => {
     const card = showAssistCard(hint());
     expect(owner()).toBeNull();

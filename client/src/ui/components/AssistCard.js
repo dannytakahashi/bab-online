@@ -277,8 +277,11 @@ function render({ focusFromAsk = false } = {}) {
   }
   const kind = current ? current.kind : 'tip';
   root.dataset.kind = kind;
-  // a bid answer above the bid sheet; tips alone there too while I bid
-  root.dataset.place = kind === 'bid' || (!current && tipOpts.place === 'bid') ? 'bid' : 'hand';
+  // a bid answer above the bid sheet; tips alone there too while I bid. A
+  // watched seat's bid answer stays above the hand: a watcher has no bid
+  // sheet (beside it, short of room, the card was cut off over a seat)
+  const sheet = kind === 'bid' && !adviceOpts.owner;
+  root.dataset.place = sheet || (!current && tipOpts.place === 'bid') ? 'bid' : 'hand';
   root.classList.toggle('is-status', kind === 'status' && !tips.length);
   root.classList.toggle('has-tip', tips.length > 0);
   // a watched seat's hint (the over-the-shoulder view, owner 2026-11-21):
