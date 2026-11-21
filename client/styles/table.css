@@ -1517,6 +1517,16 @@ body > .voice-btn {
     position: relative;
 }
 
+/* the card's ✕s are drawn 28 px (the page's global button min-size, 44 px,
+   made them 44 tall: the tip's pinned title row grew to 44 px over the card
+   and the advice's top row too, so a short card scrolled the welcome's Keep /
+   Turn off under the title, 2026-11-21); the 44 px hit target is ::before */
+.assist-card__close,
+.assist-tip__close {
+    min-width: 0;
+    min-height: 0;
+}
+
 /* 44 px hit targets round the small buttons (HIG) */
 .assist-card__close::before,
 .hud-assist-ask::before {
