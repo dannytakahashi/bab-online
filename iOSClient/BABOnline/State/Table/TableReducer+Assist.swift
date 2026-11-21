@@ -142,6 +142,19 @@ extension TableReducer {
         s.table.tipUnheard = false
     }
 
+    /// The welcome not shown as a card (the vertical bar's switch says the tutorial is on and
+    /// turns it off): its row in the log, once a game (a rejoin's welcome comes again), then as
+    /// Keep's local side.
+    static func welcomeHidden(_ s: inout TableState, _ fx: inout [TableEffect]) {
+        guard let w = s.table.welcome else { return }
+        let key = TutorialRules.seenKey(w) + "#row"
+        if !s.table.tipsSeen.contains(key) {
+            s.table.tipsSeen.insert(key)
+            addPrivateLog(&s, TutorialRules.logLine(w, note: tutorialNote(&s)))
+        }
+        welcomeGone(&s, &fx)
+    }
+
     /// My own bid or card (or a bot taking my seat): the rule tip about it is done (the welcome stays).
     static func clearTip(_ s: inout TableState) {
         s.table.tip = nil

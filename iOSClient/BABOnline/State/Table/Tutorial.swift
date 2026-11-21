@@ -59,6 +59,9 @@ enum TutorialRules {
     static let chipText = "Tutorial on"
     static let chipLabel = "Tutorial"
     static let chipHint = "Turns off the tutorial's tips and advice. /help still works any time."
+    /// The vertical bar's switch while the tutorial is off (GameContainerView.tutorialBarToggle).
+    static let barOffText = "Tutorial off"
+    static let barOnHint = "Turns on tips and advice for every turn."
     /// The welcome's buttons and a tip's close button.
     static let keepLabel = "Keep"
     static let offLabel = "Turn off"

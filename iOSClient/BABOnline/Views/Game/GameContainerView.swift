@@ -147,6 +147,11 @@ private struct GameScreen: View {
 
     var body: some View {
         gameContent
+            // the vertical bar's switch replaces the welcome card: its text to the log, the
+            // rule tip behind it up (nothing sent)
+            .onChange(of: showsBarControls && gameState.tutorialWelcome != nil, initial: true) { _, hide in
+                if hide { gameState.apply(.local(.tutorialWelcomeHidden)) }
+            }
             // the table keeps the window's own top inset (VerticalBarHost)
             .verticalBarChrome(VerticalBarContext(usesVerticalBar: usesVerticalBar, windowTopInset: windowTopInset),
                                showsBarControls: showsBarControls)
@@ -663,8 +668,14 @@ private struct GameScreen: View {
     /// The tutorial's switch is a vertical bar item under the log's (owner 2026-11-20: the
     /// iPhone Duo's column is short, and the chip took a row of it above the bid panel);
     /// elsewhere it is the "Tutorial on" chip at the column's foot.
-    private var tutorialInBar: Bool { showsBarControls && gameState.showsTutorialChip }
+    /// The vertical bar's switch is there all game at my own seat, on or off (owner 2026-11-21:
+    /// "I shouldn't have to run /tutorial, I should see the icon"), as the lightbulb.
+    private var tutorialInBar: Bool { showsBarControls && gameState.showsAssistBarItem }
     private var showsColumnChip: Bool { gameState.showsTutorialChip && !showsBarControls }
+    /// The welcome card, except where the vertical bar's switch says the tutorial is on and turns
+    /// it off (owner 2026-11-21: "we don't need tutorial on card when we have the sidebar
+    /// button"): there it goes to the log (`.tutorialWelcomeHidden`) and the rule tip shows.
+    private var shownWelcome: AssistHint? { showsBarControls ? nil : gameState.tutorialWelcome }
 
     /// /help's lightbulb as a bar item (owner 2026-11-20, with the tutorial's switch): there for
     /// the whole game, so the bar does not rebuild every turn, and enabled only on my turn with no
@@ -683,20 +694,21 @@ private struct GameScreen: View {
         .accessibilityIdentifier("assist.ask")
     }
 
-    /// The chip's switch as a bar item: a button-style toggle (the bar draws it selected while
-    /// on); switching it off sends /tutorial off, and the item goes with the server's answer.
+    /// The tutorial's switch as a bar item: a button-style toggle (the bar draws it selected, in
+    /// green, while on). Off -> on sends /tutorial on, on -> off /tutorial off; it follows the
+    /// server's assistState (an off on its way shows off and waits).
     private var tutorialBarToggle: some View {
-        let on = !gameState.tutorialOffSent
-        return Toggle(isOn: Binding(get: { on }, set: { if !$0 { tutorialOff() } })) {
-            Label(TutorialRules.chipText, systemImage: "graduationcap.fill")
+        let on = gameState.tutorialOn && !gameState.tutorialOffSent
+        return Toggle(isOn: Binding(get: { on }, set: { $0 ? tutorialOn() : tutorialOff() })) {
+            Label(on ? TutorialRules.chipText : TutorialRules.barOffText, systemImage: "graduationcap.fill")
         }
         .toggleStyle(.button)
         .tint(Theme.primary)  // the chip's switch green, not the system blue
-        .disabled(!on)
+        .disabled(gameState.tutorialOffSent || gameState.phase == .draw)
         // the bar keeps a label but drops the value and the toggle trait: the state is in the
-        // label, the chip's own words ("Tutorial on")
-        .accessibilityLabel(TutorialRules.chipText)
-        .accessibilityHint(TutorialRules.chipHint)
+        // label ("Tutorial on" / "Tutorial off")
+        .accessibilityLabel(on ? TutorialRules.chipText : TutorialRules.barOffText)
+        .accessibilityHint(on ? TutorialRules.chipHint : TutorialRules.barOnHint)
         .accessibilityAddTraits(.isToggle)
         .accessibilityIdentifier("tutorial.chip")
     }
@@ -935,7 +947,7 @@ private struct GameScreen: View {
 
     /// Something of the column is up: my answer, a tutorial tip or its welcome, the tutorial's chip.
     private var showsAssistColumn: Bool {
-        gameState.assistHint != nil || gameState.tutorialTip != nil || gameState.tutorialWelcome != nil
+        gameState.assistHint != nil || gameState.tutorialTip != nil || shownWelcome != nil
             || showsColumnChip
     }
 
@@ -962,7 +974,7 @@ private struct GameScreen: View {
                                    top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
                                    safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right,
                                    foot: showsColumnChip ? Theme.hitTarget + AssistLayout.gap : 0)
-        let hasCards = gameState.tutorialWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
+        let hasCards = shownWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
         // the chip stays at the column's foot; only the cards scroll when the room is short (the
         // column is bottom-aligned in its box, so a short column's scroll view has all its room)
         return VStack(alignment: .leading, spacing: AssistLayout.gap) {
@@ -981,7 +993,7 @@ private struct GameScreen: View {
                             .onAppear { showAdviceHead(proxy) }
                             .onChange(of: gameState.assistHint) { _, _ in showAdviceHead(proxy) }
                             .onChange(of: gameState.tutorialTip) { _, _ in showAdviceHead(proxy) }
-                            .onChange(of: gameState.tutorialWelcome) { _, _ in showAdviceHead(proxy) }
+                            .onChange(of: shownWelcome) { _, _ in showAdviceHead(proxy) }
                     }
                 }
                 #if DEBUG
@@ -990,7 +1002,7 @@ private struct GameScreen: View {
                 }
                 // only once the cards are gone: a removed copy's onDisappear may come after a new one's frame
                 .onDisappear {
-                    if UIFixture.isActive && gameState.assistHint == nil && gameState.tutorialTip == nil && gameState.tutorialWelcome == nil {
+                    if UIFixture.isActive && gameState.assistHint == nil && gameState.tutorialTip == nil && shownWelcome == nil {
                         TableDebugProbe.shared.assistFrame = nil
                     }
                 }
@@ -1025,7 +1037,7 @@ private struct GameScreen: View {
     /// view (`pinnedTipHead`).
     private func assistCards(inScroll: Bool) -> some View {
         VStack(alignment: .leading, spacing: AssistLayout.gap) {
-            if let welcome = gameState.tutorialWelcome {
+            if let welcome = shownWelcome {
                 TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff,
                                 actionsInHead: inScroll)
                     .background { if inScroll { tipFrameReporter } }
@@ -1059,12 +1071,12 @@ private struct GameScreen: View {
     /// The welcome's Keep and Turn off are in the row (identifiers "tip.pinned…"), as in the
     /// short column's card's own title row (TutorialTipView.actionsInHead), which it covers.
     private var tipHeadPinned: Bool {
-        guard gameState.tutorialWelcome ?? gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
+        guard shownWelcome ?? gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
         return f.minY < -0.5 && f.maxY > 0
     }
 
     @ViewBuilder private var pinnedTipHead: some View {
-        if let tip = gameState.tutorialWelcome ?? gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
+        if let tip = shownWelcome ?? gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
             let welcome = TutorialRules.isWelcome(tip)
             TutorialTipHead(tip: tip, onClose: welcome ? tutorialClose : tutorialTipClose,
                             onKeep: tutorialKeep, onTurnOff: tutorialOff, pinned: true)
@@ -1117,6 +1129,11 @@ private struct GameScreen: View {
     /// The welcome's close button (×): /tutorial close.
     private func tutorialClose() {
         actions.tutorialClose(connected: isConnectedForTutorial)
+    }
+
+    /// The vertical bar's switch, off -> on: /tutorial on.
+    private func tutorialOn() {
+        if actions.tutorialOn(connected: isConnectedForTutorial) { HapticManager.selection() }
     }
 
     /// The chip's switch or the welcome's Turn off: /tutorial off.
