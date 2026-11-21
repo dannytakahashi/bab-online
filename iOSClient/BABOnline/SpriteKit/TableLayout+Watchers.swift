@@ -7,13 +7,15 @@ import CoreGraphics
 ///
 /// On a seat with an avatar it sits in a corner beside the avatar, wholly outside the circle the
 /// turn glow, the voice ring, the pips and the bore outline stay inside (`watchClear`), at the
-/// first spot (`watchCandidates`: the dealer marker's side first, then the other, low then
-/// higher, then centred above) that keeps `watchGap` off every seat's dealer marker, name, glow
-/// and bid bubble, the trick cards, the fans, the corner buttons, the piles, the spectator badge,
-/// the banner, my seat's row, my lifted hand and the bid panel, the fold, inside the safe area
-/// below the score bar and above the bottom pill (`watchKeeps`); at worst the first spot. My own
-/// seat has no avatar: mine sits at the right end of my hand in the band a lifted card rises into,
-/// as my dealer marker does at its left end (`myWatchChip`).
+/// first spot (`watchCandidates`: the dealer marker's side first, then the other, from just above
+/// the dealer marker's row up, then centred above, then under the name) that keeps `watchGap` off
+/// every seat's dealer marker, name, glow and bid bubble, the trick cards, the fans, the corner
+/// buttons, the piles, the spectator badge, the banner, my seat's row, my lifted hand and the bid
+/// panel, the fold, inside the safe area below the score bar and above the bottom pill
+/// (`watchKeeps`); where none is, the spot covering least, never the avatar's rings, a dealer
+/// marker or a bid bubble while a spot spares them (`watchCost`). My own seat has no avatar: mine
+/// sits at the right end of my hand in the band a lifted card rises into, as my dealer marker
+/// does at its left end (`myWatchChip`).
 extension TableLayout {
     /// The pill's height, and its width with no count.
     static let watchChipHeight: CGFloat = 15
@@ -36,7 +38,14 @@ extension TableLayout {
     func watchChip(_ r: Positions.RelativePosition, count: Int, spectating: Bool) -> CGRect {
         let cands = watchCandidates(r, count: count)
         let keeps = watchKeeps(spectating: spectating)
-        return cands.first { watchProblems($0, seat: r, keeps: keeps, spectating: spectating).isEmpty } ?? cands[0]
+        // the first clear spot, else the one covering least: never the seat chips while any spot spares them
+        var best = cands[0], bestCost = Int.max
+        for c in cands {
+            let cost = watchProblems(c, seat: r, keeps: keeps, spectating: spectating).reduce(0) { $0 + Self.watchCost($1) }
+            if cost == 0 { return c }
+            if cost < bestCost { best = c; bestCost = cost }
+        }
+        return best
     }
 
     /// Where it may go, best first.
@@ -47,8 +56,10 @@ extension TableLayout {
         // the dealer marker's side first (away from the seat's bid bubble), then the other
         let sides: [CGFloat] = r == .right ? [1, -1] : [-1, 1]
         var out: [CGRect] = []
-        // just above the dealer marker's row (its top is 9 above the centre), then higher
-        for lift in [Self.dealerChip / 2 + 1.5, 17, 24] as [CGFloat] {
+        // just above the dealer marker's row (its top is 9 above the centre), then higher: just
+        // above the top seat's bid bubble beside it (where the score bar leaves no more room), higher
+        let lifts: [CGFloat] = [Self.dealerChip / 2 + 1.5, 17, Self.bubbleSize.height / 2 + 1.5, 24]
+        for lift in lifts {
             let inner = (R * R - lift * lift).squareRoot()
             for side in sides {
                 let x = side > 0 ? a.x + inner : a.x - inner - s.width
@@ -56,6 +67,9 @@ extension TableLayout {
             }
         }
         out.append(CGRect(x: a.x - s.width / 2, y: a.y + R, width: s.width, height: s.height))
+        // under the name (the top seat right under the score bar, its fan beside it on the left
+        // and its bid bubble on the right: no room by the avatar for a count)
+        out.append(CGRect(x: a.x - s.width / 2, y: a.y + Self.nameLo - 1.5 - s.height, width: s.width, height: s.height))
         return out
     }
 
@@ -86,6 +100,12 @@ extension TableLayout {
         }
         if let f = chrome.fold, !foldIgnored { keeps.append(("fold", f)) }
         return keeps
+    }
+
+    /// How bad covering `what` is: the avatar's rings, a dealer marker and a bid bubble (the seat
+    /// chips the eye must never cover) far outweigh anything else.
+    static func watchCost(_ what: String) -> Int {
+        what == "avatar" || what.hasPrefix("dealer.") || what.hasPrefix("bubble.") ? 100 : 1
     }
 
     /// What `chip` on seat `seat` covers or leaves ([] = a clear spot).
