@@ -156,8 +156,22 @@ private struct GameScreen: View {
                     if showsLogButton {
                         ToolbarItem(placement: .topBarTrailing) { logBarButton }
                     }
+                    if askInBar {
+                        ToolbarItem(placement: .topBarTrailing) { askBarButton }
+                    }
+                    if tutorialInBar {
+                        ToolbarItem(placement: .topBarTrailing) { tutorialBarToggle }
+                    }
                 }
             }
+            #if DEBUG
+            .onChange(of: tutorialInBar, initial: true) { _, inBar in
+                if UIFixture.isActive { TableDebugProbe.shared.tutorialInBar = inBar }
+            }
+            .onChange(of: askInBar ? (gameState.showsAssistAsk ? 2 : 1) : 0, initial: true) { _, state in
+                if UIFixture.isActive { TableDebugProbe.shared.assistAskInBar = state == 0 ? nil : state == 2 }
+            }
+            #endif
     }
 
     private var gameContent: some View {
@@ -463,7 +477,8 @@ private struct GameScreen: View {
                         // bottom at layout.bidBand.minY, centered on the band (replaces padding 200)
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
-                            BidOverlayView(zoom: layout.zoom, onClockFrame: { bidClockFrame = $0 }, onAskFrame: { bidAskFrame = $0 })
+                            BidOverlayView(zoom: layout.zoom, onClockFrame: { bidClockFrame = $0 }, onAskFrame: { bidAskFrame = $0 },
+                                           askInBar: showsBarControls)
                                 .frame(maxWidth: layout.window(layout.bidBand).width)
                             Color.clear.frame(height: max(0, layout.bidPanelBottomInset))
                         }
@@ -485,7 +500,7 @@ private struct GameScreen: View {
                     }
                     // /help: the lightbulb at my hand's right end on my play turn (on my bid turn
                     // it is on the bid panel's corner: BidOverlayView), and my answer's card
-                    if showsTable && !showsBidOverlay && gameState.showsAssistAsk {
+                    if showsTable && !showsBidOverlay && gameState.showsAssistAsk && !showsBarControls {
                         assistAsk(layout)
                     }
                     // my answer's card, and the tutorial's tips and chip above it (one column)
@@ -643,6 +658,47 @@ private struct GameScreen: View {
         .accessibilityValue(unread > 0 ? "\(unread) unread" : "")
         .badge(unread)
         .id(voiceOverOn ? 0 : unread)
+    }
+
+    /// The tutorial's switch is a vertical bar item under the log's (owner 2026-11-20: the
+    /// iPhone Duo's column is short, and the chip took a row of it above the bid panel);
+    /// elsewhere it is the "Tutorial on" chip at the column's foot.
+    private var tutorialInBar: Bool { showsBarControls && gameState.showsTutorialChip }
+    private var showsColumnChip: Bool { gameState.showsTutorialChip && !showsBarControls }
+
+    /// /help's lightbulb as a bar item (owner 2026-11-20, with the tutorial's switch): there for
+    /// the whole game, so the bar does not rebuild every turn, and enabled only on my turn with no
+    /// answer up or on its way (`showsAssistAsk`, the felt's lightbulb rule); the felt and the bid
+    /// panel then show none.
+    private var askInBar: Bool { showsBarControls && gameState.showsAssistBarItem }
+
+    private var askBarButton: some View {
+        Button(action: askHelp) {
+            Label(AssistRules.askLabel, systemImage: "lightbulb.fill")
+        }
+        .tint(Theme.gold)  // the felt lightbulb's gold
+        .disabled(!gameState.showsAssistAsk || gameState.phase == .draw)
+        .accessibilityLabel(AssistRules.askLabel)
+        .accessibilityHint("Sends /help. Only you see the answer; the table sees that you asked.")
+        .accessibilityIdentifier("assist.ask")
+    }
+
+    /// The chip's switch as a bar item: a button-style toggle (the bar draws it selected while
+    /// on); switching it off sends /tutorial off, and the item goes with the server's answer.
+    private var tutorialBarToggle: some View {
+        let on = !gameState.tutorialOffSent
+        return Toggle(isOn: Binding(get: { on }, set: { if !$0 { tutorialOff() } })) {
+            Label(TutorialRules.chipText, systemImage: "graduationcap.fill")
+        }
+        .toggleStyle(.button)
+        .tint(Theme.primary)  // the chip's switch green, not the system blue
+        .disabled(!on)
+        // the bar keeps a label but drops the value and the toggle trait: the state is in the
+        // label, the chip's own words ("Tutorial on")
+        .accessibilityLabel(TutorialRules.chipText)
+        .accessibilityHint(TutorialRules.chipHint)
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityIdentifier("tutorial.chip")
     }
 
     /// The Log button is hidden in book pose: the log is the right page.
@@ -880,7 +936,7 @@ private struct GameScreen: View {
     /// Something of the column is up: my answer, a tutorial tip or its welcome, the tutorial's chip.
     private var showsAssistColumn: Bool {
         gameState.assistHint != nil || gameState.tutorialTip != nil || gameState.tutorialWelcome != nil
-            || gameState.showsTutorialChip
+            || showsColumnChip
     }
 
     /// The column: the welcome, a rule tip, my answer's card, then the "Tutorial on" chip at its
@@ -892,7 +948,7 @@ private struct GameScreen: View {
     private func assistColumn(_ layout: TableLayout, full: CGSize) -> some View {
         let box = handBox(layout)
         let bidding = showsBidOverlay
-        let ask: CGRect? = gameState.showsAssistAsk ? (bidding ? bidAskFrame : assistAskFrame(layout)) : nil
+        let ask: CGRect? = gameState.showsAssistAsk && !showsBarControls ? (bidding ? bidAskFrame : assistAskFrame(layout)) : nil
         let keeps = AssistLayout.Keeps(
             anchor: bidding ? layout.window(layout.bidBand).minY : box.minY,
             clock: bidding && myBidClockRuns ? bidClockFrame : nil,
@@ -905,7 +961,7 @@ private struct GameScreen: View {
         let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width,
                                    top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
                                    safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right,
-                                   foot: gameState.showsTutorialChip ? Theme.hitTarget + AssistLayout.gap : 0)
+                                   foot: showsColumnChip ? Theme.hitTarget + AssistLayout.gap : 0)
         let hasCards = gameState.tutorialWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
         // the chip stays at the column's foot; only the cards scroll when the room is short (the
         // column is bottom-aligned in its box, so a short column's scroll view has all its room)
@@ -940,13 +996,13 @@ private struct GameScreen: View {
                 }
                 #endif
             }
-            if gameState.showsTutorialChip {
+            if showsColumnChip {
                 TutorialChipView(switchingOff: gameState.tutorialOffSent, action: tutorialOff)
                     #if DEBUG
                     .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
                         if UIFixture.isActive { TableDebugProbe.shared.tutorialChipFrame = r }
                     }
-                    .onDisappear { if UIFixture.isActive && !gameState.showsTutorialChip { TableDebugProbe.shared.tutorialChipFrame = nil } }
+                    .onDisappear { if UIFixture.isActive && !showsColumnChip { TableDebugProbe.shared.tutorialChipFrame = nil } }
                     #endif
             }
         }

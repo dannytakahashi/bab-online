@@ -45,10 +45,37 @@ final class TutorialUITests: XCTestCase {
         return false
     }
 
-    /// The chip's frame from the probe "table.tutorial", once it clears what it keeps clear of.
+    /// The vertical bar's column in screen points (the iPhone Duo closed, open in landscape, book
+    /// pose: probe "ui.pose" ends "vbar <edge>"), nil where the system shows none.
+    private func verticalBarColumn(_ app: XCUIApplication) -> ClosedRange<CGFloat>? {
+        let pose = Fixture.probe(app, "ui.pose")
+        guard let edge = pose.split(separator: " ").last, edge != "-", pose.contains(" vbar "),
+              let size = Fixture.windowSize(pose), let insets = Fixture.insets(pose) else { return nil }
+        switch edge {
+        case "trailing": return (size.width - insets.right)...size.width
+        case "leading": return 0...insets.left
+        default:
+            XCTFail("unexpected vertical bar edge in \(pose)")
+            return nil
+        }
+    }
+
+    /// The switch is the vertical bar's item (probe "chip=bar"), not the chip in the column.
+    private func switchInBar(_ app: XCUIApplication) -> Bool {
+        Fixture.probe(app, "table.tutorial").hasPrefix("chip=bar")
+    }
+
+    /// The chip's frame from the probe "table.tutorial", once it clears what it keeps clear of;
+    /// where the switch is the vertical bar's item, its frame in the bar's column.
     @discardableResult
     private func chipClear(_ app: XCUIApplication, _ tag: String) -> CGRect {
         XCTAssertTrue(element(app, "tutorial.chip").waitForExistence(timeout: 5), tag)
+        if let bar = verticalBarColumn(app) {
+            XCTAssertTrue(waitFor(app, "table.tutorial", contains: "chip=bar"), "\(tag): \(Fixture.probe(app, "table.tutorial"))")
+            let f = element(app, "tutorial.chip").frame
+            XCTAssertTrue(bar.contains(f.midX), "\(tag): the switch \(f) outside the vertical bar \(bar)")
+            return f
+        }
         XCTAssertTrue(waitFor(app, "table.tutorial", contains: "clear=ok"),
                       "\(tag): \(Fixture.probe(app, "table.tutorial")) keeps \(Fixture.probe(app, "table.assist")) [\(Fixture.probe(app, "ui.pose"))]")
         let probe = Fixture.probe(app, "table.tutorial")
@@ -156,15 +183,25 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(waitFor(app, "table.assist", contains: "bid=2"), Fixture.probe(app, "table.assist"))
         XCTAssertEqual(element(app, "bidOverlay").buttons["2"].value as? String, "Suggested")
         // the chip, with its switch on
-        let chip = app.switches["tutorial.chip"]
-        XCTAssertTrue(chip.waitForExistence(timeout: 5), "a switch to VoiceOver")
-        XCTAssertEqual(chip.label, "Tutorial")
-        XCTAssertEqual(chip.value as? String, "On")
+        let chip = element(app, "tutorial.chip")
+        XCTAssertTrue(chip.waitForExistence(timeout: 5))
+        // a switch to VoiceOver ("Tutorial", "On"); in the iPhone Duo's vertical bar, a bar item:
+        // a button "Tutorial on" (the bar keeps no value)
+        if verticalBarColumn(app) == nil {
+            XCTAssertEqual(chip.elementType, .switch)
+            XCTAssertEqual(chip.label, "Tutorial")
+            XCTAssertEqual(chip.value as? String, "On")
+        } else {
+            XCTAssertEqual(chip.elementType, .button)
+            XCTAssertEqual(chip.label, "Tutorial on")
+        }
         chipClear(app, "bid welcome")
         XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), Fixture.probe(app, "table.assist"))
         // the column stays above the bid panel and below Exit and the log's button
         let panel = element(app, "bidOverlay").frame
-        XCTAssertLessThanOrEqual(chip.frame.maxY, panel.minY + 1, "chip \(chip.frame) panel \(panel)")
+        if !switchInBar(app) {
+            XCTAssertLessThanOrEqual(chip.frame.maxY, panel.minY + 1, "chip \(chip.frame) panel \(panel)")
+        }
         // (Exit is above the column on a phone, in the side rail on a wide screen: the iPhone Duo open)
         XCTAssertFalse(welcome.frame.intersects(app.buttons["leave"].frame), "welcome \(welcome.frame) leave \(app.buttons["leave"].frame)")
         XCTAssertTrue(app.buttons["leave"].isHittable)
@@ -220,7 +257,13 @@ final class TutorialUITests: XCTestCase {
         let ask = app.buttons["assist.ask"]
         XCTAssertTrue(ask.waitForExistence(timeout: 3))
         let chip = chipClear(app, "play lightbulb")
-        XCTAssertTrue(Fixture.probe(app, "table.assist").contains("ask"), Fixture.probe(app, "table.assist"))
+        if verticalBarColumn(app) == nil {
+            XCTAssertTrue(Fixture.probe(app, "table.assist").contains("ask"), Fixture.probe(app, "table.assist"))
+        } else {
+            // the iPhone Duo's vertical bar: the lightbulb is its item, the switch under it
+            XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "bar on"), Fixture.probe(app, "table.assistAsk"))
+            XCTAssertGreaterThan(chip.minY, ask.frame.maxY - 1, "switch \(chip) under the lightbulb \(ask.frame)")
+        }
         XCTAssertFalse(chip.intersects(ask.frame), "chip \(chip) lightbulb \(ask.frame)")
         XCTAssertFalse(tip.frame.intersects(ask.frame), "tip \(tip.frame) lightbulb \(ask.frame)")
         XCTAssertTrue(ask.isHittable)
@@ -232,6 +275,38 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(tip.waitForNonExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Tips off. /help still works any time."].waitForExistence(timeout: 3))
         shot(app, "off")
+    }
+
+    /// The iPhone Duo with its vertical bar (closed, open in landscape, book pose; owner
+    /// 2026-11-20): the switch is a bar item under the log's button, not a row of the column;
+    /// a tap sends /tutorial off and the item goes with the answer. Elsewhere: the chip.
+    func testWithTheVerticalBarTheSwitchIsABarItem() throws {
+        let app = launch("trick-mid-lead3", ["-uiTutorialWelcome", "NO"])
+        guard let bar = verticalBarColumn(app) else { throw XCTSkip("no vertical bar here: the chip test covers it") }
+        let chip = element(app, "tutorial.chip")
+        XCTAssertTrue(chip.waitForExistence(timeout: 5))
+        // the bar draws its items as buttons and keeps only their label (no value, no toggle
+        // trait): VoiceOver reads "Tutorial on" and the hint
+        XCTAssertEqual(chip.elementType, .button)
+        XCTAssertEqual(chip.label, "Tutorial on")
+        XCTAssertTrue(waitFor(app, "table.tutorial", contains: "chip=bar"), Fixture.probe(app, "table.tutorial"))
+        XCTAssertTrue(bar.contains(chip.frame.midX), "switch \(chip.frame) bar \(bar)")
+        XCTAssertTrue(chip.isHittable)
+        // under Exit (and the log's button where it shows)
+        XCTAssertGreaterThan(chip.frame.minY, app.buttons["leave"].frame.maxY - 1)
+        if app.buttons["log"].exists { XCTAssertGreaterThan(chip.frame.minY, app.buttons["log"].frame.maxY - 1) }
+        // the column has the tip and the advice, no chip row
+        XCTAssertTrue(element(app, "tutorialTip").waitForExistence(timeout: 5))
+        XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tutorial.chip").count, 1, "one switch")
+        adviceInSight(app, "bar")
+        shot(app, "bar-switch")
+        chip.tap()
+        XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
+        XCTAssertTrue(chip.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element(app, "tutorialTip").waitForNonExistence(timeout: 3))
+        XCTAssertTrue(waitFor(app, "table.tutorial", contains: "chip=-"), Fixture.probe(app, "table.tutorial"))
+        XCTAssertTrue(app.buttons["leave"].isHittable, "Exit stays")
     }
 
     func testTurnOffOnTheWelcome() {
@@ -298,6 +373,19 @@ final class TutorialUITests: XCTestCase {
             XCTAssertTrue(app.buttons["assist.ask"].waitForExistence(timeout: 3), tag)
             let chip = chipClear(app, "bid clock \(tag)")
             let probe = Fixture.probe(app, "table.assist")
+            if let bar = verticalBarColumn(app) {
+                // the iPhone Duo's vertical bar holds the lightbulb and the switch: the column
+                // keeps clear of the countdown only
+                XCTAssertTrue(waitFor(app, "table.assistAsk", contains: "bar on"), "\(tag): \(Fixture.probe(app, "table.assistAsk"))")
+                XCTAssertTrue(app.buttons["assist.ask"].isEnabled, tag)
+                XCTAssertTrue(bar.contains(app.buttons["assist.ask"].frame.midX), "\(tag): \(app.buttons["assist.ask"].frame) bar \(bar)")
+                XCTAssertTrue(probe.contains("bidClock") && !probe.contains("ask"), "\(tag): \(probe)")
+                XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), "\(tag): \(Fixture.probe(app, "table.assist"))")
+                XCTAssertFalse(columnFrame(app).intersects(pill.frame), "\(tag): column \(columnFrame(app)) over the countdown \(pill.frame)")
+                shot(app, "bid-clock-\(tag)")
+                app.terminate()
+                continue
+            }
             XCTAssertTrue(probe.contains("bidClock") && probe.contains("ask"), "\(tag): \(probe)")
             XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), "\(tag): \(Fixture.probe(app, "table.assist"))")
             XCTAssertFalse(chip.intersects(pill.frame), "\(tag): chip \(chip) over the countdown \(pill.frame)")

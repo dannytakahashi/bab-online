@@ -137,7 +137,8 @@ struct TutorialWelcomeActions: View {
 /// (GameState.showsTutorialChip): at the leading foot of the tutorial's column, above my hand or
 /// the bid panel (AssistLayout keeps it off my bid clock, my seat's row, the lightbulb and the
 /// fold). A tap sends /tutorial off (ActionCoordinator.tutorialOff); the switch shows off until
-/// the server answers. VoiceOver: a toggle "Tutorial", "On".
+/// the server answers. VoiceOver: a toggle "Tutorial", "On". Where the iPhone Duo shows its
+/// vertical bar the switch is a bar item instead (GameContainerView.tutorialBarToggle).
 struct TutorialChipView: View {
     /// /tutorial off is on its way.
     var switchingOff = false
