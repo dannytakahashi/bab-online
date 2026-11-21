@@ -71,7 +71,8 @@ the test and the release step alike:
 | iOS 1.2.3 (24) | `ios-1.2.3-b24.*` | e537504 (branch ios/superlatives, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (23) plus the Records superlatives, read by hand from `recordsResponse.records.<period>.superlatives` (#351; `recordsPeriod` is open, so the frozen decodes are unchanged); still 1.2.3; the `stateSnapshot.requestId` waiver holds) archived from 638aed6e, the #352 merge | uploaded to TestFlight 2026-11-20, submitted for review 2026-11-20 |
 | iOS 1.2.3 (25) | `ios-1.2.3-b25.*` | fdb1793 (branch clients/online-left, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (24) plus `mainRoomPlayerLeft` read like `mainRoomPlayerJoined` (`LobbySocketHandler.applyOnlineList`; the payload is unchanged); still 1.2.3; the `stateSnapshot.requestId` waiver holds) archived from 982cdb9e (the PR #355 head; its merge f56bc6c4 has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-20, submitted for review 2026-11-20 (replaced in review by build 26) |
 | iOS 1.2.3 (26) | `ios-1.2.3-b26.*` | a42fdcf (branch tutorial/welcome-once, frozen 2026-11-20 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (25) plus the tutorial's welcome shown once (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from 9ccdadfd (the PR #357 head; its merge 3ce5c1eb has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-20, submitted for review 2026-11-20 |
-| iOS 1.2.3 (27) | `ios-1.2.3-b27.*` | 48dcbdf (branch ios/duo-tutorial-bar, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (26) plus /help's lightbulb and the tutorial's switch in the iPhone Duo's vertical bar (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
+| iOS 1.2.3 (27) | `ios-1.2.3-b27.*` | 48dcbdf (branch ios/duo-tutorial-bar, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (26) plus /help's lightbulb and the tutorial's switch in the iPhone Duo's vertical bar (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from 7a122cb5 (the PR #359 head; its merge 9be179dd has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-20 (with the App Store Connect API key), submitted for review 2026-11-20 |
+| iOS 1.2.3 (28) | `ios-1.2.3-b28.*` | BUMP28 (branch ios/welcome-head-actions, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (27) plus the welcome tip's fixes and the Duo bar's tutorial switch shown while off, which sends the existing chat line /tutorial on (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -92,8 +93,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 27                  # HEAD must be build 27 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 27 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 28                  # HEAD must be build 28 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 28 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
