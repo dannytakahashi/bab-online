@@ -16,6 +16,8 @@
 const gameManager = require('../game/GameManager');
 const avatarWire = require('../avatar/avatarWire');
 const pointerResolve = require('./pointerResolve');
+const shoulderView = require('./shoulderView');
+const clientInfo = require('./clientInfo');
 
 /** Tournament context of a game for the snapshot, or null. */
 function tournamentInfo(gameId) {
@@ -39,13 +41,24 @@ function botNameFor(gameId) {
     return (socketId) => botController.getBot(gameId, socketId)?.username ?? null;
 }
 
-/** The v2 snapshot of `game` as socket `sid` sees it. */
+/**
+ * The v2 snapshot of `game` as socket `sid` sees it. With `opts.socket`
+ * (the receiving socket object) a socket with the clientHello cap
+ * shoulderView also gets the over-the-shoulder keys (shoulderView.js):
+ * viewer.shoulder while it watches a hand, and `shoulder` on the
+ * `watching` entries; every other socket's snapshot is unchanged.
+ */
 function snapshotFor(game, sid, opts = {}) {
+    const { socket = null, ...rest } = opts;
+    const capable = !!socket && clientInfo.hasCap(socket, shoulderView.CAP);
+    const watched = capable ? shoulderView.watchedPosition(game, socket) : null;
     return game.getSnapshotV2(sid, {
         tournament: tournamentInfo(game.gameId),
         botName: botNameFor(game.gameId),
         avatarResolve: (pic, username) => avatarWire.seatResolve(game, pic, username),
-        ...opts,
+        ...(capable && { shoulders: game.shoulderByUsername() }),
+        ...(watched && { shoulder: shoulderView.shoulderPayload(game, watched) }),
+        ...rest,
     });
 }
 
@@ -93,7 +106,7 @@ function carrierFor(game, socket, extra = {}) {
     return {
         ...base,
         ...extra,
-        snapshot: snapshotFor(game, socket.id, { hideChatFrom: hideChatFrom(socket) })
+        snapshot: snapshotFor(game, socket.id, { hideChatFrom: hideChatFrom(socket), socket })
     };
 }
 
@@ -184,7 +197,7 @@ function requestSnapshot(socket, io, data) {
 function answerSnapshot(socket, req, game) {
     const reply = {
         snapshot: game && !game.isTerminal()
-            ? snapshotFor(game, socket.id, { log: req.log !== false, hideChatFrom: hideChatFrom(socket) })
+            ? snapshotFor(game, socket.id, { log: req.log !== false, hideChatFrom: hideChatFrom(socket), socket })
             : null,
     };
     if (req.requestId !== undefined) reply.requestId = req.requestId;
@@ -197,6 +210,7 @@ module.exports = {
     botNameFor,
     snapshotFor,
     carrierFor,
+    hideChatFrom,
     wireIsLazy,
     sendSpectatorJoin,
     requestSnapshot

@@ -181,6 +181,7 @@ const DERIVED = deepFreeze({
         'offerPos', 'idleOffer', 'afkClock',          // offers re-made, a fresh AFK clock
         'bidClock', 'bidTimeouts',                    // a fresh bid clock (the restore kick's trigger) and no strikes
         'spectators',                                 // people re-spectate
+        'shoulders',                                  // over-the-shoulder watchers re-send watchHand after re-spectating
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
         'frozen', '_tainted',                         // a frozen or tainted game is never saved

@@ -99,6 +99,9 @@ const rateLimiter = require('./rateLimiter');
 const { socketHasCap } = require('./clientInfo');
 const { gameLogger } = require('../utils/logger');
 const { safeImmediate } = require('../utils/safeTimer');
+// lazy: shoulderView requires GameManager (the over-the-shoulder view's
+// watchers get the watched seat's hints, mirrorHint)
+const shoulderView = () => require('./shoulderView');
 
 /** /help at tournament tables (owner 2026-11-18: allowed, and counted there too). */
 const ASSIST_IN_TOURNAMENTS = true;
@@ -395,13 +398,17 @@ function help(socket, io, game, pos) {
     const crossed = counted && !t.unlimited && !viaTutorial && t.uses === ASSIST_FREE_HELP + 1;
 
     // Reply
+    const note = warn ? TEXT.warning : crossed ? TEXT.crossedNote : null;
+    const hint = hintPayload(game, key, answer, t, counted, note);
     if (hasCap(io, sid)) {
-        const note = warn ? TEXT.warning : crossed ? TEXT.crossedNote : null;
-        game.sendToPlayer(io, sid, 'assistHint', hintPayload(game, key, answer, t, counted, note));
+        game.sendToPlayer(io, sid, 'assistHint', hint);
     } else {
         sendLine(io, game, sid, render(answer.e, { style: 'line', uses: t.uses, freeUses: t.freeUses, counted: !forced && !tutorialOn, unlimited: !!t.unlimited }));
         if (warn) sendLine(io, game, sid, TEXT.warning);
     }
+    // The seat's over-the-shoulder watchers (cap shoulderView): the same
+    // answer with watched: pos, without the asker's note
+    shoulderView().mirrorHint(io, game, pos, hint);
 
     // Notice (counted uses only)
     if (counted) {
@@ -442,34 +449,40 @@ function sendAssistState(io, game, pos, sid = null) {
 
 /** One tip to the seat's socket: an assistHint kind tip (cap `tutorial`) or the private line "Tip: ...". */
 function sendTip(io, game, sid, pos, tip, { actions = null, line = null } = {}) {
+    const p = {
+        v: 1,
+        source: 'tutorial',
+        kind: 'tip',
+        turnKey: game.turnKey(),
+        headline: clip(tip.title, TEXT_MAX),
+        reasons: [clip(tip.text, TEXT_MAX)],
+        ...tally(game, pos),
+        counted: false,
+        tipId: tip.id
+    };
+    if (actions) p.actions = actions;
     if (hasTutorialCap(io, sid)) {
-        const p = {
-            v: 1,
-            source: 'tutorial',
-            kind: 'tip',
-            turnKey: game.turnKey(),
-            headline: clip(tip.title, TEXT_MAX),
-            reasons: [clip(tip.text, TEXT_MAX)],
-            ...tally(game, pos),
-            counted: false,
-            tipId: tip.id
-        };
-        if (actions) p.actions = actions;
         game.sendToPlayer(io, sid, 'assistHint', p);
     } else {
         sendLine(io, game, sid, TEXT.tipLine(line || tip.text));
     }
+    // A rule tip goes to the seat's over-the-shoulder watchers too; the
+    // system tips (T.welcome, T.graduate, T.done) speak to the player
+    // about their tutorial, so they stay the player's
+    if (!curriculum.SYSTEM_TIPS[tip.id]) shoulderView().mirrorHint(io, game, pos, p);
 }
 
 /** The tutorial's advice: the /help answer, source tutorial, never counted. */
 function sendAdvice(io, game, sid, pos, answer) {
     const t = tally(game, pos);
+    const hint = hintPayload(game, game.turnKey(), answer, t, false, null, 'tutorial');
     if (hasCap(io, sid)) {
-        game.sendToPlayer(io, sid, 'assistHint', hintPayload(game, game.turnKey(), answer, t, false, null, 'tutorial'));
+        game.sendToPlayer(io, sid, 'assistHint', hint);
     } else {
         // No count tail: the tutorial's advice is never counted
         sendLine(io, game, sid, render(answer.e, { style: 'line' }));
     }
+    shoulderView().mirrorHint(io, game, pos, hint);
 }
 
 function tutorSeat(game, pos) {

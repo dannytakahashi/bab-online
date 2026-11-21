@@ -204,6 +204,13 @@ class GameState {
         // Spectators: socketId → { username, pic }
         this.spectators = new Map();
 
+        // Over-the-shoulder view (socket/shoulderView.js): pure spectator
+        // socketId → the position whose hand it watches. DERIVED (never
+        // saved; watchers re-send watchHand after a re-spectate), cleared
+        // with the socket's spectator entry (removeSpectator: leave,
+        // disconnect, becoming a seat owner) and at retire
+        this.shoulders = new Map();
+
         // Game log for reconnection restoration. A chat line also holds its
         // sender's username as `from` (internal: snapshotV2 maps each entry
         // to {message, type, position, at}, so it never reaches the wire;
@@ -1684,6 +1691,7 @@ class GameState {
      */
     removeSpectator(socketId) {
         this.spectators.delete(socketId);
+        this.shoulders.delete(socketId);
         this.logAction('removeSpectator', { socketId });
     }
 
@@ -1739,6 +1747,24 @@ class GameState {
             list.push({ username: name, pic: info.pic ?? null });
         }
         return list;
+    }
+
+    /**
+     * Who watches which hand (the table's transparency rule, owner
+     * 2026-11-21): username -> watched position for the people of
+     * spectatorList() whose socket has a shoulder entry (the first such
+     * socket of a username in join order). A seat owner's own second tab
+     * is never in spectatorList, so never here.
+     * @returns {Map<string, number>}
+     */
+    shoulderByUsername() {
+        const out = new Map();
+        if (this.shoulders.size === 0) return out;
+        for (const [sid, info] of this.spectators) {
+            const pos = this.shoulders.get(sid);
+            if (pos && info.username && !out.has(info.username)) out.set(info.username, pos);
+        }
+        return out;
     }
 
     /** spectatorList().length: the people watching. */

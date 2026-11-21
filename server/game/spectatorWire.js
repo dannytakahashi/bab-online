@@ -24,15 +24,21 @@ const isCustom = (p) => typeof p === 'string' && p.startsWith('data:image');
  * @param {Array<{username, pic}>} list - GameState.spectatorList()
  * @param {Function|null} resolve - (pic, username) -> {legacy, url}
  *   (avatarWire.seatResolve for the game); null: no URLs
+ * @param {Map<string, number>|null} shoulders - username -> watched
+ *   position (GameState.shoulderByUsername), only for receivers with the
+ *   clientHello cap shoulderView: `shoulder` on those entries (the table
+ *   sees who watches which hand). null: the plain list
  * @returns {{spectators: Object[], count: number}}
  */
-function spectatorsWire(list, resolve = null) {
+function spectatorsWire(list, resolve = null, shoulders = null) {
     const spectators = list.slice(0, SPECTATOR_LIST_MAX).map(({ username, pic }) => {
         const entry = { username, pic: isStock(pic) ? pic : null };
         if (isCustom(pic) && resolve) {
             const r = resolve(pic, username);
             if (r && r.url) entry.avatarUrl = r.url;
         }
+        const watched = shoulders ? shoulders.get(username) : undefined;
+        if (watched) entry.shoulder = watched;
         return entry;
     });
     return { spectators, count: list.length };

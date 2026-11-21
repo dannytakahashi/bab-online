@@ -44,8 +44,15 @@ const { socketLogger } = require('../utils/logger');
  *                     only such a socket gets the tutorial's auto-start in
  *                     a new account's first game (assistHandlers.autoStart);
  *                     without it tips come as private "Tip: ..." lines
+ *   shoulderView      the over-the-shoulder view (owner 2026-11-21): a pure
+ *                     spectator may watch one seat's hand (c2s watchHand,
+ *                     s2c watchHandRefused, gameStart / snapshot `shoulder`,
+ *                     mirrored assistHint `watched`, `shoulder` on the
+ *                     spectator list's entries); a socket without it gets
+ *                     none of that (server/socket/shoulderView.js). A hello
+ *                     that drops it ends the socket's watch
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {
@@ -54,6 +61,8 @@ function handle(socket, io, data) {
     const info = { client: data.client, version: data.version, build: data.build || null, caps };
     if (socket.data) socket.data.client = info;
     socketLogger.info('clientHello', { socketId: socket.id, ...info });
+    // lazy: shoulderView requires this module
+    if (!caps.includes('shoulderView')) require('./shoulderView').capDropped(io, socket);
 }
 
 /** Has `socket` announced `cap`? */
