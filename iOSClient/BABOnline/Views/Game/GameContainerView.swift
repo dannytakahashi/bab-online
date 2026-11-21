@@ -1209,16 +1209,17 @@ private struct GameScreen: View {
                                onClose: { gameState.apply(.local(.assistDismissed)) })
                     .transition(.opacity)
             }
-            // the watched seat's mirrored cards (the over-the-shoulder view): read-only (the × is
-            // local). The watched player's heading and the count-free words are the card views'
-            // own (ios/shoulder-hint-cards); this passes `gameState.watchedName` once they take it.
-            if gameState.watchedName != nil {
+            // the watched seat's mirrored cards (the over-the-shoulder view, TableSlice.watchedTip /
+            // watchedAssist): headed with the watched player's name, no count, read-only (the ×
+            // only takes the card down: nothing is sent)
+            if let name = gameState.watchedName {
                 if let tip = gameState.watchedTip {
-                    TutorialTipView(tip: tip, onClose: { gameState.apply(.local(.watchedHintDismissed(tip: true))) })
+                    TutorialTipView(tip: tip, watchedName: name, onClose: watchedTipClose)
+                        .background { if inScroll && gameState.tutorialTip == nil { tipFrameReporter } }
                         .transition(.opacity)
                 }
                 if let hint = gameState.watchedAdvice {
-                    AssistCardView(hint: hint, onClose: { gameState.apply(.local(.watchedHintDismissed(tip: false))) })
+                    AssistCardView(hint: hint, watchedName: name, onClose: { gameState.apply(.local(.watchedHintDismissed(tip: false))) })
                         .transition(.opacity)
                 }
             }
@@ -1226,13 +1227,23 @@ private struct GameScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func watchedTipClose() { gameState.apply(.local(.watchedHintDismissed(tip: true))) }
+
     /// The watched player's name on the column's cards (the over-the-shoulder view's mirrored
-    /// hints: AssistCardView / TutorialTipView `watchedName`); nil: my own cards. Only the
-    /// fixture `-uiWatchedHint <name>` sets it so far (UIFixture+WatchedHint).
+    /// hints: AssistCardView / TutorialTipView `watchedName`); nil: my own cards. A watcher's are
+    /// the watched seat's slots above (my own slots are always empty for a spectator); the
+    /// fixture `-uiWatchedHint <name>` (UIFixture+WatchedHint) heads my own slots' cards.
     private var watchedHintName: String? {
         #if DEBUG
         if let name = UIFixture.watchedHintName { return name }
         #endif
+        return gameState.watchedName
+    }
+
+    /// The tip the short column pins (its title row and ×): my own, else the watched seat's.
+    private var pinnableTip: (tip: AssistHint, name: String?, close: () -> Void)? {
+        if let tip = gameState.tutorialTip { return (tip, watchedHintName, tutorialTipClose) }
+        if let tip = gameState.watchedTip, let name = gameState.watchedName { return (tip, name, watchedTipClose) }
         return nil
     }
 
@@ -1249,13 +1260,13 @@ private struct GameScreen: View {
     /// scrolled out of sight (the web's sticky .assist-tip__top): drawn over the tip's text on
     /// the card's fill, pushed up with the tip's foot as that leaves (the advice never under it).
     private var tipHeadPinned: Bool {
-        guard gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
+        guard pinnableTip != nil, let f = assistTipFrame else { return false }
         return f.minY < -0.5 && f.maxY > 0
     }
 
     @ViewBuilder private var pinnedTipHead: some View {
-        if let tip = gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
-            TutorialTipHead(tip: tip, watchedName: watchedHintName, onClose: tutorialTipClose, pinned: true)
+        if let p = pinnableTip, let f = assistTipFrame, tipHeadPinned {
+            TutorialTipHead(tip: p.tip, watchedName: p.name, onClose: p.close, pinned: true)
                 .padding(.horizontal, Theme.Space.s3)
                 .padding(.vertical, Theme.Space.s1)
                 .background(

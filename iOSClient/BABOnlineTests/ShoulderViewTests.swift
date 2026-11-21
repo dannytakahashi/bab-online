@@ -148,7 +148,7 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertEqual(advice.watched, 2)
         XCTAssertNil(s.table.assist, "never my own answer")
         XCTAssertFalse(s.log.entries.contains { $0.isPrivate }, "no row: not mine")
-        XCTAssertTrue(fx.contains(.announce("pia's advice: Suggestion: Bid 1. rex (your partner) bids after you and adds their own tricks. Bid 1 is worth about +35 on average, bid 2 about +34.")))
+        XCTAssertTrue(fx.contains(.announce("Suggestion for pia: Bid 1. rex (your partner) bids after you and adds their own tricks. Bid 1 is worth about +35 on average, bid 2 about +34.")))
 
         // the wide spectator list (an entry's `shoulder`) decodes and applies as before
         TableReducer.reduce(&s, T.ev("spectatorsUpdated", try data("spectatorsUpdated")))
@@ -512,9 +512,7 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertNil(h.note)
         XCTAssertEqual(h.actions, [])
         XCTAssertFalse(s.log.entries.contains { $0.isPrivate })
-        XCTAssertTrue(fx.contains(.announce("ned's advice: Suggestion: Bid 2. Your hand should take about 2 tricks.")))
-        XCTAssertEqual(ShoulderRules.adviceHeading("ned"), "ned's advice")
-        XCTAssertEqual(ShoulderRules.tipHeading("ned"), "ned's tip")
+        XCTAssertTrue(fx.contains(.announce("Suggestion for ned: Bid 2. Your hand should take about 2 tricks.")))
         // the watched seat's own bid ends it
         TableReducer.reduce(&s, T.ev("bidReceived", ["position": 4, "bid": 2, "bidArray": [NSNull(), "B", 1, 2], "seq": seq(s)]))
         XCTAssertNil(s.table.watchedAssist)

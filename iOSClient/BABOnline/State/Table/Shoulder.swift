@@ -48,11 +48,6 @@ enum ShoulderRules {
         "Paused: \(possessive(player)) hand comes back when the game resumes."
     }
 
-    /// The heading on a mirrored /help or tutorial advice card ("Alice's advice").
-    static func adviceHeading(_ player: String) -> String { "\(possessive(player)) advice" }
-    /// The heading on a mirrored rule tip ("Alice's tip").
-    static func tipHeading(_ player: String) -> String { "\(possessive(player)) tip" }
-
     /// The first human seat in seat order (an owner not gone, never a native bot), else seat 1.
     static func firstHumanSeat(_ s: TableState) -> Int {
         (1...4).first { pos in
@@ -321,11 +316,11 @@ extension TableReducer {
             }
             let fresh = s.table.watchedTip != h
             s.table.watchedTip = h
-            if fresh { fx.append(.announce("\(ShoulderRules.tipHeading(name)): \(TutorialRules.announcement(h))")) }
+            if fresh { fx.append(.announce(TutorialRules.watchedAnnouncement(h, name: name))) }
             return
         }
         guard AssistRules.isLiveWatched(h, s) else { return }
         s.table.watchedAssist = h
-        fx.append(.announce("\(ShoulderRules.adviceHeading(name)): \(AssistRules.announcement(h))"))
+        fx.append(.announce(AssistRules.watchedAnnouncement(h, name: name)))
     }
 }
