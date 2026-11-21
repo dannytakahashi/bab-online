@@ -17,7 +17,7 @@ const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } =
 const { createSuperlatives, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
-const { normalizeSeatBags } = require('../game/rules');
+const { normalizeSeatBags, normalizeSeatCounter } = require('../game/rules');
 const { DELETED_NAME } = require('../admin/nameHold');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
@@ -644,6 +644,9 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * back to the net of each seat. Beside byPosition on purpose: an
  * applyPendingStats that $incs every byPosition field (the release
  * before) never sees it.
+ * `statsDeltas.exact {<pos>: n}` (My Quantitative, 2026-11-20): the hands
+ * the seat's bid was spot on (rules.seatSpotOn, game.seatExact), under the
+ * same rule as bags: only when that counter saw every hand of the game.
  *
  * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
  * made more than ASSIST_FREE_HELP counted /help uses or played with the
@@ -681,14 +684,19 @@ function buildGameEndRecord(game) {
     // The bag counter, only when it counted every hand of this game
     const counter = normalizeSeatBags(game.seatBags);
     const counted = counter && counter.hands === game.handStats?.totalHands ? counter.byPos : null;
+    // The spot-on counter, under the same rule
+    const exactCounter = normalizeSeatCounter(game.seatExact);
+    const exactCounted = exactCounter && exactCounter.hands === game.handStats?.totalHands ? exactCounter.byPos : null;
 
     const byPosition = {};
     const names = {};
     const bags = {};
+    const exact = {};
     for (const { position, player } of players) {
         byPosition[position] = seatStatsDelta(game, position);
         names[position] = gameManager.deletedUsernames.has(player.username) ? DELETED_NAME : player.username;
         if (counted) bags[position] = counted[position];
+        if (exactCounted) exact[position] = exactCounted[position];
     }
     // A player who deleted their account mid-game has nothing to credit, and
     // their name must not go into the record
@@ -712,6 +720,7 @@ function buildGameEndRecord(game) {
     const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });
     doc.statsDeltas = { bucket, byPosition, names };
     if (Object.keys(bags).length > 0) doc.statsDeltas.bags = bags;
+    if (Object.keys(exact).length > 0) doc.statsDeltas.exact = exact;
     if (assisted.length > 0 && bucket !== 'botStats') {
         doc.statsDeltas.bucketByPosition = Object.fromEntries(assisted.map((pos) => [pos, 'botStats']));
     }

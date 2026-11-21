@@ -30,7 +30,7 @@ const {
 } = SeatState;
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
-const { isValidBid, isLegalPlay, firstLegalCard, normalizeSeatBags } = require('./rules');
+const { isValidBid, isLegalPlay, firstLegalCard, normalizeSeatBags, normalizeSeatCounter } = require('./rules');
 // The persist store's change hooks (persist/hooks.js): passive, one null
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
@@ -158,6 +158,11 @@ class GameState {
         // differ from handStats.totalHands carries no bags
         // (profileHandlers.buildGameEndRecord)
         this.seatBags = { hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } };
+        // Per-seat spot-on bids (server-only, the superlatives' My
+        // Quantitative, 2026-11-20; rules.seatSpotOn): the same shape, rules
+        // and lifecycle as seatBags (its own field: a doc from a process
+        // without it restores null, and the record then carries no counts)
+        this.seatExact = { hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } };
 
         // Per-hand trick tracking (reset each hand) for determining set responsibility
         this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -1351,6 +1356,7 @@ class GameState {
             for (const ps of Object.values(this.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
             // A doc without it (written by a process without the counter): none
             this.seatBags = normalizeSeatBags(state.seatBags);
+            this.seatExact = normalizeSeatCounter(state.seatExact);
             this.handTricks = clone(state.handTricks);
             this.hsiValues = clone(state.hsiValues) || {};
             // A CODEC_V 1 doc has none: every seat starts with no /help use

@@ -17,6 +17,7 @@ const {
     calculateScore,
     handFaults,
     seatBags,
+    seatSpotOn,
     nextHandSize: handSizeAfter,
     BID_RANKS
 } = require('../game/rules');
@@ -931,6 +932,18 @@ async function handleHandComplete(game, io) {
             sb.byPos[pos] += seatBags(game.playerBids[pos - 1], game.handTricks[pos], game.playerBids[partner - 1]);
         }
         sb.hands++;
+    }
+    // Spot-on bids per seat (superlatives: My Quantitative): the seat's own
+    // tricks equal its numeric bid, or, on a team with a bore, the team took
+    // every trick (rules.seatSpotOn), counted like seatBags above
+    const se = game.seatExact;
+    if (se && se.byPos && game.handTricks && Array.isArray(game.playerBids) && game.tricks) {
+        for (const pos of [1, 2, 3, 4]) {
+            const partner = pos > 2 ? pos - 2 : pos + 2;
+            const teamTook = pos % 2 === 1 ? game.tricks.team1 : game.tricks.team2;
+            se.byPos[pos] += seatSpotOn(game.playerBids[pos - 1], game.handTricks[pos], game.playerBids[partner - 1], teamTook, game.currentHand);
+        }
+        se.hands++;
     }
 
     gameLogger.debug('Score update', {

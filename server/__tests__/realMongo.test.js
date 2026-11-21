@@ -886,7 +886,7 @@ describe('real mongod', () => {
         const b = sock();
         await profile.getRecords(b, io);
         const human = Object.fromEntries(reply(b).records.thisMonth.superlatives.map((x) => [x.id, x]));
-        expect(Object.keys(human)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'anchor']);
+        expect(Object.keys(human)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'delusionsOfGrandeur']);
         expect(human.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Alan'], detail: '3.0 bags a game' });
         expect(human.luckyDuck.names).toEqual(['Cy']);
         expect(human.cursed.names).toEqual(['Alan', 'Bea', 'Eve']);
@@ -911,7 +911,7 @@ describe('real mongod', () => {
             .toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Dot'], detail: '5 solo games' });
         expect(reply(b).records.thisMonth.superlatives.flatMap((x) => x.names)).toEqual(expect.not.arrayContaining(['Alan', '🤖 Zach']));
         await profile.getRecords(b, io, { scope: 'all' });
-        expect(reply(b).records.thisMonth.superlatives.map((x) => x.id)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'anchor']);
+        expect(reply(b).records.thisMonth.superlatives.map((x) => x.id)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'delusionsOfGrandeur']);
 
         // rename, merge and delete on the real driver keep the map in step
         const { renameEverywhere } = require('../admin/accountRename');
