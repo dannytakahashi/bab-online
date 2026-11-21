@@ -2,9 +2,9 @@ import XCTest
 
 /// Opt-in live check of the tutorial's auto-start against a local server (never production):
 /// register a throwaway account (users.tutorial 'pending'), a game with three bots, draw; the
-/// first game starts with the tutorial on: the welcome tip (Keep / Turn off), the "Tutorial on"
-/// chip, and on my bid turn the advice card without asking (no lightbulb tap), a bid ringed;
-/// after Keep and my bid, my play turn gets its advice card too. Nothing about free uses, limits
+/// first game starts with the tutorial on: the switch shows "Tutorial on" (no welcome card on iOS:
+/// its row is in the log), and on my bid turn the advice card without asking (no lightbulb tap),
+/// a bid ringed; after my bid, my play turn gets its advice card too. Nothing about free uses, limits
 /// or bot-assisted shows (a game with a native bot seat). Run with a Debug build and
 /// `TEST_RUNNER_BAB_LIVE_SERVER=http://localhost:<port>`, `TEST_RUNNER_BAB_LIVE_USER=<new name>`
 /// and `TEST_RUNNER_BAB_LIVE_PASS=<random>` (the account is created by the test; keep the
@@ -89,13 +89,10 @@ final class LiveTutorialTests: XCTestCase {
         XCTAssertTrue(wait(10) { deck.isHittable })
         deck.tap()
 
-        // the auto-start: the welcome tip with Keep / Turn off, the chip
-        let welcome = element(app, "tutorialWelcome")
-        XCTAssertTrue(welcome.waitForExistence(timeout: 90), "no welcome tip in a new account's first game")
-        XCTAssertEqual(app.staticTexts["tip.title"].label, "Tutorial on")
-        XCTAssertTrue(app.buttons["tip.keep"].exists)
-        XCTAssertTrue(app.buttons["tip.off"].exists)
-        XCTAssertTrue(element(app, "tutorial.chip").waitForExistence(timeout: 10), "no Tutorial on chip")
+        // the auto-start: the switch shows on (no welcome card: its row goes to the log)
+        let chip = element(app, "tutorial.chip")
+        XCTAssertTrue(wait(90) { chip.exists && (chip.label == "Tutorial on" || (chip.label == "Tutorial" && chip.value as? String == "On")) }, "the tutorial is not on in a new account's first game")
+        XCTAssertFalse(element(app, "tutorialWelcome").exists, "no welcome card on iOS")
 
         // my bid turn: the advice card comes without asking, a bid ringed
         let bidOverlay = element(app, "bidOverlay")
@@ -110,11 +107,6 @@ final class LiveTutorialTests: XCTestCase {
         XCTAssertEqual(footer, "What our strongest bot would play", footer)
         sleep(1)
         shot("1-bid-welcome-advice")
-
-        // Keep: the welcome goes, the chip stays
-        app.buttons["tip.keep"].tap()
-        XCTAssertTrue(wait(5) { !welcome.exists }, "Keep did not close the welcome")
-        XCTAssertTrue(element(app, "tutorial.chip").exists, "the chip went with Keep")
 
         // the ringed bid, sent
         ringed.tap()
@@ -132,6 +124,8 @@ final class LiveTutorialTests: XCTestCase {
         app.buttons["log"].tap()
         let auto = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "is playing with the tutorial")).firstMatch
         XCTAssertTrue(auto.waitForExistence(timeout: 5), "no '<name> is playing with the tutorial.' in the game log")
+        let welcomeRow = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tutorial: Tips will appear above your cards.")).firstMatch
+        XCTAssertTrue(welcomeRow.exists, "no welcome row in the log")
         let limitWords = app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@ OR label CONTAINS[c] %@", "of 3 free", "bot-assisted", "unlimited"))
         XCTAssertEqual(limitWords.count, 0, limitWords.allElementsBoundByIndex.map(\.label).joined(separator: " | "))
         shot("3-log")

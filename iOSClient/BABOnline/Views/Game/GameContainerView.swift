@@ -94,6 +94,8 @@ private struct GameScreen: View {
     @State private var paneFoldRect: CGRect? = nil
     @State private var scoreBarHeight: CGFloat = 0
     @State private var cornerSize: CGSize = .zero
+    /// The tutorial's corner button, as last measured (TutorialCornerButton).
+    @State private var tutorialButtonSize: CGSize = .zero
     @State private var pillHeight: CGFloat = 0
 
     // Item 27-4: the fold and the docked log
@@ -147,10 +149,15 @@ private struct GameScreen: View {
 
     var body: some View {
         gameContent
-            // the vertical bar's switch replaces the welcome card: its text to the log, the
-            // rule tip behind it up (nothing sent)
-            .onChange(of: showsBarControls && gameState.tutorialWelcome != nil, initial: true) { _, hide in
-                if hide { gameState.apply(.local(.tutorialWelcomeHidden)) }
+            // turning the tutorial on where it makes the game bot-assisted for me asks first; Turn
+            // on re-checks that the switch is still mine to use (an AFK takeover, the game's end)
+            .alert(TutorialRules.confirmTitle, isPresented: $confirmsTutorialOn) {
+                Button(TutorialRules.confirmCancel, role: .cancel) {}
+                Button(TutorialRules.confirmButton) {
+                    if gameState.showsAssistBarItem && !gameState.tutorialOn { tutorialOn() }
+                }
+            } message: {
+                Text(TutorialRules.confirmMessage)
             }
             // the table keeps the window's own top inset (VerticalBarHost)
             .verticalBarChrome(VerticalBarContext(usesVerticalBar: usesVerticalBar, windowTopInset: windowTopInset),
@@ -173,6 +180,9 @@ private struct GameScreen: View {
             .onChange(of: tutorialInBar, initial: true) { _, inBar in
                 if UIFixture.isActive { TableDebugProbe.shared.tutorialInBar = inBar }
             }
+            .onChange(of: showsCornerTutorial, initial: true) { _, inCorner in
+                if UIFixture.isActive { TableDebugProbe.shared.tutorialInCorner = inCorner }
+            }
             .onChange(of: askInBar ? (gameState.showsAssistAsk ? 2 : 1) : 0, initial: true) { _, state in
                 if UIFixture.isActive { TableDebugProbe.shared.assistAskInBar = state == 0 ? nil : state == 2 }
             }
@@ -190,6 +200,16 @@ private struct GameScreen: View {
                 // keeps its identity in every pose
                 HStack(spacing: 0) {
                     tablePane
+                        // the draw covers the table pane only (owner play test 2026-11-21, the
+                        // iPhone Duo open: over the whole window it was centred on table + log
+                        // with the docked log dimmed under it, and in book pose it crossed the
+                        // hinge); DrawMetrics fits its four cards to the pane's width
+                        .overlay {
+                            if gameState.phase == .draw {
+                                DrawPhaseView()
+                                    .transition(.opacity)
+                            }
+                        }
                         .frame(width: tablePaneWidth(mode))
                     if showsDocked(mode) {
                         if case .book(let hinge) = mode {
@@ -218,12 +238,6 @@ private struct GameScreen: View {
             .modifier(HingeTick(tick: $hingeTick))
             // the felt behind everything: what the vertical bar shows beside the docked log
             .background(Theme.Palette.Felt.edge.color.ignoresSafeArea())
-
-            // Draw phase overlay
-            if gameState.phase == .draw {
-                DrawPhaseView()
-                    .transition(.opacity)
-            }
 
             // Game end modal
             if gameState.phase == .ended, gameState.gameEndData != nil {
@@ -544,6 +558,7 @@ private struct GameScreen: View {
         TableChrome(safeArea: paneSafeArea,
                     topBar: showsTable ? scoreBarHeight : 0,
                     cornerButton: inGame && !usesVerticalBar ? cornerSize : .zero,
+                    tutorialButton: showsCornerTutorial ? tutorialButtonSize : .zero,
                     bottomBar: showsPill && pillHeight > 0 ? pillHeight + 12 : 0,
                     fold: paneFoldRect,
                     occlusions: paneOcclusions,
@@ -583,35 +598,22 @@ private struct GameScreen: View {
                 Spacer()
 
                 // Game log toggle button: the drawer, or the docked panel in inner landscape
-                // (hidden in book pose: the log is the right page)
-                if showsLogButton {
-                Button(action: toggleLog) {
-                    Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
-                        .font(.title2)
-                        .foregroundColor(Theme.textSecondary)
-                        .padding(Theme.Space.s3)
-                        .background(Theme.surface.opacity(0.8))
-                        .clipShape(Circle())
-                        .overlay(alignment: .topTrailing) {
-                            if !logIsOpen && gameState.unreadChatCount > 0 {
-                                Text("\(gameState.unreadChatCount)")
-                                    .font(.caption2.bold())
-                                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
-                                    .foregroundStyle(Theme.dangerForeground)
-                                    .frame(minWidth: 18, minHeight: 18)
-                                    .background(Theme.danger)
-                                    .clipShape(Circle())
-                                    .offset(x: 4, y: -4)
-                            }
+                // (hidden in book pose: the log is the right page); the tutorial's under it, or
+                // beside it on a short pane (TableLayout.tutorialPlacement)
+                Group {
+                    if layout.tutorialBeside {
+                        HStack(alignment: .top, spacing: Self.cornerStackGap) {
+                            if showsCornerTutorial { tutorialCornerItem }
+                            if showsLogButton { logCornerButton }
                         }
+                    } else {
+                        VStack(alignment: .trailing, spacing: Self.cornerStackGap) {
+                            if showsLogButton { logCornerButton }
+                            if showsCornerTutorial { tutorialCornerItem }
+                        }
+                    }
                 }
-                .accessibilityIdentifier("log")
-                .accessibilityLabel("Game log")
-                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                .accessibilityShowsLargeContentViewer()
-                .onGeometryChange(for: CGSize.self, of: { $0.size }) { logSize = $0 }
                 .padding(.trailing, 12 + layout.paneOccludedRight)
-                }
             }
             .padding(.top, showsTable ? chrome.topBar + 8 : 80)
             Spacer()
@@ -622,9 +624,61 @@ private struct GameScreen: View {
         // 2026-11-16; TableChromeAnimationTests)
         .animation(nil, value: showsTable)
         .animation(nil, value: chrome.topBar)
+        #if DEBUG
+        .onChange(of: layout.tutorialBeside, initial: true) { _, beside in
+            if UIFixture.isActive { TableDebugProbe.shared.tutorialBeside = beside }
+        }
+        #endif
         .onChange(of: CGSize(width: max(leaveSize.width, logSize.width), height: max(leaveSize.height, logSize.height)), initial: true) { _, s in
             cornerSize = s
         }
+    }
+
+    /// The game log's round button in the corner.
+    private var logCornerButton: some View {
+        Button(action: toggleLog) {
+            Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
+                .font(.title2)
+                .foregroundColor(Theme.textSecondary)
+                // a square glyph box: the circle is the same size open or closed and the
+                // tutorial's button below it matches (a padded text.bubble was 53 x 50 pt, so
+                // its circle was the short side)
+                .modifier(CornerGlyphBox())
+                .padding(Theme.Space.s3)
+                .background(Theme.surface.opacity(0.8))
+                .clipShape(Circle())
+                .overlay(alignment: .topTrailing) {
+                    if !logIsOpen && gameState.unreadChatCount > 0 {
+                        Text("\(gameState.unreadChatCount)")
+                            .font(.caption2.bold())
+                            .dynamicTypeSize(...DynamicTypeSize.xLarge)
+                            .foregroundStyle(Theme.dangerForeground)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Theme.danger)
+                            .clipShape(Circle())
+                            .offset(x: 4, y: -4)
+                    }
+                }
+        }
+        .accessibilityIdentifier("log")
+        .accessibilityLabel("Game log")
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .accessibilityShowsLargeContentViewer()
+        .onGeometryChange(for: CGSize.self, of: { $0.size }) { logSize = $0 }
+    }
+
+    /// The tutorial's round button in the corner, measured for the layout.
+    private var tutorialCornerItem: some View {
+        tutorialCornerButton
+            .onGeometryChange(for: CGSize.self, of: { $0.size }) { tutorialButtonSize = $0 }
+            #if DEBUG
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                if UIFixture.isActive { TableDebugProbe.shared.tutorialChipFrame = r }
+            }
+            // only once it is gone for good: a placement change (under <-> beside) rebuilds it,
+            // and the old copy's onDisappear may come after the new copy's frame
+            .onDisappear { if UIFixture.isActive && !showsCornerTutorial { TableDebugProbe.shared.tutorialChipFrame = nil } }
+            #endif
     }
 
     // MARK: - Leave / Log in the vertical bar (iOS 27.1)
@@ -667,15 +721,34 @@ private struct GameScreen: View {
 
     /// The tutorial's switch is a vertical bar item under the log's (owner 2026-11-20: the
     /// iPhone Duo's column is short, and the chip took a row of it above the bid panel);
-    /// elsewhere it is the "Tutorial on" chip at the column's foot.
+    /// elsewhere the round corner button under the log's (`showsCornerTutorial`).
     /// The vertical bar's switch is there all game at my own seat, on or off (owner 2026-11-21:
     /// "I shouldn't have to run /tutorial, I should see the icon"), as the lightbulb.
     private var tutorialInBar: Bool { showsBarControls && gameState.showsAssistBarItem }
-    private var showsColumnChip: Bool { gameState.showsTutorialChip && !showsBarControls }
-    /// The welcome card, except where the vertical bar's switch says the tutorial is on and turns
-    /// it off (owner 2026-11-21: "we don't need tutorial on card when we have the sidebar
-    /// button"): there it goes to the log (`.tutorialWelcomeHidden`) and the rule tip shows.
-    private var shownWelcome: AssistHint? { showsBarControls ? nil : gameState.tutorialWelcome }
+    /// Elsewhere (an iPhone, an iPad, the Duo without its bar) the same switch is a round button
+    /// in the top trailing corner under the log's (owner 2026-11-21), for the whole game.
+    private var showsCornerTutorial: Bool { inGame && !usesVerticalBar && gameState.showsAssistBarItem }
+    /// The corner button's place: TableLayout puts it under the log's, or beside it on a short
+    /// pane (`layout.tutorialBeside`), and keeps the trailing corner that much bigger
+    /// (TableChrome.cornerTrailingExtra), the column too (cornerRects).
+    static let cornerStackGap = TableLayout.tutorialGap
+    /// The switch shows on: the server says on (or an on is on its way) and no off is on its way.
+    private var tutorialShowsOn: Bool { (gameState.tutorialOn || gameState.tutorialOnSent) && !gameState.tutorialOffSent }
+    /// The switch waits: an on or off is on its way, or the draw.
+    private var tutorialSwitchDisabled: Bool {
+        gameState.tutorialOffSent || gameState.tutorialOnSent || gameState.phase == .draw
+    }
+    // No welcome card on iOS (owner 2026-11-21: "we don't need tutorial on card when we have
+    // the sidebar button"; the corner's button too): its row goes to the log
+    // (TableReducer.tutorialTip) and the rule tip shows at once.
+
+    private var tutorialCornerButton: some View {
+        // the log's button's square glyph box (CornerGlyphBox), so the two read as one column of
+        // round buttons
+        TutorialCornerButton(on: tutorialShowsOn, disabled: tutorialSwitchDisabled) {
+            if tutorialShowsOn { tutorialOff() } else { requestTutorialOn() }
+        }
+    }
 
     /// /help's lightbulb as a bar item (owner 2026-11-20, with the tutorial's switch): there for
     /// the whole game, so the bar does not rebuild every turn, and enabled only on my turn with no
@@ -699,14 +772,14 @@ private struct GameScreen: View {
     /// server's assistState (an off on its way shows off and waits).
     private var tutorialBarToggle: some View {
         let on = gameState.tutorialOn && !gameState.tutorialOffSent
-        return Toggle(isOn: Binding(get: { on }, set: { $0 ? tutorialOn() : tutorialOff() })) {
+        return Toggle(isOn: Binding(get: { on }, set: { $0 ? requestTutorialOn() : tutorialOff() })) {
             Label(on ? TutorialRules.chipText : TutorialRules.barOffText, systemImage: "graduationcap.fill")
         }
         .toggleStyle(.button)
         .tint(Theme.primary)  // the chip's switch green, not the system blue
-        .disabled(gameState.tutorialOffSent || gameState.phase == .draw)
-        // the bar keeps a label but drops the value and the toggle trait: the state is in the
-        // label ("Tutorial on" / "Tutorial off")
+        .disabled(tutorialSwitchDisabled)
+        // the bar keeps an item's label but drops its value: the state is in the label
+        // ("Tutorial on" / "Tutorial off"); the corner button says "Tutorial" with a value
         .accessibilityLabel(on ? TutorialRules.chipText : TutorialRules.barOffText)
         .accessibilityHint(on ? TutorialRules.chipHint : TutorialRules.barOnHint)
         .accessibilityAddTraits(.isToggle)
@@ -742,6 +815,8 @@ private struct GameScreen: View {
     }
 
     @State private var leaveSize: CGSize = .zero
+    /// The alert before turning the tutorial on makes the game bot-assisted for me.
+    @State private var confirmsTutorialOn = false
     /// My bid clock's pill on the bid panel's edge, in the pane, as last laid out (nil: never
     /// shown): the /help card stays above it while my clock runs (`myBidClockRuns`).
     @State private var bidClockFrame: CGRect?
@@ -925,8 +1000,11 @@ private struct GameScreen: View {
         guard inGame && !usesVerticalBar, cornerSize != .zero else { return [] }
         let y = paneSafeArea.top + chrome.topBar + 8
         let lead = CGRect(x: paneSafeArea.left + 12 + layout.paneOccludedLeft, y: y, width: cornerSize.width, height: cornerSize.height)
-        let trail = CGRect(x: full.width - paneSafeArea.right - 12 - layout.paneOccludedRight - cornerSize.width, y: y,
-                           width: cornerSize.width, height: cornerSize.height)
+        // the tutorial's button under or beside the log's (its room in scene units, times the zoom)
+        let extra = layout.chrome.cornerTrailingExtra
+        let ex = extra.width * layout.zoom, ey = extra.height * layout.zoom
+        let trail = CGRect(x: full.width - paneSafeArea.right - 12 - layout.paneOccludedRight - cornerSize.width - ex, y: y,
+                           width: cornerSize.width + ex, height: cornerSize.height + ey)
         return [lead, trail]
     }
 
@@ -945,17 +1023,15 @@ private struct GameScreen: View {
         return out
     }
 
-    /// Something of the column is up: my answer, a tutorial tip or its welcome, the tutorial's chip.
+    /// Something of the column is up: my answer or a tutorial tip.
     private var showsAssistColumn: Bool {
-        gameState.assistHint != nil || gameState.tutorialTip != nil || shownWelcome != nil
-            || showsColumnChip
+        gameState.assistHint != nil || gameState.tutorialTip != nil
     }
 
-    /// The column: the welcome, a rule tip, my answer's card, then the "Tutorial on" chip at its
-    /// leading foot, centred on my hand, its bottom just above the lifted cards and my seat's
-    /// row (HSI, the voice button, my pips), or above the bid panel and its countdown while it
-    /// shows, and above the lightbulb while that shows (the tutorial's tips and chip may be up
-    /// with it); in a tabletop pose it stays below the fold with them; scrolls inside when the
+    /// The column: a rule tip, then my answer's card, centred on my hand, its bottom just above
+    /// the lifted cards and my seat's row (HSI, the voice button, my pips), or above the bid
+    /// panel and its countdown while it shows, and above the lightbulb while that shows (the
+    /// tutorial's tips may be up with it); in a tabletop pose it stays below the fold with them; scrolls inside when the
     /// room up to the score bar (or the fold) is short.
     private func assistColumn(_ layout: TableLayout, full: CGSize) -> some View {
         let box = handBox(layout)
@@ -972,11 +1048,10 @@ private struct GameScreen: View {
             sides: otherSeats(layout, sides: true))
         let f = AssistLayout.frame(paneWidth: full.width, handMidX: box.midX, handWidth: box.width,
                                    top: paneSafeArea.top + scoreBarHeight + Theme.Space.s2, keeps: keeps,
-                                   safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right,
-                                   foot: showsColumnChip ? Theme.hitTarget + AssistLayout.gap : 0)
-        let hasCards = shownWelcome != nil || gameState.tutorialTip != nil || gameState.assistHint != nil
-        // the chip stays at the column's foot; only the cards scroll when the room is short (the
-        // column is bottom-aligned in its box, so a short column's scroll view has all its room)
+                                   safeLeft: paneSafeArea.left, safeRight: paneSafeArea.right)
+        let hasCards = gameState.tutorialTip != nil || gameState.assistHint != nil
+        // the cards scroll when the room is short (the column is bottom-aligned in its box, so a
+        // short column's scroll view has all its room)
         return VStack(alignment: .leading, spacing: AssistLayout.gap) {
             if hasCards {
                 ViewThatFits(in: .vertical) {
@@ -993,7 +1068,6 @@ private struct GameScreen: View {
                             .onAppear { showAdviceHead(proxy) }
                             .onChange(of: gameState.assistHint) { _, _ in showAdviceHead(proxy) }
                             .onChange(of: gameState.tutorialTip) { _, _ in showAdviceHead(proxy) }
-                            .onChange(of: shownWelcome) { _, _ in showAdviceHead(proxy) }
                     }
                 }
                 #if DEBUG
@@ -1002,20 +1076,11 @@ private struct GameScreen: View {
                 }
                 // only once the cards are gone: a removed copy's onDisappear may come after a new one's frame
                 .onDisappear {
-                    if UIFixture.isActive && gameState.assistHint == nil && gameState.tutorialTip == nil && shownWelcome == nil {
+                    if UIFixture.isActive && gameState.assistHint == nil && gameState.tutorialTip == nil {
                         TableDebugProbe.shared.assistFrame = nil
                     }
                 }
                 #endif
-            }
-            if showsColumnChip {
-                TutorialChipView(switchingOff: gameState.tutorialOffSent, action: tutorialOff)
-                    #if DEBUG
-                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
-                        if UIFixture.isActive { TableDebugProbe.shared.tutorialChipFrame = r }
-                    }
-                    .onDisappear { if UIFixture.isActive && !showsColumnChip { TableDebugProbe.shared.tutorialChipFrame = nil } }
-                    #endif
             }
         }
         #if DEBUG
@@ -1037,12 +1102,6 @@ private struct GameScreen: View {
     /// view (`pinnedTipHead`).
     private func assistCards(inScroll: Bool) -> some View {
         VStack(alignment: .leading, spacing: AssistLayout.gap) {
-            if let welcome = shownWelcome {
-                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff,
-                                actionsInHead: inScroll)
-                    .background { if inScroll { tipFrameReporter } }
-                    .transition(.opacity)
-            }
             if let tip = gameState.tutorialTip {
                 TutorialTipView(tip: tip, onClose: tutorialTipClose)
                     .background { if inScroll { tipFrameReporter } }
@@ -1068,18 +1127,14 @@ private struct GameScreen: View {
     /// The tip's title row and × pinned at the short column's top while the tip's top is
     /// scrolled out of sight (the web's sticky .assist-tip__top): drawn over the tip's text on
     /// the card's fill, pushed up with the tip's foot as that leaves (the advice never under it).
-    /// The welcome's Keep and Turn off are in the row (identifiers "tip.pinned…"), as in the
-    /// short column's card's own title row (TutorialTipView.actionsInHead), which it covers.
     private var tipHeadPinned: Bool {
-        guard shownWelcome ?? gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
+        guard gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
         return f.minY < -0.5 && f.maxY > 0
     }
 
     @ViewBuilder private var pinnedTipHead: some View {
-        if let tip = shownWelcome ?? gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
-            let welcome = TutorialRules.isWelcome(tip)
-            TutorialTipHead(tip: tip, onClose: welcome ? tutorialClose : tutorialTipClose,
-                            onKeep: tutorialKeep, onTurnOff: tutorialOff, pinned: true)
+        if let tip = gameState.tutorialTip, let f = assistTipFrame, tipHeadPinned {
+            TutorialTipHead(tip: tip, onClose: tutorialTipClose, pinned: true)
                 .padding(.horizontal, Theme.Space.s3)
                 .padding(.vertical, Theme.Space.s1)
                 .background(
@@ -1121,22 +1176,27 @@ private struct GameScreen: View {
         #endif
     }
 
-    /// The welcome's Keep button: /tutorial keep.
-    private func tutorialKeep() {
-        actions.tutorialKeep(connected: isConnectedForTutorial)
+    /// The switch (the corner's, the vertical bar's), off -> on: where that makes this game count
+    /// as bot-assisted for me (TutorialRules.needsConfirm) the alert asks first, else /tutorial on.
+    private func requestTutorialOn() {
+        // offline: the reconnecting notice, not a question that then fails
+        guard isConnectedForTutorial else {
+            _ = actions.tutorialOn(connected: false)
+            return
+        }
+        if TutorialRules.needsConfirm(gameState.state) {
+            confirmsTutorialOn = true
+        } else {
+            tutorialOn()
+        }
     }
 
-    /// The welcome's close button (×): /tutorial close.
-    private func tutorialClose() {
-        actions.tutorialClose(connected: isConnectedForTutorial)
-    }
-
-    /// The vertical bar's switch, off -> on: /tutorial on.
+    /// /tutorial on (the alert's Turn on, or no need to ask).
     private func tutorialOn() {
         if actions.tutorialOn(connected: isConnectedForTutorial) { HapticManager.selection() }
     }
 
-    /// The chip's switch or the welcome's Turn off: /tutorial off.
+    /// The switch (the corner's, the vertical bar's), on -> off: /tutorial off.
     private func tutorialOff() {
         if actions.tutorialOff(connected: isConnectedForTutorial) { HapticManager.selection() }
     }
@@ -1369,7 +1429,8 @@ enum AssistLayout {
         }
     }
 
-    /// `foot`: what the column holds under its cards (the "Tutorial on" chip and its gap), so a
+    /// `foot`: what the column holds under its cards (nothing today: the tutorial's chip went
+    /// with build 29), so a
     /// seat's cap leaves the cards themselves `minRoom`.
     static func frame(paneWidth: CGFloat, handMidX: CGFloat, handWidth: CGFloat, top: CGFloat, keeps: Keeps,
                       safeLeft: CGFloat = 0, safeRight: CGFloat = 0, foot: CGFloat = 0) -> CGRect {

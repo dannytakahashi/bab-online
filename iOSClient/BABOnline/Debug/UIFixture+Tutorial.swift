@@ -8,7 +8,8 @@ import Foundation
 /// play turn following a suit: T.follow "Following suit"; else T.trump), and on my own bid or
 /// play turn the advice (the /help answer with source `tutorial`, never counted).
 /// `-uiTutorialOff YES`: off at the start (assistState off, no pushes), its commands still answered
-/// (the iPhone Duo's bar switch turning it on). `-uiTutorialWelcome NO`: no welcome (it was kept
+/// (the switch turning it on; a manual on, or an auto-start reaching my own decision, sends
+/// `assisted: true` from then on, as the server's tutorialEver, so a later on asks nothing). `-uiTutorialWelcome NO`: no welcome (it was kept
 /// in an earlier session). The chat's
 /// /tutorial, /tutorial on, /tutorial off, /tutorial keep and /tutorial close are answered as the server does
 /// (assistState, "Tips off. /help still works any time."). Every line shows in "fixture.sent";
@@ -20,6 +21,13 @@ extension UIFixture {
 
     @MainActor private static weak var tutorialStore: GameState?
     @MainActor private static var tutorialOnNow = false
+    /// The server's `assisted`: a manual on makes the game bot-assisted (tutorialEver), and it stays.
+    @MainActor private static var tutorialAssisted = false
+    /// On by the auto-start (assistState `auto`), until turned off.
+    @MainActor private static var tutorialAutoNow = false
+    /// Every push carries the seat's tally, `assisted` included (as the server's), so a tip or a
+    /// status reply never takes it back.
+    private static var assistedNow: Bool { MainActor.assumeIsolated { tutorialAssisted } }
 
     /// The server's texts (server/game/assist/curriculum.js; docs/claude/assist.md, The tutorial).
     static let welcomeText = "Tips will appear above your cards. Only you see them. Close one with \u{00D7}, or choose Turn off to stop them."
@@ -40,8 +48,10 @@ extension UIFixture {
     static func setTutorial(_ on: Bool, auto: Bool = false) {
         guard let store = tutorialStore else { return }
         tutorialOnNow = on
+        tutorialAutoNow = on && auto
+        if on && !auto { tutorialAssisted = true }
         _ = store.apply(serverEvent: "assistState", payload: [[
-            "tutorial": on, "auto": on && auto, "uses": 0, "freeUses": 3, "assisted": false,
+            "tutorial": on, "auto": on && auto, "uses": 0, "freeUses": 3, "assisted": tutorialAssisted,
         ] as [String: Any]])
     }
 
@@ -51,11 +61,19 @@ extension UIFixture {
         guard let store = tutorialStore, tutorialOnNow else { return }
         let s = store.state
         if tutorialWelcome { push(store, tip(s, "T.welcome", "Tutorial on", welcomeText, actions: ["keep", "off"])) }
+        // the server's first-decision marker (after the welcome, before the rule tip): an
+        // auto-start's game counts as bot-assisted from the seat's first own decision
+        // (assistState with assisted, tutorialEver)
+        if case .choosing = s.myTurn, tutorialAutoNow && !tutorialAssisted {
+            tutorialAssisted = true
+            setTutorial(true, auto: true)
+        }
         push(store, ruleTip(s))
         if case .choosing = s.myTurn {
             var advice = assistPayload(s, uses: 0, free: false)
             advice["source"] = "tutorial"
             advice["counted"] = false
+            advice["assisted"] = tutorialAssisted
             advice.removeValue(forKey: "note")
             if advice["kind"] as? String != "status" { push(store, advice) }
         }
@@ -71,7 +89,7 @@ extension UIFixture {
         let stage = s.table.phase.kind == .playing ? "PLAYING" : "BIDDING"
         var p: [String: Any] = [
             "v": 1, "source": "tutorial", "kind": "tip", "turnKey": "\(dealSeq)|\(stage)|\(s.table.phase.turn ?? 0)|0|0",
-            "headline": title, "reasons": [text], "uses": 0, "freeUses": 3, "assisted": false, "counted": false, "tipId": id,
+            "headline": title, "reasons": [text], "uses": 0, "freeUses": 3, "assisted": assistedNow, "counted": false, "tipId": id,
         ]
         if let actions { p["actions"] = actions }
         return p
@@ -110,7 +128,7 @@ extension UIFixture {
         let word = line.split(separator: " ").dropFirst().first.map(String.init)
         let status = { (text: String) in
             push(store, ["v": 1, "source": "tutorial", "kind": "status", "turnKey": "1|BIDDING|0|0|0", "headline": text,
-                         "reasons": [String](), "uses": 0, "freeUses": 3, "assisted": false, "counted": false])
+                         "reasons": [String](), "uses": 0, "freeUses": 3, "assisted": tutorialAssisted, "counted": false])
         }
         switch word {
         case nil:

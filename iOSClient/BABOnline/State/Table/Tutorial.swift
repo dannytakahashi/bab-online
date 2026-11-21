@@ -13,19 +13,20 @@ import Foundation
 //    log row "Tutorial: <text>" (the log's first tutorial row ends " (only you see this)":
 //    TableReducer.tutorialNote). Not tied to the turn: up until closed, the
 //    next tip, or my own bid or card. ONE TIP CARD AT A TIME (lead 2026-11-19; the stack pushed
-//    the advice below the fold): the welcome (T.welcome, `actions` keep / off) has its own slot
-//    with Keep / Turn off and priority while it is up, so a rule tip that comes meanwhile is
-//    its log row only until the welcome goes (Keep, ×, Turn off), then shows if still up
-//    (GameState.tutorialTip); a newer rule tip replaces an older one. VoiceOver hears only the
-//    card shown: a tip kept behind the welcome is announced when it comes into view.
+//    the advice below the fold): a newer rule tip replaces an older one; VoiceOver hears each
+//    once. The welcome (T.welcome) is never a card (below).
 //  - assistHint {source 'tutorial', kind 'status'}: the private reply to /tutorial (a /help status).
 //  - s2c assistState {tutorial, auto, uses, freeUses, assisted, unlimited?}: on every change and
-//    after a rejoin; the snapshot's viewer.assist.tutorial / auto after a relaunch. While on, my
-//    seat shows the "Tutorial on" chip (TutorialChipView) with an off switch.
+//    after a rejoin; the snapshot's viewer.assist.tutorial / auto after a relaunch. My seat has
+//    the tutorial's switch all game, on or off: the round corner button under the log's
+//    (TutorialCornerButton), the iPhone Duo's vertical bar item there. Turning it on asks first
+//    where that makes the game bot-assisted for me (`needsConfirm`, owner 2026-11-21). The
+//    welcome tip is no card on iOS: its row goes to the log (TableReducer.tutorialTip), never
+//    announced, with iOS's own words (`hiddenWelcomeText`).
 //
-// Commands go as chat lines (no c2s of their own): /tutorial (toggle), /tutorial on|off,
-// /tutorial keep (the welcome's Keep: silent, the account stays as it is) and /tutorial close
-// (the welcome's ×: silent; it ends an auto-start's "pending" account, plan 5.2).
+// Commands go as chat lines (no c2s of their own): /tutorial (toggle), /tutorial on|off (the
+// switch), and, typed only (iOS draws no welcome card since build 29), /tutorial keep and
+// /tutorial close (the web's welcome buttons; close ends an auto-start's "pending" account).
 // Names only in every text (the server's tip texts are linted there).
 
 /// My seat's tutorial as the server last said (assistState, the snapshot's viewer.assist).
@@ -45,9 +46,9 @@ enum TutorialRules {
     static let closeCommand = "/tutorial close"
     /// The words after /tutorial the server knows (a typed line keeps them).
     static let arguments = ["on", "off", "keep", "close"]
-    /// The welcome tip's id: its own slot, with Keep / Turn off.
+    /// The welcome tip's id (never a card on iOS: its row only).
     static let welcomeId = "T.welcome"
-    /// The welcome's buttons this build draws (assistHint.actions).
+    /// The welcome's actions this build decodes (assistHint.actions; it draws no welcome card).
     static let knownActions = ["keep", "off"]
 
     /// The chat command list's line for /tutorial.
@@ -62,9 +63,25 @@ enum TutorialRules {
     /// The vertical bar's switch while the tutorial is off (GameContainerView.tutorialBarToggle).
     static let barOffText = "Tutorial off"
     static let barOnHint = "Turns on tips and advice for every turn."
-    /// The welcome's buttons and a tip's close button.
-    static let keepLabel = "Keep"
-    static let offLabel = "Turn off"
+    /// The alert before the switch turns it on where that makes the game bot-assisted for me
+    /// (the server's words: "it goes in your bot-game stats, not the human leaderboard").
+    static let confirmTitle = "Turn on the tutorial?"
+    static let confirmMessage = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard."
+    static let confirmButton = "Turn on"
+    static let confirmCancel = "Cancel"
+
+    /// The switch asks before turning it on: the server's /tutorial on makes the game
+    /// bot-assisted for me (tutorialEver), unless it already is (the server's `assisted`: more
+    /// than 3 counted /help uses, or the tutorial on earlier) or the game has a native bot seat
+    /// (its stats are bot-game stats anyway, and players see nothing about bot-assisted there:
+    /// AssistRules.isFreeHelpGame).
+    static func needsConfirm(_ s: TableState) -> Bool {
+        !AssistRules.isFreeHelpGame(s) && s.table.assistUses?.assisted != true
+    }
+    /// The welcome's row in the log on iOS, where it is no card (TableReducer.tutorialTip): the
+    /// server's text names the card's Turn off, which iOS does not draw; the switch is the cap.
+    static let hiddenWelcomeText = "Tips will appear above your cards. Only you see them. Close one with \u{00D7}, or tap the graduation cap to stop them."
+    /// A tip's close button.
     static let closeLabel = "Close tip"
 
     /// The private log rows' label for what the tutorial says (tips and its status replies;
@@ -93,7 +110,7 @@ enum TutorialRules {
     /// one announcement only.
     static func seenKey(_ h: AssistHint) -> String { "\(h.tipId ?? "-")|\(h.reasons.first ?? h.headline)" }
 
-    /// The welcome tip (its own slot, with Keep / Turn off).
+    /// The welcome tip (its row only on iOS).
     static func isWelcome(_ h: AssistHint) -> Bool { h.kind == .tip && h.tipId == welcomeId }
 
     /// A typed "/tutorial <word>" (or a unique prefix of /tutorial with a word): what to send.

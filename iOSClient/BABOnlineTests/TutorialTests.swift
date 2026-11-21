@@ -3,7 +3,7 @@ import XCTest
 
 /// The tutorial on iOS (State/Table/Tutorial.swift; server: docs/claude/assist.md "The
 /// tutorial"): the cap and the wire (assistHint kind tip / tipId / actions, s2c assistState,
-/// the snapshot's viewer.assist.tutorial / auto), the reducer (tips, the welcome's own slot,
+/// the snapshot's viewer.assist.tutorial / auto), the reducer (tips, the welcome as a row,
 /// what clears them, the tutorial's advice never counted, on / off), the chip, the chat
 /// commands, the coordinator's Keep / Turn off, and the column's layout (AssistLayout).
 @MainActor
@@ -95,13 +95,11 @@ final class TutorialTests: XCTestCase {
         TableReducer.reduce(&s, welcome)
         TableReducer.reduce(&s, tip("T.bid", "Bidding", bidText))
         TableReducer.reduce(&s, advice())
-        XCTAssertNotNil(s.table.welcome)
         XCTAssertNotNil(s.table.tip)
         XCTAssertEqual(s.table.assist?.bid, "2")
-        // off: its tips, its welcome and its advice go
+        // off: its tip and its advice go
         TableReducer.reduce(&s, state(on: false))
         XCTAssertEqual(s.table.tutorial, TutorialStatus())
-        XCTAssertNil(s.table.welcome)
         XCTAssertNil(s.table.tip)
         XCTAssertNil(s.table.assist, "the tutorial's advice goes with it")
     }
@@ -116,7 +114,10 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(s.table.assist?.bid, "3", "what /help answered stays")
     }
 
-    func testOneTipCardAtATimeTheWelcomeFirstAndEveryRuleTipInTheLog() {
+    /// The welcome is never a card on iOS (owner 2026-11-21: the switch says it is on and turns
+    /// it off): its row (iOS's words, the log's first tutorial row, so with the note), never
+    /// announced; the rule tip shows at once and is heard; every rule tip has its row.
+    func testTheWelcomeIsARowAndTheRuleTipShowsAtOnce() {
         let store = GameState()
         var said: [String] = []
         store.announce = { said.append($0) }
@@ -125,40 +126,33 @@ final class TutorialTests: XCTestCase {
         store.apply(state(on: true, auto: true))
         XCTAssertTrue(store.showsTutorialChip)
         store.apply(welcome)
+        XCTAssertNil(store.tutorialTip, "no card for the welcome")
+        XCTAssertEqual(said, [], "never announced (its words name a button iOS does not draw)")
         store.apply(tip("T.bid", "Bidding", bidText))
-        XCTAssertEqual(store.tutorialWelcome?.tipId, "T.welcome")
-        XCTAssertNil(store.tutorialTip, "one tip card at a time: the welcome has priority while it is up")
-        XCTAssertEqual(store.state.table.tip?.tipId, "T.bid", "kept behind it")
-        XCTAssertEqual(said, ["Tip: Tutorial on. \(UIFixture.welcomeText)"], "VoiceOver hears only the card shown")
-        // every rule tip is in the log; the welcome is its card only (owner 2026-11-20: card + row
-        // under "<name> turned on the tutorial." read as the start message twice), so the rule
-        // tip's row is the log's first tutorial row and carries the note
-        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(bidText) (only you see this)"], "every rule tip is in the log, the welcome is not")
-        // the same tip again (a rejoin's welcome): no row or second announcement
+        XCTAssertEqual(store.tutorialTip?.headline, "Bidding", "the rule tip shows at once")
+        XCTAssertEqual(said, ["Tip: Bidding. \(bidText)"])
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(TutorialRules.hiddenWelcomeText) (only you see this)",
+                                                  "Tutorial: \(bidText)"], "the welcome's row first, in the server's order")
+        // the same welcome again (a rejoin): no second row
         store.apply(welcome)
+        XCTAssertEqual(privateRows(store.state).count, 2)
         XCTAssertEqual(said.count, 1)
-        XCTAssertEqual(privateRows(store.state).count, 1)
-        // Keep: the welcome goes, the rule tip behind it shows and is heard now
-        store.apply(.local(.tutorialWelcomeKept))
-        XCTAssertNil(store.tutorialWelcome)
-        XCTAssertEqual(store.tutorialTip?.headline, "Bidding")
-        XCTAssertEqual(said, ["Tip: Tutorial on. \(UIFixture.welcomeText)", "Tip: Bidding. \(bidText)"])
         // a rule tip's close
         store.apply(.local(.tutorialTipDismissed))
         XCTAssertNil(store.tutorialTip)
         XCTAssertTrue(store.showsTutorialChip, "closing a tip leaves the tutorial on")
     }
 
-    func testAWelcomeThatCannotShowAsACardStillLeavesItsRow() {
-        // no table yet (as at the draw): the row is the welcome's only copy
+    func testAWelcomeBeforeTheTableStillLeavesItsRow() {
+        // no table yet (as at the draw): the row, in iOS's words
         let store = GameState()
         store.apply(.local(.identity(username: "me", playerId: "sid-me")))
         store.apply(welcome)
-        XCTAssertNil(store.tutorialWelcome)
-        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(UIFixture.welcomeText) (only you see this)"])
+        XCTAssertNil(store.tutorialTip)
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(TutorialRules.hiddenWelcomeText) (only you see this)"])
     }
 
-    func testANewerRuleTipReplacesTheOneBehindTheWelcome() {
+    func testANewerRuleTipReplacesTheOneUp() {
         let store = GameState()
         var said: [String] = []
         store.announce = { said.append($0) }
@@ -168,38 +162,19 @@ final class TutorialTests: XCTestCase {
         store.apply(welcome)
         store.apply(tip("T.trump", "Trump", "Trump this hand is diamonds."))
         store.apply(tip("T.bid", "Bidding", bidText))
-        XCTAssertNil(store.tutorialTip)
-        XCTAssertEqual(privateRows(store.state).count, 2, "both rule tips are in the log (the welcome is its card only)")
-        store.apply(.local(.tutorialWelcomeKept))
         XCTAssertEqual(store.tutorialTip?.tipId, "T.bid", "the newer replaced the older")
-        XCTAssertEqual(said.last, "Tip: Bidding. \(bidText)")
-        XCTAssertEqual(said.count, 2, "the replaced tip was never shown, so never said")
-        // after the welcome, a newer rule tip replaces the one up and is heard at once
-        store.apply(tip("T.set", "Set", "Set means you lost."))
-        XCTAssertEqual(store.tutorialTip?.tipId, "T.set")
-        XCTAssertEqual(said.last, "Tip: Set. Set means you lost.")
-        // a tip behind the welcome that my own bid ended is never said
-        let t = GameState()
-        var heard: [String] = []
-        t.announce = { heard.append($0) }
-        t.apply(.local(.identity(username: "me", playerId: "sid-me")))
-        t.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
-        t.apply(state(on: true, auto: true))
-        t.apply(welcome)
-        t.apply(tip("T.bid", "Bidding", bidText))
-        t.apply(.local(.submitBid("2", reqId: 1)))
-        t.apply(.local(.tutorialWelcomeKept))
-        XCTAssertNil(t.tutorialTip)
-        XCTAssertEqual(heard.count, 1)
+        XCTAssertEqual(privateRows(store.state).count, 3, "the welcome's row and both rule tips' rows")
+        XCTAssertEqual(said, ["Tip: Trump. Trump this hand is diamonds.", "Tip: Bidding. \(bidText)"])
+        // my own bid ends the tip about it
+        store.apply(.local(.submitBid("2", reqId: 1)))
+        XCTAssertNil(store.tutorialTip)
         // Turn off: no tip shows while the server's answer is on its way
         let u = GameState()
         u.apply(.local(.identity(username: "me", playerId: "sid-me")))
         u.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
         u.apply(state(on: true, auto: true))
-        u.apply(welcome)
         u.apply(tip("T.bid", "Bidding", bidText))
         u.apply(.local(.tutorialOffSent))
-        XCTAssertNil(u.tutorialWelcome)
         XCTAssertNil(u.tutorialTip)
     }
 
@@ -231,7 +206,7 @@ final class TutorialTests: XCTestCase {
                                                   "Tutorial: Follow the suit led if you can."])
     }
 
-    func testMyOwnBidEndsTheRuleTipButNotTheWelcome() {
+    func testMyOwnBidEndsTheRuleTip() {
         var s = myBidTurn()
         TableReducer.reduce(&s, state(on: true))
         TableReducer.reduce(&s, welcome)
@@ -241,7 +216,6 @@ final class TutorialTests: XCTestCase {
         XCTAssertNotNil(s.table.tip)
         TableReducer.reduce(&s, .local(.submitBid("2", reqId: 1)))
         XCTAssertNil(s.table.tip, "my bid is on its way: the tip about it is done")
-        XCTAssertNotNil(s.table.welcome, "the welcome waits for Keep / Turn off")
         var t = myBidTurn()
         TableReducer.reduce(&t, state(on: true))
         TableReducer.reduce(&t, tip("T.trump", "Trump", "Trump this hand is diamonds."))
@@ -253,7 +227,6 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(t.table.tip?.tipId, "T.handScore")
         TableReducer.reduce(&t, T.ev("gameEnd", ["score": ["team1": 300, "team2": 0], "seq": 6]))
         XCTAssertNil(t.table.tip, "game over")
-        XCTAssertNil(t.table.welcome)
         // on the game-end screen a tip is its row only
         TableReducer.reduce(&t, tip("T.done", "Tutorial complete", "Thanks for playing with the tutorial. Type /help any time for a suggestion."))
         XCTAssertNil(t.table.tip)
@@ -284,9 +257,10 @@ final class TutorialTests: XCTestCase {
         var s = myBidTurn()
         TableReducer.reduce(&s, state(on: true))
         TableReducer.reduce(&s, welcome)
+        TableReducer.reduce(&s, tip("T.bid", "Bidding", bidText))
         TableReducer.reduce(&s, .local(.tutorialOffSent))
         XCTAssertTrue(s.table.tutorialOffSent)
-        XCTAssertNil(s.table.welcome, "Turn off: the welcome goes at once")
+        XCTAssertNil(s.table.tip, "off: the tip goes at once")
         XCTAssertTrue(s.table.tutorial.on, "the server says when it is off")
         // the rate limit's reply: still on, the switch is back
         TableReducer.reduce(&s, T.ev("assistHint", ["v": 1, "source": "tutorial", "kind": "status", "turnKey": bidKey,
@@ -372,7 +346,8 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(TutorialRules.commandDescription(on: true), "Turn off the tutorial")
         // names only: never team numbers, "your team" or "opponents" in this build's words
         let words = [TutorialRules.describeOff, TutorialRules.describeOn, TutorialRules.chipText, TutorialRules.chipLabel,
-                     TutorialRules.chipHint, TutorialRules.keepLabel, TutorialRules.offLabel, TutorialRules.closeLabel]
+                     TutorialRules.chipHint, TutorialRules.barOffText, TutorialRules.barOnHint, TutorialRules.closeLabel,
+                     TutorialRules.confirmTitle, TutorialRules.confirmMessage, TutorialRules.hiddenWelcomeText]
         for w in words {
             for bad in ["Team 1", "Team 2", "T1", "T2", "your team", "Your Team", "opponent", "Opponent"] {
                 XCTAssertFalse(w.contains(bad), "\(w)")
@@ -401,39 +376,72 @@ final class TutorialTests: XCTestCase {
     /// The iPhone Duo's vertical bar (owner 2026-11-21): its switch turns the tutorial on with
     /// /tutorial on, and a welcome there is no card: its row in the log once a game, the rule tip
     /// behind it up and heard, nothing sent.
-    func testTheBarsSwitchTurnsItOnAndAHiddenWelcomeIsARow() {
+    func testTheSwitchTurnsItOnAndWaitsForTheServer() {
         let store = GameState()
         let emitter = FakeEmitter()
-        var said: [String] = []
-        store.announce = { said.append($0) }
         let actions = ActionCoordinator(store: store, emitter: emitter, clock: ManualClock(), sounds: RecordingSounds(),
                                         soundClock: ManualClock(), tunePlayer: FakeTunePlayer(SoundClock()), askClock: ManualClock())
         store.apply(.local(.identity(username: "me", playerId: "sid-me")))
         store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
-        XCTAssertTrue(store.showsAssistBarItem, "my seat: the bar's switch is there with the tutorial off")
+        XCTAssertTrue(store.showsAssistBarItem, "my seat: the switch is there with the tutorial off")
         XCTAssertFalse(actions.tutorialOn(connected: false), "offline: nothing sent")
+        XCTAssertEqual(store.notice?.text, AssistRules.reconnecting)
         XCTAssertEqual(emitter.sent, [])
         XCTAssertTrue(actions.tutorialOn(connected: true))
         XCTAssertEqual(emitter.sent, [.chat("/tutorial on")])
-        store.apply(state(on: true, auto: true))
+        XCTAssertTrue(store.tutorialOnSent, "it waits for the server")
+        XCTAssertFalse(actions.tutorialOn(connected: true), "a second tap sends nothing")
+        XCTAssertEqual(emitter.sent.count, 1)
+        // a snapshot meanwhile keeps the wait
+        store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertTrue(store.tutorialOnSent)
+        store.apply(state(on: true))
+        XCTAssertFalse(store.tutorialOnSent, "the server's assistState settles it")
         XCTAssertFalse(actions.tutorialOn(connected: true), "on already: nothing to send")
-        store.apply(welcome)
-        store.apply(tip("T.bid", "Bidding", bidText))
-        XCTAssertNil(store.tutorialTip, "behind the welcome")
-        store.apply(.local(.tutorialWelcomeHidden))
-        XCTAssertNil(store.tutorialWelcome)
-        XCTAssertEqual(store.tutorialTip?.headline, "Bidding", "the rule tip shows at once")
-        XCTAssertEqual(said.last, "Tip: Bidding. \(bidText)", "and is heard")
-        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(bidText) (only you see this)", "Tutorial: \(UIFixture.welcomeText)"],
-                       "the welcome's row, once (the first row keeps the note)")
-        XCTAssertEqual(emitter.sent, [.chat("/tutorial on")], "nothing sent for the hidden welcome")
-        // a rejoin's welcome again: hidden again, no second row
-        store.apply(welcome)
-        store.apply(.local(.tutorialWelcomeHidden))
-        XCTAssertEqual(privateRows(store.state).count, 2)
+        // a status reply (the rate limit) settles it too
+        let t = GameState()
+        let e2 = FakeEmitter()
+        let a2 = ActionCoordinator(store: t, emitter: e2, clock: ManualClock(), sounds: RecordingSounds(),
+                                   soundClock: ManualClock(), tunePlayer: FakeTunePlayer(SoundClock()), askClock: ManualClock())
+        t.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        t.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertTrue(a2.tutorialOn(connected: true))
+        t.apply(T.ev("assistHint", ["v": 1, "source": "tutorial", "kind": "status", "turnKey": bidKey,
+                                   "headline": "One moment: try again in a few seconds.", "reasons": [String](),
+                                   "uses": 0, "freeUses": 3, "assisted": false, "counted": false]))
+        XCTAssertFalse(t.tutorialOnSent)
+        XCTAssertTrue(a2.tutorialOn(connected: true), "it may be tried again")
     }
 
-    func testKeepAndTurnOffSendTheirLines() {
+    /// The switch (the corner's button, the Duo's bar item) asks before turning the tutorial on
+    /// where that makes the game bot-assisted for me (owner 2026-11-21): not once it already is
+    /// (the server's `assisted`), and never in a game with a native bot seat (no such words there).
+    func testTheSwitchAsksFirstOnlyWhereTheGameWouldBecomeBotAssisted() throws {
+        let store = GameState()
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(.snapshot(try T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertFalse(AssistRules.isFreeHelpGame(store.state), "the fixture's seats are human")
+        XCTAssertTrue(TutorialRules.needsConfirm(store.state), "a human game not yet assisted: ask")
+        // an auto-start turned off before my first decision is not assisted: ask
+        store.apply(state(on: false, auto: false))
+        XCTAssertTrue(TutorialRules.needsConfirm(store.state))
+        // on once (tutorialEver): the game stays assisted, a second on asks nothing
+        store.apply(T.ev("assistState", ["tutorial": false, "auto": false, "uses": 0, "freeUses": 3, "assisted": true]))
+        XCTAssertFalse(TutorialRules.needsConfirm(store.state))
+        // a game with a native bot seat: its stats are bot-game stats anyway, and nothing is said
+        let bots = GameState()
+        bots.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        bots.apply(.snapshot(try T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        bots.apply(state(on: false, unlimited: true))
+        XCTAssertTrue(AssistRules.isFreeHelpGame(bots.state))
+        XCTAssertFalse(TutorialRules.needsConfirm(bots.state))
+        // the words: the server's own for the stats bucket, names none
+        XCTAssertTrue(TutorialRules.confirmMessage.contains("it goes in your bot-game stats, not the human leaderboard"))
+        XCTAssertTrue(TutorialRules.hiddenWelcomeText.hasPrefix("Tips will appear above your cards. Only you see them."))
+        XCTAssertFalse(TutorialRules.hiddenWelcomeText.contains("Turn off"), "iOS draws no Turn off")
+    }
+
+    func testTurnOffSendsItsLine() {
         let store = GameState()
         let emitter = FakeEmitter()
         let actions = ActionCoordinator(store: store, emitter: emitter, clock: ManualClock(), sounds: RecordingSounds(),
@@ -442,20 +450,9 @@ final class TutorialTests: XCTestCase {
         store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
         XCTAssertFalse(actions.tutorialOff(connected: true), "off already: nothing to send")
         store.apply(state(on: true, auto: true))
-        store.apply(welcome)
-        actions.tutorialKeep(connected: true)
-        XCTAssertEqual(emitter.sent, [.chat("/tutorial keep")])
-        XCTAssertNil(store.tutorialWelcome)
-        // the welcome's ×: its own line (the server dismisses an auto-start for it, not for Keep)
-        store.apply(welcome)
-        XCTAssertNotNil(store.tutorialWelcome)
-        actions.tutorialClose(connected: true)
-        XCTAssertEqual(emitter.sent, [.chat("/tutorial keep"), .chat("/tutorial close")])
-        XCTAssertNil(store.tutorialWelcome)
-        XCTAssertTrue(store.showsTutorialChip, "closing the welcome leaves the tutorial on")
         XCTAssertFalse(actions.tutorialOff(connected: false))
         XCTAssertEqual(store.notice?.text, AssistRules.reconnecting)
-        XCTAssertEqual(emitter.sent.count, 2)
+        XCTAssertEqual(emitter.sent, [])
         XCTAssertTrue(actions.tutorialOff(connected: true))
         XCTAssertEqual(emitter.sent.last, .chat("/tutorial off"))
         XCTAssertTrue(store.tutorialOffSent)

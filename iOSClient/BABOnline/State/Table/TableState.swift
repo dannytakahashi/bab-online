@@ -39,18 +39,16 @@ struct TableSlice: Equatable {
     /// The tutorial (State/Table/Tutorial.swift): on / auto as the server last said (assistState,
     /// the snapshot's viewer.assist); off for a new game.
     var tutorial = TutorialStatus()
-    /// The chip's switch or the welcome's Turn off sent /tutorial off: the switch shows off
-    /// until the server's assistState (or its status reply) settles it.
+    /// The switch sent /tutorial off: it shows off and waits until the server's assistState (or
+    /// its status reply) settles it.
     var tutorialOffSent = false
+    /// The switch sent /tutorial on: it shows on and waits the same way (no second send, no
+    /// second question).
+    var tutorialOnSent = false
     /// The rule tip up (TutorialTipView, kind `tip`), nil when none.
     var tip: AssistHint?
-    /// The welcome tip (T.welcome, with Keep / Turn off), until kept, turned off or closed.
-    var welcome: AssistHint?
     /// Tips already logged this game (TutorialRules.seenKey): each once.
     var tipsSeen: Set<String> = []
-    /// The rule tip up came while the welcome was (so it is not shown yet) and VoiceOver has not
-    /// heard it: it is announced when the welcome goes.
-    var tipUnheard = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).

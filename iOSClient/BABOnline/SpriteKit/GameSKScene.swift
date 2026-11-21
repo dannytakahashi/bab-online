@@ -542,7 +542,7 @@ class GameSKScene: SKScene, TableRenderer {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         let i = chrome.safeArea, L = layout
         print("[Layout] \(Int(size.width))x\(Int(size.height)) insets \(i.top)/\(i.left)/\(i.bottom)/\(i.right) topBar \(chrome.topBar) "
-              + "corner \(chrome.cornerButton) bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
+              + "corner \(chrome.cornerButton) +\(L.chrome.cornerTrailingExtra)\(L.tutorialBeside ? " beside" : "") bottomBar \(chrome.bottomBar) fold \(chrome.fold.map { "\($0)" } ?? "-") "
               + "occlusions \(chrome.occlusions.count) banner \(chrome.banner) -> zoom \(L.zoom) s \(L.handScale) k \(L.trickScale) \(L.mode) "
               + "degraded \(L.isDegraded) usedBottomBar \(L.usedBottomBar)")
     }

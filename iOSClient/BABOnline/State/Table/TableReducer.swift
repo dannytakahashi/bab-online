@@ -41,14 +41,10 @@ enum LocalAction: Equatable {
     case assistDismissed
     /// A rule tip's close button (local: the server is not told).
     case tutorialTipDismissed
-    /// The welcome's Keep or close button (ActionCoordinator sent /tutorial keep or /tutorial close).
-    case tutorialWelcomeKept
-    /// The welcome is not shown as a card (the iPhone Duo's vertical bar has the tutorial's
-    /// switch): its text goes to the log once, and the rule tip behind it shows now. Nothing is
-    /// sent (an auto-start stays as it is, as before Keep or ×).
-    case tutorialWelcomeHidden
-    /// The chip's switch or the welcome's Turn off (ActionCoordinator sent /tutorial off).
+    /// The switch turned it off (ActionCoordinator sent /tutorial off).
     case tutorialOffSent
+    /// The switch turned it on (ActionCoordinator sent /tutorial on).
+    case tutorialOnSent
     /// HSIScale.revealDelay after a live deal (ActionCoordinator, `.revealHSI`): its HSI shows.
     /// A later deal's reveal is its own (a stale one, after a redeal, changes nothing).
     case hsiRevealed(dealSeq: Int)
@@ -256,16 +252,14 @@ enum TableReducer {
             clearAssist(&s)
         case .tutorialTipDismissed:
             clearTip(&s)
-        case .tutorialWelcomeKept:
-            welcomeGone(&s, &fx)
-        case .tutorialWelcomeHidden:
-            welcomeHidden(&s, &fx)
         case .tutorialOffSent:
-            // every tip goes (a rule tip behind the welcome does not come up for the moment
-            // until the server's assistState: its row is in the log)
-            s.table.welcome = nil
+            // the tip goes at once (its row is in the log); the server's assistState settles it
             clearTip(&s)
             s.table.tutorialOffSent = true
+            s.table.tutorialOnSent = false
+        case .tutorialOnSent:
+            s.table.tutorialOnSent = true
+            s.table.tutorialOffSent = false
         case .hsiRevealed(let dealSeq):
             if s.table.deal?.dealSeq == dealSeq { s.table.hsiHeld = false }
         case .snapshotUnavailable(let requestId):
