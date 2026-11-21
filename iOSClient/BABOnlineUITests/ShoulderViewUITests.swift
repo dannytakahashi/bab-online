@@ -175,6 +175,11 @@ final class ShoulderViewUITests: XCTestCase {
         XCTAssertTrue(any(app, "assistCard").waitForExistence(timeout: 8), "the watched seat's advice")
         XCTAssertTrue(any(app, "tutorialTip").exists, "the watched seat's tip")
         XCTAssertTrue(app.staticTexts["Bid 2"].exists)
+        // the watched player's heading and no count (#369's card views, fed by the watch state)
+        XCTAssertEqual(any(app, "assistCard").label, "Suggestion for ned")
+        XCTAssertTrue(app.staticTexts["ned's advice"].exists, "the advice's heading")
+        XCTAssertEqual(any(app, "tutorialTip").label, "Tip for ned")
+        XCTAssertEqual(any(app, "assist.footer").label, "What our strongest bot would play", "no count, no free uses")
         // (the column scrolls when short: its headline is kept in sight, above the sheet and its clock)
         XCTAssertLessThanOrEqual(any(app, "assist.headline").frame.maxY, sheet.frame.minY + 1, "the advice sits above the sheet")
         let clockProbe = waitProbe(app, "table.bidClock") { $0 != "-" }

@@ -11,8 +11,10 @@ import Foundation
 /// player's (`-uiWatchedHintUses <n>`, default 4: counted and bot-assisted, so my own card's
 /// footer would say "Help 4: this game counts as bot-assisted for you"), with no `note` (the
 /// server drops it from the copy). `-uiWatchedHintQuick YES`: the answer is a Quick suggestion.
-/// The cards come through the table's own path (my seat, my turn) until the watch state exists;
-/// their × only takes them down, so "fixture.sent" stays "-".
+/// The cards come through the seated table's own path (my seat, my turn), so they carry no
+/// `watched` key: the reducer drops a copy that reaches a seat (TableReducer.watchedHint), as the
+/// server never sends one there; the real watched path is UIFixture+Shoulder (`-uiShoulderHint`).
+/// Their × only takes them down, so "fixture.sent" stays "-".
 extension UIFixture {
     static let watchedHintName: String? = isActive ? UserDefaults.standard.string(forKey: "uiWatchedHint") : nil
     static let watchedHintUses: Int = max(1, UserDefaults.standard.object(forKey: "uiWatchedHintUses") == nil
@@ -30,13 +32,10 @@ extension UIFixture {
     @MainActor
     static func pushWatchedHints(_ store: GameState) {
         let s = store.state
-        let seat = max(s.table.viewer.position ?? 1, 1)
         var tip = ruleTip(s)
-        tip["watched"] = seat
         tip.removeValue(forKey: "actions")
         _ = store.apply(serverEvent: "assistHint", payload: [tip])
         var advice = assistPayload(s, uses: watchedHintUses, free: false)
-        advice["watched"] = seat
         advice.removeValue(forKey: "note")
         if watchedHintQuick, advice["kind"] as? String != "status" { advice["confidence"] = "quick" }
         _ = store.apply(serverEvent: "assistHint", payload: [advice])
