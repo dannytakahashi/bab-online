@@ -4,7 +4,9 @@ import UIKit
 /// Who is watching (V1_REMOVALS "iOS spectator badge"): an eye and the count at
 /// the layout's `spectatorBadge` rect, hidden at 0; "99+" past 99. A tap opens
 /// the names with their avatars ("(you)" on mine; scrolls past ~8; "and N more"
-/// past the server's 50). VoiceOver: "2 people watching", a button.
+/// past the server's 50). VoiceOver: "2 people watching", a button. A watcher looking over a
+/// seat's shoulder reads "Zach · watching Alice" (`seatNames`: the seats' names now; the
+/// spectator entries' `shoulder`, WatchingList+Shoulder.swift).
 ///
 /// The badge sits in a fixed 60 x 44 pt rect between the trick cards, the seats
 /// and HSI / voice, so its text stops growing at Dynamic Type .large, where "99+"
@@ -13,6 +15,7 @@ import UIKit
 struct SpectatorBadgeView: View {
     let watching: WatchingList
     let myUsername: String?
+    var seatNames: [Int: String] = [:]
     @State private var showsList = false
 
     var body: some View {
@@ -44,7 +47,7 @@ struct SpectatorBadgeView: View {
         .accessibilityHint("Shows who is watching")
         .accessibilityIdentifier("table.spectators")
         .popover(isPresented: $showsList, arrowEdge: .bottom) {
-            SpectatorListView(watching: watching, myUsername: myUsername)
+            SpectatorListView(watching: watching, myUsername: myUsername, seatNames: seatNames)
                 .presentationCompactAdaptation(.popover)
         }
     }
@@ -54,6 +57,7 @@ struct SpectatorBadgeView: View {
 struct SpectatorListView: View {
     let watching: WatchingList
     let myUsername: String?
+    var seatNames: [Int: String] = [:]
 
     static let rowHeight: CGFloat = 44
     static let visibleRows = 8
@@ -75,9 +79,9 @@ struct SpectatorListView: View {
                             AvatarImageView(pictureKey: w.pictureKey, name: w.username)
                                 .frame(width: 28, height: 28)
                                 .accessibilityHidden(true)
-                            Text(w.username == myUsername ? "\(w.username) (you)" : w.username)
+                            Text(WatchingList.rowText(w, me: myUsername, seatName: { seatNames[$0] }))
                                 .font(.body)
-                                .lineLimit(1)
+                                .lineLimit(w.shoulder == nil ? 1 : 2)
                         }
                         .frame(minHeight: Self.rowHeight)
                         .padding(.horizontal, 14)
