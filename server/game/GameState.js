@@ -204,6 +204,14 @@ class GameState {
         // Spectators: socketId → { username, pic }
         this.spectators = new Map();
 
+        // The tournament this table belongs to (tournamentHandlers'
+        // round tables; hydrate from the doc's tournamentId), or null.
+        // Kept on the game itself: GameManager.tournamentGames loses the
+        // entry when the tournament is cancelled or deleted while the
+        // table still lives (a cancel while it is suspended defers the
+        // abort to the thaw). DERIVED (the doc saves tournamentId itself)
+        this.tournamentId = null;
+
         // Over-the-shoulder view (socket/shoulderView.js): pure spectator
         // socketId → the position whose hand it watches. DERIVED (never
         // saved; watchers re-send watchHand after a re-spectate), cleared

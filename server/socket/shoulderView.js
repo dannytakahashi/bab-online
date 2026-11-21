@@ -29,7 +29,20 @@
  *       then the coalesced spectatorsUpdated.
  *     refused  -> watchHandRefused {gameId, position, reason, message,
  *       ownPosition?}; nothing changes (a current shoulder stays).
- * A socket without the cap never receives any shoulder data.
+ * A socket without the cap never receives any shoulder data, and nothing
+ * at all for its watchHand: it is dropped silently (debug log), so such a
+ * socket receives nothing new.
+ *
+ * One rule set (`refusal`) decides everything: the watchHand reply, every
+ * snapshot's viewer.shoulder, every deal's gameStart.shoulder and every
+ * mirrored hint. A table that is suspended (the LIVE_PERSIST self-fence)
+ * or frozen (handed off) is `unavailable`: nothing about a hand goes out
+ * of it, even on the direct socket.emit paths the suspended emit gate does
+ * not cover. A tournament table is known by `game.tournamentId` (set when
+ * the round creates it and at hydrate), which outlives the
+ * GameManager.tournamentGames entry a cancel or delete removes while the
+ * table still lives (a cancel while suspended defers its abort to the
+ * thaw).
  */
 
 'use strict';
@@ -44,12 +57,14 @@ const CAP = 'shoulderView';
 /** Stages before the first deal: no hand to watch yet. */
 const PRE_DEAL = new Set([Phase.CREATED, Phase.DRAWING, Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED]);
 
-/** watchHandRefused reasons and the messages clients may show. */
+/**
+ * watchHandRefused reasons and the messages clients may show ('capability'
+ * is internal: a socket without the cap gets no reply at all).
+ */
 const REFUSALS = Object.freeze({
-    capability: 'This app cannot show a player\'s hand.',
     not_spectating: 'You are not watching this game.',
+    unavailable: 'This table is paused or over. Try again in a moment.',
     tournament: 'Hands are hidden at tournament tables.',
-    ended: 'This game is over.',
     not_dealt: 'The cards have not been dealt yet.',
     own_seat: 'You have a seat at this table: you can watch only your own hand.',
 });
@@ -74,18 +89,29 @@ function ownSeatOf(game, sid) {
     return game.seatByUsername(recorded) || game.seatByUsername(authed) || null;
 }
 
+/** A tournament table: the game's own mark, or (older callers) the map. */
+function isTournamentTable(game) {
+    return !!game.tournamentId || gameManager.tournamentGames.has(game.gameId);
+}
+
+/** Suspended (self-fence), frozen (handed off) or terminal: no hand goes out. */
+function isUnavailable(game) {
+    return !!game.isSuspended || !!game.frozen || game.isTerminal();
+}
+
 /**
  * Why `socket` may not watch `position` (null = stop watching) at `game`,
  * or null when it may. Order: the cap, a pure spectator of that game, a
- * tournament table, ended, not dealt, the own-seat rule.
+ * table that is suspended / frozen / over, then (not for a stop) a
+ * tournament table, not dealt, the own-seat rule.
  * @returns {{reason: string, ownPosition?: number}|null}
  */
 function refusal(game, socket, position) {
     if (!clientInfo.hasCap(socket, CAP)) return { reason: 'capability' };
     if (!game || !isPureSpectator(game, socket.id)) return { reason: 'not_spectating' };
-    if (position === null) return null; // stopping is always allowed
-    if (gameManager.tournamentGames.has(game.gameId)) return { reason: 'tournament' };
-    if (game.isTerminal()) return { reason: 'ended' };
+    if (isUnavailable(game)) return { reason: 'unavailable' };
+    if (position === null) return null; // stopping is otherwise always allowed
+    if (isTournamentTable(game)) return { reason: 'tournament' };
     if (PRE_DEAL.has(game.stage)) return { reason: 'not_dealt' };
     const own = ownSeatOf(game, socket.id);
     if (own && own !== position) return { reason: 'own_seat', ownPosition: own };
@@ -159,6 +185,11 @@ function watchHand(socket, io, data) {
     const position = data.position === undefined ? null : data.position;
     const game = gameManager.getGameById(data.gameId);
     const refused = refusal(game, socket, position);
+    if (refused && refused.reason === 'capability') {
+        // a socket without the cap receives nothing new, not even a refusal
+        socketLogger.debug('watchHand without the cap: dropped', { socketId: socket.id });
+        return;
+    }
     if (refused) {
         socket.emit('watchHandRefused', {
             gameId: data.gameId,
@@ -188,6 +219,8 @@ module.exports = {
     CAP,
     REFUSALS,
     refusal,
+    isTournamentTable,
+    isUnavailable,
     watchedPosition,
     watchedPositionOf,
     shoulderPayload,

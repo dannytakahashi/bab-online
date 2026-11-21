@@ -20,7 +20,13 @@
  *   - a mirrored assistHint (watched) goes only to a watcher of that seat,
  *     without note / actions, never kind status; any other non-status
  *     assistHint goes to a seat owner socket;
- *   - the `shoulder` on spectator entries is who watches which hand now.
+ *   - the `shoulder` on spectator entries is who watches which hand now,
+ *     and every snapshot to a capable socket carries it (a snapshot path
+ *     that forgets the receiving socket drops it);
+ *   - nothing about a hand (shoulder, mirrored hint) ever comes from a
+ *     tournament table (the game's own tournamentId or the map), nor from
+ *     a table that is suspended, frozen or over: checked here on its own,
+ *     not through shoulderView's rules.
  *
  * watchShoulders(getIo, opts) -> {failures, counts, stop()}.
  */
@@ -55,6 +61,15 @@ function gameOf(entry, sid) {
     const id = entry.data?.gameId || entry.data?.snapshot?.gameId;
     if (id) return gm.getGameById(id);
     return gm.getPlayerGame(sid) || gm.getGameById(gm.spectatorGames.get(sid));
+}
+
+/** Why no hand may come out of `game` right now (independent of shoulderView.js), or null. */
+function closedTable(game) {
+    if (game.tournamentId || lazy.gm.tournamentGames.has(game.gameId)) return 'a tournament table';
+    if (game.isSuspended) return 'a suspended table';
+    if (game.frozen) return 'a frozen table';
+    if (game.isTerminal()) return 'an ended table';
+    return null;
 }
 
 function isPureSpectator(game, sid) {
@@ -112,7 +127,8 @@ function watchShoulders(getIo, { ownerHsi = 'any' } = {}) {
                 if (!game) { fail('shoulder for no game', entry, sid); continue; }
                 if (!isPureSpectator(game, sid)) fail('shoulder to a socket that is not a pure spectator', entry, sid, { where: h.where });
                 if (game.shoulders.get(sid) !== h.position) fail('shoulder of a seat the socket does not watch', entry, sid, { where: h.where, position: h.position, watching: game.shoulders.get(sid) ?? null });
-                if (lazy.gm.tournamentGames.has(game.gameId)) fail('shoulder at a tournament table', entry, sid);
+                const closed = closedTable(game);
+                if (closed) fail(`shoulder from ${closed}`, entry, sid);
                 const own = ownSeat(game, sid);
                 if (own && own !== h.position) fail('shoulder against the own-seat rule', entry, sid, { own, position: h.position });
                 if (!same(cards(h.hand), seatHand(game, h.position))) fail('shoulder hand is not the seat\'s hand', entry, sid, { where: h.where, position: h.position });
@@ -151,6 +167,8 @@ function watchShoulders(getIo, { ownerHsi = 'any' } = {}) {
                     counts.mirrored++;
                     if (!isPureSpectator(game, sid) || game.shoulders.get(sid) !== bits.watched) fail('mirrored hint to a socket not watching that seat', entry, sid, { watched: bits.watched });
                     if ('note' in d || 'actions' in d) fail('mirrored hint carries the asker\'s note / actions', entry, sid);
+                    const closed = closedTable(game);
+                    if (closed) fail(`mirrored hint from ${closed}`, entry, sid);
                     if (d.kind === 'status') fail('mirrored status hint', entry, sid);
                 } else if (d.kind !== 'status' && !game.seatByOwnerSocket(sid)) {
                     fail('a non-status hint to a socket that owns no seat', entry, sid);
@@ -163,6 +181,15 @@ function watchShoulders(getIo, { ownerHsi = 'any' } = {}) {
                 for (const e of bits.entries) {
                     counts.wideEntries++;
                     if (now.get(e.username) !== e.shoulder) fail('spectator entry shoulder is not who watches which hand', entry, sid, { username: e.username, shoulder: e.shoulder });
+                }
+                // a capable socket's snapshot carries the whole picture
+                if (snap && snap.watching && lazy.clientInfo.hasCap(socket, 'shoulderView')) {
+                    for (const e of snap.watching.spectators) {
+                        if (now.has(e.username) && e.shoulder !== now.get(e.username)) {
+                            counts.wideMissed = (counts.wideMissed || 0) + 1;
+                            fail('a capable socket\'s snapshot lacks who watches which hand', entry, sid, { username: e.username });
+                        }
+                    }
                 }
             }
         }

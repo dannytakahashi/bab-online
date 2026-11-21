@@ -169,7 +169,7 @@ describe('over-the-shoulder chaos', () => {
             expect(scan.counts.snapshotShoulders).toBeGreaterThan(0);
             expect(scan.counts.mirrored).toBeGreaterThan(0);
             expect(scan.counts.wideEntries).toBeGreaterThan(0);
-            for (const reason of ['capability', 'not_spectating', 'not_dealt', 'own_seat']) {
+            for (const reason of ['not_spectating', 'not_dealt', 'own_seat']) {
                 expect({ reason, n: scan.counts.refusals[reason] > 0 }).toEqual({ reason, n: true });
             }
         }

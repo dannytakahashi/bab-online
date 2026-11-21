@@ -521,13 +521,13 @@ describe('(b5) the over-the-shoulder view', () => {
         await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);
 
         const mark = w.log.length;
-        shoulderView.watchHand(plain, w.io, { gameId: game.gameId, position: pos });   // capability
+        shoulderView.watchHand(plain, w.io, { gameId: game.gameId, position: pos });   // no cap: dropped silently
         shoulderView.watchHand(fan, w.io, { gameId: game.gameId, position: pos, requestId: 'b5-w1' });
         chatHandlers.chatMessage(owner(pos), w.io, { message: '/help' });            // mirrored to fan
         await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);                 // the wide copy alone
         const mine = w.log.slice(mark).filter((l) => l.to === `self:${fan.id}` || l.to === fan.id).map((l) => l.event);
         expect(mine).toEqual(['stateSnapshot', 'assistHint', 'spectatorsUpdated']);
-        expect(w.log.slice(mark).filter((l) => l.to === `self:${plain.id}`).map((l) => [l.event, l.data.reason])).toEqual([['watchHandRefused', 'capability']]);
+        expect(w.log.slice(mark).filter((l) => l.to === `self:${plain.id}` || l.to === plain.id).map((l) => l.event)).toEqual([]);
 
         // the all-zero redeal: the watcher's spectator gameStart carries the seat's new hand
         const dealSeq = game.dealSeq;

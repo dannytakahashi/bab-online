@@ -63,7 +63,7 @@ function rejectAction(socket, game, action, reason, extra = {}) {
     socket.emit('actionRejected', {
         action,
         reason,
-        snapshot: snapshotFor(game, socket.id, { log: false })
+        snapshot: snapshotFor(game, socket.id, { log: false, socket })
     });
 }
 

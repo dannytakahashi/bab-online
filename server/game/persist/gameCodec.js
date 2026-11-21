@@ -182,6 +182,7 @@ const DERIVED = deepFreeze({
         'bidClock', 'bidTimeouts',                    // a fresh bid clock (the restore kick's trigger) and no strikes
         'spectators',                                 // people re-spectate
         'shoulders',                                  // over-the-shoulder watchers re-send watchHand after re-spectating
+        'tournamentId',                               // the doc's top-level tournamentId (hydrate sets it)
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
         'frozen', '_tainted',                         // a frozen or tainted game is never saved
@@ -438,6 +439,8 @@ function hydrate(doc, { now = Date.now(), onGraceExpire = null } = {}) {
     }
     const lobbyOrigin = decodeLobbyOrigin(state.lobbyOrigin);
     if (lobbyOrigin) game.lobbyOrigin = lobbyOrigin;
+    // DERIVED from the doc's own tournamentId (GameState.tournamentId)
+    game.tournamentId = typeof doc.tournamentId === 'string' && doc.tournamentId ? doc.tournamentId : null;
     return {
         game,
         bots: (Array.isArray(doc.bots) ? doc.bots : []).map((b) => json(b)),

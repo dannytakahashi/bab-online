@@ -141,3 +141,27 @@ test.each(['serialize', 'store'])('a watched game saved and adopted (%s): no sho
     expect([...game.shoulders.entries()]).toEqual([[fan2.id, 2]]);
     expect(scan.counts.snapshotShoulders).toBeGreaterThanOrEqual(2);
 }, 60000);
+
+test('an adopted tournament table keeps its mark on the game (game.tournamentId from the doc): the shoulder rule needs no map entry', async () => {
+    Math.random = mulberry32(32);
+    const w = world('shr2');
+    currentIo = w.io;
+    const names = ['shr2_ann', 'shr2_bob', 'shr2_cat', 'shr2_dan'];
+    const socks = names.map((n, i) => w.user(`shr2-h${i}`, n));
+    mainRoomHandlers.createLobby(socks[0], w.io, { name: 'restore table' });
+    const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+    for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+    const pending = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+    await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+    const game = gameManager.getPlayerGame(socks[0].id);
+    await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+    pending.push(...socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 })));
+    await advanceUntil(() => game.stage === Phase.BIDDING && !game.resume, 100);
+    await Promise.all(pending);
+    expect(game.tournamentId).toBeNull();
+    const tid = '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f';
+    const doc = JSON.parse(JSON.stringify(codec.serialize(game, { tournamentId: tid, getBot: () => null })));
+    expect(codec.hydrate(doc).game.tournamentId).toBe(tid);
+    const casual = JSON.parse(JSON.stringify(codec.serialize(game, { tournamentId: null, getBot: () => null })));
+    expect(codec.hydrate(casual).game.tournamentId).toBeNull();
+}, 60000);

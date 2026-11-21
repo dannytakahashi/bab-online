@@ -410,8 +410,10 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `watchHandRefused`; every later deal's spectator `gameStart.shoulder`; the
   watched seat's hints as `assistHint {watched}`; `shoulder` on the entries
   of the spectator list it gets). Without the cap a socket gets NONE of
-  these keys or events: its spectatorsUpdated, snapshots and gameStart are
-  byte-identical to before. Never at tournament tables; a spectating socket
+  these keys or events (its watchHand is dropped silently, with no
+  refusal): its spectatorsUpdated, snapshots and gameStart are
+  byte-identical to before. A table suspended (self-fence) or frozen
+  (handoff) serves no hand on any path (refusal `unavailable`). Never at tournament tables; a spectating socket
   whose user owns a seat at the table may watch only that seat. No client
   sends it yet (server phase 1); docs/claude/spectators.md
   "Over-the-shoulder view" is the client spec.

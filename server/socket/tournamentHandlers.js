@@ -665,8 +665,9 @@ function createRoundTable(io, tournament, assignment, roundNumber) {
     // Create game via GameManager
     const game = gameManager.createGame(allSocketIds);
 
-    // Map game to tournament
+    // Map game to tournament (on the game too: it outlives the map entry)
     gameManager.tournamentGames.set(game.gameId, tournament.tournamentId);
+    game.tournamentId = tournament.tournamentId;
 
     // Register bots
     for (const botInfo of botSocketIds) {

@@ -8,8 +8,10 @@
  * no seat owner gets another seat's hand.
  *
  * Covered: the accepted reply and the next deals' gameStart, switching and
- * stopping, every refusal (capability, not_spectating, not_dealt,
- * tournament, own_seat: a player's second tab, a /leave'd owner), the
+ * stopping, every refusal (not_spectating, unavailable: suspended or
+ * frozen, not_dealt, tournament (also once the map entry is gone),
+ * own_seat: a player's second tab, a /leave'd owner), a socket without
+ * the cap getting nothing at all, the
  * mirrored /help and tutorial hints, who watches which hand
  * (spectatorsUpdated wide copy / snapshot watching), and every way a watch
  * ends (/leave, joinMainRoom, spectating another game, disconnect, a hello
@@ -244,15 +246,73 @@ describe('refusals (watchHandRefused; nothing changes)', () => {
         return got[0].data;
     };
 
-    test('capability: a spectator that never sent the cap (a shipped build); nothing about a hand reaches it', async () => {
+    test('no cap: a spectator that never sent it (a shipped build) gets nothing at all, not even a refusal', async () => {
         const t = await dealt('sr1', 211);
         const s = spectator(t, 'sr1-spec', 'sr1_fan', null);
-        expect(refusalOf(watch(t, s, 2))).toEqual({ gameId: t.game.gameId, position: 2, reason: 'capability', message: shoulderView.REFUSALS.capability });
+        expect(watch(t, s, 2)).toEqual([]);
+        expect(watch(t, s, null)).toEqual([]);
         expect(t.game.shoulders.size).toBe(0);
-        // even a stop needs the cap
-        expect(refusalOf(watch(t, s, null)).reason).toBe('capability');
         await Promise.all(t.pending);
     });
+
+    test('unavailable: a suspended table (self-fence) answers no hand on any path, nor does a frozen one', async () => {
+        const t = await dealt('sr8', 218);
+        hello(t.w, owner(t, t.game.currentTurn), ['assist']);
+        const s = spectator(t, 'sr8-spec', 'sr8_fan');
+        watch(t, s, 2);
+        expect(t.game.suspend()).toBe(true);
+        expect(refusalOf(watch(t, s, 3))).toMatchObject({ reason: 'unavailable', message: shoulderView.REFUSALS.unavailable });
+        expect(refusalOf(watch(t, s, null)).reason).toBe('unavailable');
+        // a direct snapshot reply (not behind the suspended emit gate) carries no hand
+        let from = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
+        const snap = to(t, s, 'stateSnapshot', from)[0].data.snapshot;
+        expect(snap.viewer).not.toHaveProperty('shoulder');
+        expect(shoulderView.watchersOf(t.w.io, t.game, 2)).toEqual([]);
+        t.game.unsuspend(t.w.io);
+        // the watch is still there after the thaw
+        from = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
+        expect(to(t, s, 'stateSnapshot', from)[0].data.snapshot.viewer.shoulder.position).toBe(2);
+        t.game.freeze();
+        expect(refusalOf(watch(t, s, 2)).reason).toBe('unavailable');
+        from = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
+        expect(to(t, s, 'stateSnapshot', from).every((l) => !l.data.snapshot || !('shoulder' in l.data.snapshot.viewer))).toBe(true);
+        await Promise.all(t.pending);
+    });
+
+    test('tournament: a table whose tournament was cancelled while it was suspended stays a tournament table', async () => {
+        Math.random = mulberry32(219);
+        const ctx = await setupTournament(4);
+        currentIo = ctx.io;
+        const starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+        await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t)[0].stage === Phase.BIDDING, 100, 60000);
+        await starting;
+        const game = liveTables(ctx.t)[0];
+        expect(game.tournamentId).toBe(ctx.t.tournamentId);
+        const { newUser } = require('../../testUtils/tournamentDriver');
+        const s = newUser(ctx.io, ctx.log, 'sr9_fan');
+        clientInfo.handle(s, ctx.io, { client: 'web', version: '1', caps: SHOULDER });
+        await tournamentHandlers.spectateTournamentGame(s, ctx.io, { gameId: game.gameId });
+        expect(game.isSpectator(s.id)).toBe(true);
+        // the holder self-fence suspends the table; the creator cancels meanwhile
+        expect(game.suspend()).toBe(true);
+        const creator = ctx.sockets.find((x) => ctx.t.createdBy === x.id) || ctx.sockets[0];
+        await tournamentHandlers.cancelTournament(creator, ctx.io);
+        expect(gameManager.tournamentGames.has(game.gameId)).toBe(false);
+        expect(game.isTerminal()).toBe(false);
+        const ask = () => {
+            const from = ctx.log.length;
+            shoulderView.watchHand(s, ctx.io, { gameId: game.gameId, position: 1 });
+            return ctx.log.slice(from).filter((l) => l.to === `self:${s.id}`).map((l) => [l.event, l.data.reason]);
+        };
+        expect(ask()).toEqual([['watchHandRefused', 'unavailable']]);
+        // not suspended either: still refused as a tournament table (the game's own mark)
+        game._suspended = null; // the thaw's state without running its deferred abort
+        expect(ask()).toEqual([['watchHandRefused', 'tournament']]);
+        expect(game.shoulders.size).toBe(0);
+    }, 60000);
 
     test('not_spectating: a seat owner, an unknown game, another game\'s spectator', async () => {
         const t = await dealt('sr2', 212);
@@ -437,6 +497,20 @@ describe('the watched seat\'s hints (assistHint watched)', () => {
 });
 
 describe('who watches which hand', () => {
+    test('actionRejected: a capable seat owner\'s snapshot carries who watches which hand too', async () => {
+        const t = await dealt('sw2', 232);
+        const s = spectator(t, 'sw2-spec', 'sw2_fan');
+        watch(t, s, 1);
+        const notOnTurn = (t.game.currentTurn % 4) + 1;
+        hello(t.w, owner(t, notOnTurn), SHOULDER);
+        const from = t.w.log.length;
+        await gameHandlers.playerBid(owner(t, notOnTurn), t.w.io, { bid: '1' });
+        const rej = to(t, owner(t, notOnTurn), 'actionRejected', from);
+        expect(rej).toHaveLength(1);
+        expect(rej[0].data.snapshot.watching.spectators).toEqual([expect.objectContaining({ username: 'sw2_fan', shoulder: 1 })]);
+        await Promise.all(t.pending);
+    });
+
     test('spectatorsUpdated: the room copy is unchanged; capable sockets also get the wide copy with shoulder', async () => {
         const t = await dealt('sw1', 231);
         hello(t.w, owner(t, 1), SHOULDER); // a capable player sees it too

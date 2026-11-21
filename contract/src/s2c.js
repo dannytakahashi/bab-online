@@ -776,14 +776,14 @@ const s2c = {
         payload: obj({
             gameId: str({ description: 'the gameId the watchHand named' }),
             position: orNull(ref('position')),
-            reason: enm('capability', 'not_spectating', 'tournament', 'ended', 'not_dealt', 'own_seat'),
+            reason: enm('not_spectating', 'unavailable', 'tournament', 'not_dealt', 'own_seat'),
             message: str(),
             ownPosition: ref('position'),
         }, { optional: ['ownPosition'] }),
         status: 'active', to: 'self',
         clientReads: reads([], []),
         emittedFrom: ['server/socket/shoulderView.js:watchHand'],
-        notes: "New (2026-11-21, the over-the-shoulder view; private, unsequenced): c2s watchHand refused; nothing changed (a hand already watched stays watched). Reasons, checked in this order: capability (the socket never sent the clientHello cap shoulderView), not_spectating (not a pure spectator of that game: unknown or other game, a seat owner, a lazy watcher, an entrant), tournament (never at tournament tables), ended (a terminal game), not_dealt (before the first gameStart: CREATED, the draw, the teams), own_seat (the socket's user owns a seat at this table, gone included: it may watch only that seat, ownPosition). Stopping (position null) is refused only for capability / not_spectating. message is short English a client may show. A malformed payload (position not 1-4 or null, a bad gameId) is the wrapper's serverError {code: 'validation'} instead, and the rate limit's serverError {code: 'rateLimit'}. docs/claude/spectators.md \"Over-the-shoulder view\".",
+        notes: "New (2026-11-21, the over-the-shoulder view; private, unsequenced): c2s watchHand refused; nothing changed (a hand already watched stays watched). Only ever sent to a socket with the clientHello cap shoulderView: a watchHand from a socket without it is dropped silently (no reply at all). Reasons, checked in this order: not_spectating (not a pure spectator of that game: unknown or other game, a seat owner, a lazy watcher, an entrant), unavailable (the table is suspended by the LIVE_PERSIST self-fence, frozen by a handoff, or over: try again after the resume), tournament (never at tournament tables, known by the game itself, so also after its tournament was cancelled or deleted while the table lives), not_dealt (before the first gameStart: CREATED, the draw, the teams), own_seat (the socket's user owns a seat at this table, gone included: it may watch only that seat, ownPosition). Stopping (position null) is refused only for not_spectating / unavailable. message is short English a client may show. A malformed payload (position not 1-4 or null, a bad gameId) is the wrapper's serverError {code: 'validation'} instead, and the rate limit's serverError {code: 'rateLimit'}. docs/claude/spectators.md \"Over-the-shoulder view\".",
     },
 
     seatLeft: {
