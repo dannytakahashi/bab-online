@@ -315,7 +315,7 @@ export function assistFooter(hint, { unlimited = false, tutorial = false } = {})
 
 /**
  * The dim local log row (never sent): "Help: Play 9♦ (only you see this)";
- * the tutorial's own status replies (the chip's switch, /tutorial off:
+ * the tutorial's own status replies (the Tutorial button, /tutorial off:
  * "Tips off. ...") are "Tutorial: ..." rows (TUTORIAL_ROW_LABEL). None for
  * the tutorial's advice (it comes on every decision; its tips have their
  * own rows, state/tutorial.js tipLogLine).

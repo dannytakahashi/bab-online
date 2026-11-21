@@ -26,7 +26,6 @@ let getGameState;
 let assist;
 let tut;
 let btnMod;
-let chipMod;
 let createGameLog;
 let clearToasts;
 
@@ -36,7 +35,6 @@ beforeAll(async () => {
   assist = await import('../../state/assistHint.js');
   tut = await import('../../state/tutorial.js');
   btnMod = await import('../../ui/components/TutorialButton.js');
-  chipMod = await import('../../ui/components/TutorialChip.js');
   ({ createGameLog } = await import('../../ui/components/GameLog.js'));
   ({ clearToasts } = await import('../../ui/kit/toast.js'));
 });
@@ -47,7 +45,6 @@ beforeEach(() => {
   log = createGameLog({ onChatSubmit: () => true });
   document.body.appendChild(log.container);
   btnMod.resetTutorialButton();
-  chipMod.resetTutorialChip();
   assist.resetAssistUses();
   tut.resetTutorial();
   clearToasts();
@@ -272,10 +269,18 @@ describe('the Tutorial button: on -> off', () => {
     expect(disabled()).toBe(false);
   });
 
-  it('the chip\'s switch and the button share the wait', () => {
+  it('the welcome\'s Turn off and the button share the wait; no in-hand chip anywhere', () => {
     const { scene } = mySeat();
-    assistState(scene, server({ tutorial: true, assisted: true }));
-    document.querySelector('.hud-tutorial__switch').click();
+    assistState(scene, server({ tutorial: true, auto: true }));
+    expect(document.querySelector('.hud-tutorial')).toBeNull();
+    const welcome = {
+      v: 1, source: 'tutorial', kind: 'tip', turnKey: '1|PLAYING|1|4|0', headline: 'Tutorial on', tipId: 'T.welcome', actions: ['keep', 'off'],
+      reasons: ['Tips will appear above your cards. Only you see them. Close one with ×, or choose Turn off to stop them.'],
+      uses: 0, freeUses: 3, assisted: false, counted: false,
+    };
+    scene.handleAssistHint(welcome);
+    scene.tipAction(welcome, 'off');
+    expect(sent()).toEqual(['/tutorial off']);
     expect(stateWord()).toBe('Off');
     expect(disabled()).toBe(true);
     btn().click();

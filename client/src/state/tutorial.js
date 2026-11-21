@@ -1,8 +1,9 @@
 /**
  * The tutorial on the web (2026-11-19, the LEAN scope with the fade-out;
  * server side docs/claude/assist.md, The tutorial): the words and rules,
- * kept apart from the view (ui/components/AssistCard.js tips, the chip in
- * ui/components/TutorialChip.js) so they can be tested without a table.
+ * kept apart from the view (ui/components/AssistCard.js tips, the game
+ * log's Tutorial button in ui/components/TutorialButton.js) so they can be
+ * tested without a table.
  *
  *  - The clientHello cap `tutorial` (utils/avatar.js) tells the server this
  *    page can draw tips and their actions: only such a socket gets rule tips
@@ -48,10 +49,6 @@ export const TUTORIAL_CLOSE_COMMAND = '/tutorial close';
 /** The chat autocomplete's line for /tutorial, off and on. */
 export const TUTORIAL_ON_DESCRIPTION = 'Tutorial: tips and advice every turn';
 export const TUTORIAL_OFF_DESCRIPTION = 'Turn off the tutorial';
-
-/** The chip and its switch. */
-export const CHIP_LABEL = 'Tutorial on';
-export const CHIP_OFF_LABEL = 'Turn off the tutorial';
 
 /**
  * The game log's Tutorial button (owner 2026-11-21: "the old people struggle
@@ -121,17 +118,6 @@ export function tutorialIsAuto(gameId = null) {
 /** The /tutorial line in the chat autocomplete. */
 export function tutorialDescription(gameId = null) {
   return tutorialIsOn(gameId) ? TUTORIAL_OFF_DESCRIPTION : TUTORIAL_ON_DESCRIPTION;
-}
-
-/**
- * Is the chip up: the tutorial is on and I play my own seat at the table
- * (not a spectator, not while a bot plays it), past the draw.
- * @param {Object} gs - GameState
- */
-export function chipVisible(gs) {
-  if (!gs || !tutorialIsOn(gs.gameId || null)) return false;
-  if (!gs.position || gs.isSpectator || gs.isLazy) return false;
-  return gs.phase === 'bidding' || gs.phase === 'playing';
 }
 
 /**

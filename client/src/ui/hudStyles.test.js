@@ -108,11 +108,10 @@ describe('the /help lightbulb', () => {
     expect(r).toContain('--ask-up: var(--assist-ask-up, 12px)');
     expect(r).toContain('--ask-down: var(--assist-ask-down, 0px)');
     expect(r).toContain('top: var(--ask-y)');
-    // while the tutorial chip shows: the layout's chip spot
-    const chip = ruleOf(table, '.has-tutorial-chip > .hud-assist-ask');
-    expect(chip).toContain('--ask-y: var(--assist-ask-chip-y');
-    expect(chip).toContain('--ask-up: var(--assist-ask-chip-up');
-    expect(chip).toContain('--ask-down: var(--assist-ask-chip-down');
+    // one spot: the in-hand "Tutorial on" chip and its second spot are gone (owner 2026-11-21)
+    expect(table).not.toContain('has-tutorial-chip');
+    expect(table).not.toContain('.hud-tutorial');
+    expect(table).not.toContain('--assist-ask-chip');
     expect(r).toContain('width: var(--assist-ask, 36px)');
     // its right and bottom edges are the spot's
     expect(r).toContain('transform: translate(-100%, -100%)');

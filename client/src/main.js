@@ -2162,7 +2162,7 @@ function initializeApp() {
     // My tutorial's state (private, unsequenced; the clientHello cap
     // tutorial): on / off and my /help count, at once (it may come between
     // createUI and the first deal, while gameState.gameId is still the last
-    // game's: so it binds to no game id); the chip and tips follow
+    // game's: so it binds to no game id); the Tutorial button and tips follow
     onAssistState: (data) => {
       noteTutorialState(data, null);
       if (!(gameState.isSpectator && !gameState.isLazy)) noteAssistUses(data, null);

@@ -59,17 +59,16 @@ import {
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
-  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible, shownTip,
+  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, shownTip,
   tutorialButtonVisible, tutorialButtonDisabled, TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND, TUTORIAL_ON_COMMAND,
 } from '../../state/tutorial.js';
-import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
 import { syncTutorialButton, showTutorialConfirm, closeTutorialConfirm, tutorialConfirmOpen } from '../../ui/components/TutorialButton.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
 /** After a lightbulb click the lightbulb waits this long at most for the answer before it shows again. */
 export const ASSIST_ASK_WAIT_MS = 10000;
-/** After the chip's off switch the switch waits this long at most for the server's assistState. */
+/** After an off (the Tutorial button, the welcome's Turn off) the button waits this long at most for the server's assistState. */
 export const TUTORIAL_OFF_WAIT_MS = 10000;
 /** After the Tutorial button's on, the button waits this long at most for the server's assistState. */
 export const TUTORIAL_ON_WAIT_MS = 10000;
@@ -1714,7 +1713,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
-  // The tutorial (state/tutorial.js): rule tips and the "Tutorial on" chip
+  // The tutorial (state/tutorial.js): rule tips and the game log's Tutorial button
   // ============================================
 
   /**
@@ -1850,7 +1849,7 @@ export class GameScene extends Phaser.Scene {
     this.syncTutorial();
   }
 
-  /** The chip's switch, the Tutorial button's on -> off: `/tutorial off`. */
+  /** The Tutorial button's on -> off: `/tutorial off`. */
   turnOffTutorial() {
     if (this._tutorialOffSent) return;
     if (this._sendTutorial(TUTORIAL_OFF_COMMAND)) this._noteOffSent();
@@ -1862,7 +1861,7 @@ export class GameScene extends Phaser.Scene {
     return tutorialButtonVisible(s) && !tutorialButtonDisabled(s, { pending: this._tutorialPending() });
   }
 
-  /** A /tutorial on or off the button (or the chip) sent waits for the server. */
+  /** A /tutorial on or off the button sent waits for the server. */
   _tutorialPending() {
     return !!this._tutorialOffSent || !!this._tutorialOnSent;
   }
@@ -1921,8 +1920,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * After an assistState, a snapshot, a turn change or a render: the chip
-   * (on, at my own seat), and with the tutorial off its tips and its advice
+   * After an assistState, a snapshot, a turn change or a render: the game
+   * log's Tutorial button (it replaced the in-hand "Tutorial on" chip, owner
+   * 2026-11-21), and with the tutorial off its tips and its advice
    * go (a /help answer stays). Tips alone move above the bid sheet on my
    * bid turn.
    */
@@ -1942,7 +1942,6 @@ export class GameScene extends Phaser.Scene {
       this._tutorialOnTimer = null;
       this._tutorialOnSent = false;
     }
-    syncTutorialChip({ visible: chipVisible(s), busy: !!this._tutorialOffSent, onOff: () => this.turnOffTutorial() });
     this._syncTutorialButton();
     if (this._tips?.length && this._tipPlace() !== this._tipPlaceDrawn) this.drawTips();
   }
@@ -2255,7 +2254,7 @@ export class GameScene extends Phaser.Scene {
     this._parkedAssist = null;
     this._endAsking();
     this.clearAssist();
-    // the tutorial's tips and chip (its state goes with the table: main.js)
+    // the tutorial's tips and button (its state goes with the table: main.js)
     this.clearTips({ all: true });
     clearTimeout(this._tutorialOffTimer);
     this._tutorialOffTimer = null;
@@ -2263,7 +2262,6 @@ export class GameScene extends Phaser.Scene {
     clearTimeout(this._tutorialOnTimer);
     this._tutorialOnTimer = null;
     this._tutorialOnSent = false;
-    syncTutorialChip({ visible: false });
     closeTutorialConfirm();
     syncTutorialButton({ visible: false });
     this.cardManager?.clearAll();

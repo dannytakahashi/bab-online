@@ -1203,13 +1203,12 @@ describe('GameScene /help (plan H3: the private suggestion)', () => {
   });
 });
 
-describe('GameScene the tutorial (tips, its advice, the chip)', () => {
+describe('GameScene the tutorial (tips, its advice)', () => {
   let getGameState;
   let resetMyAction;
   let assist;
   let tut;
   let card;
-  let chipMod;
   let clearToasts;
   beforeAll(async () => {
     ({ getGameState } = await import('../../state/GameState.js'));
@@ -1217,14 +1216,12 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     assist = await import('../../state/assistHint.js');
     tut = await import('../../state/tutorial.js');
     card = await import('../../ui/components/AssistCard.js');
-    chipMod = await import('../../ui/components/TutorialChip.js');
     ({ clearToasts } = await import('../../ui/kit/toast.js'));
   });
   let rows;
   beforeEach(() => {
     document.body.innerHTML = '<div id="game-container"><div id="table-hud"></div></div>';
     card.resetAssistCard();
-    chipMod.resetTutorialChip();
     assist.resetAssistUses();
     tut.resetTutorial();
     resetMyAction();
@@ -1427,44 +1424,25 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     expect(rows.at(-1)).toBe('Tutorial: Thanks for playing with the tutorial. Type /help any time for a suggestion. (only you see this)');
   });
 
-  it('the chip: only while on, at my own seat; its switch sends /tutorial off once and waits', () => {
-    const { scene, state } = mySeat();
+  it('no in-hand "Tutorial on" chip, on or off (owner 2026-11-21: the game log\'s Tutorial button replaced it)', () => {
+    const { scene } = mySeat();
     scene.syncTutorial();
     expect(q('.hud-tutorial')).toBeNull();
     on();
     scene.syncTutorial();
-    const chip = q('.hud-tutorial');
-    expect(chip.hidden).toBe(false);
-    expect(chip.querySelector('.hud-tutorial__label').textContent).toBe('Tutorial on');
-    const sw = chip.querySelector('.hud-tutorial__switch');
-    expect(sw.getAttribute('role')).toBe('switch');
-    expect(sw.getAttribute('aria-checked')).toBe('true');
-    expect(sw.getAttribute('aria-label')).toBe('Turn off the tutorial');
-    sw.click();
-    sw.click();
-    expect(sent()).toEqual(['/tutorial off']);
-    expect(sw.getAttribute('aria-disabled')).toBe('true');
-    // a bot plays my seat: no chip
-    state.isLazy = true;
-    scene.syncTutorial();
-    expect(chip.hidden).toBe(true);
-    state.isLazy = false;
-    // a spectator: no chip
-    state.isSpectator = true;
-    scene.syncTutorial();
-    expect(chip.hidden).toBe(true);
+    expect(q('.hud-tutorial')).toBeNull();
+    expect(q('#table-hud').classList.contains('has-tutorial-chip')).toBe(false);
   });
 
-  it('the server says off: the chip, the tips and the tutorial\'s advice go; a /help answer stays', () => {
+  it('the server says off: the tips and the tutorial\'s advice go; a /help answer stays', () => {
     on();
     const { scene } = mySeat();
     scene.handleAssistHint(trump());
     scene.handleAssistHint(cardAdvice());
     scene.syncTutorial();
-    expect(q('.hud-tutorial').hidden).toBe(false);
+    expect(titles()).toEqual(['Trump']);
     tut.noteTutorialState({ tutorial: false, auto: false, uses: 0, freeUses: 3, assisted: true });
     scene.syncTutorial();
-    expect(q('.hud-tutorial').hidden).toBe(true);
     expect(titles()).toEqual([]);
     expect(head()).toBeNull();
     // a /help answer is not the tutorial's
@@ -1504,6 +1482,6 @@ describe('GameScene the tutorial (tips, its advice, the chip)', () => {
     scene.trickManager = { clearAll: vi.fn() };
     scene.cleanup();
     expect(titles()).toEqual([]);
-    expect(q('.hud-tutorial').hidden).toBe(true);
+    expect(q('.hud-tutorial')).toBeNull();
   });
 });

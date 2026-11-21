@@ -4,8 +4,8 @@
  * the tutorial." and assistState {tutorial: true, auto: true}, then the
  * deal. The page's log comes up only after createUI's fade, so a line that
  * came in between is kept and written right after 'Game started!' (it was
- * dropped before: main.js flushEarlyLogLines), and the chip shows once the
- * deal is up. From a seat's recorded game (events-humans-s13 seat4: ios_eli
+ * dropped before: main.js flushEarlyLogLines), and the game log's
+ * Tutorial button shows On (no in-hand chip since 2026-11-21). From a seat's recorded game (events-humans-s13 seat4: ios_eli
  * at seat 3).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -29,7 +29,7 @@ beforeAll(async () => {
 afterAll(() => vi.useRealTimers());
 
 describe('an auto-started tutorial at the start of a game', () => {
-  it('the notice that came before the log is written after "Game started!", once; the chip shows with the deal', () => {
+  it('the notice that came before the log is written after "Game started!", once; the Tutorial button is On with the deal', () => {
     const create = log.findIndex((e) => e.event === 'createUI');
     replay.replayLog(page, log, { to: create + 1 });
     // right after createUI, as handleDrawComplete sends them
@@ -44,9 +44,11 @@ describe('an auto-started tutorial at the start of a game', () => {
     // the deal and the first turn
     replay.replayLog(page, log, { from: create + 1, to: create + 3 });
     replay.advance(3000);
-    const chip = document.querySelector('.hud-tutorial');
-    expect(chip?.hidden).toBe(false);
-    expect(chip.textContent).toContain('Tutorial on');
+    const btn = document.getElementById('tutorial-toggle-btn');
+    expect(btn?.hidden).toBe(false);
+    expect(btn.getAttribute('aria-pressed')).toBe('true');
+    expect(btn.querySelector('.log-tutorial-btn__state').textContent).toBe('On');
+    expect(document.querySelector('.hud-tutorial')).toBeNull();
   });
 
   it('later lines go straight to the log (nothing held)', () => {

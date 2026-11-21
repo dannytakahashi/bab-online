@@ -1133,24 +1133,6 @@ export function layoutOf(scene) {
 export const ASK_MIN = 28;
 /** Its hit area at the least (HIG 44 pt; tokens.css --hit-target). */
 export const ASK_HIT = 44;
-/** The gap (px) between the lightbulb's hit area and the tutorial chip's. */
-const ASK_GAP = 2;
-
-/**
- * The "Tutorial on" chip's box (TutorialChip.js; table.css .hud-tutorial):
- * 30 px tall with its border, about 119 px wide at --type-xs (measured in
- * Chrome; taken a little wide here for other fonts), its switch at the
- * right end with a 44 px hit area (::before, inset -12px -6px), which
- * reaches 7 px above and below the chip (8 here) and 6 px past its end.
- */
-export const TUTORIAL_CHIP = { w: 124, h: 30, hitX: 6, hitY: 8 };
-
-/** The tutorial chip's hit box with its left end at x and its bottom at y. */
-export function tutorialChipHit(x, y) {
-  const c = TUTORIAL_CHIP;
-  return rect(x, y - c.h - c.hitY, c.w + c.hitX, c.h + 2 * c.hitY);
-}
-
 /**
  * What the lightbulb keeps clear of: everything but the hand box itself,
  * the log beside the canvas and the chat bubbles (they come and go, over
@@ -1184,16 +1166,9 @@ export function assistAskHit({ x, size, pad }, y, up, down) {
  * instead, and only where the bulb itself would rise into them does it come
  * down inside the hand box, just far enough to clear them. One spot per
  * layout: the card count never moves it.
- *
- * `chip` is where it goes while the tutorial chip shows (table.css
- * .has-tutorial-chip; --assist-ask-chip-*): the same spot where the hand box
- * holds both side by side; on a narrower one, a row up, just above the
- * chip's hit area, where that clears the felt and the bid sheet (on a
- * table both too narrow and too short for that, the same spot).
  * Null without a hand (a spectator).
- * @returns {{x:number, y:number, size:number, pad:number, up:number, down:number,
- *   chip:{y:number, up:number, down:number}}|null} x, y: the bulb's right and
- *   bottom edges
+ * @returns {{x:number, y:number, size:number, pad:number, up:number, down:number}|null}
+ *   x, y: the bulb's right and bottom edges
  */
 export function assistAskSpot(L) {
   const h = L?.hand;
@@ -1203,7 +1178,6 @@ export function assistAskSpot(L) {
   const x = h.rect.x + h.rect.w - pad;
   const a = { x, size, pad };
   const blockers = askBlockers(L);
-  const clear = (box) => !blockers.some((r) => intersects(box, r));
   const handBottom = h.rect.y + h.rect.h;
   // the bulb itself (with its side pads) clear: a few steps down, each to
   // just below what it hits, never below the hand box
@@ -1219,17 +1193,7 @@ export function assistAskSpot(L) {
   const over = blockers.filter((r) => intersects(assistAskHit(a, y, 2 * pad, 0), r));
   const top = over.length ? Math.max(...over.map((r) => r.y + r.h)) : -Infinity;
   const up = Math.min(2 * pad, Math.max(0, y - size - top));
-  const spot = { x, y, size, pad, up, down: 2 * pad - up };
-  // with the tutorial chip: a row up where the two would meet side by side
-  spot.chip = { y, up: spot.up, down: spot.down };
-  const chip = tutorialChipSpot(L, spot);
-  const chipHit = tutorialChipHit(chip.x, chip.y);
-  if (intersects(assistAskHit(a, y, spot.up, spot.down), chipHit)) {
-    const yUp = chipHit.y - ASK_GAP;
-    const hit = assistAskHit(a, yUp, 2 * pad, 0);
-    if (hit.y >= L.canvas.y && clear(hit)) spot.chip = { y: yUp, up: 2 * pad, down: 0 };
-  }
-  return spot;
+  return { x, y, size, pad, up, down: 2 * pad - up };
 }
 
 /** The /help card's gap below a seat it keeps clear of (assistRoomTop). */
@@ -1364,17 +1328,4 @@ export function assistBidSpot(L, w) {
     }
   }
   return best && best.y - best.top >= ASSIST_MIN_ROOM && best.y - best.top > aboveRoom ? best : above;
-}
-
-/**
- * Where the "Tutorial on" chip goes (TutorialChip.js; tableHud sets
- * --tutorial-x / -y from it): the hand box's left end, its bottom level with
- * the lightbulb's (assistAskSpot y). Null without a hand.
- * @param {Object} L - the layout
- * @param {Object} [ask] - assistAskSpot(L), when it is already at hand
- * @returns {{x:number, y:number}|null} its left and bottom edges
- */
-export function tutorialChipSpot(L, ask = assistAskSpot(L)) {
-  if (!ask) return null;
-  return { x: L.hand.rect.x, y: ask.y };
 }

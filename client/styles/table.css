@@ -1642,12 +1642,6 @@ body > .voice-btn {
 
 .hud-assist-ask[hidden] { display: none; }
 
-.has-tutorial-chip > .hud-assist-ask {
-    --ask-y: var(--assist-ask-chip-y, var(--assist-ask-y, 70%));
-    --ask-up: var(--assist-ask-chip-up, var(--assist-ask-up, 12px));
-    --ask-down: var(--assist-ask-chip-down, var(--assist-ask-down, 0px));
-}
-
 /* the tutorial's rule tips (AssistCard tipSection): a neutral section at
    the top of the card, above the advice when both are up */
 .hud-assist.has-tip { border-color: var(--line-strong); }
@@ -1742,80 +1736,10 @@ body > .voice-btn {
 .assist-tip__action:hover { background: rgb(var(--text-primary-rgb) / 0.1); }
 
 .assist-tip__close:focus-visible,
-.assist-tip__action:focus-visible,
-.hud-tutorial__switch:focus-visible {
+.assist-tip__action:focus-visible {
     outline: 2px solid var(--text-primary);
     outline-offset: 2px;
 }
-
-/* the "Tutorial on" chip (TutorialChip.js): the hand box's left end, its
-   bottom level with the lightbulb's spot at its right end (tutorialChipSpot;
-   the layout's TUTORIAL_CHIP models this box); under the card */
-.hud-tutorial {
-    position: absolute;
-    left: var(--tutorial-x, 30%);
-    top: var(--tutorial-y, 70%);
-    transform: translate(0, -100%);
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: 28px;
-    padding: 0 4px 0 var(--space-2);
-    border: 1px solid var(--line-strong);
-    border-radius: var(--radius-pill);
-    background: rgb(var(--surface-1-rgb) / 0.9);
-    box-shadow: var(--elev-1);
-    color: var(--text-secondary);
-    font-family: var(--font-ui);
-    font-size: var(--type-xs);
-    font-weight: var(--weight-semibold);
-    white-space: nowrap;
-    pointer-events: auto;
-    z-index: var(--z-hud-badge);
-}
-
-.hud-tutorial[hidden] { display: none; }
-
-/* while the chip shows, the card above my hand sits a chip higher, so
-   neither covers the other (the bid placement is away from the hand) */
-.has-tutorial-chip > .hud-assist:not([data-place="bid"]) {
-    top: calc(var(--assist-y, 70%) - 34px);
-    max-height: calc(var(--assist-y, 70%) - 34px - var(--assist-top, 0px) - var(--space-2));
-}
-
-/* the switch (on): a pill with its knob on the right; it turns the tutorial off */
-.hud-tutorial__switch {
-    position: relative;
-    width: 34px;
-    height: 20px;
-    min-width: 0;
-    min-height: 0;
-    padding: 0;
-    border: 0;
-    border-radius: var(--radius-pill);
-    background: rgb(var(--gold-rgb) / 0.75);
-    cursor: pointer;
-}
-
-.hud-tutorial__switch::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--text-primary);
-}
-
-/* 44 px hit target (HIG) */
-.hud-tutorial__switch::before {
-    content: '';
-    position: absolute;
-    inset: -12px -6px;
-}
-
-.hud-tutorial__switch[aria-disabled="true"] { opacity: 0.5; cursor: default; }
 
 /* the suggested card's gold halo is drawn on the table by CardManager
    (behind its sprite, so it rises with the card on hover and focus); the

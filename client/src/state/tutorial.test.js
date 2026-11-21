@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   TUTORIAL_CAP, TUTORIAL_COMMAND, resetTutorial, forgetTutorial, noteTutorialState, tutorialIsOn, tutorialIsAuto,
-  tutorialDescription, chipVisible, isTipHint, tipText, isWelcomeTip, tipActions, tipActionCommand, tipLogLine,
-  tipAnnouncement, isRowOnlyTip, CHIP_LABEL, CHIP_OFF_LABEL, TIP_ACTION_LABEL, tutorialFeedRow, resetTutorialRows,
+  tutorialDescription, isTipHint, tipText, isWelcomeTip, tipActions, tipActionCommand, tipLogLine,
+  tipAnnouncement, isRowOnlyTip, TIP_ACTION_LABEL, BUTTON_ON_HINT, BUTTON_OFF_HINT, tutorialFeedRow, resetTutorialRows,
 } from './tutorial.js';
 
 const NAME_LINT = /\bteam ?[12]\b|\bT[12]\b|your team|other team|opponents?/i;
@@ -86,24 +86,12 @@ describe('on or off', () => {
   });
 });
 
-describe('the chip', () => {
-  it('shows only while on, for my own seat past the draw', () => {
-    expect(chipVisible(seat())).toBe(false);
-    noteTutorialState({ tutorial: true }, 'g');
-    expect(chipVisible(seat())).toBe(true);
-    expect(chipVisible(seat({ phase: 'bidding' }))).toBe(true);
-    expect(chipVisible(seat({ phase: 'draw' }))).toBe(false);
-    expect(chipVisible(seat({ isSpectator: true }))).toBe(false);
-    expect(chipVisible(seat({ isLazy: true, isSpectator: true }))).toBe(false);
-    expect(chipVisible(seat({ isLazy: true }))).toBe(false);
-    expect(chipVisible(seat({ position: null }))).toBe(false);
-    expect(chipVisible(seat({ gameId: 'other' }))).toBe(false);
-    expect(chipVisible(null)).toBe(false);
-  });
-
-  it('its words', () => {
-    expect(CHIP_LABEL).toBe('Tutorial on');
-    expect(CHIP_OFF_LABEL).toBe('Turn off the tutorial');
+describe('no chip: the game log\'s Tutorial button replaced it (owner 2026-11-21)', () => {
+  it('state/tutorial.js no longer exports the chip\'s words or rule', async () => {
+    const t = await import('./tutorial.js');
+    expect(t.chipVisible).toBeUndefined();
+    expect(t.CHIP_LABEL).toBeUndefined();
+    expect(t.CHIP_OFF_LABEL).toBeUndefined();
   });
 });
 
@@ -154,7 +142,7 @@ describe('tips', () => {
 
   it('names no team in any text it makes', () => {
     noteTutorialState({ tutorial: true });
-    const texts = [tutorialDescription(), CHIP_LABEL, CHIP_OFF_LABEL, tipLogLine(tip()), tipAnnouncement(welcome()), ...Object.values(TIP_ACTION_LABEL)];
+    const texts = [tutorialDescription(), BUTTON_ON_HINT, BUTTON_OFF_HINT, tipLogLine(tip()), tipAnnouncement(welcome()), ...Object.values(TIP_ACTION_LABEL)];
     forgetTutorial();
     texts.push(tutorialDescription());
     for (const t of texts) expect(t).not.toMatch(NAME_LINT);
