@@ -1,6 +1,6 @@
 /**
  * Records superlatives (owner-approved 2026-11-20): per period and stats
- * scope, six titles, each won by the human player with the best value
+ * scope, seven titles, each won by the human player with the best value
  * among players with at least SUPERLATIVE_MIN_GAMES games in the period.
  * Pure: profileHandlers.fillRecords feeds it the same gameRecords
  * documents (same finds, scope filter and projection) as the team records,
@@ -61,11 +61,16 @@
  *                   what the player asked for; the tutorial's own advice is
  *                   counted in `tips`, never here, and /help while the
  *                   tutorial is on is not counted: assistHandlers.help)
+ *   myQuantitative  spot-on bids per hand (owner 2026-11-20): sum
+ *                   statsDeltas.exact[pos] / sum of that seat's totalHands,
+ *                   over records that carry the counter only (games ended
+ *                   after it shipped; rules.seatSpotOn: own tricks equal a
+ *                   numeric bid, or a bore team that took every trick)
  *   anchor          sum totalSets / sum totalHands: totalSets is TEAM
  *                   based (seatStatsDelta: handStats.teamNSets, the hands
  *                   the player's own team took fewer tricks than its bid),
  *                   so this is the share of their hands their team was set
- * Count-like titles (bagBoy, botFriends, helpFromFriends, anchor) are left
+ * Count-like titles (bagBoy, botFriends, helpFromFriends, myQuantitative, anchor) are left
  * out when the best value SHOWS as 0 ("0.0 bags a game", "0% of hands
  * set"); the per-seat titles need per-seat data (seat-games / hands > 0).
  * Ties: up to MAX_NAMES names, alphabetical (case-insensitive); more tied
@@ -87,6 +92,7 @@ const SEAT_FIELDS = ['totalTricksTaken', 'totalTricksBid', 'totalHSI', 'totalHan
 const SUPERLATIVES_PROJECTION = Object.freeze({
     ...Object.fromEntries([1, 2, 3, 4].flatMap((pos) => SEAT_FIELDS.map((f) => [`statsDeltas.byPosition.${pos}.${f}`, 1]))),
     'statsDeltas.bags': 1,
+    'statsDeltas.exact': 1,
     'statsDeltas.names': 1,
     'statsDeltas.assist': 1
 });
@@ -229,6 +235,12 @@ const TITLES = Object.freeze([
         detail: (v) => `${v} /help ${plural(v, 'use', 'uses')}`
     },
     {
+        id: 'myQuantitative', title: 'My Quantitative', best: 'max', zeroOmits: true,
+        value: (p) => (p.spotHands > 0 ? p.spotOn / p.spotHands : null),
+        shown: pct,
+        detail: (v) => `${pct(v)}% of bids spot on`
+    },
+    {
         id: 'anchor', title: 'Anchor', best: 'max', zeroOmits: true,
         value: (p) => (p.hands > 0 ? p.sets / p.hands : null),
         shown: pct,
@@ -257,7 +269,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
     const player = (name) => {
         let p = players.get(name);
         if (!p) {
-            p = { name, games: 0, seatGames: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0 };
+            p = { name, games: 0, seatGames: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0, spotOn: 0, spotHands: 0 };
             players.set(name, p);
         }
         return p;
@@ -292,6 +304,13 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES } = {}) {
             p.hsi += num(delta.totalHSI);
             p.hands += num(delta.totalHands);
             p.sets += num(delta.totalSets);
+            // My Quantitative: only records with the spot-on counter (games
+            // that ended after it shipped and counted every hand)
+            const spot = isPlainObject(sd.exact) ? sd.exact[posKey] : undefined;
+            if (Number.isSafeInteger(spot) && spot >= 0 && num(delta.totalHands) > 0) {
+                p.spotOn += Math.min(spot, num(delta.totalHands));
+                p.spotHands += num(delta.totalHands);
+            }
             const assist = isPlainObject(sd.assist) ? sd.assist[posKey] : null;
             if (isPlainObject(assist) && Number.isSafeInteger(assist.help) && assist.help > 0) p.help += assist.help;
         }

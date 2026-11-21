@@ -414,3 +414,135 @@ describe('the record written at game end', () => {
         expect(ann.stats).not.toHaveProperty('totalBags');
     });
 });
+
+// ---------------------------------------------------------------------------
+// My Quantitative (owner 2026-11-20): spot-on bids per seat, counted like the
+// bags above (game.seatExact {hands, byPos}; statsDeltas.exact[pos] only when
+// the counter saw every hand)
+// ---------------------------------------------------------------------------
+
+describe('rules.seatSpotOn', () => {
+    test('own tricks equal a numeric bid (0 for 0 included)', () => {
+        expect(rules.seatSpotOn('3', 3, '1', 4, 7)).toBe(1);
+        expect(rules.seatSpotOn('0', 0, '2', 2, 7)).toBe(1);
+        expect(rules.seatSpotOn('3', 4, '1', 5, 7)).toBe(0);
+        expect(rules.seatSpotOn('3', 2, '1', 3, 7)).toBe(0);
+        expect(rules.seatSpotOn(undefined, 0, '1', 1, 7)).toBe(0);
+        expect(rules.seatSpotOn('x', 0, '1', 1, 7)).toBe(0);
+    });
+
+    test('a bore team: both seats are spot on exactly when the team took every trick', () => {
+        for (const bore of ['B', '2B', '3B', '4B']) {
+            expect(rules.seatSpotOn(bore, 3, '0', 4, 4)).toBe(1);   // the borer, team made it
+            expect(rules.seatSpotOn('0', 1, bore, 4, 4)).toBe(1);   // its partner, whatever its own count
+            expect(rules.seatSpotOn(bore, 4, '0', 3, 4)).toBe(0);   // set
+            expect(rules.seatSpotOn('1', 1, bore, 3, 4)).toBe(0);   // set: even a matched numeric bid
+        }
+        expect(rules.seatSpotOn('B', 0, '0', 0, 0)).toBe(0);         // no hand size: never
+    });
+});
+
+const spot = (game) => [1, 2, 3, 4].map((p) => game.seatExact.byPos[p]);
+
+describe('per hand: game.seatExact', () => {
+    test('each spot-on seat adds 1 with the hand counted; the next hand adds to it', async () => {
+        const t = await setup();
+        await bidAll(t, ['4', '0', '0', '0']);
+        await playOut(t);
+        // seat 1 bid 4 and took all 4; the others bid 0 and took none
+        expect(t.game.seatExact).toEqual({ hands: 1, byPos: { 1: 1, 2: 1, 3: 1, 4: 1 } });
+        await hand(t.game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        expect(t.game.seatExact.hands).toBe(2);
+        expect(spot(t.game)).toEqual([1, 2, 1, 2]);
+        expect(t.game.handStats.totalHands).toBe(2);
+        // server-only: never in playerStats (spread into gameEnd)
+        for (const p of [1, 2, 3, 4]) expect(Object.keys(t.game.playerStats[p])).toEqual(['totalBids', 'totalTricks', 'setsCaused', 'totalHSI']);
+    });
+
+    test('a made bore: both seats of the boring team are spot on', async () => {
+        const t = await setup();
+        await bidAll(t, ['B', '0', '0', '0']);
+        await playOut(t);
+        expect(t.game.playerStats[1].totalTricks).toBe(4);
+        expect(spot(t.game)).toEqual([1, 1, 1, 1]);
+    });
+
+    test('a set bore: neither seat of that team is, even a partner whose own count matched', async () => {
+        const t = await setup();
+        const { game, io } = t;
+        game.playerBids = ['B', '1', '1', '0'];
+        game.bids = { team1: 4, team2: 1 };
+        game.team1Mult = 2;
+        game.team2Mult = 1;
+        game.tricks = { team1: 3, team2: 1 };
+        game.handTricks = { 1: 2, 2: 0, 3: 1, 4: 1 };
+        game.currentHand = 4;
+        game.forcePhase('HAND_RESOLVING');
+        await gameHandlers.handleHandComplete(game, io);
+        expect(spot(game)).toEqual([0, 0, 0, 0]);
+    });
+
+    test('a game adopted from a process without the counter never starts one; its record carries no exact', async () => {
+        const t = await setup();
+        const doc = save(t.game);
+        expect(doc.state.seatExact).toEqual({ hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } });
+        delete doc.state.seatExact; // as the release before saves it
+        gameManager.abortGame(t.game.gameId);
+        const game = codec.hydrate(doc).game;
+        expect(game.seatExact).toBeNull();
+        expect(game.seatBags).toEqual({ hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } });
+        await hand(game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        expect(game.seatExact).toBeNull();
+        const rec = profile.buildGameEndRecord(game);
+        expect(rec.statsDeltas).not.toHaveProperty('exact');
+        expect(rec.statsDeltas.bags).toBeDefined();
+        expect(save(game).state.seatExact).toBeNull();
+        game._cancelAllTimers();
+    });
+
+    test('a save and restore keeps the counter; a malformed one restores as none', async () => {
+        const t = await setup();
+        await hand(t.game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        const doc = save(t.game);
+        expect(doc.state.seatExact).toEqual({ hands: 1, byPos: { 1: 0, 2: 1, 3: 0, 4: 1 } });
+        gameManager.abortGame(t.game.gameId);
+        expect(codec.hydrate(JSON.parse(JSON.stringify(doc))).game.seatExact).toEqual(doc.state.seatExact);
+        const bad = JSON.parse(JSON.stringify(doc));
+        bad.state.seatExact = { hands: 1, byPos: { 1: 0, 2: -1, 3: 0, 4: 1 } };
+        const g2 = codec.hydrate(bad).game;
+        expect(g2.seatExact).toBeNull();
+        g2._cancelAllTimers();
+    });
+
+    test('a counter that missed hands is not written to the record', async () => {
+        const t = await setup();
+        await hand(t.game, t.io, ['0', '1', '2', '0'], { 1: 2, 2: 1, 3: 1, 4: 0 });
+        t.game.seatExact.hands = 0; // as if it missed the hand
+        const rec = profile.buildGameEndRecord(t.game);
+        expect(rec.statsDeltas).not.toHaveProperty('exact');
+        expect(rec.statsDeltas.bags).toBeDefined();
+    });
+});
+
+describe('the record written at game end: statsDeltas.exact', () => {
+    test('carries the spot-on counts beside bags; never in byPosition, users.stats or gameEnd', async () => {
+        const t = await setup({ handSize: 13 });
+        await bidAll(t, ['13', '0', '0', '0']);
+        const from = t.log.length;
+        await playOut(t);
+        await settle();
+        for (const e of events(t.log.slice(from), 'gameEnd')) {
+            expect(e.data).not.toHaveProperty('seatExact');
+            for (const pos of ['1', '2', '3', '4']) expect(e.data.playerStats[pos]).not.toHaveProperty('exact');
+        }
+        const docs = mockDb.current.gameRecords.docs;
+        expect(docs).toHaveLength(1);
+        expect(docs[0].statsDeltas.exact).toEqual({ 1: 1, 2: 1, 3: 1, 4: 1 });
+        const { STAT_KEYS } = require('../../utils/statsScope');
+        for (const p of [1, 2, 3, 4]) expect(Object.keys(docs[0].statsDeltas.byPosition[p]).sort()).toEqual([...STAT_KEYS].sort());
+        for (const name of t.names) {
+            const user = mockDb.current.users.docs.find((d) => d.username === name);
+            expect(user.stats).not.toHaveProperty('exact');
+        }
+    });
+});

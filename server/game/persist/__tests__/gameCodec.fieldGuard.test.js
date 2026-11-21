@@ -71,16 +71,18 @@ const SERVER = path.join(__dirname, '../../..');
 // [1, 2, 3]: a rollback would discard every live game), while a v3 doc
 // with the extra state key is one it restores (restoreFrom reads named
 // fields only) and one without it restores here as no counter
-// (gameCodec.js header, superlativeRecord.test.js).
+// (gameCodec.js header, superlativeRecord.test.js). Re-pinned again the
+// same day, for the same reasons, for state.seatExact (the superlatives'
+// spot-on bid counter, My Quantitative).
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '6174f83b00961127' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '4c297bcc5a81e921' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
-    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: 'dd63a55fc74621e5' },
+    game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: 'd06b33c13ed4001f' },
     tournament: { 1: 'b361a440bd865499' },
 };
 

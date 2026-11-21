@@ -119,14 +119,16 @@ describe('a v1 doc hydrates under the current CODEC_V (3)', () => {
         }
     });
 
-    test('expectedAfterRestore upgrades only the version and the assist (and no bag counter: none in the doc)', () => {
+    test('expectedAfterRestore upgrades only the version and the assist (and no bag or spot-on counter: none in the doc)', () => {
         const doc = V1_DOCS[0];
         const out = codec.expectedAfterRestore(doc);
-        const { v, state: { assist, seatBags, ...state }, ...rest } = out;
+        const { v, state: { assist, seatBags, seatExact, ...state }, ...rest } = out;
         expect(v).toBe(3);
         expect(assist).toEqual(defaultAssist());
         expect(seatBags).toBeNull();
         expect(restore(doc).game.seatBags).toBeNull();
+        expect(seatExact).toBeNull();
+        expect(restore(doc).game.seatExact).toBeNull();
         const plainRestore = json(doc);
         plainRestore.state.eventSeq += codec.EVENT_SEQ_OFFSET;
         expect(Object.keys(state).sort()).toEqual(Object.keys(plainRestore.state).sort());

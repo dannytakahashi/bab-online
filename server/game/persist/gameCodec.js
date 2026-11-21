@@ -57,6 +57,11 @@
  * here as null (no counter: that game's record carries no bags, the
  * superlatives use the net per seat). Its pins in
  * gameCodec.fieldGuard.test.js were re-taken for v3.
+ * `state.seatExact` (2026-11-20, the superlatives' My Quantitative;
+ * GameState.seatExact, rules.normalizeSeatCounter: the same {hands, byPos}
+ * shape) joined the same way, for the same reasons: still v3, optional both
+ * ways (a doc without it restores null: that game's record has no spot-on
+ * counts), pins re-taken.
  *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
@@ -103,7 +108,7 @@ const { Phase } = require('../GamePhase');
 const { Controller, Presence } = require('../SeatState');
 const { isStockPic } = require('../../avatar/stockAvatars');
 const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
-const { normalizeSeatBags } = require('../rules');
+const { normalizeSeatBags, normalizeSeatCounter } = require('../rules');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
 const CODEC_V = 3;
@@ -140,6 +145,7 @@ const SAVED = deepFreeze({
         'tricks', 'trickHistory', 'score', 'rainbows',
         'handStats', 'playerStats', 'handTricks', 'hsiValues',
         'seatBags',                                   // the superlatives' bag counter (2026-11-20, still v3): below
+        'seatExact',                                  // the superlatives' spot-on bid counter (2026-11-20, still v3): below
         'hands', 'seats', 'gameLog', 'logTotal',
         'players',                                    // only its key order, as state.seatOrder (the deal order)
         'casualVoice', 'lobbyOrigin',                 // a lobby-born casual game (null otherwise): below
@@ -360,6 +366,7 @@ function serialize(game, { tournamentId, getBot } = {}) {
         handStats: json(game.handStats),
         playerStats: json(game.playerStats),
         seatBags: normalizeSeatBags(game.seatBags),
+        seatExact: normalizeSeatCounter(game.seatExact),
         handTricks: json(game.handTricks),
         hsiValues: json(game.hsiValues) || {},
         hands,
@@ -479,6 +486,7 @@ function expectedAfterRestore(doc) {
     out.v = CODEC_V;
     out.state.assist = normalizeAssist(out.state.assist);
     out.state.seatBags = normalizeSeatBags(out.state.seatBags);
+    out.state.seatExact = normalizeSeatCounter(out.state.seatExact);
     for (const ps of Object.values(out.state.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
     out.state.eventSeq += EVENT_SEQ_OFFSET;
     for (const s of Object.values(out.state.seats)) {
