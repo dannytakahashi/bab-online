@@ -402,6 +402,21 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   (shipped iOS: none, and a typed `?tutorial` stays chat). The web sends it
   from the tutorial's web PR; iOS from a build after 20
   (docs/claude/assist.md, The tutorial).
+- `shoulderView` (`$defs.clientCapShoulderView`, its own const for the same
+  reason; 2026-11-21, the over-the-shoulder view): a pure spectator may
+  watch one seat's hand, read-only (c2s `watchHand {gameId, position |
+  null, requestId?}`, answered by `stateSnapshot {snapshot, reason:
+  'watchHand'}` with `viewer.shoulder {position, hand, hsi}`, or by s2c
+  `watchHandRefused`; every later deal's spectator `gameStart.shoulder`; the
+  watched seat's hints as `assistHint {watched}`; `shoulder` on the entries
+  of the spectator list it gets). Without the cap a socket gets NONE of
+  these keys or events (its watchHand is dropped silently, with no
+  refusal): its spectatorsUpdated, snapshots and gameStart are
+  byte-identical to before. A table suspended (self-fence) or frozen
+  (handoff) serves no hand on any path (refusal `unavailable`). Never at tournament tables; a spectating socket
+  whose user owns a seat at the table may watch only that seat. No client
+  sends it yet (server phase 1); docs/claude/spectators.md
+  "Over-the-shoulder view" is the client spec.
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

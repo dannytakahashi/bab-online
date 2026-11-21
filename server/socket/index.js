@@ -16,6 +16,7 @@ const voiceHandlers = require('./voiceHandlers');
 const playAgain = require('./playAgain');
 const safetyHandlers = require('./safetyHandlers');
 const snapshotHandlers = require('./snapshotHandlers');
+const shoulderView = require('./shoulderView');
 const adminHandlers = require('./adminHandlers');
 const clientErrorHandlers = require('./clientErrorHandlers');
 const clientInfo = require('./clientInfo');
@@ -138,6 +139,12 @@ function setupSocketHandlers(io) {
         // Reconnection events
         socket.on('rejoinGame', (data) =>
             asyncHandler('rejoinGame', reconnectHandlers.rejoinGame)(socket, io, data)
+        );
+
+        // Over-the-shoulder view (cap shoulderView): watch one seat's hand
+        // (reply: stateSnapshot reason watchHand, or watchHandRefused)
+        socket.on('watchHand', (data) =>
+            syncHandler('watchHand', shoulderView.watchHand)(socket, io, data)
         );
 
         // Snapshot v2: the table as this socket sees it (reply: stateSnapshot)

@@ -1299,6 +1299,9 @@
     "clientCapTutorial": {
       "const": "tutorial"
     },
+    "clientCapShoulderView": {
+      "const": "shoulderView"
+    },
     "avatarUrl": {
       "type": "string",
       "minLength": 1,
@@ -1866,6 +1869,9 @@
         },
         "assist": {
           "$ref": "#/$defs/viewerAssist"
+        },
+        "shoulder": {
+          "$ref": "#/$defs/shoulderHand"
         }
       },
       "required": [
@@ -1873,6 +1879,33 @@
         "position",
         "ownerView",
         "canAct"
+      ],
+      "additionalProperties": false
+    },
+    "shoulderHand": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "hand": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/card"
+          },
+          "maxItems": 13
+        },
+        "hsi": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "position",
+        "hand",
+        "hsi"
       ],
       "additionalProperties": false
     },
@@ -2054,6 +2087,9 @@
         },
         "avatarUrl": {
           "$ref": "#/$defs/avatarUrl"
+        },
+        "shoulder": {
+          "$ref": "#/$defs/position"
         }
       },
       "required": [
@@ -2409,7 +2445,7 @@
           "caps": []
         }
       ],
-      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, and tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial)."
+      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial), and shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket's watch; $defs.clientCapShoulderView)."
     },
     "changePassword": {
       "payload": {
@@ -3383,6 +3419,91 @@
           "sessionToken": ""
         }
       ]
+    },
+    "watchHand": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requestId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          }
+        },
+        "required": [
+          "gameId",
+          "position"
+        ],
+        "additionalProperties": true
+      },
+      "status": "unsent",
+      "joi": "watchHand",
+      "rateLimit": "watchHand",
+      "sentBy": {
+        "web": false,
+        "ios": false
+      },
+      "examples": [
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": 2
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": null
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": 4,
+          "requestId": "w1"
+        }
+      ],
+      "invalid": [
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": 0
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": 5
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f",
+          "position": "2"
+        },
+        {
+          "gameId": "6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f"
+        },
+        {
+          "gameId": "x",
+          "position": 1
+        },
+        {
+          "position": 1
+        }
+      ],
+      "notes": "New (2026-11-21, the over-the-shoulder view; server phase: no client sends it yet, hence unsent). A pure spectator with the clientHello cap shoulderView watches seat `position` (1-4) read-only, or stops (null). Accepted: stateSnapshot {snapshot, reason: 'watchHand', requestId?} (viewer.shoulder while watching), then the table's coalesced spectatorsUpdated; every later deal's spectator gameStart carries shoulder, and the watched seat's hints come as assistHint {watched}. Refused: watchHandRefused {gameId, position, reason, message, ownPosition?}. From a socket without the cap it is dropped silently (no reply). The watch is never saved and goes with the socket's spectator entry: re-send it after a spectatorJoined full state without viewer.shoulder (a reconnect on a new socket, spectating another game and back, a deploy-survival adoption); re-spectating the same game from the same socket keeps it, and re-sending watchHand is idempotent. A stop (null) is always done (no reply while the table is suspended or frozen); after an unavailable refusal keep the selection and re-send after \"Game resumed.\" or the next full state. docs/claude/spectators.md \"Over-the-shoulder view\"."
     },
     "requestSnapshot": {
       "payload": {
@@ -6471,6 +6592,9 @@
               "avatarUrls": {
                 "$ref": "#/$defs/avatarUrlsByPosition"
               },
+              "shoulder": {
+                "$ref": "#/$defs/shoulderHand"
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -6495,6 +6619,7 @@
       "seq": true,
       "added": [
         "avatarUrls",
+        "shoulder",
         "seq"
       ],
       "clientReads": {
@@ -7527,6 +7652,9 @@
                     "type": "integer"
                   }
                 ]
+              },
+              "reason": {
+                "const": "watchHand"
               }
             },
             "required": [
@@ -7574,10 +7702,14 @@
         ],
         "ios": []
       },
-      "emittedFrom": [
-        "server/socket/snapshotHandlers.js:requestSnapshot"
+      "added": [
+        "reason"
       ],
-      "notes": "New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; no seat carries a picture inline (V1_REMOVALS #19 C: customPic always null, a custom picture is the seat's avatarUrl; customPics in the request is ignored and partial never lists 'customPics'). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot)."
+      "emittedFrom": [
+        "server/socket/snapshotHandlers.js:requestSnapshot",
+        "server/socket/shoulderView.js:watchHand"
+      ],
+      "notes": "found with reason watchHand (additive 2026-11-21, the over-the-shoulder view; only to a socket with the clientHello cap shoulderView): the reply to an accepted c2s watchHand, a full snapshot (log left out: partial ['log']) whose viewer.shoulder is the watched seat {position, hand, hsi}, absent after a stop (position null); docs/claude/spectators.md \"Over-the-shoulder view\". New in snapshot v2: the reply to requestSnapshot. The log is included unless the request sends log:false; no seat carries a picture inline (V1_REMOVALS #19 C: customPic always null, a custom picture is the seat's avatarUrl; customPics in the request is ignored and partial never lists 'customPics'). notInGame: the socket is in no live game - also once its game ENDED or ABORTED (the terminal state arrives as gameEnd / abortGame, never as a snapshot)."
     },
     "rejoinFailed": {
       "payload": {
@@ -8084,7 +8216,10 @@
         "additionalProperties": false
       },
       "status": "active",
-      "to": "room",
+      "to": [
+        "room",
+        "socket"
+      ],
       "seq": false,
       "clientReads": {
         "web": [
@@ -8097,7 +8232,7 @@
       "emittedFrom": [
         "server/game/spectatorRoster.js:flush"
       ],
-      "notes": "Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS 1.1.0 reads nothing; iOS 1.2.0 routes it around its seq gate (ServerEvent.spectators) and shows the badge (V1_REMOVALS \"iOS spectator badge\")."
+      "notes": "Over-the-shoulder view (2026-11-21): while somebody watches a hand, each socket of the table with the clientHello cap shoulderView also gets, privately and right after the room's copy (or alone, when only who watches which hand changed), the same whole list with `shoulder` (the watched position) on the watchers' entries: apply the last one received. Without the cap the room copy is all a socket ever gets, unchanged. Who is watching (owner, 2026-11-11: the table's spectator badge), the WHOLE list each time: GameState.spectatorList() (pure spectators, one per username in join order, never a seat owner or entrant), at most 50 entries, count the true total (the same as snapshot v2 `watching`; the older spectatorCount fields stay the spectator SOCKET count, cc865b4's meaning). Sent to the game room on every change (join, leave, disconnect, spectating another game, a round start, a reclaim), coalesced to one emit per game per 250 ms, skipped when unchanged, never after end/abort. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced): an absolute display state, and the App Store build (f05d264) registers no handler for it, so a sequenced form would open a gap in its seq gate on every change. The snapshot's `watching` carries the same {spectators, count}. iOS 1.1.0 reads nothing; iOS 1.2.0 routes it around its seq gate (ServerEvent.spectators) and shows the badge (V1_REMOVALS \"iOS spectator badge\")."
     },
     "bidClock": {
       "payload": {
@@ -8184,6 +8319,59 @@
         "server/socket/bidClock.js:resume"
       ],
       "notes": "The bid clock (owner 2026-11-18, every game; contract/README.md \"Bid clock\"): a human-controlled seat that has not bid 10 s (SeatState.BID_CLOCK_DELAY_MS) after its bid turn opened gets a 30 s clock (BID_CLOCK_MS, the length of bidclock.m4a, the tune the table plays); when it runs out the server bids '0' for the seat through the normal bid path, after the room log line \"<name> ran out of time.\". `running` carries the time left from emission (inMs) and the full length (durationMs): clients END-align the tune with the deadline and show the bidder a countdown with a small safety margin. `stopped` reasons: bid (the seat bid), timeout (the server is bidding 0 right after: let the tune's end cue ring), turn (the turn moved some other way, e.g. a new deal), controller (a bot took the seat: /lazy, AFK, resign, /leave). No stopped on gameEnd / abortGame (terminal games emit nothing): clients clear the clock on those and on every bidReceived / updateTurn / doneBidding / gameStart / destroyHands / snapshot without bidClock. A `running` is never sent before the 10 s pre-wait except on a same-turn resume (/active, reclaimSeat), which a client-side seq-gap replay of older events cannot clear. Bots never get one. UNSEQUENCED (no seq, no bump; GameState.emitUnsequenced), like spectatorsUpdated: the payload is absolute and every shipped iOS build (<= 1.2.3 (14)) registers no handler for it, so a sequenced form would open a gap in their seq gate on every clock start and stop; no clientHello cap (unknown unsequenced events are invisible to old clients). Timeouts in a row (BID_TIMEOUT_AFK_STRIKES, default 2): when a timeout is a connected seat's Nth in a row (casual tables, and tournament tables with no other owner present; not solo / AFK-exempt games, not with AFK_TIMEOUT_MS=0), a bot takes the seat in the same run: playerLazyMode and its \"was idle\" log line come after that bidReceived '0' and before the updateTurn / doneBidding / redeal it triggers. Shipped builds see only the log line and the ordinary bidReceived '0'; the next iOS build after 1.2.3 (14) registers it and routes it around its seq gate (ServerEvent.bidClock, decoded with seq nil: the tune, the bidder's countdown, the timeout toast). Snapshot v2 carries the running clock as the optional `bidClock`."
+    },
+    "watchHandRefused": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "description": "the gameId the watchHand named"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/position"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "enum": [
+              "not_spectating",
+              "unavailable",
+              "tournament",
+              "not_dealt",
+              "own_seat"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "ownPosition": {
+            "$ref": "#/$defs/position"
+          }
+        },
+        "required": [
+          "gameId",
+          "position",
+          "reason",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "self",
+      "clientReads": {
+        "web": [],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/shoulderView.js:watchHand"
+      ],
+      "notes": "New (2026-11-21, the over-the-shoulder view; private, unsequenced): c2s watchHand refused; nothing changed (a hand already watched stays watched). Only ever sent to a socket with the clientHello cap shoulderView: a watchHand from a socket without it is dropped silently (no reply at all). Reasons, checked in this order: not_spectating (not a pure spectator of that game: unknown or other game, a seat owner, a lazy watcher, an entrant), unavailable (the table is suspended by the LIVE_PERSIST self-fence, frozen by a handoff, or over: try again after the resume), tournament (never at tournament tables, known by the game itself, so also after its tournament was cancelled or deleted while the table lives), not_dealt (before the first gameStart: CREATED, the draw, the teams), own_seat (the socket's user owns a seat at this table, gone included: it may watch only that seat, ownPosition). Stopping (position null) is refused only for not_spectating: a stop exposes nothing, so it is always done, and on a suspended, frozen or ended table it gets no reply at all (no snapshot leaves such a table). Clients: after unavailable keep the selected seat (the server keeps a watch across a suspension, it just serves nothing meanwhile) and send watchHand again after the room's 'Game resumed.' line or the next full state. message is short English a client may show. A malformed payload (position not 1-4 or null, a bad gameId) is the wrapper's serverError {code: 'validation'} instead, and the rate limit's serverError {code: 'rateLimit'}. docs/claude/spectators.md \"Over-the-shoulder view\"."
     },
     "seatLeft": {
       "payload": {
@@ -8341,6 +8529,9 @@
           "note": {
             "type": "string"
           },
+          "watched": {
+            "$ref": "#/$defs/position"
+          },
           "unlimited": {
             "type": "boolean",
             "description": "true only in a game with a native bot seat (lobby Add Bot, tournament filler, solo; never a lazy or resign bot: assistState.isFreeHelpGame): /help has no limit there (the game is in the bot-game stats anyway), assisted is always false, no warning or crossing note is sent, and clients show no count or free/limit words. Absent otherwise. Internal: never shown"
@@ -8363,6 +8554,9 @@
       "status": "active",
       "to": "socket",
       "seq": false,
+      "added": [
+        "watched"
+      ],
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -8375,9 +8569,10 @@
         "server/socket/assistHandlers.js:help",
         "server/socket/assistHandlers.js:sendStatus",
         "server/socket/assistHandlers.js:sendTip",
-        "server/socket/assistHandlers.js:sendAdvice"
+        "server/socket/assistHandlers.js:sendAdvice",
+        "server/socket/shoulderView.js:mirrorHint"
       ],
-      "notes": "New (2026-11-18, /help plan H2c; private, unsequenced. Web reads it from 2026-11-19 (H3: the clientHello cap assist, client/src/ui/components/AssistCard.js above the hand, the suggested card or bid ringed, cleared on the events below; a reply whose turnKey's stage, seat or bid count is not the current turn's is dropped); iOS from the build after 1.2.3 (17) (H4)). Only to a socket that sent the clientHello cap assist ($defs.clientCapAssist), as the reply to its own /help or ?help (chatMessage); every other socket gets the same reply as private gameLogEntry lines. kind bid / card: the bid or card a Mary bot would choose in that seat (server/game/assist), with up to 2 reasons, up to 4 details (a 'Why?' expander), the confidence (UI labels: Only legal card, Sure thing, Clear choice, Close call, Any card works, Quick suggestion) and suggest; note carries the warning on the last free use or 'This game now counts as bot-assisted for you.' on the use that crosses it. kind status: no suggestion (headline is the whole reply: a bot plays the seat, the rate limit, nothing to suggest, the off-turn status line, an error, players only, once the game starts), never counted. The tutorial (2026-11-19, the LEAN scope with the fade-out; docs/claude/assist.md, The tutorial): source tutorial with kind bid / card is the same answer pushed on the seat's own non-forced decision while its tutorial is on (counted always false, never a room notice; from the end of the 2-card hand only for tricky choices); source tutorial with kind tip is a rule tip (headline = a short title, reasons = [the tip's text], tipId 'T.welcome' | 'T.trump' | 'T.noTrump' | 'T.bid' | 'T.set' | 'T.bore' | 'T.zero' | 'T.lead' | 'T.follow' | 'T.void' | 'T.partnerWins' | 'T.hiJoker' | 'T.broken' | 'T.made' | 'T.handScore' | 'T.rainbow' | 'T.oneCard' | 'T.graduate' | 'T.done', counted false), sent only to a socket with the clientHello cap tutorial ($defs.clientCapTutorial; others get the private line 'Tip: <text>'); actions ['keep', 'off'] only on T.welcome (Keep / Turn off: the client sends chatMessage '/tutorial keep' or '/tutorial off'; closing it with its x sends '/tutorial close', which, unlike keep, dismisses an auto-started tutorial for the account); source tutorial with kind status answers a /tutorial command privately (e.g. 'Tips off. /help still works any time.'). A tip and the advice of the same decision arrive tip first. Every text is at most 280 characters. Clear it on the next updateTurn, the player's own bidReceived / cardPlayed, hand end, or a turnKey that is not the current turn's. iOS (the build after 1.2.3 (17)) sends the cap and reads it (GameSocketHandler; ServerEvent.assistHint decoded with seq nil, every field optional but kind and headline; TableReducer+Assist: AssistCardView above the hand or the bid panel, the suggested card's glow, the suggested bid's ring, the lightbulb by the hand); builds <= 17 never send the cap, so they keep the private lines. unlimited (additive 2026-11-19, owner \"Unlimited, keep notice\"): true in a game with a native bot seat (assistState.isFreeHelpGame), where /help has no limit: uses still counts (the room notice \"<name> used /help.\" stays, once per counted turn; the game-end record still marks more than 3 counted uses, profileHandlers.buildGameEndRecord), freeUses stays 3 so shipped decoders keep working, assisted is never true, note never carries the warning or the crossing. Owner wording rule (say nothing): clients show no count and never the words free, unlimited or bot-assisted in such a game (footer just 'What our strongest bot would play', /help described as just 'Ask a bot for advice'); the flag name is internal. Clients also know such a game before any hint or snapshot from their own table state (a seat whose controller is a native bot, snapshot seats[].controller 'bot': web GameState, iOS PlayersSlice; never a lazy or resign bot). The ask's label (the lightbulb, /help in the chat list) is 'Ask a bot for advice' in every game (owner 2026-11-19)."
+      "notes": "watched (additive 2026-11-21, the over-the-shoulder view): a copy of the hint the watched seat's owner just got, sent to each over-the-shoulder watcher of that seat (a pure spectator with the clientHello cap shoulderView whose watchHand stands): kind bid / card (its /help answers and its tutorial advice) and kind tip (rule tips only: never T.welcome, T.graduate or T.done), never kind status; without `note` and `actions` (the asker's own warning and buttons); uses / freeUses / assisted / counted / unlimited describe the WATCHED player (clients show no count on it). Mirrored whatever the owner's client renders (its cap assist / tutorial) and only as hints come: nothing is replayed to a new watcher. Watchers never ask (/help stays 'for players only'). New (2026-11-18, /help plan H2c; private, unsequenced. Web reads it from 2026-11-19 (H3: the clientHello cap assist, client/src/ui/components/AssistCard.js above the hand, the suggested card or bid ringed, cleared on the events below; a reply whose turnKey's stage, seat or bid count is not the current turn's is dropped); iOS from the build after 1.2.3 (17) (H4)). Only to a socket that sent the clientHello cap assist ($defs.clientCapAssist), as the reply to its own /help or ?help (chatMessage); every other socket gets the same reply as private gameLogEntry lines. kind bid / card: the bid or card a Mary bot would choose in that seat (server/game/assist), with up to 2 reasons, up to 4 details (a 'Why?' expander), the confidence (UI labels: Only legal card, Sure thing, Clear choice, Close call, Any card works, Quick suggestion) and suggest; note carries the warning on the last free use or 'This game now counts as bot-assisted for you.' on the use that crosses it. kind status: no suggestion (headline is the whole reply: a bot plays the seat, the rate limit, nothing to suggest, the off-turn status line, an error, players only, once the game starts), never counted. The tutorial (2026-11-19, the LEAN scope with the fade-out; docs/claude/assist.md, The tutorial): source tutorial with kind bid / card is the same answer pushed on the seat's own non-forced decision while its tutorial is on (counted always false, never a room notice; from the end of the 2-card hand only for tricky choices); source tutorial with kind tip is a rule tip (headline = a short title, reasons = [the tip's text], tipId 'T.welcome' | 'T.trump' | 'T.noTrump' | 'T.bid' | 'T.set' | 'T.bore' | 'T.zero' | 'T.lead' | 'T.follow' | 'T.void' | 'T.partnerWins' | 'T.hiJoker' | 'T.broken' | 'T.made' | 'T.handScore' | 'T.rainbow' | 'T.oneCard' | 'T.graduate' | 'T.done', counted false), sent only to a socket with the clientHello cap tutorial ($defs.clientCapTutorial; others get the private line 'Tip: <text>'); actions ['keep', 'off'] only on T.welcome (Keep / Turn off: the client sends chatMessage '/tutorial keep' or '/tutorial off'; closing it with its x sends '/tutorial close', which, unlike keep, dismisses an auto-started tutorial for the account); source tutorial with kind status answers a /tutorial command privately (e.g. 'Tips off. /help still works any time.'). A tip and the advice of the same decision arrive tip first. Every text is at most 280 characters. Clear it on the next updateTurn, the player's own bidReceived / cardPlayed, hand end, or a turnKey that is not the current turn's. iOS (the build after 1.2.3 (17)) sends the cap and reads it (GameSocketHandler; ServerEvent.assistHint decoded with seq nil, every field optional but kind and headline; TableReducer+Assist: AssistCardView above the hand or the bid panel, the suggested card's glow, the suggested bid's ring, the lightbulb by the hand); builds <= 17 never send the cap, so they keep the private lines. unlimited (additive 2026-11-19, owner \"Unlimited, keep notice\"): true in a game with a native bot seat (assistState.isFreeHelpGame), where /help has no limit: uses still counts (the room notice \"<name> used /help.\" stays, once per counted turn; the game-end record still marks more than 3 counted uses, profileHandlers.buildGameEndRecord), freeUses stays 3 so shipped decoders keep working, assisted is never true, note never carries the warning or the crossing. Owner wording rule (say nothing): clients show no count and never the words free, unlimited or bot-assisted in such a game (footer just 'What our strongest bot would play', /help described as just 'Ask a bot for advice'); the flag name is internal. Clients also know such a game before any hint or snapshot from their own table state (a seat whose controller is a native bot, snapshot seats[].controller 'bot': web GameState, iOS PlayersSlice; never a lazy or resign bot). The ask's label (the lightbulb, /help in the chat list) is 'Ask a bot for advice' in every game (owner 2026-11-19)."
     },
     "assistState": {
       "payload": {

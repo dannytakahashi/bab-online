@@ -304,6 +304,13 @@ const defs = {
     // auto-start in a new account's first game (contract/README.md "Client
     // capabilities")
     clientCapTutorial: konst('tutorial'),
+    // A sixth, its own const for the same reason (2026-11-21, the
+    // over-the-shoulder view): a pure spectator may watch one seat's hand
+    // (c2s watchHand, s2c watchHandRefused, gameStart / snapshot shoulder,
+    // assistHint watched, spectatorEntry shoulder); without it none of that
+    // is ever sent (contract/README.md "Client capabilities",
+    // docs/claude/spectators.md "Over-the-shoulder view")
+    clientCapShoulderView: konst('shoulderView'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)
@@ -395,7 +402,20 @@ const defs = {
         // unlimited (2026-11-19) marks a game with a native bot seat (no
         // count shown, so clients know after a reload)
         assist: ref('viewerAssist'),
-    }, { optional: ['assist'] }),
+        // additive (2026-11-21, the over-the-shoulder view): the hand a pure
+        // spectator watches (role spectator, position null as before),
+        // present only for a socket with the clientHello cap shoulderView
+        // while its watchHand stands
+        shoulder: ref('shoulderHand'),
+    }, { optional: ['assist', 'shoulder'] }),
+    // The watched seat's private table (server/socket/shoulderView.js
+    // shoulderPayload): that seat's hand now (cards it played are gone) and
+    // that seat's HSI of this deal (null before one); never another seat's
+    shoulderHand: obj({
+        position: ref('position'),
+        hand: arr(ref('card'), { maxItems: 13 }),
+        hsi: orNull(num()),
+    }),
     viewerAssist: obj({
         uses: int({ minimum: 0, description: 'counted /help uses of this player this game' }),
         freeUses: int({ minimum: 0, description: 'free uses per game (3); more makes the game bot-assisted for the player' }),
@@ -443,7 +463,12 @@ const defs = {
         username: str(),
         pic: orNull(int({ minimum: 1, maximum: 82 })),
         avatarUrl: ref('avatarUrl'),
-    }, { optional: ['avatarUrl'] }),
+        // additive (2026-11-21, the over-the-shoulder view): the seat whose
+        // hand this person watches; only in the copies sent to a socket with
+        // the clientHello cap shoulderView (the table sees who watches which
+        // hand), absent otherwise
+        shoulder: ref('position'),
+    }, { optional: ['avatarUrl', 'shoulder'] }),
     // GameState.spectatorList() on the wire: at most 50 people, `count`
     // the true total (spectatorsUpdated, snapshot v2 `watching`)
     spectatorList: obj({

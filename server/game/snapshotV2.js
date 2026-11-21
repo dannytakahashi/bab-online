@@ -9,7 +9,10 @@
  * requires only rules / GamePhase / SeatState / assistState (never
  * GameState or GameManager): tournament info is passed in through opts.
  * Optional keys (absent when they do not apply): bidClock, viewer.assist
- * (the viewer's own seat only) and a log item's fault.
+ * (the viewer's own seat only), viewer.shoulder and watching entries'
+ * shoulder (the over-the-shoulder view: only for a receiving socket with
+ * the clientHello cap shoulderView, socket/shoulderView.js) and a log
+ * item's fault.
  */
 
 'use strict';
@@ -45,8 +48,14 @@ const isTeamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2
  *   socket.data.blockedUsers): both clients hide a blocked sender's live
  *   chatMessage, so a snapshot's log must not bring it back. Only 'chat'
  *   entries with a `from` are dropped; system lines are kept.
+ * @param {{position: number, hand: Object[], hsi: (number|null)}|null} [opts.shoulder] -
+ *   the watched seat of a pure spectator (shoulderView.shoulderPayload;
+ *   the caller checked every rule): viewer.shoulder
+ * @param {Map<string, number>|null} [opts.shoulders] - who watches which
+ *   hand (GameState.shoulderByUsername), for a viewer with the cap
+ *   shoulderView only: `shoulder` on the watching entries
  */
-function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), log = true, botName = null, avatarResolve = null, hideChatFrom = null } = {}) {
+function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(), log = true, botName = null, avatarResolve = null, hideChatFrom = null, shoulder = null, shoulders = null } = {}) {
     const stage = game.stage;
     const preDeal = PRE_DEAL.has(stage);
     const partial = [];
@@ -198,7 +207,7 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
 
     // ---- who is watching: pure spectators, one per username, never a
     // seat owner (GameState.spectatorList); capped list, true count ----
-    const watching = spectatorsWire(game.spectatorList(), avatarResolve);
+    const watching = spectatorsWire(game.spectatorList(), avatarResolve, shoulders);
 
     // ---- the bid clock (socket/bidClock.js), only while it runs ----
     const clock = typeof game.bidClockInfo === 'function' ? game.bidClockInfo(now) : null;
@@ -227,6 +236,12 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
                     ...assistTally(game.assist?.[ownPos], ownSeat.ownerUsername ?? null, isFreeHelpGame(game)),
                     ...tutorialTally(game.assist?.[ownPos], ownSeat.ownerUsername ?? null)
                 }
+            }),
+            // additive (2026-11-21, the over-the-shoulder view): the hand a
+            // pure spectator watches (shoulderView cap only; role and
+            // position stay the spectator's: null position)
+            ...(shoulder && role === 'spectator' && {
+                shoulder: { position: shoulder.position, hand: shoulder.hand.map(card), hsi: shoulder.hsi ?? null }
             }),
         },
         hand,

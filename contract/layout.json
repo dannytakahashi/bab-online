@@ -614,11 +614,14 @@
     ]
   },
   "exclude": {
-    "web": {},
+    "web": {
+      "watchHandRefused": "over-the-shoulder view, server phase (2026-11-21): no client reads it yet; the web and iOS phases list it"
+    },
     "swift": {
       "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
-      "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
+      "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this",
+      "watchHandRefused": "over-the-shoulder view, server phase (2026-11-21): no client reads it yet; the web and iOS phases list it"
     }
   }
 }

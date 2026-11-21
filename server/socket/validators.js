@@ -180,6 +180,13 @@ const schemas = {
     joinAsSpectator: Joi.object({
         gameId: Joi.string().uuid().required()
     }),
+    // Over-the-shoulder view (socket/shoulderView.js); mirrors contract
+    // c2s.watchHand. position null = stop watching
+    watchHand: Joi.object({
+        gameId: Joi.string().uuid().required(),
+        position: Joi.number().integer().strict().min(1).max(4).allow(null).required(),
+        requestId: Joi.alternatives().try(Joi.string().min(1).max(64), Joi.number().integer()).optional()
+    }).required(),
 
     // Profile
     updateProfilePic: Joi.object({

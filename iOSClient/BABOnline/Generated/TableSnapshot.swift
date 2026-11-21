@@ -146,6 +146,7 @@ struct TableSnapshot: Codable, Equatable {
         var ownerView: OwnerView?
         var canAct: Bool
         var assist: ViewerAssist?
+        var shoulder: ShoulderHand?
     }
 
     enum Role: Codable, Equatable, Hashable {
@@ -234,6 +235,12 @@ struct TableSnapshot: Codable, Equatable {
         var unlimited: Bool?
         var tutorial: Bool?
         var auto: Bool?
+    }
+
+    struct ShoulderHand: Codable, Equatable {
+        var position: Int
+        var hand: [Card]
+        var hsi: Double?
     }
 
     struct Deal: Codable, Equatable {
@@ -487,6 +494,7 @@ struct TableSnapshot: Codable, Equatable {
         var username: String
         var pic: Int?
         var avatarUrl: String?
+        var shoulder: Int?
     }
 
     struct Tournament: Codable, Equatable {

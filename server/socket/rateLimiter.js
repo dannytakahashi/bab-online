@@ -106,6 +106,9 @@ class RateLimiter {
             // lists, so a bot clicking stops here
             joinLobby: { max: 20, windowMs: 30000 },
             joinAsSpectator: { max: 20, windowMs: 30000 },
+            // Over-the-shoulder view: one per avatar tap (switch / stop);
+            // over it the wrapper's serverError {code:'rateLimit'}
+            watchHand: { max: 20, windowMs: 30000 },
             // No-payload table events (safeHandler's `limit`, checked at the
             // socket event only: joinMainRoom also leaves a lobby through
             // leaveLobby internally). Ready / Unready / Add Bot / Leave are

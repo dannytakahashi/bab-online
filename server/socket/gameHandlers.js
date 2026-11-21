@@ -35,6 +35,7 @@ const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const assistHandlers = require('./assistHandlers');
 const { snapshotFor, carrierFor } = require('./snapshotHandlers');
+const shoulderView = require('./shoulderView');
 const pacing = require('../game/pacing');
 /** The live persist store (deploy survival), lazily: a no-op with LIVE_PERSIST off. */
 const liveStore = () => require('../game/persist/liveStore').getLiveStore();
@@ -62,7 +63,7 @@ function rejectAction(socket, game, action, reason, extra = {}) {
     socket.emit('actionRejected', {
         action,
         reason,
-        snapshot: snapshotFor(game, socket.id, { log: false })
+        snapshot: snapshotFor(game, socket.id, { log: false, socket })
     });
 }
 
@@ -727,9 +728,13 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
         });
     }
 
-    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand
+    // Send spectator-safe gameStart (no hand data) so spectators see updated trump/score/hand.
+    // An over-the-shoulder watcher (cap shoulderView, every rule re-checked:
+    // shoulderView.watchedPositionOf) also gets the watched seat's
+    // {position, hand, hsi} as the additive `shoulder`: that seat only
     for (const spec of game.getSpectators()) {
         const info = infoFor();
+        const watched = shoulderView.watchedPositionOf(io, game, spec.socketId);
         game.sendToPlayer(io, spec.socketId, 'gameStart', {
             gameId: game.gameId,
             trump: game.trump,
@@ -740,7 +745,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             hand: [],
             playerInfo: info.players,
             seq: handSeq,
-            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })
+            ...(info.avatarUrls && { avatarUrls: info.avatarUrls }),
+            ...(watched && { shoulder: shoulderView.shoulderPayload(game, watched) })
         });
     }
 

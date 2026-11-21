@@ -1,0 +1,391 @@
+{
+  "description": "The over-the-shoulder view on the wire (clientHello cap shoulderView), one of each, from a real game: the watcher's watchHand, its stateSnapshot reply (reason watchHand), a refusal (own_seat: a seat owner's second tab), the watched seat's /help answer mirrored (assistHint watched), the wide spectatorsUpdated (shoulder on the entry) and the next deal's spectator gameStart (shoulder). Rewrite with npm run contract:fixtures.",
+  "events": [
+    {
+      "direction": "c2s",
+      "event": "watchHand",
+      "data": {
+        "gameId": "00000000-0000-4000-8000-000000000002",
+        "position": 2,
+        "requestId": "w1"
+      }
+    },
+    {
+      "direction": "s2c",
+      "event": "stateSnapshot",
+      "to": "self",
+      "data": {
+        "snapshot": {
+          "v": 2,
+          "gameId": "00000000-0000-4000-8000-000000000002",
+          "seq": 12,
+          "serverTime": 1767268809250,
+          "stage": "BIDDING",
+          "partial": [
+            "log"
+          ],
+          "viewer": {
+            "role": "spectator",
+            "position": null,
+            "ownerView": null,
+            "canAct": false,
+            "shoulder": {
+              "position": 2,
+              "hand": [
+                {
+                  "suit": "spades",
+                  "rank": "6"
+                },
+                {
+                  "suit": "diamonds",
+                  "rank": "J"
+                },
+                {
+                  "suit": "spades",
+                  "rank": "10"
+                },
+                {
+                  "suit": "spades",
+                  "rank": "5"
+                },
+                {
+                  "suit": "clubs",
+                  "rank": "9"
+                },
+                {
+                  "suit": "diamonds",
+                  "rank": "8"
+                },
+                {
+                  "suit": "clubs",
+                  "rank": "6"
+                },
+                {
+                  "suit": "hearts",
+                  "rank": "3"
+                },
+                {
+                  "suit": "diamonds",
+                  "rank": "5"
+                },
+                {
+                  "suit": "clubs",
+                  "rank": "2"
+                },
+                {
+                  "suit": "clubs",
+                  "rank": "5"
+                },
+                {
+                  "suit": "clubs",
+                  "rank": "J"
+                }
+              ],
+              "hsi": 137.58333333333331
+            }
+          },
+          "hand": null,
+          "deal": {
+            "handNo": 1,
+            "handSize": 12,
+            "dealer": 1,
+            "bidder": 2,
+            "dealSeq": 1
+          },
+          "trump": {
+            "suit": "clubs",
+            "rank": "A"
+          },
+          "trumpBroken": false,
+          "turn": {
+            "position": 2,
+            "action": "bid"
+          },
+          "bids": {
+            "byPosition": [
+              null,
+              null,
+              null,
+              null
+            ],
+            "order": [
+              2,
+              3,
+              4,
+              1
+            ],
+            "teamBids": null,
+            "mults": {
+              "team1": 1,
+              "team2": 1
+            }
+          },
+          "trick": {
+            "number": null,
+            "leadPosition": null,
+            "cards": []
+          },
+          "tricks": {
+            "team1": 0,
+            "team2": 0
+          },
+          "tricksByPosition": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "trickHistory": [],
+          "score": {
+            "team1": 0,
+            "team2": 0
+          },
+          "rainbows": {
+            "team1": 0,
+            "team2": 0
+          },
+          "hsi": null,
+          "seats": [
+            {
+              "position": 1,
+              "username": "ola",
+              "pic": 10,
+              "hasCustomPic": false,
+              "customPic": null,
+              "ownerUsername": "ola",
+              "controller": "human",
+              "presence": "connected",
+              "isBot": false,
+              "lazy": false,
+              "offered": false,
+              "graceDeadline": null,
+              "resignableAt": null,
+              "cardsInHand": 12
+            },
+            {
+              "position": 2,
+              "username": "pia",
+              "pic": 11,
+              "hasCustomPic": false,
+              "customPic": null,
+              "ownerUsername": "pia",
+              "controller": "human",
+              "presence": "connected",
+              "isBot": false,
+              "lazy": false,
+              "offered": false,
+              "graceDeadline": null,
+              "resignableAt": null,
+              "cardsInHand": 12
+            },
+            {
+              "position": 3,
+              "username": "quin",
+              "pic": 12,
+              "hasCustomPic": false,
+              "customPic": null,
+              "ownerUsername": "quin",
+              "controller": "human",
+              "presence": "connected",
+              "isBot": false,
+              "lazy": false,
+              "offered": false,
+              "graceDeadline": null,
+              "resignableAt": null,
+              "cardsInHand": 12
+            },
+            {
+              "position": 4,
+              "username": "rex",
+              "pic": 13,
+              "hasCustomPic": false,
+              "customPic": null,
+              "ownerUsername": "rex",
+              "controller": "human",
+              "presence": "connected",
+              "isBot": false,
+              "lazy": false,
+              "offered": false,
+              "graceDeadline": null,
+              "resignableAt": null,
+              "cardsInHand": 12
+            }
+          ],
+          "entrants": null,
+          "draw": null,
+          "spectatorCount": 2,
+          "watching": {
+            "spectators": [
+              {
+                "username": "sid",
+                "pic": 7,
+                "shoulder": 2
+              }
+            ],
+            "count": 1
+          },
+          "tournament": null,
+          "log": [],
+          "resume": null
+        },
+        "reason": "watchHand",
+        "requestId": "w1"
+      }
+    },
+    {
+      "direction": "s2c",
+      "event": "watchHandRefused",
+      "to": "self",
+      "data": {
+        "gameId": "00000000-0000-4000-8000-000000000002",
+        "position": 2,
+        "reason": "own_seat",
+        "message": "You have a seat at this table: you can watch only your own hand.",
+        "ownPosition": 1
+      }
+    },
+    {
+      "direction": "s2c",
+      "event": "assistHint",
+      "to": "socket",
+      "data": {
+        "v": 1,
+        "source": "help",
+        "kind": "bid",
+        "turnKey": "1|BIDDING|2|0|0",
+        "headline": "Bid 1",
+        "reasons": [
+          "Your hand should win about 2.4 tricks: 9♣ (about 0.9), J♣ (about 0.9), 6♣ (about 0.8).",
+          "rex (your partner) bids after you and adds their own tricks. Bid 1 is worth about +35 on average, bid 2 about +34."
+        ],
+        "uses": 1,
+        "freeUses": 3,
+        "assisted": false,
+        "counted": true,
+        "details": [
+          "Close call: 1 and 2 are worth about the same.",
+          "On average: bid 1 about +35, bid 2 about +34, bid 0 about +27."
+        ],
+        "confidence": "close",
+        "suggest": {
+          "bid": "1"
+        },
+        "codes": [
+          "B.evFirst",
+          "B.close"
+        ],
+        "watched": 2
+      }
+    },
+    {
+      "direction": "s2c",
+      "event": "spectatorsUpdated",
+      "to": "socket",
+      "data": {
+        "gameId": "00000000-0000-4000-8000-000000000002",
+        "spectators": [
+          {
+            "username": "sid",
+            "pic": 7,
+            "shoulder": 2
+          }
+        ],
+        "count": 1
+      }
+    },
+    {
+      "direction": "s2c",
+      "event": "gameStart",
+      "to": "socket",
+      "data": {
+        "gameId": "00000000-0000-4000-8000-000000000002",
+        "trump": {
+          "suit": "diamonds",
+          "rank": "J"
+        },
+        "score1": 0,
+        "score2": 0,
+        "dealer": 1,
+        "currentHand": 12,
+        "hand": [],
+        "playerInfo": [
+          {
+            "position": 1,
+            "username": "ola",
+            "pic": 10
+          },
+          {
+            "position": 2,
+            "username": "pia",
+            "pic": 11
+          },
+          {
+            "position": 3,
+            "username": "quin",
+            "pic": 12
+          },
+          {
+            "position": 4,
+            "username": "rex",
+            "pic": 13
+          }
+        ],
+        "seq": 23,
+        "shoulder": {
+          "position": 2,
+          "hand": [
+            {
+              "suit": "hearts",
+              "rank": "Q"
+            },
+            {
+              "suit": "hearts",
+              "rank": "8"
+            },
+            {
+              "suit": "clubs",
+              "rank": "4"
+            },
+            {
+              "suit": "spades",
+              "rank": "5"
+            },
+            {
+              "suit": "spades",
+              "rank": "A"
+            },
+            {
+              "suit": "clubs",
+              "rank": "K"
+            },
+            {
+              "suit": "hearts",
+              "rank": "4"
+            },
+            {
+              "suit": "hearts",
+              "rank": "A"
+            },
+            {
+              "suit": "hearts",
+              "rank": "5"
+            },
+            {
+              "suit": "joker",
+              "rank": "HI"
+            },
+            {
+              "suit": "spades",
+              "rank": "3"
+            },
+            {
+              "suit": "clubs",
+              "rank": "9"
+            }
+          ],
+          "hsi": 105.08333333333333
+        }
+      }
+    }
+  ]
+}

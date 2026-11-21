@@ -20,7 +20,7 @@
 
 'use strict';
 
-const { str, int, bool, nul, enm, ref, anyOf, obj, arr } = require('./defs');
+const { str, int, bool, nul, enm, ref, anyOf, obj, arr, orNull } = require('./defs');
 const { ADMIN_ACTIONS } = require('../../server/admin/actions');
 
 const open = (props, o = {}) => obj(props, { ...o, open: true });
@@ -66,7 +66,7 @@ const c2s = {
         status: 'active', joi: 'clientHello', rateLimit: 'clientHello', sentBy: both,
         examples: [{ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl'] }, { client: 'ios', version: '1.2.0', build: '3', caps: ['avatarUrl'] }, { client: 'ios', version: '1.1.0', caps: [] }],
         invalid: [{ client: 'web', version: '1.0.0' }, { client: 'web', version: '1', caps: 'avatarUrl' }, { client: '', version: '1', caps: [] }, { client: 'Web!', version: '1', caps: [] }],
-        notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, and tutorial (2026-11-19: the client renders the tutorial\'s tips and assistState, and only such a socket gets the tutorial\'s auto-start; $defs.clientCapTutorial).',
+        notes: 'Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial\'s tips and assistState, and only such a socket gets the tutorial\'s auto-start; $defs.clientCapTutorial), and shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket\'s watch; $defs.clientCapShoulderView).',
     },
     changePassword: {
         payload: open({ current: password(), next: password() }), status: 'active', joi: 'changePassword', rateLimit: 'changePassword', sentBy: webOnly,
@@ -137,6 +137,15 @@ const c2s = {
     forceResign: { payload: open({ position: ref('position') }), status: 'active', joi: 'forceResign', rateLimit: null, sentBy: both, examples: [{ position: 2 }], invalid: [{ position: 0 }, { position: 5 }, {}] },
     chatMessage: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'nice' }, { message: '/lazy' }, { message: '/active' }, { message: '/leave' }, { message: '/help' }, { message: '?help' }], invalid: [{ message: '' }, { message: 'x'.repeat(501) }, {}], notes: '/lazy, /active and /leave are seat commands. /help (2026-11-18) and the exact line ?help (any case, surrounding spaces ignored: the only way shipped iOS builds can ask, since they refuse unknown / commands on the device) ask for a suggestion (server/socket/assistHandlers.js): never broadcast or stored as chat; the reply is private (s2c assistHint with the clientHello cap assist, else private gameLogEntry lines), and a counted use posts the room line "<name> used /help.". "?help me" is ordinary chat.' },
     rejoinGame: { payload: open({ gameId: uuid(), username: uname(), sessionToken: str({ minLength: 1, maxLength: 200 }) }, { optional: ['sessionToken'] }), status: 'active', joi: 'rejoinGame', rateLimit: 'rejoinGame', sentBy: both, examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 'tok' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan' }], invalid: [{ gameId: 'x', username: 'alan' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: 't'.repeat(201) }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', username: 'alan', sessionToken: '' }] },
+
+    // Over-the-shoulder view (2026-11-21)
+    watchHand: {
+        payload: open({ gameId: uuid(), position: orNull(ref('position')), requestId: anyOf(str({ minLength: 1, maxLength: 64 }), int()) }, { optional: ['requestId'] }),
+        status: 'unsent', joi: 'watchHand', rateLimit: 'watchHand', sentBy: { web: false, ios: false },
+        examples: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: 2 }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: null }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: 4, requestId: 'w1' }],
+        invalid: [{ gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: 0 }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: 5 }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f', position: '2' }, { gameId: '6f1c2b8e-7f0a-4c55-9d3e-2a1b0c9d8e7f' }, { gameId: 'x', position: 1 }, { position: 1 }],
+        notes: 'New (2026-11-21, the over-the-shoulder view; server phase: no client sends it yet, hence unsent). A pure spectator with the clientHello cap shoulderView watches seat `position` (1-4) read-only, or stops (null). Accepted: stateSnapshot {snapshot, reason: \'watchHand\', requestId?} (viewer.shoulder while watching), then the table\'s coalesced spectatorsUpdated; every later deal\'s spectator gameStart carries shoulder, and the watched seat\'s hints come as assistHint {watched}. Refused: watchHandRefused {gameId, position, reason, message, ownPosition?}. From a socket without the cap it is dropped silently (no reply). The watch is never saved and goes with the socket\'s spectator entry: re-send it after a spectatorJoined full state without viewer.shoulder (a reconnect on a new socket, spectating another game and back, a deploy-survival adoption); re-spectating the same game from the same socket keeps it, and re-sending watchHand is idempotent. A stop (null) is always done (no reply while the table is suspended or frozen); after an unavailable refusal keep the selection and re-send after "Game resumed." or the next full state. docs/claude/spectators.md "Over-the-shoulder view".',
+    },
 
     // Snapshot v2
     requestSnapshot: {

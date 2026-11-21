@@ -8,7 +8,7 @@ Loads automatically when Claude reads a file under `server/`; the root `CLAUDE.m
 | --- | --- |
 | Sessions, socket identity, username rules, password hashing, sign-in throttle | `docs/claude/server-accounts.md` |
 | Startup DB, indexes, active-game writes, projected reads, profile caches, soft limits, Express pages, avatars | `docs/claude/server-infra.md` |
-| Spectator badge and spectator chat | `docs/claude/spectators.md` |
+| Spectator badge and spectator chat; the over-the-shoulder view (`server/socket/shoulderView.js`: watchHand, `game.shoulders` (DERIVED, cleared with the socket's spectator entry and at retire), the shoulder on gameStart / snapshots, mirrored assistHint) | `docs/claude/spectators.md` |
 | Voice signaling and TURN | `docs/claude/voice.md` |
 | /help and /tutorial: the explainer engine (`server/game/assist`, the tutorial's `curriculum.js`), the handler (`server/socket/assistHandlers.js`: /help and ?help, counting, the room notice, assistHint / private lines; /tutorial, tutorTick, the auto-start, assistState) and the stats marker | `docs/claude/assist.md` |
 | Merged accounts, admin panel, reset links, account deletion, Account Admin CLIs | `server/admin/CLAUDE.md` |

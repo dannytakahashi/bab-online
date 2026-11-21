@@ -485,6 +485,73 @@ describe('(b4) the tutorial', () => {
     }, 60000);
 });
 
+// ==================== (b5) the over-the-shoulder view ====================
+
+describe('(b5) the over-the-shoulder view', () => {
+    test('watchHand: stateSnapshot reason watchHand (viewer.shoulder), watchHandRefused, the redeal\'s gameStart shoulder, a mirrored assistHint, the wide spectatorsUpdated; seq and snapshot invariants hold', async () => {
+        const pacing = require('../../game/pacing');
+        const clientInfo = require('../clientInfo');
+        const shoulderView = require('../shoulderView');
+        const { SPECTATORS_COALESCE_MS } = require('../../game/spectatorRoster');
+        process.env.BID_CLOCK = 'off';
+        Math.random = mulberry32(41);
+        const w = world('b5');
+        const seqWatch = watchSeq(w.io);
+        const snaps = watchSnapshots(w);
+        const names = ['b5_ann', 'b5_bob', 'b5_cat', 'b5_dan'];
+        const socks = names.map((n, i) => w.user(`b5-h${i}`, n));
+        mainRoomHandlers.createLobby(socks[0], w.io, { name: 'Shoulder table' });
+        const lobbyId = gameManager.getPlayerLobby(socks[0].id).id;
+        for (const s of socks.slice(1)) mainRoomHandlers.joinLobby(s, w.io, { lobbyId });
+        const starting = socks.map((s) => lobbyHandlers.playerReady(s, w.io));
+        await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+        const game = gameManager.getPlayerGame(socks[0].id);
+        const fan = w.user('b5-fan', 'b5_fan');
+        clientInfo.handle(fan, w.io, { client: 'web', version: '1.0.0', caps: ['avatarUrl', 'shoulderView'] });
+        await mainRoomHandlers.joinAsSpectator(fan, w.io, { gameId: game.gameId });
+        shoulderView.watchHand(fan, w.io, { gameId: game.gameId, position: 1 }); // CREATED: not_dealt
+        await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+        const draws = socks.map((s) => gameHandlers.draw(s, w.io, { num: 0 }));
+        await advanceUntil(() => game.stage === Phase.BIDDING && !game.resume, 100);
+        const owner = (pos) => w.sockets.get(game.seat(pos).ownerSocketId);
+        const pos = game.currentTurn;
+        clientInfo.handle(owner(pos), w.io, { client: 'web', version: '1.0.0', caps: ['assist'] });
+        const plain = w.user('b5-plain', 'b5_plain');
+        await mainRoomHandlers.joinAsSpectator(plain, w.io, { gameId: game.gameId });
+        await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);
+
+        const mark = w.log.length;
+        shoulderView.watchHand(plain, w.io, { gameId: game.gameId, position: pos });   // no cap: dropped silently
+        shoulderView.watchHand(fan, w.io, { gameId: game.gameId, position: pos, requestId: 'b5-w1' });
+        chatHandlers.chatMessage(owner(pos), w.io, { message: '/help' });            // mirrored to fan
+        await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);                 // the wide copy alone
+        const mine = w.log.slice(mark).filter((l) => l.to === `self:${fan.id}` || l.to === fan.id).map((l) => l.event);
+        expect(mine).toEqual(['stateSnapshot', 'assistHint', 'spectatorsUpdated']);
+        expect(w.log.slice(mark).filter((l) => l.to === `self:${plain.id}` || l.to === plain.id).map((l) => l.event)).toEqual([]);
+
+        // the all-zero redeal: the watcher's spectator gameStart carries the seat's new hand
+        const dealSeq = game.dealSeq;
+        while (game.stage === Phase.BIDDING && game.dealSeq === dealSeq) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '0' });
+        }
+        await advanceUntil(() => game.dealSeq > dealSeq && game.stage === Phase.BIDDING, 100);
+        const start = events(w.log, 'gameStart').filter((l) => l.to === fan.id).at(-1);
+        expect(start.data.shoulder.position).toBe(pos);
+        shoulderView.watchHand(fan, w.io, { gameId: game.gameId, position: null });
+        await jest.advanceTimersByTimeAsync(SPECTATORS_COALESCE_MS);
+        while (game.stage === Phase.BIDDING) {
+            await gameHandlers.playerBid(owner(game.currentTurn), w.io, { bid: '1' });
+        }
+        await jest.advanceTimersByTimeAsync(1000);
+        const sq = seqWatch.stop();
+        expect(sq.failures).toEqual([]);
+        const sn = snaps.stop();
+        expect(sn.failures).toEqual([]);
+        delete process.env.BID_CLOCK;
+        await Promise.all([...starting, ...draws]);
+    }, 60000);
+});
+
 // ==================== (f) requestSnapshot ====================
 
 describe('(f) requestSnapshot -> stateSnapshot', () => {

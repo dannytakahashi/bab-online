@@ -1651,6 +1651,7 @@ class GameManager {
             if (gid === id) this.spectatorGames.delete(sid);
         }
         game.spectators.clear();
+        game.shoulders.clear();
         // Socket-keyed voice state and the started-lobby redirect (both end
         // and abort come through here)
         gameVoice().retire(game);

@@ -19,6 +19,11 @@
  *   3. values: no non-integer number in the payload (anywhere, any key)
  *      equals the current HSI of a seat the receiver does not own (gameEnd,
  *      whose end-of-game stats are public, excepted).
+ *   The over-the-shoulder view (server/socket/shoulderView.js) is the one
+ *   other holder: a `shoulder {position, hand, hsi}` (a spectator gameStart's,
+ *   a snapshot's viewer.shoulder) may carry that ONE seat's HSI, privately,
+ *   to a pure spectator whose watch (game.shoulders) is that seat, with the
+ *   game's value; that seat then counts as the receiver's for rule 3.
  *
  *   hsiGuard.skip(reason)  this test only (none today)
  *   BAB_HSI_GUARD=0        turns the check off for a run
@@ -107,6 +112,16 @@ function checkEntry(entry, wire) {
     const game = gameFor(gameId);
     if (!game || !game.hsiValues) return;
     const ownPos = sid != null && typeof game.seatByOwnerSocket === 'function' ? game.seatByOwnerSocket(sid) : null;
+    // the over-the-shoulder view: the watched seat's HSI to its watcher only
+    let watchedPos = null;
+    const shoulders = [wire.shoulder, ...snaps.map((x) => x.viewer && x.viewer.shoulder)].filter((x) => x && typeof x === 'object');
+    for (const sh of shoulders) {
+        if (typeof sh.hsi !== 'number') continue;
+        const watching = sid != null && game.shoulders instanceof Map && game.isSpectator?.(sid) ? game.shoulders.get(sid) : null;
+        if (room || watching !== sh.position) fail('shoulder HSI to a socket not watching that seat', entry, { pos: sh.position, sid, watching });
+        else if (game.hsiValues[sh.position] !== sh.hsi) fail('shoulder HSI differs from the game\'s', entry, { pos: sh.position, sent: sh.hsi, game: game.hsiValues[sh.position] });
+        else watchedPos = sh.position;
+    }
     for (const f of found) {
         if (room) continue;
         if (f.pos !== ownPos) fail('HSI of a seat the receiver does not own', entry, { pos: f.pos, ownPos, sid });
@@ -115,8 +130,9 @@ function checkEntry(entry, wire) {
     if (entry.event === 'gameEnd') return;
     const others = new Map();
     for (const [p, v] of Object.entries(game.hsiValues)) {
-        if (Number(p) === ownPos || typeof v !== 'number' || Number.isInteger(v)) continue;
+        if (Number(p) === ownPos || Number(p) === watchedPos || typeof v !== 'number' || Number.isInteger(v)) continue;
         if (ownPos != null && v === game.hsiValues[ownPos]) continue;
+        if (watchedPos != null && v === game.hsiValues[watchedPos]) continue;
         others.set(v, Number(p));
     }
     if (others.size === 0) return;
