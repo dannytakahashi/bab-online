@@ -92,7 +92,10 @@ builders), `transcripts.test.js` and `wireProjection.test.js` (legacy keys).
 
 Status values: `active`; `deprecated` (still emitted or handled, listed in
 V1_REMOVALS); `clientOnly` (clients listen, the server never sends it - the
-guard fails if it does); `unsent` (handled, no client sends it).
+guard fails if it does); `unsent` (handled, no client sends it). A c2s event
+going from `unsent` to `active` (a client starts sending what the server
+already handles) is additive: `additiveOnly.test.js` lets it pass every frozen
+baseline (2026-11-21: `watchHand`, frozen `unsent` in iOS 1.2.3 (29)).
 
 ## The contract guard
 
