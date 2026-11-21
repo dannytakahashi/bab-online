@@ -839,6 +839,31 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertEqual(L.spectatorBadge(spectating: true, watching: true, bidding: false), L.spectatorBadge(spectating: true))
     }
 
+    func testTheHelpColumnKeepsOffTheClusterAndKeepsItsRoom() {
+        // a 400 x 700 pane, the column's room from 80 down to the sheet at 500
+        func frame(_ cluster: CGRect?) -> CGRect {
+            AssistLayout.frame(paneWidth: 400, handMidX: 200, handWidth: 380, top: 80,
+                               keeps: AssistLayout.Keeps(anchor: 500, clock: nil, seatRow: nil, fold: nil, cluster: cluster))
+        }
+        let open = frame(nil)
+        // at the right edge: the column narrows beside it and keeps its whole height
+        let edge = CGRect(x: 330, y: 300, width: 60, height: 94)
+        let beside = frame(edge)
+        XCTAssertFalse(beside.intersects(edge))
+        XCTAssertEqual(beside.height, open.height, accuracy: 0.01)
+        XCTAssertGreaterThanOrEqual(beside.width, AssistLayout.minWidth)
+        // in the middle, low: the column ends above it (the larger room), never a sliver below it
+        let low = CGRect(x: 170, y: 380, width: 60, height: 94)
+        let above = frame(low)
+        XCTAssertFalse(above.intersects(low))
+        XCTAssertEqual(above.maxY, low.minY - AssistLayout.gap, accuracy: 0.01)
+        // in the middle, high: the column starts below it
+        let high = CGRect(x: 170, y: 100, width: 60, height: 94)
+        let below = frame(high)
+        XCTAssertFalse(below.intersects(high))
+        XCTAssertEqual(below.minY, high.maxY + AssistLayout.gap, accuracy: 0.01)
+    }
+
     // MARK: - The watcher's GameState accessors
 
     func testOnlyASeatOwnerIsOfferedReplaceWithBot() throws {

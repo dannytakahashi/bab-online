@@ -280,19 +280,17 @@ extension TableLayout {
         let home = cluster(base.minX, base.minY)
         // the whole hand's spot (the eye and mic stay put from the deal to the last trick)
         let both = spectatorKeeps(spectating: false) + bidSheetKeeps + extra
-        if clear(home, both) { return home }
-        if let c = nearestClearCluster(to: base, keeps: both, make: cluster, clear: clear) { return c }
         let keeps = phase(spectatorKeeps(spectating: false)) + extra
-        if clear(home, keeps) { return home }
-        if let c = nearestClearCluster(to: base, keeps: keeps, make: cluster, clear: clear) { return c }
+        if clear(home, both) && columnRoom(home, bidding: bidding) >= fullColumnRoom(bidding: bidding) { return home }
+        if let c = bestCluster(base: base, keeps: keeps, both: both, bidding: bidding, make: cluster, clear: clear) { return c }
         // a packed table (an SE-size pane while the score bar shows a bore): over a seat's card
         // backs at worst, still clear of its avatar, name, bid bubble and dealer button
         let dealers = [Positions.RelativePosition.top, .left, .right].map(dealerChip)
         let noFans = phase(spectatorKeeps(spectating: false)) + dealers
-        if let c = nearestClearCluster(to: base, keeps: noFans, make: cluster, clear: clear) { return c }
+        if let c = bestCluster(base: base, keeps: noFans, both: noFans, bidding: bidding, make: cluster, clear: clear) { return c }
         // then clear of what is always on screen (never the hand, a seat or the sheet)
         let hard = phase(spectatorKeeps(spectating: false, soft: false)) + extra
-        if let c = nearestClearCluster(to: base, keeps: hard, make: cluster, clear: clear) { return c }
+        if let c = bestCluster(base: base, keeps: hard, both: hard, bidding: bidding, make: cluster, clear: clear) { return c }
         let top = min(safeRect.maxY, topLimit)
         let y = min(max(base.minY, safeRect.minY), max(safeRect.minY, top - h - G - s))
         let x = min(max(base.minX, safeRect.minX), max(safeRect.minX, safeRect.maxX - w))
@@ -321,43 +319,67 @@ extension TableLayout {
     }
 
 
-    /// The clear cluster nearest `base`: up and down the right and left edges and along the
-    /// badge's row (2 pt steps), else anywhere on a 4 pt grid.
-    private func nearestClearCluster(to base: CGRect, keeps: [CGRect], make: (CGFloat, CGFloat) -> WatcherCluster,
-                                     clear: (WatcherCluster, [CGRect]) -> Bool) -> WatcherCluster? {
+    /// The /help column's narrowest (AssistLayout.minWidth 240 and its 16 pt sides), pane points.
+    static let watcherColumnMinWidth: CGFloat = 272
+
+    /// The room the /help column has above the read-only sheet (bidding) or the watched seat's
+    /// row and lifted hand (play), up to the score bar: what `columnRoom` is measured against.
+    private func fullColumnRoom(bidding: Bool) -> CGFloat { max(0, topLimit - columnFloor(bidding: bidding)) }
+
+    private func columnFloor(bidding: Bool) -> CGFloat {
+        bidding ? bidBand.maxY + Self.bidClockPillBox.height : max(liftTop, seatRow.content.maxY)
+    }
+
+    /// The column's height left by the cluster `c`: all of it where the cluster is out of its
+    /// band or leaves it its narrowest width beside it (AssistLayout narrows it), else the larger
+    /// of the room above and below it (AssistLayout takes that one).
+    private func columnRoom(_ c: WatcherCluster, bidding: Bool) -> CGFloat {
+        let u = c.union, floor = columnFloor(bidding: bidding), full = fullColumnRoom(bidding: bidding)
+        guard u.maxY > floor, u.minY < topLimit else { return full }
+        let minW = Self.watcherColumnMinWidth / max(zoom, 0.01)
+        if max(u.minX - Self.gap - safeRect.minX, safeRect.maxX - u.maxX - Self.gap) >= minW { return full }
+        return max(0, max(topLimit - u.maxY - Self.gap, u.minY - Self.gap - floor))
+    }
+
+    /// The best clear cluster under `keeps` (a 4 pt grid and both pane edges): the most room it
+    /// leaves the /help column (8 pt steps; a full column wherever one can), then one clear for
+    /// the whole hand (`both`), then the nearest to `base`.
+    private func bestCluster(base: CGRect, keeps: [CGRect], both: [CGRect], bidding: Bool,
+                             make: (CGFloat, CGFloat) -> WatcherCluster,
+                             clear: (WatcherCluster, [CGRect]) -> Bool) -> WatcherCluster? {
         let w = Self.spectatorBadgeSize.width, M = Self.margin
         let tall = Self.spectatorBadgeSize.height + Self.gap + Self.voiceButtonSize
         let top = min(safeRect.maxY, topLimit) - tall
-        var best: WatcherCluster?
-        var bestD = CGFloat.infinity
+        var best: (c: WatcherCluster, room: Int, both: Bool, d: CGFloat)?
         func consider(_ x: CGFloat, _ y: CGFloat) {
-            let d = hypot(x - base.minX, y - base.minY)
-            guard d < bestD else { return }
             let c = make(x, y)
-            if clear(c, keeps) { best = c; bestD = d }
+            guard clear(c, keeps) else { return }
+            let room = Int(columnRoom(c, bidding: bidding) / 8)
+            let d = hypot(x - base.minX, y - base.minY)
+            if let b = best {
+                if room < b.room { return }
+                if room == b.room {
+                    let isBoth = clear(c, both)
+                    if !isBoth && b.both { return }
+                    if isBoth == b.both && d >= b.d { return }
+                    best = (c, room, isBoth, d)
+                    return
+                }
+            }
+            best = (c, room, clear(c, both), d)
         }
+        let lo = safeRect.minX + M, hi = safeRect.maxX - M - w
         var y = safeRect.minY
         while y <= top {
-            consider(safeRect.maxX - M - w, y)
-            consider(safeRect.minX + M, y)
-            y += 2
-        }
-        var x = safeRect.minX + M
-        while x <= safeRect.maxX - M - w {
-            consider(x, base.minY)
-            x += 2
-        }
-        if best != nil { return best }
-        y = safeRect.minY
-        while y <= top {
-            x = safeRect.minX + M
-            while x <= safeRect.maxX - M - w {
+            var x = lo
+            while x <= hi {
                 consider(x, y)
                 x += 4
             }
+            consider(hi, y)
             y += 4
         }
-        return best
+        return best?.c
     }
 
     /// What a spectator chat bubble never covers.

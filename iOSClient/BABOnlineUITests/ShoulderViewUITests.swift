@@ -306,9 +306,10 @@ final class ShoulderViewUITests: XCTestCase {
             XCTAssertEqual(v.midX, b.midX, accuracy: 1, "the layout's mic centred on its eye: \(v) \(b)", file: file, line: line)
             XCTAssertTrue(v.maxY <= b.minY + 0.5, "the layout's mic above its eye: \(v) \(b)", file: file, line: line)
         }
-        for id in ["bidOverlay.watched", "bidClock", "assistCard", "tutorialTip"] where any(app, id).exists {
+        for id in ["bidOverlay.watched", "bidClock"] where any(app, id).exists {
             XCTAssertFalse(cluster.intersects(any(app, id).frame), "over \(id): \(cluster) \(any(app, id).frame)", file: file, line: line)
         }
+        // (the cards' own frames run on past the column's foot when it scrolls: its visible frame)
         let column = assistColumn(app)
         if !column.isNull { XCTAssertFalse(cluster.intersects(column), "over the /help column: \(cluster) \(column)", file: file, line: line) }
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", file: file, line: line)

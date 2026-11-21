@@ -1169,6 +1169,9 @@ private struct GameScreen: View {
                         ScrollView { assistCards(inScroll: true) }
                             .coordinateSpace(name: AssistLayout.scrollSpace)
                             .overlay(alignment: .top) { pinnedTipHead }
+                            // the pinned head pushed up by the tip's foot never draws over the
+                            // score bar above a short column
+                            .clipped()
                             .scrollBounceBehavior(.basedOnSize)
                             .onAppear { showAdviceHead(proxy) }
                             .onChange(of: gameState.assistHint) { _, _ in showAdviceHead(proxy) }
@@ -1641,26 +1644,41 @@ enum AssistLayout {
         // the lightbulb under the column's span (my play turn's at my hand's right end, my bid
         // turn's on the bid panel's corner): above it, as the countdown
         if let a = keeps.ask, a.minX < x + width, a.maxX > x, a.minY < bottom { bottom = min(bottom, a.minY) }
+        func crosses(_ s: CGRect) -> Bool { s.minX < x + width && s.maxX > x && s.minY < bottom && s.maxY > top }
+        // a watcher's eye and mic (TableLayout.watcherCluster), before the seats: beside it where
+        // that leaves minWidth, else the larger of the room above and below it (the seats' rules
+        // then work inside that room)
+        var bandL = lo, bandR = hi
+        if let c = keeps.cluster, crosses(c) {
+            let l = c.midX >= handMidX ? lo : max(lo, c.maxX + gap)
+            let r = c.midX >= handMidX ? min(hi, c.minX - gap) : hi
+            if r - l >= minWidth {
+                width = min(width, r - l)
+                x = min(max(handMidX - width / 2, l), r - width)
+                bandL = l; bandR = r
+            } else if c.minY - top >= bottom - c.maxY {
+                bottom = min(bottom, c.minY)
+            } else {
+                top = max(top, c.maxY + gap)
+            }
+        }
         // the seat across (the partner's avatar above the bid panel or my hand) under the
         // column's span: its top goes below it, while that leaves the cards minRoom
-        func crosses(_ s: CGRect) -> Bool { s.minX < x + width && s.maxX > x && s.minY < bottom && s.maxY > top }
         for s in keeps.seats.values where crosses(s) {
             let below = s.maxY + gap
             if below > top, bottom - gap - foot - below >= minRoom { top = below }
         }
         // the side seats beside the box: between them where that leaves minWidth (the iPhone
         // Duo open above my hand), else below them where that leaves sideRoom
-        var bandL = lo, bandR = hi
         let level = keeps.sides.values.filter { $0.maxY > top && $0.minY < bottom }
         if level.contains(where: crosses) {
-            var l = lo, r = hi
+            var l = bandL, r = bandR
             for s in level {
                 if s.maxX <= handMidX { l = max(l, s.maxX + gap) } else if s.minX >= handMidX { r = min(r, s.minX - gap) }
             }
             if r - l >= minWidth {
                 width = min(width, r - l)
                 x = min(max(handMidX - width / 2, l), r - width)
-                bandL = l; bandR = r
             }
         }
         // below every side seat's part it crosses (all of them, or none: a cap below one part
@@ -1668,19 +1686,6 @@ enum AssistLayout {
         let crossing = keeps.sides.values.filter(crosses)
         if let lowest = crossing.map(\.maxY).max(), bottom - gap - foot - (lowest + gap) >= sideRoom {
             top = max(top, lowest + gap)
-        }
-        // a watcher's eye and mic: beside it, else above it, else below it
-        if let c = keeps.cluster, crosses(c) {
-            let l = c.midX >= handMidX ? bandL : max(bandL, c.maxX + gap)
-            let r = c.midX >= handMidX ? min(bandR, c.minX - gap) : bandR
-            if r - l >= minWidth {
-                width = min(width, r - l)
-                x = min(max(handMidX - width / 2, l), r - width)
-            } else if c.minY - gap - top >= minRoom {
-                bottom = min(bottom, c.minY)
-            } else {
-                top = max(top, c.maxY + gap)
-            }
         }
         let height = max(0, bottom - gap - top)
         return CGRect(x: x, y: top, width: width, height: height)
