@@ -257,13 +257,17 @@ describe('viewer roles', () => {
         expect(game.getSnapshotV2(ids[0]).viewer).toEqual({ role: 'seat', position: 1, ownerView: 'seat', canAct: false, assist: { uses: 0, freeUses: 3, assisted: false } });
         expect(game.getSnapshotV2(ids[1]).viewer.canAct).toBe(true);
         expect(game.getSnapshotV2(ids[0]).hand).toEqual([C('2', 'hearts')]);
-        expect(game.getSnapshotV2(ids[0]).hsi).toEqual([3.5, 1, 0, 2]);
+        // Only the viewer's own HSI; the other seats' hand strength never leaves the server
+        expect(game.getSnapshotV2(ids[0]).hsi).toEqual([3.5, null, null, null]);
+        expect(game.getSnapshotV2(ids[1]).hsi).toEqual([null, 1, null, null]);
+        expect(game.getSnapshotV2(ids[2]).hsi).toEqual([null, null, 0, null]);
 
         const bot = botController.createBot('🤖 Lazy', 'mary');
         lazySeat(game, 1, bot, { view: 'watch', ownerSocketId: ids[0] });
         const lw = game.getSnapshotV2(ids[0]);
         expect(lw.viewer).toEqual({ role: 'lazyWatcher', position: 1, ownerView: 'watch', canAct: false, assist: { uses: 0, freeUses: 3, assisted: false } });
         expect(lw.hand).toEqual([C('2', 'hearts')]); // the seat's hand (keyed by the bot now)
+        expect(lw.hsi).toEqual([3.5, null, null, null]);
         expect(lw.seats[0]).toMatchObject({ controller: 'lazyBot', isBot: true, lazy: true, ownerUsername: `user_${ids[0]}`, username: '🤖 Lazy' });
 
         const spec = makeSocket(`spec-${seq}`, log, io);

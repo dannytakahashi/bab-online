@@ -98,7 +98,9 @@ function legacySeatGameStart(game, seat) {
         dealer: game.dealer,
         position: seat.position,
         currentHand: game.currentHand,
-        hsiValues: game.hsiValues,
+        // cc865b4 sent all four; since 2026-11-21 only the receiver's own
+        // (the others' hand strength leaked; every client reads only its own)
+        hsiValues: { [seat.position]: game.hsiValues[seat.position] },
         playerInfo: legacyPlayerInfo(game)
     };
 }
