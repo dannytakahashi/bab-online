@@ -54,15 +54,16 @@ import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
 import {
   isAssistHint, hintIsLive, noteAssistUses, helpIsUnlimited, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
-  parseTurnKey, ASSIST_LATE_LINE,
+  parseTurnKey, ASSIST_LATE_LINE, tutorialNeedsConfirm,
 } from '../../state/assistHint.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
   isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible, shownTip,
-  TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND,
+  tutorialButtonVisible, tutorialButtonDisabled, TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND, TUTORIAL_ON_COMMAND,
 } from '../../state/tutorial.js';
 import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
+import { syncTutorialButton, showTutorialConfirm, closeTutorialConfirm, tutorialConfirmOpen } from '../../ui/components/TutorialButton.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
@@ -70,6 +71,8 @@ export const DOUBLE_CLICK_QUIET_MS = 400;
 export const ASSIST_ASK_WAIT_MS = 10000;
 /** After the chip's off switch the switch waits this long at most for the server's assistState. */
 export const TUTORIAL_OFF_WAIT_MS = 10000;
+/** After the Tutorial button's on, the button waits this long at most for the server's assistState. */
+export const TUTORIAL_ON_WAIT_MS = 10000;
 
 /**
  * Main game scene class.
@@ -1847,10 +1850,74 @@ export class GameScene extends Phaser.Scene {
     this.syncTutorial();
   }
 
-  /** The chip's switch: `/tutorial off`. */
+  /** The chip's switch, the Tutorial button's on -> off: `/tutorial off`. */
   turnOffTutorial() {
     if (this._tutorialOffSent) return;
     if (this._sendTutorial(TUTORIAL_OFF_COMMAND)) this._noteOffSent();
+  }
+
+  /** The Tutorial button is up and usable now (my own seat, past the draw, nothing waiting). */
+  _tutorialButtonLive() {
+    const s = this.state || getGameState();
+    return tutorialButtonVisible(s) && !tutorialButtonDisabled(s, { pending: this._tutorialPending() });
+  }
+
+  /** A /tutorial on or off the button (or the chip) sent waits for the server. */
+  _tutorialPending() {
+    return !!this._tutorialOffSent || !!this._tutorialOnSent;
+  }
+
+  /**
+   * The game log's Tutorial button (ui/components/TutorialButton.js): on ->
+   * off sends `/tutorial off` at once; off -> on asks first where that makes
+   * this game bot-assisted for me (assistHint.tutorialNeedsConfirm: never in
+   * a game with a native bot seat, nor once the server says `assisted`).
+   */
+  toggleTutorialFromButton() {
+    if (!this._tutorialButtonLive()) return;
+    const s = this.state || getGameState();
+    if (tutorialIsOn(s?.gameId || null)) {
+      this.turnOffTutorial();
+      return;
+    }
+    if (tutorialNeedsConfirm(s)) {
+      if (!tutorialConfirmOpen()) showTutorialConfirm({ onConfirm: () => this.turnOnTutorial() });
+      return;
+    }
+    this.turnOnTutorial();
+  }
+
+  /** `/tutorial on` (the confirm's Turn on, or no need to ask); the button waits for assistState (or 10 s). */
+  turnOnTutorial() {
+    if (!this._tutorialButtonLive()) return;
+    const s = this.state || getGameState();
+    if (tutorialIsOn(s?.gameId || null)) return;
+    if (!this._sendTutorial(TUTORIAL_ON_COMMAND)) return;
+    this._tutorialOnSent = true;
+    clearTimeout(this._tutorialOnTimer);
+    this._tutorialOnTimer = setTimeout(() => {
+      this._tutorialOnTimer = null;
+      this._tutorialOnSent = false;
+      this.syncTutorial();
+    }, TUTORIAL_ON_WAIT_MS);
+    this.syncTutorial();
+  }
+
+  /** The Tutorial button and its confirm, from the state now. */
+  _syncTutorialButton() {
+    const s = this.state || getGameState();
+    const on = tutorialIsOn(s?.gameId || null);
+    const visible = tutorialButtonVisible(s);
+    const pending = this._tutorialPending();
+    // the question is moot once the button is gone, the tutorial is on, or the draw is back
+    if (tutorialConfirmOpen() && (!visible || on || tutorialButtonDisabled(s, { pending }))) closeTutorialConfirm();
+    syncTutorialButton({
+      visible,
+      // an off on its way shows off already
+      on: on && !this._tutorialOffSent,
+      disabled: tutorialButtonDisabled(s, { pending }),
+      onToggle: () => this.toggleTutorialFromButton(),
+    });
   }
 
   /**
@@ -1869,8 +1936,14 @@ export class GameScene extends Phaser.Scene {
       if (this._tips?.length) this.clearTips({ all: true });
       if (this._parkedAssist?.source === 'tutorial') this._parkedAssist = null;
       if (this._assistHint?.source === 'tutorial') this.clearAssist();
+    } else {
+      // the server says on: the button's on is answered
+      clearTimeout(this._tutorialOnTimer);
+      this._tutorialOnTimer = null;
+      this._tutorialOnSent = false;
     }
     syncTutorialChip({ visible: chipVisible(s), busy: !!this._tutorialOffSent, onOff: () => this.turnOffTutorial() });
+    this._syncTutorialButton();
     if (this._tips?.length && this._tipPlace() !== this._tipPlaceDrawn) this.drawTips();
   }
 
@@ -2187,7 +2260,12 @@ export class GameScene extends Phaser.Scene {
     clearTimeout(this._tutorialOffTimer);
     this._tutorialOffTimer = null;
     this._tutorialOffSent = false;
+    clearTimeout(this._tutorialOnTimer);
+    this._tutorialOnTimer = null;
+    this._tutorialOnSent = false;
     syncTutorialChip({ visible: false });
+    closeTutorialConfirm();
+    syncTutorialButton({ visible: false });
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
     this.trickManager?.clearAll();

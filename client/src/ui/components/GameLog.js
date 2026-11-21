@@ -50,10 +50,16 @@ export function createGameLog({ onChatSubmit } = {}) {
   container.id = 'gameFeed';  // Legacy ID for compatibility
   container.classList.add('chat-container', 'ui-element');  // Legacy classes
 
-  // Header
+  // Header: the title and the log's controls (the Tutorial button,
+  // ui/components/TutorialButton.js, mounts in .log-header__actions)
   const header = document.createElement('div');
-  header.classList.add('chat-header');
-  header.innerText = 'Game Log';
+  header.classList.add('chat-header', 'log-header');
+  const headerTitle = document.createElement('span');
+  headerTitle.className = 'log-header__title';
+  headerTitle.textContent = 'Game Log';
+  const headerActions = document.createElement('div');
+  headerActions.className = 'log-header__actions';
+  header.append(headerTitle, headerActions);
   container.appendChild(header);
 
   // Score section (matches legacy game feed structure)

@@ -40,6 +40,7 @@ export const TUTORIAL_CAP = 'tutorial';
 
 /** The chat command (toggles); `/tutorial on|off` set it; keep / close answer the welcome tip. */
 export const TUTORIAL_COMMAND = '/tutorial';
+export const TUTORIAL_ON_COMMAND = '/tutorial on';
 export const TUTORIAL_OFF_COMMAND = '/tutorial off';
 export const TUTORIAL_KEEP_COMMAND = '/tutorial keep';
 export const TUTORIAL_CLOSE_COMMAND = '/tutorial close';
@@ -51,6 +52,24 @@ export const TUTORIAL_OFF_DESCRIPTION = 'Turn off the tutorial';
 /** The chip and its switch. */
 export const CHIP_LABEL = 'Tutorial on';
 export const CHIP_OFF_LABEL = 'Turn off the tutorial';
+
+/**
+ * The game log's Tutorial button (owner 2026-11-21: "the old people struggle
+ * with slash commands"; ui/components/TutorialButton.js): a labelled toggle,
+ * "Tutorial:" and its state "On" / "Off" (aria-label "Tutorial",
+ * aria-pressed the state), with iOS's hints as its tooltip. Off -> on asks
+ * first where it makes this game bot-assisted for me (the confirm, iOS's
+ * TutorialRules.confirm* words exactly; assistHint.tutorialNeedsConfirm).
+ */
+export const BUTTON_LABEL = 'Tutorial';
+export const BUTTON_STATE_ON = 'On';
+export const BUTTON_STATE_OFF = 'Off';
+export const BUTTON_ON_HINT = "Turns off the tutorial's tips and advice. /help still works any time.";
+export const BUTTON_OFF_HINT = 'Turns on tips and advice for every turn.';
+export const CONFIRM_TITLE = 'Turn on the tutorial?';
+export const CONFIRM_MESSAGE = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.";
+export const CONFIRM_BUTTON = 'Turn on';
+export const CONFIRM_CANCEL = 'Cancel';
 
 /** The welcome tip's id (its Keep / Turn off). */
 export const WELCOME_TIP = 'T.welcome';
@@ -113,6 +132,30 @@ export function chipVisible(gs) {
   if (!gs || !tutorialIsOn(gs.gameId || null)) return false;
   if (!gs.position || gs.isSpectator || gs.isLazy) return false;
   return gs.phase === 'bidding' || gs.phase === 'playing';
+}
+
+/**
+ * Is the game log's Tutorial button up: I play my own seat at the table
+ * (not a spectator, not while a bot plays it), with the tutorial on or off,
+ * for the whole game (the draw included, where it is disabled:
+ * tutorialButtonDisabled); never on the game-end screen.
+ * @param {Object} gs - GameState
+ */
+export function tutorialButtonVisible(gs) {
+  if (!gs || !gs.position || gs.isSpectator || gs.isLazy) return false;
+  return gs.phase === 'draw' || gs.phase === 'bidding' || gs.phase === 'playing';
+}
+
+/**
+ * Is the button disabled: during the draw (the server answers "The tutorial
+ * can be turned on once the game starts."), or while a /tutorial line it sent
+ * waits for the server's assistState.
+ * @param {Object} gs - GameState
+ * @param {Object} [o]
+ * @param {boolean} [o.pending] - an on or off was sent and not answered yet
+ */
+export function tutorialButtonDisabled(gs, { pending = false } = {}) {
+  return !!pending || gs?.phase === 'draw';
 }
 
 // ------------------------------------------------------------ tips

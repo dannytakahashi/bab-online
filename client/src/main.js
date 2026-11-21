@@ -247,6 +247,8 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
       gameLogInstance.addGameMessage('Game started!');
       flushEarlyLogLines();
     }
+    // the log header's Tutorial button (a rejoin's snapshot may have come first)
+    getGameScene()?.syncTutorial?.();
   }
   earlyLogLines = null;
 };
@@ -1846,6 +1848,8 @@ function initializeApp() {
           }
           // (a log kept up: nothing was held, the buffer just closes)
           flushEarlyLogLines();
+          // the log header's Tutorial button (disabled until the deal)
+          scene.syncTutorial?.();
         });
       }, 'draw');
     },

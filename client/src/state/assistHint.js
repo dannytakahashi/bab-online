@@ -136,6 +136,22 @@ export function helpIsUnlimited(state = null, hint = null) {
 }
 
 /**
+ * Does the Tutorial button ask before turning the tutorial on (iOS
+ * TutorialRules.needsConfirm)? The server's /tutorial on makes this game
+ * bot-assisted for me, so it asks, unless the game has a native bot seat
+ * (helpIsUnlimited: its stats are bot-game stats anyway, and players never
+ * see bot-assisted words there) or the server already says this game is
+ * bot-assisted for me (`assisted` from an assistState, a hint or the
+ * snapshot's viewer.assist: more than 3 counted /help uses, or the tutorial
+ * on earlier in the game). A typed /tutorial never asks.
+ * @param {Object} [state] - GameState
+ */
+export function tutorialNeedsConfirm(state = null) {
+  if (helpIsUnlimited(state)) return false;
+  return assistUses(state?.gameId || null)?.assisted !== true;
+}
+
+/**
  * The /help line in the chat autocomplete, from this game's uses:
  *   "Ask a bot for advice (1 of 3 free used)"
  *   "Ask a bot for advice (the next one makes this game bot-assisted)"
