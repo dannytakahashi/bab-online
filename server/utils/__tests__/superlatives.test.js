@@ -7,8 +7,8 @@ const {
     computeSuperlatives, createSuperlatives, seatNames, isSolo, SUPERLATIVE_MIN_GAMES, TITLE_IDS
 } = require('../superlatives');
 
-/** One seat's counters (the 12 of seatStatsDelta; `totalBags` is not one of them). */
-const delta = ({ totalBags: _bags, ...o } = {}) => ({
+/** One seat's counters (the 12 of seatStatsDelta; `totalBags` and `spotOn` are not among them). */
+const delta = ({ totalBags: _bags, spotOn: _spot, ...o } = {}) => ({
     gamesPlayed: 1, wins: 0, losses: 1, draws: 0, totalPoints: 100,
     totalTricksBid: 20, totalTricksTaken: 20, totalHands: 13, totalSets: 0,
     totalSetPoints: 0, totalFaults: 0, totalHSI: 1300, ...o
@@ -16,14 +16,15 @@ const delta = ({ totalBags: _bags, ...o } = {}) => ({
 
 /**
  * statsDeltas for seats {pos: overrides}: a `totalBags` override goes to
- * statsDeltas.bags[pos] (where buildGameEndRecord writes it), the rest to
- * byPosition[pos].
+ * statsDeltas.bags[pos] and a `spotOn` one to statsDeltas.exact[pos] (where
+ * buildGameEndRecord writes them), the rest to byPosition[pos].
  */
 function deltas(bucket, seatOverrides) {
     const sd = { bucket, byPosition: {} };
     for (const [pos, o] of Object.entries(seatOverrides)) {
         sd.byPosition[pos] = delta(o);
         if (o && o.totalBags !== undefined) (sd.bags = sd.bags || {})[pos] = o.totalBags;
+        if (o && o.spotOn !== undefined) (sd.exact = sd.exact || {})[pos] = o.spotOn;
     }
     return sd;
 }
@@ -59,14 +60,35 @@ const regulars = (n, overrides = {}) => times(n, () => humanGame({
     1: ['Ann', overrides.Ann], 2: ['Ben', overrides.Ben], 3: ['Cat', overrides.Cat], 4: ['Dan', overrides.Dan]
 }));
 
+describe('My Quantitative (spot-on bids)', () => {
+    test('only records with the counter count; one without it neither counts nor dilutes', () => {
+        const counted = regulars(5, { Ann: { spotOn: 13 }, Ben: { spotOn: 6 }, Cat: { spotOn: 6 }, Dan: { spotOn: 6 } });
+        // Ann's five more games ended before the counter: still games (the
+        // 5-game minimum), never hands for this title
+        const before = regulars(5, { Ann: {}, Ben: {}, Cat: {}, Dan: {} });
+        const s = byId(computeSuperlatives([...counted, ...before]));
+        expect(s.myQuantitative).toEqual({ id: 'myQuantitative', title: 'My Quantitative', names: ['Ann'], detail: '100% of bids spot on' });
+    });
+
+    test('left out while nobody has a counted game, and when the best is 0%', () => {
+        expect(byId(computeSuperlatives(regulars(5))).myQuantitative).toBeUndefined();
+        expect(byId(computeSuperlatives(regulars(5, { Ann: { spotOn: 0 }, Ben: { spotOn: 0 }, Cat: { spotOn: 0 }, Dan: { spotOn: 0 } }))).myQuantitative).toBeUndefined();
+    });
+
+    test('a count above the seat\'s hands is capped, a bad one ignored', () => {
+        const games = regulars(5, { Ann: { spotOn: 99 }, Ben: { spotOn: 'x' }, Cat: { spotOn: -2 }, Dan: { spotOn: 1.5 } });
+        expect(byId(computeSuperlatives(games)).myQuantitative).toMatchObject({ names: ['Ann'], detail: '100% of bids spot on' });
+    });
+});
+
 describe('the titles', () => {
-    test('each of the six, in wire order, with its detail', () => {
+    test('each of the seven, in wire order, with its detail', () => {
         const games = [
             ...regulars(5, {
-                Ann: { totalTricksBid: 10, totalTricksTaken: 13, totalBags: 3, totalHSI: 2000, totalSets: 4 },
-                Ben: { totalBags: 1, totalHSI: 1000 },
-                Cat: { totalBags: 0, totalHSI: 1500, totalSets: 1 },
-                Dan: { totalBags: 2, totalHSI: 1300 }
+                Ann: { totalTricksBid: 10, totalTricksTaken: 13, totalBags: 3, totalHSI: 2000, totalSets: 4, spotOn: 2 },
+                Ben: { totalBags: 1, totalHSI: 1000, spotOn: 5 },
+                Cat: { totalBags: 0, totalHSI: 1500, totalSets: 1, spotOn: 8 },
+                Dan: { totalBags: 2, totalHSI: 1300, spotOn: 6 }
             }),
             // Ben also asked for /help in two of them
             humanGame({ 1: ['Ann'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }, { assist: { 2: { help: 4 } } }),
@@ -76,7 +98,7 @@ describe('the titles', () => {
         ];
         const out = computeSuperlatives(games);
         expect(out.map((s) => s.id)).toEqual(TITLE_IDS);
-        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'anchor']);
+        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'myQuantitative', 'delusionsOfGrandeur']);
         const s = byId(out);
         // Ann: 15 bags in 8 games (the two help games and her solo game: 0)
         expect(s.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann'], detail: '1.9 bags a game' });
@@ -86,8 +108,11 @@ describe('the titles', () => {
         expect(s.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Ben'], detail: '83.5 avg HSI' });
         expect(s.botFriends).toEqual({ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Eve'], detail: '5 solo games' });
         expect(s.helpFromFriends).toEqual({ id: 'helpFromFriends', title: 'A little help from my friends', names: ['Ben'], detail: '7 /help uses' });
+        // Cat: 40 spot-on bids / 65 hands of the five counted games = 62% (the
+        // help and solo games carry no counter: neither counted nor diluting)
+        expect(s.myQuantitative).toEqual({ id: 'myQuantitative', title: 'My Quantitative', names: ['Cat'], detail: '62% of bids spot on' });
         // Ann: 20 sets / 104 hands = 19%
-        expect(s.anchor).toEqual({ id: 'anchor', title: 'Anchor', names: ['Ann'], detail: '19% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19% of hands set' });
     });
 
     test('a count title whose best value is 0 is left out; the HSI titles still show', () => {
@@ -391,13 +416,13 @@ describe('review fixes (2026-11-20)', () => {
         const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1, totalSets: 1 })];
         const s = byId(computeSuperlatives(games));
         expect(s.bagBoy).toBeUndefined();
-        expect(s.anchor).toBeUndefined();
+        expect(s.delusionsOfGrandeur).toBeUndefined();
         // 0.05 a game shows as 0.1 (rounded half up): shown
         const half = [...times(19, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
         expect(byId(computeSuperlatives(half)).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.1 bags a game' });
         // 1 set in 100 hands shows as 1%
         const sets = times(5, (i) => soloGame('Ann', { totalHands: 20, totalSets: i === 0 ? 1 : 0 }));
-        expect(byId(computeSuperlatives(sets)).anchor).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
+        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
     });
 
     test('bags come from statsDeltas.bags only; a byPosition totalBags (never written) is ignored for the net', () => {
@@ -412,13 +437,13 @@ describe('review fixes (2026-11-20)', () => {
     test('the projection names exactly what add() reads', () => {
         const { SUPERLATIVES_PROJECTION } = require('../superlatives');
         const keys = Object.keys(SUPERLATIVES_PROJECTION);
-        expect(keys).toEqual(expect.arrayContaining(['statsDeltas.bags', 'statsDeltas.names', 'statsDeltas.assist',
+        expect(keys).toEqual(expect.arrayContaining(['statsDeltas.bags', 'statsDeltas.exact', 'statsDeltas.names', 'statsDeltas.assist',
             'statsDeltas.byPosition.1.totalHSI', 'statsDeltas.byPosition.4.totalSets', 'statsDeltas.byPosition.3.totalTricksBid']));
-        expect(keys).toHaveLength(23);
+        expect(keys).toHaveLength(24);
         expect(keys).not.toContain('statsDeltas.byPosition');
         // a record cut down to it gives the same superlatives
         const { applyProjection } = require('../../testUtils/memoryDb');
-        const games = [...regulars(5, { Ann: { totalBags: 3, totalSets: 2 } }), ...times(5, () => soloGame('Eve'))].map((g, i) => (i === 0
+        const games = [...regulars(5, { Ann: { totalBags: 3, totalSets: 2, spotOn: 7 } }), ...times(5, () => soloGame('Eve'))].map((g, i) => (i === 0
             ? { ...g, statsDeltas: { ...g.statsDeltas, assist: { 2: { help: 4 } } } } : g));
         const cut = games.map((g) => applyProjection(g, { team1Players: 1, team2Players: 1, team1Bots: 1, team2Bots: 1, ...SUPERLATIVES_PROJECTION }));
         expect(computeSuperlatives(cut)).toEqual(computeSuperlatives(games));

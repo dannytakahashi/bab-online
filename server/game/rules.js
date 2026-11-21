@@ -354,6 +354,29 @@ function seatBags(bid, took, partnerBid) {
 }
 
 /**
+ * Whether one seat's bid was spot on this hand (superlatives' My
+ * Quantitative, owner 2026-11-20): a numeric bid the seat's own tricks
+ * matched exactly (a 0 bid with no trick counts). A bore is the team's
+ * contract for every trick of the hand, so on a team with a bore bid (either
+ * seat) both seats are spot on exactly when the team took every trick, the
+ * way rules.seatBags treats that team as one contract.
+ * @param {string|number} bid - the seat's bid ('0'..'13', 'B', '2B', ...)
+ * @param {number} took - tricks the seat won this hand
+ * @param {string|number} partnerBid - the partner's bid this hand
+ * @param {number} teamTook - tricks the seat's team won this hand
+ * @param {number} handSize - cards per player this hand
+ * @returns {0|1}
+ */
+function seatSpotOn(bid, took, partnerBid, teamTook, handSize) {
+    const s = String(bid ?? '');
+    if (s.includes('B') || String(partnerBid ?? '').includes('B')) {
+        return (Number(teamTook) || 0) === (Number(handSize) || 0) && Number(handSize) > 0 ? 1 : 0;
+    }
+    if (!/^\d+$/.test(s)) return 0;
+    return (Number(took) || 0) === parseInt(s, 10) ? 1 : 0;
+}
+
+/**
  * The game's bag counter (game.seatBags, superlatives' Bag Boy):
  * `{hands, byPos: {1..4: n}}`, `hands` the hands it counted (each counted
  * hand adds rules.seatBags to every seat and 1 to hands, together). A copy
@@ -546,7 +569,10 @@ module.exports = {
     personalBidValue,
     handFaults,
     seatBags,
+    seatSpotOn,
     normalizeSeatBags,
+    // the same {hands, byPos} counter shape: game.seatExact (My Quantitative)
+    normalizeSeatCounter: normalizeSeatBags,
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,

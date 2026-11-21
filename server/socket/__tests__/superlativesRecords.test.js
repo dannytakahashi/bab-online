@@ -121,12 +121,12 @@ describe('per period', () => {
         const res = await records();
         expect(res.success).toBe(true);
         const month = byId(res.records.thisMonth.superlatives);
-        expect(Object.keys(month)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'anchor']);
+        expect(Object.keys(month)).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'delusionsOfGrandeur']);
         expect(month.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann'], detail: '4.0 bags a game' });
         expect(month.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Cat'], detail: '153.8 avg HSI' });
         expect(month.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Ann', 'Ben', 'Dan'], detail: '100.0 avg HSI' });
         expect(month.helpFromFriends).toEqual({ id: 'helpFromFriends', title: 'A little help from my friends', names: ['Ben'], detail: '15 /help uses' });
-        expect(month.anchor).toEqual({ id: 'anchor', title: 'Anchor', names: ['Ann'], detail: '38% of hands set' });
+        expect(month.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '38% of hands set' });
         // no bot game in the human scope: nobody is solo
         expect(month.botFriends).toBeUndefined();
         // never a bot persona, never a player of the legacy (name-less) records
@@ -289,7 +289,7 @@ describe('cache, throttle and the wire', () => {
             expect(s.detail).toMatch(/\(\+2 more\)$/);
         }
         // all five tied on HSI too: Cursed would name the Lucky Ducks again, so it is left out
-        expect(res.records.thisMonth.superlatives.map((s) => s.id)).toEqual(['bagBoy', 'luckyDuck', 'botFriends', 'anchor']);
+        expect(res.records.thisMonth.superlatives.map((s) => s.id)).toEqual(['bagBoy', 'luckyDuck', 'botFriends', 'delusionsOfGrandeur']);
         // the always-on contract guard (makeIo) saw no violation
         expect(require('../../testUtils/contractCheck').takeViolations()).toEqual([]);
     });
