@@ -836,6 +836,14 @@ body > .voice-btn {
     .log-tutorial-btn { gap: var(--space-1); padding: 0 var(--space-1) 0 var(--space-2); font-size: var(--type-sm); }
     .log-tutorial-btn__state { min-width: 2.2em; padding: 2px var(--space-1); }
 }
+/* the narrowest log column (170 px, a tablet in portrait): the button takes
+   the header's whole row, without the icon, so the label and state fit */
+@media (max-width: 800px) {
+    #gameFeed .log-header { padding-left: var(--space-2); padding-right: var(--space-2); }
+    .log-header__actions { flex: 1 1 100%; }
+    .log-tutorial-btn { flex: 1 1 auto; justify-content: space-between; }
+    .log-tutorial-btn__icon { display: none; }
+}
 
 .log-score {
     display: flex;
