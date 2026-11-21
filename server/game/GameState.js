@@ -1562,7 +1562,8 @@ class GameState {
             isTrumpBroken: this.isTrumpBroken,
             players: playerInfo,
             gameLog: this.getGameLog(),
-            hsiValues: this.hsiValues,
+            // Only this seat's own HSI (never the others' hand strength)
+            hsiValues: position && this.hsiValues?.[position] !== undefined ? { [position]: this.hsiValues[position] } : {},
             resignedPositions: this.seatList().filter(st => st.controller === Controller.RESIGN_BOT).map(st => st.position),
             lazyPositions: this.seatList().filter(st => this.wireLazy(st.position)).map(st => st.position),
             isLazy: position ? this.wireLazy(position) : false

@@ -105,7 +105,9 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
     const ownsHand = role === 'seat' || role === 'lazyWatcher';
     const hand = ownsHand ? (game.hands[ownSeat.seatSocketId] || []).map(card) : null;
     const hsiValues = game.hsiValues || {};
-    const hsi = ownsHand && Object.keys(hsiValues).length > 0 ? POSITIONS.map((p) => hsiValues[p] ?? null) : null;
+    // Only the viewer's own seat: the other three are null (2026-11-21:
+    // they leaked the others' hand strength; the 4-item array shape stays)
+    const hsi = ownsHand && Object.keys(hsiValues).length > 0 ? POSITIONS.map((p) => (p === ownPos ? hsiValues[p] ?? null : null)) : null;
 
     // ---- seats: [] until all four exist (never presenceSummary: it has socket ids) ----
     let seats = [];
