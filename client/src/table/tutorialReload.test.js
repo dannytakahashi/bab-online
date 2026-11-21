@@ -2,10 +2,11 @@
  * The tutorial on the real page and scene (2026-11-19), from the recorded
  * game events-bots-s14 (seat1-rejoin: a 1-human + 3-bot game): the page
  * says the clientHello cap tutorial; a reload whose snapshot's viewer.assist
- * says the tutorial is on shows the "Tutorial on" chip at my seat; a rule
- * tip draws its section and its "Tip:" row; the chip's switch sends
- * chatMessage '/tutorial off'; the server's assistState off takes the chip
- * and the tips down; the chat list offers /tutorial again.
+ * says the tutorial is on shows the Tutorial button in my seat's row On (no
+ * in-hand chip since 2026-11-21); a rule tip draws its section and its
+ * "Tip:" row; the button sends chatMessage '/tutorial off'; the server's
+ * assistState off turns the button Off and takes the tips down; the chat
+ * list offers /tutorial again.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
@@ -30,7 +31,8 @@ const rejoin = (assist) => {
   data.snapshot.viewer.assist = assist;
   return data;
 };
-const chip = () => document.querySelector('.hud-tutorial');
+const btn = () => document.getElementById('tutorial-toggle-btn');
+const isOn = () => btn()?.getAttribute('aria-pressed') === 'true';
 const tipTitles = () => [...document.querySelectorAll('.hud-assist:not([hidden]) .assist-tip__title')].map((e) => e.textContent);
 const rows = () => [...document.querySelectorAll('#gameFeedMessages .log-row.is-private .log-row__text')].map((r) => r.textContent);
 const listed = (text) => {
@@ -46,13 +48,13 @@ describe('the tutorial after a reload', () => {
     expect(hello.caps).toEqual(expect.arrayContaining(['assist', 'tutorial']));
   });
 
-  it('viewer.assist.tutorial: the chip at my seat; /tutorial offers to turn it off', () => {
+  it('viewer.assist.tutorial: the Tutorial button On, no in-hand chip; /tutorial offers to turn it off', () => {
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
     page.socket.fire('rejoinSuccess', rejoin({ uses: 0, freeUses: 3, assisted: false, unlimited: true, tutorial: true, auto: true }));
     replay.advance(100);
-    expect(chip()).not.toBeNull();
-    expect(chip().hidden).toBe(false);
-    expect(chip().textContent).toContain('Tutorial on');
+    expect(btn().hidden).toBe(false);
+    expect(isOn()).toBe(true);
+    expect(document.querySelector('.hud-tutorial')).toBeNull();
     expect(listed('/tu')).toEqual([['/tutorial', 'Turn off the tutorial']]);
   });
 
@@ -80,14 +82,14 @@ describe('the tutorial after a reload', () => {
     expect(rows().at(-1)).toBe('Help: Lead A♣ (only you see this)');
   });
 
-  it('the chip\'s switch sends /tutorial off; the server\'s assistState off takes the chip and the tips down', () => {
+  it('the button sends /tutorial off; the server\'s assistState off turns it Off and takes the tips down', () => {
     page.socket.clearEmits?.();
-    chip().querySelector('.hud-tutorial__switch').click();
+    btn().click();
     const sent = page.socket.emitted('chatMessage').map((d) => d.message);
     expect(sent.at(-1)).toBe('/tutorial off');
     page.socket.fire('assistState', { tutorial: false, auto: false, uses: 0, freeUses: 3, assisted: false, unlimited: true });
     replay.advance(50);
-    expect(chip().hidden).toBe(true);
+    expect(isOn()).toBe(false);
     expect(tipTitles()).toEqual([]);
     expect(listed('/tu')).toEqual([['/tutorial', 'Tutorial: tips and advice every turn']]);
   });
@@ -95,12 +97,12 @@ describe('the tutorial after a reload', () => {
   it('a reload without the key: off', () => {
     page.socket.fire('assistState', { tutorial: true, auto: false, uses: 0, freeUses: 3, assisted: false, unlimited: true });
     replay.advance(50);
-    expect(chip().hidden).toBe(false);
+    expect(isOn()).toBe(true);
     page.socket.reconnect('ios-h1-r2');
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
     page.socket.fire('rejoinSuccess', rejoin({ uses: 0, freeUses: 3, assisted: false, unlimited: true }));
     replay.advance(100);
-    expect(chip()?.hidden ?? true).toBe(true);
+    expect(isOn()).toBe(false);
     // the rejoin's new log: its first tutorial row has the note again, the next not
     window.addPrivateToGameFeed('Tutorial: Tips off. /help still works any time. (only you see this)');
     window.addPrivateToGameFeed('Tutorial: Tips off. /help still works any time. (only you see this)');

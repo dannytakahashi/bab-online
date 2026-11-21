@@ -14,7 +14,7 @@ const HUD_FILES = [
   'src/phaser/scenes/GameScene.js', 'src/phaser/managers/DrawManager.js', 'src/ui/components/Toast.js',
   'src/ui/components/ConnectionBanner.js', 'src/ui/components/ChatBubble.js', 'src/ui/tableHud.js', 'src/ui/transitionOverlay.js',
   'src/ui/components/SpectatorBadge.js', 'src/ui/drawHud.js', 'src/ui/components/SoundToggle.js', 'src/ui/handA11y.js',
-  'src/phaser/managers/CardManager.js', 'src/ui/components/AssistCard.js',
+  'src/phaser/managers/CardManager.js', 'src/ui/components/AssistCard.js', 'src/ui/components/TutorialButton.js',
 ];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
@@ -108,11 +108,10 @@ describe('the /help lightbulb', () => {
     expect(r).toContain('--ask-up: var(--assist-ask-up, 12px)');
     expect(r).toContain('--ask-down: var(--assist-ask-down, 0px)');
     expect(r).toContain('top: var(--ask-y)');
-    // while the tutorial chip shows: the layout's chip spot
-    const chip = ruleOf(table, '.has-tutorial-chip > .hud-assist-ask');
-    expect(chip).toContain('--ask-y: var(--assist-ask-chip-y');
-    expect(chip).toContain('--ask-up: var(--assist-ask-chip-up');
-    expect(chip).toContain('--ask-down: var(--assist-ask-chip-down');
+    // one spot: the in-hand "Tutorial on" chip and its second spot are gone (owner 2026-11-21)
+    expect(table).not.toContain('has-tutorial-chip');
+    expect(table).not.toContain('.hud-tutorial');
+    expect(table).not.toContain('--assist-ask-chip');
     expect(r).toContain('width: var(--assist-ask, 36px)');
     // its right and bottom edges are the spot's
     expect(r).toContain('transform: translate(-100%, -100%)');

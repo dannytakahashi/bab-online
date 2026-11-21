@@ -376,7 +376,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false }) {
+function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -524,8 +524,11 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const hsiW = 96 * s;
   const voiceBtn = Math.max(22, 36 * s);
   const voiceGap = 6 * s;
-  // the row: sound effects toggle (ui/components/SoundToggle.js), mic device, mute
-  const voiceRowW = 3 * voiceBtn + 2 * voiceGap;
+  // the row: sound effects toggle (ui/components/SoundToggle.js), mic device,
+  // mute; for a player at their own seat also the Tutorial button
+  // (ui/components/TutorialButton.js, owner 2026-11-21), after the sound one
+  const voiceSlots = tutorial && !isSpectator ? 4 : 3;
+  const voiceRowW = voiceSlots * voiceBtn + (voiceSlots - 1) * voiceGap;
   let hand = null;
   let bottom;
   let voice;
@@ -564,6 +567,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     const hsiY = seats.self.plate.y + plateH + 4 * s;
     hsi = { rect: rect(q(selfX - hsiW / 2), q(hsiY), hsiW, hsiH), font: hsiFont };
     voice = { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
+    // (only a layout with the slot says so: every other stays as it was)
+    if (voiceSlots === 4) voice.tutorial = true;
     seats.self.hsi = hsi;
     seats.self.voice = voice;
     seats.self.block = rect(q(selfX - selfW / 2), q(selfTop), selfW, selfH);
@@ -1036,12 +1041,15 @@ export function findOutside(L, rects = null) {
  * @param {number} [opts.dpr=1] - device pixel ratio: positions snap to device pixels
  * @param {boolean} [opts.isSpectator=false] - a pure spectator (no hand: the bottom seat)
  * @param {number} [opts.logW=0] - the log column beside the canvas (0: none)
+ * @param {boolean} [opts.tutorial=false] - I play my own seat (not a spectator,
+ *   not lazy): my voice row reserves a 4th button, the Tutorial button's
+ *   (every other layout is as without it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0 } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
-  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d };
+  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
@@ -1068,15 +1076,18 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
       }
     }
   }
+  // the Tutorial button's slot never costs a clean table (the narrowest
+  // phones, 360 px, which the phone gate sends to the app): without it there
+  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW });
   const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
   L.degraded = true;
   return L;
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */
@@ -1133,24 +1144,6 @@ export function layoutOf(scene) {
 export const ASK_MIN = 28;
 /** Its hit area at the least (HIG 44 pt; tokens.css --hit-target). */
 export const ASK_HIT = 44;
-/** The gap (px) between the lightbulb's hit area and the tutorial chip's. */
-const ASK_GAP = 2;
-
-/**
- * The "Tutorial on" chip's box (TutorialChip.js; table.css .hud-tutorial):
- * 30 px tall with its border, about 119 px wide at --type-xs (measured in
- * Chrome; taken a little wide here for other fonts), its switch at the
- * right end with a 44 px hit area (::before, inset -12px -6px), which
- * reaches 7 px above and below the chip (8 here) and 6 px past its end.
- */
-export const TUTORIAL_CHIP = { w: 124, h: 30, hitX: 6, hitY: 8 };
-
-/** The tutorial chip's hit box with its left end at x and its bottom at y. */
-export function tutorialChipHit(x, y) {
-  const c = TUTORIAL_CHIP;
-  return rect(x, y - c.h - c.hitY, c.w + c.hitX, c.h + 2 * c.hitY);
-}
-
 /**
  * What the lightbulb keeps clear of: everything but the hand box itself,
  * the log beside the canvas and the chat bubbles (they come and go, over
@@ -1184,16 +1177,9 @@ export function assistAskHit({ x, size, pad }, y, up, down) {
  * instead, and only where the bulb itself would rise into them does it come
  * down inside the hand box, just far enough to clear them. One spot per
  * layout: the card count never moves it.
- *
- * `chip` is where it goes while the tutorial chip shows (table.css
- * .has-tutorial-chip; --assist-ask-chip-*): the same spot where the hand box
- * holds both side by side; on a narrower one, a row up, just above the
- * chip's hit area, where that clears the felt and the bid sheet (on a
- * table both too narrow and too short for that, the same spot).
  * Null without a hand (a spectator).
- * @returns {{x:number, y:number, size:number, pad:number, up:number, down:number,
- *   chip:{y:number, up:number, down:number}}|null} x, y: the bulb's right and
- *   bottom edges
+ * @returns {{x:number, y:number, size:number, pad:number, up:number, down:number}|null}
+ *   x, y: the bulb's right and bottom edges
  */
 export function assistAskSpot(L) {
   const h = L?.hand;
@@ -1203,7 +1189,6 @@ export function assistAskSpot(L) {
   const x = h.rect.x + h.rect.w - pad;
   const a = { x, size, pad };
   const blockers = askBlockers(L);
-  const clear = (box) => !blockers.some((r) => intersects(box, r));
   const handBottom = h.rect.y + h.rect.h;
   // the bulb itself (with its side pads) clear: a few steps down, each to
   // just below what it hits, never below the hand box
@@ -1219,17 +1204,7 @@ export function assistAskSpot(L) {
   const over = blockers.filter((r) => intersects(assistAskHit(a, y, 2 * pad, 0), r));
   const top = over.length ? Math.max(...over.map((r) => r.y + r.h)) : -Infinity;
   const up = Math.min(2 * pad, Math.max(0, y - size - top));
-  const spot = { x, y, size, pad, up, down: 2 * pad - up };
-  // with the tutorial chip: a row up where the two would meet side by side
-  spot.chip = { y, up: spot.up, down: spot.down };
-  const chip = tutorialChipSpot(L, spot);
-  const chipHit = tutorialChipHit(chip.x, chip.y);
-  if (intersects(assistAskHit(a, y, spot.up, spot.down), chipHit)) {
-    const yUp = chipHit.y - ASK_GAP;
-    const hit = assistAskHit(a, yUp, 2 * pad, 0);
-    if (hit.y >= L.canvas.y && clear(hit)) spot.chip = { y: yUp, up: 2 * pad, down: 0 };
-  }
-  return spot;
+  return { x, y, size, pad, up, down: 2 * pad - up };
 }
 
 /** The /help card's gap below a seat it keeps clear of (assistRoomTop). */
@@ -1364,17 +1339,4 @@ export function assistBidSpot(L, w) {
     }
   }
   return best && best.y - best.top >= ASSIST_MIN_ROOM && best.y - best.top > aboveRoom ? best : above;
-}
-
-/**
- * Where the "Tutorial on" chip goes (TutorialChip.js; tableHud sets
- * --tutorial-x / -y from it): the hand box's left end, its bottom level with
- * the lightbulb's (assistAskSpot y). Null without a hand.
- * @param {Object} L - the layout
- * @param {Object} [ask] - assistAskSpot(L), when it is already at hand
- * @returns {{x:number, y:number}|null} its left and bottom edges
- */
-export function tutorialChipSpot(L, ask = assistAskSpot(L)) {
-  if (!ask) return null;
-  return { x: L.hand.rect.x, y: ask.y };
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { showAssistCard, hideAssistCard, assistCardHint, syncAssistButton, resetAssistCard, showAssistTips } from './AssistCard.js';
+import { readClientFile } from '../../testing/files.js';
 
 const hint = (over = {}) => ({
   v: 1, source: 'help', kind: 'card', turnKey: '3|PLAYING|1|4|5', headline: 'Play 9♦',
@@ -310,7 +311,8 @@ describe('the tutorial\'s tips on the card', () => {
   });
 
   it('short of room (it scrolls inside), the advice\'s chip and headline are scrolled into sight at its foot, below the tip', () => {
-    showAssistTips([welcome()]);
+    // a rule tip (the welcome's buttons have their own limit, next test)
+    showAssistTips([tip()]);
     showAssistCard(hint());
     const root = q('.hud-assist');
     const wrap = root.querySelector('.assist-card__advice');
@@ -333,6 +335,59 @@ describe('the tutorial\'s tips on the card', () => {
       delete HTMLElement.prototype.offsetTop;
       delete HTMLElement.prototype.offsetHeight;
     }
+  });
+
+  it('short of room, the welcome\'s Keep / Turn off never go under its pinned title (1280 x 800 beside the bid sheet); a rule tip scrolls as before', () => {
+    const at = (e) => {
+      const c = e.classList || { contains: () => false };
+      if (c.contains('assist-card__advice')) return 140;
+      if (c.contains('assist-card__head')) return 170;
+      if (c.contains('assist-tip__actions')) return 60;
+      return 0;
+    };
+    // the pinned title row is 20 tall; everything else 20 too
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get() { return at(this); } });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return 20; } });
+    // the sticky title's offset as the browser computes table.css's rule
+    // (top: calc(-1 * var(--space-2)), --space-2 8px; jsdom resolves no var())
+    const table = readClientFile('styles/table.css');
+    const i = table.indexOf('\n.hud-assist.has-tip .assist-tip__top {');
+    expect(table.slice(i, table.indexOf('}', i))).toContain('top: calc(-1 * var(--space-2));');
+    expect(readClientFile('styles/tokens.css')).toContain('--space-2: 8px;');
+    const style = document.createElement('style');
+    style.textContent = '.hud-assist.has-tip .assist-tip__top { position: sticky; top: -8px; }';
+    document.head.appendChild(style);
+    try {
+      showAssistTips([welcome()]);
+      showAssistCard(hint());
+      const root = q('.hud-assist');
+      Object.defineProperty(root, 'clientHeight', { configurable: true, value: 100 });
+      Object.defineProperty(root, 'scrollHeight', { configurable: true, value: 260 });
+      showAssistCard(hint({ headline: 'Bid 3' }));
+      expect(getComputedStyle(q('.hud-assist .assist-tip__top')).top).toBe('-8px');
+      // the advice's head alone would want 198 - 100 = 98; the welcome's buttons (60) stay
+      // below what the pinned title covers: its 20 px less its -8 px sticky offset
+      expect(root.scrollTop).toBe(60 - (20 - 8));
+      // a rule tip has no buttons: the advice's head wins as before
+      showAssistTips([tip()]);
+      showAssistCard(hint({ headline: 'Bid 2' }));
+      expect(q('.hud-assist .assist-tip__actions')).toBeNull();
+      expect(root.scrollTop).toBe(98);
+    } finally {
+      style.remove();
+      delete HTMLElement.prototype.offsetTop;
+      delete HTMLElement.prototype.offsetHeight;
+    }
+  });
+
+  it('its ✕s are drawn 28 px, not the page\'s 44 px button minimum (their ::before is the 44 px hit area)', () => {
+    const table = readClientFile('styles/table.css');
+    const i = table.indexOf('\n.assist-card__close,\n.assist-tip__close {');
+    expect(i).toBeGreaterThan(-1);
+    const rule = table.slice(i, table.indexOf('}', i));
+    expect(rule).toContain('min-height: 0');
+    expect(rule).toContain('min-width: 0');
+    expect(table).toMatch(/\.assist-tip__close::before \{[^}]*inset: -8px/);
   });
 
   it('never takes focus; a tip drawn while focus is in the card keeps it there', () => {

@@ -1,8 +1,9 @@
 /**
  * The tutorial on the web (2026-11-19, the LEAN scope with the fade-out;
  * server side docs/claude/assist.md, The tutorial): the words and rules,
- * kept apart from the view (ui/components/AssistCard.js tips, the chip in
- * ui/components/TutorialChip.js) so they can be tested without a table.
+ * kept apart from the view (ui/components/AssistCard.js tips, the Tutorial
+ * button in my seat's row, ui/components/TutorialButton.js) so they can be
+ * tested without a table.
  *
  *  - The clientHello cap `tutorial` (utils/avatar.js) tells the server this
  *    page can draw tips and their actions: only such a socket gets rule tips
@@ -40,6 +41,7 @@ export const TUTORIAL_CAP = 'tutorial';
 
 /** The chat command (toggles); `/tutorial on|off` set it; keep / close answer the welcome tip. */
 export const TUTORIAL_COMMAND = '/tutorial';
+export const TUTORIAL_ON_COMMAND = '/tutorial on';
 export const TUTORIAL_OFF_COMMAND = '/tutorial off';
 export const TUTORIAL_KEEP_COMMAND = '/tutorial keep';
 export const TUTORIAL_CLOSE_COMMAND = '/tutorial close';
@@ -48,9 +50,24 @@ export const TUTORIAL_CLOSE_COMMAND = '/tutorial close';
 export const TUTORIAL_ON_DESCRIPTION = 'Tutorial: tips and advice every turn';
 export const TUTORIAL_OFF_DESCRIPTION = 'Turn off the tutorial';
 
-/** The chip and its switch. */
-export const CHIP_LABEL = 'Tutorial on';
-export const CHIP_OFF_LABEL = 'Turn off the tutorial';
+/**
+ * The Tutorial button in my seat's row (owner 2026-11-21: "the old people struggle
+ * with slash commands"; ui/components/TutorialButton.js): iOS's round corner
+ * button, the graduation cap alone (aria-label "Tutorial", aria-pressed the
+ * state), its tooltip iOS's label ("Tutorial on" / "Tutorial off") and hint.
+ * Off -> on asks first where it makes this game bot-assisted for me (the
+ * confirm, iOS's TutorialRules.confirm* words exactly;
+ * assistHint.tutorialNeedsConfirm).
+ */
+export const BUTTON_LABEL = 'Tutorial';
+export const BUTTON_ON_TEXT = 'Tutorial on';
+export const BUTTON_OFF_TEXT = 'Tutorial off';
+export const BUTTON_ON_HINT = "Turns off the tutorial's tips and advice. /help still works any time.";
+export const BUTTON_OFF_HINT = 'Turns on tips and advice for every turn.';
+export const CONFIRM_TITLE = 'Turn on the tutorial?';
+export const CONFIRM_MESSAGE = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.";
+export const CONFIRM_BUTTON = 'Turn on';
+export const CONFIRM_CANCEL = 'Cancel';
 
 /** The welcome tip's id (its Keep / Turn off). */
 export const WELCOME_TIP = 'T.welcome';
@@ -105,14 +122,27 @@ export function tutorialDescription(gameId = null) {
 }
 
 /**
- * Is the chip up: the tutorial is on and I play my own seat at the table
- * (not a spectator, not while a bot plays it), past the draw.
+ * Is the Tutorial button up: I play my own seat at the table
+ * (not a spectator, not while a bot plays it), with the tutorial on or off,
+ * for the whole game (the draw included, where it is disabled:
+ * tutorialButtonDisabled); never on the game-end screen.
  * @param {Object} gs - GameState
  */
-export function chipVisible(gs) {
-  if (!gs || !tutorialIsOn(gs.gameId || null)) return false;
-  if (!gs.position || gs.isSpectator || gs.isLazy) return false;
-  return gs.phase === 'bidding' || gs.phase === 'playing';
+export function tutorialButtonVisible(gs) {
+  if (!gs || !gs.position || gs.isSpectator || gs.isLazy) return false;
+  return gs.phase === 'draw' || gs.phase === 'bidding' || gs.phase === 'playing';
+}
+
+/**
+ * Is the button disabled: during the draw (the server answers "The tutorial
+ * can be turned on once the game starts."), or while a /tutorial line it sent
+ * waits for the server's assistState.
+ * @param {Object} gs - GameState
+ * @param {Object} [o]
+ * @param {boolean} [o.pending] - an on or off was sent and not answered yet
+ */
+export function tutorialButtonDisabled(gs, { pending = false } = {}) {
+  return !!pending || gs?.phase === 'draw';
 }
 
 // ------------------------------------------------------------ tips

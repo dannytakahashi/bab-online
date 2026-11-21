@@ -1,14 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { applyHudLayout, clearHud } from './tableHud.js';
-import { layoutForViewport, assistAskSpot, tutorialChipSpot } from '../phaser/layout/computeTableLayout.js';
+import { layoutForViewport, assistAskSpot } from '../phaser/layout/computeTableLayout.js';
 
 const px = (v) => `${Math.round(v * 100) / 100}px`;
 const ASK_VARS = [
   '--assist-ask-x', '--assist-ask-y', '--assist-ask', '--assist-ask-pad', '--assist-ask-up', '--assist-ask-down',
-  '--assist-ask-chip-y', '--assist-ask-chip-up', '--assist-ask-chip-down', '--tutorial-x', '--tutorial-y',
 ];
+// the in-hand "Tutorial on" chip's vars are gone with it (owner 2026-11-21: the Tutorial button in my seat's row)
+const CHIP_VARS = ['--assist-ask-chip-y', '--assist-ask-chip-up', '--assist-ask-chip-down', '--tutorial-x', '--tutorial-y'];
 
-describe('the HUD places the lightbulb and the tutorial chip from the layout', () => {
+describe('the HUD places the lightbulb from the layout', () => {
   let container;
   beforeEach(() => {
     // a fresh #table-hud each time: the vars are set, never removed
@@ -27,11 +28,10 @@ describe('the HUD places the lightbulb and the tutorial chip from the layout', (
   };
 
   for (const [vw, vh] of [[1280, 800], [1024, 768], [540, 800]]) {
-    it(`sets every --assist-ask-* and --tutorial-* var from assistAskSpot / tutorialChipSpot (${vw}x${vh})`, () => {
+    it(`sets every --assist-ask-* var from assistAskSpot, no chip var (${vw}x${vh})`, () => {
       const L = layoutForViewport({ vw, vh });
       applyHudLayout(L);
       const a = assistAskSpot(L);
-      const c = tutorialChipSpot(L);
       expect(vars()).toEqual({
         '--assist-ask-x': px(a.x),
         '--assist-ask-y': px(a.y),
@@ -39,12 +39,9 @@ describe('the HUD places the lightbulb and the tutorial chip from the layout', (
         '--assist-ask-pad': px(a.pad),
         '--assist-ask-up': px(a.up),
         '--assist-ask-down': px(a.down),
-        '--assist-ask-chip-y': px(a.chip.y),
-        '--assist-ask-chip-up': px(a.chip.up),
-        '--assist-ask-chip-down': px(a.chip.down),
-        '--tutorial-x': px(c.x),
-        '--tutorial-y': px(c.y),
       });
+      const st = document.getElementById('table-hud').style;
+      expect(CHIP_VARS.map((k) => st.getPropertyValue(k)).filter(Boolean)).toEqual([]);
     });
   }
 

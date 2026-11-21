@@ -223,7 +223,12 @@ function tipSection(hint) {
  * far as that takes (its foot, the welcome's Keep / Turn off, first in
  * sight; the tip's row is in the log), its title and ✕ pinned at the card's
  * top meanwhile (table.css: .assist-tip__top is sticky while the card has a
- * tip). Again when the card's room changes (a resize: ResizeObserver in slot).
+ * tip). Never so far that the welcome's Keep / Turn off row goes under that
+ * pinned title (2026-11-21: at 1280 x 800 beside the bid sheet the row was
+ * cut off under it): the buttons win over the advice's headline, which is
+ * then just below the fold (the card scrolls; the bid or card has its gold
+ * ring anyway). Again when the card's room changes (a resize: ResizeObserver
+ * in slot).
  */
 function keepAdviceInSight(root) {
   const wrap = root.querySelector(':scope > .assist-card__advice');
@@ -231,7 +236,15 @@ function keepAdviceInSight(root) {
   if (wrap && head && root.scrollHeight > root.clientHeight) {
     // (offsetTop: from the card itself, the advice's wrap is not positioned)
     const footOfHead = head.offsetTop + head.offsetHeight + 8;
-    root.scrollTop = Math.min(wrap.offsetTop, Math.max(0, footOfHead - root.clientHeight));
+    let top = Math.min(wrap.offsetTop, Math.max(0, footOfHead - root.clientHeight));
+    const actions = root.querySelector(':scope > .assist-tip .assist-tip__actions');
+    const pinned = actions?.closest('.assist-tip')?.querySelector('.assist-tip__top');
+    if (actions && pinned) {
+      // what the pinned title covers of the card's top: its box less its sticky offset (top: -8px)
+      const offset = parseFloat(getComputedStyle(pinned).top) || 0;
+      top = Math.min(top, Math.max(0, actions.offsetTop - (pinned.offsetHeight + offset)));
+    }
+    root.scrollTop = top;
   } else {
     root.scrollTop = 0;
   }

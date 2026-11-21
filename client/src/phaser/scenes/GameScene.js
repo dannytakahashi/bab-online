@@ -42,7 +42,7 @@ import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
-import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud } from '../../ui/tableHud.js';
+import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud, hudLayout } from '../../ui/tableHud.js';
 import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
@@ -54,22 +54,24 @@ import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { scopePayload } from '../../state/statsScope.js';
 import {
   isAssistHint, hintIsLive, noteAssistUses, helpIsUnlimited, suggestedBid, suggestedCard, assistLogLine, assistAnnouncement, HELP_COMMAND,
-  parseTurnKey, ASSIST_LATE_LINE,
+  parseTurnKey, ASSIST_LATE_LINE, tutorialNeedsConfirm,
 } from '../../state/assistHint.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { showAssistCard, hideAssistCard, syncAssistButton, showAssistTips } from '../../ui/components/AssistCard.js';
 import {
-  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, chipVisible, shownTip,
-  TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND,
+  isTipHint, isWelcomeTip, isRowOnlyTip, tipLogLine, tipAnnouncement, tipActionCommand, tutorialIsOn, shownTip,
+  tutorialButtonVisible, tutorialButtonDisabled, TUTORIAL_CLOSE_COMMAND, TUTORIAL_OFF_COMMAND, TUTORIAL_ON_COMMAND,
 } from '../../state/tutorial.js';
-import { syncTutorialChip } from '../../ui/components/TutorialChip.js';
+import { syncTutorialButton, showTutorialConfirm, closeTutorialConfirm, tutorialConfirmOpen } from '../../ui/components/TutorialButton.js';
 
 /** A pointer press this soon after my own play is a double-click's second: no refusal toast. */
 export const DOUBLE_CLICK_QUIET_MS = 400;
 /** After a lightbulb click the lightbulb waits this long at most for the answer before it shows again. */
 export const ASSIST_ASK_WAIT_MS = 10000;
-/** After the chip's off switch the switch waits this long at most for the server's assistState. */
+/** After an off (the Tutorial button, the welcome's Turn off) the button waits this long at most for the server's assistState. */
 export const TUTORIAL_OFF_WAIT_MS = 10000;
+/** After the Tutorial button's on, the button waits this long at most for the server's assistState. */
+export const TUTORIAL_ON_WAIT_MS = 10000;
 
 /**
  * Main game scene class.
@@ -113,16 +115,26 @@ export class GameScene extends Phaser.Scene {
     const dpr = css.dpr;
     const state = this.state;
     const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    // my voice row reserves the Tutorial button's slot while I play my own
+    // seat (not lazy): a lazy watcher's table is as before
+    const tutorial = this._tutorialSlot();
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}:${logW}:${dpr}`;
+    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);
     }
     return this._layout.layout;
+  }
+
+  /** Does my table reserve the Tutorial button's slot (I play my own seat: not a spectator, not lazy)? */
+  _tutorialSlot() {
+    const state = this.state;
+    const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    return !spectator && !state?.isLazy;
   }
 
   /** A sprite scale of the current layout ('hand', 'trick', 'back', 'trump', ...). */
@@ -266,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager?.relayout?.();
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
     return layout;
   }
 
@@ -1282,6 +1295,8 @@ export class GameScene extends Phaser.Scene {
 
   handlePlayerActiveMode(data) {
     this.showSeatDisplay(data.position);
+    // my own seat back: my row takes the Tutorial button's slot again
+    if (data.position === this.state?.position) this.syncTutorial();
   }
 
   /**
@@ -1711,7 +1726,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
-  // The tutorial (state/tutorial.js): rule tips and the "Tutorial on" chip
+  // The tutorial (state/tutorial.js): rule tips and the Tutorial button in my seat's row
   // ============================================
 
   /**
@@ -1847,19 +1862,91 @@ export class GameScene extends Phaser.Scene {
     this.syncTutorial();
   }
 
-  /** The chip's switch: `/tutorial off`. */
+  /** The Tutorial button's on -> off: `/tutorial off`. */
   turnOffTutorial() {
     if (this._tutorialOffSent) return;
     if (this._sendTutorial(TUTORIAL_OFF_COMMAND)) this._noteOffSent();
   }
 
+  /** The Tutorial button is up and usable now (my own seat, past the draw, nothing waiting). */
+  _tutorialButtonLive() {
+    const s = this.state || getGameState();
+    return tutorialButtonVisible(s) && !tutorialButtonDisabled(s, { pending: this._tutorialPending() });
+  }
+
+  /** A /tutorial on or off the button sent waits for the server. */
+  _tutorialPending() {
+    return !!this._tutorialOffSent || !!this._tutorialOnSent;
+  }
+
   /**
-   * After an assistState, a snapshot, a turn change or a render: the chip
-   * (on, at my own seat), and with the tutorial off its tips and its advice
+   * The Tutorial button in my seat's row (ui/components/TutorialButton.js): on ->
+   * off sends `/tutorial off` at once; off -> on asks first where that makes
+   * this game bot-assisted for me (assistHint.tutorialNeedsConfirm: never in
+   * a game with a native bot seat, nor once the server says `assisted`).
+   */
+  toggleTutorialFromButton() {
+    if (!this._tutorialButtonLive()) return;
+    const s = this.state || getGameState();
+    if (tutorialIsOn(s?.gameId || null)) {
+      this.turnOffTutorial();
+      return;
+    }
+    if (tutorialNeedsConfirm(s)) {
+      if (!tutorialConfirmOpen()) showTutorialConfirm({ onConfirm: () => this.turnOnTutorial() });
+      return;
+    }
+    this.turnOnTutorial();
+  }
+
+  /** `/tutorial on` (the confirm's Turn on, or no need to ask); the button waits for assistState (or 10 s). */
+  turnOnTutorial() {
+    if (!this._tutorialButtonLive()) return;
+    const s = this.state || getGameState();
+    if (tutorialIsOn(s?.gameId || null)) return;
+    if (!this._sendTutorial(TUTORIAL_ON_COMMAND)) return;
+    this._tutorialOnSent = true;
+    clearTimeout(this._tutorialOnTimer);
+    this._tutorialOnTimer = setTimeout(() => {
+      this._tutorialOnTimer = null;
+      this._tutorialOnSent = false;
+      this.syncTutorial();
+    }, TUTORIAL_ON_WAIT_MS);
+    this.syncTutorial();
+  }
+
+  /** The Tutorial button and its confirm, from the state now. */
+  _syncTutorialButton() {
+    const s = this.state || getGameState();
+    const on = tutorialIsOn(s?.gameId || null);
+    const visible = tutorialButtonVisible(s);
+    const pending = this._tutorialPending();
+    // the question is moot once the button is gone, the tutorial is on, or the draw is back
+    if (tutorialConfirmOpen() && (!visible || on || tutorialButtonDisabled(s, { pending }))) closeTutorialConfirm();
+    syncTutorialButton({
+      visible,
+      // an off on its way shows off already
+      on: on && !this._tutorialOffSent,
+      disabled: tutorialButtonDisabled(s, { pending }),
+      onToggle: () => this.toggleTutorialFromButton(),
+    });
+  }
+
+  /**
+   * After an assistState, a snapshot, a turn change or a render: the
+   * Tutorial button in my seat's row (it replaced the in-hand "Tutorial on"
+   * chip, owner 2026-11-21), and with the tutorial off its tips and its advice
    * go (a /help answer stays). Tips alone move above the bid sheet on my
    * bid turn.
    */
   syncTutorial() {
+    // a lazy / active change of my seat adds or drops the button's slot in my
+    // row. Compared with what the HUD has, not with the cached layout: a
+    // getLayout() between GameState's flip and this (a sprite in flight
+    // during the director's queue) rebuilds the cache with the new key but
+    // never applies it to the HUD
+    const hud = hudLayout();
+    if (this._layout && hud && !!hud.voice?.tutorial !== this._tutorialSlot()) this.relayout();
     const s = this.state || getGameState();
     const on = tutorialIsOn(s?.gameId || null);
     if (!on) {
@@ -1869,8 +1956,13 @@ export class GameScene extends Phaser.Scene {
       if (this._tips?.length) this.clearTips({ all: true });
       if (this._parkedAssist?.source === 'tutorial') this._parkedAssist = null;
       if (this._assistHint?.source === 'tutorial') this.clearAssist();
+    } else {
+      // the server says on: the button's on is answered
+      clearTimeout(this._tutorialOnTimer);
+      this._tutorialOnTimer = null;
+      this._tutorialOnSent = false;
     }
-    syncTutorialChip({ visible: chipVisible(s), busy: !!this._tutorialOffSent, onOff: () => this.turnOffTutorial() });
+    this._syncTutorialButton();
     if (this._tips?.length && this._tipPlace() !== this._tipPlaceDrawn) this.drawTips();
   }
 
@@ -1971,6 +2063,7 @@ export class GameScene extends Phaser.Scene {
     // the voice buttons' slot moves with the role (my box, or the corner)
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
@@ -2102,6 +2195,7 @@ export class GameScene extends Phaser.Scene {
     // Move voice mute button into avatar container if voice is active
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
 
     this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
     return this._playerInfo;
@@ -2133,6 +2227,7 @@ export class GameScene extends Phaser.Scene {
     applyHudLayout(this.getLayout());
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
   }
 
   /**
@@ -2182,12 +2277,16 @@ export class GameScene extends Phaser.Scene {
     this._parkedAssist = null;
     this._endAsking();
     this.clearAssist();
-    // the tutorial's tips and chip (its state goes with the table: main.js)
+    // the tutorial's tips and button (its state goes with the table: main.js)
     this.clearTips({ all: true });
     clearTimeout(this._tutorialOffTimer);
     this._tutorialOffTimer = null;
     this._tutorialOffSent = false;
-    syncTutorialChip({ visible: false });
+    clearTimeout(this._tutorialOnTimer);
+    this._tutorialOnTimer = null;
+    this._tutorialOnSent = false;
+    closeTutorialConfirm();
+    syncTutorialButton({ visible: false });
     this.cardManager?.clearAll();
     this.opponentManager?.clearAll();
     this.trickManager?.clearAll();
