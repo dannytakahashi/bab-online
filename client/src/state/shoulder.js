@@ -234,10 +234,12 @@ export class ShoulderWatch {
   desired() {
     if (!this.allowed()) return null;
     const s = this._state();
-    const own = this.ownSeat || ownSeatOf(s);
-    if (own) return own;
+    // the person's Table view wins over every default: the own-seat rule
+    // only limits WHICH seat may be watched, it never forces a watch
     const c = this.choice();
     if (c === 'table') return null;
+    const own = this.ownSeat || ownSeatOf(s);
+    if (own) return own;
     if (isSeat(c)) return c;
     // the seat watched now (the server's last word), else the first human seat
     return this.selected || firstHumanSeat(s);
@@ -340,6 +342,8 @@ export class ShoulderWatch {
       case 'own_seat':
         if (!isSeat(data.ownPosition)) return null;
         this.ownSeat = data.ownPosition;
+        // (after a Table view only a click watches again)
+        if (this.choice() === 'table' || data.position === null) return 'own_seat';
         this.selected = data.ownPosition;
         if (data.position !== data.ownPosition) this._send(data.ownPosition);
         return 'own_seat';

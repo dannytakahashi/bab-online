@@ -375,6 +375,53 @@ describe('ShoulderWatch: what is sent, and when', () => {
     expect(w.avatarClick(3)).toBe('profile');
   });
 
+  it('the own-seat rule never forces a watch: Table view sticks through deals, full states and refusals', () => {
+    gs.username = 'pia';
+    const full = parse(fullRaw());
+    gs.applySnapshot(full);
+    watch.afterFullState(full);
+    expect(positions()).toEqual([2]);
+    const reply = parse(replyRaw());
+    gs.applySnapshot(reply);
+    watch.afterReply(reply);
+    expect(watch.stop()).toBe(true);
+    expect(positions()).toEqual([2, null]);
+    // the next deal, full state (even a stale one still serving the seat), resume line: nothing
+    const { shoulder, ...plain } = pick('gameStart');
+    expect(shoulder).toBeTruthy();
+    gs.applyDeal(plain);
+    watch.onDeal(plain);
+    gs.applySnapshot(full);
+    watch.afterFullState(full);
+    watch.onLogLine(RESUME_LINE);
+    expect(positions()).toEqual([2, null]);
+    gs.applySnapshot(reply);
+    watch.afterFullState(reply);
+    expect(positions()).toEqual([2, null, null]);
+    // a fresh page of the same game remembers it
+    const again = new ShoulderWatch({ getState: () => gs, emit: (ev, p) => sent.push([ev, p]), storage: () => storage });
+    gs.applySnapshot(full);
+    again.afterFullState(full);
+    again.onDeal(plain);
+    expect(positions()).toEqual([2, null, null]);
+    // the own seat's avatar watches it again; another seat stays a profile
+    expect(again.avatarClick(3)).toBe('profile');
+    expect(again.avatarClick(2)).toBe('watch');
+    expect(positions()).toEqual([2, null, null, 2]);
+    // and the own_seat refusal's seat after a Table view: also only by a click
+    // (nothing watched here: a stop has nothing to send, and is remembered)
+    const w = new ShoulderWatch({ getState: () => gs, emit: (ev, p) => sent.push([ev, p]), storage: () => storage });
+    expect(w.stop()).toBe(false);
+    gs.username = 'sid';
+    expect(w.onRefused(pick('watchHandRefused'))).toBe('own_seat');
+    expect(w.ownSeat).toBe(1);
+    w.afterFullState(full);
+    w.onDeal(plain);
+    expect(positions()).toEqual([2, null, null, 2]);
+    expect(w.avatarClick(1)).toBe('watch');
+    expect(positions()).toEqual([2, null, null, 2, 1]);
+  });
+
   it('not_dealt (the draw): nothing until the first deal, which sends it', () => {
     const raw = fullRaw();
     raw.stage = 'DRAWING';

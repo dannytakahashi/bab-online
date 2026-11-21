@@ -912,7 +912,9 @@ function initializeApp() {
         }
         // Peer → seat by username: the seat's owner, then the name it
         // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14).
-        // A spectator views from seat 1, whose player sits at the bottom
+        // A spectator views from seat 1, whose player sits at the bottom;
+        // a watcher (the over-the-shoulder view) from the watched seat,
+        // whose player is drawn in the own box (#player-avatar-container)
         const slotId = speakingSlotFor({
           username,
           socketId: id,
@@ -922,7 +924,9 @@ function initializeApp() {
           spectator: session.isSpectator,
         });
         if (slotId) {
-          const el = document.getElementById(`opponent-avatar-${slotId}`);
+          const el = slotId === 'bottom' && isShoulder(gameState)
+            ? document.getElementById('player-avatar-container')
+            : document.getElementById(`opponent-avatar-${slotId}`);
           if (el) el.classList.toggle('voice-speaking', isSpeaking);
         }
       }

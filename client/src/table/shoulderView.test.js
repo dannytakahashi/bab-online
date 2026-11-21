@@ -153,6 +153,22 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(page.scene.trickManager._currentTrick.some((s) => s.getData('playPosition') === 'self')).toBe(true);
   });
 
+  it('voice: the watched player speaking lights its box; my own voice lights the badge, not its box', async () => {
+    page.socket.fire('voiceSettings', { gameId: rec.gameId, host: 'ios_ann', spectatorsCanTalk: true, role: 'spectator', canTalk: true, canChange: false });
+    await vi.waitFor(() => expect(page.voice.onSpeakingChange).toHaveBeenCalled());
+    const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    page.voice.peers.set('s-ann', { username: 'ios_ann' });
+    cb('s-ann', true);
+    expect(box().classList.contains('voice-speaking')).toBe(true);
+    cb('s-ann', false);
+    expect(box().classList.contains('voice-speaking')).toBe(false);
+    cb('self', true);
+    expect(box().classList.contains('voice-speaking')).toBe(false);
+    expect(document.querySelector('#table-hud > .hud-spectators .spectator-badge').classList.contains('voice-speaking')).toBe(true);
+    cb('self', false);
+    expect(document.querySelector('#table-hud > .hud-spectators .spectator-badge').classList.contains('voice-speaking')).toBe(false);
+  });
+
   it('an avatar click switches the watch; the watched seat\'s own box opens its profile', () => {
     page.socket.clearEmits();
     const partner = document.querySelector('#opponent-avatar-partner');
