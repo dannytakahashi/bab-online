@@ -24,6 +24,13 @@ enum GameEmitter {
         socket.emit(SocketEvents.Client.requestSnapshot, ["requestId": requestId, "log": log, "customPics": customPics])
     }
 
+    /// The over-the-shoulder view (a pure spectator only; State/Table/Shoulder.swift): watch
+    /// seat `position` read-only, or stop (nil). The reply is stateSnapshot `reason: 'watchHand'`
+    /// or watchHandRefused.
+    static func watchHand(gameId: String, position: Int?) {
+        socket.emit(SocketEvents.Client.watchHand, LiveGameEmitter.watchHandPayload(gameId: gameId, position: position))
+    }
+
     static func forceResign(position: Int) {
         socket.emit(SocketEvents.Client.forceResign, ["position": position])
     }

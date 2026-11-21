@@ -13,10 +13,13 @@ protocol GameActionEmitting {
     func requestSnapshot(requestId: String, log: Bool)
     /// A chat line (the lightbulb's /help).
     func chat(_ message: String)
+    /// c2s watchHand (the over-the-shoulder view; a pure spectator only).
+    func watchHand(gameId: String, position: Int?)
 }
 
 extension GameActionEmitting {
     func chat(_ message: String) { ChatEmitter.sendMessage(message) }
+    func watchHand(gameId: String, position: Int?) { GameEmitter.watchHand(gameId: gameId, position: position) }
 }
 
 struct LiveGameEmitter: GameActionEmitting {
@@ -29,6 +32,11 @@ struct LiveGameEmitter: GameActionEmitting {
     static func playerBidPayload(_ b: String, position: Int) -> [String: Any] {
         if let n = Int(b) { return ["bid": n, "position": position] }
         return ["bid": b.uppercased(), "position": position]
+    }
+
+    /// `{gameId, position}`, position null to stop (contract c2s watchHand).
+    static func watchHandPayload(gameId: String, position: Int?) -> [String: Any] {
+        ["gameId": gameId, "position": position.map { $0 as Any } ?? NSNull()]
     }
 
     func playCard(_ c: Card, position: Int) { GameEmitter.playCard(card: c, position: position) }
@@ -190,7 +198,8 @@ final class ActionCoordinator: ObservableObject {
     /// notice, and the tutorial stays on. false when nothing was sent.
     @discardableResult
     func tutorialOff(connected: Bool) -> Bool {
-        guard store.state.table.tutorial.on, !store.state.table.tutorialOffSent else { return false }
+        // my own seat only (never a spectator or a watcher: the switch is the seat's)
+        guard store.state.table.viewer.role == .seat, store.state.table.tutorial.on, !store.state.table.tutorialOffSent else { return false }
         guard connected else {
             store.postNotice(AssistRules.reconnecting)
             return false
@@ -205,7 +214,7 @@ final class ActionCoordinator: ObservableObject {
     /// then). Offline: the reconnecting notice. false when nothing was sent.
     @discardableResult
     func tutorialOn(connected: Bool) -> Bool {
-        guard !store.state.table.tutorial.on, !store.state.table.tutorialOnSent else { return false }
+        guard store.state.table.viewer.role == .seat, !store.state.table.tutorial.on, !store.state.table.tutorialOnSent else { return false }
         guard connected else {
             store.postNotice(AssistRules.reconnecting)
             return false
@@ -263,6 +272,10 @@ final class ActionCoordinator: ObservableObject {
             cues.cue(kind)
         case .bidClock(let cue):
             tune.handle(cue)
+        case .watchHand(let gameId, let position):
+            // the over-the-shoulder view: only ever a pure spectator's (a seat never sends it)
+            guard store.state.table.viewer.role == .spectator, store.state.table.gameId == gameId else { return }
+            emitter.watchHand(gameId: gameId, position: position)
         default:
             break
         }

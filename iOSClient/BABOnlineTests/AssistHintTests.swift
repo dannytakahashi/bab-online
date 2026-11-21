@@ -48,7 +48,7 @@ final class AssistHintTests: XCTestCase {
 
     func testTheCapAndTheRoute() {
         XCTAssertTrue(ClientHello.caps.contains("assist"), "the server answers /help with assistHint only to a socket with the cap")
-        XCTAssertEqual(ClientHello.payload()["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial"])
+        XCTAssertEqual(ClientHello.payload()["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", "shoulderView"])
         XCTAssertTrue(GameSocketHandler.events.contains(SocketEvents.Server.assistHint))
         XCTAssertFalse(ContractSeq.events.contains("assistHint"), "private and unsequenced")
     }

@@ -15,6 +15,8 @@ extension TableReducer {
     /// passed). Off the table: the draw's status is a toast, the game-end screen's a log row.
     static func assistHint(_ s: inout TableState, _ w: WirePayload.AssistHint, _ fx: inout [TableEffect]) {
         guard let wire = AssistHint(w) else { return }
+        // the watched seat's hint (the over-the-shoulder view): never mine, never counted
+        if wire.watched != nil { watchedHint(&s, wire, &fx); return }
         // the tutorial's push is not the answer the lightbulb waits for
         if !wire.isTutorial { s.table.assistAsking = false }
         // a pure spectator's reply ("players only") says nothing about my uses

@@ -239,9 +239,37 @@ final class GameState: ObservableObject {
     /// deal until its reveal (TableSlice.hsiHeld), then my value; nil with no seat (a pure
     /// spectator) or no value for this deal.
     var myHSIReading: HSIBadge.Reading? {
+        // a watcher's row is the watched seat's: its HSI (none while paused)
+        if let w = watchedSeat {
+            guard !watchPaused else { return nil }
+            if table.hsiHeld { return .pending }
+            return hsiValues[w].map { .value($0) }
+        }
         guard !isSpectator, position != nil else { return nil }
         if table.hsiHeld { return .pending }
         return myHSI.map { .value($0) }
+    }
+
+    // MARK: the over-the-shoulder view (State/Table/Shoulder.swift)
+
+    /// The seat this pure spectator watches over the shoulder (the table is drawn from it), nil
+    /// in the plain table view and for anyone else.
+    var watchedSeat: Int? { table.viewer.watchedSeat }
+    /// The watched seat is held while the table is paused (no cards shown).
+    var watchPaused: Bool { table.viewer.shoulder?.paused == true && watchedSeat != nil }
+    /// The watched seat's player's name (the pill, the headings).
+    var watchedName: String? { watchedSeat.map { players.name($0) } }
+    /// A pure spectator in the plain table view (no seat watched).
+    var isPlainSpectator: Bool { isSpectator && watchedSeat == nil }
+    /// The watched seat's mirrored advice, while it is still that seat's turn's.
+    var watchedAdvice: AssistHint? { table.watchedAssist.flatMap { AssistRules.isLiveWatched($0, state) ? $0 : nil } }
+    /// The watched seat's mirrored rule tip.
+    var watchedTip: AssistHint? { watchedSeat != nil && !watchPaused ? table.watchedTip : nil }
+    /// The watched seat's bid clock while it is still to bid (the read-only clock pill).
+    var watchedBidCountdown: BidCountdown? {
+        guard let w = watchedSeat, !watchPaused, let c = bidCountdown, c.position == w, isBidding,
+              bidBook?.bid(at: w) == nil else { return nil }
+        return c
     }
 
     /// What Leave does from my seat now: a bot finishes, or the game (or tournament table) ends.

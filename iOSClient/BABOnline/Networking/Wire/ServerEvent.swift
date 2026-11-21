@@ -49,6 +49,9 @@ enum ServerEvent: Equatable {
     /// assistState: my seat's tutorial and /help state (the cap `tutorial`), private and
     /// UNSEQUENCED (decoded with seq nil); never opens or fills a gap (TableReducer+Assist)
     case assistState(WirePayload.AssistState)
+    /// watchHandRefused: my watchHand (the over-the-shoulder view) refused, private and
+    /// UNSEQUENCED (decoded with seq nil); never opens or fills a gap (State/Table/Shoulder.swift)
+    case watchHandRefused(WirePayload.WatchHandRefused)
     case seqOnly
     // snapshot carriers
     case rejoinSuccess(WirePayload.RejoinEnvelope)
@@ -200,6 +203,9 @@ extension ServerEvent {
                 seq = nil
             case "assistState":
                 event = .assistState(try d(WirePayload.AssistState.self))
+                seq = nil
+            case "watchHandRefused":
+                event = .watchHandRefused(try d(WirePayload.WatchHandRefused.self))
                 seq = nil
             case "spectatorJoined":
                 // The joiner's own full state, or the notice about someone else

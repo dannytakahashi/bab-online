@@ -63,6 +63,9 @@ struct AssistHint: Equatable {
     /// A game with a native bot seat (the wire's `unlimited`; `AssistRules.inFreeHelpGame`
     /// normalizes such a hint): no count, no note, never bot-assisted.
     var unlimited = false
+    /// A copy of the watched seat's hint (the over-the-shoulder view: assistHint `watched`, that
+    /// seat's position): read-only, never counted for me, no note, no buttons.
+    var watched: Int?
 
     /// nil for a hint this build cannot show (v not 1, a kind it does not know, no headline).
     init?(_ w: WirePayload.AssistHint) {
@@ -92,6 +95,12 @@ struct AssistHint: Equatable {
         assisted = w.assisted == true
         counted = w.counted == true
         unlimited = w.unlimited == true
+        watched = Position.valid(w.watched)
+        if watched != nil {
+            // the watched player's own: never shown to a watcher (the server drops both anyway)
+            note = nil
+            actions = []
+        }
     }
 
     init(kind: Kind, headline: String, turnKey: String? = nil) {
@@ -309,8 +318,21 @@ enum AssistRules {
     /// or card only on my own turn at my seat with nothing of mine on its way, matching its turnKey.
     static func isLive(_ h: AssistHint, _ s: TableState) -> Bool {
         if h.kind == .status || h.kind == .tip { return true }
-        guard s.table.viewer.role == .seat, let me = s.table.viewer.position, s.pending == nil,
-              s.table.phase.turn == me else { return false }
+        guard h.watched == nil, s.table.viewer.role == .seat, let me = s.table.viewer.position, s.pending == nil else { return false }
+        return isLive(h, s, seat: me)
+    }
+
+    /// A watched seat's bid or card hint (the over-the-shoulder view): live while this spectator
+    /// watches that seat (not paused) and it is still that seat's turn as the hint was answered.
+    static func isLiveWatched(_ h: AssistHint, _ s: TableState) -> Bool {
+        guard let w = h.watched, s.table.viewer.watchesHand, s.table.viewer.watchedSeat == w else { return false }
+        if h.kind == .status || h.kind == .tip { return true }
+        return isLive(h, s, seat: w)
+    }
+
+    /// A bid or card hint against seat `me`'s turn (its turnKey's stage, seat, bids, cards).
+    static func isLive(_ h: AssistHint, _ s: TableState, seat me: Int) -> Bool {
+        guard s.table.phase.turn == me else { return false }
         let k = parseTurnKey(h.turnKey)
         if let t = k?.currentTurn, t != me { return false }
         switch h.kind {

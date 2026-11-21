@@ -67,7 +67,7 @@ class SKChatBubbleManager {
     init(layer: SKNode) { self.layer = layer }
 
     /// The spectator bubble ("Name: text" by the badge): one at a time, as a seat's.
-    private(set) var spectatorBubble: (node: SKNode, size: CGSize, spectating: Bool)?
+    private(set) var spectatorBubble: (node: SKNode, size: CGSize, spectating: Bool, keepsVoice: Bool)?
 
     func show(position: Int, message: String, viewPosition: Int, layout: TableLayout, animator: Animator) {
         bubbles[position]?.node.removeFromParent()
@@ -82,15 +82,17 @@ class SKChatBubbleManager {
 
     /// A spectator's line by the spectator badge (V1_REMOVALS "iOS spectator badge" 7): tinted
     /// like the log's spectator lines, the seats' two lines and lifetime, the newest replaces it.
-    func showSpectator(username: String, message: String, spectating: Bool, layout: TableLayout, animator: Animator) {
+    /// `keepsVoice`: a watcher's own voice button is by the badge (TableLayout.watcherVoiceSpot): kept clear.
+    func showSpectator(username: String, message: String, spectating: Bool, keepsVoice: Bool = false, layout: TableLayout, animator: Animator) {
         spectatorBubble?.node.removeFromParent()
         let prefix = username.isEmpty ? "" : "\(username): "
         // narrower than a seat's (it wraps sooner), so it fits beside the trick cards by the badge
         let (bubble, size) = Self.makeBubble(prefix + message, maxWidth: min(layout.chatMaxWidth, Self.spectatorMaxWidth), name: "chat.spectator",
                                              fill: Self.spectatorFill, text: Theme.SK.spectatorChatText, limit: prefix.count + 40)
-        bubble.position = layout.spectatorBubbleCenter(badge: layout.spectatorBadge(spectating: spectating), bubbleSize: size, spectating: spectating)
+        bubble.position = layout.spectatorBubbleCenter(badge: layout.spectatorBadge(spectating: spectating), bubbleSize: size, spectating: spectating,
+                                                       keepsVoice: keepsVoice)
         layer.addChild(bubble)
-        spectatorBubble = (bubble, size, spectating)
+        spectatorBubble = (bubble, size, spectating, keepsVoice)
         animator.fadeAndRemove(bubble, after: LayoutConstants.bubbleLifetime)
     }
 
@@ -182,7 +184,8 @@ class SKChatBubbleManager {
             if b.node.parent == nil {
                 spectatorBubble = nil
             } else {
-                b.node.position = layout.spectatorBubbleCenter(badge: layout.spectatorBadge(spectating: b.spectating), bubbleSize: b.size, spectating: b.spectating)
+                b.node.position = layout.spectatorBubbleCenter(badge: layout.spectatorBadge(spectating: b.spectating), bubbleSize: b.size, spectating: b.spectating,
+                                                               keepsVoice: b.keepsVoice)
             }
         }
     }

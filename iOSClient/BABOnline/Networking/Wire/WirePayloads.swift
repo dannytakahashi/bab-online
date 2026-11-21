@@ -50,6 +50,27 @@ enum WirePayload {
         var hsiValues: [String: Double]?
         var playerInfo: [PlayerInfo]?
         var seq: Int?
+        /// The over-the-shoulder view (additive 2026-11-21; only a watcher's own spectator
+        /// gameStart, cap shoulderView): the watched seat's new hand and this deal's HSI for it.
+        /// Lenient: a malformed one is nil and the deal still applies.
+        var shoulder: LenientShoulder?
+    }
+
+    /// `{position, hand, hsi}` (gameStart.shoulder), decoded with `try?`.
+    struct LenientShoulder: Decodable, Equatable {
+        var value: TableSnapshot.ShoulderHand?
+        init(_ value: TableSnapshot.ShoulderHand?) { self.value = value }
+        init(from decoder: Decoder) throws { value = try? TableSnapshot.ShoulderHand(from: decoder) }
+    }
+
+    /// watchHandRefused (2026-11-21, private, unsequenced): my watchHand was refused; nothing
+    /// changed. Every field optional (a newer reason is unknown and ignored as not_spectating).
+    struct WatchHandRefused: Decodable, Equatable {
+        var gameId: String?
+        var position: Int?
+        var reason: String?
+        var message: String?
+        var ownPosition: Int?
     }
 
     struct UpdateTurn: Decodable, Equatable { var currentTurn: Int?; var turn: Int?; var seq: Int? }
@@ -198,20 +219,23 @@ enum WirePayload {
         var tipId: String?
         /// The tutorial's welcome tip only: ["keep", "off"] (Keep / Turn off).
         var actions: [String]?
+        /// The over-the-shoulder view (additive 2026-11-21): a copy of the watched seat's hint
+        /// (that seat's position), sent to its watchers; its counts are the watched player's.
+        var watched: Int?
 
         enum CodingKeys: String, CodingKey {
             case v, source, kind, turnKey, headline, reasons, uses, freeUses, assisted, counted, details, confidence, suggest, note, unlimited
-            case tipId, actions
+            case tipId, actions, watched
         }
 
         init(v: Int? = 1, source: String? = "help", kind: String?, turnKey: String? = nil, headline: String?, reasons: [String]? = nil,
              uses: Int? = nil, freeUses: Int? = nil, assisted: Bool? = nil, counted: Bool? = nil, details: [String]? = nil,
              confidence: String? = nil, suggest: Suggest? = nil, note: String? = nil, unlimited: Bool? = nil,
-             tipId: String? = nil, actions: [String]? = nil) {
+             tipId: String? = nil, actions: [String]? = nil, watched: Int? = nil) {
             self.v = v; self.source = source; self.kind = kind; self.turnKey = turnKey; self.headline = headline
             self.reasons = reasons; self.uses = uses; self.freeUses = freeUses; self.assisted = assisted; self.counted = counted
             self.details = details; self.confidence = confidence; self.suggest = suggest; self.note = note; self.unlimited = unlimited
-            self.tipId = tipId; self.actions = actions
+            self.tipId = tipId; self.actions = actions; self.watched = watched
         }
 
         /// Lenient: a field of the wrong type is absent (a card this build cannot read is no card).
@@ -236,6 +260,7 @@ enum WirePayload {
             tipId = opt(String.self, .tipId)
             // an action this build does not know is left out (a newer server's), the rest kept
             actions = opt([LenientString].self, .actions)?.compactMap(\.value)
+            watched = opt(Int.self, .watched)
         }
     }
 

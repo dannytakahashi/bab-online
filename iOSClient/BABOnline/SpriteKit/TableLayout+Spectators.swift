@@ -138,11 +138,13 @@ extension TableLayout {
     /// with it; else left of it; else below it; else up the badge's edge; else the clear
     /// spot nearest the first; clear of the same keeps where it can be, and always of the
     /// badge and the bottom pill, inside the safe rect below the top bar.
-    func spectatorBubbleCenter(badge: CGRect, bubbleSize size: CGSize, spectating: Bool) -> CGPoint {
+    func spectatorBubbleCenter(badge: CGRect, bubbleSize size: CGSize, spectating: Bool, keepsVoice: Bool = false) -> CGPoint {
         let G = Self.gap, M = Self.margin
+        // a watcher's own voice button by the badge (watcherVoiceSpot) is never covered
+        let voice: [CGRect] = keepsVoice && !spectating ? [watcherVoiceSpot()] : []
         // the bid panel covers the transient layer on my bid turn: keep the bubble off its band
-        let keeps = spectatorKeeps(spectating: spectating) + (spectating ? [] : [bidBand]) + [badge, bottomBarRect]
-        let hard = spectatorBubbleHardKeeps(spectating: spectating) + [badge, bottomBarRect]
+        let keeps = spectatorKeeps(spectating: spectating) + (spectating ? [] : [bidBand]) + [badge, bottomBarRect] + voice
+        let hard = spectatorBubbleHardKeeps(spectating: spectating) + [badge, bottomBarRect] + voice
         let minX = safeRect.minX + M, maxX = safeRect.maxX - M
         func fit(_ x: CGFloat) -> CGFloat { min(max(x, minX), max(minX, maxX - size.width)) }
         func at(_ x: CGFloat, _ y: CGFloat) -> CGRect { CGRect(x: fit(x), y: y, width: size.width, height: size.height) }
@@ -192,6 +194,33 @@ extension TableLayout {
         let top = min(safeRect.maxY, topLimit)
         return CGRect(x: c(r.minX, safeRect.minX + Self.margin, safeRect.maxX - Self.margin - r.width),
                       y: c(r.minY, safeRect.minY + chrome.bottomBar, top - r.height), width: r.width, height: r.height)
+    }
+
+    /// The over-the-shoulder view: the watcher's OWN voice button (owner 2026-11-21: "when
+    /// spectating your unmute controls should be above the eye", never in the watched seat's row,
+    /// which shows only that player), with the spectator badge of the seated layout: stacked
+    /// right above it; else higher up the badge's edge; else left of it; else the clear spot
+    /// nearest the first. Clear of everything the badge keeps clear of (the hand, the seat row,
+    /// the seats, the trick cards, the piles, the corner buttons, the fold), of the badge, and of
+    /// the bid band (the watched seat's read-only bid sheet, under which the badge hides: the
+    /// button never does). Scene coordinates, `voiceButtonSize` square.
+    func watcherVoiceSpot() -> CGRect {
+        let s = Self.voiceButtonSize, G = Self.gap
+        let badge = spectatorBadge(spectating: false)
+        let keeps = spectatorKeeps(spectating: false) + [bidBand, badge]
+        func at(_ x: CGFloat, _ y: CGFloat) -> CGRect { CGRect(x: x, y: y, width: s, height: s) }
+        var spots = [at(badge.maxX - s, badge.maxY + G)]
+        var y = badge.maxY + G + 4
+        while y + s <= topLimit {
+            spots.append(at(badge.maxX - s, y))
+            y += 4
+        }
+        spots.append(at(badge.minX - G - s, badge.midY - s / 2))
+        if let r = spots.first(where: { isClear($0, keeps: keeps) }) { return r }
+        if let r = nearestClearBubble(to: spots[0], size: CGSize(width: s, height: s), keeps: keeps) { return r }
+        // a packed table: clear of what is always on screen (never the hand or a seat)
+        let hard = spectatorKeeps(spectating: false, soft: false) + [badge]
+        return spots.first { isClear($0, keeps: hard) } ?? clampIntoSafe(spots[0])
     }
 
     /// What a spectator chat bubble never covers.

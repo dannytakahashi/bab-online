@@ -28,8 +28,13 @@ class HandNode: SKNode {
     /// `arriving`: ids just adopted from elsewhere, animated into their slot.
     /// `interactive`: taps may play now (my play turn, no collect in flight).
     func apply(cards: [Card], legalIds: Set<String>, blocked: [String: String] = [:], layout: TableLayout, interactive: Bool = false,
-               arriving: Set<String> = [], suggestedId: String? = nil, animator: Animator = InstantAnimator()) {
+               arriving: Set<String> = [], suggestedId: String? = nil, readOnly: Bool = false, animator: Animator = InstantAnimator()) {
         let ids = Set(cards.map(\.id))
+        // a watched seat's hand (the over-the-shoulder view) is never lifted
+        if readOnly, let lifted = liftedCardId {
+            liftedCardId = nil
+            sprites[lifted]?.removeAction(forKey: CardAnimations.liftKey)
+        }
         for (id, s) in sprites where !ids.contains(id) {
             s.removeFromParent()
             sprites[id] = nil
@@ -59,7 +64,8 @@ class HandNode: SKNode {
             s.isLegal = legalIds.contains(card.id)
             s.blockedReason = s.isLegal ? nil : blocked[card.id]
             s.isSuggested = card.id == suggestedId
-            s.isUserInteractionEnabled = true
+            // read-only: no touch, no VoiceOver activation (CardSpriteNode reads just the card)
+            s.isUserInteractionEnabled = !readOnly
             s.isLifted = card.id == liftedCardId
             let target = CGPoint(x: slots[i].x, y: slots[i].y + (s.isLifted ? LayoutConstants.cardLiftY : 0))
             if arriving.contains(card.id) {

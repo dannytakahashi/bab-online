@@ -317,7 +317,8 @@ class GameSKScene: SKScene, TableRenderer {
             case .spectatorChatBubble(let username, let message):
                 // by the spectator badge, shown even before the coalesced list makes the badge appear
                 guard model.showsTable else { break }
-                chatManager.showSpectator(username: username, message: message, spectating: model.hand == nil, layout: layout, animator: animator)
+                chatManager.showSpectator(username: username, message: message, spectating: model.hand == nil,
+                                          keepsVoice: model.watchedSeat != nil, layout: layout, animator: animator)
             default:
                 break
             }

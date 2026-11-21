@@ -36,6 +36,9 @@ struct TableRenderModel: Equatable {
         /// My /help answer's card (AssistHint): its glow (CardSpriteNode.isSuggested), only while
         /// the answer is up and live.
         var suggestedId: String? = nil
+        /// The watched seat's hand (the over-the-shoulder view): shown bright, never touchable
+        /// (no lift, no play, no VoiceOver activation: HandNode).
+        var readOnly = false
     }
 
     /// The web's illegalReason sentences (client/src/phaser/scenes/GameScene.js).
@@ -82,13 +85,18 @@ struct TableRenderModel: Equatable {
     /// web's tableBackFrame (backFrameForHand of the hand number); off the table (the draw,
     /// before hand 1) the draw's red.
     var back: CardBackColour
+    /// The seat this spectator watches over the shoulder (the bottom seat, drawn as the seated
+    /// layout with its hand read-only), nil otherwise.
+    var watchedSeat: Int?
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
         let view = viewer.viewPosition
         gameId = s.table.gameId
         viewPosition = view
-        isSpectator = viewer.role == .spectator
+        watchedSeat = viewer.watchedSeat
+        // the plain spectator view (all four seats round the table); a watcher has the seated layout
+        isSpectator = viewer.role == .spectator && viewer.watchedSeat == nil
         showsTable = s.table.phase.showsTable
         keepsLastTable = s.table.phase.kind == .ended
         dealSeq = s.table.deal?.dealSeq ?? 0
@@ -153,6 +161,13 @@ struct TableRenderModel: Equatable {
             var suggested: String?
             if let h = s.table.assist, h.kind == .card, let c = h.card, cards.contains(c), AssistRules.isLive(h, s) { suggested = c.id }
             hand = Hand(cards: cards, legalIds: legal, interactive: myTurn == .choosing(.play), blocked: blocked, suggestedId: suggested)
+        } else if viewer.watchedSeat != nil {
+            // the watched seat's hand (none while paused): bright, read-only; a live mirrored
+            // card hint rings its card
+            let cards = viewer.watchesHand ? CardUtils.sortHand(s.table.hand, trump: s.table.deal?.trump) : []
+            var suggested: String?
+            if let h = s.table.watchedAssist, h.kind == .card, let c = h.card, cards.contains(c), AssistRules.isLiveWatched(h, s) { suggested = c.id }
+            hand = Hand(cards: cards, legalIds: Set(cards.map(\.id)), interactive: false, blocked: [:], suggestedId: suggested, readOnly: true)
         } else {
             hand = nil
         }

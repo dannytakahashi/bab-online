@@ -49,6 +49,29 @@ struct TableSlice: Equatable {
     var tip: AssistHint?
     /// Tips already logged this game (TutorialRules.seenKey): each once.
     var tipsSeen: Set<String> = []
+    /// The over-the-shoulder view's selection (what this spectator asks the server to show:
+    /// State/Table/Shoulder.swift); the served seat itself is `viewer.shoulder`.
+    var watch = HandWatch()
+    /// The watched seat's mirrored /help or tutorial advice (assistHint `watched`), read-only;
+    /// nil when none is up.
+    var watchedAssist: AssistHint?
+    /// The watched seat's mirrored rule tip (assistHint kind `tip` with `watched`), nil when none.
+    var watchedTip: AssistHint?
+}
+
+/// The over-the-shoulder view's selection (the web's ShoulderWatch, client/src/state/shoulder.js).
+struct HandWatch: Equatable {
+    /// The seat watched or wanted (the selection); nil: the plain table view.
+    var selected: Int?
+    /// The own-seat rule's seat, from an `own_seat` refusal (the seat records say it too).
+    var ownSeat: Int?
+    /// A `tournament` refusal: nothing more is offered for this game.
+    var blocked = false
+    /// The table is paused (an `unavailable` refusal, or the room's pause line): the selection
+    /// stays and is sent again after "Game resumed." and after the next full state.
+    var paused = false
+    /// A `not_dealt` refusal or a full state before the first deal: sent at the first gameStart.
+    var waitingDeal = false
 }
 
 /// What the table says about snapshots it could not show (UnreadableTableView).

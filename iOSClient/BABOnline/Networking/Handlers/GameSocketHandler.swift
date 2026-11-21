@@ -26,6 +26,8 @@ final class GameSocketHandler {
         SocketEvents.Server.assistHint,
         // my seat's tutorial and /help state (private; the clientHello cap `tutorial`)
         SocketEvents.Server.assistState,
+        // my watchHand refused (private; the clientHello cap `shoulderView`)
+        SocketEvents.Server.watchHandRefused,
     ]
 
     /// Snapshot carriers that open the game screen when they apply.

@@ -62,7 +62,11 @@ enum ClientHello {
     /// tutorial's rule tips (assistHint kind `tip`, the welcome's Keep / Turn off) and s2c
     /// assistState (the "Tutorial on" chip), so the server may auto-start the tutorial in a new
     /// account's first game (State/Table/Tutorial.swift); older builds never get the auto-start.
-    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial"]
+    /// `shoulderView` (2026-11-21; $defs.clientCapShoulderView): this build watches a seat's hand
+    /// over the player's shoulder as a spectator (c2s watchHand, viewer.shoulder, gameStart
+    /// .shoulder, assistHint watched, spectator entries' shoulder; State/Table/Shoulder.swift);
+    /// without it the server sends none of them and drops a watchHand silently.
+    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

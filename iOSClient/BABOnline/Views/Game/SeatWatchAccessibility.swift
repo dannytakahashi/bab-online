@@ -22,7 +22,9 @@ struct SeatWatchAccessibility: View {
                 }
                 if model.hand != nil, let names = bySeat[model.viewPosition] {
                     element(layout.myWatchChip(handCount: model.hand?.cards.count ?? 0, count: names.count), seat: model.viewPosition,
-                            label: WatchingList.watchLabel(names, player: state.players.name(model.viewPosition), me: me, mine: true))
+                            // "your hand" only at my own seat: a watcher's bottom seat is the watched player's
+                            label: WatchingList.watchLabel(names, player: state.players.name(model.viewPosition), me: me,
+                                                           mine: state.table.viewer.holdsSeat))
                 }
             }
         }
