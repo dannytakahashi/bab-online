@@ -402,3 +402,63 @@ describe('the tutorial\'s tips on the card', () => {
     expect(document.activeElement).toBe(q('.assist-card__close'));
   });
 });
+
+describe('a watched seat\'s card (the over-the-shoulder view, owner 2026-11-21)', () => {
+  const tip = (over = {}) => ({
+    v: 1, source: 'tutorial', kind: 'tip', turnKey: '1|BIDDING|1|1|0', headline: 'Trump',
+    reasons: ['Trump this hand is hearts ♥.'], uses: 0, freeUses: 3, assisted: false, counted: false, tipId: 'T.trump', watched: 2, ...over,
+  });
+  const owner = () => q('.hud-assist > .assist-card__owner');
+
+  it('advice: a one-line heading naming the watched player first, the same words as its label; no count', () => {
+    const card = showAssistCard(hint({ watched: 2 }), { owner: 'alicew', unlimited: true });
+    expect(card.firstElementChild).toBe(owner());
+    expect(owner().textContent).toBe("alicew's advice");
+    expect(owner().title).toBe("alicew's advice");
+    expect(card.getAttribute('aria-label')).toBe("alicew's advice");
+    expect(card.dataset.watched).toBe('alicew');
+    expect(owner().nextElementSibling).toBe(q('.assist-card__top'));
+    expect(q('.assist-card__foot').textContent).toBe('What our strongest bot would play');
+  });
+
+  it('a tip alone, then the advice under it: "alicew\'s tip", then "alicew\'s tip and advice"', () => {
+    const card = showAssistTips([tip()], { owner: 'alicew' });
+    expect(owner().textContent).toBe("alicew's tip");
+    expect(card.getAttribute('aria-label')).toBe("alicew's tip");
+    expect(owner().nextElementSibling.classList.contains('assist-tip')).toBe(true);
+    showAssistCard(hint({ watched: 2 }), { owner: 'alicew', unlimited: true });
+    expect(owner().textContent).toBe("alicew's tip and advice");
+    expect(card.getAttribute('aria-label')).toBe("alicew's tip and advice");
+    expect(document.querySelectorAll('.assist-card__owner')).toHaveLength(1);
+    hideAssistCard();
+    expect(owner().textContent).toBe("alicew's tip");
+    showAssistTips([], {});
+    expect(card.hidden).toBe(true);
+  });
+
+  it('my own card is unchanged: no heading, "Suggestion" / "Tutorial tip"', () => {
+    const card = showAssistCard(hint());
+    expect(owner()).toBeNull();
+    expect(card.getAttribute('aria-label')).toBe('Suggestion');
+    expect(card.dataset.watched).toBeUndefined();
+    hideAssistCard();
+    showAssistTips([tip({ watched: undefined })]);
+    expect(owner()).toBeNull();
+    expect(card.getAttribute('aria-label')).toBe('Tutorial tip');
+  });
+
+  it('fits at every size: one line, shortened with an ellipsis, never wrapped (the card keeps the layout\'s width)', () => {
+    const css = readClientFile('styles/table.css');
+    const rule = css.match(/\.assist-card__owner \{([^}]*)\}/)?.[1] || '';
+    expect(rule).toMatch(/white-space:\s*nowrap/);
+    expect(rule).toMatch(/overflow:\s*hidden/);
+    expect(rule).toMatch(/text-overflow:\s*ellipsis/);
+    // no width of its own: the card's max-width (--assist-w, never past the HUD) bounds it
+    expect(rule).not.toMatch(/(^|[^-])width\s*:/);
+    // a long name is the text in full (the title too): CSS shortens it
+    const long = 'a_rather_long_username_x';
+    showAssistCard(hint({ watched: 2 }), { owner: long });
+    expect(owner().textContent).toBe(`${long}'s advice`);
+    expect(owner().title).toBe(`${long}'s advice`);
+  });
+});

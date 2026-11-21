@@ -106,7 +106,23 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(card.querySelector('.assist-card__head').textContent).toBe('Bid 2');
     expect(card.querySelector('.assist-card__foot').textContent).toBe('What our strongest bot would play');
     expect(card.textContent).not.toMatch(/free|bot-assisted|unlimited|counted/i);
-    expect(card.getAttribute('aria-label')).toBe('Suggestion for ios_ann');
+    // whose advice it is, one line on top; the same words label the card
+    expect(card.firstElementChild.className).toBe('assist-card__owner');
+    expect(card.firstElementChild.textContent).toBe("ios_ann's advice");
+    expect(card.getAttribute('aria-label')).toBe("ios_ann's advice");
+    // narrow and wide tables: the same card, its heading first, placed by the layout
+    for (const [w, h] of [[760, 560], [1920, 953], [1040, 680]]) {
+      page.scene.scale.width = w;
+      page.scene.scale.height = h;
+      page.scene.scale.emit('resize', { width: w, height: h });
+      replay.advance(50);
+      const now = document.querySelector('#table-hud > .hud-assist');
+      expect(now.hidden).toBe(false);
+      expect(now.firstElementChild.textContent).toBe("ios_ann's advice");
+      expect(document.querySelectorAll('.assist-card__owner')).toHaveLength(1);
+      const hud = document.getElementById('table-hud');
+      expect(parseFloat(hud.style.getPropertyValue('--assist-w'))).toBeGreaterThanOrEqual(240);
+    }
     // no lightbulb, no bid sheet for a watcher
     expect(document.querySelector('.hud-assist-ask:not([hidden])')).toBeNull();
     expect(page.scene.tableCounts().bidPanel).toBe(false);
@@ -127,6 +143,8 @@ describe('a spectator looks over a player\'s shoulder', () => {
     replay.advance(50);
     const tip = document.querySelector('#table-hud > .hud-assist .assist-tip');
     expect(tip).not.toBeNull();
+    expect(document.querySelector('#table-hud > .hud-assist > .assist-card__owner').textContent).toBe("ios_ann's tip");
+    expect(document.querySelector('#table-hud > .hud-assist').getAttribute('aria-label')).toBe("ios_ann's tip");
     expect(tip.querySelector('.assist-tip__text').textContent).toBe('Jokers are always trump.');
     expect(tip.querySelector('.assist-tip__actions')).toBeNull();
     expect(document.querySelectorAll('#gameFeed .is-private, #gameFeed .private').length).toBe(rows);

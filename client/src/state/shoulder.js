@@ -136,6 +136,17 @@ export function watchingPillText(player, { paused = false } = {}) {
   return `Watching ${possessive(player)} hand${paused ? ' · paused' : ''}`;
 }
 
+/**
+ * The heading of a watched seat's /help or tutorial card (owner
+ * 2026-11-21: the watched player's name, never a team or seat): "Alice's
+ * advice", "Alice's tip", "Alice's tip and advice" (both up). The card's
+ * screen-reader label is the same words.
+ */
+export function watchedCardHeading(player, { advice = false, tip = false } = {}) {
+  const what = advice && tip ? 'tip and advice' : (advice ? 'advice' : 'tip');
+  return `${possessive(player)} ${what}`;
+}
+
 /** The watched hand area while the table is paused. */
 export function pausedText(player) {
   return `Paused: ${possessive(player)} hand comes back when the game resumes.`;
