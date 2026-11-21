@@ -117,6 +117,20 @@ describe('the Tutorial button', () => {
     expect(rule('.hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"]')).toContain('opacity');
     const all = table.slice(table.indexOf('/* the Tutorial button (ui/components/TutorialButton.js)'), table.indexOf('/* the main room\'s header'));
     expect(all.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([]);
+    // no hover change while disabled (the kit's :hover:not(:disabled) does not know aria-disabled)
+    const disabledHover = rule('.hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"]:hover');
+    expect(disabledHover).toContain('background: rgb(var(--surface-2-rgb) / 0.9)');
+    expect(disabledHover).toContain('border-color: var(--line-strong)');
+    expect(rule('.hud-voice > .tutorial-btn.kit-icon-btn[aria-pressed="true"][aria-disabled="true"]:hover')).toContain('border-color: var(--primary-base)');
+  });
+
+  it('the press dip is dropped with reduced motion (the same selector as the press, after it, so it wins)', () => {
+    const table = readClientFile('styles/table.css');
+    const press = '.hud-voice > .tutorial-btn.kit-icon-btn:active:not([aria-disabled="true"])';
+    const at = table.indexOf(`\n${press} { transform: scale(0.94); }`);
+    expect(at).toBeGreaterThan(-1);
+    const reduced = table.indexOf(`@media (prefers-reduced-motion: reduce) {\n    ${press} { transform: none; }`);
+    expect(reduced).toBeGreaterThan(at);
   });
 });
 
@@ -124,7 +138,8 @@ describe('the confirm', () => {
   it('a kit modal with iOS\'s words; focus on Cancel; Cancel sends nothing', () => {
     const onConfirm = vi.fn();
     syncTutorialButton({ visible: true });
-    btn().focus();
+    // a mouse click in Safari does not focus the button: focus is elsewhere when it opens
+    document.body.focus();
     showTutorialConfirm({ onConfirm });
     const dialog = document.querySelector('#tutorial-confirm [role="dialog"]');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
@@ -140,12 +155,28 @@ describe('the confirm', () => {
     expect(document.activeElement).toBe(btn());
   });
 
-  it('Turn on: closes, then onConfirm once', () => {
+  it('Turn on: closes, then onConfirm once; focus on the button', () => {
+    syncTutorialButton({ visible: true });
     const onConfirm = vi.fn(() => expect(tutorialConfirmOpen()).toBe(false));
     showTutorialConfirm({ onConfirm });
     document.getElementById('tutorial-confirm-ok').click();
     expect(onConfirm).toHaveBeenCalledTimes(1);
     expect(openModalCount()).toBe(0);
+    expect(document.activeElement).toBe(btn());
+  });
+
+  it('Escape: focus on the button too; a close by the code (the table going) moves no focus', () => {
+    syncTutorialButton({ visible: true });
+    const other = document.createElement('input');
+    document.body.appendChild(other);
+    other.focus();
+    showTutorialConfirm({ onConfirm: vi.fn() });
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.activeElement).toBe(btn());
+    other.focus();
+    showTutorialConfirm({ onConfirm: vi.fn() });
+    closeTutorialConfirm();
+    expect(document.activeElement).toBe(other);
   });
 
   it('Escape is Cancel; closeTutorialConfirm takes it down without a word; one at a time', () => {

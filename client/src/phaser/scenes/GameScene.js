@@ -42,7 +42,7 @@ import { BidManager } from '../managers/BidManager.js';
 import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
-import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud } from '../../ui/tableHud.js';
+import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud, hudLayout } from '../../ui/tableHud.js';
 import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
@@ -1726,7 +1726,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ============================================
-  // The tutorial (state/tutorial.js): rule tips and the game log's Tutorial button
+  // The tutorial (state/tutorial.js): rule tips and the Tutorial button in my seat's row
   // ============================================
 
   /**
@@ -1880,7 +1880,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The game log's Tutorial button (ui/components/TutorialButton.js): on ->
+   * The Tutorial button in my seat's row (ui/components/TutorialButton.js): on ->
    * off sends `/tutorial off` at once; off -> on asks first where that makes
    * this game bot-assisted for me (assistHint.tutorialNeedsConfirm: never in
    * a game with a native bot seat, nor once the server says `assisted`).
@@ -1933,15 +1933,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * After an assistState, a snapshot, a turn change or a render: the game
-   * log's Tutorial button (it replaced the in-hand "Tutorial on" chip, owner
-   * 2026-11-21), and with the tutorial off its tips and its advice
+   * After an assistState, a snapshot, a turn change or a render: the
+   * Tutorial button in my seat's row (it replaced the in-hand "Tutorial on"
+   * chip, owner 2026-11-21), and with the tutorial off its tips and its advice
    * go (a /help answer stays). Tips alone move above the bid sheet on my
    * bid turn.
    */
   syncTutorial() {
-    // a lazy / active change of my seat adds or drops the button's slot in my row
-    if (this._layout && this._layout.key.includes('+tut') !== this._tutorialSlot()) this.relayout();
+    // a lazy / active change of my seat adds or drops the button's slot in my
+    // row. Compared with what the HUD has, not with the cached layout: a
+    // getLayout() between GameState's flip and this (a sprite in flight
+    // during the director's queue) rebuilds the cache with the new key but
+    // never applies it to the HUD
+    const hud = hudLayout();
+    if (this._layout && hud && !!hud.voice?.tutorial !== this._tutorialSlot()) this.relayout();
     const s = this.state || getGameState();
     const on = tutorialIsOn(s?.gameId || null);
     if (!on) {

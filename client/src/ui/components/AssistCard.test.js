@@ -348,6 +348,15 @@ describe('the tutorial\'s tips on the card', () => {
     // the pinned title row is 20 tall; everything else 20 too
     Object.defineProperty(HTMLElement.prototype, 'offsetTop', { configurable: true, get() { return at(this); } });
     Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get() { return 20; } });
+    // the sticky title's offset as the browser computes table.css's rule
+    // (top: calc(-1 * var(--space-2)), --space-2 8px; jsdom resolves no var())
+    const table = readClientFile('styles/table.css');
+    const i = table.indexOf('\n.hud-assist.has-tip .assist-tip__top {');
+    expect(table.slice(i, table.indexOf('}', i))).toContain('top: calc(-1 * var(--space-2));');
+    expect(readClientFile('styles/tokens.css')).toContain('--space-2: 8px;');
+    const style = document.createElement('style');
+    style.textContent = '.hud-assist.has-tip .assist-tip__top { position: sticky; top: -8px; }';
+    document.head.appendChild(style);
     try {
       showAssistTips([welcome()]);
       showAssistCard(hint());
@@ -355,14 +364,17 @@ describe('the tutorial\'s tips on the card', () => {
       Object.defineProperty(root, 'clientHeight', { configurable: true, value: 100 });
       Object.defineProperty(root, 'scrollHeight', { configurable: true, value: 260 });
       showAssistCard(hint({ headline: 'Bid 3' }));
-      // the advice's head alone would want 198 - 100 = 98; the welcome's buttons (60) stay below the title (20)
-      expect(root.scrollTop).toBe(60 - 20);
+      expect(getComputedStyle(q('.hud-assist .assist-tip__top')).top).toBe('-8px');
+      // the advice's head alone would want 198 - 100 = 98; the welcome's buttons (60) stay
+      // below what the pinned title covers: its 20 px less its -8 px sticky offset
+      expect(root.scrollTop).toBe(60 - (20 - 8));
       // a rule tip has no buttons: the advice's head wins as before
       showAssistTips([tip()]);
       showAssistCard(hint({ headline: 'Bid 2' }));
       expect(q('.hud-assist .assist-tip__actions')).toBeNull();
       expect(root.scrollTop).toBe(98);
     } finally {
+      style.remove();
       delete HTMLElement.prototype.offsetTop;
       delete HTMLElement.prototype.offsetHeight;
     }

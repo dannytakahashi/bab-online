@@ -511,8 +511,19 @@ body > .voice-btn {
 }
 .hud-voice > .tutorial-btn.kit-icon-btn:active:not([aria-disabled="true"]) { transform: scale(0.94); }
 .hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
+/* no hover change while disabled (the kit's :hover:not(:disabled) knows no aria-disabled) */
+.hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"]:hover {
+    background: rgb(var(--surface-2-rgb) / 0.9);
+    border-color: var(--line-strong);
+    color: var(--text-secondary);
+}
+.hud-voice > .tutorial-btn.kit-icon-btn[aria-pressed="true"][aria-disabled="true"]:hover {
+    border-color: var(--primary-base);
+    color: var(--primary-base);
+}
+/* (the same selector as the press, later: it wins) */
 @media (prefers-reduced-motion: reduce) {
-    .hud-voice > .tutorial-btn.kit-icon-btn:active { transform: none; }
+    .hud-voice > .tutorial-btn.kit-icon-btn:active:not([aria-disabled="true"]) { transform: none; }
 }
 
 /* the main room's header: beside the page buttons */

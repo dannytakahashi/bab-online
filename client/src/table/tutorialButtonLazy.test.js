@@ -5,7 +5,9 @@
  * stopped on my open turn: my row is 4 buttons wide with the button after
  * the sound toggle; /lazy (a bot plays my seat) relays the table out exactly
  * as before the button existed (no slot, no button); /active brings both
- * back.
+ * back. Also when the scene's handler runs late (the director's queue: a
+ * sprite in flight) and a getLayout() in the gap already rebuilt the
+ * cached layout without applying it to the HUD.
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 
@@ -18,6 +20,7 @@ let replay;
 let log;
 let seqGate;
 let computeTableLayout;
+let hudLayout;
 
 const ME = 'ios_ann';
 
@@ -28,6 +31,7 @@ beforeAll(async () => {
   page = await replay.realTablePage({ username: ME, socketId: 'ios-h1' });
   ({ getSeqGate: seqGate } = await import('../state/SeqGate.js'));
   ({ computeTableLayout } = await import('../phaser/layout/computeTableLayout.js'));
+  ({ hudLayout } = await import('../ui/tableHud.js'));
   const k = log.findIndex((e, i) => e.event === 'updateTurn' && e.data.currentTurn === 1 &&
     log.slice(0, i).some((p) => p.event === 'doneBidding'));
   expect(k).toBeGreaterThan(0);
@@ -65,6 +69,36 @@ describe('the Tutorial button\'s slot follows my role', () => {
     page.socket.fire('playerActiveMode', { position: 1, username: ME, pic: 3, seq: seq() });
     replay.advance(500);
     expect(page.scene.getLayout().voice.tutorial).toBe(true);
+    expect(row().slice(0, 2)).toEqual(['sound-toggle-btn', 'tutorial-toggle-btn']);
+  });
+
+  // GameState flips isLazy at once; the scene's handler runs later (main.js
+  // withScene, through the director's queue); a manager's getLayout() in the
+  // gap (an animation in flight) rebuilds the cached layout with the new key
+  const gap = (lazy) => {
+    page.scene.state.isLazy = lazy;
+    page.scene.getLayout();
+  };
+  const hudW = () => document.getElementById('table-hud').style.getPropertyValue('--voice-w');
+
+  it('a queued /lazy with a getLayout() in the gap: the HUD drops the slot and the button', () => {
+    expect(hudLayout().voice.tutorial).toBe(true);
+    gap(true);
+    // the HUD still has the 4-button row until the handler runs
+    expect(hudLayout().voice.tutorial).toBe(true);
+    page.scene.handlePlayerLazyMode({ position: 1 });
+    expect(hudLayout().voice.tutorial).toBeUndefined();
+    expect(hudLayout()).toEqual(without(hudLayout()));
+    expect(btn()).toBeNull();
+    const L = hudLayout();
+    expect(hudW()).toBe(`${Math.round(L.voice.rect.w * 100) / 100}px`);
+  });
+
+  it('a queued /active with a getLayout() in the gap: the slot and the button come back', () => {
+    gap(false);
+    expect(hudLayout().voice.tutorial).toBeUndefined();
+    page.scene.handlePlayerActiveMode({ position: 1 });
+    expect(hudLayout().voice.tutorial).toBe(true);
     expect(row().slice(0, 2)).toEqual(['sound-toggle-btn', 'tutorial-toggle-btn']);
   });
 });

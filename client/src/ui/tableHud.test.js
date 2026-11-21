@@ -6,7 +6,7 @@ const px = (v) => `${Math.round(v * 100) / 100}px`;
 const ASK_VARS = [
   '--assist-ask-x', '--assist-ask-y', '--assist-ask', '--assist-ask-pad', '--assist-ask-up', '--assist-ask-down',
 ];
-// the in-hand "Tutorial on" chip's vars are gone with it (owner 2026-11-21: the log's Tutorial button)
+// the in-hand "Tutorial on" chip's vars are gone with it (owner 2026-11-21: the Tutorial button in my seat's row)
 const CHIP_VARS = ['--assist-ask-chip-y', '--assist-ask-chip-up', '--assist-ask-chip-down', '--tutorial-x', '--tutorial-y'];
 
 describe('the HUD places the lightbulb from the layout', () => {

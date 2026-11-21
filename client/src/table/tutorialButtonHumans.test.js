@@ -1,5 +1,5 @@
 /**
- * The game log's Tutorial button's question on the real page, in a
+ * The Tutorial button's question on the real page, in a
  * human-only game (events-humans-s13 seat2-rejoin, ios_cal): turning the
  * tutorial on there makes this game bot-assisted for me, so the button asks
  * first ("Turn on the tutorial?", iOS's words); Cancel sends nothing, Turn

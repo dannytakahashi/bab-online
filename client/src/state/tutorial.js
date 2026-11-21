@@ -1,8 +1,8 @@
 /**
  * The tutorial on the web (2026-11-19, the LEAN scope with the fade-out;
  * server side docs/claude/assist.md, The tutorial): the words and rules,
- * kept apart from the view (ui/components/AssistCard.js tips, the game
- * log's Tutorial button in ui/components/TutorialButton.js) so they can be
+ * kept apart from the view (ui/components/AssistCard.js tips, the Tutorial
+ * button in my seat's row, ui/components/TutorialButton.js) so they can be
  * tested without a table.
  *
  *  - The clientHello cap `tutorial` (utils/avatar.js) tells the server this
@@ -51,7 +51,7 @@ export const TUTORIAL_ON_DESCRIPTION = 'Tutorial: tips and advice every turn';
 export const TUTORIAL_OFF_DESCRIPTION = 'Turn off the tutorial';
 
 /**
- * The game log's Tutorial button (owner 2026-11-21: "the old people struggle
+ * The Tutorial button in my seat's row (owner 2026-11-21: "the old people struggle
  * with slash commands"; ui/components/TutorialButton.js): iOS's round corner
  * button, the graduation cap alone (aria-label "Tutorial", aria-pressed the
  * state), its tooltip iOS's label ("Tutorial on" / "Tutorial off") and hint.
@@ -122,7 +122,7 @@ export function tutorialDescription(gameId = null) {
 }
 
 /**
- * Is the game log's Tutorial button up: I play my own seat at the table
+ * Is the Tutorial button up: I play my own seat at the table
  * (not a spectator, not while a bot plays it), with the tutorial on or off,
  * for the whole game (the draw included, where it is disabled:
  * tutorialButtonDisabled); never on the game-end screen.

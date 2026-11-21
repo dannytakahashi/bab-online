@@ -107,20 +107,22 @@ export function syncTutorialButton({ visible = false, on = false, disabled = fal
 
 /**
  * "Turn on the tutorial?" (Cancel / Turn on): Escape, the backdrop and
- * Cancel send nothing. Focus starts on Cancel; on close it goes back to
- * the button. One at a time.
+ * Cancel send nothing. Focus starts on Cancel; when the player closes it
+ * (Cancel, Turn on, Escape, the backdrop) focus goes to the Tutorial button
+ * itself, not to what had it when it opened (a mouse click does not focus a
+ * button in Safari: that would be the page's body). One at a time.
  * @param {Object} o
  * @param {Function} o.onConfirm - Turn on
  */
 export function showTutorialConfirm({ onConfirm }) {
   closeTutorialConfirm();
-  const cancel = createButton({ label: CONFIRM_CANCEL, variant: 'secondary', onClick: () => closeTutorialConfirm() });
+  const cancel = createButton({ label: CONFIRM_CANCEL, variant: 'secondary', onClick: () => closeTutorialConfirm({ refocus: true }) });
   cancel.id = 'tutorial-confirm-cancel';
   const ok = createButton({
     label: CONFIRM_BUTTON,
     variant: 'primary',
     onClick: () => {
-      closeTutorialConfirm();
+      closeTutorialConfirm({ refocus: true });
       onConfirm?.();
     },
   });
@@ -133,8 +135,10 @@ export function showTutorialConfirm({ onConfirm }) {
     actions: [cancel, ok],
     dismissible: true,
     initialFocus: cancel,
-    onClose: () => {
+    onClose: (reason) => {
       if (confirm === modal) confirm = null;
+      // after the kit's own focus restore
+      if (reason === 'escape' || reason === 'backdrop') focusButton();
     },
   });
   confirm = modal;
@@ -146,11 +150,21 @@ export function tutorialConfirmOpen() {
   return !!confirm?.isOpen();
 }
 
-/** Take the confirm down (nothing sent). */
-export function closeTutorialConfirm() {
+/** The Tutorial button takes focus (when it is on the page). */
+function focusButton() {
+  if (btn?.isConnected) btn.focus({ preventScroll: true });
+}
+
+/**
+ * Take the confirm down (nothing sent).
+ * @param {Object} [o]
+ * @param {boolean} [o.refocus] - the player closed it: focus goes to the button
+ */
+export function closeTutorialConfirm({ refocus = false } = {}) {
   const m = confirm;
   confirm = null;
   m?.close('api');
+  if (m && refocus) focusButton();
 }
 
 /** Tests: forget the nodes. */

@@ -1,5 +1,5 @@
 /**
- * The game log's Tutorial button's rules (owner 2026-11-21; the view is
+ * The Tutorial button's rules (owner 2026-11-21; the view is
  * ui/components/TutorialButton.js): when it is up and usable
  * (state/tutorial.js), when it asks before turning the tutorial on
  * (state/assistHint.js tutorialNeedsConfirm, iOS TutorialRules.needsConfirm),

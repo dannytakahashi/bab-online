@@ -780,7 +780,7 @@ describe('the /help lightbulb by my hand (assistAskSpot)', () => {
       expect(size + 2 * pad).toBeGreaterThanOrEqual(ASK_HIT);
       // none of it over the lifted cards' tops (a hovered top card plays, not /help)
       expect([up, down], `${vw}x${vh}`).toEqual([2 * pad, 0]);
-      // the in-hand "Tutorial on" chip is gone (owner 2026-11-21: the log's Tutorial button): no second spot
+      // the in-hand "Tutorial on" chip is gone (owner 2026-11-21: the Tutorial button in my seat's row): no second spot
       expect(assistAskSpot(L)).not.toHaveProperty('chip');
     }
   });
@@ -840,8 +840,9 @@ describe('the Tutorial button\'s slot in my voice row (owner 2026-11-21: with my
     for (let vw = 800; vw <= 2560; vw += 40) {
       for (let vh = 500; vh <= 1440; vh += 40) {
         const L = layoutForViewport({ vw, vh, tutorial: true });
-        const more = [...feltProblems(L), ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L)];
-        if (L.degraded || findIntersections(L).length || findOutside(L).length || more.length) bad.push(`${vw}x${vh}`);
+        // the /help lightbulb too: never over my (wider) seat box, the bid sheet, the piles or the felt
+        const more = [...feltProblems(L), ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L), ...askProblems(L)];
+        if (L.degraded || findIntersections(L).length || findOutside(L).length || more.length) bad.push(`${vw}x${vh} ${more.join(',')}`);
         if (L.s < layoutForViewport({ vw, vh }).s - 1e-9) smaller.push(`${vw}x${vh}`);
       }
     }
@@ -849,7 +850,7 @@ describe('the Tutorial button\'s slot in my voice row (owner 2026-11-21: with my
     for (let vw = 360; vw <= 760; vw += 40) {
       for (let vh = 360; vh <= 900; vh += 60) {
         const L = layoutForViewport({ vw, vh, tutorial: true });
-        if (L.degraded || findIntersections(L).length || findOutside(L).length) bad.push(`phone ${vw}x${vh}`);
+        if (L.degraded || findIntersections(L).length || findOutside(L).length || askProblems(L).length) bad.push(`phone ${vw}x${vh}`);
         // where the slot would not fit, today's table, without it
         if (!L.voice.tutorial) {
           noSlot.push(`${vw}x${vh}`);
