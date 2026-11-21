@@ -123,15 +123,54 @@ describe('a spectator looks over a player\'s shoulder', () => {
       const hud = document.getElementById('table-hud');
       expect(parseFloat(hud.style.getPropertyValue('--assist-w'))).toBeGreaterThanOrEqual(240);
     }
-    // no lightbulb, no bid sheet for a watcher
+    // no lightbulb; the watched seat's read-only sheet where a player's goes,
+    // the advice card above it like a player's own
     expect(document.querySelector('.hud-assist-ask:not([hidden])')).toBeNull();
-    expect(page.scene.tableCounts().bidPanel).toBe(false);
-    // its bid clears it (the owner's client does the same)
+    expect(card.dataset.place).toBe('bid');
+    const sheet = document.getElementById('bidContainer');
+    expect(sheet.classList.contains('bid-sheet--readonly')).toBe(true);
+    expect(sheet.classList.contains('is-open')).toBe(true);
+    expect(sheet.getAttribute('aria-label')).toBe('ios_ann is bidding');
+    expect(sheet.querySelector('.bid-sheet__title').textContent).toBe('ios_ann is bidding');
+    // its choices: static text, the legal ones from public state; the hint's ring
+    expect(sheet.querySelectorAll('button, [tabindex], input, a')).toHaveLength(0);
+    const choices = [...sheet.querySelectorAll('.bid-button')];
+    expect(choices.map((c) => c.textContent)).toEqual([...Array.from({ length: gs.currentHand + 1 }, (_, i) => String(i)), 'B', '2B', '3B', '4B']);
+    expect(choices.find((c) => c.textContent === '2').classList.contains('is-suggested')).toBe(true);
+    expect(choices.find((c) => c.textContent === '2B').classList.contains('is-disabled')).toBe(!gs.tempBids.includes('B'));
+    // nothing sends: a click on every choice, Enter / Space / digits on the page
+    page.socket.clearEmits();
+    for (const c of choices) c.click();
+    sheet.click();
+    for (const key of ['Enter', ' ', '2', 'b', 'Tab']) {
+      for (const target of [sheet, document.body, document]) target.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    }
+    replay.advance(50);
+    expect(page.socket.emitted('playerBid')).toEqual([]);
+    expect(page.socket.emittedNames().filter((n) => n !== 'requestSnapshot')).toEqual([]);
+    expect(choices.some((c) => c.classList.contains('is-selected'))).toBe(false);
+    // its place at every size the owner checks: the seated layout's sheet, inside the table, clear of the hand
+    for (const [w, h] of [[1024, 640], [1280, 800], [1920, 1080], [768, 1024]]) {
+      page.scene.scale.width = w;
+      page.scene.scale.height = h;
+      page.scene.scale.emit('resize', { width: w, height: h });
+      replay.advance(50);
+      const L = page.scene.getLayout();
+      expect(L.isSpectator).toBe(false);
+      const r = L.bidSheet.rect;
+      expect(r.x >= 0 && r.y >= 0 && r.x + r.w <= L.w + 0.5 && r.y + r.h <= L.h + 0.5).toBe(true);
+      const hand = L.hand.rect;
+      expect(r.y + r.h <= hand.y + 0.5 || r.x + r.w <= hand.x || r.x >= hand.x + hand.w).toBe(true);
+      expect(document.getElementById('bidContainer').classList.contains('bid-sheet--readonly')).toBe(true);
+      expect(document.querySelector('#table-hud > .hud-assist').dataset.place).toBe('bid');
+    }
+    // its bid clears it (the owner's client does the same), and the sheet goes
     const bidOf1 = log().findIndex((e, i) => i > firstTurnOf1 && e.event === 'bidReceived' && e.data.position === 1);
     replay.replayLog(page, log(), { from: firstTurnOf1 + 1, to: bidOf1 + 1 });
     replayed = bidOf1 + 1;
     replay.advance(50);
     expect(document.querySelector('#table-hud > .hud-assist:not([hidden])')).toBeNull();
+    expect(page.scene.tableCounts().bidPanel).toBe(false);
   });
 
   it('a mirrored tutorial tip shows read-only (no buttons, no row)', () => {

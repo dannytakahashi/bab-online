@@ -643,6 +643,8 @@ export class GameScene extends Phaser.Scene {
       this.clearAssist();
       this.clearTips();
     }
+    // the watched seat bid: its read-only sheet goes
+    if (isShoulder(this.state) && data.position === this.state.position) this.bidManager?.hideBidUI();
 
     // Show bid bubble at the appropriate position
     const positionKey = this.getPositionKey(data.position);
@@ -1807,7 +1809,8 @@ export class GameScene extends Phaser.Scene {
   /** Where tips alone go: above the bid sheet on my bid turn, else above the hand. */
   _tipPlace() {
     const s = this.state;
-    const bidding = !!s && s.isBidding && !!s.position && !s.isSpectator && !s.isLazy &&
+    // my bid turn, or the watched seat's (its read-only sheet is up)
+    const bidding = !!s && s.isBidding && !!s.position && isViewedSeat(s, s.position) && !s.isLazy &&
       s.currentTurn === s.position && s.bids?.[s.position] === undefined;
     return bidding ? 'bid' : 'hand';
   }
@@ -2155,12 +2158,25 @@ export class GameScene extends Phaser.Scene {
     if (m.isBidding && role === 'seat' && m.hand?.length && m.bids[pos] === undefined &&
         !getMyAction().isPending('bid') && this.bidManager) {
       this.bidManager.showBidUI(m.hand.length, (bid) => this.submitBid(bid));
+    } else if (shoulder && !m.viewer.shoulder.paused && m.isBidding && m.hand?.length && m.bids[pos] === undefined) {
+      this.showWatchedBidSheet(m.hand.length);
     }
 
     this.syncAssist();
     this.renderScoreHeader();
     syncShoulderHud(this.state);
     return m;
+  }
+
+  /**
+   * A watcher's read-only sheet of the watched seat (BidManager readOnly):
+   * its choices, chips, countdown and the mirrored hint's ring; nothing sends.
+   * Open on that seat's bid turn (updateVisibility), gone on its bid.
+   */
+  showWatchedBidSheet(handSize) {
+    const s = this.state;
+    if (!this.bidManager || !isShoulder(s) || s.shoulder.paused) return;
+    this.bidManager.showBidUI(handSize, null, { readOnly: true, owner: s.getPlayerNameByPosition(s.position) });
   }
 
   /** What is on the table (render checks and tests). */

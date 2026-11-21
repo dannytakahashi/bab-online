@@ -20,6 +20,17 @@
  * Shown only for the bidder (a seat that acts: not a spectator, not lazy),
  * on my bid turn with no bid of mine made or pending. Screen readers hear
  * it once when it appears and once at 10 s (the number itself is not live).
+ *
+ * Read-only (owner 2026-11-21, the over-the-shoulder view): a watcher sees
+ * the watched seat's sheet on that seat's bid turn, where a player's goes
+ * (`showBidUI(n, null, {readOnly: true, owner})`): titled "Alice is
+ * bidding" (its group label too), the same legal choices from public state
+ * (hand size, the bores so far) as static text (spans: nothing focusable,
+ * nothing clickable, no listener, never a selection; `.bid-sheet--readonly`
+ * lets no pointer through), the trick chips, the mirrored hint's ring and
+ * that seat's countdown (aria-label "Alice: N seconds to bid", never
+ * announced). Nothing is ever sent from it; the player's own in-progress
+ * selection is not on the wire and is not shown.
  */
 
 import { getGameState } from '../../state/GameState.js';
@@ -31,6 +42,7 @@ import { getMyAction } from '../../state/MyAction.js';
 import { NOTICE } from '../../state/noticeText.js';
 import { showNotice } from '../../ui/components/Toast.js';
 import { announce } from '../../ui/handA11y.js';
+import { isShoulder } from '../../state/shoulder.js';
 import {
   bidClockNow, countdownMs, secondsToBid, sameClock, BID_CLOCK_LOW_S, BID_CLOCK_EXPIRED_GRACE_MS,
 } from '../../state/bidClock.js';
@@ -60,6 +72,9 @@ export class BidManager {
 
     // Currently selected bid
     this.selectedBid = null;
+    // A watcher's read-only sheet of the watched seat (showBidUI readOnly)
+    this.readOnly = false;
+    this.owner = null;
     // The /help suggestion (setSuggestedBid)
     this.suggestedBid = null;
 
@@ -85,11 +100,16 @@ export class BidManager {
   /**
    * Show the bid UI.
    * @param {number} handSize - Number of cards in hand (max bid)
-   * @param {Function} onBidSelect - Callback when a bid is selected
+   * @param {Function} onBidSelect - Callback when a bid is selected (unused read-only)
+   * @param {Object} [opts]
+   * @param {boolean} [opts.readOnly] - the watched seat's sheet (the over-the-shoulder view)
+   * @param {string} [opts.owner] - the watched player's name
    */
-  showBidUI(handSize, onBidSelect) {
+  showBidUI(handSize, onBidSelect, { readOnly = false, owner = null } = {}) {
     // Remove existing if any (no animation since we're replacing it)
     this.hideBidUI(false);
+    this.readOnly = !!readOnly;
+    this.owner = readOnly ? owner || '' : null;
 
     // Create container: the HUD's bid slot places it (absolute, from the
     // layout); without a table container it stays centred on the page
@@ -97,7 +117,8 @@ export class BidManager {
     this.bidContainer.id = 'bidContainer';
     this.bidContainer.className = 'ui-element bid-grid bid-sheet';
     this.bidContainer.setAttribute('role', 'group');
-    this.bidContainer.setAttribute('aria-label', 'Your bid');
+    this.bidContainer.setAttribute('aria-label', this.readOnly ? `${this.owner} is bidding` : 'Your bid');
+    if (this.readOnly) this.bidContainer.classList.add('bid-sheet--readonly');
     applySheetModel(this.bidContainer);
     (getHud() || document.body).appendChild(this.bidContainer);
 
@@ -118,7 +139,7 @@ export class BidManager {
     // Header (the bid clock's countdown joins it on the right: syncClock)
     const header = document.createElement('div');
     header.className = 'bid-sheet__title';
-    header.textContent = 'Bid!';
+    header.textContent = this.readOnly ? `${this.owner} is bidding` : 'Bid!';
     this.bidContainer.appendChild(header);
     this.titleRow = header;
 
@@ -145,6 +166,12 @@ export class BidManager {
     const numericRow = document.createElement('div');
     numericRow.className = 'bid-numbers';
     for (let i = 0; i <= handSize; i++) {
+      if (this.readOnly) {
+        const choice = this.createBidChoice(i.toString());
+        this.allBidButtons.push(choice);
+        numericRow.appendChild(choice);
+        continue;
+      }
       const btn = this.createBidButton(i.toString(), () => {
         if (this._refuseOffTurn()) return;
         this.chooseBid(btn, i.toString(), onBidSelect);
@@ -160,6 +187,14 @@ export class BidManager {
     boreRow.setAttribute('role', 'group');
     boreRow.setAttribute('aria-label', 'Bores');
     BORES.forEach((bid) => {
+      if (this.readOnly) {
+        const choice = this.createBidChoice(bid, true);
+        choice.dataset.bid = bid;
+        this.boreButtons[bid] = choice;
+        this.allBidButtons.push(choice);
+        boreRow.appendChild(choice);
+        return;
+      }
       const btn = this.createBidButton(bid, () => {
         if (btn.disabled) return;
         if (this._refuseOffTurn()) return;
@@ -209,13 +244,32 @@ export class BidManager {
   }
 
   /**
+   * A read-only choice (the watched seat's sheet): static text in the
+   * button's look, never focusable, no listener.
+   */
+  createBidChoice(label, isBore = false) {
+    const el = document.createElement('span');
+    el.className = isBore ? 'bid-button bore-button' : 'bid-button';
+    el.textContent = label;
+    return el;
+  }
+
+  /** A choice not open now: a button's disabled, a read-only choice's class. */
+  _setUnavailable(el, on) {
+    if (!el) return;
+    if (el.tagName === 'BUTTON') el.disabled = on;
+    else el.classList.toggle('is-disabled', !!on);
+  }
+
+  /**
    * Mark a bid chosen and send it. A bid the sender refuses on the spot
    * (MyAction returns false: reconnecting, not my turn any more) is unmarked
    * again, so the sheet never shows a bid that was not sent.
    */
   chooseBid(btn, bidValue, onBidSelect) {
-    // the clock ran out here: the server's bid 0 for me is on its way
-    if (this.expired) return;
+    // the clock ran out here: the server's bid 0 for me is on its way; a
+    // read-only sheet never sends (it has no buttons; belt and braces)
+    if (this.expired || this.readOnly) return;
     this.selectButton(btn, bidValue);
     if (onBidSelect(bidValue) === false) this.clearSelection();
     // a bid on its way: no countdown (a rollback's render shows it again)
@@ -274,18 +328,10 @@ export class BidManager {
     const has4B = tempBids.includes('4B');
 
     // Disable bore buttons based on progression (the look is :disabled)
-    if (this.boreButtons['B']) {
-      this.boreButtons['B'].disabled = hasBore;
-    }
-    if (this.boreButtons['2B']) {
-      this.boreButtons['2B'].disabled = !hasBore || has2B;
-    }
-    if (this.boreButtons['3B']) {
-      this.boreButtons['3B'].disabled = !has2B || has3B;
-    }
-    if (this.boreButtons['4B']) {
-      this.boreButtons['4B'].disabled = !has3B || has4B;
-    }
+    this._setUnavailable(this.boreButtons['B'], hasBore);
+    this._setUnavailable(this.boreButtons['2B'], !hasBore || has2B);
+    this._setUnavailable(this.boreButtons['3B'], !has2B || has3B);
+    this._setUnavailable(this.boreButtons['4B'], !has3B || has4B);
 
     this.updateTrickIndicator();
     // a bid came in (mine ends my clock)
@@ -356,14 +402,18 @@ export class BidManager {
 
   // ---------- the bid clock's countdown ----------
 
-  /** The running clock, when it is mine to see: my bid turn, my bid neither made nor pending. */
+  /**
+   * The running clock, when it is mine to see: my bid turn, my bid neither
+   * made nor pending; on a read-only sheet the watched seat's.
+   */
   _myClock() {
     const s = this.state;
     const clock = s.bidClock;
-    if (!clock || !this.bidContainer || !s.position || s.isSpectator || s.isLazy) return null;
+    if (!clock || !this.bidContainer || !s.position || s.isLazy) return null;
+    if (s.isSpectator && !(this.readOnly && isShoulder(s))) return null;
     if (clock.position !== s.position || !this._myTurn()) return null;
     if (s.bids?.[s.position] !== undefined) return null;
-    if (getMyAction().isPending('bid')) return null;
+    if (!this.readOnly && getMyAction().isPending('bid')) return null;
     return clock;
   }
 
@@ -422,11 +472,14 @@ export class BidManager {
     }
     if (this.clockEl) {
       this.clockEl.textContent = String(secs);
-      this.clockEl.setAttribute('aria-label', secondsToBid(secs));
+      this.clockEl.setAttribute('aria-label', this.readOnly ? `${this.owner}: ${secondsToBid(secs)}` : secondsToBid(secs));
       this.clockEl.classList.toggle('bid-sheet__clock--low', secs <= BID_CLOCK_LOW_S);
     }
-    // once when it appears, once at BID_CLOCK_LOW_S (one announcement if it appears below that)
-    if (!this._clockSaid.has('shown')) {
+    // once when it appears, once at BID_CLOCK_LOW_S (one announcement if it
+    // appears below that); a watched seat's clock is never announced
+    if (this.readOnly) {
+      // (nothing said: it is not my bid)
+    } else if (!this._clockSaid.has('shown')) {
       this._clockSaid.add('shown');
       if (secs <= BID_CLOCK_LOW_S) this._clockSaid.add('low');
       announce(secondsToBid(secs));
@@ -490,6 +543,8 @@ export class BidManager {
     this.indicatorRow = null;
     this.titleRow = null;
     this.handSize = 0;
+    this.readOnly = false;
+    this.owner = null;
   }
 
   /**
