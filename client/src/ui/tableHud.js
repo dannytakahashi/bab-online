@@ -327,6 +327,8 @@ export function applyHudLayout(L) {
   if (!hud) return;
   applyRootVars(hud, L);
   hud.classList.toggle('hud-spectator', !!L.isSpectator);
+  // a watcher's voice row is the corner's too (above the spectator badge)
+  hud.classList.toggle('hud-watcher', !!L.watcher);
   hud.querySelectorAll(':scope > .hud-seat').forEach((seat) => applySeatVars(seat, L));
   const bubbleSlot = hud.querySelector(':scope > .hud-spectator-bubble');
   if (bubbleSlot) applySpectatorBubbleVars(bubbleSlot, L);

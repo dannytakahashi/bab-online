@@ -78,7 +78,22 @@ describe('a spectator looks over a player\'s shoulder', () => {
     // the seated layout (no Tutorial slot), as a player of that seat has it
     const L = page.scene.getLayout();
     expect(L.isSpectator).toBe(false);
-    expect(JSON.stringify(L)).toBe(JSON.stringify(computeTableLayout({ w: L.w, h: L.h, dpr: L.dpr, isSpectator: false, logW: L.logW, tutorial: false })));
+    expect(JSON.stringify(L)).toBe(JSON.stringify(computeTableLayout({ w: L.w, h: L.h, dpr: L.dpr, isSpectator: false, logW: L.logW, watcher: true })));
+    // my own sound / voice row is the corner's, right above the eye (owner
+    // 2026-11-21), never under the watched player's box
+    const seated = computeTableLayout({ w: L.w, h: L.h, dpr: L.dpr, isSpectator: false, logW: L.logW });
+    expect(L.seats.self.voice).toBeUndefined();
+    expect(L.voice.rect.x + L.voice.rect.w).toBeCloseTo(L.w - L.margin, 0);
+    expect(L.spectators.rect.y).toBeGreaterThanOrEqual(L.voice.rect.y + L.voice.rect.h - 0.5);
+    expect(L.voice.rect).not.toEqual(seated.voice.rect);
+    const hud = document.getElementById('table-hud');
+    expect(hud.classList.contains('hud-watcher')).toBe(true);
+    expect(hud.classList.contains('hud-spectator')).toBe(false);
+    expect(hud.style.getPropertyValue('--voice-x')).toBe(`${L.voice.rect.x}px`);
+    expect(hud.style.getPropertyValue('--voice-y')).toBe(`${L.voice.rect.y}px`);
+    const row = hud.querySelector(':scope > .hud-voice');
+    expect(row?.querySelector('.sound-btn')).not.toBeNull();
+    expect(box().querySelector('.voice-btn, .sound-btn, .hud-voice')).toBeNull();
     // the pill says whose hand, with the way back
     expect(pill().dataset.kind).toBe('watching');
     expect(pill().textContent).toContain("Watching ios_ann's hand");
@@ -214,6 +229,11 @@ describe('a spectator looks over a player\'s shoulder', () => {
     page.socket.fire('voiceSettings', { gameId: rec.gameId, host: 'ios_ann', spectatorsCanTalk: true, role: 'spectator', canTalk: true, canChange: false });
     await vi.waitFor(() => expect(page.voice.onSpeakingChange).toHaveBeenCalled());
     const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    // my mute button is in the corner's row above the eye, not in the watched box
+    await vi.waitFor(() => expect(document.getElementById('voice-mute-btn')).not.toBeNull());
+    const mute = document.getElementById('voice-mute-btn');
+    expect(mute.parentElement.classList.contains('hud-voice')).toBe(true);
+    expect(box().contains(mute)).toBe(false);
     page.voice.peers.set('s-ann', { username: 'ios_ann' });
     cb('s-ann', true);
     expect(box().classList.contains('voice-speaking')).toBe(true);
@@ -267,6 +287,9 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(gs.position).toBe(1);
     expect(handCount()).toBe(0);
     expect(page.scene.getLayout().isSpectator).toBe(true);
+    expect(page.scene.getLayout().watcher).toBeUndefined();
+    expect(document.getElementById('table-hud').classList.contains('hud-watcher')).toBe(false);
+    expect(document.getElementById('table-hud').classList.contains('hud-spectator')).toBe(true);
     expect(pill().dataset.kind).toBe('spectator');
     expect(pill().textContent).toBe('Spectating — type /leave to exit');
     expect(JSON.parse(sessionStorage.getItem('bab.shoulder'))).toEqual({ gameId: rec.gameId, choice: 'table' });

@@ -121,11 +121,13 @@ export class GameScene extends Phaser.Scene {
     // my voice row reserves the Tutorial button's slot while I play my own
     // seat (not lazy): a lazy watcher's table is as before
     const tutorial = this._tutorialSlot();
+    // a watcher: its own voice row in the corner, above the spectator badge
+    const watcher = !spectator && isShoulder(state);
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
+    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }) });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);

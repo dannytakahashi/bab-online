@@ -376,7 +376,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false }) {
+function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -535,8 +535,14 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   let hsi = null;
 
   if (!isSpectator) {
-    const selfW = Math.max(blockW, hsiW, voiceRowW);
-    const selfH = D + plateGap + plateH + 4 * s + hsiH + voiceGap + voiceBtn;
+    // a watcher (the over-the-shoulder view, owner 2026-11-21): the watched
+    // seat's box is that player alone (avatar, name, HSI); the watcher's own
+    // sound / voice buttons are the corner's, stacked above the spectator
+    // badge, so they never read as the watched player's controls
+    const ownVoice = !watcher;
+    const selfW = Math.max(blockW, hsiW, ownVoice ? voiceRowW : 0);
+    // (the same sum, in the same order, as before for a seat: byte-identical layouts)
+    const selfH = ownVoice ? D + plateGap + plateH + 4 * s + hsiH + voiceGap + voiceBtn : D + plateGap + plateH + 4 * s + hsiH;
     const handBottom = ch - Math.max(M, 23 * s);
     const handTop = handBottom - handBoxH;
     // widest hand box that clears the team history (left) and my box (right)
@@ -561,16 +567,24 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
 
     // my box: avatar, name, HSI, voice buttons (today's spot: 78% across, 72% down)
     const selfX = clamp(cw - 0.219 * cw, cx + handW / 2 + G + selfLeftReach, selfMaxX);
-    const selfTop = Math.min(0.715 * ch, ch - M - selfH);
+    let selfTop = Math.min(0.715 * ch, ch - M - selfH);
+    // a watcher's corner: its voice row above the badge (badge: voice
+    // button high, SPECTATOR_BADGE.wPerH wide), my box clear above it when
+    // they share the right edge
+    const stackTop = ch - M - 2 * voiceBtn - voiceGap;
+    const stackLeft = cw - M - Math.max(voiceRowW, voiceBtn * SPECTATOR_BADGE.wPerH);
+    if (watcher && selfX + selfW / 2 + G > stackLeft) selfTop = Math.min(selfTop, stackTop - G - selfH);
     const ay = selfTop + D / 2;
     seats.self = seatAt(selfX, ay, { frogSide: -1 });
     const hsiY = seats.self.plate.y + plateH + 4 * s;
     hsi = { rect: rect(q(selfX - hsiW / 2), q(hsiY), hsiW, hsiH), font: hsiFont };
-    voice = { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
+    voice = watcher
+      ? { rect: rect(q(cw - M - voiceRowW), q(stackTop), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap }
+      : { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
     // (only a layout with the slot says so: every other stays as it was)
     if (voiceSlots === 4) voice.tutorial = true;
     seats.self.hsi = hsi;
-    seats.self.voice = voice;
+    if (ownVoice) seats.self.voice = voice;
     seats.self.block = rect(q(selfX - selfW / 2), q(selfTop), selfW, selfH);
     // the trick may sit beside my box: only the hand bounds it from below
     bottom = handTop - G;
@@ -694,7 +708,13 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   // then up the right edge, a row at a time (a phone-size canvas, where a
   // bubble needs the corner: the badge gives way, see below)
   const upTheEdge = (y0) => [1, 2, 3, 4].map((k) => badgeAt(cw - M - badgeW, y0 - k * (voiceGap + badgeH)));
-  const badgeCandidates = isSpectator
+  const badgeCandidates = watcher
+    ? [
+      // a watcher: the corner, right under its voice row (owner 2026-11-21:
+      // the controls above the eye; it never gives way to a seat's bubble)
+      badgeAt(cw - M - badgeW, ch - M - badgeH),
+    ]
+    : isSpectator
     ? [
       // beside the corner's voice buttons, then above them
       badgeAt(voice.rect.x - voiceGap - badgeW, voice.rect.y),
@@ -811,6 +831,11 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
       out.push({ tail: 'right', align: 'end', x: right, y: bottom, rect: rect(right - bw, bottom - bbH, bw + bbTail, bbH), tailOffset: sideOff, minW: 0, minH });
       const left = b.x + b.w + badgeGap + bbTail;
       out.push({ tail: 'left', align: 'start', x: left, y: bottom, rect: rect(left - bbTail, bottom - bbH, bw + bbTail, bbH), tailOffset: sideOff, minW: 0, minH });
+      // a watcher's corner (its voice row right above the badge, wider): beside the pair, its tail toward the badge's row
+      if (watcher && voice.rect.x < b.x && b.y >= voice.rect.y + voice.rect.h - 0.5) {
+        const r2 = voice.rect.x - badgeGap - bbTail;
+        out.push({ tail: 'right', align: 'end', x: r2, y: bottom, rect: rect(r2 - bw, bottom - bbH, bw + bbTail, bbH), tailOffset: sideOff, minW: 0, minH });
+      }
     }
     return out.map((o) => ({ ...o, w: bw }));
   };
@@ -914,6 +939,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     dpr,
     s: r1(s),
     isSpectator: !!isSpectator,
+    // (a watcher's layout says so; every other is as it was)
+    ...(watcher && { watcher: true }),
     compact: !!compact,
     historyScale: k,
     degraded: false,
@@ -977,7 +1004,7 @@ export function layoutRects(L) {
     if (seat.hsi) add(`${key}.hsi`, g, seat.hsi.rect);
     if (seat.voice) add(`${key}.voice`, g, seat.voice.rect);
   }
-  if (L.isSpectator) add('voice', 'voice', L.voice.rect);
+  if (L.isSpectator || L.watcher) add('voice', 'voice', L.voice.rect);
   for (const [key, slot] of Object.entries(L.trick.slots)) add(`trick.${key}`, `trick:${key}`, slot.rect, ['zone', 'bidSheet']);
   add('trick.zone', 'zone', L.trick.zone, ['trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2', 'bidSheet']);
   add('history.team', 'history:team', L.history.team.rect);
@@ -1044,12 +1071,17 @@ export function findOutside(L, rects = null) {
  * @param {boolean} [opts.tutorial=false] - I play my own seat (not a spectator,
  *   not lazy): my voice row reserves a 4th button, the Tutorial button's
  *   (every other layout is as without it)
+ * @param {boolean} [opts.watcher=false] - a spectator watching a seat (the
+ *   over-the-shoulder view): the seated layout of the watched seat, but my
+ *   voice row in the corner above the spectator badge, never under the
+ *   watched player's box (owner 2026-11-21; every other layout as without it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false, watcher = false } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
-  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator };
+  const watch = !!watcher && !isSpectator;
+  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator && !watch, ...(watch && { watcher: true }) };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
@@ -1085,9 +1117,9 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false, watcher = false } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial, watcher });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */

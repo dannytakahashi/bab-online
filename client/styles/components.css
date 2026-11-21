@@ -505,7 +505,8 @@ body > #spectating-indicator {
 
 /* a spectator's row is the table's corner: its buttons keep to the corner
    (the sound toggle alone, without voice, too) */
-#table-hud.hud-spectator > .hud-voice {
+#table-hud.hud-spectator > .hud-voice,
+#table-hud.hud-watcher > .hud-voice {
     justify-content: flex-end;
 }
 
