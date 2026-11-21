@@ -298,7 +298,8 @@ function refusal(game) {
 /**
  * @param {GameState} game
  * @param {Object} [opts]
- * @param {string|null} [opts.tournamentId] - default: GameManager.tournamentGames
+ * @param {string|null} [opts.tournamentId] - default: the game's own
+ *   game.tournamentId, else GameManager.tournamentGames
  * @param {Function} [opts.getBot] - socketId -> the registered BotPlayer (default: BotController's)
  * @returns {Object|null} the document, or null when the game is not saved now
  */
@@ -383,7 +384,12 @@ function serialize(game, { tournamentId, getBot } = {}) {
         v: CODEC_V,
         gameId: game.gameId,
         stage: game.stage,
-        tournamentId: tournamentId === undefined ? lookupTournamentId(game.gameId) : tournamentId,
+        // the game's own mark first (GameState.tournamentId): the map entry
+        // goes when the tournament is deleted while a table still lives (the
+        // self-fence's tournament fence, a handoff detach), and a doc saved
+        // then must not come back as a casual table. Where both exist they
+        // agree (tournamentHandlers sets both; hydrate sets the game's)
+        tournamentId: tournamentId === undefined ? (game.tournamentId || lookupTournamentId(game.gameId)) : tournamentId,
         state,
         log: game.gameLog.map((e) => json(e)),
         logTotal: Number.isInteger(game.logTotal) ? game.logTotal : game.gameLog.length,

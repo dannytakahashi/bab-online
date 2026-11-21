@@ -102,15 +102,15 @@ function isUnavailable(game) {
 /**
  * Why `socket` may not watch `position` (null = stop watching) at `game`,
  * or null when it may. Order: the cap, a pure spectator of that game, a
- * table that is suspended / frozen / over, then (not for a stop) a
+ * stop (always allowed), a table that is suspended / frozen / over, a
  * tournament table, not dealt, the own-seat rule.
  * @returns {{reason: string, ownPosition?: number}|null}
  */
 function refusal(game, socket, position) {
     if (!clientInfo.hasCap(socket, CAP)) return { reason: 'capability' };
     if (!game || !isPureSpectator(game, socket.id)) return { reason: 'not_spectating' };
+    if (position === null) return null; // a stop exposes nothing: always accepted
     if (isUnavailable(game)) return { reason: 'unavailable' };
-    if (position === null) return null; // stopping is otherwise always allowed
     if (isTournamentTable(game)) return { reason: 'tournament' };
     if (PRE_DEAL.has(game.stage)) return { reason: 'not_dealt' };
     const own = ownSeatOf(game, socket.id);
@@ -205,6 +205,13 @@ function watchHand(socket, io, data) {
     else game.shoulders.set(socket.id, position);
     socketLogger.debug('watchHand', { gameId: game.gameId, socketId: socket.id, position });
 
+    if (isUnavailable(game)) {
+        // only a stop gets here (refusal): it is done, with no reply, since
+        // no snapshot goes out of a suspended or frozen table; the list
+        // update waits for the thaw (game timers are held while suspended)
+        if (before !== position) require('../game/spectatorRoster').spectatorsChanged(io, game);
+        return;
+    }
     const { snapshotFor, hideChatFrom } = require('./snapshotHandlers'); // lazy: snapshotHandlers requires this module
     const reply = {
         snapshot: snapshotFor(game, socket.id, { log: false, hideChatFrom: hideChatFrom(socket), socket }),

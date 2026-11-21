@@ -262,7 +262,7 @@ describe('refusals (watchHandRefused; nothing changes)', () => {
         watch(t, s, 2);
         expect(t.game.suspend()).toBe(true);
         expect(refusalOf(watch(t, s, 3))).toMatchObject({ reason: 'unavailable', message: shoulderView.REFUSALS.unavailable });
-        expect(refusalOf(watch(t, s, null)).reason).toBe('unavailable');
+        expect(t.game.shoulders.get(s.id)).toBe(2); // a refused switch keeps the watch
         // a direct snapshot reply (not behind the suspended emit gate) carries no hand
         let from = t.w.log.length;
         snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
@@ -279,6 +279,25 @@ describe('refusals (watchHandRefused; nothing changes)', () => {
         from = t.w.log.length;
         snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
         expect(to(t, s, 'stateSnapshot', from).every((l) => !l.data.snapshot || !('shoulder' in l.data.snapshot.viewer))).toBe(true);
+        // a stop is always accepted, even on a frozen table: no reply (no snapshot leaves it), the watch is gone
+        expect(watch(t, s, null)).toEqual([]);
+        expect(t.game.shoulders.has(s.id)).toBe(false);
+        await Promise.all(t.pending);
+    });
+
+    test('a stop sent while the table is suspended is done: no reply then, and the watch does not come back at the thaw', async () => {
+        const t = await dealt('sr10', 220);
+        const s = spectator(t, 'sr10-spec', 'sr10_fan');
+        watch(t, s, 2);
+        expect(t.game.suspend()).toBe(true);
+        expect(watch(t, s, null)).toEqual([]);
+        expect(t.game.shoulders.has(s.id)).toBe(false);
+        t.game.unsuspend(t.w.io);
+        const from = t.w.log.length;
+        snapshotHandlers.requestSnapshot(s, t.w.io, { log: false });
+        expect(to(t, s, 'stateSnapshot', from)[0].data.snapshot.viewer).not.toHaveProperty('shoulder');
+        // and a new watch after the thaw works as before
+        expect(watch(t, s, 3)[0].data.snapshot.viewer.shoulder.position).toBe(3);
         await Promise.all(t.pending);
     });
 
