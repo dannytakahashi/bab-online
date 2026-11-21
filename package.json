@@ -63,6 +63,7 @@
         "setupFilesAfterEnv": [
             "<rootDir>/server/testUtils/fsmGuard.js",
             "<rootDir>/server/testUtils/contractGuard.js",
+            "<rootDir>/server/testUtils/hsiGuard.js",
             "<rootDir>/server/testUtils/pacingReset.js",
             "<rootDir>/server/testUtils/liveTestCollections.js"
         ],

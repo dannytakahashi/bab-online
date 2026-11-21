@@ -37,6 +37,9 @@
  * room gameLogEntry with `fault` per player short on a set team, after
  * handComplete; rules.handFaults draws no Math.random): oneHuman 3 more
  * emits, collidingPics 1 more; hands, trumps and pictures unchanged.
+ * Not re-recorded for the own-seat HSI (2026-11-21): v1Restore puts the
+ * other seats' HSI back into each gameStart / snapshot from the game, so
+ * the unchanged golden shows that nothing else on the wire moved.
  */
 
 const fs = require('fs');
@@ -180,6 +183,18 @@ function v1Restore(rec, game) {
     if (rec.event === 'gameStart' && rec.data && 'position' in rec.data && !('players' in rec.data)) {
         const { gameId, ...rest } = rec.data;
         RESTORED_DATA.set(rec, { gameId, players: game.getSocketIds(), ...rest });
+    }
+    // Own-seat HSI (2026-11-21, not a V1_REMOVALS entry: a hand-strength
+    // leak): a seat gameStart's hsiValues and a snapshot's hsi held every
+    // seat's HSI; now only the receiver's own. Put back from the game, so
+    // the golden still proves every other byte unchanged
+    const data = RESTORED_DATA.get(rec) ?? rec.data;
+    if (rec.event === 'gameStart' && data && data.hsiValues && game.hsiValues) {
+        RESTORED_DATA.set(rec, { ...data, hsiValues: { ...game.hsiValues } });
+    }
+    if (data && data.snapshot && Array.isArray(data.snapshot.hsi)) {
+        const hsi = [1, 2, 3, 4].map((p) => game.hsiValues?.[p] ?? null);
+        RESTORED_DATA.set(rec, { ...(RESTORED_DATA.get(rec) ?? data), snapshot: { ...data.snapshot, hsi } });
     }
 }
 

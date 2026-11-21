@@ -666,9 +666,11 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     botController.resetBotMemory(game.gameId, game.currentHand, game.trump);
     botController.handleTrumpRevealed(io, game);
 
-    // HSI of each player's hand, shown under the avatars. Added to the
-    // stats only once the bids keep the hand (handlePostBid): an all-zero
-    // redeal's hand is never counted in totalHands, so its HSI must not be
+    // HSI of each player's hand: each owner is shown its own (gameStart,
+    // snapshot v2 `hsi`); the other seats' values never leave the server.
+    // Added to the stats only once the bids keep the hand (handlePostBid):
+    // an all-zero redeal's hand is never counted in totalHands, so its HSI
+    // must not be
     const hsiValues = {};
     for (const socketId of socketIds) {
         const hand = game.getHand(socketId);
@@ -716,7 +718,9 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             dealer: game.dealer,
             position: playerPosition,  // Include player's position to avoid the bid UI race
             currentHand: game.currentHand,  // Hand index for hand indicator
-            hsiValues,  // HSI for all players to display under avatars
+            // Only the receiver's own seat (2026-11-21: all four leaked the
+            // others' hand strength); every shipped client reads only its own
+            hsiValues: { [playerPosition]: hsiValues[playerPosition] },
             playerInfo: info.players,  // Current player info for avatar updates
             seq: handSeq,  // additive: the deal's broadcast sequence number
             ...(info.avatarUrls && { avatarUrls: info.avatarUrls })  // additive: custom pictures' URLs
