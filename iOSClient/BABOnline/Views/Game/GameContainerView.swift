@@ -201,9 +201,11 @@ private struct GameScreen: View {
                 HStack(spacing: 0) {
                     tablePane
                         // the draw covers the table pane only (owner play test 2026-11-21, the
-                        // iPhone Duo open: over the whole window it was centred on table + log
-                        // with the docked log dimmed under it, and in book pose it crossed the
-                        // hinge); DrawMetrics fits its four cards to the pane's width
+                        // iPhone Duo: over the whole window it was centred on table + log with the
+                        // docked log dimmed under it, and in book pose it crossed the hinge): the
+                        // left page in book pose, the log readable on its own page; fully open no
+                        // log is docked during the draw (dockMode), so the pane is the window.
+                        // DrawMetrics fits its four cards to the pane's width
                         .overlay {
                             if gameState.phase == .draw {
                                 DrawPhaseView()
@@ -307,6 +309,11 @@ private struct GameScreen: View {
 
     private func dockMode(_ p: GeometryProxy) -> Dock {
         guard showsTable || gameState.phase == .draw else { return .none }
+        // the draw for deal: the log is docked only in book pose, its own page beside the
+        // draw's; fully open the draw takes the window and the log comes with the deal (owner
+        // play test 2026-11-21: "in book pose probably fine to show the game log in draw for
+        // deal, but not in fully open")
+        let drawing = gameState.phase == .draw
         if let div = FoldReader.division(p), div.height > div.width, div.minX > 0, div.maxX < p.size.width {
             // the right page holds the log only when both pages are wide enough (a readable log,
             // a table that needs no fallback); otherwise the table spans both pages and
@@ -317,7 +324,7 @@ private struct GameScreen: View {
         }
         let i = p.safeAreaInsets
         let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
-        if UIDevice.current.userInterfaceIdiom == .phone, hSizeClass == .regular, vSizeClass == .regular,
+        if !drawing, UIDevice.current.userInterfaceIdiom == .phone, hSizeClass == .regular, vSizeClass == .regular,
            w > h, w - 320 >= 560 {
             return .side
         }
