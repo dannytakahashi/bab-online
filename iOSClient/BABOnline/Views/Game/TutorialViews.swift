@@ -89,8 +89,6 @@ struct TutorialCornerButton: View {
     /// The tutorial is on (the server's word, or an on on its way) and no off is on its way.
     let on: Bool
     var disabled = false
-    /// The log button's measured diameter, so the two match (nil: the glyph's own size).
-    var diameter: CGFloat? = nil
     var action: () -> Void
 
     var body: some View {
@@ -98,8 +96,8 @@ struct TutorialCornerButton: View {
             Image(systemName: "graduationcap.fill")
                 .font(.title2)
                 .foregroundColor(on ? Theme.primary : Theme.textSecondary)
+                .modifier(CornerGlyphBox())
                 .padding(Theme.Space.s3)
-                .frame(width: diameter, height: diameter)
                 .background(Theme.surface.opacity(0.8))
                 .clipShape(Circle())
                 // on: the green cap in a green ring (a solid green disc outshouted the log's button)
@@ -115,5 +113,16 @@ struct TutorialCornerButton: View {
         .accessibilityIdentifier("tutorial.chip")
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityShowsLargeContentViewer()
+    }
+}
+
+/// The corner's round buttons' glyph box (the game log's and the tutorial's): a square of
+/// title2's size, scaled with Dynamic Type inside each button (which caps it at xxLarge), so
+/// both circles are the same size and the log's does not change with its glyph (a padded
+/// text.bubble.fill was 53 x 50 pt, xmark.circle.fill smaller).
+struct CornerGlyphBox: ViewModifier {
+    @ScaledMetric(relativeTo: .title2) private var side: CGFloat = 26
+    func body(content: Content) -> some View {
+        content.frame(width: side, height: side)
     }
 }

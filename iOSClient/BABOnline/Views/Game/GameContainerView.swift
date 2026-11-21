@@ -636,6 +636,10 @@ private struct GameScreen: View {
             Image(systemName: logIsOpen ? "xmark.circle.fill" : "text.bubble.fill")
                 .font(.title2)
                 .foregroundColor(Theme.textSecondary)
+                // a square glyph box: the circle is the same size open or closed and the
+                // tutorial's button below it matches (a padded text.bubble was 53 x 50 pt, so
+                // its circle was the short side)
+                .modifier(CornerGlyphBox())
                 .padding(Theme.Space.s3)
                 .background(Theme.surface.opacity(0.8))
                 .clipShape(Circle())
@@ -735,9 +739,9 @@ private struct GameScreen: View {
     // (TableReducer.tutorialTip) and the rule tip shows at once.
 
     private var tutorialCornerButton: some View {
-        // the log's button's size, so the two read as one column of round buttons
-        let d = showsLogButton && logSize.width > 0 ? max(logSize.width, logSize.height) : nil
-        return TutorialCornerButton(on: tutorialShowsOn, disabled: tutorialSwitchDisabled, diameter: d) {
+        // the log's button's square glyph box (CornerGlyphBox), so the two read as one column of
+        // round buttons
+        TutorialCornerButton(on: tutorialShowsOn, disabled: tutorialSwitchDisabled) {
             if tutorialShowsOn { tutorialOff() } else { requestTutorialOn() }
         }
     }
