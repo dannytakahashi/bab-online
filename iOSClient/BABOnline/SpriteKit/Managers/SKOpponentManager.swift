@@ -45,6 +45,7 @@ class SKOpponentManager {
             node.setFan(count: o.cards, colour: model.back, box: fans?[o.rel], anchor: anchor)
             node.setDealer(model.dealer == o.position, chip: layout.dealerChip(o.rel), anchor: anchor)
         }
+        applyWatchers(model, layout: layout)  // the seat eyes (WatchChipNode.swift)
     }
 
     /// Relayout: every seat to its new anchor (a fold change glides).

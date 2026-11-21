@@ -210,6 +210,9 @@ struct WatchingList: Equatable {
         var username: String
         var pic: Int?
         var avatarUrl: String?
+        /// The seat whose hand this watcher looks at (the over-the-shoulder view, 1...4; only a
+        /// socket with the cap shoulderView is sent it): WatchingList+Shoulder.swift.
+        var shoulder: Int? = nil
         var id: String { username }
         /// What AvatarTextureCache / AvatarImage load: the URL when the server sent one, else the stock number.
         var pictureKey: String? { avatarUrl ?? pic.map(String.init) }
@@ -219,7 +222,8 @@ struct WatchingList: Equatable {
 
     init() {}
     init(spectators: [TableSnapshot.Spectator], count: Int) {
-        self.spectators = spectators.map { Watcher(username: $0.username, pic: $0.pic, avatarUrl: $0.avatarUrl) }
+        self.spectators = spectators.map { Watcher(username: $0.username, pic: $0.pic, avatarUrl: $0.avatarUrl,
+                                                   shoulder: Position.valid($0.shoulder)) }
         self.count = max(count, 0)
     }
     init(_ list: TableSnapshot.SpectatorList) { self.init(spectators: list.spectators, count: list.count) }

@@ -361,6 +361,7 @@ class GameSKScene: SKScene, TableRenderer {
             myPipsNode.update(nil, team: 1)
             placeMyPips()
             myDealerNode.update(shown: false)
+            placeMyWatchers(model)
             bidManager.cleanup()
             return .init()
         }
@@ -397,6 +398,7 @@ class GameSKScene: SKScene, TableRenderer {
         myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
         placeMyPips()
         placeMyDealer(model)
+        placeMyWatchers(model)
         bidManager.apply(bubbles: model.bidBubbles, viewPosition: me, layout: layout)
         return changes
     }
