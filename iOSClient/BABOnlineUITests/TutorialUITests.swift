@@ -145,12 +145,40 @@ final class TutorialUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(pin.height, 28, "\(tag): the whole row (the × is 28 pt)")
         let head = element(app, "assist.headline").frame
         XCTAssertLessThanOrEqual(pin.maxY, head.minY, "\(tag): the pinned row over the advice's headline")
-        // the welcome's Keep and Turn off come into the pinned row (the card's own may be under it)
+        // the welcome's Keep and Turn off: in the pinned row while the card's own are under it
+        // or scrolled up, else the card's own below it in sight; never both (play test
+        // 2026-11-21: the iPhone Duo closed showed the pair twice and none of the tip's text)
         if card.identifier == "tutorialWelcome" {
+            let pinnedPair = app.buttons["tip.pinnedKeep"].exists
+            print("[TutorialUITests] \(tag) welcome pair \(pinnedPair ? "pinned" : "card's own") pin \(pin) own \(app.buttons["tip.keep"].frame)")
             for id in ["tip.pinnedKeep", "tip.pinnedOff"] {
-                XCTAssertTrue(app.buttons[id].exists && pin.contains(app.buttons[id].frame), "\(tag): \(id) \(app.buttons[id].frame) in \(pin)")
+                XCTAssertEqual(app.buttons[id].exists, pinnedPair, "\(tag): \(id)")
+                if pinnedPair { XCTAssertTrue(pin.contains(app.buttons[id].frame), "\(tag): \(id) \(app.buttons[id].frame) in \(pin)") }
+            }
+            for id in ["tip.keep", "tip.off"] {
+                let own = app.buttons[id].frame
+                let ownInSight = own.minY >= pin.maxY - 1 && column.contains(own)
+                if pinnedPair {
+                    XCTAssertFalse(ownInSight, "\(tag): \(id) \(own) in sight under the pinned pair \(pin)")
+                } else {
+                    XCTAssertTrue(ownInSight, "\(tag): the card's own \(id) \(own) out of sight under \(pin) in \(column)")
+                    XCTAssertTrue(app.buttons[id].isHittable, "\(tag): \(id)")
+                }
             }
         }
+    }
+
+    /// Some of the welcome's text is in sight: below the pinned row (where it shows) and inside the
+    /// column, at least a line (play test 2026-11-21, the iPhone Duo closed: scrolled to the
+    /// advice, the column showed the title row and Turn off / Keep twice and none of the text).
+    private func welcomeTextInSight(_ app: XCUIApplication, _ welcome: XCUIElement, _ tag: String) {
+        let column = columnFrame(app)
+        let pin = element(app, "tip.pinned")
+        let top = pin.exists ? max(column.minY, pin.frame.maxY) : column.minY
+        let text = welcome.staticTexts["tip.text"].frame
+        let shown = text.intersection(CGRect(x: column.minX, y: top, width: column.width, height: max(0, column.maxY - top)))
+        print("[TutorialUITests] \(tag) welcome text \(text) shown \(shown) column \(column)")
+        XCTAssertGreaterThanOrEqual(shown.isNull ? 0 : shown.height, 14, "\(tag): none of the welcome's text in sight: text \(text) column \(column) pin \(pin.exists ? pin.frame : .null)")
     }
 
     /// A tip's control: its copy in the row pinned at a short column's top while that shows,
@@ -208,6 +236,7 @@ final class TutorialUITests: XCTestCase {
         adviceInSight(app, "bid welcome")
         clearOfSeats(app, "bid welcome")
         tipHeadInSight(app, welcome, "bid welcome")
+        welcomeTextInSight(app, welcome, "bid welcome")
         shot(app, "welcome")
         // Keep: /tutorial keep, and the rule tip that waited shows now, still one tip card
         tipButton(app, "tip.keep").tap()

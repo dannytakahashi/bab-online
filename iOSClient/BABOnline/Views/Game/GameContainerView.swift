@@ -1026,7 +1026,8 @@ private struct GameScreen: View {
     private func assistCards(inScroll: Bool) -> some View {
         VStack(alignment: .leading, spacing: AssistLayout.gap) {
             if let welcome = gameState.tutorialWelcome {
-                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff)
+                TutorialTipView(tip: welcome, onClose: tutorialClose, onKeep: tutorialKeep, onTurnOff: tutorialOff,
+                                actionsInHead: inScroll)
                     .background { if inScroll { tipFrameReporter } }
                     .transition(.opacity)
             }
@@ -1055,7 +1056,8 @@ private struct GameScreen: View {
     /// The tip's title row and × pinned at the short column's top while the tip's top is
     /// scrolled out of sight (the web's sticky .assist-tip__top): drawn over the tip's text on
     /// the card's fill, pushed up with the tip's foot as that leaves (the advice never under it).
-    /// The welcome's Keep and Turn off come into the row (identifiers "tip.pinned…").
+    /// The welcome's Keep and Turn off are in the row (identifiers "tip.pinned…"), as in the
+    /// short column's card's own title row (TutorialTipView.actionsInHead), which it covers.
     private var tipHeadPinned: Bool {
         guard gameState.tutorialWelcome ?? gameState.tutorialTip != nil, let f = assistTipFrame else { return false }
         return f.minY < -0.5 && f.maxY > 0
