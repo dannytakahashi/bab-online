@@ -40,10 +40,9 @@ extension TableReducer {
             // the tutorial: its tips stay up; on / off is the snapshot's word when it says
             // (viewer.assist), else what this game had (an older server, a spectator's view)
             next.table.tip = s.table.tip
-            next.table.welcome = s.table.welcome
             next.table.tipsSeen = s.table.tipsSeen
-            next.table.tipUnheard = s.table.tipUnheard
             next.table.tutorialOffSent = s.table.tutorialOffSent
+            next.table.tutorialOnSent = s.table.tutorialOnSent
             if snap.viewer.assist == nil { next.table.tutorial = s.table.tutorial }
         }
         s = next

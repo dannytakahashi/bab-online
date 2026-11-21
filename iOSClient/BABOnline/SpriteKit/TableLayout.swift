@@ -210,8 +210,8 @@ struct TableLayout: Equatable {
     /// Where the tutorial's corner button goes: under the log's button (the trailing corner
     /// `button.height + tutorialGap` taller), unless beside it (left of it: the corner wider by
     /// what the pair needs past the corner's width, the log's button taken as the same size)
-    /// keeps a bigger table: not degraded, a larger hand, then larger trick cards, then a larger
-    /// zoom. Under costs nothing on a phone in portrait or an iPad; beside keeps a full-size hand
+    /// keeps a better table: not degraded, the fold kept (a tabletop pose), my seat's row
+    /// fitting, then a larger hand, larger trick cards, a larger zoom. Under costs nothing on a phone in portrait or an iPad; beside keeps a full-size hand
     /// on a short pane (an iPhone SE, the iPhone Duo without its bar), where under shrank it.
     /// Decided with the score bar at its tallest in a game (`placementTopBar`), so a score bar
     /// that grows mid-game never moves the button.
@@ -222,12 +222,16 @@ struct TableLayout: Equatable {
                             height: max(0, b.height - chrome.cornerButton.height))
         var cu = chrome
         cu.topBar = max(chrome.topBar, placementTopBar)
+        cu.banner = 0  // a disconnect banner comes and goes: it never moves the button
         cu.tutorialButton = .zero
         cu.cornerTrailingExtra = under
         var cb = cu
         cb.cornerTrailingExtra = beside
         let lu = TableLayout(size: size, chrome: cu), lb = TableLayout(size: size, chrome: cb)
-        func score(_ l: TableLayout) -> (Int, CGFloat, CGFloat, CGFloat) { (l.isDegraded ? 0 : 1, l.handScale, l.trickScale, l.zoom) }
+        // the table's shape first (not degraded, a fold kept, my seat's row fitting), then sizes
+        func score(_ l: TableLayout) -> (Int, Int, Int, CGFloat, CGFloat, CGFloat) {
+            (l.isDegraded ? 0 : 1, l.foldIgnored ? 0 : 1, l.seatRow.fits ? 1 : 0, l.handScale, l.trickScale, l.zoom)
+        }
         return score(lb) > score(lu) ? (beside, true) : (under, false)
     }
 

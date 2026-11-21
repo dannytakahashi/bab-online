@@ -286,26 +286,27 @@ final class GameState: ObservableObject {
 
     // MARK: the tutorial (State/Table/Tutorial.swift)
 
-    /// My seat's tutorial is on (the server's word; the chip, the command list).
+    /// My seat's tutorial is on (the server's word; the switch, the command list).
     var tutorialOn: Bool { table.tutorial.on }
-    /// The "Tutorial on" chip: while on, at my own seat (never a spectator or a lazy watcher),
-    /// at the table (not the game-end screen).
+    /// The tutorial is on at my own seat (never a spectator or a lazy watcher), at the table (not
+    /// the game-end screen): the switch shows "Tutorial on" (the switch itself is there whenever
+    /// `showsAssistBarItem`).
     var showsTutorialChip: Bool {
         table.tutorial.on && table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
     }
-    /// /help's lightbulb as the iPhone Duo's vertical bar item: there for the whole game at my own
-    /// seat (never a spectator or a lazy watcher), enabled only while `showsAssistAsk`.
+    /// /help's lightbulb as the iPhone Duo's vertical bar item and the tutorial's switch (the bar's
+    /// item, else the corner button): there for the whole game at my own seat (never a spectator
+    /// or a lazy watcher); the lightbulb enabled only while `showsAssistAsk`.
     var showsAssistBarItem: Bool {
         table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
     }
-    /// The chip's switch went off (/tutorial off sent) and waits for the server.
+    /// The switch sent /tutorial off and waits for the server.
     var tutorialOffSent: Bool { table.tutorialOffSent }
-    /// The rule tip shown over the table (my seat only), nil when none. One tip card at a time:
-    /// while the welcome is up it has priority and the rule tip waits behind it (its log row is
-    /// already in; it shows once the welcome goes, if my bid or card has not ended it), as on the web.
-    var tutorialTip: AssistHint? { table.viewer.role == .seat && table.welcome == nil ? table.tip : nil }
-    /// The welcome tip (Keep / Turn off), my seat only.
-    var tutorialWelcome: AssistHint? { table.viewer.role == .seat ? table.welcome : nil }
+    /// The rule tip shown over the table (my seat only), nil when none (one at a time; the
+    /// welcome is never a card on iOS: TableReducer.tutorialTip).
+    var tutorialTip: AssistHint? { table.viewer.role == .seat ? table.tip : nil }
+    /// The switch sent /tutorial on and waits for the server.
+    var tutorialOnSent: Bool { table.tutorialOnSent }
     /// The chat command list's /tutorial line.
     var tutorialDescription: String { TutorialRules.commandDescription(on: table.tutorial.on) }
 

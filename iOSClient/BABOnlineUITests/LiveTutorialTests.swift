@@ -91,7 +91,7 @@ final class LiveTutorialTests: XCTestCase {
 
         // the auto-start: the switch shows on (no welcome card: its row goes to the log)
         let chip = element(app, "tutorial.chip")
-        XCTAssertTrue(wait(90) { chip.exists && chip.label == "Tutorial on" }, "the tutorial is not on in a new account's first game")
+        XCTAssertTrue(wait(90) { chip.exists && (chip.label == "Tutorial on" || (chip.label == "Tutorial" && chip.value as? String == "On")) }, "the tutorial is not on in a new account's first game")
         XCTAssertFalse(element(app, "tutorialWelcome").exists, "no welcome card on iOS")
 
         // my bid turn: the advice card comes without asking, a bid ringed

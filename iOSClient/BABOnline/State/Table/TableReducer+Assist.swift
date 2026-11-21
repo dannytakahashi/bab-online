@@ -27,7 +27,7 @@ extension TableReducer {
         let h = AssistRules.inFreeHelpGame(wire)
         if h.kind == .tip { tutorialTip(&s, h, &fx); return }
         // a reply to /tutorial (e.g. the rate limit after the chip's switch): the switch settles
-        if h.kind == .status && h.isTutorial { s.table.tutorialOffSent = false }
+        if h.kind == .status && h.isTutorial { s.table.tutorialOffSent = false; s.table.tutorialOnSent = false }
         switch s.table.phase.kind {
         case .ended:
             if h.kind == .status { addPrivateLog(&s, AssistRules.logLine(h, note: !h.isTutorial || tutorialNote(&s))) }
@@ -95,19 +95,27 @@ extension TableReducer {
         s.table.parkedAssist = nil
         s.table.assistAsking = false
         s.table.tip = nil
-        s.table.tipUnheard = false
-        s.table.welcome = nil
     }
 
     // MARK: - The tutorial (State/Table/Tutorial.swift)
 
     /// A rule tip: a dim private row (each tip once a game), and up over the table while at it
-    /// (the welcome in its own slot, with no row: its card only); on the game-end screen, at the
-    /// draw or without a table, the row only. One tip card at a time: a rule tip that comes while the welcome is up waits
-    /// behind it (GameState.tutorialTip), and VoiceOver hears it only when it shows.
+    /// (one tip card at a time: a newer one replaces it); on the game-end screen, at the draw or
+    /// without a table, the row only. The welcome (T.welcome) is no card on iOS (owner
+    /// 2026-11-21: the tutorial's switch, the corner button or the Duo's bar item, says it is on
+    /// and turns it off): its row only, with iOS's own words (`hiddenWelcomeText`: the server's
+    /// name the web card's Turn off), never announced; a rule tip with it shows at once.
     static func tutorialTip(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
         let key = TutorialRules.seenKey(h)
         let fresh = !s.table.tipsSeen.contains(key)
+        if TutorialRules.isWelcome(h) {
+            guard fresh else { return }
+            s.table.tipsSeen.insert(key)
+            var row = h
+            row.reasons = [TutorialRules.hiddenWelcomeText]
+            addPrivateLog(&s, TutorialRules.logLine(row, note: tutorialNote(&s)))
+            return
+        }
         let atTable: Bool
         switch s.table.phase.kind {
         case .none, .waiting, .draw, .ended: atTable = false
@@ -115,55 +123,21 @@ extension TableReducer {
         }
         // only a seat holder sees it over the table (a bot playing my seat: the row only)
         let overTable = atTable && s.table.viewer.role == .seat
-        let welcomeCard = overTable && TutorialRules.isWelcome(h) && !h.actions.isEmpty
         if fresh {
             s.table.tipsSeen.insert(key)
-            // The welcome shown as its card leaves no row (owner 2026-11-20: its card and a
-            // matching row under "<name> turned on the tutorial." read as the start message twice)
-            if !welcomeCard { addPrivateLog(&s, TutorialRules.logLine(h, note: tutorialNote(&s))) }
+            addPrivateLog(&s, TutorialRules.logLine(h, note: tutorialNote(&s)))
         }
         guard overTable else { return }
-        if welcomeCard {
-            s.table.welcome = h
-            if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
-            return
-        }
         s.table.tip = h
-        // behind the welcome: heard when it shows (tipShows)
-        s.table.tipUnheard = fresh && s.table.welcome != nil
-        if fresh && s.table.welcome == nil { fx.append(.announce(TutorialRules.announcement(h))) }
+        if fresh { fx.append(.announce(TutorialRules.announcement(h))) }
     }
 
-    /// The welcome went (Keep, ×): the rule tip behind it shows now, and VoiceOver hears it if
-    /// it has not.
-    static func welcomeGone(_ s: inout TableState, _ fx: inout [TableEffect]) {
-        s.table.welcome = nil
-        if s.table.tipUnheard, let tip = s.table.tip { fx.append(.announce(TutorialRules.announcement(tip))) }
-        s.table.tipUnheard = false
-    }
-
-    /// The welcome not shown as a card (the vertical bar's switch says the tutorial is on and
-    /// turns it off): its row in the log, once a game (a rejoin's welcome comes again), then as
-    /// Keep's local side.
-    static func welcomeHidden(_ s: inout TableState, _ fx: inout [TableEffect]) {
-        guard let w = s.table.welcome else { return }
-        let key = TutorialRules.seenKey(w) + "#row"
-        if !s.table.tipsSeen.contains(key) {
-            s.table.tipsSeen.insert(key)
-            var row = w
-            row.reasons = [TutorialRules.hiddenWelcomeText]
-            addPrivateLog(&s, TutorialRules.logLine(row, note: tutorialNote(&s)))
-        }
-        welcomeGone(&s, &fx)
-    }
-
-    /// My own bid or card (or a bot taking my seat): the rule tip about it is done (the welcome stays).
+    /// My own bid or card (or a bot taking my seat): the rule tip about it is done.
     static func clearTip(_ s: inout TableState) {
         s.table.tip = nil
-        s.table.tipUnheard = false
     }
 
-    /// assistState: my seat's tutorial and /help uses. Off: its tips, its welcome and its advice go.
+    /// assistState: my seat's tutorial and /help uses. Off: its tip and its advice go.
     static func assistState(_ s: inout TableState, _ p: WirePayload.AssistState, _ fx: inout [TableEffect]) {
         if let uses = p.uses {
             s.table.assistUses = AssistUses(uses: max(0, uses), freeUses: max(0, p.freeUses ?? AssistRules.defaultFreeUses),
@@ -172,14 +146,13 @@ extension TableReducer {
         let on = p.tutorial == true
         s.table.tutorial = TutorialStatus(on: on, auto: on && p.auto == true)
         s.table.tutorialOffSent = false
+        s.table.tutorialOnSent = false
         if !on { endTutorial(&s) }
     }
 
     /// The tutorial is off: what it put up goes (a /help answer stays).
     static func endTutorial(_ s: inout TableState) {
         s.table.tip = nil
-        s.table.tipUnheard = false
-        s.table.welcome = nil
         if s.table.assist?.isTutorial == true && s.table.assist?.kind != .status { s.table.assist = nil }
         if s.table.parkedAssist?.isTutorial == true { s.table.parkedAssist = nil }
     }

@@ -81,8 +81,16 @@ final class TutorialUITests: XCTestCase {
         let f = element(app, "tutorial.chip").frame
         let log = app.buttons["log"]
         if log.exists {
-            XCTAssertGreaterThanOrEqual(f.minY, log.frame.maxY - 1, "\(tag): the switch \(f) under the log's button \(log.frame)")
-            XCTAssertEqual(f.maxX, log.frame.maxX, accuracy: 1.5, "\(tag): trailing-aligned with the log's button")
+            // the same round size as the log's button
+            XCTAssertEqual(f.width, log.frame.width, accuracy: 1.5, "\(tag): the switch \(f) the log's size \(log.frame)")
+            if Fixture.probe(app, "table.tutorial").contains("chip=corner beside") {
+                // beside it (a short pane: TableLayout.tutorialPlacement), level with it
+                XCTAssertLessThanOrEqual(f.maxX, log.frame.minX + 1, "\(tag): the switch \(f) left of the log's button \(log.frame)")
+                XCTAssertEqual(f.midY, log.frame.midY, accuracy: 1.5, "\(tag): level with the log's button")
+            } else {
+                XCTAssertGreaterThanOrEqual(f.minY, log.frame.maxY - 1, "\(tag): the switch \(f) under the log's button \(log.frame)")
+                XCTAssertEqual(f.midX, log.frame.midX, accuracy: 1.5, "\(tag): centred under the log's button")
+            }
         }
         XCTAssertFalse(f.intersects(app.buttons["leave"].frame), tag)
         XCTAssertFalse(f.intersects(columnFrame(app)), "\(tag): the switch \(f) under the column \(columnFrame(app))")
@@ -185,7 +193,7 @@ final class TutorialUITests: XCTestCase {
         // the switch, on
         let chip = element(app, "tutorial.chip")
         XCTAssertTrue(chip.waitForExistence(timeout: 5))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tutorial.chip").count, 1, "one switch")
         chipClear(app, "bid rule tip")
         XCTAssertTrue(waitFor(app, "table.assist", contains: "clear=ok"), Fixture.probe(app, "table.assist"))
@@ -201,7 +209,7 @@ final class TutorialUITests: XCTestCase {
         // its close: the tip goes, the tutorial stays on
         tipButton(app, "tip.close").tap()
         XCTAssertTrue(tip.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial"), "nothing sent for the welcome or the close")
         welcomeTextInSightOrLogged(app)
         shot(app, "welcome-row")
@@ -254,13 +262,14 @@ final class TutorialUITests: XCTestCase {
     /// The switch: the iPhone Duo's vertical bar item (closed, open in landscape, book pose; owner
     /// 2026-11-20), else the round button under the log's (an iPhone, an iPad; owner 2026-11-21),
     /// never a row of the column. It stays all game: off sends /tutorial off and shows off, on
-    /// again asks first (this auto-start's game is not bot-assisted yet), then /tutorial on.
+    /// again sends /tutorial on with no question (the auto-start's game is bot-assisted since my
+    /// first own decision).
     func testTheSwitchStaysAllGameAndTurnsItOffAndOnAgain() throws {
         let app = launch("trick-mid-lead3", ["-uiTutorialWelcome", "NO"])
         let chip = element(app, "tutorial.chip")
         XCTAssertTrue(chip.waitForExistence(timeout: 5))
         // the bar keeps only a label (no value): the state is in it, on both
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         let f = chipClear(app, "switch")
         if let bar = verticalBarColumn(app) {
             XCTAssertTrue(bar.contains(f.midX), "switch \(f) bar \(bar)")
@@ -278,16 +287,15 @@ final class TutorialUITests: XCTestCase {
         chip.tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
         XCTAssertTrue(element(app, "tutorialTip").waitForNonExistence(timeout: 3))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), switchState(chip))
         chipClear(app, "switch off")
         shot(app, "switch-off")
-        // and on again: the question first (an auto-start's game is not bot-assisted yet here)
+        // and on again with no question: the auto-start's game became bot-assisted at my first
+        // own decision (the server's first-decision marker), so nothing changes for my stats
         chip.tap()
-        let alert = app.alerts["Turn on the tutorial?"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 3), "no question before the game becomes bot-assisted")
-        alert.buttons["Turn on"].tap()
+        XCTAssertFalse(app.alerts["Turn on the tutorial?"].waitForExistence(timeout: 1.5), "asked in a game already bot-assisted")
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial on"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         XCTAssertTrue(app.buttons["leave"].isHittable, "Exit stays")
     }
 
@@ -300,7 +308,7 @@ final class TutorialUITests: XCTestCase {
         _ = Fixture.settledState(app)
         let chip = element(app, "tutorial.chip")
         XCTAssertTrue(chip.waitForExistence(timeout: 5), "the switch with the tutorial off")
-        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), switchState(chip))
         XCTAssertFalse(element(app, "tutorialTip").exists)
         chipClear(app, "off at start")
         shot(app, "off-at-start")
@@ -314,20 +322,20 @@ final class TutorialUITests: XCTestCase {
         alert.buttons["Cancel"].tap()
         XCTAssertTrue(alert.waitForNonExistence(timeout: 3))
         XCTAssertFalse(Fixture.probe(app, "fixture.sent").contains("/tutorial"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertEqual(chip.label, "Tutorial off")
+        XCTAssertEqual(switchState(chip), "Tutorial off")
         // Turn on: /tutorial on
         chip.tap()
         XCTAssertTrue(alert.waitForExistence(timeout: 3))
         alert.buttons["Turn on"].tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial on"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         // the game is bot-assisted now: off and on again ask nothing
         chip.tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), switchState(chip))
         chip.tap()
         XCTAssertFalse(alert.waitForExistence(timeout: 1.5), "asked again in a game already bot-assisted")
-        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), switchState(chip))
         XCTAssertEqual(Fixture.probe(app, "fixture.sent").components(separatedBy: "/tutorial on").count - 1, 2,
                        Fixture.probe(app, "fixture.sent"))
     }
@@ -345,10 +353,18 @@ final class TutorialUITests: XCTestCase {
         waitForLabel(element(app, "tutorial.chip"), "Tutorial off")
     }
 
+    /// The switch's state as VoiceOver reads it: the corner button is "Tutorial" with the value
+    /// "On" / "Off"; the Duo's bar item (which keeps no value) says it in its label.
+    private func switchState(_ e: XCUIElement) -> String {
+        guard e.exists else { return "-" }
+        if e.label == "Tutorial", let v = e.value as? String { return "Tutorial \(v.lowercased())" }
+        return e.label
+    }
+
     private func waitForLabel(_ e: XCUIElement, _ label: String, timeout: TimeInterval = 5) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
-            if e.exists && e.label == label { return true }
+            if switchState(e) == label { return true }
             Thread.sleep(forTimeInterval: 0.2)
         } while Date() < deadline
         return false

@@ -5,7 +5,7 @@ import SwiftUI
 /// and a close button ("Close tip"). GameContainerView stacks it above the /help card
 /// (AssistLayout). The welcome tip (T.welcome) is no card on iOS (owner 2026-11-21: the
 /// tutorial's button says it is on and turns it off): its text goes to the log
-/// (TableReducer `.tutorialWelcomeHidden`). VoiceOver hears each tip once (TableEffect.announce);
+/// (TableReducer.tutorialTip). VoiceOver hears each tip once (TableEffect.announce);
 /// the card never takes focus.
 struct TutorialTipView: View {
     let tip: AssistHint
@@ -83,12 +83,14 @@ struct TutorialTipHead: View {
 /// vertical bar item (GameContainerView.tutorialBarToggle). The log button's round shape; while
 /// on, the cap and a ring in the primary green. A tap off -> on asks first where the game would
 /// count as bot-assisted (TutorialRules.needsConfirm), on -> off sends /tutorial off; it shows
-/// off and waits while an off is on its way. VoiceOver: "Tutorial on" / "Tutorial off", a
-/// toggle (the bar item's labels, so one set of words and tests).
+/// off and waits while an off is on its way (on likewise). VoiceOver: a toggle "Tutorial",
+/// value "On" / "Off" (the Duo's bar item, which keeps no value, says the state in its label).
 struct TutorialCornerButton: View {
-    /// The tutorial is on (the server's word) and no off is on its way.
+    /// The tutorial is on (the server's word, or an on on its way) and no off is on its way.
     let on: Bool
     var disabled = false
+    /// The log button's measured diameter, so the two match (nil: the glyph's own size).
+    var diameter: CGFloat? = nil
     var action: () -> Void
 
     var body: some View {
@@ -97,6 +99,7 @@ struct TutorialCornerButton: View {
                 .font(.title2)
                 .foregroundColor(on ? Theme.primary : Theme.textSecondary)
                 .padding(Theme.Space.s3)
+                .frame(width: diameter, height: diameter)
                 .background(Theme.surface.opacity(0.8))
                 .clipShape(Circle())
                 // on: the green cap in a green ring (a solid green disc outshouted the log's button)
@@ -105,7 +108,8 @@ struct TutorialCornerButton: View {
         }
         .disabled(disabled)
         .animation(.easeInOut(duration: 0.15), value: on)
-        .accessibilityLabel(on ? TutorialRules.chipText : TutorialRules.barOffText)
+        .accessibilityLabel(TutorialRules.chipLabel)
+        .accessibilityValue(on ? "On" : "Off")
         .accessibilityHint(on ? TutorialRules.chipHint : TutorialRules.barOnHint)
         .accessibilityAddTraits(.isToggle)
         .accessibilityIdentifier("tutorial.chip")
