@@ -38,6 +38,11 @@
  *   .hud-assist-ask        the lightbulb button by my hand on my own turn at
  *                          my seat ("Ask a bot for advice", which sends /help)
  *
+ * A watched seat's hint (the over-the-shoulder view, state/shoulder.js):
+ * the same card, read-only (its footer without counts: assistFooter), under
+ * a one-line heading naming the watched player (.assist-card__owner,
+ * "Alice's advice" / "Alice's tip"), which is also the card's label.
+ *
  * The lightbulb (lightbulbIcon) is our own drawing (not Apple's SF Symbol,
  * which is licensed for Apple platforms only): a filled bulb and two base
  * bars in currentColor, so it themes with the gold token.
@@ -45,6 +50,7 @@
 import { hudRoot } from '../tableHud.js';
 import { confidenceLabel, assistFooter, isAssistHint, HELP_LABEL } from '../../state/assistHint.js';
 import { isTipHint, tipText, tipActions, shownTip, TIP_ACTION_LABEL } from '../../state/tutorial.js';
+import { watchedCardHeading } from '../../state/shoulder.js';
 
 let card = null;
 let current = null;
@@ -271,16 +277,30 @@ function render({ focusFromAsk = false } = {}) {
   }
   const kind = current ? current.kind : 'tip';
   root.dataset.kind = kind;
-  // a bid answer above the bid sheet; tips alone there too while I bid
-  root.dataset.place = kind === 'bid' || (!current && tipOpts.place === 'bid') ? 'bid' : 'hand';
+  // a bid answer above the bid sheet; tips alone there too while I bid. A
+  // watched seat's bid answer stays above the hand: a watcher has no bid
+  // sheet (beside it, short of room, the card was cut off over a seat)
+  const sheet = kind === 'bid' && !adviceOpts.owner;
+  root.dataset.place = sheet || (!current && tipOpts.place === 'bid') ? 'bid' : 'hand';
   root.classList.toggle('is-status', kind === 'status' && !tips.length);
   root.classList.toggle('has-tip', tips.length > 0);
-  // a watched seat's hint (the over-the-shoulder view): whose it is
-  const owner = current ? adviceOpts.owner : (tips[0]?.watched ? tipOpts.owner : null);
-  root.setAttribute('aria-label', current ? (owner ? `Suggestion for ${owner}` : 'Suggestion') : (owner ? `Tutorial tip for ${owner}` : 'Tutorial tip'));
+  // a watched seat's hint (the over-the-shoulder view, owner 2026-11-21):
+  // a heading naming its player ("Alice's advice", "Alice's tip"), one line
+  // at the card's top (shortened, never wrapped), and the same words as
+  // the card's label
+  const adviceOwner = current ? adviceOpts.owner || null : null;
+  const tipOwner = tips.length ? tipOpts.owner || null : null;
+  const owner = adviceOwner || tipOwner;
+  const heading = owner ? watchedCardHeading(owner, { advice: !!adviceOwner, tip: !!tipOwner }) : null;
+  root.setAttribute('aria-label', heading || (current ? 'Suggestion' : 'Tutorial tip'));
   if (owner) root.dataset.watched = owner;
   else delete root.dataset.watched;
   const parts = tips.map(tipSection);
+  if (heading) {
+    const h = el('p', 'assist-card__owner', heading);
+    h.title = heading;
+    parts.unshift(h);
+  }
   if (current) {
     const advice = adviceParts(current, adviceOpts);
     if (tips.length) {

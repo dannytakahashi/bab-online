@@ -1523,6 +1523,21 @@ body > .voice-btn {
     font-weight: var(--weight-bold);
 }
 
+/* a watched seat's card (the over-the-shoulder view): whose advice or tip,
+   one line at the top, shortened with an ellipsis, never wrapped (the
+   card's width is the layout's at every size) */
+.assist-card__owner {
+    margin: 0 0 var(--space-1);
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+    font-weight: var(--weight-semibold);
+    letter-spacing: 0.02em;
+}
+
 .hud-assist.is-status .assist-card__head {
     font-size: var(--type-sm);
     font-weight: var(--weight-medium);
