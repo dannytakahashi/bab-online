@@ -114,9 +114,9 @@ describe('the trigger', () => {
         expect((await said(t2, [[1, C('9', 'hearts')], [2, C('2', 'spades')]])).map((l) => l.position)).toEqual([1]);
     });
 
-    test('later in the trick: the third or fourth seat ruffing first', async () => {
+    test('later in the trick: the second or third seat ruffing first', async () => {
         const t = table();
-        expect(await said(t, [[3, C('9', 'hearts')], [4, C('J', 'hearts')], [1, C('Q', 'hearts')], [2, C('3', 'spades')]]))
+        expect(await said(t, [[4, C('J', 'hearts')], [1, C('Q', 'hearts')], [2, C('3', 'spades')]]))
             .toEqual([{ position: 1, username: '🤖 Mary', message: LINE }]);
         const t2 = table({ botSeats: [2, 4] });
         expect((await said(t2, [[2, C('9', 'hearts')], [3, C('2', 'spades')]])).length).toBe(1);
@@ -210,6 +210,56 @@ describe('the trigger', () => {
         t.game.positions[3] = 'someone-else';
         const lines = await said(t, [[1, C('9', 'hearts')], [2, C('2', 'spades')]]);
         expect(lines.map((l) => l.position)).toEqual([1]);
+    });
+});
+
+describe('only while it could still be over-trumped (2026-11-20)', () => {
+    /** A finished trick for GameState.trickHistory: [position, card] in play order. */
+    const done = (cards) => ({ winner: cards[0][0], lead: cards[0][0], cards: cards.map(([, c]) => c) });
+
+    test('silent on the last card of a trick: nobody is left to over-trump it', async () => {
+        const t = table();
+        expect(await said(t, [[3, C('9', 'hearts')], [4, C('J', 'hearts')], [1, C('Q', 'hearts')], [2, C('3', 'spades')]])).toEqual([]);
+        expect(t.rolls).toEqual([]);
+    });
+
+    test('silent when the opponent still to play has shown out of trump this hand', async () => {
+        const t = table();
+        // an earlier trick: spades (trump) led, seat 3 played a club
+        t.game.trickHistory = [done([[1, C('A', 'spades')], [2, C('4', 'spades')], [3, C('7', 'clubs')], [4, C('6', 'spades')]])];
+        expect(await said(t, [[1, C('9', 'hearts')], [2, C('2', 'spades')]])).toEqual([]);
+        // a joker lead counts as a trump lead too
+        const t2 = table();
+        t2.game.trickHistory = [done([[4, C('HI', 'joker')], [1, C('4', 'spades')], [2, C('8', 'spades')], [3, C('K', 'diamonds')]])];
+        expect(await said(t2, [[1, C('9', 'hearts')], [2, C('2', 'spades')]])).toEqual([]);
+    });
+
+    test('still said when the opponent to play followed trump earlier, or showed out only of another suit', async () => {
+        const t = table();
+        t.game.trickHistory = [
+            done([[1, C('A', 'spades')], [2, C('4', 'spades')], [3, C('7', 'spades')], [4, C('6', 'spades')]]),
+            done([[2, C('A', 'clubs')], [3, C('2', 'diamonds')], [4, C('3', 'clubs')], [1, C('5', 'clubs')]])
+        ];
+        expect((await said(t, [[1, C('9', 'hearts')], [2, C('2', 'spades')]])).length).toBe(1);
+    });
+
+    test('silent when every higher trump is accounted for (played this hand or the turned-up trump)', async () => {
+        const t = table();
+        // trump is the 5 of spades (turned up); every spade above the 3 but the 5, and both jokers, were played
+        const higher = ['4', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'].map((r) => C(r, 'spades'))
+            .concat([C('LO', 'joker'), C('HI', 'joker')]);
+        const tricks = [];
+        for (let i = 0; i < higher.length; i += 4) {
+            const four = higher.slice(i, i + 4);
+            while (four.length < 4) four.push(C('2', 'clubs'));
+            tricks.push(done(four.map((c, k) => [k + 1, c])));
+        }
+        t.game.trickHistory = tricks;
+        expect(await said(t, [[1, C('9', 'hearts')], [2, C('3', 'spades')]])).toEqual([]);
+        // with one of them (the ace) still out, it can be over-trumped again
+        const t2 = table();
+        t2.game.trickHistory = tricks.map((tr) => ({ ...tr, cards: tr.cards.map((c) => (c.rank === 'A' && c.suit === 'spades' ? C('2', 'clubs') : c)) }));
+        expect((await said(t2, [[1, C('9', 'hearts')], [2, C('3', 'spades')]])).length).toBe(1);
     });
 });
 

@@ -15,7 +15,8 @@ const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING]
 
 /**
  * "he sends a boy" (owner request, 2026-11-16): a player ruffs a non-trump
- * lead with a 2 or 3 of trump, the first trump of the trick, and an opposing
+ * lead with a 2 or 3 of trump, the first trump of the trick, while it could
+ * still be over-trumped (2026-11-20: canBeOverTrumped), and an opposing
  * bot remarks on it. Rare: `chance` per eligible ruff, at most once every
  * `cooldownTricks` tricks per game.
  */
@@ -43,17 +44,56 @@ const isFinalHand = (handSize) => HAND_PROGRESSION.includes(handSize) && nextHan
 
 const isTrumpCard = (card, trump) => !!card && (card.suit === 'joker' || card.suit === trump.suit);
 
+/** A trump suit's ranks, low to high (the jokers rank above every one of them). */
+const TRUMP_RANKS = Object.freeze(['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']);
+
 /**
  * Whether the card just played at `position` (already on the table:
  * GameState.applyPlay ran) is a small plain trump that is the first trump
- * over a non-trump lead, i.e. a cheap ruff that is winning the trick for now.
- * Public state only.
+ * over a non-trump lead, i.e. a cheap ruff that is winning the trick for now,
+ * and one that could still be over-trumped (canBeOverTrumped). Public state
+ * only.
  */
 function isSentABoy(game, card, position) {
     const trump = game.trump;
     if (!trump || !card || card.suit !== trump.suit || !SENT_A_BOY.ranks.includes(String(card.rank))) return false;
     if (game.playedCardsIndex < 2 || !game.leadCard || isTrumpCard(game.leadCard, trump)) return false;
-    return game.playedCards.every((c, i) => i === position - 1 || !isTrumpCard(c, trump));
+    if (!game.playedCards.every((c, i) => i === position - 1 || !isTrumpCard(c, trump))) return false;
+    return canBeOverTrumped(game, card, position);
+}
+
+/**
+ * Could the ruff at `position` still be over-trumped in this trick (owner
+ * 2026-11-20: "he sends a boy" only "when there's a chance for it to get
+ * over trumped")? From what the table has seen only, never a hand:
+ *   - an opponent of the ruffer (seat parity: a partner topping it is no
+ *     over-trump) has yet to play to this trick, so never on a trick's last
+ *     card;
+ *   - and not every such opponent has shown out of trump this hand (a
+ *     non-trump played to a trump or joker lead, GameState.trickHistory);
+ *   - and a higher trump is unaccounted for: a higher rank of the trump suit
+ *     or a joker not yet played this hand and not the turned-up trump card.
+ */
+function canBeOverTrumped(game, card, position) {
+    const trump = game.trump;
+    const toPlay = [1, 2, 3, 4].filter((p) => p % 2 !== position % 2 && !(game.playedCards || [])[p - 1]);
+    if (toPlay.length === 0) return false;
+    const tricks = Array.isArray(game.trickHistory) ? game.trickHistory : [];
+    const showedOutOfTrump = (p) => tricks.some((t) => {
+        const cards = Array.isArray(t && t.cards) ? t.cards : [];
+        if (!cards[0] || !isTrumpCard(cards[0], trump)) return false;
+        const c = cards[(p - t.lead + 4) % 4];
+        return !!c && !isTrumpCard(c, trump);
+    });
+    if (toPlay.every(showedOutOfTrump)) return false;
+    const seen = new Set();
+    const see = (c) => { if (c) seen.add(`${c.rank}|${c.suit}`); };
+    for (const t of tricks) if (t && Array.isArray(t.cards)) t.cards.forEach(see);
+    (game.playedCards || []).forEach(see);
+    see(trump);
+    const at = TRUMP_RANKS.indexOf(String(card.rank));
+    const higher = [...TRUMP_RANKS.slice(at + 1).map((r) => `${r}|${trump.suit}`), 'LO|joker', 'HI|joker'];
+    return higher.some((k) => !seen.has(k));
 }
 
 /**
