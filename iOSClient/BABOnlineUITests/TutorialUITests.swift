@@ -301,7 +301,7 @@ final class TutorialUITests: XCTestCase {
         // the chip's switch: /tutorial off, and the server's answer ends the tutorial
         element(app, "tutorial.chip").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
+        XCTAssertTrue(switchShowsOff(app))
         XCTAssertTrue(tip.waitForNonExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Tips off. /help still works any time."].waitForExistence(timeout: 3))
         shot(app, "off")
@@ -348,7 +348,7 @@ final class TutorialUITests: XCTestCase {
     /// With the vertical bar the switch is there with the tutorial off (no /tutorial to type),
     /// and a welcome is no card: its text goes to the log, the rule tip shows at once.
     func testWithTheVerticalBarTheSwitchIsThereOffAndTheWelcomeIsARow() throws {
-        let off = Fixture.launch("bidding-mid", extra: ["-uiAssist", "YES"])
+        let off = Fixture.launch("bidding-mid", extra: ["-uiTutorial", "YES", "-uiTutorialOff", "YES", "-uiAssist", "YES"])
         XCTAssertTrue(off.buttons["leave"].waitForExistence(timeout: 20))
         _ = Fixture.settledState(off)
         guard verticalBarColumn(off) != nil else { throw XCTSkip("no vertical bar here: no switch while off") }
@@ -378,6 +378,12 @@ final class TutorialUITests: XCTestCase {
         if !row.exists, app.buttons["log"].exists { app.buttons["log"].tap() }
         XCTAssertTrue(row.waitForExistence(timeout: 5), "the welcome's row in the log")
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tutorial: Tips will appear above your cards.")).count, 1, "once")
+    }
+
+    /// The tutorial went off: the chip goes; the iPhone Duo's bar switch stays, "Tutorial off".
+    private func switchShowsOff(_ app: XCUIApplication) -> Bool {
+        let chip = element(app, "tutorial.chip")
+        return verticalBarColumn(app) == nil ? chip.waitForNonExistence(timeout: 3) : waitForLabel(chip, "Tutorial off")
     }
 
     private func waitForLabel(_ e: XCUIElement, _ label: String, timeout: TimeInterval = 5) -> Bool {
@@ -429,7 +435,7 @@ final class TutorialUITests: XCTestCase {
         shot(app, "chat-on")
         field.typeText("utorial off\n")
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
+        XCTAssertTrue(switchShowsOff(app))
         // the tip's row stays in the log (dim, private; the log's first tutorial row, so it alone
         // has the note), and the off's reply is the tutorial's, not /help's
         XCTAssertTrue(app.staticTexts["Tutorial: Clubs were led: you must play a club if you have one. (only you see this)"].exists)
