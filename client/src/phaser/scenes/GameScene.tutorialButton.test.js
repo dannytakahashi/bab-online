@@ -1,5 +1,5 @@
 /**
- * GameScene and the game log's Tutorial button (owner 2026-11-21; iOS build
+ * GameScene and the Tutorial button in my seat's row (owner 2026-11-21; iOS build
  * 29's corner button): shown by role and phase, on/off from the server's
  * word, the confirm before an on that makes this game bot-assisted for me
  * (skipped in a game with a native bot seat or once the server says
@@ -26,7 +26,9 @@ let getGameState;
 let assist;
 let tut;
 let btnMod;
-let createGameLog;
+let applyHudLayout;
+let clearHud;
+let layoutForViewport;
 let clearToasts;
 
 beforeAll(async () => {
@@ -35,15 +37,15 @@ beforeAll(async () => {
   assist = await import('../../state/assistHint.js');
   tut = await import('../../state/tutorial.js');
   btnMod = await import('../../ui/components/TutorialButton.js');
-  ({ createGameLog } = await import('../../ui/components/GameLog.js'));
+  ({ applyHudLayout, clearHud } = await import('../../ui/tableHud.js'));
+  ({ layoutForViewport } = await import('../layout/computeTableLayout.js'));
   ({ clearToasts } = await import('../../ui/kit/toast.js'));
 });
 
-let log;
 beforeEach(() => {
   document.body.innerHTML = '<div id="game-container"><div id="table-hud"></div></div>';
-  log = createGameLog({ onChatSubmit: () => true });
-  document.body.appendChild(log.container);
+  // my table with the button's slot in my row (as GameScene's getLayout for my own seat)
+  applyHudLayout(layoutForViewport({ vw: 1280, vh: 800, tutorial: true }));
   btnMod.resetTutorialButton();
   assist.resetAssistUses();
   tut.resetTutorial();
@@ -54,6 +56,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   btnMod.resetTutorialButton();
+  clearHud();
   getGameState().reset();
   tut.forgetTutorial();
   assist.forgetAssistUses();
@@ -80,8 +83,8 @@ function mySeat({ phase = 'playing', nativeBotSeat = false } = {}) {
 }
 
 const btn = () => document.getElementById('tutorial-toggle-btn');
-const shown = () => !!btn() && !btn().hidden;
-const stateWord = () => btn().querySelector('.log-tutorial-btn__state').textContent;
+const shown = () => !!btn() && !btn().hidden && !!btn().closest('.hud-voice');
+const stateWord = () => (btn().dataset.state === 'on' ? 'On' : 'Off');
 const pressed = () => btn().getAttribute('aria-pressed');
 const disabled = () => btn().getAttribute('aria-disabled') === 'true';
 const sent = () => window.socket.emit.mock.calls.filter(([e]) => e === 'chatMessage').map(([, d]) => d.message);

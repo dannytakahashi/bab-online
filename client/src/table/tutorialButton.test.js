@@ -1,7 +1,8 @@
 /**
- * The game log's Tutorial button on the real page and scene (owner
- * 2026-11-21), from the recorded game events-bots-s14 (seat1-rejoin: a
- * 1-human + 3-bot game): a reload's snapshot puts it in the log's header,
+ * The Tutorial button on the real page and scene (owner 2026-11-21), from
+ * the recorded game events-bots-s14 (seat1-rejoin: a 1-human + 3-bot game):
+ * a reload's snapshot puts it in my seat's row of round controls, right
+ * after the sound toggle,
  * On or Off by viewer.assist.tutorial; on -> off sends chatMessage
  * '/tutorial off' and waits (Off, disabled) for assistState; off -> on in
  * this game with native bot seats never asks. The question in a human-only
@@ -36,21 +37,24 @@ function reload(assist) {
   replay.advance(100);
 }
 const btn = () => document.getElementById('tutorial-toggle-btn');
-const word = () => btn().querySelector('.log-tutorial-btn__state').textContent;
+const word = () => (btn().getAttribute('aria-pressed') === 'true' ? 'On' : 'Off');
 const busy = () => btn().getAttribute('aria-disabled') === 'true';
 const dialog = () => document.querySelector('#tutorial-confirm [role="dialog"]');
 const lastSent = () => page.socket.emitted('chatMessage').map((d) => d.message).at(-1);
 const sentCount = () => page.socket.emitted('chatMessage').length;
 
 describe('the Tutorial button after a reload', () => {
-  it('viewer.assist.tutorial: in the game log\'s header, On, aria-pressed true', () => {
+  it('viewer.assist.tutorial: in my seat\'s row, On, aria-pressed true', () => {
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_ann', activeGameId: rec.gameId, blockedUsers: [] });
     const data = JSON.parse(JSON.stringify(rec.logs['seat1-rejoin'][0].data));
     data.snapshot.viewer.assist = { uses: 0, freeUses: 3, assisted: false, unlimited: true, tutorial: true, auto: true };
     page.socket.fire('rejoinSuccess', data);
     replay.advance(100);
     expect(btn()).not.toBeNull();
-    expect(btn().closest('#gameFeed .chat-header')).not.toBeNull();
+    // in my seat's row of round controls, after the sound toggle (not the log)
+    expect(btn().closest('#table-hud > .hud-voice')).not.toBeNull();
+    expect(btn().previousElementSibling?.id).toBe('sound-toggle-btn');
+    expect(btn().closest('#gameFeed')).toBeNull();
     expect(btn().hidden).toBe(false);
     expect(word()).toBe('On');
     expect(btn().getAttribute('aria-pressed')).toBe('true');

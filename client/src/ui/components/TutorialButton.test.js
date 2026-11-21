@@ -1,59 +1,71 @@
 /**
- * The game log's Tutorial button and its confirm (the DOM; GameScene's
- * wiring is GameScene.test.js "the Tutorial button", the real page
- * table/tutorialButton.test.js).
+ * The Tutorial button and its confirm (the DOM; GameScene's wiring is
+ * GameScene.tutorialButton.test.js, the real page table/tutorialButton*.test.js).
+ * The button is iOS's round corner button in my seat's row (tableHud's
+ * .hud-voice), right after the sound toggle, where the layout reserved it.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   syncTutorialButton, showTutorialConfirm, closeTutorialConfirm, tutorialConfirmOpen, resetTutorialButton, TUTORIAL_BUTTON_ID,
+  tutorialButtonTitle,
 } from './TutorialButton.js';
-import { createGameLog } from './GameLog.js';
+import { applyHudLayout, clearHud, hudVoiceSlot } from '../tableHud.js';
+import { layoutForViewport } from '../../phaser/layout/computeTableLayout.js';
 import { openModalCount } from '../kit/index.js';
+import { readClientFile } from '../../testing/files.js';
 
-let log;
+let container;
 beforeEach(() => {
   document.body.innerHTML = '';
-  log = createGameLog({ onChatSubmit: () => true });
-  document.body.appendChild(log.container);
+  container = document.createElement('div');
+  container.id = 'game-container';
+  document.body.appendChild(container);
+  applyHudLayout(layoutForViewport({ vw: 1280, vh: 800, tutorial: true }));
 });
 afterEach(() => {
   resetTutorialButton();
-  log.destroy?.();
+  clearHud();
   document.body.innerHTML = '';
 });
 
 const btn = () => document.getElementById(TUTORIAL_BUTTON_ID);
+const ON_TITLE = "Tutorial on\nTurns off the tutorial's tips and advice. /help still works any time.";
+const OFF_TITLE = 'Tutorial off\nTurns on tips and advice for every turn.';
 
 describe('the Tutorial button', () => {
-  it('sits in the game log\'s header, beside the title', () => {
-    syncTutorialButton({ visible: true, on: false });
-    const header = document.querySelector('#gameFeed .chat-header');
-    expect(header.querySelector('.log-header__title').textContent).toBe('Game Log');
-    expect(btn().parentElement).toBe(header.querySelector('.log-header__actions'));
+  it('sits in my row of round controls, right after the sound toggle, before the voice buttons', () => {
+    const slot = hudVoiceSlot();
+    const sound = document.createElement('button');
+    sound.id = 'sound-toggle-btn';
+    const mic = document.createElement('button');
+    mic.className = 'voice-btn';
+    slot.append(sound, mic);
+    syncTutorialButton({ visible: true });
+    expect([...slot.children].map((b) => b.id || b.className)).toEqual(['sound-toggle-btn', TUTORIAL_BUTTON_ID, 'voice-btn']);
+    // again: it stays put
+    syncTutorialButton({ visible: true, on: true });
+    expect(slot.children[1]).toBe(btn());
+    expect(document.querySelectorAll(`#${TUTORIAL_BUTTON_ID}`)).toHaveLength(1);
   });
 
-  it('off: "Tutorial:" "Off", aria-pressed false, a constant name, the hint as its tooltip', () => {
+  it('a round kit icon button: the cap alone, aria-label "Tutorial", aria-pressed, iOS\'s label and hint as its tooltip', () => {
     syncTutorialButton({ visible: true, on: false });
     const b = btn();
     expect(b.tagName).toBe('BUTTON');
     expect(b.type).toBe('button');
-    expect(b.textContent).toBe('Tutorial:Off');
-    expect(b.querySelector('.log-tutorial-btn__label').textContent).toBe('Tutorial:');
-    expect(b.querySelector('.log-tutorial-btn__state').textContent).toBe('Off');
-    expect(b.getAttribute('aria-pressed')).toBe('false');
-    expect(b.getAttribute('aria-label')).toBe('Tutorial');
-    expect(b.title).toBe('Turns on tips and advice for every turn.');
-    expect(b.dataset.state).toBe('off');
-    // the icon is decoration
+    expect(b.classList.contains('kit-icon-btn')).toBe(true);
+    expect(b.classList.contains('tutorial-btn')).toBe(true);
+    expect(b.textContent).toBe('');
     expect(b.querySelector('svg').getAttribute('aria-hidden')).toBe('true');
-  });
-
-  it('on: "On", aria-pressed true', () => {
+    expect(b.getAttribute('aria-label')).toBe('Tutorial');
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+    expect(b.title).toBe(OFF_TITLE);
+    expect(b.dataset.state).toBe('off');
     syncTutorialButton({ visible: true, on: true });
-    expect(btn().querySelector('.log-tutorial-btn__state').textContent).toBe('On');
-    expect(btn().getAttribute('aria-pressed')).toBe('true');
-    expect(btn().dataset.state).toBe('on');
-    expect(btn().title).toBe("Turns off the tutorial's tips and advice. /help still works any time.");
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    expect(b.title).toBe(ON_TITLE);
+    expect(b.dataset.state).toBe('on');
+    expect([tutorialButtonTitle(true), tutorialButtonTitle(false)]).toEqual([ON_TITLE, OFF_TITLE]);
   });
 
   it('a click (Enter / Space are a button\'s click) calls onToggle; disabled: aria-disabled, still focusable, nothing', () => {
@@ -70,21 +82,41 @@ describe('the Tutorial button', () => {
     expect(btn().hasAttribute('aria-disabled')).toBe(false);
   });
 
-  it('hidden, and one node across syncs', () => {
+  it('hidden: out of the row (it takes no room)', () => {
     syncTutorialButton({ visible: true });
-    const first = btn();
+    expect(btn()).not.toBeNull();
     syncTutorialButton({ visible: false });
-    expect(first.hidden).toBe(true);
+    expect(btn()).toBeNull();
     syncTutorialButton({ visible: true, on: true });
-    expect(btn()).toBe(first);
-    expect(first.hidden).toBe(false);
-    expect(document.querySelectorAll(`#${TUTORIAL_BUTTON_ID}`)).toHaveLength(1);
+    expect(btn().parentElement).toBe(hudVoiceSlot());
   });
 
-  it('no game log: nothing drawn (it comes with the log)', () => {
-    document.body.innerHTML = '';
+  it('no slot in the layout (a spectator\'s or a lazy watcher\'s table, a 360 px phone) or no table: no button', () => {
+    applyHudLayout(layoutForViewport({ vw: 1280, vh: 800 }));
     expect(syncTutorialButton({ visible: true })).toBeNull();
     expect(btn()).toBeNull();
+    applyHudLayout(layoutForViewport({ vw: 1280, vh: 800, isSpectator: true, tutorial: true }));
+    expect(syncTutorialButton({ visible: true })).toBeNull();
+    clearHud();
+    expect(syncTutorialButton({ visible: true })).toBeNull();
+  });
+
+  it('its look is tokens only: the row\'s size, the secondary cap off, the primary green cap and 2 px ring on, dimmed when disabled', () => {
+    const table = readClientFile('styles/table.css');
+    const rule = (sel) => {
+      const i = table.indexOf(`\n${sel} {`);
+      expect(i, sel).toBeGreaterThan(-1);
+      return table.slice(i, table.indexOf('}', i));
+    };
+    expect(rule('.hud-voice > .tutorial-btn.kit-icon-btn')).toContain('--icon-btn-size: var(--voice-btn, 36px)');
+    expect(rule('.hud-voice > .tutorial-btn.kit-icon-btn')).toContain('color: var(--text-secondary)');
+    const on = rule('.hud-voice > .tutorial-btn.kit-icon-btn[aria-pressed="true"]');
+    expect(on).toContain('border: 2px solid var(--primary-base)');
+    expect(on).toContain('color: var(--primary-base)');
+    expect(on).not.toContain('danger');
+    expect(rule('.hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"]')).toContain('opacity');
+    const all = table.slice(table.indexOf('/* the Tutorial button (ui/components/TutorialButton.js)'), table.indexOf('/* the main room\'s header'));
+    expect(all.match(/#[0-9a-fA-F]{3,8}\b/g) || []).toEqual([]);
   });
 });
 

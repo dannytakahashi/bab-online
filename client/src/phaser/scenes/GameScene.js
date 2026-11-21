@@ -115,16 +115,26 @@ export class GameScene extends Phaser.Scene {
     const dpr = css.dpr;
     const state = this.state;
     const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    // my voice row reserves the Tutorial button's slot while I play my own
+    // seat (not lazy): a lazy watcher's table is as before
+    const tutorial = this._tutorialSlot();
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}:${logW}:${dpr}`;
+    const key = `${w}x${h}:${spectator ? 'spec' : 'seat'}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);
     }
     return this._layout.layout;
+  }
+
+  /** Does my table reserve the Tutorial button's slot (I play my own seat: not a spectator, not lazy)? */
+  _tutorialSlot() {
+    const state = this.state;
+    const spectator = this._spectatorView ?? !!(state?.isSpectator && !state?.isLazy);
+    return !spectator && !state?.isLazy;
   }
 
   /** A sprite scale of the current layout ('hand', 'trick', 'back', 'trump', ...). */
@@ -268,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     this.effectsManager?.relayout?.();
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
     return layout;
   }
 
@@ -1284,6 +1295,8 @@ export class GameScene extends Phaser.Scene {
 
   handlePlayerActiveMode(data) {
     this.showSeatDisplay(data.position);
+    // my own seat back: my row takes the Tutorial button's slot again
+    if (data.position === this.state?.position) this.syncTutorial();
   }
 
   /**
@@ -1927,6 +1940,8 @@ export class GameScene extends Phaser.Scene {
    * bid turn.
    */
   syncTutorial() {
+    // a lazy / active change of my seat adds or drops the button's slot in my row
+    if (this._layout && this._layout.key.includes('+tut') !== this._tutorialSlot()) this.relayout();
     const s = this.state || getGameState();
     const on = tutorialIsOn(s?.gameId || null);
     if (!on) {
@@ -2043,6 +2058,7 @@ export class GameScene extends Phaser.Scene {
     // the voice buttons' slot moves with the role (my box, or the corner)
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
     this.renders = (this.renders || 0) + 1;
 
     if (!m.live) {
@@ -2174,6 +2190,7 @@ export class GameScene extends Phaser.Scene {
     // Move voice mute button into avatar container if voice is active
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
 
     this._playerInfo = { avatarContainer, avatarImg, nameLabel, hsiBox };
     return this._playerInfo;
@@ -2205,6 +2222,7 @@ export class GameScene extends Phaser.Scene {
     applyHudLayout(this.getLayout());
     reattachMuteButton();
     placeSoundToggle();
+    this._syncTutorialButton();
   }
 
   /**

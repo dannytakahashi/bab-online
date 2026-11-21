@@ -1,64 +1,78 @@
 /**
- * The game log's Tutorial button (owner 2026-11-21: "A button on the web
- * client would be nice too - the old people struggle with slash commands";
- * iOS build 29's TutorialCornerButton). Words and rules in
- * state/tutorial.js; GameScene decides what it shows and sends.
+ * The Tutorial button (owner 2026-11-21: "A button on the web client would
+ * be nice too - the old people struggle with slash commands"; "The iOS
+ * buttons are pretty"; "not in the game log area"): iOS build 29's round
+ * TutorialCornerButton as one more round control in MY seat's row with the
+ * sound toggle and the voice buttons (tableHud's .hud-voice under my HSI,
+ * right after the sound one), since the tutorial is a personal control like
+ * sound and voice. The layout reserves its slot (computeTableLayout
+ * `tutorial`: my voice row 4 buttons wide, `L.voice.tutorial`) only while I
+ * play my own seat; a spectator's and a lazy watcher's tables are as before,
+ * and where the slot would cost a clean table (360 px phones, which the
+ * phone gate sends to the app) there is no slot and no button. Words and
+ * rules in state/tutorial.js; GameScene decides what it shows and sends.
  *
- * It sits in the game log's header, beside "Game Log" (GameLog.js
- * `.log-header__actions`): the log is its own column beside the canvas
- * (--log-w), so the button never covers the table, the cards, the bid
- * sheet, the /help card or the chat, at any window size; where the column
- * is narrow it wraps onto its own row under the title.
+ *   button#tutorial-toggle-btn.kit-icon-btn.tutorial-btn   aria-label "Tutorial", aria-pressed,
+ *                                                          title "Tutorial on|off" + iOS's hint
+ *     svg   our own filled graduation cap (aria-hidden)
  *
- *   button#tutorial-toggle-btn.log-tutorial-btn   aria-label "Tutorial", aria-pressed on/off
- *     svg (graduation cap, aria-hidden)
- *     .log-tutorial-btn__label  "Tutorial:"
- *     .log-tutorial-btn__state  "On" / "Off" (aria-hidden: aria-pressed says it)
- *
- * A real <button> (Tab, Enter, Space), at least the 44 px hit target, a
- * visible text label and an obvious state (on: the tutorial's gold; off:
- * neutral). Disabled (aria-disabled, still focusable) during the draw and
- * while a /tutorial line waits for the server.
+ * As iOS: off, the row's subdued disc with the cap in the secondary text
+ * colour; on, the same disc with the cap and a 2 px ring in the primary
+ * green (never the kit's red pressed look). Drawn at the row's button size
+ * (--voice-btn), its hit area 44 px (kit ::before). A real <button> (Tab,
+ * Enter, Space) with the kit's focus ring. Disabled (aria-disabled, still
+ * focusable; dimmed) during the draw and while a /tutorial line waits for
+ * the server.
  *
  * The confirm (showTutorialConfirm) is a kit modal with iOS's words.
  */
 import { el, createButton, openModal } from '../kit/index.js';
+import { hudVoiceSlot, hudLayout } from '../tableHud.js';
 import {
-  BUTTON_LABEL, BUTTON_STATE_ON, BUTTON_STATE_OFF, BUTTON_ON_HINT, BUTTON_OFF_HINT,
+  BUTTON_LABEL, BUTTON_ON_TEXT, BUTTON_OFF_TEXT, BUTTON_ON_HINT, BUTTON_OFF_HINT,
   CONFIRM_TITLE, CONFIRM_MESSAGE, CONFIRM_BUTTON, CONFIRM_CANCEL,
 } from '../../state/tutorial.js';
+import { TABLE_SOUND_BUTTON_ID } from './SoundToggle.js';
 
 export const TUTORIAL_BUTTON_ID = 'tutorial-toggle-btn';
 export const TUTORIAL_CONFIRM_ID = 'tutorial-confirm';
 
-// Our own graduation cap (currentColor), never Apple's SF Symbol artwork
-const CAP_ICON = '<svg class="log-tutorial-btn__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 9l10-5 10 5-10 5z"></path><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"></path><path d="M22 9v6"></path></svg>';
+// Our own filled graduation cap (currentColor), never Apple's SF Symbol artwork
+const CAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 3.5 1.5 8.75 12 14l10.5-5.25z"/><path fill="currentColor" d="M5.5 11.6v4.15c0 1.9 2.9 3.75 6.5 3.75s6.5-1.85 6.5-3.75V11.6L12 14.85z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M21 9.3v5.2"/><circle fill="currentColor" cx="21" cy="15.6" r="1.3"/></svg>';
+
+/** The tooltip: the state, then what a press does (iOS's label and hint). */
+export function tutorialButtonTitle(on) {
+  return on ? `${BUTTON_ON_TEXT}\n${BUTTON_ON_HINT}` : `${BUTTON_OFF_TEXT}\n${BUTTON_OFF_HINT}`;
+}
 
 let btn = null;
 let confirm = null;
 
-/** The log header's slot (none while there is no game log). */
+/** My voice row, when the layout reserved the button's slot there (else null). */
 function slot() {
   if (typeof document === 'undefined') return null;
-  return document.querySelector('#gameFeed .log-header__actions');
+  return hudLayout()?.voice?.tutorial ? hudVoiceSlot({ create: true }) : null;
 }
 
 function build() {
   const b = document.createElement('button');
   b.type = 'button';
   b.id = TUTORIAL_BUTTON_ID;
-  b.className = 'log-tutorial-btn';
+  b.className = 'kit-icon-btn tutorial-btn';
   b.setAttribute('aria-label', BUTTON_LABEL);
   b.innerHTML = CAP_ICON; // a fixed icon, never user text
-  b.append(
-    el('span', { className: 'log-tutorial-btn__label', text: `${BUTTON_LABEL}:` }),
-    el('span', { className: 'log-tutorial-btn__state', attrs: { 'aria-hidden': 'true' } }),
-  );
   b.addEventListener('click', () => {
     if (b.getAttribute('aria-disabled') === 'true') return;
     b._onToggle?.();
   });
   return b;
+}
+
+/** Right after the sound toggle (first while it is not there); the voice buttons follow. */
+function place(host, b) {
+  const sound = host.querySelector(`:scope > #${TABLE_SOUND_BUTTON_ID}`);
+  if (sound ? b.previousElementSibling === sound : host.firstElementChild === b) return;
+  host.insertBefore(b, sound ? sound.nextElementSibling : host.firstElementChild);
 }
 
 /**
@@ -72,20 +86,20 @@ function build() {
  */
 export function syncTutorialButton({ visible = false, on = false, disabled = false, onToggle = null } = {}) {
   if (typeof document === 'undefined') return null;
-  const host = slot();
   if (btn && !btn.isConnected) btn = null;
-  if (!visible || !host) {
-    if (btn) btn.hidden = true;
-    return btn;
+  const host = visible ? slot() : null;
+  if (!host) {
+    // hidden, or no slot: out of the row, so the row is as without it
+    btn?.remove();
+    btn = null;
+    return null;
   }
   if (!btn) btn = document.getElementById(TUTORIAL_BUTTON_ID) || build();
-  if (btn.parentElement !== host) host.appendChild(btn);
+  place(host, btn);
   btn._onToggle = onToggle;
-  btn.hidden = false;
   btn.setAttribute('aria-pressed', String(!!on));
   btn.dataset.state = on ? 'on' : 'off';
-  btn.title = on ? BUTTON_ON_HINT : BUTTON_OFF_HINT;
-  btn.querySelector('.log-tutorial-btn__state').textContent = on ? BUTTON_STATE_ON : BUTTON_STATE_OFF;
+  btn.title = tutorialButtonTitle(on);
   if (disabled) btn.setAttribute('aria-disabled', 'true');
   else btn.removeAttribute('aria-disabled');
   return btn;

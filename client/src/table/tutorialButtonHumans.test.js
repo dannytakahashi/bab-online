@@ -34,7 +34,7 @@ function rejoin(assist, { reconnect = true } = {}) {
   replay.advance(100);
 }
 const btn = () => document.getElementById('tutorial-toggle-btn');
-const word = () => btn().querySelector('.log-tutorial-btn__state').textContent;
+const word = () => (btn().getAttribute('aria-pressed') === 'true' ? 'On' : 'Off');
 const dialog = () => document.querySelector('#tutorial-confirm [role="dialog"]');
 const sent = () => page.socket.emitted('chatMessage').map((d) => d.message);
 

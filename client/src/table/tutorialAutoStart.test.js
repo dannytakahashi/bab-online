@@ -4,8 +4,8 @@
  * the tutorial." and assistState {tutorial: true, auto: true}, then the
  * deal. The page's log comes up only after createUI's fade, so a line that
  * came in between is kept and written right after 'Game started!' (it was
- * dropped before: main.js flushEarlyLogLines), and the game log's
- * Tutorial button shows On (no in-hand chip since 2026-11-21). From a seat's recorded game (events-humans-s13 seat4: ios_eli
+ * dropped before: main.js flushEarlyLogLines), and the Tutorial
+ * button in my seat's row shows On (no in-hand chip since 2026-11-21). From a seat's recorded game (events-humans-s13 seat4: ios_eli
  * at seat 3).
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -47,7 +47,6 @@ describe('an auto-started tutorial at the start of a game', () => {
     const btn = document.getElementById('tutorial-toggle-btn');
     expect(btn?.hidden).toBe(false);
     expect(btn.getAttribute('aria-pressed')).toBe('true');
-    expect(btn.querySelector('.log-tutorial-btn__state').textContent).toBe('On');
     expect(document.querySelector('.hud-tutorial')).toBeNull();
   });
 

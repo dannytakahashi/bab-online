@@ -810,3 +810,56 @@ describe('the /help lightbulb by my hand (assistAskSpot)', () => {
     expect(assistAskSpot(layoutForViewport({ vw: 1280, vh: 800, isSpectator: true }))).toBeNull();
   });
 });
+
+describe('the Tutorial button\'s slot in my voice row (owner 2026-11-21: with my sound and voice controls)', () => {
+  it('without it (a spectator, a lazy watcher, any caller that does not ask) the layout is exactly today\'s', () => {
+    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 700], [768, 1024], [390, 844]]) {
+      expect(layoutForViewport({ vw, vh, tutorial: false })).toEqual(layoutForViewport({ vw, vh }));
+      // a spectator never gets it, even if asked
+      expect(layoutForViewport({ vw, vh, isSpectator: true, tutorial: true })).toEqual(layoutForViewport({ vw, vh, isSpectator: true }));
+    }
+  });
+
+  it('my row is 4 buttons wide (sound, tutorial, mic device, mute), under my HSI, inside my box', () => {
+    for (const [vw, vh] of [[1920, 1080], [1440, 900], [1280, 800], [1024, 700], [768, 1024]]) {
+      const L = layoutForViewport({ vw, vh, tutorial: true });
+      const { rect: r, button: b, gap: g } = L.voice;
+      expect(r.w, `${vw}x${vh}`).toBeCloseTo(4 * b + 3 * g, 5);
+      expect(L.voice.tutorial).toBe(true);
+      expect(L.seats.self.voice).toBe(L.voice);
+      // (1 px: the row snaps to device pixels, the box does not)
+      expect(contains(L.seats.self.block, r, 1), `${vw}x${vh}`).toBe(true);
+      expect(r.y).toBeGreaterThanOrEqual(L.seats.self.hsi.rect.y + L.seats.self.hsi.rect.h);
+      checkClean(L, `${vw}x${vh} tutorial`);
+    }
+  });
+
+  it('is clean over the grid (800-2560 x 500-1440) and on phones, at today\'s scale', () => {
+    const bad = [];
+    const smaller = [];
+    for (let vw = 800; vw <= 2560; vw += 40) {
+      for (let vh = 500; vh <= 1440; vh += 40) {
+        const L = layoutForViewport({ vw, vh, tutorial: true });
+        const more = [...feltProblems(L), ...bubbleProblems(L), ...badgeProblems(L), ...badgeBubbleProblems(L)];
+        if (L.degraded || findIntersections(L).length || findOutside(L).length || more.length) bad.push(`${vw}x${vh}`);
+        if (L.s < layoutForViewport({ vw, vh }).s - 1e-9) smaller.push(`${vw}x${vh}`);
+      }
+    }
+    const noSlot = [];
+    for (let vw = 360; vw <= 760; vw += 40) {
+      for (let vh = 360; vh <= 900; vh += 60) {
+        const L = layoutForViewport({ vw, vh, tutorial: true });
+        if (L.degraded || findIntersections(L).length || findOutside(L).length) bad.push(`phone ${vw}x${vh}`);
+        // where the slot would not fit, today's table, without it
+        if (!L.voice.tutorial) {
+          noSlot.push(`${vw}x${vh}`);
+          expect(L).toEqual(layoutForViewport({ vw, vh }));
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+    expect(smaller).toEqual([]);
+    // only the narrowest phones (360 px; the phone gate sends phones to the app) go without it
+    expect(noSlot.every((k) => k.startsWith('360x'))).toBe(true);
+  });
+});

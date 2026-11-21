@@ -376,7 +376,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false }) {
+function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -524,8 +524,11 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
   const hsiW = 96 * s;
   const voiceBtn = Math.max(22, 36 * s);
   const voiceGap = 6 * s;
-  // the row: sound effects toggle (ui/components/SoundToggle.js), mic device, mute
-  const voiceRowW = 3 * voiceBtn + 2 * voiceGap;
+  // the row: sound effects toggle (ui/components/SoundToggle.js), mic device,
+  // mute; for a player at their own seat also the Tutorial button
+  // (ui/components/TutorialButton.js, owner 2026-11-21), after the sound one
+  const voiceSlots = tutorial && !isSpectator ? 4 : 3;
+  const voiceRowW = voiceSlots * voiceBtn + (voiceSlots - 1) * voiceGap;
   let hand = null;
   let bottom;
   let voice;
@@ -564,6 +567,8 @@ function place(cw, ch, s, { isSpectator, compact, logW, dpr, k = 1, felt = 0, hi
     const hsiY = seats.self.plate.y + plateH + 4 * s;
     hsi = { rect: rect(q(selfX - hsiW / 2), q(hsiY), hsiW, hsiH), font: hsiFont };
     voice = { rect: rect(q(selfX - voiceRowW / 2), q(hsiY + hsiH + voiceGap), voiceRowW, voiceBtn), button: voiceBtn, gap: voiceGap };
+    // (only a layout with the slot says so: every other stays as it was)
+    if (voiceSlots === 4) voice.tutorial = true;
     seats.self.hsi = hsi;
     seats.self.voice = voice;
     seats.self.block = rect(q(selfX - selfW / 2), q(selfTop), selfW, selfH);
@@ -1036,12 +1041,15 @@ export function findOutside(L, rects = null) {
  * @param {number} [opts.dpr=1] - device pixel ratio: positions snap to device pixels
  * @param {boolean} [opts.isSpectator=false] - a pure spectator (no hand: the bottom seat)
  * @param {number} [opts.logW=0] - the log column beside the canvas (0: none)
+ * @param {boolean} [opts.tutorial=false] - I play my own seat (not a spectator,
+ *   not lazy): my voice row reserves a 4th button, the Tutorial button's
+ *   (every other layout is as without it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0 } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
-  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d };
+  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
@@ -1068,15 +1076,18 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
       }
     }
   }
+  // the Tutorial button's slot never costs a clean table (the narrowest
+  // phones, 360 px, which the phone gate sends to the app): without it there
+  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW });
   const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
   L.degraded = true;
   return L;
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */

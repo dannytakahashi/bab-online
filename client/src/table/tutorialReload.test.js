@@ -2,7 +2,7 @@
  * The tutorial on the real page and scene (2026-11-19), from the recorded
  * game events-bots-s14 (seat1-rejoin: a 1-human + 3-bot game): the page
  * says the clientHello cap tutorial; a reload whose snapshot's viewer.assist
- * says the tutorial is on shows the game log's Tutorial button On (no
+ * says the tutorial is on shows the Tutorial button in my seat's row On (no
  * in-hand chip since 2026-11-21); a rule tip draws its section and its
  * "Tip:" row; the button sends chatMessage '/tutorial off'; the server's
  * assistState off turns the button Off and takes the tips down; the chat

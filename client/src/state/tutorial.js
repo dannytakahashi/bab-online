@@ -52,15 +52,16 @@ export const TUTORIAL_OFF_DESCRIPTION = 'Turn off the tutorial';
 
 /**
  * The game log's Tutorial button (owner 2026-11-21: "the old people struggle
- * with slash commands"; ui/components/TutorialButton.js): a labelled toggle,
- * "Tutorial:" and its state "On" / "Off" (aria-label "Tutorial",
- * aria-pressed the state), with iOS's hints as its tooltip. Off -> on asks
- * first where it makes this game bot-assisted for me (the confirm, iOS's
- * TutorialRules.confirm* words exactly; assistHint.tutorialNeedsConfirm).
+ * with slash commands"; ui/components/TutorialButton.js): iOS's round corner
+ * button, the graduation cap alone (aria-label "Tutorial", aria-pressed the
+ * state), its tooltip iOS's label ("Tutorial on" / "Tutorial off") and hint.
+ * Off -> on asks first where it makes this game bot-assisted for me (the
+ * confirm, iOS's TutorialRules.confirm* words exactly;
+ * assistHint.tutorialNeedsConfirm).
  */
 export const BUTTON_LABEL = 'Tutorial';
-export const BUTTON_STATE_ON = 'On';
-export const BUTTON_STATE_OFF = 'Off';
+export const BUTTON_ON_TEXT = 'Tutorial on';
+export const BUTTON_OFF_TEXT = 'Tutorial off';
 export const BUTTON_ON_HINT = "Turns off the tutorial's tips and advice. /help still works any time.";
 export const BUTTON_OFF_HINT = 'Turns on tips and advice for every turn.';
 export const CONFIRM_TITLE = 'Turn on the tutorial?';

@@ -94,7 +94,8 @@ describe('GameScene at DPR 2', () => {
     zoomCamera(scene);
     const L = scene.getLayout();
     expect([L.w, L.h, L.dpr]).toEqual([1600, 1080, 2]);
-    expect(L).toEqual(computeTableLayout({ w: 1600, h: 1080, dpr: 2, isSpectator: false, logW: L.logW }));
+    // my own seat: my row reserves the Tutorial button's slot
+    expect(L).toEqual(computeTableLayout({ w: 1600, h: 1080, dpr: 2, isSpectator: false, logW: L.logW, tutorial: true }));
     expect(scene.cameras.main.zoom).toBe(2);
     // the frame is the hand card in device pixels
     expect(L.cardTexture.h).toBe(Math.ceil(L.card.hand.h * 2));

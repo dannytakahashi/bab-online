@@ -483,6 +483,38 @@ body > .voice-btn {
     z-index: var(--z-panel);
 }
 
+/* the Tutorial button (ui/components/TutorialButton.js): iOS's round corner
+   button in my row, right after the sound toggle, at the row's size (the
+   .hud-voice > button rule; kit ::before makes the 44 px hit area). Off: the
+   subdued disc, the cap in the secondary text colour; on: the cap and a 2 px
+   ring in the primary green, never the kit's red pressed look */
+.hud-voice > .tutorial-btn.kit-icon-btn {
+    --icon-btn-size: var(--voice-btn, 36px);
+    z-index: var(--z-panel);
+    color: var(--text-secondary);
+    transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard),
+        color var(--dur-fast) var(--ease-standard), transform var(--dur-fast) var(--ease-standard);
+}
+.hud-voice > .tutorial-btn.kit-icon-btn svg { width: 60%; height: 60%; }
+.hud-voice > .tutorial-btn.kit-icon-btn[aria-pressed="true"] {
+    background: rgb(var(--surface-2-rgb) / 0.9);
+    border: 2px solid var(--primary-base);
+    color: var(--primary-base);
+}
+.hud-voice > .tutorial-btn.kit-icon-btn:hover:not([aria-disabled="true"]) {
+    background: var(--surface-3);
+    color: var(--text-primary);
+}
+.hud-voice > .tutorial-btn.kit-icon-btn[aria-pressed="true"]:hover:not([aria-disabled="true"]) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+}
+.hud-voice > .tutorial-btn.kit-icon-btn:active:not([aria-disabled="true"]) { transform: scale(0.94); }
+.hud-voice > .tutorial-btn.kit-icon-btn[aria-disabled="true"] { opacity: 0.6; cursor: not-allowed; }
+@media (prefers-reduced-motion: reduce) {
+    .hud-voice > .tutorial-btn.kit-icon-btn:active { transform: none; }
+}
+
 /* the main room's header: beside the page buttons */
 .screen-nav > .sound-btn.kit-icon-btn {
     --icon-btn-size: 36px;
@@ -768,81 +800,6 @@ body > .voice-btn {
     color: var(--text-primary);
     font-size: var(--type-md);
     font-weight: var(--weight-semibold);
-}
-
-/* the header holds the title and the log's controls (the Tutorial button);
-   a narrow column wraps the button onto its own row under the title */
-#gameFeed .log-header {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-}
-.log-header__title { min-width: 0; }
-.log-header__actions { display: flex; flex: 0 1 auto; max-width: 100%; }
-.log-header__actions:empty { display: none; }
-
-/* The Tutorial button (TutorialButton.js): a labelled toggle for players who
-   would never type /tutorial. Large type and a 44 px target; on is the
-   tutorial's gold (the chip's switch), off a plain outline */
-.log-tutorial-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    box-sizing: border-box;
-    max-width: 100%;
-    min-height: var(--hit-target);
-    padding: 0 var(--space-2) 0 var(--space-3);
-    border: 2px solid var(--line-strong);
-    border-radius: var(--radius-pill);
-    background: var(--surface-2);
-    color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--type-md);
-    font-weight: var(--weight-semibold);
-    line-height: 1.2;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
-}
-.log-tutorial-btn[hidden] { display: none; }
-.log-tutorial-btn:hover:not([aria-disabled="true"]) { border-color: var(--text-secondary); background: var(--surface-3); }
-.log-tutorial-btn:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
-.log-tutorial-btn__icon { flex-shrink: 0; }
-.log-tutorial-btn__state {
-    min-width: 2.6em;
-    padding: 2px var(--space-2);
-    border-radius: var(--radius-pill);
-    background: var(--surface-0);
-    color: var(--text-secondary);
-    font-weight: var(--weight-bold);
-    text-align: center;
-}
-.log-tutorial-btn[aria-pressed="true"] {
-    border-color: var(--gold);
-    background: rgb(var(--gold-rgb) / 0.16);
-}
-.log-tutorial-btn[aria-pressed="true"] .log-tutorial-btn__icon { color: var(--gold); }
-.log-tutorial-btn[aria-pressed="true"] .log-tutorial-btn__state {
-    background: var(--gold);
-    color: var(--text-on-light);
-}
-.log-tutorial-btn[aria-pressed="true"]:hover:not([aria-disabled="true"]) { background: rgb(var(--gold-rgb) / 0.26); border-color: var(--gold); }
-.log-tutorial-btn[aria-disabled="true"] { opacity: 0.5; cursor: not-allowed; }
-
-/* a narrow log column (a tablet in portrait): smaller type, the button on its own row */
-@media (max-width: 1000px) {
-    .log-tutorial-btn { gap: var(--space-1); padding: 0 var(--space-1) 0 var(--space-2); font-size: var(--type-sm); }
-    .log-tutorial-btn__state { min-width: 2.2em; padding: 2px var(--space-1); }
-}
-/* the narrowest log column (170 px, a tablet in portrait): the button takes
-   the header's whole row, without the icon, so the label and state fit */
-@media (max-width: 800px) {
-    #gameFeed .log-header { padding-left: var(--space-2); padding-right: var(--space-2); }
-    .log-header__actions { flex: 1 1 100%; }
-    .log-tutorial-btn { flex: 1 1 auto; justify-content: space-between; }
-    .log-tutorial-btn__icon { display: none; }
 }
 
 .log-score {
