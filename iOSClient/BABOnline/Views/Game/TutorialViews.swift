@@ -64,7 +64,26 @@ struct TutorialTipHead: View {
     /// card's own row is still in the tree, scrolled up).
     var pinned = false
 
+    private var pinnedActions: Bool { pinned && TutorialRules.isWelcome(tip) && !tip.actions.isEmpty }
+
     var body: some View {
+        if pinnedActions {
+            // Keep and Turn off on the title's line where the title fits on one line beside
+            // them, else on a row of their own under it (the iPhone Duo's book pose: the
+            // column between the side seats is ~245 pt and the title was squeezed to nothing)
+            ViewThatFits(in: .horizontal) {
+                row(actions: true)
+                VStack(alignment: .trailing, spacing: Theme.Space.s1) {
+                    row(actions: false)
+                    TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: true)
+                }
+            }
+        } else {
+            row(actions: false)
+        }
+    }
+
+    private func row(actions: Bool) -> some View {
         HStack(spacing: Theme.Space.s2) {
             Image(systemName: "graduationcap.fill")
                 .font(.footnote)
@@ -76,7 +95,7 @@ struct TutorialTipHead: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier(pinned ? "tip.pinnedTitle" : "tip.title")
             Spacer(minLength: Theme.Space.s2)
-            if pinned && TutorialRules.isWelcome(tip) && !tip.actions.isEmpty {
+            if actions {
                 TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: true)
             }
             Button(action: onClose) {
