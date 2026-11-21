@@ -11,11 +11,16 @@ struct TutorialTipView: View {
     var onClose: () -> Void
     var onKeep: () -> Void = {}
     var onTurnOff: () -> Void = {}
+    /// The short (scrolling) column's copy: the welcome's Keep and Turn off in its title row, as
+    /// the pinned row has them, not at its foot (play test 2026-11-21, the iPhone Duo closed:
+    /// scrolled to the advice, the pinned row's pair and the card's own pair both showed, with
+    /// none of the tip's text between). The pinned row then only copies a row scrolled away.
+    var actionsInHead = false
     private var isWelcome: Bool { TutorialRules.isWelcome(tip) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s1) {
-            TutorialTipHead(tip: tip, onClose: onClose)
+            TutorialTipHead(tip: tip, onClose: onClose, onKeep: onKeep, onTurnOff: onTurnOff, withActions: actionsInHead)
             if let text = tip.reasons.first {
                 Text(text)
                     .font(.footnote)
@@ -23,7 +28,7 @@ struct TutorialTipView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("tip.text")
             }
-            if isWelcome && !tip.actions.isEmpty {
+            if isWelcome && !tip.actions.isEmpty && !actionsInHead {
                 HStack(spacing: Theme.Space.s2) {
                     Spacer(minLength: 0)
                     TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff)
@@ -63,11 +68,14 @@ struct TutorialTipHead: View {
     /// at its foot, may be under it), before the ×; its identifiers are "tip.pinned…" (the
     /// card's own row is still in the tree, scrolled up).
     var pinned = false
+    /// The welcome's Keep and Turn off in this row (the pinned copy always; the card's own row
+    /// in the short column: TutorialTipView.actionsInHead).
+    var withActions = false
 
-    private var pinnedActions: Bool { pinned && TutorialRules.isWelcome(tip) && !tip.actions.isEmpty }
+    private var headActions: Bool { (pinned || withActions) && TutorialRules.isWelcome(tip) && !tip.actions.isEmpty }
 
     var body: some View {
-        if pinnedActions {
+        if headActions {
             // Keep and Turn off on the title's line where the title fits on one line beside
             // them, else on a row of their own under it (the iPhone Duo's book pose: the
             // column between the side seats is ~245 pt and the title was squeezed to nothing)
@@ -75,7 +83,7 @@ struct TutorialTipHead: View {
                 row(actions: true)
                 VStack(alignment: .trailing, spacing: Theme.Space.s1) {
                     row(actions: false)
-                    TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: true)
+                    TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: pinned)
                 }
             }
         } else {
@@ -96,7 +104,7 @@ struct TutorialTipHead: View {
                 .accessibilityIdentifier(pinned ? "tip.pinnedTitle" : "tip.title")
             Spacer(minLength: Theme.Space.s2)
             if actions {
-                TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: true)
+                TutorialWelcomeActions(actions: tip.actions, onKeep: onKeep, onTurnOff: onTurnOff, pinned: pinned)
             }
             Button(action: onClose) {
                 Image(systemName: "xmark")

@@ -216,6 +216,20 @@ final class ActionCoordinator: ObservableObject {
         return true
     }
 
+    /// The vertical bar's switch turned on: /tutorial on (the server answers with assistState and
+    /// its status line; the switch follows assistState). Offline: the reconnecting notice. false
+    /// when nothing was sent.
+    @discardableResult
+    func tutorialOn(connected: Bool) -> Bool {
+        guard !store.state.table.tutorial.on else { return false }
+        guard connected else {
+            store.postNotice(AssistRules.reconnecting)
+            return false
+        }
+        emitter.chat(TutorialRules.onCommand)
+        return true
+    }
+
     private func arm(_ id: UInt32, attempt: Int) {
         timers[id]?.cancel()
         timers[id] = clock.after(AckPolicy.timeout) { [weak self] in

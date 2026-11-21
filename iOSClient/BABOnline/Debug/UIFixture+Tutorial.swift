@@ -7,13 +7,16 @@ import Foundation
 /// (T.welcome, Keep / Turn off), a rule tip for the moment (my bid turn: T.bid "Bidding"; my
 /// play turn following a suit: T.follow "Following suit"; else T.trump), and on my own bid or
 /// play turn the advice (the /help answer with source `tutorial`, never counted).
-/// `-uiTutorialWelcome NO`: no welcome (it was kept in an earlier session). The chat's
+/// `-uiTutorialOff YES`: off at the start (assistState off, no pushes), its commands still answered
+/// (the iPhone Duo's bar switch turning it on). `-uiTutorialWelcome NO`: no welcome (it was kept
+/// in an earlier session). The chat's
 /// /tutorial, /tutorial on, /tutorial off, /tutorial keep and /tutorial close are answered as the server does
 /// (assistState, "Tips off. /help still works any time."). Every line shows in "fixture.sent";
 /// the chip in the probe "table.tutorial".
 extension UIFixture {
     static let tutorialMode: Bool = isActive && UserDefaults.standard.bool(forKey: "uiTutorial")
     static let tutorialWelcome: Bool = UserDefaults.standard.string(forKey: "uiTutorialWelcome")?.uppercased() != "NO"
+    static let tutorialStartsOff: Bool = UserDefaults.standard.bool(forKey: "uiTutorialOff")
 
     @MainActor private static weak var tutorialStore: GameState?
     @MainActor private static var tutorialOnNow = false
@@ -27,6 +30,7 @@ extension UIFixture {
         guard tutorialMode else { return }
         tutorialStore = store
         auth.isAuthenticated = true  // the toast layer
+        if tutorialStartsOff { setTutorial(false); return }
         setTutorial(true, auto: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { MainActor.assumeIsolated { pushTurn() } }
     }

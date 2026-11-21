@@ -145,12 +145,40 @@ final class TutorialUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(pin.height, 28, "\(tag): the whole row (the × is 28 pt)")
         let head = element(app, "assist.headline").frame
         XCTAssertLessThanOrEqual(pin.maxY, head.minY, "\(tag): the pinned row over the advice's headline")
-        // the welcome's Keep and Turn off come into the pinned row (the card's own may be under it)
+        // the welcome's Keep and Turn off: in the pinned row while the card's own are under it
+        // or scrolled up, else the card's own below it in sight; never both (play test
+        // 2026-11-21: the iPhone Duo closed showed the pair twice and none of the tip's text)
         if card.identifier == "tutorialWelcome" {
+            let pinnedPair = app.buttons["tip.pinnedKeep"].exists
+            print("[TutorialUITests] \(tag) welcome pair \(pinnedPair ? "pinned" : "card's own") pin \(pin) own \(app.buttons["tip.keep"].frame)")
             for id in ["tip.pinnedKeep", "tip.pinnedOff"] {
-                XCTAssertTrue(app.buttons[id].exists && pin.contains(app.buttons[id].frame), "\(tag): \(id) \(app.buttons[id].frame) in \(pin)")
+                XCTAssertEqual(app.buttons[id].exists, pinnedPair, "\(tag): \(id)")
+                if pinnedPair { XCTAssertTrue(pin.contains(app.buttons[id].frame), "\(tag): \(id) \(app.buttons[id].frame) in \(pin)") }
+            }
+            for id in ["tip.keep", "tip.off"] {
+                let own = app.buttons[id].frame
+                let ownInSight = own.minY >= pin.maxY - 1 && column.contains(own)
+                if pinnedPair {
+                    XCTAssertFalse(ownInSight, "\(tag): \(id) \(own) in sight under the pinned pair \(pin)")
+                } else {
+                    XCTAssertTrue(ownInSight, "\(tag): the card's own \(id) \(own) out of sight under \(pin) in \(column)")
+                    XCTAssertTrue(app.buttons[id].isHittable, "\(tag): \(id)")
+                }
             }
         }
+    }
+
+    /// Some of the welcome's text is in sight: below the pinned row (where it shows) and inside the
+    /// column, at least a line (play test 2026-11-21, the iPhone Duo closed: scrolled to the
+    /// advice, the column showed the title row and Turn off / Keep twice and none of the text).
+    private func welcomeTextInSight(_ app: XCUIApplication, _ welcome: XCUIElement, _ tag: String) {
+        let column = columnFrame(app)
+        let pin = element(app, "tip.pinned")
+        let top = pin.exists ? max(column.minY, pin.frame.maxY) : column.minY
+        let text = welcome.staticTexts["tip.text"].frame
+        let shown = text.intersection(CGRect(x: column.minX, y: top, width: column.width, height: max(0, column.maxY - top)))
+        print("[TutorialUITests] \(tag) welcome text \(text) shown \(shown) column \(column)")
+        XCTAssertGreaterThanOrEqual(shown.isNull ? 0 : shown.height, 14, "\(tag): none of the welcome's text in sight: text \(text) column \(column) pin \(pin.exists ? pin.frame : .null)")
     }
 
     /// A tip's control: its copy in the row pinned at a short column's top while that shows,
@@ -163,8 +191,9 @@ final class TutorialUITests: XCTestCase {
         return pinned.exists ? pinned : app.buttons[id]
     }
 
-    func testTheWelcomeThenTheRuleTipWithTheAdviceOnMyBidTurn() {
+    func testTheWelcomeThenTheRuleTipWithTheAdviceOnMyBidTurn() throws {
         let app = launch("bidding-mid")
+        if verticalBarColumn(app) != nil { throw XCTSkip("the vertical bar's switch replaces the welcome card: testWithTheVerticalBarTheSwitchIsThereOffAndTheWelcomeIsARow") }
         let welcome = element(app, "tutorialWelcome")
         XCTAssertTrue(welcome.waitForExistence(timeout: 5))
         XCTAssertEqual(app.staticTexts["tip.title"].label, "Tutorial on")
@@ -208,6 +237,7 @@ final class TutorialUITests: XCTestCase {
         adviceInSight(app, "bid welcome")
         clearOfSeats(app, "bid welcome")
         tipHeadInSight(app, welcome, "bid welcome")
+        welcomeTextInSight(app, welcome, "bid welcome")
         shot(app, "welcome")
         // Keep: /tutorial keep, and the rule tip that waited shows now, still one tip card
         tipButton(app, "tip.keep").tap()
@@ -271,7 +301,7 @@ final class TutorialUITests: XCTestCase {
         // the chip's switch: /tutorial off, and the server's answer ends the tutorial
         element(app, "tutorial.chip").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
+        XCTAssertTrue(switchShowsOff(app))
         XCTAssertTrue(tip.waitForNonExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Tips off. /help still works any time."].waitForExistence(timeout: 3))
         shot(app, "off")
@@ -301,16 +331,73 @@ final class TutorialUITests: XCTestCase {
         XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "tutorial.chip").count, 1, "one switch")
         adviceInSight(app, "bar")
         shot(app, "bar-switch")
+        // off: /tutorial off, the tips go, the switch stays (owner 2026-11-21: "I should see the icon")
         chip.tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(chip.waitForNonExistence(timeout: 3))
         XCTAssertTrue(element(app, "tutorialTip").waitForNonExistence(timeout: 3))
-        XCTAssertTrue(waitFor(app, "table.tutorial", contains: "chip=-"), Fixture.probe(app, "table.tutorial"))
+        XCTAssertTrue(waitForLabel(chip, "Tutorial off"), chip.label)
+        XCTAssertTrue(waitFor(app, "table.tutorial", contains: "chip=bar"), Fixture.probe(app, "table.tutorial"))
+        shot(app, "bar-switch-off")
+        // and on again: /tutorial on, no chat needed
+        chip.tap()
+        XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial on"), Fixture.probe(app, "fixture.sent"))
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
         XCTAssertTrue(app.buttons["leave"].isHittable, "Exit stays")
     }
 
-    func testTurnOffOnTheWelcome() {
+    /// With the vertical bar the switch is there with the tutorial off (no /tutorial to type),
+    /// and a welcome is no card: its text goes to the log, the rule tip shows at once.
+    func testWithTheVerticalBarTheSwitchIsThereOffAndTheWelcomeIsARow() throws {
+        let off = Fixture.launch("bidding-mid", extra: ["-uiTutorial", "YES", "-uiTutorialOff", "YES", "-uiAssist", "YES"])
+        XCTAssertTrue(off.buttons["leave"].waitForExistence(timeout: 20))
+        _ = Fixture.settledState(off)
+        guard verticalBarColumn(off) != nil else { throw XCTSkip("no vertical bar here: no switch while off") }
+        let chip = element(off, "tutorial.chip")
+        XCTAssertTrue(chip.waitForExistence(timeout: 5), "the switch with the tutorial off")
+        XCTAssertEqual(chip.label, "Tutorial off")
+        XCTAssertFalse(element(off, "tutorialTip").exists)
+        shot(off, "bar-off-at-start")
+        chip.tap()
+        XCTAssertTrue(waitFor(off, "fixture.sent", contains: "/tutorial on"), Fixture.probe(off, "fixture.sent"))
+        XCTAssertTrue(waitForLabel(chip, "Tutorial on"), chip.label)
+        off.terminate()
+        // an auto-start's welcome: no card, its row in the log, the rule tip up
         let app = launch("bidding-mid")
+        XCTAssertTrue(element(app, "tutorialTip").waitForExistence(timeout: 5), "the rule tip shows at once")
+        XCTAssertFalse(element(app, "tutorialWelcome").exists, "no welcome card beside the bar's switch")
+        XCTAssertFalse(app.buttons["tip.keep"].exists)
+        XCTAssertEqual(app.staticTexts["tip.title"].label, "Bidding")
+        XCTAssertEqual(element(app, "tutorial.chip").label, "Tutorial on")
+        welcomeTextInSightOrLogged(app)
+        shot(app, "bar-welcome-row")
+    }
+
+    /// The welcome's row is in the log (opened where it is a drawer).
+    private func welcomeTextInSightOrLogged(_ app: XCUIApplication) {
+        let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tutorial: Tips will appear above your cards.")).firstMatch
+        if !row.exists, app.buttons["log"].exists { app.buttons["log"].tap() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "the welcome's row in the log")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Tutorial: Tips will appear above your cards.")).count, 1, "once")
+    }
+
+    /// The tutorial went off: the chip goes; the iPhone Duo's bar switch stays, "Tutorial off".
+    private func switchShowsOff(_ app: XCUIApplication) -> Bool {
+        let chip = element(app, "tutorial.chip")
+        return verticalBarColumn(app) == nil ? chip.waitForNonExistence(timeout: 3) : waitForLabel(chip, "Tutorial off")
+    }
+
+    private func waitForLabel(_ e: XCUIElement, _ label: String, timeout: TimeInterval = 5) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if e.exists && e.label == label { return true }
+            Thread.sleep(forTimeInterval: 0.2)
+        } while Date() < deadline
+        return false
+    }
+
+    func testTurnOffOnTheWelcome() throws {
+        let app = launch("bidding-mid")
+        if verticalBarColumn(app) != nil { throw XCTSkip("the vertical bar's switch replaces the welcome card: testWithTheVerticalBarTheSwitchIsThereOffAndTheWelcomeIsARow") }
         XCTAssertTrue(app.buttons["tip.off"].waitForExistence(timeout: 5))
         tipButton(app, "tip.off").tap()
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
@@ -321,8 +408,9 @@ final class TutorialUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Tips off. /help still works any time."].waitForExistence(timeout: 3))
     }
 
-    func testTheWelcomesCloseSendsItsOwnLine() {
+    func testTheWelcomesCloseSendsItsOwnLine() throws {
         let app = launch("bidding-mid")
+        if verticalBarColumn(app) != nil { throw XCTSkip("the vertical bar's switch replaces the welcome card: testWithTheVerticalBarTheSwitchIsThereOffAndTheWelcomeIsARow") }
         let welcome = element(app, "tutorialWelcome")
         XCTAssertTrue(welcome.waitForExistence(timeout: 5))
         XCTAssertTrue(element(app, "assistCard").waitForExistence(timeout: 5))
@@ -347,7 +435,7 @@ final class TutorialUITests: XCTestCase {
         shot(app, "chat-on")
         field.typeText("utorial off\n")
         XCTAssertTrue(waitFor(app, "fixture.sent", contains: "/tutorial off"), Fixture.probe(app, "fixture.sent"))
-        XCTAssertTrue(element(app, "tutorial.chip").waitForNonExistence(timeout: 3))
+        XCTAssertTrue(switchShowsOff(app))
         // the tip's row stays in the log (dim, private; the log's first tutorial row, so it alone
         // has the note), and the off's reply is the tutorial's, not /help's
         XCTAssertTrue(app.staticTexts["Tutorial: Clubs were led: you must play a club if you have one. (only you see this)"].exists)

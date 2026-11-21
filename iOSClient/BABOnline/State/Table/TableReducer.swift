@@ -43,6 +43,10 @@ enum LocalAction: Equatable {
     case tutorialTipDismissed
     /// The welcome's Keep or close button (ActionCoordinator sent /tutorial keep or /tutorial close).
     case tutorialWelcomeKept
+    /// The welcome is not shown as a card (the iPhone Duo's vertical bar has the tutorial's
+    /// switch): its text goes to the log once, and the rule tip behind it shows now. Nothing is
+    /// sent (an auto-start stays as it is, as before Keep or ×).
+    case tutorialWelcomeHidden
     /// The chip's switch or the welcome's Turn off (ActionCoordinator sent /tutorial off).
     case tutorialOffSent
     /// HSIScale.revealDelay after a live deal (ActionCoordinator, `.revealHSI`): its HSI shows.
@@ -254,6 +258,8 @@ enum TableReducer {
             clearTip(&s)
         case .tutorialWelcomeKept:
             welcomeGone(&s, &fx)
+        case .tutorialWelcomeHidden:
+            welcomeHidden(&s, &fx)
         case .tutorialOffSent:
             // every tip goes (a rule tip behind the welcome does not come up for the moment
             // until the server's assistState: its row is in the log)

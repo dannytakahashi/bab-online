@@ -398,6 +398,41 @@ final class TutorialTests: XCTestCase {
         XCTAssertEqual(ChatCommand.resolve("/l on", commands: cmds), .unknown("/l"), "only /tutorial takes a word")
     }
 
+    /// The iPhone Duo's vertical bar (owner 2026-11-21): its switch turns the tutorial on with
+    /// /tutorial on, and a welcome there is no card: its row in the log once a game, the rule tip
+    /// behind it up and heard, nothing sent.
+    func testTheBarsSwitchTurnsItOnAndAHiddenWelcomeIsARow() {
+        let store = GameState()
+        let emitter = FakeEmitter()
+        var said: [String] = []
+        store.announce = { said.append($0) }
+        let actions = ActionCoordinator(store: store, emitter: emitter, clock: ManualClock(), sounds: RecordingSounds(),
+                                        soundClock: ManualClock(), tunePlayer: FakeTunePlayer(SoundClock()), askClock: ManualClock())
+        store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        store.apply(.snapshot(try! T.snapshot("bidding-mid"), .rejoin, hints: nil))
+        XCTAssertTrue(store.showsAssistBarItem, "my seat: the bar's switch is there with the tutorial off")
+        XCTAssertFalse(actions.tutorialOn(connected: false), "offline: nothing sent")
+        XCTAssertEqual(emitter.sent, [])
+        XCTAssertTrue(actions.tutorialOn(connected: true))
+        XCTAssertEqual(emitter.sent, [.chat("/tutorial on")])
+        store.apply(state(on: true, auto: true))
+        XCTAssertFalse(actions.tutorialOn(connected: true), "on already: nothing to send")
+        store.apply(welcome)
+        store.apply(tip("T.bid", "Bidding", bidText))
+        XCTAssertNil(store.tutorialTip, "behind the welcome")
+        store.apply(.local(.tutorialWelcomeHidden))
+        XCTAssertNil(store.tutorialWelcome)
+        XCTAssertEqual(store.tutorialTip?.headline, "Bidding", "the rule tip shows at once")
+        XCTAssertEqual(said.last, "Tip: Bidding. \(bidText)", "and is heard")
+        XCTAssertEqual(privateRows(store.state), ["Tutorial: \(bidText) (only you see this)", "Tutorial: \(UIFixture.welcomeText)"],
+                       "the welcome's row, once (the first row keeps the note)")
+        XCTAssertEqual(emitter.sent, [.chat("/tutorial on")], "nothing sent for the hidden welcome")
+        // a rejoin's welcome again: hidden again, no second row
+        store.apply(welcome)
+        store.apply(.local(.tutorialWelcomeHidden))
+        XCTAssertEqual(privateRows(store.state).count, 2)
+    }
+
     func testKeepAndTurnOffSendTheirLines() {
         let store = GameState()
         let emitter = FakeEmitter()
