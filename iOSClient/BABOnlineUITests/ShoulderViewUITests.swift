@@ -62,7 +62,7 @@ final class ShoulderViewUITests: XCTestCase {
     /// A seat avatar's centre from "table.shoulder" ("seats=1:x,y;2:x,y").
     private func seatPoint(_ app: XCUIApplication, _ pos: Int) -> CGVector? {
         let v = Fixture.probe(app, "table.shoulder")
-        guard let seats = v.components(separatedBy: "seats=").last else { return nil }
+        guard let rest = v.components(separatedBy: "seats=").last, let seats = rest.split(separator: " ").first else { return nil }
         for part in seats.split(separator: ";") {
             let kv = part.split(separator: ":")
             guard kv.count == 2, Int(kv[0]) == pos else { continue }

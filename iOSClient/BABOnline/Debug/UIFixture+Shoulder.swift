@@ -64,6 +64,16 @@ extension UIFixture {
             draw["viewerDrawOrder"] = NSNull()
             snap["draw"] = draw
         }
+        // the server lists every pure spectator, me too: the eye shows (a seat fixture lists none)
+        var watching = snap["watching"] as? [String: Any] ?? [:]
+        var list = watching["spectators"] as? [[String: Any]] ?? []
+        let me = spectatorName ?? "viewer"
+        if !list.contains(where: { $0["username"] as? String == me }) {
+            list.append(["username": me, "pic": NSNull()])
+            watching["spectators"] = list
+            watching["count"] = max(list.count, watching["count"] as? Int ?? 0)
+            snap["watching"] = watching
+        }
     }
 
     @MainActor
