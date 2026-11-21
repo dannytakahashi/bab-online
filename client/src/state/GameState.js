@@ -12,6 +12,7 @@
 import { team, rotate } from '../utils/positions.js';
 import { parseWatching } from './snapshotV2.js';
 import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
+import { isShoulder, validShoulder } from './shoulder.js';
 
 // Game phases
 export const PHASE = {
@@ -190,6 +191,16 @@ export class GameState {
     // A seat's running bid clock (bidClock / snapshot bidClock; state/bidClock.js):
     // {position, deadline (bidClockNow ms), durationMs} or null
     this.bidClock = null;
+    // The over-the-shoulder view (state/shoulder.js): the seat a pure
+    // spectator watches {position, paused}, or null (the plain table view).
+    // While set, position is that seat (the table is drawn from it), myCards
+    // its hand and hsiValues its HSI; isSpectator stays true (nothing acts).
+    // shoulderHold: the seat kept while the table is paused (ShoulderWatch):
+    // a snapshot without viewer.shoulder keeps it, its hand area paused
+    this.shoulder = null;
+    this.shoulderHold = null;
+    // A tournament table (snapshot `tournament`): no shoulder view there
+    this.tournamentTable = false;
     this._redealPending = false;
     // Bumped by every applied change (renderers compare it)
     this.version = 0;
@@ -830,6 +841,13 @@ export class GameState {
   /** gameStart: a new deal (a zero-bid redeal keeps the hand number). */
   applyDeal(data) {
     if (data.position) this.position = data.position;
+    // a watcher's deal: the watched seat's new hand (gameStart.shoulder)
+    const sh = this.isSpectator && !this.isLazy ? validShoulder(data.shoulder) : null;
+    if (sh) {
+      this.shoulder = { position: sh.position, paused: false };
+      this.shoulderHold = null;
+      this.position = sh.position;
+    }
     // another game (a tournament's next table): its own watchers
     if (data.gameId && this.gameId && data.gameId !== this.gameId) this.watching = { spectators: [], count: 0 };
     if (data.gameId) this.gameId = data.gameId;
@@ -842,7 +860,7 @@ export class GameState {
     this.dealSeq = (this.dealSeq || 0) + 1;
     this.trump = data.trump || null;
     this.trumpBroken = false;
-    this.myCards = Array.isArray(data.hand) ? [...data.hand] : [];
+    this.myCards = sh ? sh.hand.map((c) => ({ ...c })) : (Array.isArray(data.hand) ? [...data.hand] : []);
     this.isBidding = true;
     this.phase = PHASE.BIDDING;
     this.stage = 'BIDDING';
@@ -863,6 +881,9 @@ export class GameState {
     this.rainbows = [];
     this._setHandSizeForAll(this.currentHand);
     if (data.hsiValues) this.hsiValues = { ...data.hsiValues };
+    // the watched seat's HSI only (spectator gameStarts carry no hsiValues)
+    if (sh) this.hsiValues = sh.hsi !== null ? { [sh.position]: sh.hsi } : {};
+    else if (isShoulder(this)) this.hsiValues = {};
     if (data.score1 !== undefined && data.score2 !== undefined) {
       const [mine, theirs] = this._mine({ team1: data.score1, team2: data.score2 });
       this.teamScore = mine;
@@ -948,7 +969,8 @@ export class GameState {
     this.currentTrick.push({ card, position });
     this.playedCardIndex = this.playedCards.length % 4;
     if (this.seatCards[position] > 0) this.seatCards[position]--;
-    if (position === this.position && !this.isSpectator) {
+    // my own card, or the watched seat's (the shoulder view's hand)
+    if (position === this.position && (!this.isSpectator || isShoulder(this))) {
       const i = this.myCards.findIndex((c) => c.suit === card.suit && c.rank === card.rank);
       if (i !== -1) this.myCards.splice(i, 1);
       this.hasPlayedCard = true;
@@ -1156,6 +1178,22 @@ export class GameState {
     this.isLazy = role === 'lazyWatcher';
     if (snap.viewer?.position) this.position = snap.viewer.position;
     else if (this.isSpectator) this.position = 1;
+    // the over-the-shoulder view: the snapshot's viewer.shoulder (the wire
+    // keeps viewer.position null: the table is drawn from the watched seat
+    // here); without one, a paused table keeps the held seat (no cards)
+    this.tournamentTable = !!snap.tournament;
+    const sh = this.isSpectator ? validShoulder(snap.viewer?.shoulder) : null;
+    if (!this.isSpectator || !sameGame) this.shoulderHold = null;
+    const hold = !sh && this.isSpectator ? this.shoulderHold : null;
+    if (sh) {
+      this.shoulder = { position: sh.position, paused: false };
+      this.position = sh.position;
+    } else if (hold) {
+      this.shoulder = { position: hold, paused: true };
+      this.position = hold;
+    } else {
+      this.shoulder = null;
+    }
 
     this._seatsToPlayerData(snap.seats || [], players);
     this.seats = Array.isArray(snap.seats) ? snap.seats.map((s) => ({ ...s })) : [];
@@ -1173,7 +1211,8 @@ export class GameState {
 
     this.trump = snap.trump || null;
     this.trumpBroken = !!snap.trumpBroken;
-    this.myCards = Array.isArray(snap.hand) ? snap.hand.map((c) => ({ suit: c.suit, rank: c.rank })) : [];
+    this.myCards = sh ? sh.hand.map((c) => ({ ...c }))
+      : (Array.isArray(snap.hand) ? snap.hand.map((c) => ({ suit: c.suit, rank: c.rank })) : []);
     this.currentTurn = snap.turn?.position ?? null;
     this.isBidding = ['DEALING', 'BIDDING', 'REDEAL'].includes(snap.stage);
     if (deal) this.phase = this.isBidding ? PHASE.BIDDING : PHASE.PLAYING;
@@ -1219,7 +1258,7 @@ export class GameState {
       this.leadPosition = snap.trick.leadPosition ?? cards[0].position;
       this.leadCard = { ...cards[0].card };
     }
-    this.hasPlayedCard = !this.isSpectator && !!this.position && cards.some((c) => c.position === this.position);
+    this.hasPlayedCard = (!this.isSpectator || !!sh) && !!this.position && cards.some((c) => c.position === this.position);
 
     const [teamTricks, oppTricks] = this._mine(snap.tricks);
     this.teamTricks = teamTricks;
@@ -1241,6 +1280,7 @@ export class GameState {
 
     this.hsiValues = {};
     if (Array.isArray(snap.hsi)) snap.hsi.forEach((v, i) => { if (typeof v === 'number') this.hsiValues[i + 1] = v; });
+    if (sh && sh.hsi !== null) this.hsiValues[sh.position] = sh.hsi;
 
     this.seatCards = { 1: 0, 2: 0, 3: 0, 4: 0 };
     for (const s of this.seats) this.seatCards[s.position] = s.cardsInHand || 0;
@@ -1250,6 +1290,64 @@ export class GameState {
     this._changed();
     this._emit('stateRestored', snap);
     this._companyChanged();
+  }
+
+  // ============================================
+  // The over-the-shoulder view (state/shoulder.js)
+  // ============================================
+
+  /**
+   * Draw the table from seat `pos` (the watched seat, or seat 1 again):
+   * the per-team values follow the viewer's side, the names their seats.
+   */
+  _reorient(pos) {
+    const old = this.position || 1;
+    this.position = pos;
+    if (old % 2 !== pos % 2) {
+      [this.teamTricks, this.oppTricks] = [this.oppTricks, this.teamTricks];
+      [this.teamScore, this.oppScore] = [this.oppScore, this.teamScore];
+      [this.teamRainbows, this.oppRainbows] = [this.oppRainbows, this.teamRainbows];
+    }
+    if (Object.keys(this.bids).length) this._updateTeamBids();
+    this._updatePlayerNames();
+  }
+
+  /**
+   * Table view (the person's own stop; the server always does a stop, but
+   * sends nothing from a paused table): the plain spectator view at once.
+   * @returns {boolean} whether a seat was watched
+   */
+  applyShoulderStop() {
+    this.shoulderHold = null;
+    if (!this.shoulder) return false;
+    this.shoulder = null;
+    this.myCards = [];
+    this.hsiValues = {};
+    this.hasPlayedCard = false;
+    if (this.isSpectator) this._reorient(1);
+    this._changed();
+    this._emit('handChanged', this.myCards);
+    return true;
+  }
+
+  /**
+   * The paused rule (ShoulderWatch): hold seat `pos` while the table is
+   * paused, its hand area empty (no stale cards), drawn from that seat;
+   * null: hold nothing (a reply or a snapshot shows what is served).
+   */
+  setShoulderHold(pos) {
+    if (!pos || !this.isSpectator || this.isLazy) {
+      this.shoulderHold = null;
+      return;
+    }
+    this.shoulderHold = pos;
+    this.shoulder = { position: pos, paused: true };
+    this.myCards = [];
+    this.hsiValues = {};
+    this.hasPlayedCard = false;
+    this._reorient(pos);
+    this._changed();
+    this._emit('handChanged', this.myCards);
   }
 
   /** {position -> seat socket id} from playerData (the voice glow's fallback). */
@@ -1367,7 +1465,8 @@ export class GameState {
     const role = this.isSpectator ? 'spectator' : (this.isLazy ? 'lazyWatcher' : 'seat');
     const position = this.position || (this.isSpectator ? 1 : null);
     const same = (a, b) => a && b && a.suit === b.suit && a.rank === b.rank;
-    const hand = this.isSpectator ? null : [...this.myCards];
+    const shoulder = isShoulder(this);
+    const hand = this.isSpectator && !shoulder ? null : [...this.myCards];
     const trick = this.playedCards.map((p) => ({ position: p.position, card: { ...p.card } }));
     if (pendingCard && hand && !trick.some((c) => c.position === position)) {
       const i = hand.findIndex((c) => same(c, pendingCard));
@@ -1383,7 +1482,11 @@ export class GameState {
       gameId: this.gameId,
       stage: this.stage,
       live,
-      viewer: { role, position, canAct: this.canAct({ pending: !!pendingCard || pendingBid }) },
+      viewer: {
+        role, position, canAct: this.canAct({ pending: !!pendingCard || pendingBid }),
+        // the watched seat (the over-the-shoulder view), only while watching
+        ...(shoulder && { shoulder: { ...this.shoulder } }),
+      },
       hand,
       handSize: this.currentHand,
       handNo: this.handNo,

@@ -290,6 +290,11 @@ export class CardManager {
       const hitArea = new Phaser.Geom.Rectangle(0, 0, sprite.width, sprite.height);
       sprite.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
       this._setupCardInteraction(sprite);
+      // a watched seat's hand (the over-the-shoulder view): shown, never played
+      if (this._readOnly) {
+        sprite.disableInteractive();
+        sprite.setData('isLegal', false);
+      }
 
       this._handSprites.push(sprite);
     });
@@ -617,6 +622,13 @@ export class CardManager {
 
       const wasLegal = sprite.getData('isLegal');
 
+      // a read-only hand (setReadOnly): bright, never playable
+      if (this._readOnly) {
+        sprite.clearTint();
+        sprite.setData('isLegal', false);
+        return;
+      }
+
       // If player can't play, dim all cards
       if (!canPlay) {
         sprite.setTint(DIM_TINT);
@@ -689,6 +701,29 @@ export class CardManager {
       }
     });
     this._syncA11y();
+  }
+
+  /**
+   * A read-only hand (the over-the-shoulder view: the watched seat's cards):
+   * drawn bright, never interactive or playable, whatever the legality
+   * updates say; off again for my own hand.
+   * @param {boolean} on
+   */
+  setReadOnly(on) {
+    this._readOnly = !!on;
+    if (!on) return;
+    this._handSprites.forEach((sprite) => {
+      if (!sprite || !sprite.active) return;
+      sprite.disableInteractive();
+      sprite.clearTint();
+      sprite.setData('isLegal', false);
+    });
+    this._syncA11y();
+  }
+
+  /** Is the hand read-only (setReadOnly)? */
+  isReadOnly() {
+    return !!this._readOnly;
   }
 
   /**

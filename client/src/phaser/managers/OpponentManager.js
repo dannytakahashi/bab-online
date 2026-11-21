@@ -10,6 +10,7 @@
 import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
 import { team, rotate } from '../../utils/positions.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
+import { getShoulderWatch } from '../../state/shoulder.js';
 import { sceneTween } from '../TableDirector.js';
 import { layoutOf, fanPositions } from '../layout/computeTableLayout.js';
 import { hudSeat, hudRoot } from '../../ui/tableHud.js';
@@ -346,7 +347,11 @@ export class OpponentManager {
     // the avatar outlives its first player (built once per game): the click
     // reads the seat's name now, so a bot that took the seat (or the human
     // back from /lazy) is whose profile it opens
+    // A spectator's click watches that seat's hand instead (the
+    // over-the-shoulder view, state/shoulder.js: the watched seat's own box
+    // and a seat it may not watch still open the profile)
     container.addEventListener('click', () => {
+      if (getShoulderWatch().avatarClick(Number(container.dataset.position)) === 'watch') return;
       const sm = getSocketManager();
       if (sm.socket) {
         sm.socket.emit('getPlayerProfile', scopePayload({ username: container.dataset.username }));

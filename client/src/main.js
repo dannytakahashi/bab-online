@@ -79,7 +79,9 @@ import { registerAllHandlers } from './handlers/index.js';
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
 import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState, setVoiceTalkView, resetVoiceTalkView } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
-import { renderSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSpeaking } from './ui/components/SpectatorBadge.js';
+import { renderSpectatorBadge as drawSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSpeaking } from './ui/components/SpectatorBadge.js';
+import { getShoulderWatch, isShoulder, watchingPillText, TABLE_VIEW_LABEL } from './state/shoulder.js';
+import { syncShoulderHud } from './ui/components/ShoulderHud.js';
 
 // Sound effects
 import { getSoundManager } from './audio/SoundManager.js';
@@ -910,7 +912,9 @@ function initializeApp() {
         }
         // Peer → seat by username: the seat's owner, then the name it
         // shows; the socket id only as a fallback (V1_REMOVALS #6 / #14).
-        // A spectator views from seat 1, whose player sits at the bottom
+        // A spectator views from seat 1, whose player sits at the bottom;
+        // a watcher (the over-the-shoulder view) from the watched seat,
+        // whose player is drawn in the own box (#player-avatar-container)
         const slotId = speakingSlotFor({
           username,
           socketId: id,
@@ -920,7 +924,9 @@ function initializeApp() {
           spectator: session.isSpectator,
         });
         if (slotId) {
-          const el = document.getElementById(`opponent-avatar-${slotId}`);
+          const el = slotId === 'bottom' && isShoulder(gameState)
+            ? document.getElementById('player-avatar-container')
+            : document.getElementById(`opponent-avatar-${slotId}`);
           if (el) el.classList.toggle('voice-speaking', isSpeaking);
         }
       }
@@ -948,6 +954,8 @@ function initializeApp() {
     // and the tutorial off (a rejoin's assistState / snapshot says again)
     forgetAssistUses();
     forgetTutorial();
+    // the over-the-shoulder view's selection goes with the table
+    getShoulderWatch().leave();
     earlyLogLines = null;
     getTableSounds().reset();
     const scene = getGameScene();
@@ -1050,7 +1058,7 @@ function initializeApp() {
           // lobby screen, ~1.75 s before startDraw, and nothing re-sends
           // it; a seat's live entry never runs a full render, so without
           // this the eye stayed away until a reload (owner, 2026-11-17)
-          renderSpectatorBadge(gameState.renderModel().watching, { me: gameState.username });
+          renderSpectatorBadge(gameState.renderModel().watching);
         },
       },
       [SCREEN.GAME_END]: {
@@ -1226,7 +1234,13 @@ function initializeApp() {
       indicator?.remove();
       return;
     }
-    const text = (kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit') + spectatorVoiceNote(kind);
+    // a spectator watching a seat's hand (the over-the-shoulder view): whose,
+    // and the way back to the plain table view
+    if (kind === 'spectator' && isShoulder(gameState)) kind = 'watching';
+    else if (kind === 'watching' && !isShoulder(gameState)) kind = 'spectator';
+    const text = kind === 'watching'
+      ? watchingPillText(gameState.getPlayerNameByPosition(gameState.shoulder.position), { paused: !!gameState.shoulder.paused }) + spectatorVoiceNote('spectator')
+      : (kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit') + spectatorVoiceNote(kind);
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
     const root = hudRoot();
@@ -1238,9 +1252,28 @@ function initializeApp() {
     // its color is the kind's (table.css #spectating-indicator.is-lazy / .is-spectating)
     indicator.classList.toggle('is-lazy', kind === 'lazy');
     indicator.classList.toggle('is-spectating', kind !== 'lazy');
+    indicator.classList.toggle('is-watching', kind === 'watching');
     indicator.setAttribute('role', 'status');
     indicator.dataset.kind = kind;
-    indicator.textContent = text;
+    if (kind !== 'watching') {
+      indicator.textContent = text;
+      return;
+    }
+    const label = document.createElement('span');
+    label.className = 'spectating-indicator__text';
+    label.textContent = text;
+    const back = document.createElement('button');
+    back.type = 'button';
+    back.className = 'spectating-indicator__action';
+    back.textContent = TABLE_VIEW_LABEL;
+    back.setAttribute('aria-label', 'Stop watching: back to the table view');
+    back.addEventListener('click', () => getShoulderWatch().stop());
+    indicator.replaceChildren(label, back);
+  }
+
+  /** Who is watching (the badge), each watcher's row naming the hand it watches. */
+  function renderSpectatorBadge(watching) {
+    return drawSpectatorBadge(watching, { me: gameState.username, seatName: (p) => gameState.getPlayerNameByPosition(p) });
   }
 
   /** A watcher's voice state on the pill: "(listening only)" (a refused microphone) or "Voice is full (8 people)". */
@@ -1293,7 +1326,7 @@ function initializeApp() {
     scene.renderScoreHeader?.();
     const role = model.viewer?.role;
     setSpectatingIndicator(role === 'lazyWatcher' ? 'lazy' : (role === 'spectator' ? 'spectator' : null));
-    renderSpectatorBadge(model.watching, { me: gameState.username });
+    renderSpectatorBadge(model.watching);
     return model;
   }
 
@@ -1332,6 +1365,16 @@ function initializeApp() {
       render: (snap) => scheduleRender({ log: logOf(snap), suffix }),
     });
   }
+
+  // The over-the-shoulder view (state/shoulder.js): what this spectator
+  // asks to watch; a local change (Table view, a pause) redraws the table
+  getShoulderWatch().configure({
+    getState: () => gameState,
+    emit: (event, payload) => socket.emit(event, payload),
+    onView: () => {
+      if (session.isAtTable) scheduleRender({});
+    },
+  });
 
   // Register all handlers with UI callbacks
   registerAllHandlers(socketMgr, {
@@ -1616,7 +1659,9 @@ function initializeApp() {
         session.supersedeTableWork();
         // The snapshot is the table (cli-20: names, turn glow, trump face up,
         // each opponent's cards); the log is the server's (one 'Game started!')
-        rebuildTable(data, { source: 'spectate', role: 'spectator', suffix: 'Joined as spectator!' });
+        const snap = rebuildTable(data, { source: 'spectate', role: 'spectator', suffix: 'Joined as spectator!' });
+        // the re-send rule: watch the seat wanted (the default, or my pick for this game)
+        if (snap) getShoulderWatch().afterFullState(snap);
         if (fromReturn) showInfo("Your lobby started its next game. You're watching it.");
       } else if (data.username) {
         // Notification that another spectator joined — show in game log
@@ -1668,7 +1713,7 @@ function initializeApp() {
         }
 
         // Create player info box (own avatar) immediately
-        if (scene.createPlayerInfoBox && !scene._playerInfo && !gameState.isSpectator) {
+        if (scene.createPlayerInfoBox && !scene._playerInfo && (!gameState.isSpectator || isShoulder(gameState))) {
           if (gameState.position && gameState.playerData) {
             scene.createPlayerInfoBox(gameState.playerData, gameState.position);
           }
@@ -1680,7 +1725,7 @@ function initializeApp() {
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
           scene.layoutManager.update();
-          scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator });
+          scene.layoutManager.createDomBackgrounds({ skipHandArea: gameState.isSpectator && !isShoulder(gameState) });
         }
 
         // Show the bid panel once the trump is face up (this deal only: the
@@ -1727,10 +1772,12 @@ function initializeApp() {
             director.delay(1000, () => scene.updatePlayerHsi(data.hsiValues[gameState.position]), { scope: 'deal' });
           }
 
-          // In lazy mode, disable card interaction after dealing
+          // In lazy mode, disable card interaction after dealing (a
+          // watched seat's hand is read-only: CardManager.setReadOnly)
           if (gameState.isLazy && scene.cardManager) {
             scene.cardManager.setInteractive(false);
           }
+          if (isShoulder(gameState)) scene.cardManager?.setReadOnly?.(true);
 
           // Display opponent card backs (skip avatars since already shown)
           if (scene.opponentManager) {
@@ -1918,6 +1965,8 @@ function initializeApp() {
       // the tutorial's tips go with the game (T.done is its log row)
       scene?.clearTips?.({ all: true });
       scene?.syncTutorial?.();
+      // the over-the-shoulder view's selection ends with the game
+      getShoulderWatch().ended();
 
       // Determine which team the player is on (positions 1,3 = Team 1, positions 2,4 = Team 2)
       // Spectators view from position 1 but aren't on either team
@@ -2152,12 +2201,16 @@ function initializeApp() {
     // at the table (a render draws it from the same state)
     onSpectatorsUpdated: (watching) => {
       if (!session.isAtTable) return;
-      renderSpectatorBadge(watching, { me: gameState.username });
+      renderSpectatorBadge(watching);
+      // the eye on a watched seat's avatar (the over-the-shoulder view)
+      getGameScene()?.updateSeatPlates?.();
     },
     // The bid clock changed (GameState and the tune have it): the bidder's
     // countdown on the bid sheet (BidManager reads the state's clock)
     onBidClock: () => {
       getGameScene()?.bidManager?.syncClock?.();
+      // a watched seat's clock pill (the over-the-shoulder view)
+      if (session.isAtTable) syncShoulderHud(gameState);
     },
     // My tutorial's state (private, unsequenced; the clientHello cap
     // tutorial): on / off and my /help count, at once (it may come between
@@ -2192,7 +2245,8 @@ function initializeApp() {
       }
       if (!session.isAtTable) return;
       if (gameState.gameId && data.snapshot.gameId && data.snapshot.gameId !== gameState.gameId) return;
-      applyTableSnapshot(data, {
+      const reply = data.reason === 'watchHand';
+      const snap = applyTableSnapshot(data, {
         source,
         render: (snap) => {
           const live = !!snap.deal && !['ENDED', 'ABORTED'].includes(snap.stage);
@@ -2200,6 +2254,19 @@ function initializeApp() {
           if (live) scheduleRender({ log: logOf(snap) });
         },
       });
+      // the over-the-shoulder view: my watchHand's answer, or a full state
+      // after which the watch is sent again when it is not what is served
+      if (snap && reply) getShoulderWatch().afterReply(snap);
+      else if (snap) getShoulderWatch().afterFullState(snap);
+    },
+    // The over-the-shoulder view: a refused watchHand (ShoulderWatch has
+    // decided: the own seat, paused, a tournament table); a deal that changed
+    // what the table is drawn from
+    onWatchHandRefused: (data, outcome) => {
+      console.log(`watchHand refused: ${data.reason} (${outcome})`);
+    },
+    onShoulderViewChanged: () => {
+      if (session.isAtTable) scheduleRender({});
     },
     onGameLogEntry: (data) => {
       // A hand's fault line (the server's, after handComplete): red, and
@@ -2212,6 +2279,8 @@ function initializeApp() {
       }
       if (data.type === 'system') {
         window.addToGameFeedFromLegacy?.(data.message, null);
+        // the paused rule (the over-the-shoulder view): keep the watched seat, re-send after the resume
+        getShoulderWatch().onLogLine(data.message);
       } else if (data.playerPosition !== undefined) {
         window.addToGameFeedFromLegacy?.(data.message, data.playerPosition);
       }

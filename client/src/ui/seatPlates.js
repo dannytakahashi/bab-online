@@ -10,9 +10,17 @@
  * The look is table.css (.hud-avatar-ring, .hud-bid-chip, .hud-pips).
  * updateSeatPlates is a projection of GameState: every call redraws all of
  * it, so nothing can go stale.
+ *
+ * The over-the-shoulder view (2026-11-21, state/shoulder.js): a seat whose
+ * hand someone watches carries an eye chip on the ring's top left
+ * (.hud-watch-chip, with the count past one; its title and label "Zach is
+ * watching Alice's hand"), for players and spectators alike, from the
+ * spectator entries' `shoulder` (GameState.watching).
  */
 import { team } from '../utils/positions.js';
 import { isBore, bidTricks, teamBidTotal } from '../rules/bids.js';
+import { watchersBySeat, watchTitle } from '../state/shoulder.js';
+import { EYE_ICON } from './components/SpectatorBadge.js';
 
 const MAX_PIPS = 13;
 
@@ -37,6 +45,11 @@ export function buildAvatarRing(img, position = null) {
   pips.className = 'hud-pips';
   pips.setAttribute('aria-hidden', 'true');
   ring.appendChild(pips);
+  const eye = document.createElement('span');
+  eye.className = 'hud-watch-chip';
+  eye.innerHTML = EYE_ICON;
+  eye.appendChild(document.createElement('b'));
+  ring.appendChild(eye);
   setRingPosition(ring, position);
   return ring;
 }
@@ -79,6 +92,27 @@ function seatPips(s, pos, me) {
   return { need, won: teamWon, title: `Team ${teamWon} of ${need}` };
 }
 
+/** One ring's eye chip: who watches this seat's hand (none: hidden). */
+function updateWatchChip(ring, names, s, pos) {
+  const eye = ring.querySelector(':scope > .hud-watch-chip');
+  if (!eye) return;
+  const on = names.length > 0;
+  eye.classList.toggle('is-on', on);
+  const count = eye.querySelector('b');
+  if (count) count.textContent = names.length > 1 ? String(names.length) : '';
+  if (!on) {
+    eye.removeAttribute('title');
+    eye.removeAttribute('aria-label');
+    eye.removeAttribute('role');
+    return;
+  }
+  const player = s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
+  const text = watchTitle(names, player, { me: s.username || null, mine: !s.isSpectator && pos === s.position });
+  eye.title = text;
+  eye.setAttribute('role', 'img');
+  eye.setAttribute('aria-label', text);
+}
+
 /**
  * Project the table's bids and tricks onto every ring under `root`.
  * @param {ParentNode} root - the HUD (or the document)
@@ -89,8 +123,10 @@ export function updateSeatPlates(root, s) {
   if (!root || !s) return;
   const me = s.position || 1;
   const bids = s.bids || {};
+  const watched = watchersBySeat(s.watching);
   for (const ring of root.querySelectorAll('.hud-avatar-ring[data-position]')) {
     const pos = Number(ring.dataset.position);
+    updateWatchChip(ring, watched[pos] || [], s, pos);
     // the chip: this seat's bid, once placed
     const chip = ring.querySelector(':scope > .hud-bid-chip');
     const bid = bids[pos];

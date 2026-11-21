@@ -11,6 +11,7 @@ import { getGameState } from '../../state/GameState.js';
 import { bidTotalsFor } from '../../rules/bids.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
+import { isPureSpectator } from '../../state/shoulder.js';
 import { helpDescription, helpIsUnlimited, HELP_COMMAND } from '../../state/assistHint.js';
 import { tutorialDescription, tutorialIsOn, TUTORIAL_COMMAND } from '../../state/tutorial.js';
 
@@ -19,12 +20,13 @@ const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
 
 /**
  * The seat the log is read from: a seat's (a lazy watcher's too) own; a
- * spectator's seat 1, as the score header's names are (seats 1/3 on the
+ * spectator's seat 1 (a watcher's, the watched seat's: the over-the-shoulder
+ * view draws the table from it), as the score header's names are (seats 1/3 on the
  * left: scoreHeaderNames) and rules/bids.js bidTotalsFor reads it. Never
  * null: with no seat, teamOf(null) gave seats 1/3's bids team B's colour
  * while bidTotalsFor counted them from seat 1.
  */
-const viewerSeat = (state) => (state.isSpectator ? 1 : (Number(state.position) || 1));
+const viewerSeat = (state) => (isPureSpectator(state) ? 1 : (Number(state.position) || 1));
 
 /** A div with a class and text. */
 function line(className, text, id = null) {
@@ -67,7 +69,7 @@ export function createGameLog({ onChatSubmit } = {}) {
   // until the score header is drawn: never a "Your Team" / "Opponents"
   // placeholder (owner 2026-11-17)
   const state = getGameState();
-  const placeholder = scoreHeaderNames(state.position, state.playerData, { spectator: !!state.isSpectator });
+  const placeholder = scoreHeaderNames(state.position, state.playerData, { spectator: isPureSpectator(state) });
   const teamScoreDiv = document.createElement('div');
   teamScoreDiv.id = 'teamScoreDisplay';
   teamScoreDiv.className = 'log-score__team is-mine';

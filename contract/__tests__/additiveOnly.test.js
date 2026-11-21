@@ -215,7 +215,10 @@ function baselineProblems(base, cur) {
             }
             if (dir === 's2c') payloadKeeps(be.payload, ce.payload, `${dir}.${name}`, problems);
             else c2sKeeps(name, be, ce, problems);
-            if (be.status !== ce.status && !(be.status === 'active' && ce.status === 'deprecated')) {
+            // (a c2s event the server already handles that a client now sends,
+            // unsent -> active, is additive: a shipped build never sent it)
+            const gainsSender = dir === 'c2s' && be.status === 'unsent' && ce.status === 'active';
+            if (be.status !== ce.status && !(be.status === 'active' && ce.status === 'deprecated') && !gainsSender) {
                 problems.push(`${dir}.${name}: status ${be.status} -> ${ce.status}`);
             }
         }
@@ -383,6 +386,18 @@ describe('fault injection: what the per-build guards catch', () => {
     test('a new card rank would throw in Card(from:) on the shipped builds', () => {
         const s = mutate((x) => { x.$defs.card.properties.rank.enum.push('XX'); });
         expect(checkDecodes(b6.decodes, s, b6.label)).toEqual(expect.arrayContaining([expect.stringMatching(/"XX"\] would throw \(Rank decodes only/)]));
+    });
+
+    test('a c2s event a client starts sending (unsent -> active) passes; the way back, or an s2c one, is caught', () => {
+        const base = JSON.parse(JSON.stringify(schema));
+        base.c2s.watchHand.status = 'unsent';
+        const cur = JSON.parse(JSON.stringify(schema));
+        cur.c2s.watchHand.status = 'active';
+        expect(baselineProblems(base, cur)).toEqual([]);
+        expect(baselineProblems(cur, base)).toEqual(['c2s.watchHand: status active -> unsent']);
+        const s2cBase = JSON.parse(JSON.stringify(schema));
+        s2cBase.s2c.watchHandRefused.status = 'unsent';
+        expect(baselineProblems(s2cBase, schema)).toEqual(['s2c.watchHandRefused: status unsent -> active']);
     });
 
     test('new optional properties, new required ones and new events pass', () => {

@@ -34,6 +34,7 @@ import { el, createIconButton } from '../kit/index.js';
 import { avatarSrc, applyAvatarImg, CUSTOM_FALLBACK } from '../../utils/avatar.js';
 import { hudSpectatorSlot } from '../tableHud.js';
 import { prefersReducedMotion } from '../motion.js';
+import { watcherRow } from '../../state/shoulder.js';
 
 /** An SF Symbol-like eye ("eye.fill"), drawn: no emoji in the UI. */
 export const EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
@@ -188,7 +189,7 @@ function build(slot) {
   slot.append(btn, pop);
 }
 
-function renderRows(list, spectators, me) {
+function renderRows(list, spectators, me, seatName) {
   const rows = [...list.children];
   spectators.forEach((s, i) => {
     let li = rows[i];
@@ -201,8 +202,13 @@ function renderRows(list, spectators, me) {
     }
     const src = s.avatarUrl || (s.pic ? avatarSrc(s.pic) : CUSTOM_FALLBACK);
     applyAvatarImg(li.querySelector('img'), src, { fallback: CUSTOM_FALLBACK }); // not lazy: at most 50 small images, shown at once on open
-    li.querySelector('.spectator-popover__name').textContent = s.username === me ? `${s.username} (you)` : s.username;
+    const name = s.username === me ? `${s.username} (you)` : s.username;
+    // the over-the-shoulder view: whose hand this watcher looks at ("Zach · watching Alice")
+    const player = s.shoulder && seatName ? seatName(s.shoulder) : null;
+    li.querySelector('.spectator-popover__name').textContent = watcherRow(name, player);
     li.dataset.username = s.username;
+    if (player) li.dataset.watching = String(s.shoulder);
+    else delete li.dataset.watching;
   });
   for (const extra of rows.slice(spectators.length)) extra.remove();
 }
@@ -212,8 +218,10 @@ function renderRows(list, spectators, me) {
  * @param {{spectators: Array<{username, pic, avatarUrl?}>, count: number}|null} watching
  * @param {Object} [opts]
  * @param {string|null} [opts.me] - my username (marked "(you)" in the list)
+ * @param {Function} [opts.seatName] - (position) => that seat's player's name: a watcher's row
+ *   says whose hand it watches (the over-the-shoulder view, spectator entries' `shoulder`)
  */
-export function renderSpectatorBadge(watching, { me = null } = {}) {
+export function renderSpectatorBadge(watching, { me = null, seatName = null } = {}) {
   const count = Math.max(0, watching?.count || 0);
   const spectators = Array.isArray(watching?.spectators) ? watching.spectators : [];
   let slot = hudSpectatorSlot({ create: false });
@@ -226,7 +234,7 @@ export function renderSpectatorBadge(watching, { me = null } = {}) {
   btn.setAttribute('aria-label', label);
   btn.querySelector('.spectator-badge__count').textContent = count > 99 ? '99+' : String(count);
   const pop = popoverOf(slot);
-  renderRows(pop.querySelector('.spectator-popover__list'), spectators, me);
+  renderRows(pop.querySelector('.spectator-popover__list'), spectators, me, seatName);
   const more = pop.querySelector('.spectator-popover__more');
   more.textContent = count > spectators.length ? `and ${count - spectators.length} more` : '';
   more.hidden = count <= spectators.length;

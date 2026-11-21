@@ -209,14 +209,19 @@ export function foldAvatarPayload(event, data) {
  * plain-text game-log lines. And tutorial (2026-11-19, state/tutorial.js):
  * this page draws the tutorial's rule tips and their Keep / Turn off, so the
  * server sends them as assistHint tips plus s2c assistState, and a new
- * account's first game starts with the tutorial on.
+ * account's first game starts with the tutorial on. And shoulderView
+ * (2026-11-21, state/shoulder.js): this page watches a seat's hand over the
+ * player's shoulder as a spectator (c2s watchHand, viewer.shoulder,
+ * gameStart.shoulder, assistHint watched, spectator entries' shoulder).
  */
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'];
+
 export function clientHello(version, build, capable = true) {
   return {
     client: 'web',
     version: String(version || '0.0.0').slice(0, 32),
     build: String(build || '').slice(0, 64),
-    caps: capable ? ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial'] : ['casualSpectators', 'playAgain', 'assist', 'tutorial'],
+    caps: capable ? ['avatarUrl', ...TABLE_CAPS] : [...TABLE_CAPS],
   };
 }
 

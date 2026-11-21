@@ -217,6 +217,12 @@ function applyRootVars(hud, L) {
   set('--assist-bid-top', bid.top);
   set('--assist-bid-w', bid.w);
   hud.dataset.assistBid = bid.side;
+  if (h?.rect) {
+    // the hand box's centre and width (the over-the-shoulder view's paused area)
+    set('--hand-cx', h.cx);
+    set('--hand-cy', h.y);
+    set('--hand-w', h.rect.w);
+  }
   if (h?.card) {
     const spot = assistHandSpot(L, cardW(assistW));
     set('--assist-x', spot.x);
