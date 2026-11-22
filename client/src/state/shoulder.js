@@ -109,6 +109,19 @@ export function watchersBySeat(watching) {
   return out;
 }
 
+/**
+ * Who a seat's eye chip names (owner 2026-11-21, the iOS rule:
+ * TableRenderModel.bottomWatchers): every watcher of the seat, except that a
+ * watcher sees the eye on the seat they watch only while someone else watches
+ * it too (alone, the spectator badge is their one eye; with others, the whole
+ * count, them included).
+ */
+export function seatEyeNames(s, pos, names) {
+  if (!names?.length) return [];
+  if (!isShoulder(s) || s.shoulder.position !== pos) return names;
+  return names.some((n) => n !== s.username) ? names : [];
+}
+
 /** Names as words: "Ann", "Ann and Bo", "Ann, Bo and Cy". */
 function nameList(names) {
   if (names.length <= 1) return names[0] || '';

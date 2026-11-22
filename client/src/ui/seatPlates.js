@@ -15,11 +15,13 @@
  * hand someone watches carries an eye chip on the ring's top left
  * (.hud-watch-chip, with the count past one; its title and label "Zach is
  * watching Alice's hand"), for players and spectators alike, from the
- * spectator entries' `shoulder` (GameState.watching).
+ * spectator entries' `shoulder` (GameState.watching). A watcher sees the eye
+ * on the seat they watch only while someone else watches it too
+ * (shoulder.js seatEyeNames).
  */
 import { team } from '../utils/positions.js';
 import { isBore, bidTricks, teamBidTotal } from '../rules/bids.js';
-import { watchersBySeat, watchTitle } from '../state/shoulder.js';
+import { watchersBySeat, watchTitle, seatEyeNames } from '../state/shoulder.js';
 import { EYE_ICON } from './components/SpectatorBadge.js';
 
 const MAX_PIPS = 13;
@@ -126,7 +128,7 @@ export function updateSeatPlates(root, s) {
   const watched = watchersBySeat(s.watching);
   for (const ring of root.querySelectorAll('.hud-avatar-ring[data-position]')) {
     const pos = Number(ring.dataset.position);
-    updateWatchChip(ring, watched[pos] || [], s, pos);
+    updateWatchChip(ring, seatEyeNames(s, pos, watched[pos]), s, pos);
     // the chip: this seat's bid, once placed
     const chip = ring.querySelector(':scope > .hud-bid-chip');
     const bid = bids[pos];

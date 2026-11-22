@@ -18,7 +18,7 @@ import { parseSnapshotV2, parseWatching } from './snapshotV2.js';
 import { hintIsLive, assistFooter, isWatchedHint, FOOTER_BOT } from './assistHint.js';
 import {
   ShoulderWatch, validShoulder, isShoulder, isPureSpectator, isViewedSeat, firstHumanSeat, ownSeatOf,
-  watchersBySeat, watchTitle, watcherRow, watchingPillText, pausedText, PAUSE_LINE, RESUME_LINE, STORAGE_KEY,
+  watchersBySeat, watchTitle, watcherRow, watchingPillText, pausedText, PAUSE_LINE, RESUME_LINE, STORAGE_KEY, seatEyeNames,
 } from './shoulder.js';
 
 const FIXTURE = fileURLToPath(new URL('../../../contract/fixtures/shoulder/events.json', import.meta.url));
@@ -106,6 +106,22 @@ describe('helpers and words', () => {
     expect(watchingPillText('Alice', { paused: true })).toBe("Watching Alice's hand · paused");
     expect(pausedText('Alice')).toBe("Paused: Alice's hand comes back when the game resumes.");
     expect(watchersBySeat({ spectators: [{ username: 'a', shoulder: 2 }, { username: 'b' }, { username: 'c', shoulder: 2 }] })).toEqual({ 2: ['a', 'c'] });
+  });
+});
+
+describe('seatEyeNames: the eye on the seat a watcher watches', () => {
+  const watcher = { isSpectator: true, isLazy: false, username: 'me', shoulder: { position: 2, hand: [] } };
+  it('a watcher sees it only with someone else on that hand, with the whole count', () => {
+    expect(seatEyeNames(watcher, 2, ['me'])).toEqual([]);
+    expect(seatEyeNames(watcher, 2, ['me', 'yan'])).toEqual(['me', 'yan']);
+    expect(seatEyeNames(watcher, 2, ['yan'])).toEqual(['yan']);
+    expect(seatEyeNames(watcher, 3, ['me'])).toEqual(['me']);
+  });
+  it('a player, a lazy watcher and the plain view see every watcher', () => {
+    expect(seatEyeNames({ isSpectator: false, username: 'me', position: 2 }, 2, ['zed'])).toEqual(['zed']);
+    expect(seatEyeNames({ isSpectator: true, isLazy: true, username: 'me', shoulder: { position: 2, hand: [] } }, 2, ['me'])).toEqual(['me']);
+    expect(seatEyeNames({ isSpectator: true, username: 'me', shoulder: null }, 2, ['me'])).toEqual(['me']);
+    expect(seatEyeNames(watcher, 2, undefined)).toEqual([]);
   });
 });
 
