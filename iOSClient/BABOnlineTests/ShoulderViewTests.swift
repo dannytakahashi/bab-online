@@ -790,10 +790,11 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertNotNil(scene.transientLayer.childNode(withName: "chat.3"), "the other seats' as before")
     }
 
-    func testAWatcherSeesNoEyeByTheWatchedHand() throws {
-        // owner 2026-11-21 (iPad): "two eye icons" while watching: the watched seat's own eye at
-        // the hand's right end and the watcher's badge. The badge is the watcher's; the seat eye
-        // by the hand is for the player whose hand it is, so a watcher gets none there
+    func testAWatcherSeesTheEyeByTheWatchedHandOnlyWithOthers() throws {
+        // owner 2026-11-21 (iPad): "two eye icons" while watching alone (the watched seat's eye
+        // at the hand's right end and the watcher's own badge), then "kinda nice when there are
+        // multiple spectators": alone, the badge is the one eye; with others on the same hand,
+        // the eye by it again, with the whole count
         let h = ReplayHarness()
         h.store.apply(.local(.identity(username: "viewer", playerId: "sid-viewer")))
         let raw = try snapDict { r in
@@ -811,14 +812,49 @@ final class ShoulderViewTests: XCTestCase {
         scene.configure(gameState: h.store, actions: h.actions)
         scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
         let gameId = h.store.state.table.gameId ?? ""
-        // me and another watcher on seat 1, a third on seat 3
-        h.store.apply(serverEvent: "spectatorsUpdated", payload: [["gameId": gameId, "count": 3, "spectators": [
-            ["username": "viewer", "pic": 3, "shoulder": 1], ["username": "yan", "pic": 4, "shoulder": 1],
-            ["username": "xena", "pic": 5, "shoulder": 3]]]])
-        XCTAssertEqual(h.store.state.players.watching.watchersBySeat[1]?.count, 2, "seat 1 is watched")
-        XCTAssertTrue(scene.watchChip(make: false)?.isHidden ?? true, "no eye by the watched hand")
+        func watchers(_ list: [[String: Any]]) {
+            h.store.apply(serverEvent: "spectatorsUpdated", payload: [["gameId": gameId, "count": list.count, "spectators": list]])
+        }
+        let meOn1: [String: Any] = ["username": "viewer", "pic": 3, "shoulder": 1]
+        let xenaOn3: [String: Any] = ["username": "xena", "pic": 5, "shoulder": 3]
         let seat3 = try XCTUnwrap(scene.opponentManager.nodes[3])
+        // alone on seat 1 (another watcher elsewhere): no eye by the hand
+        watchers([meOn1, xenaOn3])
+        XCTAssertEqual(h.store.state.players.watching.watchersBySeat[1], ["viewer"])
+        XCTAssertTrue(scene.watchChip(make: false)?.isHidden ?? true, "alone: no eye by the watched hand")
         XCTAssertEqual(seat3.watchChip(make: false)?.count, 1, "another seat's eye is still shown")
+        // yan joins me on seat 1: the eye, counting us both, at the hand's right end
+        watchers([meOn1, ["username": "yan", "pic": 4, "shoulder": 1], xenaOn3])
+        let eye = try XCTUnwrap(scene.watchChip(make: false))
+        XCTAssertFalse(eye.isHidden, "with another watcher: the eye by the hand")
+        XCTAssertEqual(eye.count, 2, "the whole count, me included")
+        let chip = scene.layout.myWatchChip(handCount: scene.lastModel?.hand?.cards.count ?? 0, count: 2)
+        XCTAssertEqual(eye.position.x, chip.midX, accuracy: 0.01)
+        XCTAssertEqual(eye.position.y, chip.midY, accuracy: 0.01)
+        // yan moves on: alone again, the eye goes
+        watchers([meOn1, ["username": "yan", "pic": 4, "shoulder": 3]])
+        XCTAssertTrue(eye.isHidden, "alone again: no eye")
+        XCTAssertEqual(seat3.watchChip(make: false)?.count, 1)
+    }
+
+    func testTheBottomEyesWatchers() {
+        var list = WatchingList()
+        list.spectators = [.init(username: "viewer", pic: nil, avatarUrl: nil, shoulder: 1), .init(username: "yan", pic: nil, avatarUrl: nil, shoulder: 1),
+                           .init(username: "xena", pic: nil, avatarUrl: nil, shoulder: 2), .init(username: "wes", pic: nil, avatarUrl: nil, shoulder: nil)]
+        list.count = 4
+        let mine = TableRenderModel.Hand(cards: [], legalIds: [], interactive: false)
+        let watched = TableRenderModel.Hand(cards: [], legalIds: [], interactive: false, readOnly: true)
+        func eye(_ seat: Int, _ hand: TableRenderModel.Hand?, me: String?, table: Bool = true) -> [String] {
+            TableRenderModel.bottomWatchers(list, seat: seat, hand: hand, showsTable: table, me: me)
+        }
+        XCTAssertEqual(eye(1, watched, me: "viewer"), ["viewer", "yan"], "a watcher with another: all of us")
+        XCTAssertEqual(eye(2, watched, me: "xena"), [], "a watcher alone: none (the badge is the eye)")
+        XCTAssertEqual(eye(2, watched, me: "viewer"), ["xena"], "others only (a stale list without me)")
+        XCTAssertEqual(eye(2, mine, me: "kim"), ["xena"], "my own seat: everyone watching me")
+        XCTAssertEqual(eye(3, mine, me: "hal"), [], "my hand unwatched")
+        XCTAssertEqual(eye(1, nil, me: "viewer"), [], "no hand (a plain spectator)")
+        XCTAssertEqual(eye(1, watched, me: "viewer", table: false), [], "off the table")
+        XCTAssertEqual(eye(1, watched, me: nil), ["viewer", "yan"], "me unknown: others are there")
     }
 
     func testASeatsAvatarTapStillOpensTheProfile() throws {

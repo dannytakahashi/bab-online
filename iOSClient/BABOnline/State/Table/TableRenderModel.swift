@@ -77,6 +77,12 @@ struct TableRenderModel: Equatable {
     var bidBubbles: [Int: String]
     /// Who is watching (the badge itself is SwiftUI; the scene places the spectator chat bubble by it).
     var watching: WatchingList
+    /// Who the eye by the bottom hand names (`GameSKScene.placeMyWatchers`, VoiceOver's
+    /// `SeatWatchAccessibility`): at my own seat everyone watching my hand; for a watcher the
+    /// watched hand's watchers only while someone besides me watches it too (owner 2026-11-21:
+    /// alone, the badge is the one eye; with others, "kinda nice when there are multiple
+    /// spectators"); empty without a hand or off the table.
+    var bottomWatchers: [String]
     /// The seat that dealt this hand (gameStart `dealer`, the snapshot's deal): its dealer marker.
     var dealer: Int?
     /// I dealt, from a seat of my own (no avatar: the marker sits by my hand).
@@ -91,6 +97,14 @@ struct TableRenderModel: Equatable {
     /// The bidding phase (a watcher's eye and mic have a spot of their own then:
     /// TableLayout.watcherCluster(bidding:)).
     var bidding: Bool
+
+    /// `bottomWatchers`, pure: none without a hand on the table; at my own seat all of them; at
+    /// a watched (read-only) hand only when one of them is someone other than me.
+    static func bottomWatchers(_ watching: WatchingList, seat: Int, hand: Hand?, showsTable: Bool, me: String?) -> [String] {
+        guard let hand, showsTable, let names = watching.watchersBySeat[seat] else { return [] }
+        guard hand.readOnly else { return names }
+        return names.contains { $0 != me } ? names : []
+    }
 
     init(_ s: TableState) {
         let viewer = s.table.viewer
@@ -175,6 +189,7 @@ struct TableRenderModel: Equatable {
         } else {
             hand = nil
         }
+        bottomWatchers = Self.bottomWatchers(watching, seat: view, hand: hand, showsTable: showsTable, me: s.table.me.username)
 
         let rel = s.scores.tricks.relative(to: view)
         history = TeamPair(team1: rel.mine, team2: rel.theirs)

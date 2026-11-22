@@ -148,6 +148,23 @@ extension UIFixture {
             viewer.removeValue(forKey: "shoulder")
         }
         snap["viewer"] = viewer
+        // the list as the server keeps it: my entry carries the seat I watch (none for Table
+        // view), and `-uiWatchers` entries stay (they would go with this reply's list otherwise)
+        var watching = snap["watching"] as? [String: Any] ?? [:]
+        let me = spectatorName ?? "viewer"
+        var list = (watching["spectators"] as? [[String: Any]] ?? []).map { e -> [String: Any] in
+            guard e["username"] as? String == me else { return e }
+            var mine = e
+            mine["shoulder"] = position.map { $0 as Any } ?? NSNull()
+            return mine
+        }
+        if !list.contains(where: { $0["username"] as? String == me }) {
+            list.append(["username": me, "pic": NSNull(), "shoulder": position.map { $0 as Any } ?? NSNull()])
+        }
+        if let spec = watchersSpec { list += watcherEntries(spec) }
+        watching["spectators"] = list
+        watching["count"] = max(list.count, watching["count"] as? Int ?? 0)
+        snap["watching"] = watching
         snap["partial"] = ["log"]
         snap["seq"] = store.state.sync.lastSeq ?? (snap["seq"] as? Int ?? 0)
         _ = store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": snap, "reason": "watchHand"] as [String: Any]])
