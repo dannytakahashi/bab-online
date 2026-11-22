@@ -112,10 +112,13 @@ extension SKNode {
         }
     }
 
-    /// Not an accessibility element (also no `name`: see `role`).
+    /// Not an accessibility element (also no `name`: see `role`). A label's text is listed even
+    /// so (SpriteKit reads an SKLabelNode's text when it has no label of its own), so a label is
+    /// given an empty one.
     func hideFromAccessibility() {
         isAccessibilityElement = false
         accessibilityElementsHidden = true
+        if self is SKLabelNode { accessibilityLabel = "" }
     }
 
     /// An accessibility element reading `label` (a card, a seat's name, a chat line, a bid). A named
@@ -125,5 +128,20 @@ extension SKNode {
         isAccessibilityElement = true
         accessibilityLabel = label
         accessibilityTraits = traits
+    }
+}
+
+/// A drawing that VoiceOver reads as one element (a chat bubble, a bid bubble): a plain SKNode's
+/// `frame` is empty, and SpriteKit takes an element's VoiceOver frame from it, so the focus was a
+/// point at the node's position (2026-11-22). This one's frame is its children's drawn bounds in
+/// the parent's coordinates (position and scale; these nodes are never rotated).
+class SpokenGroupNode: SKNode {
+    override var frame: CGRect {
+        let drawn = children.reduce(CGRect.null) { $0.union($1.calculateAccumulatedFrame()) }
+        guard !drawn.isNull else { return CGRect(origin: position, size: .zero) }
+        let w = drawn.width * abs(xScale), h = drawn.height * abs(yScale)
+        let x = position.x + (xScale < 0 ? -drawn.maxX : drawn.minX) * abs(xScale)
+        let y = position.y + (yScale < 0 ? -drawn.maxY : drawn.minY) * abs(yScale)
+        return CGRect(x: x, y: y, width: w, height: h)
     }
 }
