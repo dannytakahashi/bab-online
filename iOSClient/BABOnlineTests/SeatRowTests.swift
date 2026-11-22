@@ -365,7 +365,7 @@ final class SeatRowTests: XCTestCase {
     func testMyHSIOnlyForASeat() throws {
         let seated = ReplayHarness()
         seated.store.apply(.snapshot(try T.snapshot("bidding-mid"), .rejoin, hints: nil))
-        XCTAssertEqual(try XCTUnwrap(seated.store.myHSI), 79.083, accuracy: 0.001, "seat 4's value")
+        XCTAssertEqual(try XCTUnwrap(seated.store.myHSI), 135.8, accuracy: 0.001, "seat 4's value (the fixture's HSI, server/game/hsi.js)")
         let spectator = ReplayHarness()
         spectator.store.apply(.snapshot(try T.snapshot("spectator-mid-hand"), .rejoin, hints: nil))
         XCTAssertTrue(spectator.store.isSpectator)

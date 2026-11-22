@@ -410,14 +410,15 @@ describe('purity and options', () => {
             'hsi', 'seats', 'entrants', 'draw', 'spectatorCount', 'watching', 'tournament', 'log', 'resume']);
     });
 
-    test('the builder requires only rules, GamePhase, SeatState, assistState (none) and spectatorWire (itself requiring only the stock avatar count)', () => {
+    test('the builder requires only rules (itself requiring only hsi), GamePhase, SeatState, assistState (none) and spectatorWire (itself requiring only the stock avatar count)', () => {
         const fs = require('fs');
         const reqsOf = (file) => [...fs.readFileSync(require.resolve(file), 'utf8').matchAll(/require\('([^']+)'\)/g)].map((m) => m[1]).sort();
         expect(reqsOf('../snapshotV2')).toEqual(['./GamePhase', './SeatState', './assistState', './rules', './spectatorWire']);
         expect(reqsOf('../assistState')).toEqual([]);
         expect(reqsOf('../spectatorWire')).toEqual(['../avatar/stockAvatars']);
         expect(reqsOf('../../avatar/stockAvatars')).toEqual([]);
-        expect(reqsOf('../rules')).toEqual([]);
+        expect(reqsOf('../rules')).toEqual(['./hsi']);
+        expect(reqsOf('../hsi')).toEqual([]);
     });
 });
 
