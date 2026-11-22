@@ -285,6 +285,14 @@ final class ShoulderViewUITests: XCTestCase {
         let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.waitForExistence(timeout: 5), "the watcher's own mic", file: file, line: line)
         XCTAssertEqual(app.buttons.matching(identifier: "Unmute microphone").count, 1, "one mic, not the pill's too", file: file, line: line)
+        // the iPhone Duo with its vertical bar: the watcher's mic is a bar item (owner 2026-11-22),
+        // the eye alone on the felt
+        if Fixture.usesVerticalBar(app) {
+            XCTAssertTrue(Fixture.probe(app, "table.voice").hasPrefix("at=bar"), Fixture.probe(app, "table.voice"), file: file, line: line)
+            XCTAssertTrue(mic.isHittable, "the bar's mic", file: file, line: line)
+            XCTAssertTrue(app.buttons["table.spectators"].waitForExistence(timeout: 5), "the eye", file: file, line: line)
+            return mic
+        }
         // one cluster (owner 2026-11-21): the mic directly above the eye, a small gap, centred on it
         let eye = app.buttons["table.spectators"]
         XCTAssertTrue(eye.waitForExistence(timeout: 5), "the eye", file: file, line: line)

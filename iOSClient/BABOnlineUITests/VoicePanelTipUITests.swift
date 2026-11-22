@@ -74,7 +74,7 @@ final class VoicePanelTipUITests: XCTestCase {
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         let t = tip(app)
         XCTAssertTrue(t.waitForExistence(timeout: 6))
-        app.buttons["Unmute microphone"].press(forDuration: 0.8)
+        Fixture.holdForVoicePanel(app, app.buttons["Unmute microphone"], duration: 0.8)
         XCTAssertTrue(waitForGone(t), "the panel opened: no tip")
         app.terminate()
     }

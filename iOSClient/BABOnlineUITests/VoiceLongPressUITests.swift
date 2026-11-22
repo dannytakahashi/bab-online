@@ -24,7 +24,7 @@ final class VoiceLongPressUITests: XCTestCase {
         for _ in 0..<2 {
             let mic = app.buttons["Unmute microphone"]
             XCTAssertTrue(mic.waitForExistence(timeout: 5), "muted at the start")
-            mic.press(forDuration: 1.0)
+            Fixture.holdForVoicePanel(app, mic)
             closePanel(app)
             XCTAssertTrue(app.buttons["Unmute microphone"].waitForExistence(timeout: 3), "still muted after the long press")
             XCTAssertFalse(app.buttons["Mute microphone"].exists, "the long press unmuted the mic")
@@ -37,7 +37,7 @@ final class VoiceLongPressUITests: XCTestCase {
         app.buttons["Unmute microphone"].tap()
         let live = app.buttons["Mute microphone"]
         XCTAssertTrue(live.waitForExistence(timeout: 3))
-        live.press(forDuration: 1.0)
+        Fixture.holdForVoicePanel(app, live)
         closePanel(app)
         XCTAssertTrue(app.buttons["Mute microphone"].waitForExistence(timeout: 3), "still unmuted after the long press")
         app.terminate()
@@ -48,7 +48,7 @@ final class VoiceLongPressUITests: XCTestCase {
         let app = Fixture.launch("game-lobby", extra: ["-uiVoice", "YES"])
         let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.waitForExistence(timeout: 20), "muted at the start")
-        mic.press(forDuration: 1.0)
+        Fixture.holdForVoicePanel(app, mic)
         closePanel(app)
         XCTAssertTrue(app.buttons["Unmute microphone"].waitForExistence(timeout: 3), "still muted after the long press")
         XCTAssertFalse(app.buttons["Mute microphone"].exists)
@@ -63,7 +63,7 @@ final class VoiceLongPressUITests: XCTestCase {
         let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "muted"])
         let mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(mic.waitForExistence(timeout: 20))
-        mic.press(forDuration: 1.0)
+        Fixture.holdForVoicePanel(app, mic)
         closePanel(app)
         XCTAssertTrue(app.buttons["Unmute microphone"].waitForExistence(timeout: 3), "still muted after the long press")
         app.terminate()
@@ -71,7 +71,7 @@ final class VoiceLongPressUITests: XCTestCase {
         let denied = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "denied"])
         let phones = denied.buttons["Listening only (no mic access)"]
         XCTAssertTrue(phones.waitForExistence(timeout: 20))
-        phones.press(forDuration: 1.0)
+        Fixture.holdForVoicePanel(denied, phones)
         closePanel(denied)
         XCTAssertTrue(denied.buttons["Listening only (no mic access)"].waitForExistence(timeout: 3))
         denied.terminate()

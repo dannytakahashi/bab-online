@@ -30,6 +30,21 @@ enum Fixture {
         return app
     }
 
+    /// The system shows the vertical bar (the iPhone Duo closed, open in landscape, book pose:
+    /// "ui.pose" ends "vbar <edge>"): the table's controls and my mic are bar items there.
+    static func usesVerticalBar(_ app: XCUIApplication) -> Bool {
+        let pose = probe(app, "ui.pose")
+        return pose.contains(" vbar ") && !pose.hasSuffix("vbar -")
+    }
+
+    /// Touch and hold my mic for the voice panel: on the felt the hold opens it, in the vertical
+    /// bar it opens the mic's menu, whose "Voice panel…" opens it (VoiceBarButton).
+    static func holdForVoicePanel(_ app: XCUIApplication, _ mic: XCUIElement, duration: TimeInterval = 1.0) {
+        mic.press(forDuration: duration)
+        let item = app.buttons["Voice panel\u{2026}"]
+        if item.waitForExistence(timeout: 1.5) { item.tap() }
+    }
+
     static func probe(_ app: XCUIApplication, _ id: String) -> String {
         let e = app.descendants(matching: .any)[id]
         guard e.waitForExistence(timeout: 5) else { return "<no \(id)>" }

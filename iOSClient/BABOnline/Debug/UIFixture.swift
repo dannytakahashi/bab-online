@@ -796,6 +796,8 @@ final class TableDebugProbe: ObservableObject {
     /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
     /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
     @Published var tableShoulder = "-"
+    /// Where my mic is (UIFixture+SelfSpeaking): "at=bar|felt|- symbol=<sf symbol> tint=red|green|-".
+    @Published var tableVoice = "-"
     /// The spectator badge's speaking outline (SpectatorBadgeView, SpeakingWatchers):
     /// "lit=<0|1> names=<a,b|-> unnamed=<n>"; "-" while no badge shows.
     @Published var spectatorsSpeaking = "-"
@@ -998,6 +1000,7 @@ struct FixtureProbes: View {
             dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
             dot("table.shoulder", probe.tableShoulder)
+            dot("table.voice", probe.tableVoice)
             dot("table.spectatorsSpeaking", probe.spectatorsSpeaking)
             Spacer()
         }
