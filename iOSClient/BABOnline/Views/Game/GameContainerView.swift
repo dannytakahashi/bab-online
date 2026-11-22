@@ -132,12 +132,25 @@ private struct GameScreen: View {
     /// 1.2.2 (12); a watcher's own is above the eye, `watcherVoice`: owner 2026-11-21, the watched
     /// seat's row shows only that player).
     private var seatRowVoice: Bool {
-        if isWatching { return false }
+        if isWatching || micInBar { return false }
+        return seatVoiceOn
+    }
+
+    /// My own voice button is up at a seat (my seat's row, or the vertical bar).
+    private var seatVoiceOn: Bool {
         #if DEBUG
         return (voiceManager.isActive || UIFixture.showsVoiceButton) && !isPureSpectator
         #else
         return voiceManager.isActive && !isPureSpectator
         #endif
+    }
+
+    /// The vertical bar (the Duo closed, open in landscape, book pose) holds my mic instead of
+    /// the felt (owner 2026-11-22): a seat's (my seat's row) and a spectator's (the pill's, or a
+    /// watcher's above the eye) alike, while the bar shows the table's controls. Everywhere else
+    /// (other phones, the iPad, the open Duo in portrait) the felt keeps it, unchanged.
+    private var micInBar: Bool {
+        showsBarControls && (seatVoiceOn || (isPureSpectator && showsSpectatorVoice))
     }
 
     /// The watched player is talking (voice): by the seat owner's username (as the scene's
@@ -206,6 +219,25 @@ private struct GameScreen: View {
             .toolbar {
                 if showsBarControls {
                     ToolbarItem(placement: .topBarLeading) { leaveBarButton }
+                    if micInBar {
+                        // mute is one tap away: the last item the bar folds into its overflow
+                        // menu when Live Activities need the room
+                        if #available(iOS 27.0, *), !Self.barMicStandardPriority {
+                            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+                                .visibilityPriority(.high)
+                        } else {
+                            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+                        }
+                    }
+                    #if DEBUG
+                    // -uiBarFiller <n>: extra items that push the bar into its overflow menu
+                    ForEach(0..<UIFixture.barFiller, id: \.self) { i in
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {} label: { Label("Filler \(i + 1)", systemImage: "\(i + 1).circle") }
+                                .accessibilityIdentifier("bar.filler.\(i + 1)")
+                        }
+                    }
+                    #endif
                     if showsLogButton {
                         ToolbarItem(placement: .topBarTrailing) { logBarButton }
                     }
@@ -218,6 +250,10 @@ private struct GameScreen: View {
                 }
             }
             #if DEBUG
+            .task { await UIFixture.runSelfSpeaking() }
+            .onChange(of: voiceProbeText, initial: true) { _, text in
+                if UIFixture.isActive { TableDebugProbe.shared.tableVoice = text }
+            }
             .onChange(of: tutorialInBar, initial: true) { _, inBar in
                 if UIFixture.isActive { TableDebugProbe.shared.tutorialInBar = inBar }
             }
@@ -570,7 +606,7 @@ private struct GameScreen: View {
                     // hidden under my bid panel's turn, as my seat's row (the panel may span its spot)
                     // the over-the-shoulder view: the watcher's own mic, above the eye (never in
                     // the watched seat's row), shown with the read-only bid sheet too
-                    if showsTable && isWatching && showsSpectatorVoice {
+                    if showsTable && isWatching && showsSpectatorVoice && !micInBar {
                         watcherVoice(layout)
                     }
                     // (a watcher's eye and mic are one cluster clear of the read-only sheet: both stay)
@@ -804,6 +840,31 @@ private struct GameScreen: View {
         .accessibilityValue(unread > 0 ? "\(unread) unread" : "")
         .badge(unread)
         .id(voiceOverOn ? 0 : unread)
+    }
+
+    #if DEBUG
+    private var voiceProbeText: String {
+        let onFelt = seatRowVoice || (isPureSpectator && showsSpectatorVoice && !micInBar)
+        let listenOnly = voiceManager.isListenOnly || (isPureSpectator && fixtureSpectatorVoice == "denied")
+        return UIFixture.voiceProbe(inBar: micInBar, onFelt: onFelt, listenOnly: listenOnly, voice: voiceManager)
+    }
+    #endif
+
+    /// DEBUG `-uiBarMicPriority standard`: the bar's mic without its high visibility priority
+    /// (the overflow check's control case).
+    private static var barMicStandardPriority: Bool {
+        #if DEBUG
+        return UIFixture.barMicPriority == "standard"
+        #else
+        return false
+        #endif
+    }
+
+    /// My mic as a vertical bar item (VoiceBarButton): a tap mutes / unmutes, touch and hold
+    /// opens "Voice panel…".
+    private var micBarButton: some View {
+        VoiceBarButton(onPanel: { showVoicePanel = true },
+                       forceListenOnly: isPureSpectator && fixtureSpectatorVoice == "denied")
     }
 
     /// The tutorial's switch is a vertical bar item under the log's (owner 2026-11-20: the
@@ -1409,7 +1470,7 @@ private struct GameScreen: View {
                     // (muted at the start, a tap unmutes; headphones once the mic was refused; a
                     // long press opens the panel)
                     // (a watcher's mic is in the watched seat's row, where the seated layout has it)
-                    if showsSpectatorVoice && !isWatching {
+                    if showsSpectatorVoice && !isWatching && !micInBar {
                         VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,
                                         forceListenOnly: fixtureSpectatorVoice == "denied")
                     }

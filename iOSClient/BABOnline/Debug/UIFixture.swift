@@ -795,6 +795,8 @@ final class TableDebugProbe: ObservableObject {
     /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
     /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
     @Published var tableShoulder = "-"
+    /// Where my mic is (UIFixture+SelfSpeaking): "at=bar|felt|- symbol=<sf symbol> tint=red|green|-".
+    @Published var tableVoice = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
@@ -994,6 +996,7 @@ struct FixtureProbes: View {
             dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
             dot("table.shoulder", probe.tableShoulder)
+            dot("table.voice", probe.tableVoice)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
