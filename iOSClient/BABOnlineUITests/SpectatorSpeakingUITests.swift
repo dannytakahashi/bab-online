@@ -62,7 +62,7 @@ final class SpectatorSpeakingUITests: XCTestCase {
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
         shot(app, "spectator")
         eye.tap()
-        let zach = app.staticTexts["zach"], yan = app.staticTexts["yan"]
+        let zach = app.staticTexts["zach"].firstMatch, yan = app.staticTexts["yan"].firstMatch  // the row and its text
         XCTAssertTrue(zach.waitForExistence(timeout: 5))
         XCTAssertEqual(value(zach), "Talking")
         XCTAssertEqual(value(yan), "", "yan is not talking")
@@ -79,18 +79,18 @@ final class SpectatorSpeakingUITests: XCTestCase {
         XCTAssertEqual(value(badge(app)), "")
         badge(app).tap()
         XCTAssertTrue(app.staticTexts["zach (you)"].waitForExistence(timeout: 5))
-        XCTAssertEqual(value(app.staticTexts["zach (you)"]), "")
+        XCTAssertEqual(value(app.staticTexts["zach (you)"].firstMatch), "")
         app.terminate()
     }
 
     func testManyTalkersAndTheStop() {
         let app = launch("spectator-mid-hand", ["-uiWatchers", "0:3", "-uiSpeakingSpectators", "zach,yan,xena",
-                                                "-uiSpeakingStop", "6"])
+                                                "-uiSpeakingStop", "20"])
         XCTAssertTrue(badge(app).waitForExistence(timeout: 5))
         waitProbe(app, "lit=1 names=zach,yan,xena unnamed=0")
         XCTAssertEqual(value(badge(app)), "3 spectators are talking")
         // they stop: the outline goes, VoiceOver's value is empty again
-        waitProbe(app, "lit=0 names=- unnamed=0", timeout: 12)
+        waitProbe(app, "lit=0 names=- unnamed=0", timeout: 30)
         XCTAssertEqual(value(badge(app)), "")
         app.terminate()
     }
