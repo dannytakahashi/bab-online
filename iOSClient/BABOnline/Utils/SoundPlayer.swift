@@ -72,6 +72,9 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
     static let volumeKey = "soundVolume"
     /// Quiet: the files sit at -24 dBFS (cues -26), so this is well under the voice chat.
     static let defaultVolume: Float = 0.35
+    /// The Account sheet's volume slider: all the way down is silent (players 2026-11-21, iOS
+    /// 1.2.4 (33): it stopped at 5%, "you can't turn the sound all the way off").
+    static let volumeRange: ClosedRange<Float> = 0...1
     /// The same sound again within this is dropped (a burst never stacks).
     static let throttle: TimeInterval = 0.08
 

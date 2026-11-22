@@ -609,6 +609,24 @@ final class SoundEffectsTests: XCTestCase {
         XCTAssertEqual((defaults.object(forKey: SoundPlayer.volumeKey) as? NSNumber)?.floatValue, 1)
     }
 
+    func testTheSliderGoesAllTheWayToSilent() {
+        // players 2026-11-21 (iOS 1.2.4 (33)): the Account sheet's slider stopped at 5%
+        XCTAssertEqual(SoundPlayer.volumeRange.lowerBound, 0, "all the way down is off")
+        XCTAssertEqual(SoundPlayer.volumeRange.upperBound, 1)
+        let out = RecordingOutput()
+        let p = player(output: out)
+        p.volume = SoundPlayer.volumeRange.lowerBound
+        XCTAssertEqual(p.volume, 0)
+        p.play(.deal)
+        XCTAssertNil(p.playIfAllowed(.turn))
+        XCTAssertEqual(out.played.count, 0, "nothing plays at 0 with Sound on")
+        XCTAssertEqual((defaults.object(forKey: SoundPlayer.volumeKey) as? NSNumber)?.floatValue, 0)
+        XCTAssertEqual(player(output: RecordingOutput()).volume, 0, "0 is remembered, not the default")
+        p.volume = 0.2
+        p.play(.deal)
+        XCTAssertEqual(out.played.map(\.file), ["deal"], "up again plays again")
+    }
+
     func testSilentWhileTheAppIsNotActive() {
         let out = RecordingOutput()
         let session = FakeSession()

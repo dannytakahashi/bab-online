@@ -57,6 +57,38 @@ final class SoundToggleUITests: XCTestCase {
         for _ in 0..<6 where !(toggle.exists && toggle.isHittable) { app.swipeUp(velocity: .slow) }
     }
 
+    /// Players 2026-11-21 (iOS 1.2.4 (33)): "you can't turn the sound all the way off", the
+    /// slider stopped at 5%. Dragged to its left end it reads 0% and stays there.
+    func testTheVolumeSliderGoesToZero() {
+        func openSound(_ app: XCUIApplication) -> XCUIElement {
+            XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
+            app.buttons.matching(NSPredicate(format: "label == %@", "Account settings")).firstMatch.tap()
+            let toggle = app.switches["settings.sound"]
+            revealSound(app, toggle)
+            XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            if toggle.value as? String != "1" { toggle.switches.firstMatch.exists ? toggle.switches.firstMatch.tap() : toggle.tap() }
+            let slider = app.sliders["settings.soundVolume"]
+            XCTAssertTrue(slider.waitForExistence(timeout: 5))
+            return slider
+        }
+        var app = Fixture.launch("main-room")
+        var slider = openSound(app)
+        // from the middle (a stored 0 from an earlier run would make the drag below prove nothing)
+        slider.adjust(toNormalizedSliderPosition: 0.5)
+        XCTAssertNotEqual(Fixture.probe(app, "settings.soundVolume.stored"), "0.00", "up from 0 first")
+        // as a player does: the thumb dragged past the track's left end (adjust(toNormalized...)
+        // stops a little short of an end)
+        let thumb = slider.coordinate(withNormalizedOffset: CGVector(dx: slider.normalizedSliderPosition, dy: 0.5))
+        thumb.press(forDuration: 0.1, thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: -0.3, dy: 0.5)))
+        XCTAssertEqual(Fixture.probe(app, "settings.soundVolume.stored"), "0.00", "all the way down is 0, not 5%")
+        app.terminate()
+        app = Fixture.launch("main-room")
+        slider = openSound(app)
+        XCTAssertEqual(Fixture.probe(app, "settings.soundVolume.stored"), "0.00", "0 is remembered on the device")
+        slider.adjust(toNormalizedSliderPosition: 0.35)  // back near the default (SoundPlayer.defaultVolume)
+        app.terminate()
+    }
+
     func testAccountSheetSwitchIsTheSameSetting() {
         var app = Fixture.launch("main-room")
         XCTAssertTrue(Fixture.readyElement(app, "main-room").waitForExistence(timeout: 15))
