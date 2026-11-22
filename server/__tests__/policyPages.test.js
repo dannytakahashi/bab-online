@@ -142,5 +142,7 @@ describe('/support', () => {
         // every App Store build refuses /help on the device: never "older versions" only
         expect(html).not.toMatch(/older versions of the iOS app, type <strong>\?help/);
         expect(html).toContain('Each game you get 3 free uses; if you use /help a 4th time, that game counts as bot-assisted for you');
+        // owner 2026-11-21: only a win moves it to the bot-game statistics
+        expect(html).toContain('if you win, it goes in your bot-game statistics instead of your human ones and is listed with the bot games in Records; a loss or a tie stays in your human statistics.');
     });
 });

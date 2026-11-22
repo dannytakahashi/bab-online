@@ -173,7 +173,7 @@ router.get('/support', (req, res) => {
 
     <details>
         <summary>Can I get a hint during a game?</summary>
-        <p>Yes. On your turn, type <strong>/help</strong> in the game chat (in the iOS app, type <strong>?help</strong>; newer versions also accept /help) and you'll see the bid or card our strongest bot would choose in your seat, with a short reason. Only you see the suggestion; the table sees a line saying that you asked. Asking again on the same turn is free, and so is a move where you have only one legal card. Each game you get 3 free uses; if you use /help a 4th time, that game counts as bot-assisted for you: it goes in your bot-game statistics instead of your human ones, and the game is listed with the bot games in Records. This works in tournament games too.</p>
+        <p>Yes. On your turn, type <strong>/help</strong> in the game chat (in the iOS app, type <strong>?help</strong>; newer versions also accept /help) and you'll see the bid or card our strongest bot would choose in your seat, with a short reason. Only you see the suggestion; the table sees a line saying that you asked. Asking again on the same turn is free, and so is a move where you have only one legal card. Each game you get 3 free uses; if you use /help a 4th time, that game counts as bot-assisted for you: if you win, it goes in your bot-game statistics instead of your human ones and is listed with the bot games in Records; a loss or a tie stays in your human statistics. This works in tournament games too.</p>
     </details>
 
     <details>

@@ -144,7 +144,7 @@ describe('the confirm', () => {
     const dialog = document.querySelector('#tutorial-confirm [role="dialog"]');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
     expect(dialog.querySelector('.kit-modal__title').textContent).toBe('Turn on the tutorial?');
-    expect(dialog.querySelector('.kit-modal__body').textContent).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.");
+    expect(dialog.querySelector('.kit-modal__body').textContent).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats.");
     expect([...dialog.querySelectorAll('.kit-modal__actions button')].map((b) => b.textContent)).toEqual(['Cancel', 'Turn on']);
     expect(document.activeElement.textContent).toBe('Cancel');
     document.activeElement.click();

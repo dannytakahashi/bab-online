@@ -40,7 +40,8 @@ const POSITIONS = [1, 2, 3, 4];
 /**
  * Free counted /help uses per player per game (plan D10, owner
  * 2026-11-18): the next one makes the game bot-assisted for that player
- * (their stats go to the bot-game bucket; profileHandlers.buildGameEndRecord).
+ * (since 2026-11-21 only a WIN goes to their bot-game bucket, a loss or tie
+ * stays in their human stats: assistedSeatMoves, profileHandlers.buildGameEndRecord).
  * In a game with a native bot seat (isFreeHelpGame) players see no limit,
  * but the record still marks a player past it (owner 2026-11-19).
  * Change it only with the owner.
@@ -136,6 +137,52 @@ function isFreeHelpGame(game) {
     return game.seatList().some((s) => s && s.controller === 'bot');
 }
 
+/** Seat controllers that make a finished game a bot game for every owner (profileHandlers, statsScope.js). */
+const BOT_GAME_CONTROLLERS = Object.freeze(new Set(['bot', 'resignBot']));
+
+/**
+ * Does `game` go to every owner's bot-game stats anyway (a native bot or a
+ * resign bot holds a seat at the end; lazy bots never count)? Then /help and
+ * the tutorial move nobody's stats (profileHandlers.buildGameEndRecord:
+ * bucket 'botStats').
+ * @param {Object|null|undefined} game - a GameState (or anything with seatList())
+ */
+function isBotStatsGame(game) {
+    if (!game || typeof game.seatList !== 'function') return false;
+    return game.seatList().some((s) => s && BOT_GAME_CONTROLLERS.has(s.controller));
+}
+
+/**
+ * How a finished game ended for the seat at `position`, by the final team
+ * scores (team 1 = seats 1 and 3, team 2 = seats 2 and 4; equal scores are a
+ * tie), as profileHandlers.seatStatsDelta credits wins / losses / draws.
+ * @param {Object} game - a finished game (game.score {team1, team2})
+ * @param {number} position - 1-4
+ * @returns {'won'|'lost'|'tied'}
+ */
+function seatOutcome(game, position) {
+    const t1 = game?.score?.team1;
+    const t2 = game?.score?.team2;
+    if (t1 === t2) return 'tied';
+    const isTeam1 = position === 1 || position === 3;
+    return (t1 > t2) === isTeam1 ? 'won' : 'lost';
+}
+
+/**
+ * Owner 2026-11-21 ("only move their stats to a bot game if they win! It's
+ * not perfect because it could still improve their score, but it seems like
+ * a better incentive"): does the bot-assisted seat at `position` (the caller
+ * checked isAssistedSeat) take this finished game to its owner's bot-game
+ * stats? Only when the seat's team WON; a loss or a tie stays in the
+ * player's human stats like any human game, so /help or the tutorial can no
+ * longer move a losing game out of the human leaderboard.
+ * @param {Object} game - a finished game
+ * @param {number} position - 1-4
+ */
+function assistedSeatMoves(game, position) {
+    return seatOutcome(game, position) === 'won';
+}
+
 /**
  * What `owner`'s record says, as the wire sends it: assistHint's uses /
  * freeUses / assisted and snapshot v2's viewer.assist (2026-11-19). In a
@@ -169,6 +216,9 @@ module.exports = {
     usedTutorial,
     tutorialTally,
     isFreeHelpGame,
+    isBotStatsGame,
+    seatOutcome,
+    assistedSeatMoves,
     helpUses,
     assistTally,
     ASSIST_SEAT_KEYS,

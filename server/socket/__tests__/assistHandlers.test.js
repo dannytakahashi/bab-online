@@ -291,7 +291,7 @@ test('3rd use warns (second private line), 4th crosses: the room says so once, l
         `${n} used /help.`,
     ]);
     expect(game.assist[asker].help).toBe(5);
-    expect(TEXT.warning).toBe('That\'s your 3rd free /help. The next one makes this game count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.');
+    expect(TEXT.warning).toBe('That\'s your 3rd free /help. The next one makes this game count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats.');
     await Promise.all(t.pending);
 });
 
@@ -648,13 +648,51 @@ test('game end: the assisted player (and only they) get the private line before 
     const endSocket = t.owner(asker).id;
     await advanceUntil(() => game.isTerminal(), 1000, 3_600_000);
     const end = t.w.log.findIndex((l) => l.event === 'gameEnd');
-    const line = t.w.log.findIndex((l) => l.event === 'gameLogEntry' && l.to === endSocket && l.data.message === TEXT.gameEnd(4));
+    // the line says where the stats went, by the final score (owner 2026-11-21)
+    const outcome = assistState.seatOutcome(game, asker);
+    const line = t.w.log.findIndex((l) => l.event === 'gameLogEntry' && l.to === endSocket && l.data.message === TEXT.gameEnd(4, outcome));
     expect(line).toBeGreaterThan(-1);
     expect(line).toBeLessThan(end);
     expect(t.w.log.filter((l) => l.event === 'gameLogEntry' && /counted as bot-assisted for you/.test(l.data.message)).map((l) => l.to)).toEqual([endSocket]);
-    expect(TEXT.gameEnd(4)).toBe('This game counted as bot-assisted for you (4 /help uses), so it\'s in your bot-game stats.');
+    expect(TEXT.gameEnd(4, 'won')).toBe('This game counted as bot-assisted for you (4 /help uses). You won, so it\'s in your bot-game stats.');
+    expect(TEXT.gameEnd(4, 'lost')).toBe('This game counted as bot-assisted for you (4 /help uses). You lost, so it stays in your human stats.');
+    expect(TEXT.gameEnd(4, 'tied')).toBe('This game counted as bot-assisted for you (4 /help uses). It was a tie, so it stays in your human stats.');
     await Promise.all(t.pending);
 }, 60000);
+
+test('game end line by outcome (owner 2026-11-21): won, lost and tied each say where the stats went; a resign-bot game only says a win', async () => {
+    const t = await lobbyGame('go', { seed: 5 });
+    const { game } = t;
+    const asker = game.currentTurn;
+    const other = (asker % 4) + 1;   // the other team
+    const n = t.name(asker);
+    game.assist[asker] = { ...assistState.defaultAssistSeat(), user: n, help: 4 };
+    game.assist[other] = { ...assistState.defaultAssistSeat(), user: t.name(other), help: 0, tutorialEver: true };
+    const askerTeam1 = asker % 2 === 1;
+    const lines = (mark) => t.since(mark).filter((l) => l.event === 'gameLogEntry' && l.to !== game.roomName).map((l) => [l.to, l.data.message]);
+    const run = (score) => {
+        game.score = score;
+        const mark = t.w.log.length;
+        assistHandlers.gameEndLines(t.w.io, game);
+        return lines(mark);
+    };
+    // the asker's team won: the asker's line says bot-game stats, the other (tutorial) seat's says human stats
+    const won = run(askerTeam1 ? { team1: 330, team2: 100 } : { team1: 100, team2: 330 });
+    expect(won).toHaveLength(2);
+    expect(won).toEqual(expect.arrayContaining([[t.owner(asker).id, TEXT.gameEnd(4, 'won')], [t.owner(other).id, TEXT.gameEndTutorial('lost')]]));
+    // lost and tied
+    expect(run(askerTeam1 ? { team1: 100, team2: 330 } : { team1: 330, team2: 100 }).find(([to]) => to === t.owner(asker).id)[1]).toBe(TEXT.gameEnd(4, 'lost'));
+    expect(run({ team1: 210, team2: 210 }).map(([, m]) => m).sort()).toEqual([TEXT.gameEnd(4, 'tied'), TEXT.gameEndTutorial('tied')].sort());
+    // a resign bot at the end: the whole game is in the bot-game stats, so a
+    // loss says nothing (its line would be untrue) and a win keeps its line
+    const third = [1, 2, 3, 4].find((p) => p !== asker && p !== other);
+    game.forceSeat(third, { controller: SeatState.Controller.RESIGN_BOT, presence: SeatState.Presence.GONE, bot: { socketId: 'go-rb', username: 'Bot3', pic: 3, personality: 'mary' } });
+    expect(assistState.isFreeHelpGame(game)).toBe(false);
+    expect(assistState.isBotStatsGame(game)).toBe(true);
+    expect(run(askerTeam1 ? { team1: 330, team2: 100 } : { team1: 100, team2: 330 })).toEqual([[t.owner(asker).id, TEXT.gameEnd(4, 'won')]]);
+    expect(run({ team1: 210, team2: 210 })).toEqual([]);
+    await Promise.all(t.pending);
+});
 
 test('snapshot viewer.assist (2026-11-19): the viewer\'s own count only, exact after a reload; never for a spectator', async () => {
     const t = await lobbyGame('va');
@@ -721,6 +759,20 @@ async function driveUses(t, asker, n, ask) {
         else await t.play();
     }
 }
+
+test('seatOutcome / assistedSeatMoves / isBotStatsGame (owner 2026-11-21: only a win moves a bot-assisted seat)', () => {
+    const g = (team1, team2) => ({ score: { team1, team2 } });
+    expect([1, 2, 3, 4].map((p) => assistState.seatOutcome(g(300, 120), p))).toEqual(['won', 'lost', 'won', 'lost']);
+    expect([1, 2, 3, 4].map((p) => assistState.seatOutcome(g(-40, 10), p))).toEqual(['lost', 'won', 'lost', 'won']);
+    expect([1, 2, 3, 4].map((p) => assistState.seatOutcome(g(200, 200), p))).toEqual(['tied', 'tied', 'tied', 'tied']);
+    expect([1, 2, 3, 4].map((p) => assistState.assistedSeatMoves(g(300, 120), p))).toEqual([true, false, true, false]);
+    expect(assistState.assistedSeatMoves(g(0, 0), 1)).toBe(false);
+    const seats = (...c) => ({ seatList: () => c.map((controller, i) => ({ position: i + 1, controller })) });
+    expect(assistState.isBotStatsGame(null)).toBe(false);
+    expect(assistState.isBotStatsGame(seats('human', 'lazyBot', 'human', 'human'))).toBe(false);
+    expect(assistState.isBotStatsGame(seats('human', 'resignBot', 'human', 'human'))).toBe(true);
+    expect(assistState.isBotStatsGame(seats('human', 'human', 'bot', 'human'))).toBe(true);
+});
 
 test('isFreeHelpGame: a native bot seat only (never a lazy or resign bot); none in an all-human game', async () => {
     expect(assistState.isFreeHelpGame(null)).toBe(false);

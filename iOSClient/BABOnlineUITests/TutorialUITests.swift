@@ -316,7 +316,7 @@ final class TutorialUITests: XCTestCase {
         chip.tap()
         let alert = app.alerts["Turn on the tutorial?"]
         XCTAssertTrue(alert.waitForExistence(timeout: 3))
-        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "it goes in your bot-game stats, not the human leaderboard")).firstMatch.exists,
+        XCTAssertTrue(alert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "a win goes in your bot-game stats, a loss or tie stays in your human stats")).firstMatch.exists,
                       "the stats words")
         shot(app, "confirm")
         alert.buttons["Cancel"].tap()

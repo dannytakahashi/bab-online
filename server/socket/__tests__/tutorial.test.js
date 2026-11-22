@@ -206,11 +206,23 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     mark = t.w.log.length;
     for (let i = 0; i < 4; i++) await t.move();
     expect(hintsTo(t, s.id, mark)).toEqual([]);
-    // the record marks the seat (the tutorial was on)
+    // the record marks the seat (the tutorial was on), and moves it only
+    // when its team won (owner 2026-11-21)
+    const team = p % 2 === 1 ? 1 : 2;
+    game.score = team === 1 ? { team1: 310, team2: 120 } : { team1: 120, team2: 310 };
     const record = profile.buildGameEndRecord(game);
     expect(record.statsDeltas.assist).toEqual({ [p]: { help: 0, tutorial: true } });
     expect(record.statsDeltas.bucketByPosition).toEqual({ [p]: 'botStats' });
-    expect(record.assistedTeams).toEqual([p % 2 === 1 ? 1 : 2]);
+    expect(record.assistedTeams).toEqual([team]);
+    expect(record.withBots).toBe(true);
+    // the same seat's team lost: a plain human game, the evidence kept
+    game.score = team === 1 ? { team1: 120, team2: 310 } : { team1: 310, team2: 120 };
+    const lost = profile.buildGameEndRecord(game);
+    expect(lost.statsDeltas.assist).toEqual({ [p]: { help: 0, tutorial: true } });
+    expect(lost.statsDeltas.bucket).toBe('stats');
+    expect(lost.statsDeltas).not.toHaveProperty('bucketByPosition');
+    expect(lost).not.toHaveProperty('assistedTeams');
+    expect(lost).not.toHaveProperty('withBots');
     expect(errorLog).toEqual([]);
 });
 
@@ -298,10 +310,27 @@ test('after the tutorial (off again): /help counts, but no 3rd-use warning or cr
     // the game end (called as handleHandComplete does): T.done only while on, the line names the tutorial
     rateLimiter.clearSocket(s.id);
     t.say(s, '/tutorial on');
+    // a game p's team won: the line says it went to the bot-game stats (owner 2026-11-21)
+    const won = p % 2 === 1 ? { team1: 280, team2: 140 } : { team1: 140, team2: 280 };
+    game.score = won;
     const m2 = t.w.log.length;
     assistHandlers.gameEndLines(t.w.io, game);
     expect(hintsTo(t, s.id, m2).map((x) => [x.kind, x.tipId, x.reasons[0]])).toEqual([['tip', 'T.done', 'Thanks for playing with the tutorial. Type /help any time for a suggestion.']]);
-    expect(t.since(m2).filter((l) => l.event === 'gameLogEntry' && l.to === s.id).map((l) => l.data.message)).toEqual([TEXT.gameEndTutorial]);
+    const endLines = (m) => t.since(m).filter((l) => l.event === 'gameLogEntry' && l.to === s.id).map((l) => l.data.message);
+    expect(endLines(m2)).toEqual([TEXT.gameEndTutorial('won')]);
+    expect(TEXT.gameEndTutorial('won')).toBe('This game counted as bot-assisted for you (you played with the tutorial). You won, so it\'s in your bot-game stats.');
+    // lost, and tied: it stayed in the human stats (T.done is not shown again)
+    game.score = { team1: won.team2, team2: won.team1 };
+    const m3 = t.w.log.length;
+    assistHandlers.gameEndLines(t.w.io, game);
+    expect(hintsTo(t, s.id, m3)).toEqual([]);
+    expect(endLines(m3)).toEqual([TEXT.gameEndTutorial('lost')]);
+    expect(TEXT.gameEndTutorial('lost')).toBe('This game counted as bot-assisted for you (you played with the tutorial). You lost, so it stays in your human stats.');
+    game.score = { team1: 200, team2: 200 };
+    const m4 = t.w.log.length;
+    assistHandlers.gameEndLines(t.w.io, game);
+    expect(endLines(m4)).toEqual([TEXT.gameEndTutorial('tied')]);
+    expect(TEXT.gameEndTutorial('tied')).toBe('This game counted as bot-assisted for you (you played with the tutorial). It was a tie, so it stays in your human stats.');
 });
 
 test('a hand end does not reopen the between window: one rule tip between two own decisions', async () => {
@@ -466,6 +495,8 @@ describe('the auto-start (handleDrawComplete, before the first deal)', () => {
         expect(counts(first)).toBe(1);
         expect(counts(second)).toBe(0);
         expect(counts(third)).toBe(1); // its own decision came (still on)
+        // a game the first seat's team won (only a win moves it, owner 2026-11-21)
+        game.score = first % 2 === 1 ? { team1: 250, team2: 90 } : { team1: 90, team2: 250 };
         const record = profile.buildGameEndRecord(game);
         expect(record.statsDeltas.assist[second]).toBeUndefined();
         expect(record.statsDeltas.assist[first]).toEqual({ help: 0, tutorial: true });

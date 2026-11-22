@@ -7,8 +7,11 @@
  *    045802c9 for a human game, a bot game, a default assist and a record
  *    belonging to someone else)
  *  - counted uses under the limit: only the evidence (statsDeltas.assist)
- *  - an assisted seat: bucketByPosition {pos: 'botStats'} for that seat,
- *    withBots + empty team bots, assistedTeams; in a bot game anyway no
+ *  - an assisted seat whose team WON (owner 2026-11-21): bucketByPosition
+ *    {pos: 'botStats'} for that seat, withBots + empty team bots,
+ *    assistedTeams; one that lost or tied stays in the human stats (no
+ *    bucketByPosition, withBots or assistedTeams; the evidence stays),
+ *    /help and the tutorial alike; in a bot game anyway no
  *    bucketByPosition (still marked although players see no limit there,
  *    owner 2026-11-19); recordGameStats credits the assisted player's
  *    botStats and everyone else's stats
@@ -43,17 +46,22 @@ const users = () => mockDb.current.users;
 const records = () => mockDb.current.gameRecords;
 const statsOf = (name, bucket) => users().docs.find((d) => d.username === name)?.[bucket] || {};
 
-/** A finished human game: Ann/Cat (team 1) beat Ben/Dan; `help` sets counted uses by position. */
-function finishedGame({ gameId = 'g-1', bots = [], help = {} } = {}) {
+/**
+ * A finished human game: Ann/Cat (team 1) beat Ben/Dan unless `score` says
+ * otherwise; `help` sets counted uses by position, `tutorial` the positions
+ * that played with the tutorial (tutorialEver).
+ */
+function finishedGame({ gameId = 'g-1', bots = [], help = {}, tutorial = [], score = { team1: 420, team2: 150 } } = {}) {
     const humans = { 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' };
     const seats = [1, 2, 3, 4].map((pos) => (bots.includes(pos)
         ? { position: pos, controller: 'bot', ownerUsername: null }
         : { position: pos, controller: 'human', ownerUsername: humans[pos] }));
     const assist = defaultAssist();
     for (const [pos, n] of Object.entries(help)) Object.assign(assist[pos], { user: humans[pos], help: n, lastHelpKey: `k${n}` });
+    for (const pos of tutorial) Object.assign(assist[pos], { user: humans[pos], tutorialEver: true });
     return {
         gameId,
-        score: { team1: 420, team2: 150 },
+        score,
         assist,
         seatList: () => seats,
         seat: (pos) => seats[pos - 1],
@@ -122,16 +130,63 @@ describe('buildGameEndRecord', () => {
         expect(JSON.stringify({ ...r, statsDeltas: deltas })).toBe(NO_HELP_RECORD);
     });
 
-    test('an assisted seat: botStats for that seat only, withBots with empty team bots, assistedTeams', () => {
-        const r = profile.buildGameEndRecord(finishedGame({ help: { 2: 4, 3: 2 } }));
-        expect(r.statsDeltas).toMatchObject({ bucket: 'stats', bucketByPosition: { 2: 'botStats' }, assist: { 2: { help: 4 }, 3: { help: 2 } } });
-        expect(r).toMatchObject({ withBots: true, team1Bots: [], team2Bots: [], team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'], assistedTeams: [2] });
+    test('an assisted seat on the winning team: botStats for that seat only, withBots with empty team bots, assistedTeams', () => {
+        const r = profile.buildGameEndRecord(finishedGame({ help: { 3: 4, 2: 2 } }));
+        expect(r.statsDeltas).toMatchObject({ bucket: 'stats', bucketByPosition: { 3: 'botStats' }, assist: { 2: { help: 2 }, 3: { help: 4 } } });
+        expect(r).toMatchObject({ withBots: true, team1Bots: [], team2Bots: [], team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'], assistedTeams: [1] });
         expect(Object.keys(r)).toEqual(['gameId', 'team1Score', 'team2Score', 'team1Players', 'team2Players', 'team1Bags', 'team2Bags', 'completedAt',
             'withBots', 'team1Bots', 'team2Bots', 'statsDeltas', 'assistedTeams', 'statsPending']);
-        // both pairs
+        // team 2 winning: its assisted seat moves
+        const two = profile.buildGameEndRecord(finishedGame({ help: { 2: 4 }, score: { team1: 150, team2: 420 } }));
+        expect(two.statsDeltas.bucketByPosition).toEqual({ 2: 'botStats' });
+        expect(two).toMatchObject({ withBots: true, assistedTeams: [2] });
+    });
+
+    test('an assisted seat on the losing team (owner 2026-11-21): a plain human game, the evidence kept', () => {
+        const r = profile.buildGameEndRecord(finishedGame({ help: { 2: 4, 3: 2 } }));
+        expect(r.statsDeltas.bucket).toBe('stats');
+        expect(r.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(r.statsDeltas.assist).toEqual({ 2: { help: 4 }, 3: { help: 2 } });
+        expect(r).not.toHaveProperty('withBots');
+        expect(r).not.toHaveProperty('team2Bots');
+        expect(r).not.toHaveProperty('assistedTeams');
+        // apart from the evidence, the record of a game nobody used /help in
+        const { assist, ...deltas } = r.statsDeltas;
+        expect(JSON.stringify({ ...r, statsDeltas: deltas })).toBe(NO_HELP_RECORD);
+    });
+
+    test('a tie: an assisted seat stays in the human stats (neither team won)', () => {
+        const r = profile.buildGameEndRecord(finishedGame({ help: { 1: 4, 2: 6 }, tutorial: [4], score: { team1: 300, team2: 300 } }));
+        expect(r.statsDeltas.bucket).toBe('stats');
+        expect(r.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(r.statsDeltas.assist).toEqual({ 1: { help: 4 }, 2: { help: 6 }, 4: { help: 0, tutorial: true } });
+        expect(r).not.toHaveProperty('withBots');
+        expect(r).not.toHaveProperty('assistedTeams');
+        expect(r.statsDeltas.byPosition[1]).toMatchObject({ wins: 0, losses: 0, draws: 1 });
+    });
+
+    test('both teams assisted: only the winners move', () => {
         const both = profile.buildGameEndRecord(finishedGame({ help: { 1: 5, 2: 4, 4: 9 } }));
-        expect(both.statsDeltas.bucketByPosition).toEqual({ 1: 'botStats', 2: 'botStats', 4: 'botStats' });
-        expect(both.assistedTeams).toEqual([1, 2]);
+        expect(both.statsDeltas.bucketByPosition).toEqual({ 1: 'botStats' });
+        expect(both.assistedTeams).toEqual([1]);
+        expect(both.withBots).toBe(true);
+        expect(both.statsDeltas.assist).toEqual({ 1: { help: 5 }, 2: { help: 4 }, 4: { help: 9 } });
+        // the other way round
+        const flipped = profile.buildGameEndRecord(finishedGame({ help: { 1: 5, 2: 4, 4: 9 }, score: { team1: 90, team2: 260 } }));
+        expect(flipped.statsDeltas.bucketByPosition).toEqual({ 2: 'botStats', 4: 'botStats' });
+        expect(flipped.assistedTeams).toEqual([2]);
+    });
+
+    test('a tutorial seat follows the same rule: a win moves it, a loss does not', () => {
+        const r = profile.buildGameEndRecord(finishedGame({ tutorial: [1, 4] }));
+        expect(r.statsDeltas.assist).toEqual({ 1: { help: 0, tutorial: true }, 4: { help: 0, tutorial: true } });
+        expect(r.statsDeltas.bucketByPosition).toEqual({ 1: 'botStats' });
+        expect(r).toMatchObject({ withBots: true, assistedTeams: [1] });
+        const lost = profile.buildGameEndRecord(finishedGame({ tutorial: [4] }));
+        expect(lost.statsDeltas.assist).toEqual({ 4: { help: 0, tutorial: true } });
+        expect(lost.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(lost).not.toHaveProperty('withBots');
+        expect(lost).not.toHaveProperty('assistedTeams');
     });
 
     test('a bot game anyway: no bucketByPosition (the whole game is botStats), the evidence and assistedTeams', () => {
@@ -140,6 +195,11 @@ describe('buildGameEndRecord', () => {
         expect(r.statsDeltas).not.toHaveProperty('bucketByPosition');
         expect(r.statsDeltas.assist).toEqual({ 1: { help: 4 } });
         expect(r).toMatchObject({ withBots: true, team2Bots: ['🤖 Bot4'], assistedTeams: [1] });
+        // unchanged by the win rule (owner 2026-11-21): a losing assisted
+        // seat of a bot game is marked too (its stats are bot-game anyway)
+        const lost = profile.buildGameEndRecord(finishedGame({ bots: [4], help: { 1: 4, 2: 5 } }));
+        expect(lost.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(lost.assistedTeams).toEqual([1, 2]);
     });
 
     test('a bot game where /help is free and unlimited for players (owner 2026-11-19): more than 3 uses is still recorded', () => {
@@ -173,6 +233,18 @@ test('recordGameStats: the assisted player is credited to botStats, the other th
     const projections = src.match(/const RECORDS_PROJECTION = \{[\s\S]*?\};\n[\s\S]*?const RECORDS_PROJECTION_WITH_BOTS[^\n]*/)[0];
     expect(projections).toMatch(/RECORDS_PROJECTION_WITH_BOTS/);
     expect(projections).not.toMatch(/assistedTeams/);
+});
+
+test('recordGameStats: an assisted player who lost is credited to the human stats like everyone else (owner 2026-11-21)', async () => {
+    await profile.recordGameStats(finishedGame({ help: { 2: 4, 1: 2 }, tutorial: [4] }));
+    expect(statsOf('Ben', 'stats')).toMatchObject({ gamesPlayed: 1, wins: 0, losses: 1 });
+    expect(statsOf('Dan', 'stats')).toMatchObject({ gamesPlayed: 1, losses: 1 });
+    for (const n of ['Ann', 'Ben', 'Cat', 'Dan']) expect(statsOf(n, 'botStats')).toEqual({});
+    const doc = records().docs[0];
+    expect(doc).not.toHaveProperty('withBots');
+    expect(doc).not.toHaveProperty('assistedTeams');
+    expect(doc.statsDeltas).not.toHaveProperty('bucketByPosition');
+    expect(doc.statsDeltas.assist).toEqual({ 1: { help: 2 }, 2: { help: 4 }, 4: { help: 0, tutorial: true } });
 });
 
 // ------------------------------------------------------------ a tournament table
@@ -221,13 +293,23 @@ test('tournament: /help is allowed at the table, counted and announced, and the 
         `${askerName} used /help.`, `${askerName} used /help.`, `${askerName} used /help.`,
         `${askerName} used /help. This game now counts as bot-assisted for ${askerName}.`,
     ]);
-    // the round-1 record: the asker's seat in botStats, the others in the whole-game bucket
+    // the round-1 record: the asker's seat in botStats if its team won (owner
+    // 2026-11-21), else in the human stats like the others
     await advanceUntil(() => records().docs.some((d) => d.gameId === table.gameId && !d.statsPending), 100);
     const doc = records().docs.find((d) => d.gameId === table.gameId);
+    const askerTeam = asker % 2 === 1 ? 1 : 2;
+    const won = askerTeam === 1 ? doc.team1Score > doc.team2Score : doc.team2Score > doc.team1Score;
     expect(doc.statsDeltas.bucket).toBe('stats');
-    expect(doc.statsDeltas.bucketByPosition).toEqual({ [asker]: 'botStats' });
-    expect(doc.assistedTeams).toEqual([asker % 2 === 1 ? 1 : 2]);
+    expect(doc.statsDeltas.assist[asker]).toEqual({ help: 4 });
+    if (won) {
+        expect(doc.statsDeltas.bucketByPosition).toEqual({ [asker]: 'botStats' });
+        expect(doc.assistedTeams).toEqual([askerTeam]);
+        expect(statsOf(askerName, 'botStats').gamesPlayed).toBeGreaterThanOrEqual(1);
+    } else {
+        expect(doc.statsDeltas).not.toHaveProperty('bucketByPosition');
+        expect(doc).not.toHaveProperty('assistedTeams');
+        expect(statsOf(askerName, 'stats').gamesPlayed).toBeGreaterThanOrEqual(1);
+    }
     const others = ctx.usernames.filter((u) => u !== askerName);
-    expect(statsOf(askerName, 'botStats').gamesPlayed).toBeGreaterThanOrEqual(1);
     for (const u of others) expect(statsOf(u, 'stats').gamesPlayed).toBeGreaterThanOrEqual(1);
 }, 120000);

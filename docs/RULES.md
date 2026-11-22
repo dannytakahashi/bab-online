@@ -205,7 +205,7 @@ After all 13 hands are completed:
 - On your turn, type `/help` in the game chat (in the iOS app, type `?help`, exactly that; newer versions also accept `/help`) to see the bid or card our strongest bot would choose in your seat, with a short reason. It is a strong guess, not a guarantee
 - Only you see the suggestion. The table sees "<your name> used /help." each time a use counts
 - Off your turn it tells you whose turn it is; it never pauses the bid timer
-- Each game you get **3 free uses**. Asking again on the same turn is free, and so is a move with only one legal card. The **4th use** makes that game count as bot-assisted for you: it goes in your bot-game statistics, not your human ones, and the game is listed with the bot games in Records (the other players' statistics stay human). This applies at tournament tables too
+- Each game you get **3 free uses**. Asking again on the same turn is free, and so is a move with only one legal card. The **4th use** makes that game count as bot-assisted for you: if your team wins, it goes in your bot-game statistics, not your human ones, and the game is listed with the bot games in Records; a loss or a tie stays in your human statistics like any game (the other players' statistics stay human either way). This applies at tournament tables too
 - Spectators can't use it
 
 ## Tutorial (/tutorial)
@@ -213,7 +213,7 @@ After all 13 hands are completed:
 - Type `/tutorial` in the game chat to turn the tutorial on or off (`/tutorial on`, `/tutorial off`). While it is on, each of your turns shows the same suggestion /help would give (unless you have only one legal card), plus short tips on the rules, one at a time. Only you see them; the table sees "<your name> turned on the tutorial."
 - After the 2-card hand the tutorial steps back: from then on it shows suggestions only for the trickier choices. /help still works any time
 - A new account's first game starts with the tutorial on (in apps that support it, never at a tournament table); "Turn off" stops it
-- A game where you used the tutorial counts as bot-assisted for you, like a 4th use of /help: it goes in your bot-game statistics. If you turn off a tutorial that started on its own before your first bid, it does not count
+- A game where you used the tutorial counts as bot-assisted for you, like a 4th use of /help: a win goes in your bot-game statistics, a loss or a tie stays in your human ones. If you turn off a tutorial that started on its own before your first bid, it does not count
 - Asking /help while the tutorial is on is never counted
 
 ---

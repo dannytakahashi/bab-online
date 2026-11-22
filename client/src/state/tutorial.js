@@ -65,7 +65,7 @@ export const BUTTON_OFF_TEXT = 'Tutorial off';
 export const BUTTON_ON_HINT = "Turns off the tutorial's tips and advice. /help still works any time.";
 export const BUTTON_OFF_HINT = 'Turns on tips and advice for every turn.';
 export const CONFIRM_TITLE = 'Turn on the tutorial?';
-export const CONFIRM_MESSAGE = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.";
+export const CONFIRM_MESSAGE = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats.";
 export const CONFIRM_BUTTON = 'Turn on';
 export const CONFIRM_CANCEL = 'Cancel';
 
