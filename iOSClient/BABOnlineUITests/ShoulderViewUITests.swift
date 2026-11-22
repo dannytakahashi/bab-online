@@ -394,8 +394,12 @@ final class ShoulderViewUITests: XCTestCase {
     /// bids, the read-only sheet; while the cards are up it still shows.
     private func assertWatchedBubble(_ app: XCUIApplication, _ text: String, _ tag: String,
                                      file: StaticString = #filePath, line: UInt = #line) {
-        // the bubble's element (the log's row has the same words: the one on the table, bubble-sized)
-        let query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text))
+        // the bubble's element (the log's row has the same words: the one on the table, bubble-sized).
+        // What has a frame is the bubble's text, which a narrow bubble cuts to two lines ("... wraps…"
+        // on the closed Duo), so it is matched by its first words too; the bubble node itself reads the
+        // whole line but its frame is empty (docs/BACKLOG.md, "Chat bubbles' VoiceOver frame")
+        let start = text.split(separator: " ").prefix(3).joined(separator: " ")
+        let query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", text, start))
         XCTAssertTrue(query.firstMatch.waitForExistence(timeout: 8), "\(tag): the watched player's bubble", file: file, line: line)
         Thread.sleep(forTimeInterval: 1)  // the column settles; the bubble moves clear of it
         // at most 260 scene points wide plus its edge: 270 on a phone, wider where the table is
@@ -406,7 +410,10 @@ final class ShoulderViewUITests: XCTestCase {
             let f = e.frame
             return !f.isEmpty && f.height < 60 && f.width <= widest && window.contains(f)
         }
-        guard let bubble = found else { return XCTFail("\(tag): no bubble-sized \"\(text)\"", file: file, line: line) }
+        guard let bubble = found else {
+            let seen = query.allElementsBoundByIndex.map { "\($0.elementType.rawValue) \($0.frame)" }
+            return XCTFail("\(tag): no bubble-sized \"\(text)\" (widest \(widest), window \(window)): \(seen)", file: file, line: line)
+        }
         let b = bubble.frame.insetBy(dx: 1, dy: 1)
         let screen = app.windows.firstMatch.frame
         XCTAssertTrue(screen.contains(bubble.frame), "\(tag): on screen \(bubble.frame)", file: file, line: line)
