@@ -101,3 +101,41 @@ test('an init(from:) in an extension (WirePayload.GameLogEntry\'s shape) is read
     const unreadable = '            v = nonsense()';
     expect(() => extractDecodes(event(unreadable, { inExtension: true }))).toThrow(/no keyed decode it can read/);
 });
+
+const wrapped = (init) => ({
+    'ServerEvent.swift': `
+enum ServerEvent {
+    static func decode(name: String) throws {
+        switch name {
+        case "start":
+            event = .start(try d(WirePayload.Start.self))
+        default:
+            break
+        }
+    }
+}`,
+    'WirePayloads.swift': `
+enum WirePayload {
+    struct Start: Decodable {
+        var seq: Int?
+        var wrap: Wrap?
+    }
+    struct Wrap: Decodable {
+        var value: Card?
+        var n: Int?
+        init(from decoder: Decoder) throws { ${init} }
+    }
+}
+struct Card: Decodable { var suit: String; var rank: String }`,
+});
+
+test('a try? wrapper around another type decodes anything: a value of every JSON type, nothing required', () => {
+    const floor = extractDecodes(wrapped('value = try? Card(from: decoder)'));
+    expect(floor.types['WirePayload.Wrap']).toEqual({ kind: 'value', accepts: ['array', 'boolean', 'integer', 'null', 'number', 'object', 'string'] });
+    expect(floor.types.Card).toBeUndefined();
+});
+
+test('a try? wrapper with anything more in its init is still refused', () => {
+    expect(() => extractDecodes(wrapped('value = try? Card(from: decoder); n = 1'))).toThrow(/WirePayload.Wrap: custom init\(from:\) with no keyed decode/);
+    expect(() => extractDecodes(wrapped('value = try Card(from: decoder)'))).toThrow(/WirePayload.Wrap: custom init\(from:\) with no keyed decode/);
+});

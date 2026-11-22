@@ -213,6 +213,11 @@ function describe(decl, decls) {
     if (decl.kind !== 'struct') throw new Error(`swiftDecodes: ${decl.name} is a ${decl.kind}; only structs and enums decode here`);
     if (!isDecodable(decl)) throw new Error(`swiftDecodes: ${decl.name} is not Decodable`);
     if (init && /singleValueContainer/.test(init)) return valueKind(decl, init);
+    // a wrapper whose whole init is `x = try? T(from: decoder)` (iOS 1.2.3 (31):
+    // WirePayload.LenientShoulder) never throws: any value at all decodes (a bad one as nil)
+    if (init && /^\s*(?:self\.)?\w+\s*=\s*try\?\s*[\w.]+\(\s*from:\s*decoder\s*\)\s*;?\s*$/.test(init)) {
+        return { kind: 'value', accepts: ['array', 'boolean', 'integer', 'null', 'number', 'object', 'string'] };
+    }
 
     const codingKeys = decls[`${decl.name}.CodingKeys`];
     const rawKey = {};
