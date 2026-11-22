@@ -2112,6 +2112,11 @@ function initializeApp() {
 
     // Resignation & Lazy Mode callbacks
     onResignationAvailable: (data) => {
+      // Only a seat owner (seated or lazy) gets the offer: the room-wide
+      // broadcast reaches spectators too, and the server refuses their
+      // forceResign ("Not a player in this game"). iOS: resignationOffer
+      // is nil unless the viewer holdsSeat
+      if (session.isSpectator) return;
       // One offer at a time: a kit Modal (ui/components/ResignationDialog.js;
       // the username goes in as text)
       showResignationDialog({
