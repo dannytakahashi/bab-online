@@ -225,7 +225,7 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(page.scene.trickManager._currentTrick.some((s) => s.getData('playPosition') === 'self')).toBe(true);
   });
 
-  it('voice: the watched player speaking lights its box; my own voice lights the badge, not its box', async () => {
+  it('voice: the watched player speaking lights its box; my own voice rings my mic (never the eye or the box); another watcher lights the eye', async () => {
     page.socket.fire('voiceSettings', { gameId: rec.gameId, host: 'ios_ann', spectatorsCanTalk: true, role: 'spectator', canTalk: true, canChange: false });
     await vi.waitFor(() => expect(page.voice.onSpeakingChange).toHaveBeenCalled());
     const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
@@ -239,11 +239,25 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(box().classList.contains('voice-speaking')).toBe(true);
     cb('s-ann', false);
     expect(box().classList.contains('voice-speaking')).toBe(false);
+    const eye = () => document.querySelector('#table-hud > .hud-spectators .spectator-badge');
     cb('self', true);
     expect(box().classList.contains('voice-speaking')).toBe(false);
-    expect(document.querySelector('#table-hud > .hud-spectators .spectator-badge').classList.contains('voice-speaking')).toBe(true);
+    expect(eye().classList.contains('voice-speaking')).toBe(false);
+    expect(mute.classList.contains('voice-speaking')).toBe(true);
     cb('self', false);
-    expect(document.querySelector('#table-hud > .hud-spectators .spectator-badge').classList.contains('voice-speaking')).toBe(false);
+    expect(mute.classList.contains('voice-speaking')).toBe(false);
+    // another watcher (the watcher's eye cluster): the eye, never the watched box
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 12, shoulder: 1 }, { username: 'zed', pic: 3 }], count: 2 });
+    replay.advance(50);
+    page.voice.peers.set('s-zed', { username: 'zed' });
+    cb('s-zed', true);
+    expect(eye().classList.contains('voice-speaking')).toBe(true);
+    expect(eye().getAttribute('aria-label')).toBe('2 people watching. zed is talking');
+    expect(box().classList.contains('voice-speaking')).toBe(false);
+    expect(mute.classList.contains('voice-speaking')).toBe(false);
+    cb('s-zed', false);
+    expect(eye().classList.contains('voice-speaking')).toBe(false);
+    expect(eye().getAttribute('aria-label')).toBe('2 people watching');
   });
 
   it('an avatar click switches the watch; the watched seat\'s own box opens its profile', () => {
@@ -315,5 +329,22 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(bottom.dataset.position).toBe('1');
     bottom.click();
     expect(page.socket.emitted('watchHand')).toEqual([{ gameId: rec.gameId, position: 1 }]);
+  });
+
+  it('voice stopping while another watcher talks: the eye goes dark with it (last: it stops voice)', async () => {
+    const eye = () => document.querySelector('#table-hud > .hud-spectators .spectator-badge');
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 12 }, { username: 'zed', pic: 3 }], count: 2 });
+    replay.advance(50);
+    expect(page.voice.active).toBe(true);
+    const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    page.voice.peers.set('s-zed', { username: 'zed' });
+    cb('s-zed', true);
+    expect(eye().classList.contains('voice-speaking')).toBe(true);
+    // no place in voice any more: this spectator's voice stops (stopVoice -> teardownVoice)
+    page.socket.fire('voiceSettings', { gameId: rec.gameId, host: 'ios_ann', spectatorsCanTalk: true, role: 'none', canTalk: false, canChange: false });
+    expect(page.voice.active).toBe(false);
+    expect(eye().classList.contains('voice-speaking')).toBe(false);
+    expect(eye().getAttribute('aria-label')).toBe('2 people watching');
+    expect(document.querySelector('.spectator-popover__row.is-speaking')).toBeNull();
   });
 });

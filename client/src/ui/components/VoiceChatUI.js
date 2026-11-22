@@ -172,6 +172,21 @@ export function setMuteButtonState(muted) {
   showMuted(document.getElementById('voice-mute-btn'), muted);
 }
 
+// My own voice speaking, shown on my mic button (a spectator's: main.js;
+// a seated player's own ring is their avatar's). Kept over a rebuilt button
+let micSpeaking = false;
+
+/**
+ * My voice started or stopped speaking: the mic button's green ring (a
+ * spectator has no seat, and the spectator badge is the other watchers'
+ * ring, never mine; owner 2026-11-22).
+ * @param {boolean} on
+ */
+export function setMicSpeaking(on) {
+  micSpeaking = !!on;
+  document.getElementById('voice-mute-btn')?.classList.toggle('voice-speaking', micSpeaking);
+}
+
 /**
  * Mute / unmute from a control: main.js's onToggleMute (it tells a refused
  * microphone), else the manager's own toggle. The button follows.
@@ -199,6 +214,7 @@ export function createMuteButton() {
 
   btn.addEventListener('click', () => { toggleMute(); });
   showMuted(btn, managerMuted());
+  if (micSpeaking) btn.classList.add('voice-speaking');
 
   // The table's voice slot, else the page's corner
   _positionMuteButton(btn);
