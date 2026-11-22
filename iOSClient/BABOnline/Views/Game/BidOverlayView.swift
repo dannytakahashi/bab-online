@@ -203,13 +203,16 @@ struct BidOverlayView: View {
 
                 if readOnly {
                     // no Submit: whose turn it is, where Submit would be
-                    Text(watchedTitle)
-                        .font(.callout.bold())
-                        .foregroundColor(Theme.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .padding(.horizontal, Theme.Space.s2)
-                        .frame(height: rowSize)
+                    // "Alice is bidding" where it fits, else just "Bidding" (the pill under the
+                    // hand already names whose hand it is; VoiceOver keeps the full title)
+                    ViewThatFits(in: .horizontal) {
+                        Text(watchedTitle).lineLimit(1).fixedSize()
+                        Text(ShoulderRules.biddingShort).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    .font(.callout.bold())
+                    .foregroundColor(Theme.textSecondary)
+                    .padding(.horizontal, Theme.Space.s2)
+                    .frame(height: rowSize)
                 } else {
                 // Submit button
                 Button(action: submitBid) {

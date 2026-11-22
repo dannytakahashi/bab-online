@@ -28,6 +28,8 @@ import Foundation
 enum ShoulderRules {
     /// The clientHello cap that asks for it (ClientHello.caps).
     static let cap = "shoulderView"
+    /// The read-only bid sheet's line when "<name> is bidding" does not fit (BidOverlayView).
+    static let biddingShort = "Bidding"
     /// The room's system lines around a self-fence suspension (server/game/persist/liveStore.js).
     static let pauseLine = "Game paused: the server is reconnecting. It will resume on its own."
     static let resumeLine = "Game resumed."
