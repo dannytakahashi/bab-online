@@ -74,7 +74,8 @@ the test and the release step alike:
 | iOS 1.2.3 (27) | `ios-1.2.3-b27.*` | 48dcbdf (branch ios/duo-tutorial-bar, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (26) plus /help's lightbulb and the tutorial's switch in the iPhone Duo's vertical bar (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from 7a122cb5 (the PR #359 head; its merge 9be179dd has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-20 (with the App Store Connect API key), submitted for review 2026-11-20 |
 | iOS 1.2.3 (28) | `ios-1.2.3-b28.*` | 9a7ee21 (branch ios/welcome-head-actions, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (27) plus the welcome tip's fixes and the Duo bar's tutorial switch shown while off, which sends the existing chat line /tutorial on (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from 6cfc9943 (the PR #360 head; its merge fe94f438 has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-20 (with the App Store Connect API key), submitted for review 2026-11-20 |
 | iOS 1.2.3 (29) | `ios-1.2.3-b29.*` | 87093dc (branch ios/tutorial-corner-button, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (28) plus the tutorial's corner button on iPhone and iPad and the question before turning it on (no wire change: the existing chat lines /tutorial on and off) and the Duo's draw for deal on the table pane; the regenerated TableSnapshot.swift of #363 (additive optionals: viewer.shoulder, spectator shoulder) decodes but nothing reads it, and it sends no `shoulderView` cap; still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from f0da692d (the PR #364 head; its merge ac52c09f has the same `iOSClient/BABOnline`) | uploaded to TestFlight 2026-11-21 (with the App Store Connect API key) |
-| iOS 1.2.3 (30) | `ios-1.2.3-b30.*` | 6f29409 (branch ios/draw-without-log, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (29) plus no docked log during the draw with the Duo fully open (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
+| iOS 1.2.3 (30) | `ios-1.2.3-b30.*` | 6f29409 (branch ios/draw-without-log, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (29) plus no docked log during the draw with the Duo fully open (no wire change); still 1.2.3; the `stateSnapshot.requestId` waiver holds) | archived from f1482d7b (the PR #365 head; its merge has the same `iOSClient/BABOnline`) | uploaded to TestFlight and swapped into review 2026-11-21 (with the App Store Connect API key) |
+| iOS 1.2.3 (31) | `ios-1.2.3-b31.*` | BUMP31 (branch ios/release-1.2.3-b31, frozen 2026-11-21 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.3 (30) plus the over-the-shoulder spectator view (#368, #369, #371): sends the `shoulderView` cap and the c2s `watchHand`, reads `viewer.shoulder`, `watchHandRefused`, `gameStart.shoulder`, `assistHint.watched` and the private `spectatorsUpdated` `shoulder`; still 1.2.3; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -95,8 +96,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 30                  # HEAD must be build 30 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 30 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 31                  # HEAD must be build 31 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 31 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
