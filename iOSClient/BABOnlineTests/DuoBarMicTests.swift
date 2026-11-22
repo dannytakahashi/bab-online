@@ -18,9 +18,27 @@ final class DuoBarMicTests: XCTestCase {
         XCTAssertEqual(MicSpot.of(barControls: false, seatVoice: false, pureSpectator: true, spectatorVoice: true, watching: true), .eye)
     }
 
+    /// Accessibility text sizes: the bar shows the Large Content Viewer on a hold, and lifting
+    /// the finger fires the item's tap (a hold would mute / unmute), so the felt keeps the mic.
+    func testAtAccessibilityTextTheFeltKeepsTheMic() {
+        XCTAssertEqual(MicSpot.of(barControls: true, seatVoice: true, pureSpectator: false, spectatorVoice: false, watching: false, accessibilityText: true), .seatRow)
+        XCTAssertEqual(MicSpot.of(barControls: true, seatVoice: true, pureSpectator: false, spectatorVoice: false, watching: true, accessibilityText: true), .none)
+        XCTAssertEqual(MicSpot.of(barControls: true, seatVoice: false, pureSpectator: true, spectatorVoice: true, watching: false, accessibilityText: true), .pill)
+        XCTAssertEqual(MicSpot.of(barControls: true, seatVoice: false, pureSpectator: true, spectatorVoice: true, watching: true, accessibilityText: true), .eye)
+        // without the bar, nothing changes
+        XCTAssertEqual(MicSpot.of(barControls: false, seatVoice: true, pureSpectator: false, spectatorVoice: false, watching: false, accessibilityText: true), .seatRow)
+        // every accessibility size, and none below them
+        for size in DynamicTypeSize.allCases {
+            let spot = MicSpot.of(barControls: true, seatVoice: true, pureSpectator: false, spectatorVoice: false, watching: false,
+                                  accessibilityText: size.isAccessibilitySize)
+            XCTAssertEqual(spot, size >= .accessibility1 ? .seatRow : .bar, "\(size)")
+        }
+    }
+
     func testNoMicWithoutVoice() {
         for bar in [false, true] {
             XCTAssertEqual(MicSpot.of(barControls: bar, seatVoice: false, pureSpectator: false, spectatorVoice: false, watching: false), .none)
+            XCTAssertEqual(MicSpot.of(barControls: bar, seatVoice: false, pureSpectator: false, spectatorVoice: false, watching: false, accessibilityText: true), .none)
             // voice full / a tournament table: a spectator without spectator voice
             XCTAssertEqual(MicSpot.of(barControls: bar, seatVoice: false, pureSpectator: true, spectatorVoice: false, watching: false), .none)
             XCTAssertEqual(MicSpot.of(barControls: bar, seatVoice: false, pureSpectator: true, spectatorVoice: false, watching: true), .none)

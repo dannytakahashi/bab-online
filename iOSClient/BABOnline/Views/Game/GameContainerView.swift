@@ -143,11 +143,13 @@ private struct GameScreen: View {
     }
 
     /// Where my own mic is (MicSpot): the vertical bar while it shows the table's controls (the
-    /// Duo closed, open in landscape, book pose; owner 2026-11-22), else my seat's row, the
-    /// spectator pill or a watcher's spot above the eye, as before.
+    /// Duo closed, open in landscape, book pose; owner 2026-11-22) and the text is below the
+    /// accessibility sizes (the bar's Large Content Viewer turns a hold into a tap there), else my
+    /// seat's row, the spectator pill or a watcher's spot above the eye, as before.
     private var micSpot: MicSpot {
         MicSpot.of(barControls: showsBarControls, seatVoice: seatVoiceOn, pureSpectator: isPureSpectator,
-                   spectatorVoice: showsSpectatorVoice, watching: isWatching)
+                   spectatorVoice: showsSpectatorVoice, watching: isWatching,
+                   accessibilityText: dynamicTypeSize.isAccessibilitySize)
     }
 
     private var micInBar: Bool { micSpot == .bar }
@@ -839,7 +841,8 @@ private struct GameScreen: View {
     private var voiceProbeText: String {
         let onFelt = micSpot != .bar && micSpot != .none
         let listenOnly = voiceManager.isListenOnly || (isPureSpectator && fixtureSpectatorVoice == "denied")
-        return UIFixture.voiceProbe(inBar: micInBar, onFelt: onFelt, listenOnly: listenOnly, voice: voiceManager)
+        return UIFixture.voiceProbe(inBar: micInBar, onFelt: onFelt, listenOnly: listenOnly, voice: voiceManager,
+                                    accessibilityText: dynamicTypeSize.isAccessibilitySize)
     }
     #endif
 

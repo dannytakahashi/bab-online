@@ -29,10 +29,13 @@ extension UIFixture {
         }
     }
 
-    /// The `table.voice` probe's text: where my mic is drawn and the bar glyph's state.
+    /// The `table.voice` probe's text: where my mic is drawn and the bar glyph's state, then
+    /// " text=ax" at an accessibility text size (the felt keeps the mic there: MicSpot).
     @MainActor
-    static func voiceProbe(inBar: Bool, onFelt: Bool, listenOnly: Bool, voice: VoiceChatManager) -> String {
-        guard inBar || onFelt else { return "at=-" }
+    static func voiceProbe(inBar: Bool, onFelt: Bool, listenOnly: Bool, voice: VoiceChatManager,
+                           accessibilityText: Bool = false) -> String {
+        let text = accessibilityText ? " text=ax" : ""
+        guard inBar || onFelt else { return "at=-\(text)" }
         let symbol = VoiceBarButton.symbol(listenOnly: listenOnly, muted: voice.isSelfMuted)
         let tint: String
         switch VoiceBarButton.tint(listenOnly: listenOnly, muted: voice.isSelfMuted, speaking: voice.isSelfSpeaking) {
@@ -40,7 +43,7 @@ extension UIFixture {
         case Theme.success?: tint = "green"
         default: tint = "-"
         }
-        return "at=\(inBar ? "bar" : "felt") symbol=\(symbol) tint=\(tint)"
+        return "at=\(inBar ? "bar" : "felt") symbol=\(symbol) tint=\(tint)\(text)"
     }
 }
 #endif

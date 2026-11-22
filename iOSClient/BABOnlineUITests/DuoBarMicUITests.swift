@@ -26,14 +26,23 @@ final class DuoBarMicUITests: XCTestCase {
         return false
     }
 
-    private func launchSeated(_ extra: [String] = []) throws -> XCUIApplication {
+    /// - barMic: the test is about the bar's mic, so it skips at an accessibility text size
+    ///   (the device's, or a launch argument's), where the felt keeps the mic.
+    private func launchSeated(_ extra: [String] = [], barMic: Bool = true) throws -> XCUIApplication {
         let app = Fixture.launch("trick-mid-lead3", extra: ["-uiVoice", "YES"] + extra)
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         guard usesVerticalBar(app) else {
             app.terminate()
             throw XCTSkip("no vertical bar here: \(Fixture.probe(app, "ui.pose"))")
         }
+        try skipAtAccessibilityText(app, barMic: barMic)
         return app
+    }
+
+    private func skipAtAccessibilityText(_ app: XCUIApplication, barMic: Bool) throws {
+        guard barMic, Fixture.probe(app, "table.voice").hasSuffix(" text=ax") else { return }
+        app.terminate()
+        throw XCTSkip("accessibility text: the felt keeps the mic (testAtAccessibilityTextTheHoldNeverTogglesTheMic)")
     }
 
     /// One tap mutes / unmutes; the long press is the menu's "Voice panel…" only.
@@ -96,6 +105,7 @@ final class DuoBarMicUITests: XCTestCase {
         let app = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "muted"])
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         guard usesVerticalBar(app) else { app.terminate(); throw XCTSkip("no vertical bar here") }
+        try skipAtAccessibilityText(app, barMic: true)
         XCTAssertTrue(waitFor(app, "table.voice", contains: "at=bar"), Fixture.probe(app, "table.voice"))
         XCTAssertEqual(app.buttons.matching(identifier: "Unmute microphone").count, 1, "one mic, in the bar")
         app.terminate()
@@ -105,6 +115,46 @@ final class DuoBarMicUITests: XCTestCase {
         XCTAssertTrue(waitFor(watcher, "table.voice", contains: "at=bar symbol=headphones tint=-"), Fixture.probe(watcher, "table.voice"))
         XCTAssertTrue(watcher.buttons["Listening only (no mic access)"].waitForExistence(timeout: 5))
         watcher.terminate()
+    }
+
+    /// Accessibility text (AX1, AX5): a hold on a bar item shows the system's Large Content Viewer
+    /// and lifting the finger fires the item's tap, so a bar mic would toggle on a hold. The felt
+    /// keeps the mic there: the hold opens the panel and the mic stays muted, for a seat and a
+    /// spectator.
+    func testAtAccessibilityTextTheHoldNeverTogglesTheMic() throws {
+        for category in ["UICTContentSizeCategoryAccessibilityM", "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let size = ["-UIPreferredContentSizeCategoryName", category]
+            let app = try launchSeated(["-uiTutorial", "YES", "-uiAssist", "YES"] + size, barMic: false)
+            XCTAssertTrue(waitFor(app, "table.voice", contains: "at=felt symbol=mic.slash.fill tint=red text=ax"), "\(category): \(Fixture.probe(app, "table.voice"))")
+            for _ in 0..<2 {
+                let mic = app.buttons["Unmute microphone"]
+                XCTAssertTrue(mic.waitForExistence(timeout: 5) && mic.isHittable, "\(category): the felt's mic, muted")
+                mic.press(forDuration: 1.0)
+                let bar = app.navigationBars["Voice Chat"]
+                XCTAssertTrue(bar.waitForExistence(timeout: 5), "\(category): the hold opens the panel")
+                bar.buttons["Done"].tap()
+                XCTAssertTrue(bar.waitForNonExistence(timeout: 5))
+                XCTAssertTrue(app.buttons["Unmute microphone"].waitForExistence(timeout: 3), "\(category): still muted after the hold")
+                XCTAssertFalse(app.buttons["Mute microphone"].exists, "\(category): the hold unmuted the mic")
+            }
+            app.buttons["Unmute microphone"].tap()
+            XCTAssertTrue(app.buttons["Mute microphone"].waitForExistence(timeout: 3), "\(category): one tap unmutes")
+            app.terminate()
+
+            let spectator = Fixture.launch("spectator-mid-hand", extra: ["-uiSpectatorVoice", "muted"] + size)
+            XCTAssertTrue(spectator.buttons["leave"].waitForExistence(timeout: 20))
+            XCTAssertTrue(Fixture.probe(spectator, "table.voice").hasSuffix(" text=ax"), Fixture.probe(spectator, "table.voice"))
+            XCTAssertTrue(waitFor(spectator, "table.voice", contains: "at=felt"), "\(category): \(Fixture.probe(spectator, "table.voice"))")
+            let pill = spectator.buttons["Unmute microphone"]
+            XCTAssertTrue(pill.waitForExistence(timeout: 5))
+            pill.press(forDuration: 1.0)
+            let panel = spectator.navigationBars["Voice Chat"]
+            XCTAssertTrue(panel.waitForExistence(timeout: 5), "\(category): the spectator's hold opens the panel")
+            panel.buttons["Done"].tap()
+            XCTAssertTrue(panel.waitForNonExistence(timeout: 5))
+            XCTAssertTrue(spectator.buttons["Unmute microphone"].waitForExistence(timeout: 3), "\(category): the spectator still muted")
+            spectator.terminate()
+        }
     }
 
     /// Without the vertical bar nothing moves: the felt keeps the mic.

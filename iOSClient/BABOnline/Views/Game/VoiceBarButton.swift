@@ -10,19 +10,26 @@ enum MicSpot: Equatable {
     /// Directly above the eye (a watcher, TableLayout.watcherCluster).
     case eye
     /// The vertical bar (VoiceBarButton): any of the above while the bar shows the table's
-    /// controls (the iPhone Duo closed, open in landscape, book pose).
+    /// controls (the iPhone Duo closed, open in landscape, book pose), below the accessibility
+    /// text sizes.
     case bar
 
     /// - barControls: the vertical bar is in use and shows the table's items (in the game).
     /// - seatVoice: a seat's mic is up (voice running, not a pure spectator).
     /// - spectatorVoice: a pure spectator's mic is up (a casual game's spectator voice).
-    static func of(barControls: Bool, seatVoice: Bool, pureSpectator: Bool, spectatorVoice: Bool, watching: Bool) -> MicSpot {
+    /// - accessibilityText: an accessibility Dynamic Type size (AX1 to AX5). The bar then turns
+    ///   a touch and hold on its items into the system's Large Content Viewer, and lifting the
+    ///   finger fires the item's tap, so a hold on a bar mic would mute or unmute it (the owner's
+    ///   rule, 2026-11-18: a hold is the panel only). The felt's mic stays there.
+    static func of(barControls: Bool, seatVoice: Bool, pureSpectator: Bool, spectatorVoice: Bool, watching: Bool,
+                   accessibilityText: Bool = false) -> MicSpot {
+        let inBar = barControls && !accessibilityText
         if seatVoice && !pureSpectator {
-            if barControls { return .bar }
+            if inBar { return .bar }
             return watching ? .none : .seatRow
         }
         if pureSpectator && spectatorVoice {
-            if barControls { return .bar }
+            if inBar { return .bar }
             return watching ? .eye : .pill
         }
         return .none
@@ -59,6 +66,8 @@ struct VoiceBarButton: View {
             Button(action: openPanel) {
                 Label(Self.panelItem, systemImage: "slider.horizontal.3")
             }
+            // the Menu's tint (muted red, talking green) is the bar glyph's only, never the item's
+            .tint(.primary)
         } label: {
             Label(label, systemImage: symbol)
         } primaryAction: {
