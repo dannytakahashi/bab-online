@@ -40,6 +40,10 @@
  * Not re-recorded for the own-seat HSI (2026-11-21): v1Restore puts the
  * other seats' HSI back into each gameStart / snapshot from the game, so
  * the unchanged golden shows that nothing else on the wire moved.
+ * Re-recorded 2026-11-22 for the new HSI formula (server/game/hsi.js: the
+ * expected share of the tricks): only the wire hash and byte count moved
+ * (the hsiValues / totalHSI / avgHSI numbers); hands, trumps, pictures and
+ * emit counts unchanged (HSI draws no Math.random).
  */
 
 const fs = require('fs');
