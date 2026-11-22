@@ -20,10 +20,11 @@ struct SeatWatchAccessibility: View {
                                 label: WatchingList.watchLabel(names, player: o.name, me: me, mine: false))
                     }
                 }
-                // my own seat's eye only: a watcher's bottom seat (the watched player's) has none
-                // (GameSKScene.placeMyWatchers); its own eye is the badge
-                if let hand = model.hand, !hand.readOnly, let names = bySeat[model.viewPosition] {
-                    element(layout.myWatchChip(handCount: hand.cards.count, count: names.count), seat: model.viewPosition,
+                // the scene's bottom eye (GameSKScene.placeMyWatchers): a watcher's only while
+                // someone else watches that hand too ("yan and You are watching Alice's hand")
+                let names = model.bottomWatchers
+                if !names.isEmpty {
+                    element(layout.myWatchChip(handCount: model.hand?.cards.count ?? 0, count: names.count), seat: model.viewPosition,
                             label: WatchingList.watchLabel(names, player: state.players.name(model.viewPosition), me: me,
                                                            mine: state.table.viewer.holdsSeat))
                 }
