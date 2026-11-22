@@ -1357,8 +1357,9 @@ private struct GameScreen: View {
         let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand, watching: isWatching, bidding: watchBidding))
         return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username,
                                   seatNames: gameState.state.players.watchedSeatNames)
-            // a watcher's eye is centred under its mic (TableLayout.watcherCluster)
-            .frame(width: rect.width, height: rect.height, alignment: isWatching ? .center : .trailing)
+            // a watcher's eye is centred right under its mic (TableLayout.watcherCluster; the badge's
+        // own type is not zoomed, so on a zoomed table it sits at the top of its spot)
+            .frame(width: rect.width, height: rect.height, alignment: isWatching ? .top : .trailing)
             .offset(x: rect.minX, y: rect.minY)
     }
 
