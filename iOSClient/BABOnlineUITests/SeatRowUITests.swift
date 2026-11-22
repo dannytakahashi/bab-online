@@ -31,7 +31,11 @@ final class SeatRowUITests: XCTestCase {
         // on the right, together: my pips before HSI (left of it, or over it), the button after both
         XCTAssertGreaterThan(p.minX, window.midX, "\(p) \(window)")
         XCTAssertTrue(p.maxX <= h.minX + 0.5 || p.maxY <= h.minY + 0.5, "pips \(p) before HSI \(h)")
-        XCTAssertGreaterThanOrEqual(m.minX, max(p.maxX, h.maxX) - 0.5, "button \(m) after pips \(p) and HSI \(h)")
+        // the iPhone Duo with its vertical bar: my mic is the bar's item (owner 2026-11-22), not in the row
+        let barMic = Fixture.usesVerticalBar(app)
+        if !barMic {
+            XCTAssertGreaterThanOrEqual(m.minX, max(p.maxX, h.maxX) - 0.5, "button \(m) after pips \(p) and HSI \(h)")
+        }
         // The limits are in scene units: on an iPad the whole table, this row with it, is drawn
         // `zoom` times larger (TableLayout.zoom, up to 1.4). A phone never zooms.
         guard let zoom = Fixture.tableZoom(app) else {
@@ -44,7 +48,7 @@ final class SeatRowUITests: XCTestCase {
         if min(window.width, window.height) >= 1000 {
             XCTAssertEqual(zoom, TableZoomLimits.max, "a full-screen iPad 13 \(window) grows the table all the way")
         }
-        let group = p.union(h).union(m)
+        let group = barMic ? p.union(h) : p.union(h).union(m)
         XCTAssertLessThanOrEqual(group.width, 186.5 * zoom, "\(group) zoom \(zoom)")
         XCTAssertLessThanOrEqual(group.height, 68.5 * zoom, "\(group) zoom \(zoom)")
         // just above my hand: 8 above the lifted cards (lift 20), never far up, both in scene units
