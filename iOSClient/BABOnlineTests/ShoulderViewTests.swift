@@ -771,9 +771,21 @@ final class ShoulderViewTests: XCTestCase {
         say(1, "ivy", "nice hand")
         let bubble = try XCTUnwrap(scene.transientLayer.childNode(withName: "chat.1"), "the watched player's bubble")
         let layout = scene.layout
-        XCTAssertEqual(bubble.position.x, layout.chatPosition(.bottom, bubbleSize: bubble.calculateAccumulatedFrame().size).x, accuracy: 1,
-                       "at the bottom seat's spot")
+        // never on the watched hand (#371's live check: it hid the hand's corner indices), but
+        // just above it, left of the watched seat's row, below the side seats
+        let hand = scene.handNode.calculateAccumulatedFrame()
+        XCTAssertFalse(hand.isEmpty, "the watched hand is drawn")
+        XCTAssertFalse(bubble.calculateAccumulatedFrame().intersects(hand), "on the hand: \(bubble.calculateAccumulatedFrame()) \(hand)")
+        XCTAssertFalse(TableLayout.overlaps(bubble.calculateAccumulatedFrame(), layout.seatRow.content), "over the watched seat's row")
         XCTAssertLessThan(bubble.position.y, layout.seatAnchor(.left).y, "below the side seats: the bottom seat's")
+        // the /help column comes up over the scene: the bubble moves clear of it (and of the hand)
+        let pane = layout.window(CGRect(x: layout.safeRect.minX, y: layout.liftTop + 60, width: layout.safeRect.width,
+                                        height: layout.topLimit - layout.liftTop - 60))
+        scene.assistColumnFrame = pane
+        let column = layout.scene(fromWindow: pane)
+        XCTAssertEqual(column.minY, layout.liftTop + 60, accuracy: 0.01, "window and back")
+        XCTAssertFalse(TableLayout.overlaps(bubble.calculateAccumulatedFrame(), column), "under the /help column")
+        XCTAssertFalse(bubble.calculateAccumulatedFrame().intersects(hand), "on the hand with the column up")
         say(3, "hal", "gl")
         XCTAssertNotNil(scene.transientLayer.childNode(withName: "chat.3"), "the other seats' as before")
     }

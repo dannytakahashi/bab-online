@@ -378,6 +378,67 @@ final class ShoulderViewUITests: XCTestCase {
         assertAdviceInSight(app)
     }
 
+    // MARK: - The watched player's chat bubble
+
+    /// The watched player's chat line (follow-up to #371: "third line" hid the hand's corner
+    /// indices): never on a card of the hand, clear of the /help column's tip and advice (drawn
+    /// over the scene), the watched seat's row, the watcher's mic and eye and, while that seat
+    /// bids, the read-only sheet; while the cards are up it still shows.
+    private func assertWatchedBubble(_ app: XCUIApplication, _ text: String, _ tag: String,
+                                     file: StaticString = #filePath, line: UInt = #line) {
+        // the bubble's element (the log's row has the same words: the one on the table, bubble-sized)
+        let query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text))
+        XCTAssertTrue(query.firstMatch.waitForExistence(timeout: 8), "\(tag): the watched player's bubble", file: file, line: line)
+        Thread.sleep(forTimeInterval: 1)  // the column settles; the bubble moves clear of it
+        let found = query.allElementsBoundByIndex.first { e in
+            let f = e.frame
+            return !f.isEmpty && f.height < 60 && f.width <= 270 && app.windows.firstMatch.frame.contains(f)
+        }
+        guard let bubble = found else { return XCTFail("\(tag): no bubble-sized \"\(text)\"", file: file, line: line) }
+        let b = bubble.frame.insetBy(dx: 1, dy: 1)
+        let screen = app.windows.firstMatch.frame
+        XCTAssertTrue(screen.contains(bubble.frame), "\(tag): on screen \(bubble.frame)", file: file, line: line)
+        let cards = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS ' of ' OR label CONTAINS 'Joker'"))
+            .allElementsBoundByIndex.filter { !$0.frame.isEmpty && $0.frame.minY > b.minY - 300 }
+        XCTAssertFalse(cards.isEmpty, "\(tag): the hand's cards", file: file, line: line)
+        for c in cards {
+            XCTAssertFalse(b.intersects(c.frame), "\(tag): over \(c.label) \(c.frame) \(b)", file: file, line: line)
+        }
+        var keeps: [(String, CGRect)] = [("pill", pill(app).frame)]
+        for id in ["table.spectators", "Unmute microphone", "bidOverlay.watched", "bidClock"] where any(app, id).exists {
+            keeps.append((id, any(app, id).frame))
+        }
+        let column = assistColumn(app)
+        if !column.isNull { keeps.append(("the /help column", column)) }
+        if let row = probeRect(app, "row") { keeps.append(("the watched seat's row", row)) }
+        for (what, k) in keeps {
+            XCTAssertFalse(b.intersects(k), "\(tag): over \(what) \(k) \(b)", file: file, line: line)
+        }
+    }
+
+    func testTheWatchedPlayersChatIsNeverOnTheHand() {
+        // play: ivy (1) on turn with her tip and advice up
+        let app = launch(["-uiShoulder", "auto", "-uiShoulderHint", "YES", "-uiChat", "1|third line"])
+        waitPill(app, "Watching ivy's hand")
+        XCTAssertTrue(any(app, "assistCard").waitForExistence(timeout: 8), "ivy's advice is up")
+        assertWatchedBubble(app, "third line", "playing")
+        shot(app, "chat-playing")
+        app.terminate()
+        // a long line, the column up
+        let long = launch(["-uiShoulder", "auto", "-uiShoulderHint", "YES", "-uiChat", "1|a forty character line that wraps around"])
+        waitPill(long, "Watching ivy's hand")
+        XCTAssertTrue(any(long, "assistCard").waitForExistence(timeout: 8))
+        assertWatchedBubble(long, "a forty character line that wraps around", "playing, long")
+        shot(long, "chat-playing-long")
+        long.terminate()
+        // bidding: ned's (4) read-only sheet, his tip and advice up
+        let bidding = launch("bidding-mid", ["-uiAsSpectator", "YES", "-uiShoulder", "4", "-uiShoulderHint", "YES", "-uiChat", "4|third line"])
+        waitPill(bidding, "Watching ned's hand")
+        XCTAssertTrue(any(bidding, "bidOverlay.watched").waitForExistence(timeout: 8))
+        assertWatchedBubble(bidding, "third line", "bidding")
+        shot(bidding, "chat-bidding")
+    }
+
     // MARK: - A seat's screen is unchanged
 
     func testASeatedPlayersTableIsUnchanged() {
