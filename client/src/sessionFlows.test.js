@@ -385,6 +385,31 @@ describe('table entry and exit', () => {
     expect(document.getElementById('resignation-dialog')).toBeNull();
   });
 
+  it('Replace with Bot is offered only to a seat owner: a spectator never sees it, a seated or lazy owner does', async () => {
+    // a pure spectator gets the room-wide broadcast too, but the server
+    // refuses its forceResign ("Not a player in this game")
+    socket.fire('spectatorJoined', spectatorState({ gameId: 'g2' }));
+    expect(page.session.isSpectator).toBe(true);
+    socket.clearEmits();
+    socket.fire('resignationAvailable', { position: 2, username: 'bob' });
+    socket.fire('resignationAvailable', { position: 3, username: 'cat', idle: true });
+    expect(document.getElementById('resignation-dialog')).toBeNull();
+    expect(socket.emitted('forceResign')).toHaveLength(0);
+
+    await signIn();
+    await rejoinSeat();
+    socket.fire('resignationAvailable', { position: 2, username: 'bob' });
+    expect(document.getElementById('resignation-dialog')).not.toBeNull();
+    document.getElementById('resign-confirm-btn').click();
+    expect(socket.emitted('forceResign')).toEqual([{ position: 2 }]);
+
+    await signIn();
+    await rejoinSeat({ isLazy: true });
+    expect(page.session.role).toBe(ROLE.LAZY);
+    socket.fire('resignationAvailable', { position: 2, username: 'bob' });
+    expect(document.getElementById('resignation-dialog')).not.toBeNull();
+  });
+
   it('restorePlayerState rebuilds the table in place: same seat, gameId kept, the open offer stays', async () => {
     await rejoinSeat();
     socket.fire('resignationAvailable', { position: 2, username: 'bob' });
