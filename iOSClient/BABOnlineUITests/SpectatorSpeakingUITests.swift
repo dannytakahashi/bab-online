@@ -23,9 +23,10 @@ final class SpectatorSpeakingUITests: XCTestCase {
 
     private func value(_ e: XCUIElement) -> String { (e.value as? String) ?? "" }
 
-    /// Waits until the probe reads `want` (the fixture's talkers land right after the seed).
+    /// Waits until the probe reads `want` (the fixture's talkers land right after the seed). 20 s, as
+    /// the ready element: a cold first launch on a slow simulator took over 8 s (review 2026-11-22).
     @discardableResult
-    private func waitProbe(_ app: XCUIApplication, _ want: String, timeout: TimeInterval = 8,
+    private func waitProbe(_ app: XCUIApplication, _ want: String, timeout: TimeInterval = 20,
                            file: StaticString = #filePath, line: UInt = #line) -> String {
         let deadline = Date().addingTimeInterval(timeout)
         var last = Fixture.probe(app, "table.spectatorsSpeaking")
