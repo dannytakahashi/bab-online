@@ -117,9 +117,12 @@ extension SKOpponentManager {
 
 extension GameSKScene {
     /// My own seat's eye (seated: by my hand, under the hand's cards as my dealer marker, so a
-    /// lifted card covers it), from the model alone.
+    /// lifted card covers it), from the model alone. Never for a watcher (the over-the-shoulder
+    /// view's read-only hand: owner 2026-11-21, "two eye icons" on the iPad): the watcher's own
+    /// eye (the badge, in `TableLayout.watcherCluster`) already says who watches, and this one
+    /// tells a player their hand is watched.
     func placeMyWatchers(_ model: TableRenderModel) {
-        let me = model.hand != nil && model.showsTable ? model.viewPosition : nil
+        let me = model.hand.map { !$0.readOnly } == true && model.showsTable ? model.viewPosition : nil
         let n = me.map { model.watching.watchersBySeat[$0]?.count ?? 0 } ?? 0
         guard let node = watchChip(make: n > 0) else { return }
         node.zPosition = -1
