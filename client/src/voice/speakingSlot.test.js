@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { speakingSlotFor } from './speakingSlot.js';
+import { speakingSlotFor, spectatorSpeakerFor } from './speakingSlot.js';
 
 // Seats 1..4; I am 1: partner 3, opp1 = rotate(1) = 2, opp2 = 4
 const playerData = {
@@ -70,5 +70,47 @@ describe('speakingSlotFor without socket ids on the wire (V1_REMOVALS #6 / #14)'
   it('no owners known (an older page state): the shown name, then the socket id, as before', () => {
     expect(speakingSlotFor({ username: 'cat', socketId: 'x', playerData, myPosition: 1, owners: {} })).toBe('partner');
     expect(speakingSlotFor({ username: null, socketId: 's-dan', playerData, myPosition: 1, owners: {} })).toBe('opp2');
+  });
+});
+
+describe('spectatorSpeakerFor: who lights the spectator badge (owner 2026-11-22)', () => {
+  const owners = { 1: 'ann', 2: 'bob', 3: 'cat', 4: 'dan' };
+  const seated = {
+    position: [1, 2, 3, 4],
+    socket: ['s-ann', 's-bob', 's-cat', 's-dan'],
+    username: [{ username: 'ann' }, { username: 'bob' }, { username: 'cat' }, { username: 'dan' }],
+  };
+  const watching = { spectators: [{ username: 'eve' }, { username: 'fay' }, { username: 'me' }], count: 3 };
+  const at = (args) => spectatorSpeakerFor({ me: 'me', owners, playerData: seated, watching, ...args });
+
+  it('a listed spectator talking counts, by name', () => {
+    expect(at({ username: 'eve', socketId: 's-eve' })).toEqual({ username: 'eve' });
+    expect(at({ username: 'fay', socketId: 's-fay' })).toEqual({ username: 'fay' });
+  });
+
+  it('a seated player never counts (its seat glows), even if also listed', () => {
+    expect(at({ username: 'bob', socketId: 's-bob' })).toBeNull();
+    const w = { spectators: [...watching.spectators, { username: 'cat' }], count: 4 };
+    expect(at({ username: 'cat', socketId: 's-cat2', watching: w })).toBeNull();
+    // a seat shown by name only (no seatOwners yet)
+    expect(at({ username: 'dan', socketId: 'x', owners: {}, watching: { spectators: [{ username: 'dan' }], count: 1 } })).toBeNull();
+  });
+
+  it('me never (my mic shows it): a second tab of mine with my name', () => {
+    expect(at({ username: 'me', socketId: 's-me2' })).toBeNull();
+  });
+
+  it('a named peer not on the list is not placed (an entrant, the list not in yet)', () => {
+    expect(at({ username: 'zed', socketId: 's-zed' })).toBeNull();
+    expect(at({ username: 'eve', socketId: 's-eve', watching: null })).toBeNull();
+  });
+
+  it('a nameless peer: a spectator when it is at no seat of a seated table', () => {
+    expect(at({ username: null, socketId: 's-anon' })).toEqual({ peerId: 's-anon' });
+    expect(at({ username: null, socketId: 's-bob' })).toBeNull();
+    // before the seating it may be an entrant
+    expect(at({ username: null, socketId: 's-anon', owners: {}, playerData: null })).toBeNull();
+    expect(at({ username: null, socketId: 'self' })).toBeNull();
+    expect(at({ username: null, socketId: '' })).toBeNull();
   });
 });

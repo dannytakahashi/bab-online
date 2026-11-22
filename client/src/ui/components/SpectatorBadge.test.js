@@ -4,8 +4,11 @@
  * names with avatars (click / Enter, hover with a mouse; Escape and an
  * outside click close it), reduced motion respected.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { renderSpectatorBadge, removeSpectatorBadge, isSpectatorListOpen, watchingLabel, EYE_ICON, setSpeaking, isWatcherSpeaking } from './SpectatorBadge.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+  renderSpectatorBadge, removeSpectatorBadge, isSpectatorListOpen, watchingLabel, EYE_ICON, setSpeaking, isWatcherSpeaking,
+  setUnnamedSpeaking, clearSpeaking, isAnyWatcherSpeaking, speakingText, SPEAKING_QUIET_MS,
+} from './SpectatorBadge.js';
 import { clearHud, applyHudLayout } from '../tableHud.js';
 import { computeTableLayout } from '../../phaser/layout/computeTableLayout.js';
 import { setReducedMotionOverride } from '../motion.js';
@@ -66,6 +69,113 @@ describe('a watcher speaking (spectator voice, 2026-11-16)', () => {
     expect(slot()).toBeNull();
     renderSpectatorBadge(W(['ann']));
     expect(btn().classList.contains('voice-speaking')).toBe(true);
+  });
+});
+
+describe('a spectator talking: the green eye, the list dot, the words (owner 2026-11-22)', () => {
+  const row = (n) => pop().querySelector(`li[data-username="${n}"]`);
+  const dotShown = (n) => row(n).classList.contains('is-speaking') && !!row(n).querySelector('.spectator-popover__dot');
+  const lines = () => [...document.querySelectorAll('.hud-announcer p')].map((p) => p.textContent);
+
+  afterEach(() => vi.useRealTimers());
+
+  it('the words: one, two, past two, nameless', () => {
+    expect(speakingText([])).toBe('');
+    expect(speakingText(['Bo'])).toBe('Bo is talking');
+    expect(speakingText(['Bo', 'Cy'])).toBe('Bo and Cy are talking');
+    expect(speakingText(['Bo', 'Cy', 'Di'])).toBe('3 spectators are talking');
+    expect(speakingText([], 1)).toBe('A spectator is talking');
+    expect(speakingText(['Bo'], 1)).toBe('2 spectators are talking');
+  });
+
+  it('one spectator talking: the outline, the aria-label, that row\'s dot and "(talking)"; off when they stop', () => {
+    renderSpectatorBadge(W(['Bo', 'Cy']));
+    expect(btn().getAttribute('aria-label')).toBe('2 people watching');
+    setSpeaking('Bo', true);
+    expect(btn().classList.contains('voice-speaking')).toBe(true);
+    expect(btn().getAttribute('aria-label')).toBe('2 people watching. Bo is talking');
+    expect(dotShown('Bo')).toBe(true);
+    expect(row('Bo').querySelector('.spectator-popover__talking').textContent).toBe(' (talking)');
+    expect(row('Cy').classList.contains('is-speaking')).toBe(false);
+    expect(row('Cy').querySelector('.spectator-popover__talking').textContent).toBe('');
+    // the dot is decoration (the words are the row's text)
+    expect(row('Bo').querySelector('.spectator-popover__dot').getAttribute('aria-hidden')).toBe('true');
+    setSpeaking('Bo', false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+    expect(btn().getAttribute('aria-label')).toBe('2 people watching');
+    expect(row('Bo').classList.contains('is-speaking')).toBe(false);
+  });
+
+  it('two spectators: both dots, "Bo and Cy are talking"; one stops, the other keeps it lit', () => {
+    renderSpectatorBadge(W(['Bo', 'Cy', 'Di']));
+    setSpeaking('Bo', true);
+    setSpeaking('Cy', true);
+    expect(btn().getAttribute('aria-label')).toBe('3 people watching. Bo and Cy are talking');
+    expect(dotShown('Bo') && dotShown('Cy')).toBe(true);
+    expect(row('Di').classList.contains('is-speaking')).toBe(false);
+    setSpeaking('Di', true);
+    expect(btn().getAttribute('aria-label')).toBe('3 people watching. 3 spectators are talking');
+    setSpeaking('Di', false);
+    setSpeaking('Bo', false);
+    expect(btn().classList.contains('voice-speaking')).toBe(true);
+    expect(btn().getAttribute('aria-label')).toBe('3 people watching. Cy is talking');
+    setSpeaking('Cy', false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+  });
+
+  it('a nameless voice spectator lights the eye (no row); its stop and a voice stop clear it', () => {
+    renderSpectatorBadge(W(['Bo']));
+    setUnnamedSpeaking('peer-1', true);
+    expect(btn().classList.contains('voice-speaking')).toBe(true);
+    expect(btn().getAttribute('aria-label')).toBe('1 person watching. A spectator is talking');
+    expect(row('Bo').classList.contains('is-speaking')).toBe(false);
+    // a complete list never drops it (it has no name to miss)
+    renderSpectatorBadge(W(['Bo']));
+    expect(isAnyWatcherSpeaking()).toBe(true);
+    setUnnamedSpeaking('peer-1', false);
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+    setUnnamedSpeaking('peer-1', true);
+    setSpeaking('Bo', true);
+    clearSpeaking();
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+    expect(row('Bo').classList.contains('is-speaking')).toBe(false);
+    expect(btn().getAttribute('aria-label')).toBe('1 person watching');
+  });
+
+  it('the light goes when the talker leaves the list', () => {
+    renderSpectatorBadge(W(['Bo', 'Cy']));
+    setSpeaking('Cy', true);
+    renderSpectatorBadge(W(['Bo']));
+    expect(btn().classList.contains('voice-speaking')).toBe(false);
+    expect(btn().getAttribute('aria-label')).toBe('1 person watching');
+  });
+
+  it('the polite announcer: a start after a quiet spell only, never a stop or the next breath', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2030-01-01T12:00:00Z')); // after any real-time line (the announcer drops a repeat within 1 s)
+    renderSpectatorBadge(W(['Bo', 'Cy']));
+    setSpeaking('Bo', true);
+    expect(lines()).toEqual(['Bo is talking']);
+    setSpeaking('Bo', true); // still talking: no change
+    vi.advanceTimersByTime(500);
+    setSpeaking('Bo', false);
+    vi.advanceTimersByTime(2000);
+    setSpeaking('Bo', true); // a pause in the same talk
+    expect(lines()).toEqual(['Bo is talking']);
+    setSpeaking('Cy', true); // a new talker: the change is said
+    expect(lines()).toEqual(['Bo is talking', 'Bo and Cy are talking']);
+    setSpeaking('Bo', false);
+    setSpeaking('Cy', false);
+    vi.advanceTimersByTime(SPEAKING_QUIET_MS + 1);
+    setSpeaking('Cy', true); // back after a quiet spell
+    expect(lines().at(-1)).toBe('Cy is talking');
+  });
+
+  it('nothing is said while the badge is hidden (nobody listed)', () => {
+    renderSpectatorBadge(W(['Bo']));
+    renderSpectatorBadge({ spectators: [], count: 0 });
+    setUnnamedSpeaking('peer-1', true);
+    expect(lines()).toEqual([]);
   });
 });
 

@@ -24,10 +24,20 @@
  * handler on every list. The HUD's clearHud removes the node with the
  * table; removeSpectatorBadge also drops the document listeners.
  *
- * Spectator voice (family lobbies, 2026-11-16): a voice spectator's speaking
- * ring is the badge's (setSpeaking: the badge glows while anyone watching
- * talks, and that name's row in the list is marked), since a spectator has
- * no seat to light.
+ * Spectator voice (family lobbies, 2026-11-16; owner 2026-11-22): a voice
+ * spectator's speaking ring is the badge's, since a spectator has no seat to
+ * light. The badge has a steady green outline (the seats' speaking ring:
+ * --success, no animation, so nothing to drop under reduced motion) while
+ * any spectator other than me talks (setSpeaking by username, or
+ * setUnnamedSpeaking by peer id for a voice spectator with no name; main.js
+ * decides who counts: voice/speakingSlot.js spectatorSpeakerFor). Seated
+ * players never light it (their seat glows) and neither does my own voice
+ * (my mic button shows it). Each talking spectator's row in the list has a
+ * green dot (the voice panel's .voice-row__dot look) and "talking" for
+ * screen readers; the badge's aria-label adds "Bo is talking" / "Bo and Cy
+ * are talking" / "3 spectators are talking", and the table's polite
+ * announcer says it when someone starts talking after a quiet spell
+ * (SPEAKING_QUIET_MS: changes only, never every breath, never a stop).
  */
 
 import { el, createIconButton } from '../kit/index.js';
@@ -35,6 +45,7 @@ import { avatarSrc, applyAvatarImg, CUSTOM_FALLBACK } from '../../utils/avatar.j
 import { hudSpectatorSlot } from '../tableHud.js';
 import { prefersReducedMotion } from '../motion.js';
 import { watcherRow } from '../../state/shoulder.js';
+import { announce } from '../handA11y.js';
 
 /** An SF Symbol-like eye ("eye.fill"), drawn: no emoji in the UI. */
 export const EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
@@ -49,19 +60,73 @@ export function watchingLabel(count) {
   return `${count} ${count === 1 ? 'person' : 'people'} watching`;
 }
 
+/**
+ * Who of the watchers is talking, in words: "Bo is talking", "Bo and Cy are
+ * talking", "3 spectators are talking" past two; a nameless voice spectator
+ * is "a spectator" ("A spectator is talking", "2 spectators are talking").
+ * '' when nobody talks.
+ * @param {string[]} names - talking spectators' usernames, in the order they started
+ * @param {number} [unnamed] - talking voice spectators with no name
+ */
+export function speakingText(names, unnamed = 0) {
+  const total = names.length + unnamed;
+  if (total === 0) return '';
+  if (total > 2 || (unnamed > 0 && total > 1)) return `${total} spectators are talking`;
+  if (total === 1) return `${names[0] || 'A spectator'} is talking`;
+  return `${names[0]} and ${names[1]} are talking`;
+}
+
+/** A spectator who starts talking within this long of their last talk is not announced again. */
+export const SPEAKING_QUIET_MS = 10000;
+
 let docListeners = null;
 let openedBy = null; // 'click' | 'hover' | null
-// Watching usernames whose voice is speaking now (setSpeaking)
+// Watching usernames whose voice is speaking now (setSpeaking), in the order they started
 const speaking = new Set();
+// Talking voice spectators with no username, by peer socket id (setUnnamedSpeaking)
+const unnamedSpeaking = new Set();
+// key ('u:<name>' / 'p:<peer id>') -> when it last talked (the announcer's quiet spell)
+const lastTalked = new Map();
 
-/** The badge and the list rows show who of the watchers is speaking. */
+const anySpeaking = () => speaking.size + unnamedSpeaking.size > 0;
+
+/** The badge's aria-label: the count, then who is talking. */
+function badgeLabel(count) {
+  const talking = speakingText([...speaking], unnamedSpeaking.size);
+  return talking ? `${watchingLabel(count)}. ${talking}` : watchingLabel(count);
+}
+
+/** The badge, its label and the list rows show who of the watchers is speaking. */
 function applySpeaking(slot) {
   const btn = buttonOf(slot);
   if (!btn) return;
-  btn.classList.toggle('voice-speaking', speaking.size > 0);
+  btn.classList.toggle('voice-speaking', anySpeaking());
+  btn.setAttribute('aria-label', badgeLabel(Number(slot.dataset.count) || 0));
   for (const li of slot.querySelectorAll('.spectator-popover__row')) {
-    li.classList.toggle('is-speaking', speaking.has(li.dataset.username));
+    const on = speaking.has(li.dataset.username);
+    li.classList.toggle('is-speaking', on);
+    const said = li.querySelector('.spectator-popover__talking');
+    if (said) said.textContent = on ? ' (talking)' : '';
   }
+}
+
+/**
+ * Someone started or stopped talking: redraw, and on a start after a quiet
+ * spell say who is talking now (the polite table announcer), while the
+ * badge is up.
+ */
+function speakingChanged(key, on, wasOn) {
+  const slot = hudSpectatorSlot({ create: false });
+  if (slot) applySpeaking(slot);
+  if (!on || wasOn) {
+    if (!on && wasOn) lastTalked.set(key, Date.now());
+    return;
+  }
+  const now = Date.now();
+  const last = lastTalked.get(key);
+  lastTalked.set(key, now);
+  if (last !== undefined && now - last < SPEAKING_QUIET_MS) return;
+  if (slot && !slot.hidden) announce(speakingText([...speaking], unnamedSpeaking.size));
 }
 
 /**
@@ -72,8 +137,31 @@ function applySpeaking(slot) {
  */
 export function setSpeaking(username, on) {
   if (!username) return;
+  const wasOn = speaking.has(username);
   if (on) speaking.add(username);
   else speaking.delete(username);
+  speakingChanged(`u:${username}`, !!on, wasOn);
+}
+
+/**
+ * A voice spectator with no username started or stopped speaking (by its
+ * peer socket id): it lights the badge (no row to mark).
+ * @param {string} peerId
+ * @param {boolean} on
+ */
+export function setUnnamedSpeaking(peerId, on) {
+  if (!peerId) return;
+  const wasOn = unnamedSpeaking.has(peerId);
+  if (on) unnamedSpeaking.add(peerId);
+  else unnamedSpeaking.delete(peerId);
+  speakingChanged(`p:${peerId}`, !!on, wasOn);
+}
+
+/** Nobody is talking any more (voice stopped): the ring and the dots go. */
+export function clearSpeaking() {
+  if (!anySpeaking()) return;
+  speaking.clear();
+  unnamedSpeaking.clear();
   const slot = hudSpectatorSlot({ create: false });
   if (slot) applySpeaking(slot);
 }
@@ -81,6 +169,11 @@ export function setSpeaking(username, on) {
 /** Is a watcher's voice speaking now? (tests, the overlay) */
 export function isWatcherSpeaking(username) {
   return speaking.has(username);
+}
+
+/** Is any spectator talking now (the badge's ring)? (tests) */
+export function isAnyWatcherSpeaking() {
+  return anySpeaking();
 }
 
 function popoverOf(slot) {
@@ -196,7 +289,13 @@ function renderRows(list, spectators, me, seatName) {
     if (!li) {
       li = el('li', {
         className: 'spectator-popover__row',
-        children: [el('img', { className: 'spectator-popover__avatar', attrs: { alt: '' } }), el('span', { className: 'spectator-popover__name' })],
+        children: [
+          el('img', { className: 'spectator-popover__avatar', attrs: { alt: '' } }),
+          el('span', { className: 'spectator-popover__name' }),
+          // talking now: a green dot (the voice panel's), "(talking)" for screen readers
+          el('span', { className: 'spectator-popover__talking' }),
+          el('span', { className: 'spectator-popover__dot', attrs: { 'aria-hidden': 'true' } }),
+        ],
       });
       list.appendChild(li);
     }
@@ -230,8 +329,6 @@ export function renderSpectatorBadge(watching, { me = null, seatName = null } = 
   if (!slot) return null;
   if (!buttonOf(slot)) build(slot);
   const btn = buttonOf(slot);
-  const label = watchingLabel(count);
-  btn.setAttribute('aria-label', label);
   btn.querySelector('.spectator-badge__count').textContent = count > 99 ? '99+' : String(count);
   const pop = popoverOf(slot);
   renderRows(pop.querySelector('.spectator-popover__list'), spectators, me, seatName);
@@ -259,5 +356,7 @@ export function removeSpectatorBadge() {
   removeDocListeners();
   openedBy = null;
   speaking.clear();
+  unnamedSpeaking.clear();
+  lastTalked.clear();
   hudSpectatorSlot({ create: false })?.remove();
 }
