@@ -23,7 +23,7 @@ final class SeatRowUITests: XCTestCase {
         _ = Fixture.settledState(app)
         let pips = app.otherElements["pips.mine"], hsi = element(app, "hsi"), mic = app.buttons["Unmute microphone"]
         XCTAssertTrue(pips.exists && hsi.exists && mic.exists, "pips \(pips.exists) hsi \(hsi.exists) mic \(mic.exists)")
-        XCTAssertEqual(hsi.label, "Hand strength index 119.2")
+        XCTAssertEqual(hsi.label, "Hand strength index 105.8")
         XCTAssertTrue(pips.label.hasPrefix("Your tricks: "), pips.label)
         XCTAssertFalse(element(app, "bidOverlay.hsi").exists, "no bid panel mid-hand")
         let p = pips.frame, h = hsi.frame, m = mic.frame
@@ -61,7 +61,7 @@ final class SeatRowUITests: XCTestCase {
     // MARK: A live deal's HSI (the web's PR #345)
 
     /// A live deal (`-uiDeal`, 8 s after launch) with my seat's HSI `-uiDealHSI <value>`: the
-    /// rejoin's 119.2 goes to "HSI --" with the deal and the new value shows a second after it
+    /// rejoin's 105.8 (the fixture hand under the HSI of #382) goes to "HSI --" with the deal and the new value shows a second after it
     /// (HSIScale.revealDelay), in my seat's row or, on my bid turn, the bid panel. The colour
     /// (red to green, HSIScale.color) is in the screenshot, `hsi-<name>` (`BAB_SHOTS` saves it).
     private func checkLiveDealHSI(_ value: String, shot name: String) {
@@ -85,8 +85,8 @@ final class SeatRowUITests: XCTestCase {
         }
         XCTAssertNotNil(shownAt, "\(name): never showed \(shown): \(labels)")
         // read before the deal (the rejoin's value), then "HSI --" for the reveal's second
-        if labels.first == "Hand strength index 119.2" {
-            XCTAssertEqual(labels, ["Hand strength index 119.2", "Hand strength index pending", shown], name)
+        if labels.first == "Hand strength index 105.8" {
+            XCTAssertEqual(labels, ["Hand strength index 105.8", "Hand strength index pending", shown], name)
             if let pendingAt, let shownAt {
                 XCTAssertLessThan(shownAt.timeIntervalSince(pendingAt), 2.5, "\(name): held too long")
             }
