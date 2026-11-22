@@ -247,7 +247,7 @@ extension TableLayout {
     static let bidClockPillBox = CGSize(width: 80, height: 32)
 
     /// The read-only bid sheet: its band (and a gap above it) and the clock's pill.
-    private var bidSheetKeeps: [CGRect] {
+    var bidSheetKeeps: [CGRect] {
         let p = Self.bidClockPillBox
         return [CGRect(x: bidBand.minX, y: bidBand.minY, width: bidBand.width, height: bidBand.height + 2),
                 CGRect(x: bidBand.maxX - 12 - p.width, y: bidBand.maxY, width: p.width + 12, height: p.height)]

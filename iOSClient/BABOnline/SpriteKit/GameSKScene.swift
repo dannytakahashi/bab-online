@@ -208,6 +208,7 @@ class GameSKScene: SKScene, TableRenderer {
         layout = new
         backgroundNode.size = new.size
         applyZoom()
+        syncWatchedChat()
         let a: Animator = animated ? animator : InstantAnimator()
         let v = lastModel?.viewPosition ?? 1
         opponentManager.apply(layout: new, animator: a, animated: animated)
@@ -312,9 +313,14 @@ class GameSKScene: SKScene, TableRenderer {
                 dealIn(back: model.back)
             case .chatBubble(let pos, let message):
                 // Not over my own hand (the bottom seat's spot): the log shows my line. A watcher's
-                // bottom seat is the watched player's, whose lines show there (chatPosition(.bottom))
+                // bottom seat is the watched player's, whose lines show above that hand, beside its
+                // row and clear of the /help column (TableLayout+WatchedChat), never on the hand
                 guard model.showsTable, !(model.hand != nil && pos == model.viewPosition && model.watchedSeat == nil) else { break }
-                chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
+                if model.watchedSeat != nil, pos == model.viewPosition {
+                    chatManager.showWatched(position: pos, message: message, context: watchedChatContext(model), layout: layout, animator: animator)
+                } else {
+                    chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
+                }
             case .spectatorChatBubble(let username, let message):
                 // by the spectator badge, shown even before the coalesced list makes the badge appear
                 guard model.showsTable else { break }
@@ -326,12 +332,32 @@ class GameSKScene: SKScene, TableRenderer {
         }
     }
 
+    /// The /help column's visible frame in the pane's points (GameContainerView), nil while it is
+    /// not up: the watched player's chat bubble keeps clear of it (the SwiftUI cards are drawn
+    /// over the scene, so a bubble under them would be hidden).
+    var assistColumnFrame: CGRect? {
+        didSet { if oldValue != assistColumnFrame { syncWatchedChat() } }
+    }
+
+    /// What places the watched player's bubble now.
+    func watchedChatContext(_ model: TableRenderModel?) -> SKChatBubbleManager.WatchedChat {
+        SKChatBubbleManager.WatchedChat(bidding: model?.bidding ?? false,
+                                        column: assistColumnFrame.map { layout.scene(fromWindow: $0) })
+    }
+
+    /// A live watched bubble follows the bidding phase and the /help column.
+    private func syncWatchedChat() {
+        guard isSetUp, chatManager != nil else { return }
+        chatManager.setWatchedContext(watchedChatContext(lastModel), layout: layout)
+    }
+
     /// Idempotent: the stable layers show exactly `model`. Returns what the
     /// trick reconcile changed (entrances fly only sprites it created).
     @discardableResult
     func render(_ model: TableRenderModel, reset: Bool = false) -> TrickAreaNode.Changes {
         guard isSetUp else { return .init() }
         lastModel = model
+        syncWatchedChat()
         #if DEBUG
         defer { probe() }
         #endif

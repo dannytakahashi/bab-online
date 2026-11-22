@@ -66,11 +66,27 @@ class SKChatBubbleManager {
 
     init(layer: SKNode) { self.layer = layer }
 
+    /// What places the watched player's bubble (a watcher's bottom seat; TableLayout+WatchedChat):
+    /// the bidding phase (the read-only sheet's band) and the /help column as drawn (scene
+    /// coordinates), which the SwiftUI cards cover the scene with.
+    struct WatchedChat: Equatable {
+        var bidding = false
+        var column: CGRect?
+    }
+    private(set) var watchedContext = WatchedChat()
+    /// The positions whose live bubble is the watched player's (placed by `placeWatched`).
+    private(set) var watchedPositions: Set<Int> = []
+
+    /// The widths a watched player's bubble tries at the first tier before the later tiers.
+    static let watchedWidths: [CGFloat] = [260, 200, 160, 130]
+
     /// The spectator bubble ("Name: text" by the badge): one at a time, as a seat's.
     private(set) var spectatorBubble: (node: SKNode, size: CGSize, spectating: Bool, watcherBidding: Bool?)?
 
     func show(position: Int, message: String, viewPosition: Int, layout: TableLayout, animator: Animator) {
         bubbles[position]?.node.removeFromParent()
+        watchedPositions.remove(position)
+        watchedLines[position] = nil
         let (bubble, size) = Self.makeBubble(message, maxWidth: layout.chatMaxWidth, name: "chat.\(position)",
                                              fill: Theme.SK.chatFill, text: Theme.SK.chatText)
         let rel = Positions.getRelative(target: position, from: viewPosition)
@@ -78,6 +94,90 @@ class SKChatBubbleManager {
         layer.addChild(bubble)
         bubbles[position] = (bubble, rel, size)
         animator.fadeAndRemove(bubble, after: LayoutConstants.bubbleLifetime)
+    }
+
+    /// The watched player's line (the over-the-shoulder view's bottom seat), never on the hand:
+    /// clear of everything where a spot is (narrower if it must), else clear of the hand, the
+    /// watched seat's row, the watcher's mic and eye, the bid sheet and the /help column.
+    func showWatched(position: Int, message: String, context: WatchedChat, layout: TableLayout, animator: Animator) {
+        bubbles[position]?.node.removeFromParent()
+        watchedContext = context
+        let c = Self.chooseWatched(position: position, message: message, context: context, layout: layout)
+        c.node.position = CGPoint(x: c.rect.midX, y: c.rect.midY)
+        layer.addChild(c.node)
+        bubbles[position] = (c.node, .bottom, c.size)
+        watchedLines[position] = (message, CACurrentMediaTime())
+        watchedPositions.insert(position)
+        animator.fadeAndRemove(c.node, after: LayoutConstants.bubbleLifetime)
+    }
+
+    /// The live watched lines (their words and when they showed), for a re-placement.
+    private var watchedLines: [Int: (message: String, shownAt: CFTimeInterval)] = [:]
+
+    /// The bubble for `message` and its spot: the best tier first, at the widest width that has
+    /// a spot there (TableLayout+WatchedChat), else the fallback just above the hand.
+    static func chooseWatched(position: Int, message: String, context: WatchedChat, layout: TableLayout) -> (node: SKNode, size: CGSize, rect: CGRect) {
+        var widths: [CGFloat] = []
+        for w in watchedWidths.map({ min($0, layout.chatMaxWidth) }) where !widths.contains(w) { widths.append(w) }
+        var made: [CGFloat: (SKNode, CGSize)] = [:]
+        func make(_ w: CGFloat) -> (SKNode, CGSize) {
+            if let b = made[w] { return b }
+            let b = makeBubble(message, maxWidth: w, name: "chat.\(position)", fill: Theme.SK.chatFill, text: Theme.SK.chatText)
+            made[w] = b
+            return b
+        }
+        for tier in TableLayout.WatchedChatTier.allCases {
+            for w in widths {
+                let (node, size) = make(w)
+                if let r = layout.watchedChatRect(bubbleSize: size, bidding: context.bidding, column: context.column, tier: tier) {
+                    return (node, size, r)
+                }
+            }
+        }
+        let (node, size) = make(widths[0])
+        return (node, size, layout.watchedChatFallback(bubbleSize: size))
+    }
+
+    /// A `size` bubble's spot: the first tier that has one, else the fallback (tests sweep it).
+    static func watchedRect(_ layout: TableLayout, size: CGSize, context: WatchedChat) -> CGRect {
+        for tier in TableLayout.WatchedChatTier.allCases {
+            if let r = layout.watchedChatRect(bubbleSize: size, bidding: context.bidding, column: context.column, tier: tier) { return r }
+        }
+        return layout.watchedChatFallback(bubbleSize: size)
+    }
+
+    /// The bidding phase or the /help column changed: a live watched bubble moves clear again.
+    func setWatchedContext(_ context: WatchedChat, layout: TableLayout) {
+        guard context != watchedContext else { return }
+        watchedContext = context
+        placeWatched(layout: layout)
+    }
+
+    /// Each live watched bubble chosen again for the context and layout now: moved where its
+    /// size still fits best, else replaced by one of the new width (its fade keeps its time left;
+    /// a held bubble, e.g. a fixture's frozen one, stays held).
+    private func placeWatched(layout: TableLayout) {
+        for pos in watchedPositions {
+            guard let b = bubbles[pos], b.node.parent != nil, let line = watchedLines[pos] else {
+                watchedPositions.remove(pos)
+                watchedLines[pos] = nil
+                continue
+            }
+            let c = Self.chooseWatched(position: pos, message: line.message, context: watchedContext, layout: layout)
+            if c.size == b.size {
+                b.node.position = CGPoint(x: c.rect.midX, y: c.rect.midY)
+                continue
+            }
+            let fading = b.node.hasActions()
+            b.node.removeFromParent()
+            c.node.position = CGPoint(x: c.rect.midX, y: c.rect.midY)
+            layer.addChild(c.node)
+            bubbles[pos] = (c.node, .bottom, c.size)
+            if fading {
+                let left = max(0, LayoutConstants.bubbleLifetime - (CACurrentMediaTime() - line.shownAt))
+                c.node.run(SKAction.sequence([SKAction.wait(forDuration: left), SKAction.fadeOut(withDuration: 0.3), SKAction.removeFromParent()]))
+            }
+        }
     }
 
     /// A spectator's line by the spectator badge (V1_REMOVALS "iOS spectator badge" 7): tinted
@@ -185,9 +285,10 @@ class SKChatBubbleManager {
     /// Relayout: live bubbles to their new place; gone ones are forgotten.
     func apply(layout: TableLayout) {
         for (pos, b) in bubbles {
-            guard b.node.parent != nil else { bubbles[pos] = nil; continue }
-            b.node.position = layout.chatPosition(b.rel, bubbleSize: b.size)
+            guard b.node.parent != nil else { bubbles[pos] = nil; watchedPositions.remove(pos); watchedLines[pos] = nil; continue }
+            if !watchedPositions.contains(pos) { b.node.position = layout.chatPosition(b.rel, bubbleSize: b.size) }
         }
+        placeWatched(layout: layout)
         if let b = spectatorBubble {
             if b.node.parent == nil {
                 spectatorBubble = nil

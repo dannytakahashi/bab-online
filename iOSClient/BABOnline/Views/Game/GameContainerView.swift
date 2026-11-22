@@ -1182,6 +1182,13 @@ private struct GameScreen: View {
                             .onChange(of: f.size) { _, _ in showAdviceHead(proxy) }
                     }
                 }
+                // the watched player's chat bubble keeps clear of the cards as drawn (GameSKScene)
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
+                    scene.assistColumnFrame = r
+                }
+                .onDisappear {
+                    if !showsAssistColumn { scene.assistColumnFrame = nil }
+                }
                 #if DEBUG
                 .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .named(BidClockPill.paneSpace)) }) { r in
                     if UIFixture.isActive { TableDebugProbe.shared.assistFrame = r }
