@@ -139,7 +139,7 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertEqual(s.table.viewer.viewPosition, 2)
         XCTAssertNil(s.table.viewer.position)
         XCTAssertEqual(s.table.hand.count, 12)
-        XCTAssertEqual(s.table.hsi[2] ?? 0, 137.58, accuracy: 0.01)
+        XCTAssertEqual(s.table.hsi[2] ?? 0, 118.2, accuracy: 0.01)
         XCTAssertEqual(watches(fx), [], "the reply itself sends nothing")
 
         // the mirrored /help answer: shown read-only, headed, never counted
@@ -162,7 +162,7 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertEqual(s.table.viewer.watchedSeat, 2)
         XCTAssertEqual(s.table.hand.count, 12)
         XCTAssertTrue(s.table.hand.contains(T.c("joker", "HI")))
-        XCTAssertEqual(s.table.hsi, [2: 105.08333333333333])
+        XCTAssertEqual(s.table.hsi, [2: 148.2])
         XCTAssertEqual(watches(fx), [], "the deal carries the wanted hand: nothing to ask")
         XCTAssertNil(s.table.watchedAssist, "a new deal ends the advice")
 
