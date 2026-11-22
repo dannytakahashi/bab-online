@@ -790,6 +790,37 @@ final class ShoulderViewTests: XCTestCase {
         XCTAssertNotNil(scene.transientLayer.childNode(withName: "chat.3"), "the other seats' as before")
     }
 
+    func testAWatcherSeesNoEyeByTheWatchedHand() throws {
+        // owner 2026-11-21 (iPad): "two eye icons" while watching: the watched seat's own eye at
+        // the hand's right end and the watcher's badge. The badge is the watcher's; the seat eye
+        // by the hand is for the player whose hand it is, so a watcher gets none there
+        let h = ReplayHarness()
+        h.store.apply(.local(.identity(username: "viewer", playerId: "sid-viewer")))
+        let raw = try snapDict { r in
+            var v = r["viewer"] as! [String: Any]
+            v["role"] = "spectator"; v["position"] = NSNull(); v["canAct"] = false; v["ownerView"] = NSNull()
+            v.removeValue(forKey: "assist")
+            v["shoulder"] = ["position": 1, "hand": self.cards(12), "hsi": 120.0] as [String: Any]
+            r["viewer"] = v; r["hand"] = NSNull(); r["hsi"] = NSNull()
+        }
+        h.store.apply(serverEvent: "stateSnapshot", payload: [["snapshot": raw, "requestId": "gap-1"]])
+        XCTAssertEqual(h.store.watchedSeat, 1)
+        let size = CGSize(width: 820, height: 1180)  // the iPad Air 11 in portrait
+        let scene = GameSKScene(size: size)
+        scene.animator = HoldingAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        let gameId = h.store.state.table.gameId ?? ""
+        // me and another watcher on seat 1, a third on seat 3
+        h.store.apply(serverEvent: "spectatorsUpdated", payload: [["gameId": gameId, "count": 3, "spectators": [
+            ["username": "viewer", "pic": 3, "shoulder": 1], ["username": "yan", "pic": 4, "shoulder": 1],
+            ["username": "xena", "pic": 5, "shoulder": 3]]]])
+        XCTAssertEqual(h.store.state.players.watching.watchersBySeat[1]?.count, 2, "seat 1 is watched")
+        XCTAssertTrue(scene.watchChip(make: false)?.isHidden ?? true, "no eye by the watched hand")
+        let seat3 = try XCTUnwrap(scene.opponentManager.nodes[3])
+        XCTAssertEqual(seat3.watchChip(make: false)?.count, 1, "another seat's eye is still shown")
+    }
+
     func testASeatsAvatarTapStillOpensTheProfile() throws {
         let h = ReplayHarness()
         _ = h.actions  // the coordinator sends what the store asks for
