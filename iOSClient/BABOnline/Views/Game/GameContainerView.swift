@@ -1362,8 +1362,11 @@ private struct GameScreen: View {
 
     private func spectatorBadge(_ layout: TableLayout) -> some View {
         let rect = layout.window(layout.spectatorBadge(spectating: !gameState.table.viewer.showsHand, watching: isWatching, bidding: watchBidding))
+        // a spectator talking lights the eye (never a seat's player or me: SpeakingWatchers)
+        let speaking = SpeakingWatchers.select(speaking: voiceManager.speakingPeers, username: { voiceManager.peerInfos[$0]?.username },
+                                               players: gameState.state.players, me: gameState.username)
         return SpectatorBadgeView(watching: gameState.watching, myUsername: gameState.username,
-                                  seatNames: gameState.state.players.watchedSeatNames)
+                                  seatNames: gameState.state.players.watchedSeatNames, speaking: speaking)
             // a watcher's eye is centred right under its mic (TableLayout.watcherCluster; the badge's
         // own type is not zoomed, so on a zoomed table it sits at the top of its spot)
             .frame(width: rect.width, height: rect.height, alignment: isWatching ? .top : .trailing)

@@ -36,5 +36,35 @@ extension UIFixture {
             "gameId": snap.gameId, "spectators": entries, "count": entries.count,
         ] as [String: Any]])
     }
+
+    /// Spectator voice in fixture mode (fixture mode never starts voice): `-uiSpeakingSpectators
+    /// <name>[,<name>]` makes a voice peer per name ("spk-<name>", the peer's username that name)
+    /// and marks it talking (VoiceChatManager.speakingPeers), so the spectator badge's speaking
+    /// outline, its list's dots and its VoiceOver value show (SpeakingWatchers decides who counts:
+    /// a seat's name or mine never does). `?` is a talking peer with no username. With
+    /// `-uiSpeakingStop <seconds>` they all stop talking after that long (the outline goes).
+    /// E.g. `-uiWatchers 0:2 -uiSpeakingSpectators zach,yan`.
+    static let speakingSpectators: [String] = isActive
+        ? (UserDefaults.standard.string(forKey: "uiSpeakingSpectators") ?? "").split(separator: ",").map(String.init) : []
+    static let speakingStop: TimeInterval? = isActive
+        ? UserDefaults.standard.string(forKey: "uiSpeakingStop").flatMap(Double.init) : nil
+
+    @MainActor
+    static func seedSpeakingSpectators() {
+        guard !speakingSpectators.isEmpty else { return }
+        let voice = VoiceChatManager.shared
+        var ids: [String] = []
+        for (i, name) in speakingSpectators.enumerated() {
+            let id = name == "?" ? "spk-unnamed-\(i)" : "spk-\(name)"
+            voice.peerInfos[id] = VoiceChatManager.PeerInfo(username: name == "?" ? "" : name)
+            ids.append(id)
+        }
+        voice.speakingPeers.formUnion(ids)
+        if let after = speakingStop {
+            DispatchQueue.main.asyncAfter(deadline: .now() + after) {
+                MainActor.assumeIsolated { voice.speakingPeers.subtract(ids) }
+            }
+        }
+    }
 }
 #endif

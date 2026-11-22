@@ -234,6 +234,7 @@ enum UIFixture {
             seedShoulder(store, auth: auth)
             seedFaults(store, snap)
             seedWatchers(store, snap)  // -uiWatchers (UIFixture+Watchers.swift)
+            seedSpeakingSpectators()  // -uiSpeakingSpectators (UIFixture+Watchers.swift)
             appState.screen = .game
             if lobbyReturnMode != nil, gameEndStates[name] != nil, let gameId = snapDict["gameId"] as? String {
                 seedLobbyReturn(gameId: gameId, me: me ?? "viewer", seats: snap.seats.compactMap(\.username),
@@ -795,6 +796,9 @@ final class TableDebugProbe: ObservableObject {
     /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
     /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
     @Published var tableShoulder = "-"
+    /// The spectator badge's speaking outline (SpectatorBadgeView, SpeakingWatchers):
+    /// "lit=<0|1> names=<a,b|-> unnamed=<n>"; "-" while no badge shows.
+    @Published var spectatorsSpeaking = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
@@ -994,6 +998,7 @@ struct FixtureProbes: View {
             dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
             dot("table.shoulder", probe.tableShoulder)
+            dot("table.spectatorsSpeaking", probe.spectatorsSpeaking)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
