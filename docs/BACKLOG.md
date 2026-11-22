@@ -17,6 +17,11 @@ remove an item in the PR that fixes it.
 
 ## iOS: other
 
+- **Chat bubbles' VoiceOver frame is empty** (found 2026-11-22 while fixing `ShoulderViewUITests` on the closed Duo).
+  - `SKChatBubbleManager.makeBubble` makes the plain container `SKNode` the accessibility element (`speak(message)`). SpriteKit gives a container a zero-size frame, so VoiceOver's focus is a point at the bubble's centre.
+  - The text's `SKLabelNode` still shows up as a second element with the real frame, despite `hideFromAccessibility()`, and its label is the drawn text, which a narrow bubble cuts ("… wraps…").
+  - Fix: make one element with the bubble's real frame and the whole line, e.g. speak on the background shape and keep the container's `name` out of the tree. Then tighten `ShoulderViewUITests.assertWatchedBubble` back to the whole line.
+
 - **Web pages iOS still lacks** (after the Stats sheet's Records tab): other players' profiles
   (avatar, the 12-stat grid, Report / Block; web opens them from seat avatars
   and opponent plates); my own profile (the same stats, choose a stock avatar or
