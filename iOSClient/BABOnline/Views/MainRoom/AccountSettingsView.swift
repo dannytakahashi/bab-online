@@ -149,7 +149,7 @@ struct AccountSettingsView: View {
                     Image(systemName: "speaker.fill")
                         .foregroundColor(Theme.textDim)
                         .accessibilityHidden(true)
-                    Slider(value: $sounds.volume, in: 0.05...1)
+                    Slider(value: $sounds.volume, in: SoundPlayer.volumeRange)
                         .tint(Theme.primary)
                         .accessibilityLabel("Sound volume")
                         .accessibilityIdentifier("settings.soundVolume")
@@ -157,6 +157,17 @@ struct AccountSettingsView: View {
                         .foregroundColor(Theme.textDim)
                         .accessibilityHidden(true)
                 }
+                #if DEBUG
+                .background {
+                    // UI tests: the stored volume itself (the slider's own value is its position)
+                    if UIFixture.isActive {
+                        Color.clear.frame(width: 1, height: 1)
+                            .accessibilityElement()
+                            .accessibilityIdentifier("settings.soundVolume.stored")
+                            .accessibilityValue(String(format: "%.2f", sounds.volume))
+                    }
+                }
+                #endif
             }
         } footer: {
             Text("Card, turn and trick sounds. The silent switch mutes them, except during voice chat.")
