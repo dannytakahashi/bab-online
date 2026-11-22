@@ -390,9 +390,13 @@ final class ShoulderViewUITests: XCTestCase {
         let query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", text))
         XCTAssertTrue(query.firstMatch.waitForExistence(timeout: 8), "\(tag): the watched player's bubble", file: file, line: line)
         Thread.sleep(forTimeInterval: 1)  // the column settles; the bubble moves clear of it
+        // at most 260 scene points wide plus its edge: 270 on a phone, wider where the table is
+        // zoomed (the iPad Air 11: about 345 pt), still far short of the log's rows
+        let window = app.windows.firstMatch.frame
+        let widest = max(270, window.width * 0.45)
         let found = query.allElementsBoundByIndex.first { e in
             let f = e.frame
-            return !f.isEmpty && f.height < 60 && f.width <= 270 && app.windows.firstMatch.frame.contains(f)
+            return !f.isEmpty && f.height < 60 && f.width <= widest && window.contains(f)
         }
         guard let bubble = found else { return XCTFail("\(tag): no bubble-sized \"\(text)\"", file: file, line: line) }
         let b = bubble.frame.insetBy(dx: 1, dy: 1)
