@@ -57,11 +57,14 @@ extension TableReducer {
             // this turn); one held while the table lagged behind shows now if it is live
             s.table.assistAsking = false
             settleAssist(&s, abandon: true, &fx)
+            // a watched seat's advice ends at its turn's change too (unless still this turn's)
+            if let w = s.table.watchedAssist, !AssistRules.isLiveWatched(w, s) { s.table.watchedAssist = nil }
         case .bidReceived(let p):
             bidReceived(&s, p, &fx)
         case .doneBidding(let p):
             stopBidClock(&s, .fade, &fx)
             clearAssist(&s)
+            s.table.watchedAssist = nil
             guard var bids = s.table.phase.bids else { break }
             if let arr = p.bids, arr.count == 4 { bids.byPosition = arr.map { $0?.value } }
             if let tb = p.teamBids { bids.teamBids = TeamPair(team1: tb.team1, team2: tb.team2) }
@@ -79,6 +82,7 @@ extension TableReducer {
         case .destroyHands:
             stopBidClock(&s, .fade, &fx)
             clearAssist(&s)
+            s.table.watchedAssist = nil
             s.table.hand = []
             // every hand is gone, not only mine (the card backs; the redeal's gameStart refills them)
             for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
@@ -97,6 +101,9 @@ extension TableReducer {
         case .gameEnd(let p, let data):
             stopBidClock(&s, .hard, &fx)
             dropAssist(&s)
+            // the over-the-shoulder view ends with the game: the end screen is the plain
+            // spectator's (the server forgets the watch with the game; nothing is sent)
+            endWatch(&s)
             fx.append(.sound(.gameEnd))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
@@ -194,6 +201,8 @@ extension TableReducer {
             var row = ChatMessage(username: "System", message: p.message ?? "", type: type)
             row.isFault = p.fault != nil
             s.log.entries.append(row)
+            // the paused rule (the over-the-shoulder view): the room's pause and resume lines
+            if type == .system, let m = p.message { watchLogLine(&s, m, &fx) }
         case .chatMessage(let p, let blocked, let mine):
             guard !blocked else { break }
             // 21.8: `isSpectator` routes (the server drops `type` with V1_REMOVALS #12); `type` only for an older server
@@ -220,6 +229,8 @@ extension TableReducer {
             assistHint(&s, p, &fx)
         case .assistState(let p):
             assistState(&s, p, &fx)
+        case .watchHandRefused(let p):
+            watchRefused(&s, p, &fx)
         case .spectatorNotice(let p):
             if let n = p.spectatorCount { s.players.spectatorCount = n }
             addLog(&s, "\(p.username ?? "Someone") joined as spectator")
@@ -251,7 +262,7 @@ extension TableReducer {
             fx.append(.notice(RejectReason.message(p.reason)))
         case .stateSnapshot(let p):
             if let snap = p.snapshot {
-                applySnapshot(&s, snap, .requested(p.requestId ?? ""), nil, &fx)
+                applySnapshot(&s, snap, p.reason == "watchHand" ? .watchReply : .requested(p.requestId ?? ""), nil, &fx)
             } else {
                 local(&s, .snapshotUnavailable(requestId: p.requestId), &fx)
             }
@@ -346,9 +357,14 @@ extension TableReducer {
             seat.lazy = false
             s.players.seats[pos] = seat
             if let sid { s.players.socketBySeat[pos] = sid }
-            // My seat: matched by socket id or username (as the old setPlayerData did)
+            // My seat: matched by socket id or username (as the old setPlayerData did). A pure
+            // spectator never claims a seat by username (the web keeps isSpectator there too): it
+            // is my account's seat on another device (a second device spectating during the
+            // draw), and claiming it would make this socket a seat (the chime, a live bid panel
+            // sending playerBid) and lose the own-seat watch. Only this socket's id seats it.
             if let sid, sid == s.table.me.playerId { s.table.viewer.position = pos; s.table.viewer.role = .seat }
-            else if let name, let me = s.table.me.username, name == me, s.table.viewer.position == nil || s.table.viewer.role != .seat {
+            else if let name, let me = s.table.me.username, name == me, s.table.viewer.role != .spectator,
+                    s.table.viewer.position == nil || s.table.viewer.role != .seat {
                 s.table.viewer.position = pos
                 s.table.viewer.role = .seat
             }
@@ -362,6 +378,7 @@ extension TableReducer {
     static func gameStart(_ s: inout TableState, _ p: WirePayload.GameStart, _ fx: inout [TableEffect]) {
         stopBidClock(&s, .fade, &fx)
         clearAssist(&s)
+        s.table.watchedAssist = nil
         if s.table.phase.kind == .ended || s.table.phase.kind == .none { s.table.phase = .waiting }
         if let gid = p.gameId { s.table.gameId = gid }
         let previous = s.table.deal
@@ -381,6 +398,8 @@ extension TableReducer {
         var hsi: [Int: Double] = [:]
         for (k, v) in p.hsiValues ?? [:] { if let pos = Position.valid(Int(k)) { hsi[pos] = v } }
         s.table.hsi = hsi
+        // a watcher's deal: the watched seat's new hand and HSI (gameStart.shoulder)
+        dealWatch(&s, p)
         // "HSI --" until the cards are down (the web's clearPlayerHsi, then a 1 s director.delay)
         s.table.hsiHeld = true
         fx.append(.revealHSI(dealSeq: dealSeq))
@@ -414,6 +433,8 @@ extension TableReducer {
         } else {
             addLog(&s, "Hand \(size) started")
         }
+        // a spectator's first deal (after the draw) sends the watch; a deal without the wanted hand asks again
+        afterDealWatch(&s, p, &fx)
     }
 
     static func trumpString(_ trump: Card) -> String {
@@ -438,6 +459,8 @@ extension TableReducer {
         s.table.phase = .bidding(b)
         // my own bid: the /help card is done
         if pos == s.table.viewer.position && s.table.viewer.holdsSeat { clearAssist(&s); clearTip(&s) }
+        // the watched seat's bid: its mirrored advice and tip are done
+        if pos == s.table.viewer.watchedSeat { clearWatchedHints(&s) }
         addLog(&s, "\(s.players.name(pos)) bid \(bid)")
         if pos == s.table.viewer.position, let pending = s.pending, case .bid = pending.submission {
             s.pending = nil
@@ -477,6 +500,11 @@ extension TableReducer {
         // my own card: the /help card is done
         if mine { clearAssist(&s); clearTip(&s) }
         if mine, let i = s.table.hand.firstIndex(of: p.card) { s.table.hand.remove(at: i) }  // also a lazy bot's play for me
+        // the watched seat's card (the over-the-shoulder view): out of the hand shown, its hints done
+        if pos == s.table.viewer.watchedSeat {
+            clearWatchedHints(&s)
+            if s.table.viewer.watchesHand, let i = s.table.hand.firstIndex(of: p.card) { s.table.hand.remove(at: i) }
+        }
         var confirmsMine = false
         if mine, let pending = s.pending, case .play(let c) = pending.submission {
             s.pending = nil
@@ -529,6 +557,7 @@ extension TableReducer {
         let t1Tricks = p.team1Tricks ?? 0
         let t2Tricks = p.team2Tricks ?? 0
         clearAssist(&s)
+        s.table.watchedAssist = nil
         s.scores.score = TeamPair(team1: t1, team2: t2)
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))

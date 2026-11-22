@@ -9,6 +9,8 @@ enum TableEvent {
 enum SnapshotSource: Equatable {
     case rejoin, restore, spectate, rejected
     case requested(String)
+    /// The reply to my watchHand (stateSnapshot `reason: 'watchHand'`; the over-the-shoulder view).
+    case watchReply
 }
 
 enum LocalAction: Equatable {
@@ -48,6 +50,12 @@ enum LocalAction: Equatable {
     /// HSIScale.revealDelay after a live deal (ActionCoordinator, `.revealHSI`): its HSI shows.
     /// A later deal's reveal is its own (a stale one, after a redeal, changes nothing).
     case hsiRevealed(dealSeq: Int)
+    /// The over-the-shoulder view: watch this seat (a tap on its avatar; State/Table/Shoulder.swift).
+    case watchSeat(Int)
+    /// The over-the-shoulder view's "Table view": stop watching, remembered for this game.
+    case watchTableView
+    /// A watched seat's mirrored card closed (its ×; local: nothing is sent). `tip`: the rule tip, else the advice.
+    case watchedHintDismissed(tip: Bool)
 }
 
 enum TableEffect: Equatable {
@@ -74,6 +82,9 @@ enum TableEffect: Equatable {
     /// `.local(.hsiRevealed(dealSeq:))` HSIScale.revealDelay later (the web's director.delay
     /// after the cards go down). Catch-up never sends it: it shows the value at once.
     case revealHSI(dealSeq: Int)
+    /// c2s watchHand {gameId, position} (the over-the-shoulder view; `nil` stops watching):
+    /// ActionCoordinator sends it. Only ever for a pure spectator (State/Table/Shoulder.swift).
+    case watchHand(gameId: String, position: Int?)
 }
 
 enum TableAnimation: Equatable {
@@ -202,7 +213,8 @@ enum TableReducer {
                 s.table.tournamentId = tournamentId
             }
         case .submitPlay(let card, let reqId):
-            guard s.pending == nil, s.table.hand.contains(card) else { return }
+            // only my own seat plays (a watcher's hand is the watched seat's: read-only)
+            guard s.table.viewer.role == .seat, s.pending == nil, s.table.hand.contains(card) else { return }
             s.pending = PendingAction(submission: .play(card), reqId: reqId, key: currentKey(s))
             // my card is on its way: the /help card (and its glow) is done
             clearAssist(&s)
@@ -211,7 +223,7 @@ enum TableReducer {
             // trip later with the echo (which then stays quiet; a rollback is rare)
             if s.table.phase.kind == .playing { fx.append(.sound(.card)) }
         case .submitBid(let bid, let reqId):
-            guard s.pending == nil, s.table.phase.isBidding else { return }
+            guard s.table.viewer.role == .seat, s.pending == nil, s.table.phase.isBidding else { return }
             s.pending = PendingAction(submission: .bid(bid.uppercased()), reqId: reqId, key: currentKey(s))
             clearAssist(&s)
             clearTip(&s)
@@ -262,6 +274,12 @@ enum TableReducer {
             s.table.tutorialOffSent = false
         case .hsiRevealed(let dealSeq):
             if s.table.deal?.dealSeq == dealSeq { s.table.hsiHeld = false }
+        case .watchSeat(let pos):
+            chooseWatch(&s, pos, &fx)
+        case .watchTableView:
+            stopWatch(&s, &fx)
+        case .watchedHintDismissed(let tip):
+            if tip { s.table.watchedTip = nil } else { s.table.watchedAssist = nil }
         case .snapshotUnavailable(let requestId):
             // No snapshot is coming for this request. Flush a pending gap buffer
             // whichever request it was: a gap request suppressed behind this one

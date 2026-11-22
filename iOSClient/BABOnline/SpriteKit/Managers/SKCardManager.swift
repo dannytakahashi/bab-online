@@ -34,7 +34,7 @@ class SKCardManager {
         let blocked = collecting && hand.interactive
             ? hand.cards.reduce(into: [String: String]()) { $0[$1.id] = TableRenderModel.Blocked.trickClearing } : hand.blocked
         handNode.apply(cards: hand.cards, legalIds: legal, blocked: blocked, layout: layout, interactive: interactive, arriving: arriving,
-                       suggestedId: hand.suggestedId, animator: animator)
+                       suggestedId: hand.suggestedId, readOnly: hand.readOnly, animator: animator)
     }
 
     /// Relayout: the hand node's place and scale, then every card to its slot.

@@ -171,9 +171,10 @@ enum UIFixture {
             if drawStates.contains(name) { editDraw(name, &snapDict) }
             editFaults(&snapDict)
             editAssistHand(&snapDict)
+            editAsSpectator(&snapDict)
             let snap = try TableSnapshot.decode(snapDict, strict: true)
             seededSnapshot = snapDict
-            let me = snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
+            let me = spectatorName ?? snap.seats.first { $0.position == snap.viewer.position }?.username ?? drawer
             store.apply(.local(.identity(username: me ?? "viewer", playerId: "ui-fixture")))
             auth.username = me ?? "viewer"
             store.apply(.snapshot(snap, .rejoin, hints: nil))
@@ -230,6 +231,7 @@ enum UIFixture {
             seedAssist(store, auth: auth)
             seedTutorial(store, auth: auth)
             seedWatchedHint(store, auth: auth)
+            seedShoulder(store, auth: auth)
             seedFaults(store, snap)
             seedWatchers(store, snap)  // -uiWatchers (UIFixture+Watchers.swift)
             appState.screen = .game
@@ -441,6 +443,10 @@ enum UIFixture {
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
         case SocketEvents.Client.lobbyReturnSeen:
             message = "lobbyReturnSeen"
+        case SocketEvents.Client.watchHand:
+            // -uiShoulder: answered as the server does (UIFixture+Shoulder)
+            message = "watchHand:\((data["position"] as? Int).map(String.init) ?? "null")"
+            answerWatchLater(data)
         case SocketEvents.Client.releaseLobbyHold:
             let username = data["username"] as? String ?? "-"
             message = "releaseLobbyHold:\(username)"
@@ -786,6 +792,9 @@ final class TableDebugProbe: ObservableObject {
     @Published var tableExtras = "-"
     /// The table's zoom (TableLayout.zoom, "1.00" ... "1.40"): the UI tests scale their point limits by it.
     @Published var tableZoom = "-"
+    /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
+    /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
+    @Published var tableShoulder = "-"
     /// The window's size classes ("compact/regular" = h/v), recorded with the pose.
     @Published var sizeClasses = "-"
     /// The system's vertical bar edge ("trailing" / "leading"), "-" where none is used.
@@ -984,6 +993,7 @@ struct FixtureProbes: View {
             dot("table.assist", probe.tableAssist)
             dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
+            dot("table.shoulder", probe.tableShoulder)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

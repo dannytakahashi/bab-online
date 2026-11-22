@@ -45,10 +45,15 @@ extension TableReducer {
             next.table.tutorialOnSent = s.table.tutorialOnSent
             if snap.viewer.assist == nil { next.table.tutorial = s.table.tutorial }
         }
+        // the over-the-shoulder view: the same game keeps its selection (and the paused rule's
+        // held seat), the watched seat's hints while it is still the one watched
+        carryWatch(from: s, into: &next, sameGame: sameGame)
         s = next
         s.table.myTurn = s.myTurn
         if !s.table.tutorial.on { endTutorial(&s) }
         settleAssist(&s, abandon: false, &fx)
+        // what this spectator asks the server to show next (the re-send rule, or the reply)
+        if source == .watchReply { afterWatchReply(&s, snap) } else { afterFullState(&s, snap, &fx) }
         fx.append(.animate(.sceneReset))
         if s.table.bidClock != nil { fx.append(.bidClock(.sync)) } else if hadClock { fx.append(.bidClock(.stop(.fade))) }
         catchUp(&s, &fx) { s, fx in
@@ -90,6 +95,13 @@ extension TableReducer {
         }
         var hsi: [Int: Double] = [:]
         for (i, v) in (snap.hsi ?? []).enumerated() where i < 4 { if let v { hsi[i + 1] = v } }
+        // the over-the-shoulder view: the watched seat's hand and HSI (viewer.shoulder; the wire
+        // keeps viewer.position null, the table is drawn from that seat here)
+        if s.table.viewer.role == .spectator, let sh = snap.viewer.shoulder, let pos = Position.valid(sh.position) {
+            s.table.viewer.shoulder = ShoulderSeat(position: pos)
+            s.table.hand = sh.hand
+            if let v = sh.hsi { hsi[pos] = v }
+        }
         s.table.hsi = hsi
         s.table.trickNo = snap.trick.number ?? (snap.tricks.team1 + snap.tricks.team2 + 1)
 

@@ -46,6 +46,7 @@ enum SocketEvents {
 
         // Spectator
         static let joinAsSpectator = "joinAsSpectator"
+        static let watchHand = "watchHand"
 
         // Bots
         static let addBot = "addBot"
@@ -166,6 +167,7 @@ enum SocketEvents {
         static let seatLeft = "seatLeft"
         static let assistHint = "assistHint"
         static let assistState = "assistState"
+        static let watchHandRefused = "watchHandRefused"
 
         // Tournament
         static let tournamentCreated = "tournamentCreated"

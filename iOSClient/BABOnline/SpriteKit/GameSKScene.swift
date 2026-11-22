@@ -311,13 +311,15 @@ class GameSKScene: SKScene, TableRenderer {
                 guard seq == model.dealSeq, model.showsTable, !model.keepsLastTable else { break }
                 dealIn(back: model.back)
             case .chatBubble(let pos, let message):
-                // Not over my own hand (the bottom seat's spot): the log shows my line
-                guard model.showsTable, !(model.hand != nil && pos == model.viewPosition) else { break }
+                // Not over my own hand (the bottom seat's spot): the log shows my line. A watcher's
+                // bottom seat is the watched player's, whose lines show there (chatPosition(.bottom))
+                guard model.showsTable, !(model.hand != nil && pos == model.viewPosition && model.watchedSeat == nil) else { break }
                 chatManager.show(position: pos, message: message, viewPosition: view, layout: layout, animator: animator)
             case .spectatorChatBubble(let username, let message):
                 // by the spectator badge, shown even before the coalesced list makes the badge appear
                 guard model.showsTable else { break }
-                chatManager.showSpectator(username: username, message: message, spectating: model.hand == nil, layout: layout, animator: animator)
+                chatManager.showSpectator(username: username, message: message, spectating: model.hand == nil,
+                                          watcherBidding: model.watchedSeat != nil ? model.bidding : nil, layout: layout, animator: animator)
             default:
                 break
             }

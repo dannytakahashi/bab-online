@@ -177,14 +177,34 @@ enum MyTurnState: Equatable {
 
 enum ViewerRole: String, Equatable { case none, entrant, seat, lazyWatcher, spectator }
 
+/// The over-the-shoulder view (owner 2026-11-21; docs/claude/spectators.md "Over-the-shoulder
+/// view", State/Table/Shoulder.swift): the seat a pure spectator watches, read-only.
+struct ShoulderSeat: Equatable {
+    var position: Int
+    /// The table is paused (the server's self-fence): the seat is kept and the table is drawn
+    /// from it, but no hand is shown (no stale cards) until the watch is served again.
+    var paused = false
+}
+
 struct ViewerState: Equatable {
     var role: ViewerRole = .none
     var position: Int?
     var ownerView: String?
-    /// The seat the table is drawn from (spectators: seat 1).
-    var viewPosition: Int { position ?? 1 }
-    /// Holds a hand (a seat, or its lazy owner watching the bot).
+    /// The watched seat (a pure spectator only; the wire's viewer.position stays null): the
+    /// table is drawn from it, its hand at the bottom, read-only.
+    var shoulder: ShoulderSeat?
+    /// The seat the table is drawn from (spectators: seat 1, or the seat they watch).
+    var viewPosition: Int { watchedSeat ?? position ?? 1 }
+    /// Holds a hand (a seat, or its lazy owner watching the bot). Never a watcher: this starts
+    /// voice for a seat owner (GameSocketHandler) and gates the seat's own paths.
     var holdsSeat: Bool { role == .seat || role == .lazyWatcher }
+    /// The seat a pure spectator watches over the shoulder, nil in the plain table view.
+    var watchedSeat: Int? { role == .spectator ? shoulder?.position : nil }
+    /// The watched seat is served (not paused): its hand is shown.
+    var watchesHand: Bool { watchedSeat != nil && shoulder?.paused != true }
+    /// The table has a hand at the bottom (the seated layout): my seat's, or the watched seat's
+    /// (empty while paused).
+    var showsHand: Bool { holdsSeat || watchedSeat != nil }
 }
 
 enum SeatController: String, Equatable { case human, lazyBot, resignBot, bot, unknown }
@@ -271,6 +291,19 @@ enum RejectReason {
 struct Identity: Equatable {
     var username: String?
     var playerId: String?
+    /// The over-the-shoulder view: the person's own pick per game (gameId -> a seat, or the
+    /// plain table view), in memory for this app run (owner 2026-11-21: "remembered for that
+    /// game in memory"). Kept with the identity across tables (`TableState.fresh(keeping:)`), so
+    /// leaving and watching the same game again keeps it; a relaunch forgets it.
+    var watchChoices: [String: WatchChoice] = [:]
+}
+
+/// What the person picked for one game's over-the-shoulder view.
+enum WatchChoice: Equatable {
+    /// "Table view": the plain spectator view. It wins over every default.
+    case table
+    /// An avatar tap: watch this seat.
+    case seat(Int)
 }
 
 enum HapticKind: Equatable { case error }

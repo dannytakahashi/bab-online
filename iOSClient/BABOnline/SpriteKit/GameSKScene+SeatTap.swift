@@ -19,12 +19,27 @@ extension GameSKScene {
     private static var seatTouchDown: (touch: ObjectIdentifier, point: CGPoint)?
 
     /// The name at the seat a scene point falls on; nil off every seat or with no table shown.
-    func seatName(at point: CGPoint) -> String? {
+    func seatName(at point: CGPoint) -> String? { seat(at: point)?.name }
+
+    /// The seat (position and name) a scene point falls on.
+    func seat(at point: CGPoint) -> (position: Int, name: String)? {
         guard lastModel?.showsTable == true, let manager = opponentManager, !manager.layer.isHidden else { return nil }
-        for node in manager.nodes.values where node.parent != nil && !node.isHidden {
-            if Self.seatTapRect.contains(convert(point, to: node)), !node.fullName.isEmpty { return node.fullName }
+        for (pos, node) in manager.nodes where node.parent != nil && !node.isHidden {
+            if Self.seatTapRect.contains(convert(point, to: node)), !node.fullName.isEmpty { return (pos, node.fullName) }
         }
         return nil
+    }
+
+    /// A tapped seat: a pure spectator watches it over the shoulder where that is allowed
+    /// (State/Table/Shoulder.swift `ShoulderRules.tap`), else its player's profile opens (the
+    /// watched seat itself, a tournament table, a seat owner, the own-seat rule's other seats).
+    func seatTapped(position: Int, name: String) {
+        if let gs = gameState, ShoulderRules.tap(gs.state, position: position) == .watch {
+            gs.apply(.local(.watchSeat(position)))
+            HapticManager.selection()
+            return
+        }
+        SeatTaps.subject.send(name)
     }
 
     /// The seat a touch taps: `began` is where it went down on the scene (nil when a node took
@@ -50,8 +65,12 @@ extension GameSKScene {
         super.touchesEnded(touches, with: event)
         let down = Self.seatTouchDown
         Self.seatTouchDown = nil
-        guard touches.count == 1, let touch = touches.first, touch.tapCount == 1,
-              let name = seatTapName(began: down?.touch == ObjectIdentifier(touch) ? down?.point : nil, ended: touch.location(in: self)) else { return }
-        SeatTaps.subject.send(name)
+        let end = touch(touches)?.location(in: self)
+        guard touches.count == 1, let touch = touches.first, touch.tapCount == 1, let end,
+              let name = seatTapName(began: down?.touch == ObjectIdentifier(touch) ? down?.point : nil, ended: end),
+              let seat = seat(at: end), seat.name == name else { return }
+        seatTapped(position: seat.position, name: name)
     }
+
+    private func touch(_ touches: Set<UITouch>) -> UITouch? { touches.count == 1 ? touches.first : nil }
 }

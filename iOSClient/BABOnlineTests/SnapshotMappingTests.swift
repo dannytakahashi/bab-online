@@ -106,6 +106,10 @@ final class SnapshotMappingTests: XCTestCase {
             XCTAssertEqual(dirty.table.gameId, fresh.table.gameId, name)
             var a = dirty.table, b = fresh.table
             a.me = Identity(); b.me = Identity()
+            // a spectator's applied full state also decides what to watch over the shoulder
+            // (State/Table/Shoulder.swift, the re-send rule): the selection is not table state
+            if snap.viewer.role == .spectator { XCTAssertNotEqual(a.watch, HandWatch(), "\(name): a spectator picks a seat to watch") }
+            a.watch = HandWatch(); b.watch = HandWatch()
             XCTAssertEqual(a, b, name)
             XCTAssertEqual(dirty.scores, fresh.scores, name)
             XCTAssertEqual(dirty.players, fresh.players, name)

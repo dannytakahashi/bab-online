@@ -27,6 +27,12 @@ struct BidOverlayView: View {
     /// The lightbulb is the vertical bar's item (the iPhone Duo: GameContainerView.askBarButton),
     /// not on the panel's corner.
     var askInBar = false
+    /// The over-the-shoulder view (owner 2026-11-21): the watched seat's bid turn, mirrored
+    /// read-only where my own panel goes. The same choices (its hand size, the bores open),
+    /// the mirrored advice's ring, its clock; no selection, no Submit, nothing tappable, nothing
+    /// sent (the player's own selection is never on the wire). VoiceOver: one element, "Alice is
+    /// bidding", the choices as its value.
+    var readOnly = false
 
     @State private var selectedBid: String?
     /// The bottom row's gap between the bore button and Submit, and HSI's width (measured).
@@ -34,13 +40,33 @@ struct BidOverlayView: View {
     @State private var hsiWidth: CGFloat = 0
 
     /// Sent, waiting for bidReceived (or a reject): no second submit.
-    private var isSubmitted: Bool { gameState.myTurn.isSubmitted }
+    private var isSubmitted: Bool { !readOnly && gameState.myTurn.isSubmitted }
 
-    /// My /help answer's bid ("4", "B"): ringed in gold (the web's .bid-button.is-suggested).
-    private var suggested: String? { gameState.suggestedBid }
+    /// My /help answer's bid ("4", "B"): ringed in gold (the web's .bid-button.is-suggested); a
+    /// watched seat's mirrored advice when read-only.
+    private var suggested: String? {
+        guard readOnly else { return gameState.suggestedBid }
+        guard let h = gameState.watchedAdvice, h.kind == .bid else { return nil }
+        return h.bid
+    }
 
     private var maxBid: Int {
-        gameState.myCards.count
+        // the watched seat bids up to its hand size (the deal says it, whatever is shown)
+        readOnly ? max(gameState.currentHand, gameState.myCards.count) : gameState.myCards.count
+    }
+
+    /// The selection shown (never one while read-only).
+    private var shownSelection: String? { readOnly ? nil : selectedBid }
+
+    /// "Alice is bidding" (the read-only sheet's own line and its VoiceOver label).
+    private var watchedTitle: String { "\(gameState.watchedName ?? "") is bidding" }
+
+    /// The read-only sheet's VoiceOver value: its choices as words, the suggestion and the clock.
+    private func readOnlyValue(_ clock: BidCountdownModel.Display) -> String {
+        var parts = ["Choices: " + ((0...maxBid).map(String.init) + availableBoreLevels).joined(separator: ", ")]
+        if let s = suggested { parts.append("Suggested: \(s)") }
+        if case .seconds(let n, _) = clock { parts.append("\(n) \(n == 1 ? "second" : "seconds") left") }
+        return parts.joined(separator: ". ")
     }
 
     /// Available bore levels based on what's already been bid (BidRules.availableBores)
@@ -70,14 +96,16 @@ struct BidOverlayView: View {
     private var bidChips: BidChips {
         BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
                  viewPosition: gameState.viewPosition,
-                 names: ScoreBarView.viewerTeams(position: gameState.position, spectator: gameState.isSpectator,
+                 names: ScoreBarView.viewerTeams(position: gameState.watchedSeat ?? gameState.position, spectator: gameState.isPlainSpectator,
                                                  usernames: gameState.players.seats.compactMapValues(\.username)))
     }
 
     private var hsiInHeader: Bool { gameState.myHSIReading != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }
 
-    /// My seat's running bid clock (a seat holder's, never a spectator's or a lazy watcher's).
+    /// My seat's running bid clock (a seat holder's, never a spectator's or a lazy watcher's);
+    /// read-only, the watched seat's (GameState.watchedBidCountdown).
     private var myClock: BidCountdown? {
+        if readOnly { return gameState.watchedBidCountdown }
         guard let c = gameState.bidCountdown, c.position == gameState.position, gameState.table.viewer.role == .seat else { return nil }
         return c
     }
@@ -90,7 +118,12 @@ struct BidOverlayView: View {
         // touch in progress and VoiceOver's focus.
         let clock = myClock
         TimelineView(.animation(minimumInterval: BidCountdownModel.tick, paused: clock == nil)) { _ in
-            panel(clock.map { BidCountdownModel.display($0, mine: gameState.myTurn == .choosing(.bid), now: gameState.clockNow()) } ?? .hidden)
+            let display = clock.map {
+                BidCountdownModel.display($0, mine: readOnly || gameState.myTurn == .choosing(.bid), now: gameState.clockNow())
+            } ?? .hidden
+            // read-only: nothing in it takes a touch; for VoiceOver it is one static element (panel)
+            panel(display)
+                .allowsHitTesting(!readOnly)
         }
     }
 
@@ -113,12 +146,12 @@ struct BidOverlayView: View {
             LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(0...maxBid, id: \.self) { bid in
                     let bidStr = String(bid)
-                    Button(action: { selectedBid = bidStr }) {
+                    Button(action: { if !readOnly { selectedBid = bidStr } }) {
                         Text("\(bid)")
                             .font(.callout.bold())
                             .frame(width: faceSize, height: faceSize)
-                            .background(selectedBid == bidStr ? Theme.primary : Theme.surfaceLight)
-                            .foregroundColor(selectedBid == bidStr ? Theme.buttonForeground : Theme.textPrimary)
+                            .background(shownSelection == bidStr ? Theme.primary : Theme.surfaceLight)
+                            .foregroundColor(shownSelection == bidStr ? Theme.buttonForeground : Theme.textPrimary)
                             .cornerRadius(Theme.Radius.sm)
                             .modifier(SuggestedBidRing(on: suggested == bidStr, radius: Theme.Radius.sm))
                             .frame(width: cellSize, height: cellSize)
@@ -126,6 +159,8 @@ struct BidOverlayView: View {
                     }
                     .accessibilityShowsLargeContentViewer()
                     .accessibilityValue(suggested == bidStr ? "Suggested" : "")
+                    .accessibilityHidden(readOnly)  // the mirror is one static element (BidPanelAccessibility)
+                    .disabled(readOnly)
                 }
             }
             .padding(.horizontal, 6)
@@ -134,20 +169,22 @@ struct BidOverlayView: View {
                 // Bore buttons inline with submit
                 if !availableBoreLevels.isEmpty {
                     ForEach(availableBoreLevels, id: \.self) { level in
-                        Button(action: { selectedBid = level }) {
+                        Button(action: { if !readOnly { selectedBid = level } }) {
                             Text(level)
                                 .font(.caption.bold())
                                 .frame(minWidth: cellSize - 4)
                                 .padding(.horizontal, Theme.Space.s2)
                                 .frame(height: rowSize)
-                                .background(selectedBid == level ? Theme.danger : Theme.surfaceLight)
-                                .foregroundColor(selectedBid == level ? Theme.dangerForeground : Theme.textPrimary)
+                                .background(shownSelection == level ? Theme.danger : Theme.surfaceLight)
+                                .foregroundColor(shownSelection == level ? Theme.dangerForeground : Theme.textPrimary)
                                 .cornerRadius(Theme.Radius.sm)
                                 .modifier(SuggestedBidRing(on: suggested == level, radius: Theme.Radius.sm))
                                 .contentShape(Rectangle().inset(by: -2))
                         }
                         .accessibilityShowsLargeContentViewer()
                         .accessibilityValue(suggested == level ? "Suggested" : "")
+                        .accessibilityHidden(readOnly)
+                        .disabled(readOnly)
                     }
                 }
 
@@ -164,6 +201,16 @@ struct BidOverlayView: View {
                         }
                     }
 
+                if readOnly {
+                    // no Submit: whose turn it is, where Submit would be
+                    Text(watchedTitle)
+                        .font(.callout.bold())
+                        .foregroundColor(Theme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .padding(.horizontal, Theme.Space.s2)
+                        .frame(height: rowSize)
+                } else {
                 // Submit button
                 Button(action: submitBid) {
                     Group {
@@ -183,6 +230,7 @@ struct BidOverlayView: View {
                 }
                 .disabled(selectedBid == nil || isSubmitted)
                 .accessibilityShowsLargeContentViewer()
+                }
             }
             .padding(.horizontal, Theme.Space.s2)
             }
@@ -214,17 +262,13 @@ struct BidOverlayView: View {
                 }
 
         }
-        .onChange(of: Self.announcement(clock, of: myClock), initial: true) { _, said in
+        .onChange(of: readOnly ? nil : Self.announcement(clock, of: myClock), initial: true) { _, said in
             if let said { AccessibilityNotification.Announcement(said.text).post() }
         }
         .padding(.horizontal, Theme.Space.s2)
         // capped so the panel fits the layout's 340 x 140 bid band
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("bidOverlay")
-        #if DEBUG
-        .accessibilityValue(selectedBid ?? "-")  // the fixture UI tests read the selection
-        #endif
+        .modifier(BidPanelAccessibility(readOnly: readOnly, title: watchedTitle, value: readOnlyValue(clock), selected: selectedBid))
         // /help's lightbulb on my bid turn: just above the panel's leading corner, over the felt
         // (the countdown keeps the trailing one); hidden while an answer is up or on its way.
         // Outside the panel's accessibility container, so "bidOverlay" keeps the panel's frame
@@ -275,12 +319,40 @@ struct BidOverlayView: View {
     }
 
     private func submitBid() {
-        guard let bid = selectedBid else { return }
+        // never from the watched seat's mirror (ActionCoordinator.bid refuses a spectator too)
+        guard !readOnly, let bid = selectedBid else { return }
         // the countdown reached 0: the server is bidding 0 for me (C2's margin)
         if let c = myClock, BidCountdownModel.display(c, mine: true, now: gameState.clockNow()) == .expired { return }
         if actions.bid(bid) {
             HapticManager.mediumImpact()
             selectedBid = nil
+        }
+    }
+}
+
+/// The panel for VoiceOver: my own a container of its buttons ("bidOverlay"); the watched
+/// seat's read-only mirror ONE static element, "Alice is bidding" with its choices as the value
+/// ("bidOverlay.watched"): no button inside it can be reached or activated.
+private struct BidPanelAccessibility: ViewModifier {
+    let readOnly: Bool
+    let title: String
+    let value: String
+    let selected: String?
+
+    func body(content: Content) -> some View {
+        if readOnly {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(title)
+                .accessibilityValue(value)
+                .accessibilityIdentifier("bidOverlay.watched")
+        } else {
+            content
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("bidOverlay")
+                #if DEBUG
+                .accessibilityValue(selected ?? "-")  // the fixture UI tests read the selection
+                #endif
         }
     }
 }
