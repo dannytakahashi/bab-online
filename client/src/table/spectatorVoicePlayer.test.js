@@ -75,6 +75,43 @@ describe('a player in a casual game with spectator voice', () => {
     expect(badge().classList.contains('voice-speaking')).toBe(false);
   });
 
+  it('a seated player talking lights their seat, never the eye; my own voice never lights the eye', () => {
+    const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    const owners = page.gameState.seatOwners;
+    const [otherPos, other] = Object.entries(owners).find(([, name]) => name !== 'ios_ann');
+    page.voice.peers.set('s-other', { username: other });
+    cb('s-other', true);
+    expect(badge().classList.contains('voice-speaking')).toBe(false);
+    expect(document.querySelector('#table-hud .opponent-avatar-container.voice-speaking')?.dataset.position).toBe(String(otherPos));
+    cb('s-other', false);
+    cb('self', true);
+    expect(badge().classList.contains('voice-speaking')).toBe(false);
+    expect(document.getElementById('player-avatar-container').classList.contains('voice-speaking')).toBe(true);
+    cb('self', false);
+  });
+
+  it('two watchers: both dots and "ios_fan and zed are talking"; the light goes as they stop', () => {
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 3 }, { username: 'zed', pic: 4 }], count: 2 });
+    replay.advance(50);
+    const cb = page.voice.onSpeakingChange.mock.calls.at(-1)[0];
+    page.voice.peers.set('s-fan', { username: 'ios_fan' });
+    page.voice.peers.set('s-zed', { username: 'zed' });
+    cb('s-fan', true);
+    cb('s-zed', true);
+    expect(badge().classList.contains('voice-speaking')).toBe(true);
+    expect(badge().getAttribute('aria-label')).toBe('2 people watching. ios_fan and zed are talking');
+    const dotted = [...document.querySelectorAll('.spectator-popover__row.is-speaking')].map((li) => li.dataset.username);
+    expect(dotted).toEqual(['ios_fan', 'zed']);
+    cb('s-fan', false);
+    expect(badge().getAttribute('aria-label')).toBe('2 people watching. zed is talking');
+    // zed leaves: its call closes (VoiceChatManager._closePeer says the stop)
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 3 }], count: 1 });
+    replay.advance(50);
+    cb('s-zed', false);
+    expect(badge().classList.contains('voice-speaking')).toBe(false);
+    expect(badge().getAttribute('aria-label')).toBe('1 person watching');
+  });
+
   it('the overlay has no switch (even with an old canChange true); the watcher\'s row says "(watching)"', () => {
     page.socket.fire('voiceSettings', settings({ canChange: true }));
     page.voice.getPeerVolume = vi.fn(() => 1);

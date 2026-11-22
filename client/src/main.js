@@ -41,7 +41,7 @@ import { getSeqGate } from './state/SeqGate.js';
 import { getMyAction } from './state/MyAction.js';
 import { applyTableSnapshot, snapshotSource } from './state/tableSync.js';
 import { getRestartNotice, LOSS } from './state/restartNotice.js';
-import { speakingSlotFor } from './voice/speakingSlot.js';
+import { speakingSlotFor, spectatorSpeakerFor } from './voice/speakingSlot.js';
 import { installVoiceHotkeys } from './voice/voiceHotkeys.js';
 import { forgetSessionMute } from './voice/voiceSessionMute.js';
 
@@ -77,9 +77,9 @@ import { registerAllHandlers } from './handlers/index.js';
 
 // Voice Chat
 import { getVoiceChatManager } from './voice/VoiceChatManager.js';
-import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState, setVoiceTalkView, resetVoiceTalkView } from './ui/components/VoiceChatUI.js';
+import { createMuteButton, removeMuteButton, showVoiceOverlay, removeVoiceOverlay, setMuteButtonState, setVoiceTalkView, resetVoiceTalkView, setMicSpeaking } from './ui/components/VoiceChatUI.js';
 import { setTableChrome, clearHud, hudRoot } from './ui/tableHud.js';
-import { renderSpectatorBadge as drawSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSpeaking } from './ui/components/SpectatorBadge.js';
+import { renderSpectatorBadge as drawSpectatorBadge, removeSpectatorBadge, setSpeaking as setWatcherSpeaking, setUnnamedSpeaking as setUnnamedWatcherSpeaking, clearSpeaking as clearWatcherSpeaking } from './ui/components/SpectatorBadge.js';
 import { getShoulderWatch, isShoulder, watchingPillText, TABLE_VIEW_LABEL } from './state/shoulder.js';
 import { syncShoulderHud } from './ui/components/ShoulderHud.js';
 
@@ -794,7 +794,7 @@ function initializeApp() {
   let voiceSettings = null;
   let voiceFull = false;
 
-  /** A watcher (a pure spectator of this table), not a seat's owner: "(watching)", the badge's speaking ring. */
+  /** A watcher (a pure spectator of this table), not a seat's owner: the overlay's "(watching)". */
   function isWatcher(username) {
     if (!username) return false;
     const owners = Object.values(gameState.seatOwners || {});
@@ -894,20 +894,37 @@ function initializeApp() {
     // Register speaking indicator callback
     voiceManager.onSpeakingChange((id, isSpeaking) => {
       if (id === 'self') {
-        // a watcher's ring is the spectator badge's (no seat of its own)
+        // a watcher has no seat of its own: my mic button rings (never the
+        // spectator badge, which is the other watchers'; owner 2026-11-22).
+        // In the over-the-shoulder view the own box is the watched player's
         if (session.isSpectator) {
-          setWatcherSpeaking(gameState.username, isSpeaking);
+          setMicSpeaking(isSpeaking);
           return;
         }
+        setMicSpeaking(false);
         const el = document.getElementById('player-avatar-container');
         if (el) el.classList.toggle('voice-speaking', isSpeaking);
       } else {
         const username = voiceManager.peers.get(id)?.username || null;
-        // A stop always clears the badge's ring for that name: the watcher
+        // A stop always clears the badge's ring for that peer: the watcher
         // may be gone from the list already (it left; its call ends after)
-        if (!isSpeaking) setWatcherSpeaking(username, false);
-        if (session.hasTable && isWatcher(username)) {
-          setWatcherSpeaking(username, isSpeaking);
+        if (!isSpeaking) {
+          setWatcherSpeaking(username, false);
+          setUnnamedWatcherSpeaking(id, false);
+        }
+        // A spectator other than me talking lights the badge (the eye),
+        // never a seat (voice/speakingSlot.js spectatorSpeakerFor)
+        const watcher = session.hasTable ? spectatorSpeakerFor({
+          username,
+          socketId: id,
+          me: gameState.username,
+          owners: gameState.seatOwners,
+          playerData: gameState.playerData,
+          watching: gameState.watching,
+        }) : null;
+        if (watcher) {
+          if (watcher.username) setWatcherSpeaking(watcher.username, isSpeaking);
+          else setUnnamedWatcherSpeaking(watcher.peerId, isSpeaking);
           return;
         }
         // Peer → seat by username: the seat's owner, then the name it
@@ -1181,7 +1198,10 @@ function initializeApp() {
     voiceSettings = null;
     voiceFull = false;
     resetVoiceTalkView();
-    // Clean up speaking indicator classes
+    // Clean up speaking indicator classes (and the badge's talkers: a
+    // shutdown says no stop for my own voice, and the badge outlives voice)
+    setMicSpeaking(false);
+    clearWatcherSpeaking();
     document.querySelectorAll('.voice-speaking').forEach(el => {
       el.classList.remove('voice-speaking');
     });

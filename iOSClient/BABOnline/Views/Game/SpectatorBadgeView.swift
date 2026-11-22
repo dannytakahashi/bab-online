@@ -12,10 +12,17 @@ import UIKit
 /// and HSI / voice, so its text stops growing at Dynamic Type .large, where "99+"
 /// still fits (SpectatorBadgeFitTests); a long press shows it in the Large
 /// Content Viewer at the larger sizes, as a tab bar does.
+///
+/// Spectator voice: while a spectator other than me talks (`speaking`, SpeakingWatchers: never
+/// a seated player, whose seat glows, never me, whose ring is my mic's) the capsule's outline is
+/// the speaking green (Theme.success at 2 pt, the mic's ring; no pulse, as no speaking ring
+/// pulses), the list marks each talker's row with the voice panel's speaking dot, and the
+/// VoiceOver value says who ("Bo is talking"). The badge's size and 44 pt target do not change.
 struct SpectatorBadgeView: View {
     let watching: WatchingList
     let myUsername: String?
     var seatNames: [Int: String] = [:]
+    var speaking: SpeakingWatchers = .none
     @State private var showsList = false
 
     var body: some View {
@@ -33,7 +40,7 @@ struct SpectatorBadgeView: View {
             .padding(.horizontal, Theme.Space.s2)
             .padding(.vertical, Theme.Space.s2)
             .background(Capsule().fill(Theme.Palette.Surface.s2.opacity(0.86).color))
-            .overlay(Capsule().stroke(Theme.inputBorder, lineWidth: 1))
+            .overlay(Capsule().stroke(speaking.isLit ? Theme.success : Theme.inputBorder, lineWidth: speaking.isLit ? 2 : 1))
             .dynamicTypeSize(...DynamicTypeSize.large)
             .frame(minWidth: 44, minHeight: 44)  // the 44 pt target (HIG)
             .contentShape(Rectangle())
@@ -44,12 +51,23 @@ struct SpectatorBadgeView: View {
             Text(watching.accessibilityLabel)
         }
         .accessibilityLabel(watching.accessibilityLabel)
+        .accessibilityValue(speaking.accessibilityValue)
         .accessibilityHint("Shows who is watching")
         .accessibilityIdentifier("table.spectators")
         .popover(isPresented: $showsList, arrowEdge: .bottom) {
-            SpectatorListView(watching: watching, myUsername: myUsername, seatNames: seatNames)
+            SpectatorListView(watching: watching, myUsername: myUsername, seatNames: seatNames, speaking: speaking)
                 .presentationCompactAdaptation(.popover)
         }
+        #if DEBUG
+        .onChange(of: speaking, initial: true) { _, s in
+            guard UIFixture.isActive else { return }
+            TableDebugProbe.shared.spectatorsSpeaking =
+                "lit=\(s.isLit ? 1 : 0) names=\(s.names.isEmpty ? "-" : s.names.joined(separator: ",")) unnamed=\(s.unnamed)"
+        }
+        .onDisappear {
+            if UIFixture.isActive { TableDebugProbe.shared.spectatorsSpeaking = "-" }
+        }
+        #endif
     }
 }
 
@@ -58,6 +76,8 @@ struct SpectatorListView: View {
     let watching: WatchingList
     let myUsername: String?
     var seatNames: [Int: String] = [:]
+    /// Who of them talks now: the voice panel's speaking dot on their row.
+    var speaking: SpeakingWatchers = .none
 
     static let rowHeight: CGFloat = 44
     static let visibleRows = 8
@@ -82,10 +102,19 @@ struct SpectatorListView: View {
                             Text(WatchingList.rowText(w, me: myUsername, seatName: { seatNames[$0] }))
                                 .font(.body)
                                 .lineLimit(w.shoulder == nil ? 1 : 2)
+                            if speaking.isTalking(w.username) {
+                                Spacer(minLength: 0)
+                                // the voice panel's speaking dot (VoicePanelSheet.speakingDot)
+                                Circle()
+                                    .fill(Theme.success)
+                                    .frame(width: 10, height: 10)
+                                    .accessibilityHidden(true)
+                            }
                         }
                         .frame(minHeight: Self.rowHeight)
                         .padding(.horizontal, 14)
                         .accessibilityElement(children: .combine)
+                        .accessibilityValue(speaking.isTalking(w.username) ? "Talking" : "")
                     }
                     if more > 0 {
                         Text("and \(more) more")
