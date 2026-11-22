@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// Where the game screen draws my own mic (GameContainerView.micSpot; pure, for the tests).
+enum MicSpot: Equatable {
+    case none
+    /// My seat's row (a seat holder, a lazy owner watching their seat).
+    case seatRow
+    /// Beside the spectator pill (a pure spectator not watching a hand).
+    case pill
+    /// Directly above the eye (a watcher, TableLayout.watcherCluster).
+    case eye
+    /// The vertical bar (VoiceBarButton): any of the above while the bar shows the table's
+    /// controls (the iPhone Duo closed, open in landscape, book pose).
+    case bar
+
+    /// - barControls: the vertical bar is in use and shows the table's items (in the game).
+    /// - seatVoice: a seat's mic is up (voice running, not a pure spectator).
+    /// - spectatorVoice: a pure spectator's mic is up (a casual game's spectator voice).
+    static func of(barControls: Bool, seatVoice: Bool, pureSpectator: Bool, spectatorVoice: Bool, watching: Bool) -> MicSpot {
+        if seatVoice && !pureSpectator {
+            if barControls { return .bar }
+            return watching ? .none : .seatRow
+        }
+        if pureSpectator && spectatorVoice {
+            if barControls { return .bar }
+            return watching ? .eye : .pill
+        }
+        return .none
+    }
+}
+
 /// The voice mic as a vertical bar item (the iPhone Duo's side column with the status bar:
 /// closed, open in landscape, book pose; iOS 27.1), in place of the felt's VoiceMuteButton
 /// (my seat's row, a spectator's pill, a watcher's spot above the eye; owner 2026-11-22).

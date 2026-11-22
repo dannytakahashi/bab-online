@@ -131,10 +131,7 @@ private struct GameScreen: View {
     /// The voice button in my seat's row: a seat's only (the plain spectator's is the pill's,
     /// 1.2.2 (12); a watcher's own is above the eye, `watcherVoice`: owner 2026-11-21, the watched
     /// seat's row shows only that player).
-    private var seatRowVoice: Bool {
-        if isWatching || micInBar { return false }
-        return seatVoiceOn
-    }
+    private var seatRowVoice: Bool { micSpot == .seatRow }
 
     /// My own voice button is up at a seat (my seat's row, or the vertical bar).
     private var seatVoiceOn: Bool {
@@ -145,13 +142,15 @@ private struct GameScreen: View {
         #endif
     }
 
-    /// The vertical bar (the Duo closed, open in landscape, book pose) holds my mic instead of
-    /// the felt (owner 2026-11-22): a seat's (my seat's row) and a spectator's (the pill's, or a
-    /// watcher's above the eye) alike, while the bar shows the table's controls. Everywhere else
-    /// (other phones, the iPad, the open Duo in portrait) the felt keeps it, unchanged.
-    private var micInBar: Bool {
-        showsBarControls && (seatVoiceOn || (isPureSpectator && showsSpectatorVoice))
+    /// Where my own mic is (MicSpot): the vertical bar while it shows the table's controls (the
+    /// Duo closed, open in landscape, book pose; owner 2026-11-22), else my seat's row, the
+    /// spectator pill or a watcher's spot above the eye, as before.
+    private var micSpot: MicSpot {
+        MicSpot.of(barControls: showsBarControls, seatVoice: seatVoiceOn, pureSpectator: isPureSpectator,
+                   spectatorVoice: showsSpectatorVoice, watching: isWatching)
     }
+
+    private var micInBar: Bool { micSpot == .bar }
 
     /// The watched player is talking (voice): by the seat owner's username (as the scene's
     /// speaking glows), the seat socket id as a fallback.
@@ -219,16 +218,9 @@ private struct GameScreen: View {
             .toolbar {
                 if showsBarControls {
                     ToolbarItem(placement: .topBarLeading) { leaveBarButton }
-                    if micInBar {
-                        // mute is one tap away: the last item the bar folds into its overflow
-                        // menu when Live Activities need the room
-                        if #available(iOS 27.0, *), !Self.barMicStandardPriority {
-                            ToolbarItem(placement: .topBarTrailing) { micBarButton }
-                                .visibilityPriority(.high)
-                        } else {
-                            ToolbarItem(placement: .topBarTrailing) { micBarButton }
-                        }
-                    }
+                    // the bar's first trailing item: it folds its items into the overflow menu
+                    // from the last one up, and the mic asks for the high visibility priority too
+                    if micInBar && !Self.barMicLast { micBarItem }
                     #if DEBUG
                     // -uiBarFiller <n>: extra items that push the bar into its overflow menu
                     ForEach(0..<UIFixture.barFiller, id: \.self) { i in
@@ -247,6 +239,7 @@ private struct GameScreen: View {
                     if tutorialInBar {
                         ToolbarItem(placement: .topBarTrailing) { tutorialBarToggle }
                     }
+                    if micInBar && Self.barMicLast { micBarItem }
                 }
             }
             #if DEBUG
@@ -606,7 +599,7 @@ private struct GameScreen: View {
                     // hidden under my bid panel's turn, as my seat's row (the panel may span its spot)
                     // the over-the-shoulder view: the watcher's own mic, above the eye (never in
                     // the watched seat's row), shown with the read-only bid sheet too
-                    if showsTable && isWatching && showsSpectatorVoice && !micInBar {
+                    if showsTable && micSpot == .eye {
                         watcherVoice(layout)
                     }
                     // (a watcher's eye and mic are one cluster clear of the read-only sheet: both stay)
@@ -844,11 +837,33 @@ private struct GameScreen: View {
 
     #if DEBUG
     private var voiceProbeText: String {
-        let onFelt = seatRowVoice || (isPureSpectator && showsSpectatorVoice && !micInBar)
+        let onFelt = micSpot != .bar && micSpot != .none
         let listenOnly = voiceManager.isListenOnly || (isPureSpectator && fixtureSpectatorVoice == "denied")
         return UIFixture.voiceProbe(inBar: micInBar, onFelt: onFelt, listenOnly: listenOnly, voice: voiceManager)
     }
     #endif
+
+    /// My mic's bar item, with the high visibility priority (iOS 27: the bar keeps it longest
+    /// when it folds items into its overflow menu).
+    @ToolbarContentBuilder
+    private var micBarItem: some ToolbarContent {
+        if #available(iOS 27.0, *), !Self.barMicStandardPriority {
+            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+                .visibilityPriority(.high)
+        } else {
+            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+        }
+    }
+
+    /// DEBUG `-uiBarMicLast YES`: the mic as the bar's last item (the overflow check: does the
+    /// priority keep it when the bar folds from the end?).
+    private static var barMicLast: Bool {
+        #if DEBUG
+        return UIFixture.barMicLast
+        #else
+        return false
+        #endif
+    }
 
     /// DEBUG `-uiBarMicPriority standard`: the bar's mic without its high visibility priority
     /// (the overflow check's control case).
@@ -1470,7 +1485,7 @@ private struct GameScreen: View {
                     // (muted at the start, a tap unmutes; headphones once the mic was refused; a
                     // long press opens the panel)
                     // (a watcher's mic is in the watched seat's row, where the seated layout has it)
-                    if showsSpectatorVoice && !isWatching && !micInBar {
+                    if micSpot == .pill {
                         VoiceMuteButton(onLongPress: { showVoicePanel = true }, size: Theme.hitTarget,
                                         forceListenOnly: fixtureSpectatorVoice == "denied")
                     }

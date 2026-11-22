@@ -11,6 +11,8 @@ extension UIFixture {
     /// bar into its overflow menu (which item folds first). `-uiBarMicPriority standard`: the
     /// bar's mic without `.visibilityPriority(.high)` (the control case).
     static let barFiller: Int = isActive ? min(9, max(0, UserDefaults.standard.integer(forKey: "uiBarFiller"))) : 0
+    /// `-uiBarMicLast YES`: the mic as the bar's last item instead of its first trailing one.
+    static let barMicLast: Bool = isActive && UserDefaults.standard.bool(forKey: "uiBarMicLast")
     static let barMicPriority: String? = isActive ? UserDefaults.standard.string(forKey: "uiBarMicPriority") : nil
 
     static let selfSpeaking: String? = isActive ? UserDefaults.standard.string(forKey: "uiSelfSpeaking") : nil
