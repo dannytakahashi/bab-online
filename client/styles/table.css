@@ -808,9 +808,16 @@ body > .voice-btn {
 .voice-btn.kit-icon-btn.is-listen-only { color: var(--text-secondary); }
 .voice-btn.kit-icon-btn.is-listen-only.can-talk { border-color: var(--success); color: var(--text-primary); }
 
-/* a watcher speaking: the spectator badge glows (no seat to light), its row too */
+/* a spectator other than me talking: the spectator badge's steady green
+   outline (the seats' speaking ring; no animation), and a green dot by each
+   talking spectator's row (the voice panel's .voice-row__dot). My own voice
+   as a spectator rings my mic button instead (never the eye) */
 .spectator-badge.kit-icon-btn.voice-speaking { box-shadow: 0 0 0 3px rgb(var(--success-rgb) / 0.9), var(--elev-1); }
-.spectator-popover__row.is-speaking .spectator-popover__avatar { box-shadow: 0 0 0 2px var(--success); }
+.voice-btn.kit-icon-btn.voice-speaking { box-shadow: 0 0 0 3px rgb(var(--success-rgb) / 0.9), var(--elev-1); }
+.spectator-popover__dot { display: none; flex-shrink: 0; width: 10px; height: 10px; margin-left: auto; border-radius: 50%; background: var(--success); }
+.spectator-popover__row.is-speaking .spectator-popover__dot { display: block; }
+/* "(talking)" for screen readers only */
+.spectator-popover__talking { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ---------- The game log (#gameFeed) ---------- */
 
