@@ -268,14 +268,24 @@ describe('a spectator looks over a player\'s shoulder', () => {
     expect(document.querySelector('#table-hud > .hud-assist .assist-tip')).toBeNull();
   });
 
-  it('who watches which hand: an eye on the watched seat and the list row', () => {
+  it('who watches which hand: the watched seat\'s eye only while someone else watches it too, and the list row', () => {
+    // owner 2026-11-21 (the iOS rule): alone, the spectator badge is my one eye
     page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 12, shoulder: 3 }, { username: 'zed', pic: 3 }], count: 2 });
     const eye = box().querySelector('.hud-watch-chip');
-    expect(eye.classList.contains('is-on')).toBe(true);
-    expect(eye.title).toBe("You are watching 🤖 Mike's hand");
+    expect(eye.classList.contains('is-on')).toBe(false);
     for (const ring of document.querySelectorAll('.opponent-avatar-container .hud-watch-chip')) expect(ring.classList.contains('is-on')).toBe(false);
     document.querySelector('#table-hud > .hud-spectators button').click();
     expect([...document.querySelectorAll('.spectator-popover__name')].map((n) => n.textContent)).toEqual(['ios_fan (you) · watching 🤖 Mike', 'zed']);
+    // zed joins me on that hand: the eye, counting us both
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 12, shoulder: 3 }, { username: 'zed', pic: 3, shoulder: 3 }], count: 2 });
+    expect(eye.classList.contains('is-on')).toBe(true);
+    expect(eye.querySelector('b').textContent).toBe('2');
+    expect(eye.title).toBe("You and zed are watching 🤖 Mike's hand");
+    expect(eye.getAttribute('aria-label')).toBe("You and zed are watching 🤖 Mike's hand");
+    // zed watches another seat: alone again, my seat's eye goes, theirs shows
+    page.socket.fire('spectatorsUpdated', { gameId: rec.gameId, spectators: [{ username: 'ios_fan', pic: 12, shoulder: 3 }, { username: 'zed', pic: 3, shoulder: 2 }], count: 2 });
+    expect(eye.classList.contains('is-on')).toBe(false);
+    expect(document.querySelectorAll('.opponent-avatar-container .hud-watch-chip.is-on')).toHaveLength(1);
   });
 
   it('Table view: the plain spectator view at once, watchHand(null), remembered for this game', () => {
