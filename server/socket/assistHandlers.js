@@ -51,7 +51,9 @@
  * are available once the game starts.", for /help and ?help alike. Lines
  * that tell a player to wait never name /help: shipped iOS builds can only
  * ask with ?help. At the end of a finished game each player the game counted as
- * bot-assisted for gets one private line (gameEndLines).
+ * bot-assisted for gets one private line (gameEndLines): a win went to their
+ * bot-game stats, a loss or tie stayed in their human stats (owner
+ * 2026-11-21; profileHandlers.buildGameEndRecord).
  *
  * A game with a native bot seat (assistState.isFreeHelpGame: lobby Add Bot,
  * tournament filler, solo; never a lazy or resign bot), owner 2026-11-19
@@ -92,7 +94,7 @@ const { advise, searchEligible } = require('../game/assist/advise');
 const { explain, status } = require('../game/assist/explain');
 const { render, clip, TEXT_MAX } = require('../game/assist/copy');
 const curriculum = require('../game/assist/curriculum');
-const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, usedTutorial, isFreeHelpGame, assistTally } = require('../game/assistState');
+const { ASSIST_FREE_HELP, defaultAssistSeat, isAssistedSeat, usedTutorial, isFreeHelpGame, isBotStatsGame, seatOutcome, assistTally } = require('../game/assistState');
 const { HAND_PROGRESSION } = require('../game/rules');
 const persistHooks = require('../game/persist/hooks');
 const rateLimiter = require('./rateLimiter');
@@ -119,6 +121,20 @@ const ordinal = (n) => {
     return `${n}${s}`;
 };
 
+/**
+ * Where a bot-assisted game's stats go (owner 2026-11-21: only a win moves
+ * them to the bot-game stats; assistState.assistedSeatMoves). The web
+ * (client/src/state/tutorial.js CONFIRM_MESSAGE) and iOS
+ * (TutorialRules.confirmMessage, UIFixture.assistWarning) hold the same words.
+ */
+const STATS_RULE = 'a win goes in your bot-game stats, a loss or tie stays in your human stats.';
+/** The game-end line's second sentence, by assistState.seatOutcome. */
+const OUTCOME_LINE = Object.freeze({
+    won: 'You won, so it\'s in your bot-game stats.',
+    lost: 'You lost, so it stays in your human stats.',
+    tied: 'It was a tie, so it stays in your human stats.'
+});
+
 /** Every line a player can see from this module (names filled in by the callers). */
 const TEXT = Object.freeze({
     botSeat: 'A bot is playing your seat. Type /active first.',
@@ -128,11 +144,11 @@ const TEXT = Object.freeze({
     error: 'No suggestion this time.',
     spectator: '/help is for players only.',
     entrant: 'Suggestions are available once the game starts.',
-    warning: `That's your ${ordinal(ASSIST_FREE_HELP)} free /help. The next one makes this game count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.`,
+    warning: `That's your ${ordinal(ASSIST_FREE_HELP)} free /help. The next one makes this game count as bot-assisted for you: ${STATS_RULE}`,
     notice: (name) => `${name} used /help.`,
     crossedNote: 'This game now counts as bot-assisted for you.',
     crossed: (name) => `${name} used /help. This game now counts as bot-assisted for ${name}.`,
-    gameEnd: (uses) => `This game counted as bot-assisted for you (${uses} /help uses), so it's in your bot-game stats.`,
+    gameEnd: (uses, outcome) => `This game counted as bot-assisted for you (${uses} /help uses). ${OUTCOME_LINE[outcome]}`,
     // The tutorial
     tutorialSpectator: '/tutorial is for players only.',
     tutorialEntrant: 'The tutorial can be turned on once the game starts.',
@@ -145,7 +161,7 @@ const TEXT = Object.freeze({
     tutorialCountsNotice: (name) => `This game now counts as bot-assisted for ${name}.`,
     tutorialOffNotice: (name) => `${name} turned off the tutorial.`,
     tipLine: (text) => `Tip: ${text}`,
-    gameEndTutorial: 'This game counted as bot-assisted for you (you played with the tutorial), so it\'s in your bot-game stats.'
+    gameEndTutorial: (outcome) => `This game counted as bot-assisted for you (you played with the tutorial). ${OUTCOME_LINE[outcome]}`
 });
 
 // ------------------------------------------------------------ module state
@@ -812,8 +828,11 @@ function tutorHandEnd(io, game) {
 
 /**
  * At the end of a finished game (before gameEnd): one private line to each
- * player the game counted as bot-assisted for, at their owner socket, and
- * T.done to each seat with the tutorial on.
+ * player the game counted as bot-assisted for, at their owner socket, saying
+ * where its stats went (owner 2026-11-21: a win in the bot-game stats, a
+ * loss or tie in the human stats; assistState.assistedSeatMoves, as
+ * profileHandlers.buildGameEndRecord decides), and T.done to each seat with
+ * the tutorial on.
  */
 function gameEndLines(io, game) {
     for (let pos = 1; pos <= 4; pos++) {
@@ -826,12 +845,17 @@ function gameEndLines(io, game) {
     }
     // A game with a native bot seat: say nothing (the record still marks it)
     if (isFreeHelpGame(game)) return;
+    // A resign bot at the end makes it a bot game for everyone anyway: a
+    // loss is in the bot-game stats too, so only a win's line is true there
+    const botGame = isBotStatsGame(game);
     for (let pos = 1; pos <= 4; pos++) {
         const seat = game.seat(pos);
         const owner = seat?.ownerUsername;
         const a = game.assist?.[pos];
         if (!seat?.ownerSocketId || !isAssistedSeat(a, owner)) continue;
-        sendLine(io, game, seat.ownerSocketId, usedTutorial(a, owner) ? TEXT.gameEndTutorial : TEXT.gameEnd(a.help));
+        const outcome = seatOutcome(game, pos);
+        if (botGame && outcome !== 'won') continue;
+        sendLine(io, game, seat.ownerSocketId, usedTutorial(a, owner) ? TEXT.gameEndTutorial(outcome) : TEXT.gameEnd(a.help, outcome));
     }
 }
 

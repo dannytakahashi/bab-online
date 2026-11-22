@@ -16,7 +16,7 @@ const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars')
 const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
 const { createSuperlatives, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
-const { isAssistedSeat, helpUses, usedTutorial } = require('../game/assistState');
+const { isAssistedSeat, helpUses, usedTutorial, isBotStatsGame, assistedSeatMoves } = require('../game/assistState');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../game/rules');
 const { DELETED_NAME } = require('../admin/nameHold');
 
@@ -267,16 +267,13 @@ async function uploadProfilePic(socket, io, data) {
     }
 }
 
-/** Seat controllers that make a finished game a bot game (statsScope.js). */
-const BOT_CONTROLLERS = new Set(['bot', 'resignBot']);
-
 /**
  * End-of-game writes, made safe to retry and to replay:
  *   1. the gameRecords entry goes in first, carrying `statsDeltas` (the
  *      bucket and each human seat's 12 counters, by position: no names;
  *      the reader also honours a per-seat `bucketByPosition`, seatBucket,
  *      written for a seat whose /help use made the game bot-assisted for
- *      that player, buildGameEndRecord) and
+ *      that player and whose team won, buildGameEndRecord) and
  *      `statsPending` ([{position, username}] still to apply). The unique
  *      gameId index (database.ensureGameIdIndex) makes a second insert fail
  *      with E11000, and the write then reuses the stored entry
@@ -651,14 +648,22 @@ function recordGameStats(game, { record, onRecorded } = {}) {
  * /help (plan section 6, D11) and the tutorial (D12): a seat whose owner
  * made more than ASSIST_FREE_HELP counted /help uses or played with the
  * tutorial (a.tutorialEver; assistState.isAssistedSeat) played a
- * bot-assisted game, for that player only:
- *   - `statsDeltas.bucketByPosition {<pos>: 'botStats'}` for each such seat
- *     when the whole-game bucket is 'stats' (a game that is a bot game
- *     anyway needs none); the other seats stay in the whole-game bucket
+ * bot-assisted game, for that player only. In a human game (bucket 'stats')
+ * such a seat is moved to its owner's bot-game stats ONLY when its team won
+ * (owner 2026-11-21, assistState.assistedSeatMoves: a loss or a tie stays in
+ * the human stats, so /help cannot carry a losing game off the leaderboard);
+ * for each moved seat:
+ *   - `statsDeltas.bucketByPosition {<pos>: 'botStats'}`; the other seats
+ *     (an assisted seat on the losing team or in a tie included) stay in
+ *     the whole-game bucket
  *   - `withBots: true` (+ `team1Bots` / `team2Bots`, empty for human seats)
  *     so the game's team records move to the "with bots" Records scope, and
  *     `assistedTeams: [1|2]` (server-only: no Records projection sends it)
- * and every seat with counted uses (assisted or not) is listed in
+ * A human game whose only assisted seats did not win is a plain human game
+ * (no withBots, no assistedTeams). A game that is a bot game anyway (bucket
+ * 'botStats') needs no bucketByPosition and marks every assisted seat in
+ * assistedTeams, won or not (owner 2026-11-19, "Free UI, still record it").
+ * Every seat with counted uses (assisted or not, moved or not) is listed in
  * `statsDeltas.assist {<pos>: {help}}` (by position, never by name; a
  * tutorial seat `{help, tutorial: true}`). A game
  * nobody used /help or the tutorial in gives exactly the document it gave before /help
@@ -678,7 +683,7 @@ function buildGameEndRecord(game) {
 
     // A bot played a seat for good (native bot or resign bot): the bot-game
     // bucket. Lazy seats still count as human games for their owner.
-    const withBots = game.seatList().some(s => BOT_CONTROLLERS.has(s.controller));
+    const withBots = isBotStatsGame(game);
     const bucket = withBots ? 'botStats' : 'stats';
 
     // The bag counter, only when it counted every hand of this game
@@ -704,7 +709,8 @@ function buildGameEndRecord(game) {
         .filter(({ player }) => !gameManager.deletedUsernames.has(player.username))
         .map(({ position, player }) => ({ position, username: player.username }));
 
-    // /help: the evidence (counted uses) and who it made a bot game for
+    // /help: the evidence (counted uses) and who it made a bot game for (in
+    // a human game only a winning seat, owner 2026-11-21)
     const assist = {};
     const assisted = [];
     for (const { position } of players) {
@@ -714,7 +720,7 @@ function buildGameEndRecord(game) {
         // The tutorial (plan D12): {help, tutorial: true}
         if (usedTutorial(a, owner)) assist[position] = { help, tutorial: true };
         else if (help > 0) assist[position] = { help };
-        if (isAssistedSeat(a, owner)) assisted.push(position);
+        if (isAssistedSeat(a, owner) && (withBots || assistedSeatMoves(game, position))) assisted.push(position);
     }
 
     const doc = buildGameRecord(game, { withBots: withBots || assisted.length > 0 });

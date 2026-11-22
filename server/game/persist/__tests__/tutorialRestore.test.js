@@ -166,8 +166,10 @@ test.each(['serialize', 'store'])('kill and restore with the tutorial on (%s): t
     await flush();
     const next = tutorialHints(mine.id, mark).filter((x) => x.kind !== 'tip' && x.turnKey === game.turnKey());
     expect(next.length + (legalCards(game, mine.id).length === 1 ? 1 : 0)).toBe(1);
-    // never counted; the record marks the seat
+    // never counted; the record marks the seat (and moves it in a game its
+    // team won: only a win moves it, owner 2026-11-21)
     expect(game.assist[me].help).toBe(0);
+    game.score = me % 2 === 1 ? { team1: 300, team2: 100 } : { team1: 100, team2: 300 };
     const record = profile.buildGameEndRecord(game);
     expect(record.statsDeltas.assist).toEqual({ [me]: { help: 0, tutorial: true } });
     expect(record.statsDeltas.bucketByPosition).toEqual({ [me]: 'botStats' });

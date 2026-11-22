@@ -167,7 +167,14 @@ test.each(['serialize', 'store'])('kill and restore after 3 uses (%s): a re-ask 
     expect(notices()).toEqual([crossed]);
 
     // the record the end would write routes the asker's seat to botStats
+    // when its team wins (owner 2026-11-21), and keeps it human on a loss
+    const winning = asker % 2 === 1 ? { team1: 300, team2: 100 } : { team1: 100, team2: 300 };
+    game.score = winning;
     const record = profile.buildGameEndRecord(game);
     expect(record.statsDeltas.bucketByPosition).toEqual({ [asker]: 'botStats' });
     expect(record.statsDeltas.assist).toEqual({ [asker]: { help: 4 } });
+    game.score = { team1: winning.team2, team2: winning.team1 };
+    const lost = profile.buildGameEndRecord(game);
+    expect(lost.statsDeltas).not.toHaveProperty('bucketByPosition');
+    expect(lost.statsDeltas.assist).toEqual({ [asker]: { help: 4 } });
 }, 60000);

@@ -64,9 +64,9 @@ enum TutorialRules {
     static let barOffText = "Tutorial off"
     static let barOnHint = "Turns on tips and advice for every turn."
     /// The alert before the switch turns it on where that makes the game bot-assisted for me
-    /// (the server's words: "it goes in your bot-game stats, not the human leaderboard").
+    /// (the server's words: "a win goes in your bot-game stats, a loss or tie stays in your human stats").
     static let confirmTitle = "Turn on the tutorial?"
-    static let confirmMessage = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard."
+    static let confirmMessage = "You'll get tips and advice on every turn. This game will count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats."
     static let confirmButton = "Turn on"
     static let confirmCancel = "Cancel"
 

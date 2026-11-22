@@ -41,7 +41,7 @@ extension UIFixture {
     @MainActor private static weak var assistStore: GameState?
 
     /// The server's warning on the last free use (assistHandlers.js COPY.warning).
-    static let assistWarning = "That's your 3rd free /help. The next one makes this game count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard."
+    static let assistWarning = "That's your 3rd free /help. The next one makes this game count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats."
 
     @MainActor
     static func seedAssist(_ store: GameState, auth: AuthState) {

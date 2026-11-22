@@ -75,7 +75,7 @@ describe('the words', () => {
   it('iOS\'s confirm exactly; the button\'s label and state; names only', () => {
     expect(t.TUTORIAL_ON_COMMAND).toBe('/tutorial on');
     expect(t.CONFIRM_TITLE).toBe('Turn on the tutorial?');
-    expect(t.CONFIRM_MESSAGE).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.");
+    expect(t.CONFIRM_MESSAGE).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats.");
     expect([t.CONFIRM_CANCEL, t.CONFIRM_BUTTON]).toEqual(['Cancel', 'Turn on']);
     expect([t.BUTTON_LABEL, t.BUTTON_ON_TEXT, t.BUTTON_OFF_TEXT]).toEqual(['Tutorial', 'Tutorial on', 'Tutorial off']);
     for (const w of [t.CONFIRM_TITLE, t.CONFIRM_MESSAGE, t.BUTTON_ON_TEXT, t.BUTTON_OFF_TEXT, t.BUTTON_ON_HINT, t.BUTTON_OFF_HINT]) expect(w).not.toMatch(NAME_LINT);

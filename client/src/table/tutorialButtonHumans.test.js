@@ -45,7 +45,7 @@ describe('the Tutorial button in a human-only game', () => {
     expect(word()).toBe('Off');
     btn().click();
     expect(dialog().querySelector('.kit-modal__title').textContent).toBe('Turn on the tutorial?');
-    expect(dialog().querySelector('.kit-modal__body').textContent).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: it goes in your bot-game stats, not the human leaderboard.");
+    expect(dialog().querySelector('.kit-modal__body').textContent).toBe("You'll get tips and advice on every turn. This game will count as bot-assisted for you: a win goes in your bot-game stats, a loss or tie stays in your human stats.");
     expect([...dialog().querySelectorAll('.kit-modal__actions button')].map((b) => b.textContent)).toEqual(['Cancel', 'Turn on']);
   });
 

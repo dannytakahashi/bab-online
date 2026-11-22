@@ -436,7 +436,7 @@ final class TutorialTests: XCTestCase {
         XCTAssertTrue(AssistRules.isFreeHelpGame(bots.state))
         XCTAssertFalse(TutorialRules.needsConfirm(bots.state))
         // the words: the server's own for the stats bucket, names none
-        XCTAssertTrue(TutorialRules.confirmMessage.contains("it goes in your bot-game stats, not the human leaderboard"))
+        XCTAssertTrue(TutorialRules.confirmMessage.contains("a win goes in your bot-game stats, a loss or tie stays in your human stats"))
         XCTAssertTrue(TutorialRules.hiddenWelcomeText.hasPrefix("Tips will appear above your cards. Only you see them."))
         XCTAssertFalse(TutorialRules.hiddenWelcomeText.contains("Turn off"), "iOS draws no Turn off")
     }
