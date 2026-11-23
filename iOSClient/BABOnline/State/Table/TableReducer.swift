@@ -102,6 +102,9 @@ enum TableAnimation: Equatable {
     case chatBubble(position: Int, message: String)
     /// A spectator's chat ("Name: text") by the spectator badge, one at a time (isSpectator, not `type`).
     case spectatorChatBubble(username: String, message: String)
+    /// The live /help room notice: that seat's lightbulb pops once (SeatBadges.swift). Never from
+    /// a snapshot or a buffered catch-up.
+    case helpBadge(position: Int)
     case sceneReset
 }
 
@@ -130,7 +133,7 @@ enum TableReducer {
     }
 
     /// Catch-up (buffered events replayed after a snapshot or a lapsed resync): its effects
-    /// without the sounds and the deal's fly-in, so a rejoin or resync never plays a burst
+    /// without the sounds, the deal's fly-in and the lightbulb's pop, so a rejoin or resync never plays a burst
     /// and shows the hand where it is; a replayed deal's HSI shows at once (no reveal wait).
     static func catchUp(_ s: inout TableState, _ fx: inout [TableEffect], _ body: (inout TableState, inout [TableEffect]) -> Void) {
         var inner: [TableEffect] = []
@@ -138,7 +141,7 @@ enum TableReducer {
         var revealed = false
         fx += inner.filter {
             switch $0 {
-            case .sound, .animate(.dealt): return false
+            case .sound, .animate(.dealt), .animate(.helpBadge): return false
             case .revealHSI: revealed = true; return false
             default: return true
             }

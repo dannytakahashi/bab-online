@@ -46,6 +46,7 @@ class SKOpponentManager {
             node.setDealer(model.dealer == o.position, chip: layout.dealerChip(o.rel), anchor: anchor)
         }
         applyWatchers(model, layout: layout)  // the seat eyes (WatchChipNode.swift)
+        applyBadges(model, layout: layout)  // the avatar badges (SeatBadgeNode.swift)
     }
 
     /// Relayout: every seat to its new anchor (a fold change glides).

@@ -32,6 +32,10 @@ final class GameState: ObservableObject {
     var chatDraft = ""
     /// +1 per applied snapshot or reset (the coordinator's resync debounce).
     private(set) var sceneResets = 0
+    /// +1 per seat's lightbulb pop (`TableAnimation.helpBadge`: a live /help notice that turned it
+    /// on; never a snapshot or catch-up), by position: the watching pill's chip pops with it, as
+    /// the felt's SeatBadgeNode does from the same animation.
+    @Published private(set) var badgePops: [Int: Int] = [:]
     /// The latest table notice (why a bid or play was refused, or why a dimmed card cannot be
     /// played); GameContainerView shows it in the server-error toast for a few seconds.
     /// `id` tells two equal lines apart.
@@ -105,6 +109,7 @@ final class GameState: ObservableObject {
             // a missed broadcast, once per launch (the web reports its SeqGate gaps the same way)
             if case .gap(let expected, let got) = fx { ErrorReporter.shared.report(kind: "seqGap", message: "expected \(expected), got \(got)") }
             switch fx {
+            case .animate(.helpBadge(let pos)): badgePops[pos, default: 0] += 1
             case .animate: break
             case .notice(let text):
                 postNotice(text)

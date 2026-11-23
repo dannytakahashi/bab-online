@@ -17,6 +17,12 @@ struct ChatMessage: Identifiable, Equatable {
     /// `help` (live gameLogEntry or the snapshot log), drawn in the suggestion's gold so the
     /// table sees it (owner 2026-11-23: the dim line was hard to see).
     var isHelp = false
+    /// The tutorial's room lines ("<name> turned on the tutorial.", the auto-start's "<name> is
+    /// playing with the tutorial.", "... turned off ...", "This game now counts as bot-assisted
+    /// for <name>."): the server's stored log lines that carry `tutorial` (live or the snapshot
+    /// log), drawn like the /help notice in the avatar cap's colour (owner 2026-11-23: "a tutorial
+    /// note in the log for parity"). Only the live tag moves the cap (SeatBadges.swift).
+    var isTutorial = false
 
     enum MessageType: String, Equatable {
         case player

@@ -149,8 +149,10 @@ extension TableReducer {
                                       position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
                 // the stored fault line replays red, in place, once (the server's, never recomputed here)
                 row.isFault = entry.fault != nil
-                // and the /help room notice gold
+                // and the /help room notice gold, the tutorial's lines in the cap's colour (styled
+                // only: the snapshot's seats[].tutorial carries the cap)
                 row.isHelp = entry.help != nil
+                row.isTutorial = entry.tutorial != nil
                 return row
             }
         }
@@ -273,8 +275,10 @@ extension TableReducer {
         if avatarUrl == nil, seat.hasCustomPic {
             avatarUrl = prev.values.first(where: { $0.username == seat.username && $0.avatarUrl != nil })?.avatarUrl
         }
+        // the avatar badges (additive 2026-11-23, present only when true: absent is off; SeatBadges.swift)
         return SeatState(position: seat.position, username: seat.username, pic: pic, avatarUrl: avatarUrl,
                          ownerUsername: seat.ownerUsername, controller: controller, presence: presence,
-                         isBot: seat.isBot, lazy: seat.lazy, cardsInHand: seat.cardsInHand)
+                         isBot: seat.isBot, lazy: seat.lazy, cardsInHand: seat.cardsInHand,
+                         askedHelp: seat.askedHelp == true, tutorial: seat.tutorial == true)
     }
 }

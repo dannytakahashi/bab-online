@@ -1191,8 +1191,8 @@ private struct GameScreen: View {
     }
 
     /// The other seats' parts the column keeps clear of (AssistLayout.Keeps.seats / .sides), in
-    /// the pane's points: each one's avatar and name, its bid bubble's spot and the dealer
-    /// button; the seat across (the partner's, for a spectator seat 1's opposite) or the two
+    /// the pane's points: each one's avatar and name, its bid bubble's spot, the dealer
+    /// button and its avatar badge (TableLayout+Badges.swift); the seat across (the partner's, for a spectator seat 1's opposite) or the two
     /// side seats.
     private func otherSeats(_ layout: TableLayout, sides: Bool) -> [String: CGRect] {
         let model = TableRenderModel(gameState.state)
@@ -1201,6 +1201,7 @@ private struct GameScreen: View {
             out["seat\(o.position)"] = layout.window(layout.seatFootprint(o.rel))
             out["bubble\(o.position)"] = layout.window(layout.bubbleRect(o.rel))
             if model.dealer == o.position { out["dealer\(o.position)"] = layout.window(layout.dealerChip(o.rel)) }
+            if o.badge != nil { out["badge\(o.position)"] = layout.window(layout.seatBadge(o, model: model)) }
         }
         return out
     }
@@ -1530,6 +1531,7 @@ private struct GameScreen: View {
                 .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.teamA, lineWidth: 1))
                 .cornerRadius(Theme.Radius.md)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pillHeight = $0 }
+                .shoulderBadgeProbe("pill")
                 .padding(.bottom, Theme.Space.s3)
             }
         } else if gameState.isLazy {
@@ -1557,7 +1559,8 @@ private struct GameScreen: View {
         let s = gameState.state
         let others = ShoulderRules.watchableSeats(s).filter { $0 != w }.map { (position: $0, name: gameState.players.name($0)) }
         return WatchingPill(player: name, pictureKey: seat.flatMap { $0.avatarUrl ?? $0.pic.string }, paused: gameState.watchPaused,
-                            speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused, others: others,
+                            speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused,
+                            badge: SeatBadge.of(seat), position: w, badgePop: gameState.badgePops[w] ?? 0, others: others,
                             onProfile: { SeatTaps.subject.send(name) },
                             onTableView: {
                                 gameState.apply(.local(.watchTableView))

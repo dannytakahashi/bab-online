@@ -143,6 +143,13 @@ enum WirePayload {
         /// "<name> used /help." (its seat), drawn in the suggestion's gold.
         struct Help: Decodable, Equatable { var position: Int? }
         var help: Help?
+        /// `tutorial` (additive 2026-11-23, the room variant; stored too, as the snapshot log's
+        /// `tutorial`): the tutorial's room lines ("<name> turned on the tutorial." and its
+        /// variants, "This game now counts as bot-assisted for <name>.": `on` true; "<name> turned
+        /// off the tutorial.": false), drawn in the cap's colour (ChatMessage.isTutorial); this live
+        /// tag also moves the seat's graduation cap (SeatBadges.swift), a replayed one never.
+        struct Tutorial: Decodable, Equatable { var position: Int?; var on: Bool? }
+        var tutorial: Tutorial?
     }
 
     struct Chat: Decodable, Equatable {
@@ -382,10 +389,11 @@ enum Position {
 }
 
 extension WirePayload.GameLogEntry {
-    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault, help }
+    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault, help, tutorial }
 
-    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault` or
-    /// `help` this build cannot read leaves a plain system row, never a dropped line).
+    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault`,
+    /// `help` or `tutorial` this build cannot read leaves a plain system row, never a dropped line;
+    /// the tutorial tag is on the broadcast and the stored line alike, and only the live one moves the cap).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
@@ -395,5 +403,6 @@ extension WirePayload.GameLogEntry {
         seq = opt(Int.self, .seq)
         fault = opt(Fault.self, .fault)
         help = opt(Help.self, .help)
+        tutorial = opt(Tutorial.self, .tutorial)
     }
 }
