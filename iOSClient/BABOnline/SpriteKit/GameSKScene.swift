@@ -307,6 +307,16 @@ class GameSKScene: SKScene, TableRenderer {
                 effectsManager.showRainbow(position: pos, myPosition: view)
             case .overTrump:
                 effectsManager.showOverTrump()
+            case .helpBadge(let pos):
+                guard model.showsTable else { break }
+                let popped = opponentManager.popBadge(position: pos, animator: animator)
+                #if DEBUG
+                if popped {
+                    badgePops += 1
+                    lastBadgePop = Theme.Motion.reduceMotion ? "fade" : "scale"
+                }
+                #endif
+                _ = popped
             case .dealt(let seq):
                 // this render's deal only (a later deal in the same commit owns the table)
                 guard seq == model.dealSeq, model.showsTable, !model.keepsLastTable else { break }
@@ -451,6 +461,9 @@ class GameSKScene: SKScene, TableRenderer {
     /// size at `layout.dealOrigin`), up while the cards leave it; nil otherwise.
     private(set) var dealDeck: SKNode?
     #if DEBUG
+    /// Lightbulb pops shown, and the latest one's kind (scale, or Reduce Motion's fade; fixture probe "table.badges").
+    private(set) var badgePops = 0
+    private(set) var lastBadgePop = "-"
     /// Live deals shown, and the latest one's cards and kind (fixture probe "table.deal").
     private(set) var dealsShown = 0
     private(set) var lastDeal = (cards: 0, mode: "-")

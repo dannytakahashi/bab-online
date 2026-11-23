@@ -19,6 +19,8 @@ struct TableRenderModel: Equatable {
         var ownerName: String? = nil
         /// Cards left in the seat's hand (its card backs: TableLayout+Fans).
         var cards: Int = 0
+        /// The avatar's badge (SeatBadges.swift: the lightbulb, the graduation cap), nil: none.
+        var badge: SeatBadge? = nil
 
         /// What the seat's avatar loads first: the URL, else the stock number or inline picture.
         var pictureKey: String? { avatarUrl ?? pic.string }
@@ -130,7 +132,8 @@ struct TableRenderModel: Equatable {
                             lazy: seat?.lazy ?? false, presence: seat?.presence ?? .none, isTurn: s.table.phase.turn == pos,
                             socketId: s.players.socketBySeat[pos], avatarUrl: seat?.avatarUrl,
                             ownerName: seat?.ownerUsername ?? seat?.username,
-                            cards: s.table.phase.showsTable ? max(0, seat?.cardsInHand ?? 0) : 0)
+                            cards: s.table.phase.showsTable ? max(0, seat?.cardsInHand ?? 0) : 0,
+                            badge: SeatBadge.of(seat))
         }
         dealer = s.table.phase.showsTable ? s.table.deal?.dealer : nil
         back = s.table.phase.showsTable ? CardBackColour.forHand(s.table.deal?.handNo) : .draw

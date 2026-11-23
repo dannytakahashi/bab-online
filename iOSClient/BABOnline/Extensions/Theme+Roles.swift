@@ -235,6 +235,13 @@ extension Theme {
         static let dealerFill = Palette.gold.uiColor
         static let dealerEdge = Palette.Surface.s0.opacity(0.85).uiColor
         static let dealerInk = Palette.Surface.s0.uiColor
+        /// A seat's avatar badge (SeatBadgeNode): a dark disc (surface.s0, the line.strong edge
+        /// the avatars have) with the lightbulb in gold (the /help row's, the ask button's) or the
+        /// graduation cap in primary (the tutorial switch's on colour).
+        static let badgeFill = Palette.Surface.s0.opacity(0.92).uiColor
+        static let badgeEdge = Palette.Line.strong.uiColor
+        static let badgeBulb = Palette.gold.uiColor
+        static let badgeCap = Palette.Primary.base.uiColor
         /// The trick history's bid border (the web's TrickManager piles): danger.text until the
         /// team has its bid total, then success; an unwon bid slot is surface.s3.
         static let pileSafe = Palette.success.uiColor

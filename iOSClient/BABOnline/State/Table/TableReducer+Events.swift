@@ -59,12 +59,15 @@ extension TableReducer {
             settleAssist(&s, abandon: true, &fx)
             // a watched seat's advice ends at its turn's change too (unless still this turn's)
             if let w = s.table.watchedAssist, !AssistRules.isLiveWatched(w, s) { s.table.watchedAssist = nil }
+            // a lightbulb is its seat's open turn's (SeatBadges.swift)
+            clearHelpBadges(&s, keeping: turn)
         case .bidReceived(let p):
             bidReceived(&s, p, &fx)
         case .doneBidding(let p):
             stopBidClock(&s, .fade, &fx)
             clearAssist(&s)
             s.table.watchedAssist = nil
+            clearHelpBadges(&s)
             guard var bids = s.table.phase.bids else { break }
             if let arr = p.bids, arr.count == 4 { bids.byPosition = arr.map { $0?.value } }
             if let tb = p.teamBids { bids.teamBids = TeamPair(team1: tb.team1, team2: tb.team2) }
@@ -83,6 +86,7 @@ extension TableReducer {
             stopBidClock(&s, .fade, &fx)
             clearAssist(&s)
             s.table.watchedAssist = nil
+            clearHelpBadges(&s)
             s.table.hand = []
             // every hand is gone, not only mine (the card backs; the redeal's gameStart refills them)
             for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
@@ -104,6 +108,7 @@ extension TableReducer {
             // the over-the-shoulder view ends with the game: the end screen is the plain
             // spectator's (the server forgets the watch with the game; nothing is sent)
             endWatch(&s)
+            clearHelpBadges(&s)
             fx.append(.sound(TableReducer.gameEndSound(s, data)))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
@@ -150,6 +155,7 @@ extension TableReducer {
                 seat.pic = p.botPic?.pic ?? seat.pic
             }
             s.players.resignationOffer = nil
+            clearHelpBadge(&s, at: pos)
             // a resigned owner may later leave unannounced: while my Leave is up, check again
             if s.players.leaveCheck != .idle { checkLeave(&s, &fx) }
         case .playerLazyMode(let p):
@@ -162,6 +168,8 @@ extension TableReducer {
                 seat.username = p.botUsername ?? "Bot"
                 seat.pic = p.botPic?.pic ?? .none
             }
+            // a bot plays the seat now: its lightbulb goes (the cap stays: the owner's tutorial is on)
+            clearHelpBadge(&s, at: pos)
             if pos == s.table.viewer.position && s.table.viewer.role == .seat {
                 s.table.viewer.role = .lazyWatcher
                 s.table.viewer.ownerView = "seat"
@@ -188,6 +196,7 @@ extension TableReducer {
                 seat.pic = p.pic?.pic ?? .none
                 seat.avatarUrl = p.avatarUrl
             }
+            clearHelpBadge(&s, at: pos)
             // the seat is human and connected again: an offer to replace it is moot
             if s.players.resignationOffer?.position == pos { s.players.resignationOffer = nil }
             if pos == s.table.viewer.position && s.table.viewer.role == .lazyWatcher {
@@ -202,6 +211,9 @@ extension TableReducer {
             row.isFault = p.fault != nil
             row.isHelp = p.help != nil
             s.log.entries.append(row)
+            // the avatar badges (SeatBadges.swift): the notice's lightbulb, the tutorial's cap
+            if let pos = Position.valid(p.help?.position) { helpNotice(&s, position: pos, &fx) }
+            if let t = p.tutorial, let pos = Position.valid(t.position), let on = t.on { tutorialTag(&s, position: pos, on: on) }
             // the paused rule (the over-the-shoulder view): the room's pause and resume lines
             if type == .system, let m = p.message { watchLogLine(&s, m, &fx) }
         case .chatMessage(let p, let blocked, let mine):
@@ -348,6 +360,11 @@ extension TableReducer {
             // From an older server (no nativeBot) every bot seat is `.bot`, as before.
             let native = (i < (p.nativeBot?.count ?? 0) ? p.nativeBot![i] : nil) ?? isBot
             var seat = s.players.seats[pos] ?? SeatState(position: pos)
+            // another user in the seat: the badges were the last owner's (SeatBadges.swift)
+            if let name, let owner = seat.ownerUsername ?? seat.username, owner != name {
+                seat.askedHelp = false
+                seat.tutorial = false
+            }
             seat.username = name ?? seat.username
             seat.pic = pic
             seat.avatarUrl = p.avatarUrls?[String(pos)]
@@ -379,6 +396,7 @@ extension TableReducer {
     static func gameStart(_ s: inout TableState, _ p: WirePayload.GameStart, _ fx: inout [TableEffect]) {
         stopBidClock(&s, .fade, &fx)
         clearAssist(&s)
+        clearHelpBadges(&s)
         s.table.watchedAssist = nil
         if s.table.phase.kind == .ended || s.table.phase.kind == .none { s.table.phase = .waiting }
         if let gid = p.gameId { s.table.gameId = gid }
@@ -462,6 +480,7 @@ extension TableReducer {
         if pos == s.table.viewer.position && s.table.viewer.holdsSeat { clearAssist(&s); clearTip(&s) }
         // the watched seat's bid: its mirrored advice and tip are done
         if pos == s.table.viewer.watchedSeat { clearWatchedHints(&s) }
+        clearHelpBadge(&s, at: pos)
         addLog(&s, "\(s.players.name(pos)) bid \(bid)")
         if pos == s.table.viewer.position, let pending = s.pending, case .bid = pending.submission {
             s.pending = nil
@@ -497,6 +516,7 @@ extension TableReducer {
         if pl.trick.count == 4 { pl.turn = nil }  // TRICK_RESOLVING: no updateTurn until trickComplete
         s.table.phase = .playing(pl)
         mutateSeat(&s, pos) { $0.cardsInHand = max(0, $0.cardsInHand - 1) }
+        clearHelpBadge(&s, at: pos)
         let mine = pos == s.table.viewer.position && s.table.viewer.holdsSeat
         // my own card: the /help card is done
         if mine { clearAssist(&s); clearTip(&s) }
@@ -559,6 +579,7 @@ extension TableReducer {
         let t2Tricks = p.team2Tricks ?? 0
         clearAssist(&s)
         s.table.watchedAssist = nil
+        clearHelpBadges(&s)
         s.scores.score = TeamPair(team1: t1, team2: t2)
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))

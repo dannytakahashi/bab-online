@@ -170,6 +170,7 @@ enum UIFixture {
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
             editFaults(&snapDict)
+            editSeatBadges(&snapDict)  // -uiSeatBadges (UIFixture+SeatBadges.swift)
             editAssistHand(&snapDict)
             editAsSpectator(&snapDict)
             let snap = try TableSnapshot.decode(snapDict, strict: true)
@@ -233,6 +234,7 @@ enum UIFixture {
             seedWatchedHint(store, auth: auth)
             seedShoulder(store, auth: auth)
             seedFaults(store, snap)
+            seedSeatBadges(store, snap)
             seedWatchers(store, snap)  // -uiWatchers (UIFixture+Watchers.swift)
             seedSpeakingSpectators()  // -uiSpeakingSpectators (UIFixture+Watchers.swift)
             appState.screen = .game
@@ -791,6 +793,11 @@ final class TableDebugProbe: ObservableObject {
     /// 1.2.2: "fans=2:5,3:5,4:4 dealer=3" (card backs per seat, "-" where the table shows
     /// no fans; the dealer's seat, "me", or "-"). Its own probe: a rotation may gain or lose the fans.
     @Published var tableExtras = "-"
+    /// The avatar badges (SeatBadgeNode, TableLayout+Badges.swift): "<pos>:bulb|cap|- <x y w h>
+    /// clear=ok|over:<what>;... pops=<n> pop=scale|fade|-" per seat with an avatar, by position (the
+    /// drawn badge's frame in the pane's points and what of the layout's badge keeps it covers;
+    /// "<pos>:-" for none), the lightbulb pops shown and the latest one's kind.
+    @Published var tableBadges = "-"
     /// The table's zoom (TableLayout.zoom, "1.00" ... "1.40"): the UI tests scale their point limits by it.
     @Published var tableZoom = "-"
     /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
@@ -957,6 +964,8 @@ final class TableDebugProbe: ObservableObject {
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
         let extras = "fans=\(fans) back=\(back) dealer=\(dealer)"
         if extras != tableExtras { tableExtras = extras }
+        let badges = badgesProbe(scene)
+        if badges != tableBadges { tableBadges = badges }
         if check != layoutCheck { layoutCheck = check }
         if state != tableState { tableState = state }
         let dealing = Array(scene.handNode.sprites.values) as [SKNode] + scene.opponentManager.nodes.values.flatMap { $0.fanNode.children }
@@ -982,6 +991,27 @@ final class TableDebugProbe: ObservableObject {
     }
 }
 
+extension TableDebugProbe {
+    /// "table.badges" from the drawn nodes: each badge's frame (scene coordinates, then the pane's
+    /// points) checked against what the layout keeps it off.
+    func badgesProbe(_ scene: GameSKScene) -> String {
+        guard let model = scene.lastModel, model.showsTable else { return "-" }
+        let L = scene.layout
+        let keeps = L.badgeKeeps(spectating: model.hand == nil, eyes: L.seatEyes(model))
+        let seats = scene.opponentManager.nodes.sorted { $0.key < $1.key }.map { pos, node -> String in
+            guard let badge = node.badgeNode(make: false), let b = badge.badge, !badge.isHidden else { return "\(pos):-" }
+            let d = TableLayout.seatBadge
+            let c = CGPoint(x: node.position.x + badge.position.x, y: node.position.y + badge.position.y)
+            let rect = CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d)
+            let over = L.badgeProblems(rect, seat: node.relativePosition, keeps: keeps)
+            let w = L.window(rect)
+            return "\(pos):\(b.rawValue) " + String(format: "%.1f %.1f %.1f %.1f", w.minX, w.minY, w.width, w.height)
+                + " clear=" + (over.isEmpty ? "ok" : "over:" + over.joined(separator: ","))
+        }
+        return seats.joined(separator: ";") + " pops=\(scene.badgePops) pop=\(scene.lastBadgePop)"
+    }
+}
+
 /// The fixture probes, 1x1 and nearly transparent, readable by XCUITest.
 struct FixtureProbes: View {
     @ObservedObject var probe = TableDebugProbe.shared
@@ -992,6 +1022,7 @@ struct FixtureProbes: View {
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
             dot("table.extras", probe.tableExtras)
+            dot("table.badges", probe.tableBadges)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)
             dot("table.deal", probe.tableDeal)

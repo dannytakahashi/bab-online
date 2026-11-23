@@ -125,7 +125,7 @@ class OpponentHandNode: SKNode {
         guard fullName != name else { return }
         fullName = name
         Self.fit(nameLabel, name)
-        nameLabel.speak(name)
+        nameLabel.speak(spokenName)
         (avatarNode?.childNode(withName: "avatar_initial") as? SKLabelNode)?.text = String(name.prefix(1)).uppercased()
     }
 
@@ -179,6 +179,20 @@ class OpponentHandNode: SKNode {
     let pipsNode = SeatPipsNode(style: .ring)
 
     func setPips(_ pips: SeatPips?, team: Int) { pipsNode.update(pips, team: team) }
+
+    /// The avatar's badge as VoiceOver hears it on the name element ("kim, tutorial on";
+    /// SeatBadgeNode.swift draws it).
+    var spokenBadge: SeatBadge? {
+        didSet { if spokenBadge != oldValue { nameLabel.speak(spokenName) } }
+    }
+
+    /// The name element's words: the full name, and the badge's.
+    var spokenName: String { fullName + (spokenBadge?.spokenSuffix ?? "") }
+
+    #if DEBUG
+    /// Tests: what VoiceOver reads for the seat's name.
+    var nameAccessibilityLabel: String? { nameLabel.accessibilityLabel }
+    #endif
 
     /// The seat's remaining cards as card backs, and its dealer marker (SeatExtrasNode.swift).
     let fanNode = CardFanNode()

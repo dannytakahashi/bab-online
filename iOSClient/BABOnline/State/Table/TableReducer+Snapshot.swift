@@ -273,8 +273,10 @@ extension TableReducer {
         if avatarUrl == nil, seat.hasCustomPic {
             avatarUrl = prev.values.first(where: { $0.username == seat.username && $0.avatarUrl != nil })?.avatarUrl
         }
+        // the avatar badges (additive 2026-11-23, present only when true: absent is off; SeatBadges.swift)
         return SeatState(position: seat.position, username: seat.username, pic: pic, avatarUrl: avatarUrl,
                          ownerUsername: seat.ownerUsername, controller: controller, presence: presence,
-                         isBot: seat.isBot, lazy: seat.lazy, cardsInHand: seat.cardsInHand)
+                         isBot: seat.isBot, lazy: seat.lazy, cardsInHand: seat.cardsInHand,
+                         askedHelp: seat.askedHelp == true, tutorial: seat.tutorial == true)
     }
 }
