@@ -336,6 +336,8 @@ struct TableSnapshot: Codable, Equatable {
         var resignableAt: Int?
         var cardsInHand: Int
         var avatarUrl: String?
+        var tutorial: Bool?
+        var askedHelp: Bool?
     }
 
     enum Controller: Codable, Equatable, Hashable {

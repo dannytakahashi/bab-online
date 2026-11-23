@@ -1987,6 +1987,22 @@
       ],
       "additionalProperties": false
     },
+    "logTutorial": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/position"
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "position",
+        "on"
+      ],
+      "additionalProperties": false
+    },
     "seatV2": {
       "type": "object",
       "properties": {
@@ -2066,6 +2082,12 @@
         },
         "avatarUrl": {
           "$ref": "#/$defs/avatarUrl"
+        },
+        "tutorial": {
+          "type": "boolean"
+        },
+        "askedHelp": {
+          "type": "boolean"
         }
       },
       "required": [
@@ -7362,6 +7384,9 @@
               },
               "help": {
                 "$ref": "#/$defs/logHelp"
+              },
+              "tutorial": {
+                "$ref": "#/$defs/logTutorial"
               },
               "seq": {
                 "$ref": "#/$defs/seq"

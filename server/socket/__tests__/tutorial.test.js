@@ -143,6 +143,9 @@ async function lobbyGame(tag, { seed = 5, bots = 0, prep = null, pending = [] } 
 
 const hintsTo = (t, sid, mark) => t.since(mark).filter((l) => l.event === 'assistHint' && l.to === sid).map((l) => l.data);
 const roomLines = (t, mark) => t.since(mark).filter((l) => l.event === 'gameLogEntry' && l.to === t.game.roomName).map((l) => l.data.message);
+// the live tag on the tutorial's room lines (the avatar's graduation cap, 2026-11-23)
+const roomTags = (t, mark) => t.since(mark).filter((l) => l.event === 'gameLogEntry' && l.to === t.game.roomName).map((l) => l.data.tutorial ?? null);
+const seatTutorial = (t, sid) => t.game.getSnapshotV2(sid).seats.map((x) => x.tutorial === true);
 const statesTo = (t, sid, mark) => t.since(mark).filter((l) => l.event === 'assistState' && l.to === sid).map((l) => l.data);
 const userDoc = (name) => mockDb.current.users.docs.find((d) => d.username === name);
 
@@ -158,6 +161,12 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     let mark = t.w.log.length;
     t.say(s, '/tutorial on');
     expect(roomLines(t, mark)).toEqual([`${t.name(p)} turned on the tutorial. This game counts as bot-assisted for ${t.name(p)}.`]);
+    expect(roomTags(t, mark)).toEqual([{ position: p, on: true }]);
+    // the stored line stays plain; every viewer's snapshot seats carry the state (the other seats' too)
+    expect(game.gameLog.at(-1)).not.toHaveProperty('tutorial');
+    const other = t.owner((p % 4) + 1);
+    expect(seatTutorial(t, other.id)).toEqual([1, 2, 3, 4].map((q) => q === p));
+    expect(game.getSnapshotV2(other.id).seats.every((x) => !('askedHelp' in x))).toBe(true);
     const h = hintsTo(t, s.id, mark);
     expect(h.map((x) => [x.source, x.kind, x.tipId || null])).toEqual([
         ['tutorial', 'tip', 'T.welcome'],
@@ -198,6 +207,9 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     t.say(s, '/tutorial');
     expect(hintsTo(t, s.id, mark).map((x) => [x.source, x.kind, x.headline])).toEqual([['tutorial', 'status', 'Tips off. /help still works any time.']]);
     expect(roomLines(t, mark)).toEqual([`${t.name(p)} turned off the tutorial.`]);
+    expect(roomTags(t, mark)).toEqual([{ position: p, on: false }]);
+    expect(seatTutorial(t, other.id)).toEqual([false, false, false, false]);
+    expect(game.getSnapshotV2(other.id).seats.every((x) => !('tutorial' in x))).toBe(true);
     expect(statesTo(t, s.id, mark)).toEqual([{ tutorial: false, auto: false, uses: 0, freeUses: 3, assisted: true }]);
     expect(game.assist[p]).toMatchObject({ tutorial: false, tutorialEver: true });
     t.say(s, '/tutorial off');

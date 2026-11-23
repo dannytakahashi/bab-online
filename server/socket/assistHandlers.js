@@ -441,10 +441,14 @@ function help(socket, io, game, pos) {
 
 // ------------------------------------------------------------ the tutorial
 
-/** Post a stored, broadcast room system line (names only). */
-function roomLine(io, game, message) {
+/**
+ * Post a stored, broadcast room system line (names only). `extra` rides on
+ * the broadcast only (the live tag, e.g. `tutorial {position, on}`; the
+ * snapshot's seats carry the state, so the stored line stays plain).
+ */
+function roomLine(io, game, message, extra = null) {
     game.addLogEntry(message, null, 'system');
-    game.broadcast(io, 'gameLogEntry', { message, type: 'system' });
+    game.broadcast(io, 'gameLogEntry', { message, type: 'system', ...(extra || {}) });
 }
 
 /**
@@ -686,7 +690,8 @@ function turnOn(io, game, pos, { auto = false } = {}) {
     a.auto = auto;
     if (!auto) a.tutorialEver = true;
     // The room line persists the record (addLogEntry's hook)
-    roomLine(io, game, auto ? TEXT.tutorialAutoNotice(owner) : TEXT.tutorialOnNotice(owner, isFreeHelpGame(game)));
+    // tutorial {position, on} (additive 2026-11-23): the clients' graduation cap on the seat's avatar
+    roomLine(io, game, auto ? TEXT.tutorialAutoNotice(owner) : TEXT.tutorialOnNotice(owner, isFreeHelpGame(game)), { tutorial: { position: pos, on: true } });
     sendAssistState(io, game, pos);
     // At the table now: the welcome tip, then this turn's step (an
     // auto-start's welcome waits for the first turn: the table is not up)
@@ -709,7 +714,7 @@ function turnOff(io, game, pos, sid) {
     a.tutorial = false;
     a.auto = false;
     sendStatus(io, game, sid, pos, TEXT.tutorialOff, 'tutorial');
-    roomLine(io, game, TEXT.tutorialOffNotice(owner));
+    roomLine(io, game, TEXT.tutorialOffNotice(owner), { tutorial: { position: pos, on: false } });
     sendAssistState(io, game, pos);
     if (wasAuto) setAccountFlag(io, [owner], 'dismissed');
 }

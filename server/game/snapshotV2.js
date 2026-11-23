@@ -147,6 +147,15 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
                 cardsInHand: (game.hands[s.seatSocketId] || []).length,
             };
             if (r && r.url) seat.avatarUrl = r.url;
+            // additive (2026-11-23, the avatar badges): present only when
+            // true. tutorial: the seat owner's tutorial is on (the graduation
+            // cap); askedHelp: a counted /help on this seat's open turn (the
+            // lightbulb, until the seat bids or plays: the turn key moves on)
+            const a = game.assist?.[p];
+            const owned = !!a && !!s.ownerUsername && a.user === s.ownerUsername;
+            if (owned && a.tutorial === true) seat.tutorial = true;
+            if (owned && s.controller === Controller.HUMAN && game.currentTurn === p &&
+                typeof a.lastHelpKey === 'string' && a.lastHelpKey === game.turnKey()) seat.askedHelp = true;
             return seat;
         });
     }
