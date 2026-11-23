@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 import {
   computeTableLayout, layoutForViewport, layoutRects, drawRects, findIntersections, findOutside,
   logWidthFor, LOG_BREAKPOINTS, LOG_WIDTH_MAX, handPositions, fanPositions, historySlot, deckPosition,
-  intersects, contains, assistAskSpot, assistAskHit, assistRoomTop, assistBidSpot, assistHandSpot, ASSIST_SEAT_GAP, ASSIST_MIN_ROOM, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
+  intersects, contains, assistAskSpot, assistAskHit, assistRoomTop, SEAT_BADGE, assistBidSpot, assistHandSpot, ASSIST_SEAT_GAP, ASSIST_MIN_ROOM, ASK_MIN, ASK_HIT, BASE_SCALE, BID_SHEET, FELT, BUBBLE, BUBBLE_KEEPS, SPECTATOR_BADGE, badgeBubbleKeeps, DRAW_GROW, CARD_UNIT,
 } from './computeTableLayout.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
 
@@ -907,5 +907,120 @@ describe('a watcher\'s layout (the over-the-shoulder view, owner 2026-11-21)', (
       expect(W.voice.tutorial).toBeUndefined();
       expect(computeTableLayout({ w, h }).watcher).toBeUndefined();
     }
+  });
+});
+
+describe('the avatar badge (seatBadge: the /help lightbulb, the tutorial\'s cap; owner 2026-11-23)', () => {
+  // the eye chip's width without a count (table.css .hud-watch-chip: 5 + 14 + 2 + 5, a 1 px border each side)
+  const eyeW = (s) => Math.max(24 * s, 26 * s + 2);
+  /**
+   * The badge (where it sits, and beside a watched seat's eye: the same
+   * corner, one chip right) inside the canvas and clear of every frog,
+   * plate, fan of backs, HSI and voice row, the other avatars, every
+   * bubble at its largest (its own seat's but the tail's strip, and the
+   * tail itself: components.css, 16 px wide at its anchor), the pill,
+   * trump, piles, trick slots, hand, bid sheet, my /help lightbulb's hit
+   * area and the spectator badge and its bubble. A bubble that already
+   * covers the badge's avatar (another seat's on a phone; its own tail,
+   * 10 px at any s, once s is below about 0.83) may cover its badge too:
+   * the badge is never hidden where its avatar is not.
+   */
+  function seatBadgeProblems(L) {
+    const out = [];
+    const keep = [['status', L.status.rect], ['trump', L.trump.rect], ['bidSheet', L.bidSheet.rect],
+      ['history.team', L.history.team.rect], ['history.opp', L.history.opp.rect], ['spectators', L.spectators?.rect],
+      ['spectators.bubble', L.spectators?.bubble?.rect], ['voice', L.voice?.rect],
+      ...Object.entries(L.trick.slots).map(([k, t]) => [`trick.${k}`, t.rect])];
+    if (L.hand) keep.push(['hand', L.hand.rect]);
+    const ask = assistAskSpot(L);
+    if (ask) keep.push(['assistAsk', assistAskHit(ask, ask.y, ask.up, ask.down)]);
+    const t = BUBBLE.tail;
+    const half = 8;
+    for (const seat of SEATS) {
+      const b = L.seats[seat].seatBadge;
+      // (beside the eye it sits SEAT_BADGE.up lower, level with the avatar's top: table.css)
+      const spots = [['corner', b.rect], ['beside the eye', { ...b.rect, x: b.rect.x + eyeW(L.s) + 2 * L.s, y: b.rect.y + SEAT_BADGE.up * L.s }]];
+      for (const [where, r] of spots) {
+        const tag = `${seat}.seatBadge (${where})`;
+        if (!contains(L.canvas, r)) out.push(`${tag} outside the canvas`);
+        for (const [name, o] of keep) if (o && intersects(r, o)) out.push(`${tag} x ${name}`);
+        for (const other of SEATS) {
+          const o = L.seats[other];
+          const parts = [['dealer', o.dealer.rect], ['plate', o.plate], ['cards', o.cards?.rect], ['hsi', o.hsi?.rect], ['voice', o.voice?.rect]];
+          if (other !== seat) parts.push(['avatar', o.avatar.rect]);
+          for (const [name, p] of parts) if (p && intersects(r, p)) out.push(`${tag} x ${other}.${name}`);
+          // (bubble.x / .y is its anchor: the edge nearest the avatar, where the tail is)
+          const bub = o.bubble;
+          let body = bub.rect;
+          let tail = null;
+          if (other === seat) {
+            if (bub.tail === 'down') {
+              body = { ...bub.rect, h: bub.rect.h - t };
+              tail = { x: bub.x - half, y: bub.rect.y + bub.rect.h - t, w: 2 * half, h: t };
+            } else if (bub.tail === 'left') {
+              body = { ...bub.rect, x: bub.rect.x + t, w: bub.rect.w - t };
+              tail = { x: bub.rect.x, y: bub.y - half, w: t, h: 2 * half };
+            } else {
+              body = { ...bub.rect, w: bub.rect.w - t };
+              tail = { x: bub.rect.x + bub.rect.w - t, y: bub.y - half, w: t, h: 2 * half };
+            }
+          }
+          const av = L.seats[seat].avatar.rect;
+          if (intersects(r, body) && !intersects(av, body)) out.push(`${tag} x ${other}.bubble`);
+          if (tail && intersects(r, tail) && !intersects(av, tail)) out.push(`${tag} x ${other}.bubble tail`);
+        }
+      }
+    }
+    return out;
+  }
+
+  it('sits in the ring\'s top left corner on every seat (the same corner, the same size: SEAT_BADGE x s)', () => {
+    for (const [vw, vh] of NAMED) {
+      for (const [, isSpectator] of ROLES) {
+        const L = layoutForViewport({ vw, vh, isSpectator });
+        for (const seat of SEATS) {
+          const { avatar, seatBadge: b } = L.seats[seat];
+          expect(b.size).toBeCloseTo(SEAT_BADGE.size * L.s, 6);
+          expect(b.dx).toBeCloseTo(-avatar.size / 2 - SEAT_BADGE.out * L.s, 6);
+          expect(b.dy).toBeCloseTo(-avatar.size / 2 - SEAT_BADGE.up * L.s, 6);
+          expect(b.rect).toEqual({ x: avatar.x + b.dx, y: avatar.y + b.dy, w: b.size, h: b.size });
+        }
+      }
+    }
+  });
+
+  it('at the named viewports (a player, a spectator, a watcher, with the Tutorial slot): clear of everything around it', () => {
+    const bad = [];
+    for (const [vw, vh] of NAMED) {
+      for (const o of [{}, { isSpectator: true }, { watcher: true }, { tutorial: true }]) {
+        const p = seatBadgeProblems(layoutForViewport({ vw, vh, ...o }));
+        if (p.length) bad.push({ vw, vh, ...o, p });
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('over the grid (800-2560 x 500-1440: the smallest and largest tables), 768 x 1024 and phones (360-760 x 360-900)', () => {
+    const bad = [];
+    const sizes = [[768, 1024]];
+    for (let vw = 800; vw <= 2560; vw += 80) for (let vh = 500; vh <= 1440; vh += 60) sizes.push([vw, vh]);
+    for (let vw = 360; vw <= 760; vw += 40) for (let vh = 360; vh <= 900; vh += 60) sizes.push([vw, vh]);
+    let n = 0;
+    for (const [vw, vh] of sizes) {
+      for (const o of [{}, { isSpectator: true }, { watcher: true }]) {
+        const p = seatBadgeProblems(layoutForViewport({ vw, vh, ...o }));
+        n++;
+        if (p.length) bad.push({ vw, vh, ...o, p });
+      }
+    }
+    expect(n).toBeGreaterThan(1000);
+    expect(bad).toEqual([]);
+  });
+
+  it('is in the solver\'s check (layoutRects, in its seat\'s group) and costs the table nothing: 1920 x 1080 stays at s = 1', () => {
+    const L = layoutForViewport({ vw: 1920, vh: 1080 });
+    const ids = layoutRects(L).filter((r) => r.id.endsWith('.seatBadge')).map((r) => [r.id, r.group]);
+    expect(ids.sort()).toEqual(SEATS.map((k) => [`${k}.seatBadge`, `seat:${k}`]).sort());
+    expect(L.s).toBe(1);
   });
 });

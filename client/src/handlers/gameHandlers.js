@@ -420,6 +420,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
   // Player resigned (bot taking over)
   socketManager.onGame(SERVER_EVENTS.PLAYER_RESIGNED, (data) => {
     console.log(`🔄 Player resigned: P${data.position} ${data.oldUsername} → ${data.botUsername}`);
+    // a bot plays the seat now: its lightbulb goes (the scene's redraw of the seat shows it)
+    state.clearHelpAsked(data.position);
     state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
     touched();
     onPlayerResigned?.(data);
@@ -432,6 +434,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
       myAction.reset();
       state.applyMyLazy(true);
     }
+    state.clearHelpAsked(data.position);
     state.applySeatDisplay(data.position, { username: data.botUsername, pic: data.botPic });
     touched();
     onPlayerLazyMode?.(data);
@@ -446,9 +449,12 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     onPlayerActiveMode?.(data);
   });
 
-  // Game log entry (system message broadcast)
+  // Game log entry (system message broadcast). The help notice and the
+  // tutorial's tag set that seat's avatar badge (state/seatBadges.js);
+  // the view pops the seat whose badge changed (`badge`)
   socketManager.onGame(SERVER_EVENTS.GAME_LOG_ENTRY, (data) => {
-    onGameLogEntry?.(data);
+    const badge = data && typeof data === 'object' ? state.applyLogEntry(data) : null;
+    onGameLogEntry?.(data, { badge });
   });
 
   // Player left game (via /leave command)

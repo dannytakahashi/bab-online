@@ -171,6 +171,11 @@ function applyRootVars(hud, L) {
   set('--plate-lh', L.plate.lh);
   set('--plate-pad', Math.max(2, 8 * L.s));
   set('--frog', L.seats.partner.dealer.size);
+  // the avatar badge (ui/seatPlates.js): its size and its corner, from the ring's top left
+  const badge = L.seats.partner.seatBadge;
+  set('--seat-badge', badge.size);
+  set('--seat-badge-left', badge.dx + av.size / 2);
+  set('--seat-badge-top', badge.dy + av.size / 2);
   // bubbles: the layout's box (each seat's width is on its node)
   const B = L.bubbles;
   if (B) {

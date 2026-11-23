@@ -1846,13 +1846,25 @@ body > #spectating-indicator.is-watching {
     pointer-events: none;
 }
 
-/* who watches this seat's hand: an eye on the avatar's top left (title: the names) */
-.hud-watch-chip {
+/* the avatar's top left corner (ui/seatPlates.js): the eye, then the seat's
+   badge, in a row from the layout's corner (computeTableLayout seatBadge:
+   --seat-badge-left / -top from the ring's top left). Above the turn glow,
+   as the bid chip and the pips are */
+.hud-ring-corner {
     position: absolute;
     z-index: var(--z-raised);
-    top: calc(-2px * var(--s, 1));
-    left: calc(-6px * var(--s, 1));
+    top: var(--seat-badge-top, calc(-2px * var(--s, 1)));
+    left: var(--seat-badge-left, calc(-6px * var(--s, 1)));
+    display: flex;
+    align-items: flex-start;
+    gap: calc(2px * var(--s, 1));
+    pointer-events: none;
+}
+
+/* who watches this seat's hand: an eye on the avatar's top left (title: the names) */
+.hud-watch-chip {
     display: none;
+    pointer-events: auto;
     align-items: center;
     gap: calc(2px * var(--s, 1));
     box-sizing: border-box;
@@ -1872,3 +1884,35 @@ body > #spectating-indicator.is-watching {
 
 .hud-watch-chip.is-on { display: inline-flex; }
 .hud-watch-chip svg { width: calc(14px * var(--s, 1)); height: calc(14px * var(--s, 1)); }
+
+/* the avatar badge (owner 2026-11-23; state/seatBadges.js): a small dark
+   round chip with the gold lightbulb while the seat asked for /help on its
+   turn (the /help row's and the ask button's gold), or the graduation cap in
+   the Tutorial button's on green while its tutorial is on. A glyph on a dark
+   disc in the top left corner: never the green speaking ring round the
+   avatar, nor the frog on its gold ring beside it. Beside a watched seat's
+   eye it sits level with the avatar's top (clear of its bubble's tail). Its
+   title (hover) is the seat's name and what it shows; a click bubbles to the
+   seat (the profile), as the eye's does. The pop is GameScene's (Web
+   Animations; a fade under reduced motion) */
+.hud-seat-badge {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    width: var(--seat-badge, calc(24px * var(--s, 1)));
+    height: var(--seat-badge, calc(24px * var(--s, 1)));
+    border-radius: 50%;
+    background: rgb(var(--surface-0-rgb) / 0.92);
+    border: 1px solid var(--line-strong);
+    box-shadow: var(--elev-1);
+    pointer-events: auto;
+}
+
+.hud-seat-badge[data-badge] { display: inline-flex; }
+.hud-watch-chip.is-on + .hud-seat-badge { position: relative; top: calc(-1 * var(--seat-badge-top, calc(-2px * var(--s, 1)))); }
+.hud-seat-badge svg { display: none; width: 66%; height: 66%; pointer-events: none; }
+.hud-seat-badge[data-badge="help"] { color: var(--gold); border-color: rgb(var(--gold-rgb) / 0.7); }
+.hud-seat-badge[data-badge="help"] .hud-seat-badge__bulb { display: block; }
+.hud-seat-badge[data-badge="tutorial"] { color: var(--primary-base); border-color: rgb(var(--primary-base-rgb) / 0.7); }
+.hud-seat-badge[data-badge="tutorial"] .hud-seat-badge__cap { display: block; }

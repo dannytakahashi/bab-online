@@ -1754,6 +1754,8 @@ function initializeApp() {
 
         // Reset the HSI display; the new hand's value shows with its cards
         scene.clearPlayerHsi?.();
+        // a new deal: no lightbulb (the caps stay)
+        scene.updateSeatBadges?.();
 
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
@@ -2000,6 +2002,8 @@ function initializeApp() {
       // Nobody's turn any more: the turn ring stops (its animation with it)
       scene?.opponentManager?.removeTurnGlow?.();
       scene?.cardManager?.removeTurnGlow?.();
+      // (and no lightbulb)
+      scene?.updateSeatBadges?.();
       // the tutorial's tips go with the game (T.done is its log row)
       scene?.clearTips?.({ all: true });
       scene?.syncTutorial?.();
@@ -2311,7 +2315,11 @@ function initializeApp() {
     onShoulderViewChanged: () => {
       if (session.isAtTable) scheduleRender({});
     },
-    onGameLogEntry: (data) => {
+    onGameLogEntry: (data, { badge = null } = {}) => {
+      // The help notice or the tutorial's tag changed that seat's avatar
+      // badge (GameState has it): drawn with one pop, in order behind the
+      // scene work queued before it (a log row's kind: nothing to settle)
+      if (badge) withScene((scene) => scene.updateSeatBadges?.({ pop: [badge] }), 'draw');
       // A hand's fault line (the server's, after handComplete): red, and
       // queued behind the scene like handComplete, so it lands after that
       // hand's lines even while the scene is not ready yet ('draw': a log

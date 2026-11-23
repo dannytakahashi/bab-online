@@ -43,7 +43,7 @@ import { LayoutManager } from '../managers/LayoutManager.js';
 import { showChatBubble as showChatBubbleUI } from '../../ui/components/ChatBubble.js';
 import { computeTableLayout, logWidthFor } from '../layout/computeTableLayout.js';
 import { applyHudLayout, hudSeat, hudRoot, logColumnWidth, getHud, hudLayout } from '../../ui/tableHud.js';
-import { buildAvatarRing, updateSeatPlates } from '../../ui/seatPlates.js';
+import { buildAvatarRing, updateSeatPlates, updateSeatBadges } from '../../ui/seatPlates.js';
 import { cssSize, zoomCamera } from '../backingStore.js';
 import { ensureCardAtlas, refreshCardSprites, CARD_TEXTURE_KEY } from '../cards/CardAtlas.js';
 import { tableBackFrame } from '../cards/tableBack.js';
@@ -712,6 +712,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
+   * Every seat's avatar badge (the /help lightbulb, the tutorial's cap;
+   * state/seatBadges.js), projected from GameState: updateSeatPlates draws
+   * them too; a turn, a card and the hand's end call this alone. `pop`: the
+   * seats a live help notice or tutorial tag just set (main.js onGameLogEntry).
+   */
+  updateSeatBadges({ pop = [] } = {}) {
+    const hud = getHud({ create: false });
+    if (hud && this.state) updateSeatBadges(hud, this.state, { pop });
+  }
+
+  /**
    * Handle doneBidding event - transition to playing phase (the state is
    * already in PLAYING).
    * @param {Object} data - { bids, lead }
@@ -838,6 +849,8 @@ export class GameScene extends Phaser.Scene {
     this.syncAssistButton();
     this.syncTutorial();
     syncShoulderHud(this.state);
+    // the last seat's lightbulb goes with its turn
+    this.updateSeatBadges();
   }
 
   /**
@@ -878,6 +891,8 @@ export class GameScene extends Phaser.Scene {
     const card = data.card;
 
     announce(`${this._seatName(playedPosition)} played the ${getCardDisplayName(card)}.`);
+    // the seat played: its lightbulb goes
+    this.updateSeatBadges();
 
     // my own card (or the watched seat's): the /help card (and the tutorial's rule tip) is done
     if (isViewedSeat(this.state, playedPosition)) {
@@ -1134,6 +1149,8 @@ export class GameScene extends Phaser.Scene {
     // Start trick animation immediately (before score processing)
     this._animateTricksAndTrumpAway();
     this.clearAssist();
+    // the hand is over: no lightbulb stays
+    this.updateSeatBadges();
 
     const state = this.state;
     const myPosition = state.position || 1;

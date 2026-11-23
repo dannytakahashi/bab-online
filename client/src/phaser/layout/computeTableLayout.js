@@ -97,6 +97,16 @@ export const SPECTATOR_BADGE = { wPerH: 2 };
  * (box-sizing), and the bid sheet sits inside it, `inset` from the edge.
  */
 export const FELT = { wFrac: 0.3125, hFrac: 0.42, border: 4 };
+/**
+ * The avatar badge (owner 2026-11-23: the /help lightbulb, the tutorial's
+ * graduation cap; ui/seatPlates.js .hud-seat-badge): a `size` x s round
+ * chip in the ring's top left corner, the spectator eye's corner, `out` x s
+ * left of the avatar and `up` x s above it, as the eye and the bid chip sit
+ * on theirs; so it stays inside the seat (clear of the frog below it, the
+ * bubble above, the cards and the status pill).
+ */
+export const SEAT_BADGE = Object.freeze({ size: 24, out: 6, up: 2 });
+
 /** The felt's width wishes (times the 0.3125 x canvas target), tried in order; 0 is the fallback felt. */
 const FELT_WISHES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0];
 
@@ -435,8 +445,11 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     dealer.x = ax + dealer.dx;
     dealer.y = ay + dealer.dy;
     dealer.rect = around(dealer.x, dealer.y, frog, frog);
+    // the badge: its top left corner from the avatar's centre
+    const seatBadge = { dx: -D / 2 - SEAT_BADGE.out * s, dy: -D / 2 - SEAT_BADGE.up * s, size: SEAT_BADGE.size * s };
+    seatBadge.rect = rect(ax + seatBadge.dx, ay + seatBadge.dy, seatBadge.size, seatBadge.size);
     // (the bubble is chosen once the table is placed: see 'bubbles' below)
-    return { avatar, plate, dealer, bubble: null, block: rect(ax - blockW / 2, ay - D / 2, blockW, D + plateGap + plateH) };
+    return { avatar, plate, dealer, seatBadge, bubble: null, block: rect(ax - blockW / 2, ay - D / 2, blockW, D + plateGap + plateH) };
   };
 
   // a bubble's box (at its widest) and where it hangs off its avatar
@@ -1000,6 +1013,7 @@ export function layoutRects(L) {
     add(`${key}.avatar`, g, seat.avatar.rect);
     add(`${key}.plate`, g, seat.plate);
     add(`${key}.dealer`, g, seat.dealer.rect);
+    add(`${key}.seatBadge`, g, seat.seatBadge.rect);
     if (seat.cards) add(`${key}.cards`, g, seat.cards.rect);
     if (seat.hsi) add(`${key}.hsi`, g, seat.hsi.rect);
     if (seat.voice) add(`${key}.voice`, g, seat.voice.rect);
