@@ -4,7 +4,9 @@ import Foundation
 /// they use help ... Would be nice for people that don't look at the running log" and "Same for
 /// grad cap"; server and wire: docs/claude/assist.md "Avatar badges"): one small badge on a seat's
 /// avatar, never on my own seat (the render model draws only the other seats' avatars; a pure
-/// spectator's four), drawn by SeatBadgeNode where TableLayout+Badges.swift puts it.
+/// spectator's four), drawn by SeatBadgeNode where TableLayout+Badges.swift puts it; a watcher's
+/// watched seat (the bottom hand, no avatar on the felt) has its on the watching pill's avatar
+/// (WatchingPill, SeatBadgeChip).
 ///
 /// - The lightbulb (`SeatState.askedHelp`): set by the live /help room notice (gameLogEntry
 ///   `help {position}`, the one the log draws gold), with one short pop
@@ -29,6 +31,12 @@ enum SeatBadge: String, Equatable {
         if seat.tutorial { return .cap }
         return seat.askedHelp ? .bulb : nil
     }
+
+    /// Its SF Symbol (SeatBadgeNode, SeatBadgeChip).
+    var symbol: String { self == .bulb ? "lightbulb.fill" : "graduationcap.fill" }
+
+    /// The watching pill's accessibilityValue part, as its "Talking" / "Their turn".
+    var spokenValue: String { self == .bulb ? "Asked for help this turn" : "Tutorial on" }
 
     /// What VoiceOver adds to the seat's name element ("kim, asked for help this turn").
     var spokenSuffix: String {

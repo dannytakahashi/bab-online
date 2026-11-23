@@ -198,6 +198,15 @@ extension Theme {
         }
     }
 
+    /// A seat's avatar badge drawn in SwiftUI (SeatBadgeChip on the watching pill's avatar):
+    /// `SK.badge*`'s colours.
+    enum Badge {
+        static let fill = Palette.Surface.s0.opacity(0.92).color
+        static let edge = Palette.Line.strong.color
+        static let bulb = Palette.gold.color
+        static let cap = Palette.Primary.base.color
+    }
+
     // MARK: SpriteKit (UIColor)
 
     enum SK {

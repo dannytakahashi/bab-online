@@ -6,7 +6,8 @@ import UIKit
 /// "graduationcap.fill" in primary (its tutorial on). A glyph on a dark disc, so it reads neither
 /// as the gold dealer "D" (a gold disc with a letter, beside the avatar's middle) nor as the green
 /// speaking ring (a ring round the avatar). Drawn only: VoiceOver hears it on the seat's name
-/// element (OpponentHandNode.setBadge). Made only once a seat shows one, so a table nobody badges
+/// element (OpponentHandNode.setBadge). The watching pill draws the watched seat's in SwiftUI
+/// (SeatBadgeChip, Theme.Badge: the same disc, glyphs and colours). Made only once a seat shows one, so a table nobody badges
 /// has no such node at all; hidden after that while the seat has none.
 final class SeatBadgeNode: SKNode {
     static let roleName = "badge"
@@ -27,11 +28,10 @@ final class SeatBadgeNode: SKNode {
         guard b != badge else { return }
         badge = b
         removeAllChildren()
-        removeAction(forKey: Self.popKey)
+        removeAllActions()  // a pop in flight (the badge runs nothing else)
         setScale(1)
         alpha = 1
         guard let b else { return }
-        userData?["badge"] = b.rawValue
         let disc = SKShapeNode(circleOfRadius: TableLayout.seatBadge / 2 - 0.5)
         disc.role = "badge.disc"
         disc.fillColor = Theme.SK.badgeFill
@@ -46,13 +46,11 @@ final class SeatBadgeNode: SKNode {
         addChild(glyph)
     }
 
-    static let popKey = "badge.pop"
-
     /// The lightbulb's one pop (the live /help notice): up a little and back, `popDuration` in
     /// all; under Reduce Motion a fade in place. A pure function of nothing but the node: a
     /// relayout or a render meanwhile leaves it running.
     func pop(animator: Animator, reduceMotion: Bool = Theme.Motion.reduceMotion) {
-        removeAction(forKey: Self.popKey)
+        removeAllActions()  // Animator.run is unkeyed: a pop in flight is the only action
         let action: SKAction
         if reduceMotion {
             alpha = 0
@@ -78,8 +76,8 @@ final class SeatBadgeNode: SKNode {
     static let glyphSize = CGSize(width: 11, height: 11)
 
     static func texture(_ b: SeatBadge) -> SKTexture { b == .bulb ? bulbTexture : capTexture }
-    private static let bulbTexture = makeTexture("lightbulb.fill", Theme.SK.badgeBulb)
-    private static let capTexture = makeTexture("graduationcap.fill", Theme.SK.badgeCap)
+    private static let bulbTexture = makeTexture(SeatBadge.bulb.symbol, Theme.SK.badgeBulb)
+    private static let capTexture = makeTexture(SeatBadge.cap.symbol, Theme.SK.badgeCap)
 
     /// `symbol` in `colour`, drawn at the table's zoom once per process (WatchChipNode's eye).
     private static func makeTexture(_ symbol: String, _ colour: UIColor) -> SKTexture {

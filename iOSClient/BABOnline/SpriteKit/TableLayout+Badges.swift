@@ -20,8 +20,9 @@ import CoreGraphics
 /// first spot is often the badge's only clear one, and the eye has spots a badge has not,
 /// under the name). A chat bubble
 /// (transient, above the table's nodes) may cover it for its few seconds, as it covers a fan.
-/// Never on my own seat (no avatar: the render model has no such opponent); a watcher's
-/// watched seat is the bottom hand, with no avatar either, so it has none.
+/// Never on my own seat (no avatar: the render model has no such opponent). A watcher's watched
+/// seat is the bottom hand, with no avatar on the felt: its badge is on the watching pill's
+/// avatar (WatchingPill, SeatBadgeChip), not placed here.
 extension TableLayout {
     /// The chip's diameter.
     static let seatBadge: CGFloat = 16

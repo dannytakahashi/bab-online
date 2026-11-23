@@ -803,6 +803,24 @@ final class TableDebugProbe: ObservableObject {
     /// The over-the-shoulder view (UIFixture+Shoulder): "watch=<pos|-> paused=<0|1> hand=<n>
     /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
     @Published var tableShoulder = "-"
+    /// The watching pill's avatar badge (WatchingPill, SeatBadgeChip): "<bulb|cap|-> chip=<x y w h|->
+    /// avatar=<x y w h> text=<x y w h> pill=<x y w h>", global points ("-": no pill).
+    @Published var shoulderBadge = "-"
+    var shoulderBadgeKind: String? { didSet { updateShoulderBadge() } }
+    var shoulderBadgeFrames: [String: CGRect] = [:] { didSet { updateShoulderBadge() } }
+
+    private func updateShoulderBadge() {
+        guard let kind = shoulderBadgeKind else {
+            if shoulderBadge != "-" { shoulderBadge = "-" }
+            return
+        }
+        func r(_ key: String) -> String {
+            guard key != "chip" || kind != "-", let f = shoulderBadgeFrames[key] else { return "-" }
+            return String(format: "%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
+        }
+        let text = "\(kind) chip=\(r("chip")) avatar=\(r("avatar")) text=\(r("text")) pill=\(r("pill"))"
+        if text != shoulderBadge { shoulderBadge = text }
+    }
     /// Where my mic is (UIFixture+SelfSpeaking): "at=bar|felt|- symbol=<sf symbol> tint=red|green|-".
     @Published var tableVoice = "-"
     /// The spectator badge's speaking outline (SpectatorBadgeView, SpeakingWatchers):
@@ -1038,6 +1056,7 @@ struct FixtureProbes: View {
             dot("table.assistAsk", probe.tableAssistAsk)
             dot("table.tutorial", probe.tableTutorial)
             dot("table.shoulder", probe.tableShoulder)
+            dot("table.shoulderBadge", probe.shoulderBadge)
             dot("table.voice", probe.tableVoice)
             dot("table.spectatorsSpeaking", probe.spectatorsSpeaking)
             Spacer()

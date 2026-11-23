@@ -3,7 +3,8 @@ import XCTest
 /// The avatar badges (State/Table/SeatBadges.swift; `-uiSeatBadges`, UIFixture+SeatBadges.swift):
 /// the snapshot's lightbulb and graduation cap at launch, a live /help notice's lightbulb popping
 /// in 2 s later; each clear of the table ("table.badges" clear=ok), inside the window, never on my
-/// own seat, and spoken on the seat's name ("kim, asked for help this turn", "hal, tutorial on").
+/// own seat, and spoken on the seat's name ("kim, asked for help this turn", "hal, tutorial on");
+/// a watcher's watched seat has its on the watching pill's avatar ("table.shoulderBadge").
 /// Runs on any device (the closed Duo, the iPad: whatever pose it is in).
 final class SeatBadgesUITests: XCTestCase {
     override func setUp() {
@@ -104,6 +105,89 @@ final class SeatBadgesUITests: XCTestCase {
         XCTAssertTrue(spoken(app, "ivy, asked for help this turn"))
         XCTAssertTrue(spoken(app, "kim, tutorial on"))
         shot("badges-spectator")
+    }
+
+    /// "cap chip=x y w h avatar=x y w h text=x y w h pill=x y w h" -> kind and frames.
+    private func pillBadge(_ probe: String) -> (kind: String, frames: [String: CGRect]) {
+        let parts = probe.split(separator: " ").map(String.init)
+        var frames: [String: CGRect] = [:]
+        var i = 1
+        while i < parts.count {
+            let p = parts[i]
+            if let eq = p.firstIndex(of: "="), i + 3 < parts.count,
+               let x = Double(p[p.index(after: eq)...]), let y = Double(parts[i + 1]), let w = Double(parts[i + 2]), let h = Double(parts[i + 3]) {
+                frames[String(p[..<eq])] = CGRect(x: x, y: y, width: w, height: h)
+                i += 4
+            } else {
+                i += 1
+            }
+        }
+        return (parts.first ?? "-", frames)
+    }
+
+    /// The watched seat's chip: on the pill's avatar, inside the pill, outside the avatar's rings
+    /// (radius 12 + 1.25), off the name.
+    private func checkPillChip(_ app: XCUIApplication, _ kind: String, _ value: String, file: StaticString = #filePath, line: UInt = #line) {
+        let pill = app.buttons["shoulder.pill"]
+        let deadline = Date().addingTimeInterval(8)
+        var probe = Fixture.probe(app, "table.shoulderBadge")
+        while !probe.hasPrefix(kind + " chip=") && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            probe = Fixture.probe(app, "table.shoulderBadge")
+        }
+        note("pill-badge-\(kind)", probe)
+        let b = pillBadge(probe)
+        XCTAssertEqual(b.kind, kind, probe, file: file, line: line)
+        guard let chip = b.frames["chip"], let avatar = b.frames["avatar"], let text = b.frames["text"], let box = b.frames["pill"] else {
+            return XCTFail("frames: \(probe)", file: file, line: line)
+        }
+        XCTAssertEqual(chip.width, 12, accuracy: 0.5, "a 12 pt chip", file: file, line: line)
+        XCTAssertEqual(chip.width, chip.height, accuracy: 0.5, "round", file: file, line: line)
+        XCTAssertTrue(box.insetBy(dx: 1, dy: 1).contains(chip), "inside the pill and its edge: \(chip) \(box)", file: file, line: line)
+        let gap = hypot(chip.midX - avatar.midX, chip.midY - avatar.midY) - chip.width / 2 - (avatar.width / 2 + 1.25)
+        XCTAssertGreaterThan(gap, 0.25, "outside the turn / speaking ring: \(probe)", file: file, line: line)
+        XCTAssertFalse(chip.intersects(text), "off the name: \(chip) \(text)", file: file, line: line)
+        XCTAssertGreaterThan(chip.midX, avatar.midX, "the trailing side", file: file, line: line)
+        XCTAssertLessThan(chip.midY, avatar.midY, "the upper corner", file: file, line: line)
+        XCTAssertTrue((pill.value as? String)?.hasSuffix(value) == true, "the pill says it: \(String(describing: pill.value))", file: file, line: line)
+    }
+
+    /// Watching kim's hand (`-uiShoulder 2`): her seat is the bottom hand, with no avatar on the
+    /// felt, so her badge is on the watching pill's avatar (and spoken in its value); the other
+    /// seats keep theirs on the felt, and Table view gives hers back to her avatar there.
+    func testTheWatchedSeatsBadgeIsOnTheWatchingPill() {
+        let app = Fixture.launch("spectator-mid-hand", extra: ["-uiShoulder", "2", "-uiSeatBadges", "bulb:1,cap:2,cap:3,pop:4"])
+        let pill = app.buttons["shoulder.pill"]
+        XCTAssertTrue(pill.waitForExistence(timeout: 20))
+        let probe = waitForPops(app, 1)
+        note("badges-watching", probe)
+        let s = seats(probe)
+        XCTAssertEqual(s.keys.sorted(), [1, 3, 4], "kim (2) is the bottom hand: \(probe)")
+        XCTAssertEqual([1, 3, 4].map { s[$0]?.kind ?? "?" }, ["bulb", "cap", "bulb"], probe)
+        for pos in [1, 3, 4] { XCTAssertEqual(s[pos]?.clear, "ok", "seat \(pos): \(probe)") }
+        XCTAssertEqual(pill.label, "Watching kim's hand")
+        checkPillChip(app, "cap", "Tutorial on")
+        XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok")
+        shot("badges-watching-cap")
+        // Table view: kim's avatar is back on the felt with its cap; the pill and its chip are gone
+        app.buttons["shoulder.tableView"].tap()
+        let deadline = Date().addingTimeInterval(8)
+        var back = Fixture.probe(app, "table.badges")
+        while seats(back)[2]?.kind != "cap" && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.25)
+            back = Fixture.probe(app, "table.badges")
+        }
+        XCTAssertEqual(seats(back)[2]?.kind, "cap", back)
+        XCTAssertEqual(seats(back)[2]?.clear, "ok", back)
+        XCTAssertEqual(Fixture.probe(app, "table.shoulderBadge"), "-")
+        app.terminate()
+
+        // the lightbulb on the watched seat (ivy, on turn: "Their turn, Asked for help this turn")
+        let bulb = Fixture.launch("spectator-mid-hand", extra: ["-uiShoulder", "1", "-uiSeatBadges", "bulb:1"])
+        XCTAssertTrue(bulb.buttons["shoulder.pill"].waitForExistence(timeout: 20))
+        checkPillChip(bulb, "bulb", "Asked for help this turn")
+        XCTAssertNil(seats(Fixture.probe(bulb, "table.badges"))[1], "no second badge for ivy on the felt")
+        shot("badges-watching-bulb")
     }
 
     func testReduceMotionFadesTheLightbulbIn() {

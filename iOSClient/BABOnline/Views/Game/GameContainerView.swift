@@ -1531,6 +1531,7 @@ private struct GameScreen: View {
                 .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md).stroke(Theme.teamA, lineWidth: 1))
                 .cornerRadius(Theme.Radius.md)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { pillHeight = $0 }
+                .shoulderBadgeProbe("pill")
                 .padding(.bottom, Theme.Space.s3)
             }
         } else if gameState.isLazy {
@@ -1558,7 +1559,8 @@ private struct GameScreen: View {
         let s = gameState.state
         let others = ShoulderRules.watchableSeats(s).filter { $0 != w }.map { (position: $0, name: gameState.players.name($0)) }
         return WatchingPill(player: name, pictureKey: seat.flatMap { $0.avatarUrl ?? $0.pic.string }, paused: gameState.watchPaused,
-                            speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused, others: others,
+                            speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused,
+                            badge: SeatBadge.of(seat), others: others,
                             onProfile: { SeatTaps.subject.send(name) },
                             onTableView: {
                                 gameState.apply(.local(.watchTableView))
