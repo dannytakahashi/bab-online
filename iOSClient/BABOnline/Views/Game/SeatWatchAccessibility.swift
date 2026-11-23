@@ -12,11 +12,12 @@ struct SeatWatchAccessibility: View {
         let model = TableRenderModel(state)
         let bySeat = model.watching.watchersBySeat
         let me = state.table.me.username
+        let badges = bySeat.isEmpty ? [] : layout.seatBadges(model)  // the eyes keep off the avatar badges
         Group {
             if !bySeat.isEmpty {
                 ForEach(model.opponents, id: \.position) { o in
                     if let names = bySeat[o.position] {
-                        element(layout.watchChip(o.rel, count: names.count, spectating: model.hand == nil), seat: o.position,
+                        element(layout.watchChip(o.rel, count: names.count, spectating: model.hand == nil, badges: badges), seat: o.position,
                                 label: WatchingList.watchLabel(names, player: o.name, me: me, mine: false))
                     }
                 }

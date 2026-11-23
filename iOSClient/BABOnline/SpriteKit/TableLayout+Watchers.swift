@@ -12,8 +12,9 @@ import CoreGraphics
 /// every seat's dealer marker, name, glow and bid bubble, the trick cards, the fans, the corner
 /// buttons, the piles, the spectator badge, the banner, my seat's row, my lifted hand and the bid
 /// panel, the fold, inside the safe area below the score bar and above the bottom pill
-/// (`watchKeeps`); where none is, the spot covering least, never the avatar's rings, a dealer
-/// marker or a bid bubble while a spot spares them (`watchCost`). My own seat has no avatar: mine
+/// (`watchKeeps`), and off every avatar badge shown (TableLayout+Badges.swift, placed first);
+/// where none is, the spot covering least, never the avatar's rings, a dealer marker, a bid
+/// bubble or a badge while a spot spares them (`watchCost`). My own seat has no avatar: mine
 /// sits at the right end of my hand in the band a lifted card rises into, as my dealer marker
 /// does at its left end (`myWatchChip`).
 extension TableLayout {
@@ -36,10 +37,11 @@ extension TableLayout {
         return CGSize(width: watchChipMinWidth + (chars > 0 ? 2 + chars * watchChipCharWidth : 0), height: watchChipHeight)
     }
 
-    /// The eye on a seat with an avatar (scene coordinates).
-    func watchChip(_ r: Positions.RelativePosition, count: Int, spectating: Bool) -> CGRect {
+    /// The eye on a seat with an avatar (scene coordinates), clear of `badges` (the avatar badges
+    /// shown, TableLayout+Badges.swift: placed first, they cost as a dealer marker does).
+    func watchChip(_ r: Positions.RelativePosition, count: Int, spectating: Bool, badges: [CGRect] = []) -> CGRect {
         let cands = watchCandidates(r, count: count)
-        let keeps = watchKeeps(spectating: spectating)
+        let keeps = watchKeeps(spectating: spectating) + badges.map { ("badge", $0) }
         // the first clear spot, else the one covering least: never the seat chips while any spot spares them
         var best = cands[0], bestCost = Int.max
         for c in cands {
@@ -107,7 +109,7 @@ extension TableLayout {
     /// How bad covering `what` is: the avatar's rings, a dealer marker and a bid bubble (the seat
     /// chips the eye must never cover) far outweigh anything else.
     static func watchCost(_ what: String) -> Int {
-        what == "avatar" || what.hasPrefix("dealer.") || what.hasPrefix("bubble.") ? 100 : 1
+        what == "avatar" || what == "badge" || what.hasPrefix("dealer.") || what.hasPrefix("bubble.") ? 100 : 1
     }
 
     /// What `chip` on seat `seat` covers or leaves ([] = a clear spot).

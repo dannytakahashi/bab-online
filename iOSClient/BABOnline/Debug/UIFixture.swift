@@ -997,7 +997,14 @@ extension TableDebugProbe {
     func badgesProbe(_ scene: GameSKScene) -> String {
         guard let model = scene.lastModel, model.showsTable else { return "-" }
         let L = scene.layout
-        let keeps = L.badgeKeeps(spectating: model.hand == nil, eyes: L.seatEyes(model))
+        // the layout's keeps and the eyes as drawn (they keep off the badges)
+        let eyes = scene.opponentManager.nodes.values.compactMap { n -> (String, CGRect)? in
+            guard let e = n.watchChip(make: false), !e.isHidden else { return nil }
+            let s = TableLayout.watchChipSize(count: e.count)
+            return ("eye", CGRect(x: n.position.x + e.position.x - s.width / 2, y: n.position.y + e.position.y - s.height / 2,
+                                  width: s.width, height: s.height))
+        }
+        let keeps = L.badgeKeeps(spectating: model.hand == nil) + eyes
         let seats = scene.opponentManager.nodes.sorted { $0.key < $1.key }.map { pos, node -> String in
             guard let badge = node.badgeNode(make: false), let b = badge.badge, !badge.isHidden else { return "\(pos):-" }
             let d = TableLayout.seatBadge

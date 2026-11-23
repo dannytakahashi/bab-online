@@ -11,10 +11,14 @@ import CoreGraphics
 /// then the other side, then straight above) that keeps `badgeGap` off everything the seat eye
 /// keeps off (`watchKeeps`: every seat's dealer marker, name, glow and bid bubble, the trick
 /// cards, the fans, the corner buttons, the piles, the spectator badge, the banner, my seat's
-/// row, my lifted hand and the bid panel, the fold) and off the seat eyes the table shows,
-/// inside the safe area (`badgeEdge` from its sides) below the score bar and above the bottom
-/// pill (`badgeProblems`); where none is, the spot covering least, never the avatar's rings, a
-/// dealer marker, a bid bubble or an eye while a spot spares them (`badgeCost`). A chat bubble
+/// row, my lifted hand and the bid panel, the fold), inside the safe area (`badgeEdge` from its
+/// sides) below the score bar and above the bottom pill (`badgeProblems`); where none is, the
+/// spot covering least, never the avatar's rings, a dealer marker or a bid bubble while a spot
+/// spares them, and rather under the disconnect banner than past the screen's room (`badgeCost`;
+/// a phone or the Duo with the banner up may leave no other spot). A badge is placed from the layout alone; the seat eye, placed
+/// after it, keeps off every badge shown (`watchChip(badges:)`: on a crowded seat the eye's
+/// first spot is often the badge's only clear one, and the eye has spots a badge has not,
+/// under the name). A chat bubble
 /// (transient, above the table's nodes) may cover it for its few seconds, as it covers a fan.
 /// Never on my own seat (no avatar: the render model has no such opponent); a watcher's
 /// watched seat is the bottom hand, with no avatar either, so it has none.
@@ -28,14 +32,15 @@ extension TableLayout {
     static let badgeGap: CGFloat = 1
     /// Its least distance from the safe area's sides.
     static let badgeEdge: CGFloat = 4
-    /// Where on its side it may sit, best first: degrees above the side's horizontal (45: the
-    /// upper corner; the lower corners are the name's).
-    static let badgeAngles: [CGFloat] = [45, 30, 60, 15, 75, 0, -15]
+    /// Where on its side it may sit, best first: degrees above the side's horizontal (40: the
+    /// upper corner, just under a fan above the avatar and, on the top seat, just inside its bid
+    /// bubble; the lower corners are the name's).
+    static let badgeAngles: [CGFloat] = [40, 45, 35, 30, 50, 55, 60, 20, 15, 70, 75, 0, -15]
 
-    /// The badge on a seat with an avatar (scene coordinates), clear of `eyes` (the seat eyes shown).
-    func seatBadge(_ r: Positions.RelativePosition, spectating: Bool, eyes: [CGRect] = []) -> CGRect {
+    /// The badge on a seat with an avatar (scene coordinates).
+    func seatBadge(_ r: Positions.RelativePosition, spectating: Bool) -> CGRect {
         let cands = badgeCandidates(r)
-        let keeps = badgeKeeps(spectating: spectating, eyes: eyes)
+        let keeps = badgeKeeps(spectating: spectating)
         var best = cands[0], bestCost = Int.max
         for c in cands {
             let cost = badgeProblems(c, seat: r, keeps: keeps).reduce(0) { $0 + Self.badgeCost($1) }
@@ -45,19 +50,14 @@ extension TableLayout {
         return best
     }
 
-    /// The badge of `o` on the table `model` shows (its seat eyes kept clear of).
+    /// The badge of `o` on the table `model` shows.
     func seatBadge(_ o: TableRenderModel.Opponent, model: TableRenderModel) -> CGRect {
-        seatBadge(o.rel, spectating: model.hand == nil, eyes: seatEyes(model))
+        seatBadge(o.rel, spectating: model.hand == nil)
     }
 
-    /// The seat eyes `model` shows (TableLayout+Watchers.swift; none while nobody watches a hand).
-    func seatEyes(_ model: TableRenderModel) -> [CGRect] {
-        let bySeat = model.watching.watchersBySeat
-        guard !bySeat.isEmpty else { return [] }
-        return model.opponents.compactMap { o in
-            guard let n = bySeat[o.position]?.count, n > 0 else { return nil }
-            return watchChip(o.rel, count: n, spectating: model.hand == nil)
-        }
+    /// Every badge `model` shows (scene coordinates): what the seat eyes keep off.
+    func seatBadges(_ model: TableRenderModel) -> [CGRect] {
+        model.opponents.compactMap { $0.badge == nil ? nil : seatBadge($0, model: model) }
     }
 
     /// Where it may go, best first.
@@ -78,14 +78,16 @@ extension TableLayout {
         return out
     }
 
-    /// What a badge keeps off: the eye's keeps and the eyes shown ("eye").
-    func badgeKeeps(spectating: Bool, eyes: [CGRect]) -> [(String, CGRect)] {
-        watchKeeps(spectating: spectating) + eyes.map { ("eye", $0) }
-    }
+    /// What a badge keeps off: the eye's keeps.
+    func badgeKeeps(spectating: Bool) -> [(String, CGRect)] { watchKeeps(spectating: spectating) }
 
-    /// How bad covering `what` is: the avatar's rings, a dealer marker, a bid bubble and an eye far
-    /// outweigh anything else.
-    static func badgeCost(_ what: String) -> Int { what == "eye" ? 100 : watchCost(what) }
+    /// How bad covering `what` is: the eye's costs (the rings, a dealer marker, a bid bubble far
+    /// outweigh the rest), and leaving the screen's room (under the score bar, the pill, off the
+    /// side) worse than anything on the felt: a disconnect banner over the seat may hide it for a
+    /// while, the score bar would cut it.
+    static func badgeCost(_ what: String) -> Int {
+        what == "safeArea" || what == "topBar" || what == "bottomBar" ? 50 : watchCost(what)
+    }
 
     /// What `chip` on seat `seat` covers or leaves ([] = a clear spot).
     func badgeProblems(_ chip: CGRect, seat: Positions.RelativePosition, keeps: [(String, CGRect)]) -> [String] {

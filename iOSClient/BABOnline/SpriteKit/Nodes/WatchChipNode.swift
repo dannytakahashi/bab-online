@@ -105,11 +105,13 @@ extension SKOpponentManager {
     /// Every seat's eye from the model's watching list (none: nothing is made or changed).
     func applyWatchers(_ model: TableRenderModel, layout: TableLayout) {
         let bySeat = model.watching.watchersBySeat
+        // the avatar badges are placed first (TableLayout+Badges.swift): the eyes keep off them
+        let badges = bySeat.isEmpty ? [] : layout.seatBadges(model)
         for o in model.opponents {
             guard let node = nodes[o.position] else { continue }
             let n = bySeat[o.position]?.count ?? 0
             guard n > 0 || node.watchChip(make: false) != nil else { continue }
-            let chip = n > 0 ? layout.watchChip(o.rel, count: n, spectating: model.hand == nil) : .zero
+            let chip = n > 0 ? layout.watchChip(o.rel, count: n, spectating: model.hand == nil, badges: badges) : .zero
             node.setWatchers(n, chip: chip, anchor: layout.seatAnchor(o.rel))
         }
     }
