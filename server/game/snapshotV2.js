@@ -210,6 +210,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             ...(e.fault && { fault: { position: e.fault.position, bid: e.fault.bid, took: e.fault.took } }),
             // additive (2026-11-23): the /help room notice {position}
             ...(e.help && { help: { position: e.help.position } }),
+            // additive (2026-11-23): a tutorial room line {position, on}
+            ...(e.tutorial && { tutorial: { position: e.tutorial.position, on: e.tutorial.on === true } }),
         }));
     } else {
         partial.push('log');
