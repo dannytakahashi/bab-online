@@ -77,8 +77,10 @@ const SERVER = path.join(__dirname, '../../..');
 // for the same reasons, for a log entry's optional `help` {position} (the
 // /help room notice, drawn gold): the release before keeps log entries
 // whole (restoreFrom copies each one), and one without it is a plain line.
+// And again (same day, same reasons) for the optional `tutorial` {position,
+// on} on the tutorial's room lines.
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: 'c5bb4c4973e9dc36' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '9a530f022a443638' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 

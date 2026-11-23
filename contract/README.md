@@ -464,7 +464,7 @@ optional `fault`), so a replay draws it red in place; and a `log[]` item's
 `help {position}` (`$defs.logHelp`, 2026-11-23), only on the /help room
 notice ("<name> used /help.", the same room variant's optional `help`), so
 a replay draws it in the suggestion's gold.
-Each `seats[]` item may carry `tutorial: true` (that seat's owner has the tutorial on: the avatar's graduation cap) and `askedHelp: true` (a counted /help on that seat's open turn: the avatar's lightbulb, until it bids or plays), both additive and present only when true (2026-11-23); the tutorial's room lines carry `tutorial {position, on}` (`$defs.logTutorial`) on the live gameLogEntry only.
+Each `seats[]` item may carry `tutorial: true` (that seat's owner has the tutorial on: the avatar's graduation cap) and `askedHelp: true` (a counted /help on that seat's open turn: the avatar's lightbulb, until it bids or plays), both additive and present only when true (2026-11-23); the tutorial's room lines carry `tutorial {position, on}` (`$defs.logTutorial`) on the gameLogEntry and on their `log[]` items, so a replay draws them in the cap's colour (only the live tag moves the cap: the seats carry the state).
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
 actionRejected (no log) and the spectator full state;

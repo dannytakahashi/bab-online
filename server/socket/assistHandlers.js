@@ -442,12 +442,13 @@ function help(socket, io, game, pos) {
 // ------------------------------------------------------------ the tutorial
 
 /**
- * Post a stored, broadcast room system line (names only). `extra` rides on
- * the broadcast only (the live tag, e.g. `tutorial {position, on}`; the
- * snapshot's seats carry the state, so the stored line stays plain).
+ * Post a stored, broadcast room system line (names only). `extra` is the
+ * line's tag, stored and broadcast alike (`tutorial {position, on}`: the
+ * clients draw the line in the cap's colour, live and in a replay; the live
+ * tag also moves the avatar's cap, the snapshot's seats carry the state).
  */
 function roomLine(io, game, message, extra = null) {
-    game.addLogEntry(message, null, 'system');
+    game.addLogEntry(message, null, 'system', extra || {});
     game.broadcast(io, 'gameLogEntry', { message, type: 'system', ...(extra || {}) });
 }
 
@@ -592,7 +593,7 @@ function tickSeat(io, game, pos, { rejoin = false } = {}) {
         if (!a.tutorialEver) {
             a.tutorialEver = true;
             changed = true;
-            if (!isFreeHelpGame(game)) roomLine(io, game, TEXT.tutorialCountsNotice(seat.ownerUsername));
+            if (!isFreeHelpGame(game)) roomLine(io, game, TEXT.tutorialCountsNotice(seat.ownerUsername), { tutorial: { position: pos, on: true } });
             sendAssistState(io, game, pos);
         }
         const got = computeAnswer(game, pos);

@@ -376,7 +376,7 @@ const defs = {
         // fault (additive 2026-11-19): only on a hand's fault line
         // ("Fault: <name> (bid N, took M)"; s2c gameLogEntry room)
         // help (additive 2026-11-23): only on the /help room notice
-        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int(), fault: ref('logFault'), help: ref('logHelp') }, { optional: ['fault', 'help'] })),
+        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int(), fault: ref('logFault'), help: ref('logHelp'), tutorial: ref('logTutorial') }, { optional: ['fault', 'help', 'tutorial'] })),
         resume: orNull(obj({
             kind: enm('countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'),
             inMs: int({ minimum: 0, description: 'ms the server still holds the table, from serverTime (relative: never compare with a client clock)' }),
@@ -445,11 +445,13 @@ const defs = {
         position: ref('position'),
     }),
     // The tutorial's room lines (2026-11-23, owner: a graduation cap on the
-    // avatar): "<name> turned on the tutorial." (and its variants, the
-    // auto-start's "<name> is playing with the tutorial.") carry on: true,
-    // "<name> turned off the tutorial." on: false. On the live broadcast
-    // only: the stored line (snapshot log) is plain, the snapshot's
-    // seats[].tutorial carries the state
+    // avatar, and the lines drawn like the /help notice for parity): "<name>
+    // turned on the tutorial." (and its variants, the auto-start's "<name> is
+    // playing with the tutorial.", "This game now counts as bot-assisted for
+    // <name>.") carry on: true, "<name> turned off the tutorial." on: false.
+    // Live and stored (snapshot log items): a live tag also moves the
+    // avatar's cap; a replayed one only styles its line (the snapshot's
+    // seats[].tutorial carries the state)
     logTutorial: obj({
         position: ref('position'),
         on: bool(),
