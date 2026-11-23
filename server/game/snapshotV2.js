@@ -199,6 +199,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
             at: e.timestamp,
             // additive (2026-11-19): a hand's fault line {position, bid, took}
             ...(e.fault && { fault: { position: e.fault.position, bid: e.fault.bid, took: e.fault.took } }),
+            // additive (2026-11-23): the /help room notice {position}
+            ...(e.help && { help: { position: e.help.position } }),
         }));
     } else {
         partial.push('log');

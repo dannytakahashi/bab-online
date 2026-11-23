@@ -143,6 +143,10 @@ test.each(['serialize', 'store'])('kill and restore after 3 uses (%s): a re-ask 
     kickRestored(w.io, game);
     expect(game.turnKey()).toBe(killedKey);
     expect(game.seat(asker).ownerSocketId).toBe(back[names.indexOf(askerName)].id);
+    // the saved notices keep `help` (2026-11-23): a returner's replay draws them gold
+    const savedNotices = game.getSnapshotV2(back[0].id).log.filter((e) => /used \/help/.test(e.message));
+    expect(savedNotices).toHaveLength(3);
+    expect(savedNotices.every((e) => e.help?.position === asker)).toBe(true);
 
     // a re-ask on the restored turn: the answer, not counted, no notice
     ask();

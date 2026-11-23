@@ -32,6 +32,8 @@ final class FaultRowsUITests: XCTestCase {
         XCTAssertEqual(faultRows(app), ["Fault: ivy (bid 3, took 1)", "Fault: hal (bid 2, took 0)", "Fault: hal (bid 4, took 2)"])
         XCTAssertEqual(Fixture.probe(app, "table.logFaults"),
                        "3: Fault: ivy (bid 3, took 1) | Fault: hal (bid 2, took 0) | Fault: hal (bid 4, took 2)")
+        // the stored /help notice: a gold row, once, and never a fault row
+        XCTAssertEqual(app.staticTexts.matching(identifier: "logHelpRow").allElementsBoundByIndex.map(\.label), ["ivy used /help."])
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = "fault-rows"
         shot.lifetime = .keepAlways

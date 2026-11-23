@@ -510,6 +510,7 @@ struct TableSnapshot: Codable, Equatable {
         var position: Int?
         var at: Int
         var fault: LogFault?
+        var help: LogHelp?
     }
 
     enum LogType: Codable, Equatable, Hashable {
@@ -563,6 +564,10 @@ struct TableSnapshot: Codable, Equatable {
         var position: Int
         var bid: Int
         var took: Int
+    }
+
+    struct LogHelp: Codable, Equatable {
+        var position: Int
     }
 
     struct Resume: Codable, Equatable {

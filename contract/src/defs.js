@@ -375,7 +375,8 @@ const defs = {
         tournament: orNull(ref('tournamentV2')),
         // fault (additive 2026-11-19): only on a hand's fault line
         // ("Fault: <name> (bid N, took M)"; s2c gameLogEntry room)
-        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int(), fault: ref('logFault') }, { optional: ['fault'] })),
+        // help (additive 2026-11-23): only on the /help room notice
+        log: arr(obj({ message: str(), type: enm(...LOG_TYPES), position: orNull(ref('position')), at: int(), fault: ref('logFault'), help: ref('logHelp') }, { optional: ['fault', 'help'] })),
         resume: orNull(obj({
             kind: enm('countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'),
             inMs: int({ minimum: 0, description: 'ms the server still holds the table, from serverTime (relative: never compare with a client clock)' }),
@@ -435,6 +436,13 @@ const defs = {
         position: ref('position'),
         bid: int({ minimum: 1, maximum: 13, description: 'the player\'s own bid (a bore never faults: it counts as 0)' }),
         took: int({ minimum: 0, maximum: 12, description: 'tricks the player took this hand (fewer than bid)' }),
+    }),
+    // The /help room notice (2026-11-23, owner: "in gray that's hard to
+    // see"): "<name> used /help." and its bot-assisted variant
+    // (server/socket/assistHandlers.js, a counted use). Clients draw the line
+    // in the suggestion's gold
+    logHelp: obj({
+        position: ref('position'),
     }),
     seatV2: obj({
         position: ref('position'),

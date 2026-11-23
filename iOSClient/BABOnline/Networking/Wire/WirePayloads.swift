@@ -139,6 +139,10 @@ enum WirePayload {
         struct Fault: Decodable, Equatable { var position: Int?; var bid: Int?; var took: Int? }
         var message: String?; var type: String?; var playerPosition: Int?; var seq: Int?
         var fault: Fault?
+        /// `help` (additive 2026-11-23, the room variant): the /help room notice
+        /// "<name> used /help." (its seat), drawn in the suggestion's gold.
+        struct Help: Decodable, Equatable { var position: Int? }
+        var help: Help?
     }
 
     struct Chat: Decodable, Equatable {
@@ -378,10 +382,10 @@ enum Position {
 }
 
 extension WirePayload.GameLogEntry {
-    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault }
+    enum CodingKeys: String, CodingKey { case message, type, playerPosition, seq, fault, help }
 
-    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault` this
-    /// build cannot read leaves a plain system row, never a dropped line).
+    /// Lenient, as every field is optional: a field of the wrong type is absent (a `fault` or
+    /// `help` this build cannot read leaves a plain system row, never a dropped line).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func opt<T: Decodable>(_ t: T.Type, _ k: CodingKeys) -> T? { (try? c.decodeIfPresent(t, forKey: k)) ?? nil }
@@ -390,5 +394,6 @@ extension WirePayload.GameLogEntry {
         playerPosition = opt(Int.self, .playerPosition)
         seq = opt(Int.self, .seq)
         fault = opt(Fault.self, .fault)
+        help = opt(Help.self, .help)
     }
 }

@@ -200,6 +200,7 @@ extension TableReducer {
             let type = ChatMessage.MessageType(rawValue: p.type ?? "system") ?? .system
             var row = ChatMessage(username: "System", message: p.message ?? "", type: type)
             row.isFault = p.fault != nil
+            row.isHelp = p.help != nil
             s.log.entries.append(row)
             // the paused rule (the over-the-shoulder view): the room's pause and resume lines
             if type == .system, let m = p.message { watchLogLine(&s, m, &fx) }

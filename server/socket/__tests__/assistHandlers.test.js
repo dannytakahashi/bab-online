@@ -186,7 +186,10 @@ test('cap socket: assistHint; no-cap socket: private lines; nobody else gets eit
     const room = t.since(mark).filter((l) => l.to === game.roomName);
     expect(room.map((l) => [l.event, l.data.message])).toEqual([['gameLogEntry', `${t.name(p1)} used /help.`]]);
     expect(room[0].data.seq).toEqual(expect.any(Number));
-    expect(game.gameLog.at(-1)).toMatchObject({ message: `${t.name(p1)} used /help.`, type: 'system', playerPosition: null });
+    // help {position}: the clients draw the notice gold (2026-11-23), live and in a replay
+    expect(room[0].data.help).toEqual({ position: p1 });
+    expect(game.gameLog.at(-1)).toMatchObject({ message: `${t.name(p1)} used /help.`, type: 'system', playerPosition: null, help: { position: p1 } });
+    expect(game.getSnapshotV2(t.owner(p2).id).log.at(-1)).toMatchObject({ message: `${t.name(p1)} used /help.`, help: { position: p1 } });
     expect(game.assist[p1]).toMatchObject({ user: t.name(p1), help: 1, lastHelpKey: game.turnKey() });
 
     // the bid goes in; the next seat (no cap) types ?help
