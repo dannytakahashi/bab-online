@@ -344,6 +344,40 @@ describe('the table\'s moments', () => {
     expect(played).toEqual([{ name: 'gameend', opts: undefined }]);
   });
 
+  it('game end: the flourish for a win or a tie, the sad trombone for a loss (owner 2026-11-22)', () => {
+    deal(); // seat 1: team 1
+    fire(E.GAME_END, { score: { team1: 120, team2: 300 }, tournamentId: null });
+    deal({ position: 2 }); // team 2 wins the same game
+    fire(E.GAME_END, { score: { team1: 120, team2: 300 }, tournamentId: null });
+    deal({ position: 4 }); // team 2 loses
+    fire(E.GAME_END, { score: { team1: 310, team2: -40 } });
+    deal({ position: 3 }); // a tie: no loser
+    fire(E.GAME_END, { score: { team1: 200, team2: 200 } });
+    deal(); // no score in the payload: never the trombone
+    fire(E.GAME_END, { tournamentId: null });
+    expect(names()).toEqual(['gameend-lose', 'gameend', 'gameend-lose', 'gameend', 'gameend']);
+  });
+
+  it('game end: a spectator hears the flourish whoever won; a lazy watcher keeps its team\'s verdict', () => {
+    deal();
+    getGameState().isSpectator = true;
+    fire(E.GAME_END, { score: { team1: 0, team2: 500 } });
+    deal({ position: 3 });
+    getGameState().applyMyLazy(true);
+    fire(E.GAME_END, { score: { team1: 0, team2: 500 } });
+    expect(names()).toEqual(['gameend', 'gameend-lose']);
+  });
+
+  it('the trombone follows the last hand\'s set by GAME_END_AFTER_HAND_S, as the flourish does', () => {
+    deal();
+    fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
+    fire(E.HAND_COMPLETE, { team1Tricks: 0, team2Tricks: 2, score: { team1: -20, team2: 40 } });
+    clock += 3;
+    fire(E.GAME_END, { score: { team1: -20, team2: 40 } });
+    expect(names()).toEqual(['set', 'gameend-lose']);
+    expect(played[1].opts.delay).toBeCloseTo(GAME_END_AFTER_HAND_S - 0.003, 6);
+  });
+
   it('the last hand: made / set, then the flourish GAME_END_AFTER_HAND_S later, not on top of it', () => {
     deal();
     fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });

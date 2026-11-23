@@ -111,6 +111,17 @@
       "sha256": "7a66aa6bc362a690ece5f9c72361d87047c5fc4a213d0ed7b9e2839a7edf8b7e",
       "recipe": "f2c30d8288247be5"
     },
+    "gameend-lose": {
+      "source": "synthesized",
+      "gain_db": -26.0,
+      "duration": 2.44,
+      "rms_dbfs": -26.0,
+      "peak_dbfs": -16.1,
+      "centroid_hz": 553,
+      "bytes": 13904,
+      "sha256": "3a264c20ceef8988e64c926ad63cc7a0b9190c512ac01cacc4adc4abd1753cdf",
+      "recipe": "11175e4c1c272084"
+    },
     "overtrump": {
       "source": "card-slide-4.ogg",
       "gain_db": -1.5,

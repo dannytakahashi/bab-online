@@ -187,6 +187,17 @@ SOUNDS = {
     'set': {'src': 'chips-collide-2', 'pitch': -5, 'lowpass': 3500, 'max': 0.4, 'target': CUE_DB, 'fade': 0.015},
     'gameend': {'synth': [[C5, 0.0, 0.25], [E5, 0.12, 0.25], [G5, 0.24, 0.30]], 'max': 1.1,
                 'target': CUE_DB, 'fade': 0.020},
+    # a lost game (my team's final score below the other's; a win, a tie and a
+    # spectator keep gameend): the "sad trombone" wah, wah, wah, waaah, a stock
+    # comedy cue, four chromatic steps down from Bb3, the last held with a sag
+    # and vibrato; brass_v: bump when render_brass changes
+    'gameend-lose': {'brass': {'length': 2.5, 'partials': 14, 'tilt': 0.55, 'cutoff': [650, 2600], 'open': 0.07,
+                               'close': 0.40, 'attack': 0.025, 'release': 0.07,
+                               'notes': [[_hz('Bb3'), 0.00, 0.38, -15, None],
+                                         [_hz('A3'), 0.44, 0.38, -15, None],
+                                         [_hz('Ab3'), 0.88, 0.38, -15, None],
+                                         [_hz('G3'), 1.32, 1.12, -45, [5.5, 22, 0.25]]]},
+                     'brass_v': 1, 'max': 2.5, 'target': CUE_DB, 'fade': 0.080},
     # the one short bright snap (centroid ~3.6 kHz vs ~1.1 kHz for card-N)
     'overtrump': {'src': 'card-slide-4', 'max': 0.20, 'target': CARD_DB, 'fade': 0.010},
     # the bid clock's tune (30.000 s exactly, never trimmed); tune_v: bump
@@ -338,11 +349,46 @@ def render_tune(score, length, np):
     return y
 
 
+def render_brass(spec, np):
+    """The defeat sound's muted trombone (owner 2026-11-22, "wah, wah, wah"):
+    per note a brass-like stack of `partials` harmonics (n ** -tilt) through a
+    cutoff that opens over `open` s and closes again (a plunger mute's
+    "wah"), a raised-cosine attack and release, an optional pitch sag in
+    cents over the note, and vibrato from `onset` s into the note."""
+    n_total = int(round(spec['length'] * SR))
+    y = np.zeros(n_total)
+    lo, hi = spec['cutoff']
+    for f0, start, dur, sag, vib in spec['notes']:
+        a = int(round(start * SR))
+        n = min(int(round(dur * SR)), n_total - a)
+        t = np.arange(n) / SR
+        cents = sag * (t / dur) ** 1.5
+        if vib:
+            rate, depth, onset = vib
+            ramp = np.clip((t - onset) / 0.15, 0, 1)
+            cents = cents + depth * ramp * np.sin(2 * np.pi * rate * np.maximum(t - onset, 0))
+        f = f0 * 2 ** (cents / 1200)
+        phase = 2 * np.pi * np.cumsum(f) / SR
+        op = spec['open']
+        shape = np.where(t < op, 0.5 - 0.5 * np.cos(np.pi * t / op), np.exp(-(t - op) / spec['close']))
+        fc = lo + (hi - lo) * shape
+        tone = np.zeros(n)
+        for k in range(1, spec['partials'] + 1):
+            tone += k ** -spec.get('tilt', 1.0) / (1 + (k * f / fc) ** 4) * np.sin(k * phase)
+        at, rel = spec['attack'], spec['release']
+        env = np.where(t < at, 0.5 - 0.5 * np.cos(np.pi * t / at), 1.0)
+        env *= np.where(t > dur - rel, 0.5 + 0.5 * np.cos(np.pi * np.clip((t - (dur - rel)) / rel, 0, 1)), 1.0)
+        y[a:a + n] += env * tone
+    return y
+
+
 def render_part(recipe, tmp, np, cache):
     if 'tune' in recipe:
         return render_tune(recipe['tune'], recipe['length'], np)
     if 'synth' in recipe:
         return synth(recipe['synth'], recipe['max'], np)
+    if 'brass' in recipe:
+        return render_brass(recipe['brass'], np)
     name = recipe['src']
     if name not in cache:
         cache[name] = decode(os.path.join(SRC, name + '.ogg'), tmp, np)

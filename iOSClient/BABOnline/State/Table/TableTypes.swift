@@ -314,7 +314,9 @@ enum SoundKind: String, Equatable, CaseIterable {
     /// handEnd: a spectator's hand end (no team, so no verdict: made, quieter)
     /// draw: a card turned up in the draw for deal (the card takes, quieter; its own kind, so
     /// its throttle and take rotation are its own)
-    case deal, card, overTrump, turn, trick, trickOurs, made, set, handEnd, gameEnd, draw
+    /// gameLost: the game end for a seat whose team's final score is below the other's, the sad
+    /// trombone (owner 2026-11-22, "wah, wah, wah"); a win, a tie and a spectator hear gameEnd
+    case deal, card, overTrump, turn, trick, trickOurs, made, set, handEnd, gameEnd, gameLost, draw
 
     /// The bundle's files (Resources/Sounds, copied to the bundle root); a card rotates three takes.
     var files: [String] {
@@ -328,6 +330,7 @@ enum SoundKind: String, Equatable, CaseIterable {
         case .made, .handEnd: return ["made"]
         case .set: return ["set"]
         case .gameEnd: return ["gameend"]
+        case .gameLost: return ["gameend-lose"]
         }
     }
 

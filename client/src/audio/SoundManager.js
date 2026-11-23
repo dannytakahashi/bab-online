@@ -34,6 +34,7 @@ import turnUrl from '../../assets/sounds/turn.m4a?url';
 import madeUrl from '../../assets/sounds/made.m4a?url';
 import setUrl from '../../assets/sounds/set.m4a?url';
 import gameEndUrl from '../../assets/sounds/gameend.m4a?url';
+import gameEndLoseUrl from '../../assets/sounds/gameend-lose.m4a?url';
 import overTrumpUrl from '../../assets/sounds/overtrump.m4a?url';
 import bidClockUrl from '../../assets/sounds/bidclock.m4a?url';
 
@@ -48,6 +49,8 @@ export const SOUND_URLS = Object.freeze({
   made: madeUrl,
   set: setUrl,
   gameend: gameEndUrl,
+  // a lost game: the sad trombone (tableSounds.gameEnd)
+  'gameend-lose': gameEndLoseUrl,
   overtrump: overTrumpUrl,
   // the bid clock's tune (30 s; started with start(), not play())
   bidclock: bidClockUrl,

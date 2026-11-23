@@ -34,7 +34,7 @@ final class TableSoundCues {
     private var handEndHold: AckCancellable?
     private var dealHold: AckCancellable?
     private var heldDeal = false
-    private var heldGameEnd = false
+    private var heldGameEnd: SoundKind?
     private var turnWaits = false
     private var turnTimer: AckCancellable?
     private var accents: [AckCancellable] = []
@@ -59,10 +59,10 @@ final class TableSoundCues {
         case .deal:
             cancelTurnTimer()
             if handEndHold != nil { heldDeal = true } else { playDeal() }
-        case .gameEnd:
+        case .gameEnd, .gameLost:
             turnWaits = false
             cancelTurnTimer()
-            if handEndHold != nil { heldGameEnd = true } else { sounds.play(.gameEnd) }
+            if handEndHold != nil { heldGameEnd = kind } else { sounds.play(kind) }
         case .turn:
             if handEndHold != nil || dealHold != nil {
                 cancelTurnTimer()
@@ -90,7 +90,7 @@ final class TableSoundCues {
 
     private func releaseHandEnd() {
         handEndHold = nil
-        if heldGameEnd { heldGameEnd = false; sounds.play(.gameEnd) }
+        if let end = heldGameEnd { heldGameEnd = nil; sounds.play(end) }
         if heldDeal { heldDeal = false; playDeal(); return }
         if turnWaits { turnWaits = false; startTurnTimer() }
     }
@@ -139,7 +139,7 @@ final class TableSoundCues {
         turnTimer = nil
         accents = []
         heldDeal = false
-        heldGameEnd = false
+        heldGameEnd = nil
         turnWaits = false
     }
 }
