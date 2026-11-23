@@ -21,10 +21,12 @@
  *                 the cards and the bid panel are there
  *   trickComplete trick-ours when my team took it, else trick
  *   handComplete  made / set: my team's tricks against its bid total
- *   gameEnd       gameend when my team won (or a tie, or no team: a
- *                 spectator), gameend-lose when its final score is below
- *                 the other's (owner 2026-11-22, "wah, wah, wah"; a lazy
- *                 watcher keeps its seat's team), GAME_END_AFTER_HAND_S
+ *   gameEnd       by my team's final score against the other's (owner
+ *                 2026-11-22): gameend-win (a brass fanfare) above it,
+ *                 gameend-lose (the sad trombone, "wah, wah, wah") below
+ *                 it, gameend (the soft arpeggio) for a tie, no team (a
+ *                 spectator) or no score; a lazy watcher keeps its seat's
+ *                 team; GAME_END_AFTER_HAND_S
  *                 after the last hand's made / set (the server sends both
  *                 in one tick)
  *   bidClock      the bid clock's tune (owner 2026-11-18), for everyone at
@@ -456,8 +458,8 @@ export class TableSounds {
 
   /**
    * gameEnd: after the last hand's made / set when that has just started.
-   * gameend-lose for my team's loss (its final score below the other's),
-   * else gameend (a win, a tie, a spectator, no score).
+   * gameend-win / gameend-lose for my team's win / loss (its final score
+   * above / below the other's), else gameend (a tie, a spectator, no score).
    */
   gameEnd(data) {
     this.stopTune();
@@ -470,16 +472,17 @@ export class TableSounds {
     this._handEndAt = null;
     if (!this.live) return false;
     const delay = since < GAME_END_AFTER_HAND_S ? GAME_END_AFTER_HAND_S - since : 0;
-    return this._play(this._lostGame(data) ? 'gameend-lose' : 'gameend', delay > 0 ? { delay } : undefined);
+    return this._play(this._gameEndSound(data), delay > 0 ? { delay } : undefined);
   }
 
-  /** My team's final score is below the other's (gameEnd's score {team1, team2}). */
-  _lostGame(data) {
+  /** gameEnd's sound from my team's final score against the other's (gameEnd's score {team1, team2}). */
+  _gameEndSound(data) {
     const parity = this._myParity();
     const t1 = data?.score?.team1, t2 = data?.score?.team2;
-    if (parity === null || typeof t1 !== 'number' || typeof t2 !== 'number') return false;
+    if (parity === null || typeof t1 !== 'number' || typeof t2 !== 'number') return 'gameend';
     const [mine, theirs] = parity === 1 ? [t1, t2] : [t2, t1];
-    return mine < theirs;
+    if (mine === theirs) return 'gameend';
+    return mine > theirs ? 'gameend-win' : 'gameend-lose';
   }
 }
 

@@ -59,7 +59,7 @@ final class TableSoundCues {
         case .deal:
             cancelTurnTimer()
             if handEndHold != nil { heldDeal = true } else { playDeal() }
-        case .gameEnd, .gameLost:
+        case .gameEnd, .gameWon, .gameLost:
             turnWaits = false
             cancelTurnTimer()
             if handEndHold != nil { heldGameEnd = kind } else { sounds.play(kind) }

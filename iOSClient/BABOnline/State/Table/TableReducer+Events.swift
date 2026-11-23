@@ -657,15 +657,16 @@ extension TableReducer {
 }
 
 extension TableReducer {
-    /// The game end's sound (owner 2026-11-22): the sad trombone for a seat whose team's final
-    /// score is below the other's, else the flourish (a win, a tie, a pure spectator, who has no
-    /// team; a lazy owner watching keeps its seat's team, as for made / set). The scores are the
-    /// payload's (GameEndData), else the table's last.
+    /// The game end's sound (owner 2026-11-22), by my team's final score against the other's: the
+    /// fanfare above it, the sad trombone below it, the soft arpeggio for a tie or no team (a pure
+    /// spectator; a lazy owner watching keeps its seat's team, as for made / set). The scores are
+    /// the payload's (GameEndData), else the table's last.
     static func gameEndSound(_ s: TableState, _ data: GameEndData?) -> SoundKind {
         guard s.table.viewer.holdsSeat, let me = s.table.viewer.position else { return .gameEnd }
         let t1 = data?.team1Score ?? s.scores.score.team1
         let t2 = data?.team2Score ?? s.scores.score.team2
         let (mine, theirs) = Positions.getTeamNumber(me) == 1 ? (t1, t2) : (t2, t1)
-        return mine < theirs ? .gameLost : .gameEnd
+        if mine == theirs { return .gameEnd }
+        return mine > theirs ? .gameWon : .gameLost
     }
 }

@@ -111,6 +111,17 @@
       "sha256": "7a66aa6bc362a690ece5f9c72361d87047c5fc4a213d0ed7b9e2839a7edf8b7e",
       "recipe": "f2c30d8288247be5"
     },
+    "gameend-win": {
+      "source": "synthesized",
+      "gain_db": -29.3,
+      "duration": 1.35,
+      "rms_dbfs": -26.0,
+      "peak_dbfs": -14.3,
+      "centroid_hz": 1143,
+      "bytes": 13123,
+      "sha256": "6537bf4c2c4e9644353f72bb5225639ff7cb2d23a1ab7f723d1f3c30727d949a",
+      "recipe": "bc7b5dcfc0a0ad44"
+    },
     "gameend-lose": {
       "source": "synthesized",
       "gain_db": -26.0,

@@ -185,12 +185,24 @@ SOUNDS = {
     'made': {'src': 'chips-stack-3', 'lowpass': 7000, 'max': 0.6, 'target': CUE_DB, 'fade': 0.015},
     # one chip clack a fourth lower and muffled: neutral, not a buzzer
     'set': {'src': 'chips-collide-2', 'pitch': -5, 'lowpass': 3500, 'max': 0.4, 'target': CUE_DB, 'fade': 0.015},
+    # the neutral game end: a tie, or no team (a spectator); a soft rising C E G
     'gameend': {'synth': [[C5, 0.0, 0.25], [E5, 0.12, 0.25], [G5, 0.24, 0.30]], 'max': 1.1,
                 'target': CUE_DB, 'fade': 0.020},
-    # a lost game (my team's final score below the other's; a win, a tie and a
-    # spectator keep gameend): the "sad trombone" wah, wah, wah, waaah, a stock
-    # comedy cue, four chromatic steps down from Bb3, the last held with a sag
-    # and vibrato; brass_v: bump when render_brass changes
+    # a won game (my team's final score above the other's; owner 2026-11-22): a
+    # short brass fanfare, the trombone's pair, an original figure: two quick
+    # pickups (G4, C5) into a held, open C major chord with a little vibrato
+    'gameend-win': {'brass': {'length': 1.4, 'partials': 14, 'tilt': 0.5, 'cutoff': [1400, 3600], 'open': 0.035,
+                              'close': 0.9, 'attack': 0.012, 'release': 0.12,
+                              'notes': [[_hz('G4'), 0.00, 0.13, 0, None],
+                                        [_hz('C5'), 0.15, 0.13, 0, None],
+                                        [_hz('C5'), 0.30, 1.05, 0, [5.0, 10, 0.35]],
+                                        [_hz('E5'), 0.30, 1.05, 0, [5.0, 10, 0.35]],
+                                        [_hz('G5'), 0.30, 1.05, 0, [5.0, 10, 0.35]]]},
+                    'brass_v': 1, 'max': 1.4, 'target': CUE_DB, 'fade': 0.120},
+    # a lost game (my team's final score below the other's): the "sad trombone"
+    # wah, wah, wah, waaah, a stock comedy cue, four chromatic steps down from
+    # Bb3, the last held with a sag and vibrato; brass_v: bump when render_brass
+    # changes
     'gameend-lose': {'brass': {'length': 2.5, 'partials': 14, 'tilt': 0.55, 'cutoff': [650, 2600], 'open': 0.07,
                                'close': 0.40, 'attack': 0.025, 'release': 0.07,
                                'notes': [[_hz('Bb3'), 0.00, 0.38, -15, None],

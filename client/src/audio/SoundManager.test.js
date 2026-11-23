@@ -178,7 +178,7 @@ describe('defaults and the context', () => {
   });
 
   it('every sound is a bundled file (12 of them, the bid clock\'s tune included)', () => {
-    expect(Object.keys(SOUND_URLS).sort()).toEqual(['bidclock', 'card-1', 'card-2', 'card-3', 'deal', 'gameend', 'gameend-lose', 'made', 'overtrump', 'set', 'trick', 'trick-ours', 'turn']);
+    expect(Object.keys(SOUND_URLS).sort()).toEqual(['bidclock', 'card-1', 'card-2', 'card-3', 'deal', 'gameend', 'gameend-lose', 'gameend-win', 'made', 'overtrump', 'set', 'trick', 'trick-ours', 'turn']);
     for (const url of Object.values(SOUND_URLS)) expect(url).toMatch(/\.m4a$/);
   });
 });

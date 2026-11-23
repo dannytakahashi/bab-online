@@ -338,13 +338,13 @@ describe('the table\'s moments', () => {
     expect(names()).toEqual(['made', 'set']);
   });
 
-  it('game end: the flourish', () => {
+  it('game end: my team\'s win is the fanfare', () => {
     deal();
     fire(E.GAME_END, { score: { team1: 300, team2: 100 }, tournamentId: null });
-    expect(played).toEqual([{ name: 'gameend', opts: undefined }]);
+    expect(played).toEqual([{ name: 'gameend-win', opts: undefined }]);
   });
 
-  it('game end: the flourish for a win or a tie, the sad trombone for a loss (owner 2026-11-22)', () => {
+  it('game end: the fanfare for a win, the sad trombone for a loss, the arpeggio for a tie (owner 2026-11-22)', () => {
     deal(); // seat 1: team 1
     fire(E.GAME_END, { score: { team1: 120, team2: 300 }, tournamentId: null });
     deal({ position: 2 }); // team 2 wins the same game
@@ -355,10 +355,10 @@ describe('the table\'s moments', () => {
     fire(E.GAME_END, { score: { team1: 200, team2: 200 } });
     deal(); // no score in the payload: never the trombone
     fire(E.GAME_END, { tournamentId: null });
-    expect(names()).toEqual(['gameend-lose', 'gameend', 'gameend-lose', 'gameend', 'gameend']);
+    expect(names()).toEqual(['gameend-lose', 'gameend-win', 'gameend-lose', 'gameend', 'gameend']);
   });
 
-  it('game end: a spectator hears the flourish whoever won; a lazy watcher keeps its team\'s verdict', () => {
+  it('game end: a spectator hears the arpeggio whoever won; a lazy watcher keeps its team\'s verdict', () => {
     deal();
     getGameState().isSpectator = true;
     fire(E.GAME_END, { score: { team1: 0, team2: 500 } });
@@ -368,7 +368,7 @@ describe('the table\'s moments', () => {
     expect(names()).toEqual(['gameend', 'gameend-lose']);
   });
 
-  it('the trombone follows the last hand\'s set by GAME_END_AFTER_HAND_S, as the flourish does', () => {
+  it('the trombone follows the last hand\'s set by GAME_END_AFTER_HAND_S, as the fanfare does', () => {
     deal();
     fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
     fire(E.HAND_COMPLETE, { team1Tricks: 0, team2Tricks: 2, score: { team1: -20, team2: 40 } });
@@ -378,21 +378,21 @@ describe('the table\'s moments', () => {
     expect(played[1].opts.delay).toBeCloseTo(GAME_END_AFTER_HAND_S - 0.003, 6);
   });
 
-  it('the last hand: made / set, then the flourish GAME_END_AFTER_HAND_S later, not on top of it', () => {
+  it('the last hand: made / set, then the game end GAME_END_AFTER_HAND_S later, not on top of it', () => {
     deal();
     fire(E.DONE_BIDDING, { bids: ['1', '0', '1', '0'], lead: 1 });
     // the server sends both in one tick
     fire(E.HAND_COMPLETE, { team1Tricks: 2, team2Tricks: 0, score: { team1: 320, team2: 0 } });
     clock += 3;
     fire(E.GAME_END, { score: { team1: 320, team2: 0 } });
-    expect(names()).toEqual(['made', 'gameend']);
+    expect(names()).toEqual(['made', 'gameend-win']);
     expect(played[1].opts.delay).toBeCloseTo(GAME_END_AFTER_HAND_S - 0.003, 6);
     // a hand end long before (an abort later) does not hold it
     deal();
     fire(E.HAND_COMPLETE, { team1Tricks: 2, team2Tricks: 0, score: { team1: 20, team2: 0 } });
     clock += 5000;
     fire(E.GAME_END, { score: { team1: 20, team2: 0 } });
-    expect(played.at(-1)).toEqual({ name: 'gameend', opts: undefined });
+    expect(played.at(-1)).toEqual({ name: 'gameend-win', opts: undefined });
   });
 });
 
