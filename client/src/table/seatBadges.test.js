@@ -122,6 +122,8 @@ describe('the avatar badges at a seat (ios_cal, seat 2)', () => {
     expect(badgeOf(4).title).toBe(`${name(4)}, tutorial on`);
     expect(badgeOf(4).getAttribute('aria-label')).toBe(`${name(4)}, tutorial on`);
     expect(popped.map((p) => p.el)).toEqual([badgeOf(4)]);
+    // its log row: the /help notice's chrome in the cap's green (parity)
+    expect(document.querySelector('#gameFeedMessages .log-row.is-tutorial')?.textContent).toContain(`${name(4)} turned on the tutorial.`);
     upTo(turnOf(4));
     step();
     // (a tutorial's /help is never counted: were both known, the cap shows)
@@ -177,6 +179,10 @@ describe('the avatar badges at a seat (ios_cal, seat 2)', () => {
     rejoin.snapshot.seats[2].tutorial = true;
     // my own seat's keys draw nothing on my box
     rejoin.snapshot.seats[1].tutorial = true;
+    // a stored tutorial line (server baaba3d5: the log item keeps its tag)
+    // styles its row and toggles nothing: seat 1 has no cap
+    expect(Array.isArray(rejoin.snapshot.log)).toBe(true);
+    rejoin.snapshot.log.push({ message: `${name(1)} turned on the tutorial.`, type: 'system', position: null, at: rejoin.snapshot.log.at(-1)?.at ?? 0, tutorial: { position: 1, on: true } });
     popped.length = 0;
     page.socket.reconnect('ios-p2-r1');
     page.socket.fire('restoreSessionResponse', { success: true, username: 'ios_cal', activeGameId: rec.gameId, blockedUsers: [] });
@@ -184,6 +190,7 @@ describe('the avatar badges at a seat (ios_cal, seat 2)', () => {
     replay.advance(200);
     expect(shown()).toEqual({ [turn]: 'help', 3: 'tutorial' });
     expect(popped).toEqual([]);
+    expect([...document.querySelectorAll('#gameFeedMessages .log-row.is-tutorial')].map((r) => r.textContent).join('|')).toContain(`${name(1)} turned on the tutorial.`);
     const rl = rec.logs['seat2-rejoin'];
     const bid = rl.findIndex((e) => e.event === 'bidReceived' && e.data.position === turn);
     replay.replayLog(page, rl, { from: 1, to: bid + 1 });

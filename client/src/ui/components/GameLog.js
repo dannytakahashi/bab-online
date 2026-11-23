@@ -447,6 +447,21 @@ export function createGameLog({ onChatSubmit } = {}) {
     append(row);
   };
 
+  /**
+   * The tutorial's room lines ("ann turned on the tutorial.", "ann is
+   * playing with the tutorial.", "ann turned off the tutorial.", "This game
+   * now counts as bot-assisted for ann."): the server's gameLogEntry that
+   * carries `tutorial` (main.js onGameLogEntry), drawn like the /help
+   * notice in the avatar cap's green (owner 2026-11-23: "a tutorial note in
+   * the log for parity"); a replay (replaceMessages, an entry's
+   * `tutorial`) draws it again, in place.
+   */
+  const addTutorialMessage = (message, at = null) => {
+    const row = buildRow(message, null, at);
+    row.classList.add('is-tutorial');
+    append(row);
+  };
+
   const addTrickResult = (winner, teamTricks, oppTricks) => {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'log-trick';
@@ -506,6 +521,8 @@ export function createGameLog({ onChatSubmit } = {}) {
       if (e.fault) row.classList.add('is-fault');
       // the /help room notice (the log item carries `help`)
       else if (e.help) row.classList.add('is-help');
+      // the tutorial's room lines (the log item carries `tutorial`)
+      else if (e.tutorial) row.classList.add('is-tutorial');
       frag.appendChild(row);
     }
     // A replay (rejoin, resync) shows the same story: the reader keeps
@@ -585,6 +602,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     addPrivateMessage,
     addFaultMessage,
     addHelpMessage,
+    addTutorialMessage,
     addGameMessage,
     addTrickResult,
     updateScores,

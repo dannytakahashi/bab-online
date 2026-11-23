@@ -99,13 +99,23 @@ export const SPECTATOR_BADGE = { wPerH: 2 };
 export const FELT = { wFrac: 0.3125, hFrac: 0.42, border: 4 };
 /**
  * The avatar badge (owner 2026-11-23: the /help lightbulb, the tutorial's
- * graduation cap; ui/seatPlates.js .hud-seat-badge): a `size` x s round
- * chip in the ring's top left corner, the spectator eye's corner, `out` x s
- * left of the avatar and `up` x s above it, as the eye and the bid chip sit
- * on theirs; so it stays inside the seat (clear of the frog below it, the
- * bubble above, the cards and the status pill).
+ * graduation cap; ui/seatPlates.js .hud-seat-badge): a round chip on the
+ * ring's top left, `size` x s but, from s `floorFrom` (every desktop table;
+ * the solver's s 0.15 fallback, a 14 px avatar, keeps 24 x s), at least
+ * `min` px where the seat has room for it (`room` x s: a bigger chip would
+ * reach the bubble or the plate at the smaller tables; so 19.2 px at s 0.71,
+ * 20 px from s 0.74, where 24 x s is 17.8, and 24 x s from s 0.83). Its
+ * bottom right corner is fixed, `right` x s right of the
+ * avatar's left edge and `bottom` x s below its top, and the floor grows it
+ * up and left from there, so its bottom edge stays `border` px above the
+ * frog beside the avatar (the frog's top is 20 x s above the avatar's
+ * centre, the badge's 20 x s + border) and it stays inside the seat (clear
+ * of the bubble above, the cards and the status pill). `eye` is the spectator eye's spot
+ * (`out` x s left of the avatar, `up` x s above it: the ring corner's
+ * origin, table.css .hud-ring-corner); beside a lit eye the badge sits one
+ * chip right, level with the avatar's top.
  */
-export const SEAT_BADGE = Object.freeze({ size: 24, out: 6, up: 2 });
+export const SEAT_BADGE = Object.freeze({ size: 24, min: 20, room: 27, floorFrom: 0.7, right: 18, bottom: 20, eye: Object.freeze({ out: 6, up: 2 }) });
 
 /** The felt's width wishes (times the 0.3125 x canvas target), tried in order; 0 is the fallback felt. */
 const FELT_WISHES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0];
@@ -446,7 +456,10 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     dealer.y = ay + dealer.dy;
     dealer.rect = around(dealer.x, dealer.y, frog, frog);
     // the badge: its top left corner from the avatar's centre
-    const seatBadge = { dx: -D / 2 - SEAT_BADGE.out * s, dy: -D / 2 - SEAT_BADGE.up * s, size: SEAT_BADGE.size * s };
+    const badgeSize = s >= SEAT_BADGE.floorFrom ? Math.max(SEAT_BADGE.size * s, Math.min(SEAT_BADGE.min, SEAT_BADGE.room * s)) : SEAT_BADGE.size * s;
+    const seatBadge = { dx: -D / 2 + SEAT_BADGE.right * s - badgeSize, dy: -D / 2 + SEAT_BADGE.bottom * s - badgeSize, size: badgeSize };
+    // the ring corner's origin (the eye's spot), from the avatar's centre
+    seatBadge.eye = { dx: -D / 2 - SEAT_BADGE.eye.out * s, dy: -D / 2 - SEAT_BADGE.eye.up * s };
     seatBadge.rect = rect(ax + seatBadge.dx, ay + seatBadge.dy, seatBadge.size, seatBadge.size);
     // (the bubble is chosen once the table is placed: see 'bubbles' below)
     return { avatar, plate, dealer, seatBadge, bubble: null, block: rect(ax - blockW / 2, ay - D / 2, blockW, D + plateGap + plateH) };

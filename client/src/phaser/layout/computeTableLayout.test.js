@@ -938,8 +938,10 @@ describe('the avatar badge (seatBadge: the /help lightbulb, the tutorial\'s cap;
     const half = 8;
     for (const seat of SEATS) {
       const b = L.seats[seat].seatBadge;
-      // (beside the eye it sits SEAT_BADGE.up lower, level with the avatar's top: table.css)
-      const spots = [['corner', b.rect], ['beside the eye', { ...b.rect, x: b.rect.x + eyeW(L.s) + 2 * L.s, y: b.rect.y + SEAT_BADGE.up * L.s }]];
+      // (beside the eye it sits one eye and the corner's gap right of the
+      // eye's spot, level with the avatar's top: table.css)
+      const av = L.seats[seat].avatar;
+      const spots = [['corner', b.rect], ['beside the eye', { ...b.rect, x: av.x + b.eye.dx + eyeW(L.s) + 2 * L.s, y: av.rect.y }]];
       for (const [where, r] of spots) {
         const tag = `${seat}.seatBadge (${where})`;
         if (!contains(L.canvas, r)) out.push(`${tag} outside the canvas`);
@@ -974,19 +976,40 @@ describe('the avatar badge (seatBadge: the /help lightbulb, the tutorial\'s cap;
     return out;
   }
 
-  it('sits in the ring\'s top left corner on every seat (the same corner, the same size: SEAT_BADGE x s)', () => {
+  it('sits in the ring\'s top left corner on every seat (the same corner, the same size: SEAT_BADGE.size x s, at least SEAT_BADGE.min where room x s allows on a desktop table, its bottom right fixed)', () => {
+    let floored = 0;
     for (const [vw, vh] of NAMED) {
       for (const [, isSpectator] of ROLES) {
         const L = layoutForViewport({ vw, vh, isSpectator });
         for (const seat of SEATS) {
           const { avatar, seatBadge: b } = L.seats[seat];
-          expect(b.size).toBeCloseTo(SEAT_BADGE.size * L.s, 6);
-          expect(b.dx).toBeCloseTo(-avatar.size / 2 - SEAT_BADGE.out * L.s, 6);
-          expect(b.dy).toBeCloseTo(-avatar.size / 2 - SEAT_BADGE.up * L.s, 6);
+          const floor = L.s >= SEAT_BADGE.floorFrom ? Math.min(SEAT_BADGE.min, SEAT_BADGE.room * L.s) : 0;
+          expect(b.size).toBeCloseTo(Math.max(SEAT_BADGE.size * L.s, floor), 6);
+          if (b.size > SEAT_BADGE.size * L.s + 1e-9) floored++;
+          expect(b.dx + b.size).toBeCloseTo(-avatar.size / 2 + SEAT_BADGE.right * L.s, 6);
+          expect(b.dy + b.size).toBeCloseTo(-avatar.size / 2 + SEAT_BADGE.bottom * L.s, 6);
+          expect(b.eye).toEqual({ dx: -avatar.size / 2 - SEAT_BADGE.eye.out * L.s, dy: -avatar.size / 2 - SEAT_BADGE.eye.up * L.s });
           expect(b.rect).toEqual({ x: avatar.x + b.dx, y: avatar.y + b.dy, w: b.size, h: b.size });
         }
       }
     }
+    expect(floored).toBeGreaterThan(0); // the floor holds at the smaller named tables
+  });
+
+  it('never touches the frog beside its avatar (a gap of at least 1 px at every s; the bulb is no second gold disc on the frog)', () => {
+    const bad = [];
+    const sizes = [[768, 1024]];
+    for (let vw = 800; vw <= 2560; vw += 160) for (let vh = 500; vh <= 1440; vh += 120) sizes.push([vw, vh]);
+    for (let vw = 360; vw <= 760; vw += 80) for (let vh = 360; vh <= 900; vh += 90) sizes.push([vw, vh]);
+    for (const [vw, vh] of sizes) {
+      const L = layoutForViewport({ vw, vh });
+      for (const seat of SEATS) {
+        const { seatBadge: b, dealer: f } = L.seats[seat];
+        const grown = { x: b.rect.x - 1, y: b.rect.y - 1, w: b.rect.w + 2, h: b.rect.h + 2 };
+        if (intersects(grown, f.rect)) bad.push(`${vw}x${vh} ${seat}`);
+      }
+    }
+    expect(bad).toEqual([]);
   });
 
   it('at the named viewports (a player, a spectator, a watcher, with the Tutorial slot): clear of everything around it', () => {

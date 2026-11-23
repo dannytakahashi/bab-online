@@ -306,6 +306,19 @@ window.addHelpToGameFeed = function(message) {
   }
 };
 
+// The tutorial's room lines ("ann turned on the tutorial."): the server's
+// gameLogEntry with `tutorial` (assistHandlers; onGameLogEntry), drawn like
+// the /help notice in the cap's green. A replay draws it again from the
+// entry's tutorial (renderTable)
+window.addTutorialToGameFeed = function(message) {
+  if (!message) return;
+  if (gameLogInstance?.addTutorialMessage && gameLogInstance.container?.isConnected !== false) {
+    gameLogInstance.addTutorialMessage(message);
+  } else {
+    window.addToGameFeedFromLegacy(message, null); // no log yet: the plain line (buffered)
+  }
+};
+
 // Bridge for updating game log score display
 window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) {
   if (gameLogInstance && gameLogInstance.updateFullScore) {
@@ -1345,9 +1358,11 @@ function initializeApp() {
     scene.render(model);
     const feed = ensureGameLog();
     if (log && feed?.replaceMessages) {
-      // a hand's fault line (server-stored, optional `fault`) is drawn red
-      // and the /help room notice (optional `help`) gold
-      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault, help: !!e.help })));
+      // a hand's fault line (server-stored, optional `fault`) is drawn red,
+      // the /help room notice (optional `help`) gold and the tutorial's
+      // lines (optional `tutorial`) in the cap's green; a replayed tag only
+      // styles its line (the snapshot's seats[] carry the badges)
+      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault, help: !!e.help, tutorial: !!e.tutorial })));
     }
     if (suffix) window.addToGameFeedFromLegacy(suffix);
     if (model.live && model.handSize) {
@@ -2329,8 +2344,10 @@ function initializeApp() {
         return;
       }
       if (data.type === 'system') {
-        // the /help room notice: gold, so the table notices it
+        // the /help room notice: gold, so the table notices it; the
+        // tutorial's lines in the cap's green (parity)
         if (data.help) window.addHelpToGameFeed?.(data.message);
+        else if (data.tutorial) window.addTutorialToGameFeed?.(data.message);
         else window.addToGameFeedFromLegacy?.(data.message, null);
         // the paused rule (the over-the-shoulder view): keep the watched seat, re-send after the resume
         getShoulderWatch().onLogLine(data.message);

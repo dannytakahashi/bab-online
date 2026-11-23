@@ -64,13 +64,14 @@ describe('the HUD places the avatar badge from the layout (seatBadge: the ring\'
   });
 
   for (const [vw, vh, isSpectator] of [[1920, 1080, false], [1024, 668, true], [844, 390, false]]) {
-    it(`--seat-badge, --seat-badge-left / -top from the ring's top left (${vw}x${vh}${isSpectator ? ', a spectator' : ''})`, () => {
+    it(`--seat-badge, --ring-corner-left / -top from the ring's top left, --seat-badge-left / -top from the corner (${vw}x${vh}${isSpectator ? ', a spectator' : ''})`, () => {
       const L = layoutForViewport({ vw, vh, isSpectator });
       applyHudLayout(L);
       const st = document.getElementById('table-hud').style;
       const { seatBadge: b, avatar } = L.seats.opp1;
-      expect([st.getPropertyValue('--seat-badge'), st.getPropertyValue('--seat-badge-left'), st.getPropertyValue('--seat-badge-top')])
-        .toEqual([px(b.size), px(b.dx + avatar.size / 2), px(b.dy + avatar.size / 2)]);
+      expect([st.getPropertyValue('--seat-badge'), st.getPropertyValue('--ring-corner-left'), st.getPropertyValue('--ring-corner-top'),
+        st.getPropertyValue('--seat-badge-left'), st.getPropertyValue('--seat-badge-top')])
+        .toEqual([px(b.size), px(b.eye.dx + avatar.size / 2), px(b.eye.dy + avatar.size / 2), px(b.dx - b.eye.dx), px(b.dy - b.eye.dy)]);
       // the same corner on every seat
       for (const k of ['self', 'partner', 'opp2']) expect([L.seats[k].seatBadge.dx, L.seats[k].seatBadge.dy]).toEqual([b.dx, b.dy]);
     });

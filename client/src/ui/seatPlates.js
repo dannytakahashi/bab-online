@@ -39,7 +39,6 @@ import { lightbulbIcon } from './components/AssistCard.js';
 import { CAP_ICON } from './components/TutorialButton.js';
 import { seatBadgeOf, seatBadgeLabel } from '../state/seatBadges.js';
 import { prefersReducedMotion } from './motion.js';
-import { MOTION } from './tokens.js';
 
 const MAX_PIPS = 13;
 
@@ -142,6 +141,13 @@ function updateWatchChip(ring, names, s, pos) {
   eye.setAttribute('aria-label', text);
 }
 
+/**
+ * The badge's pop, in ms (owner spec: "~250 ms"; between MOTION.base 200
+ * and MOTION.slow 350, no token of its own): the scale pop, or the fade
+ * under reduced motion.
+ */
+export const SEAT_BADGE_POP_MS = 250;
+
 // The pop: up a little and settle (reduced motion: a fade, no scale)
 const POP = [
   { transform: 'scale(0.6)', opacity: 0 },
@@ -155,7 +161,7 @@ function popBadge(badge) {
   if (typeof badge.animate !== 'function') return;
   const reduced = prefersReducedMotion();
   badge.getAnimations?.().forEach((a) => a.cancel());
-  badge.animate(reduced ? FADE : POP, { duration: MOTION.base + 50, easing: 'ease-out' });
+  badge.animate(reduced ? FADE : POP, { duration: SEAT_BADGE_POP_MS, easing: 'ease-out' });
 }
 
 /**

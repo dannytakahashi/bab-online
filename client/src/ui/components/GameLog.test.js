@@ -533,6 +533,19 @@ describe('/help in the autocomplete (plan H3)', () => {
     expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['ann used /help.']);
     expect(gameLog.container.querySelectorAll('.log-row.is-fault')).toHaveLength(1);
   });
+
+  it('a tutorial line (the server\'s gameLogEntry with tutorial): a system row marked is-tutorial (table.css: the cap\'s green); a replay marks only the entries that carry tutorial', () => {
+    gameLog = createGameLog();
+    gameLog.addTutorialMessage('ann turned on the tutorial.');
+    const row = gameLog.container.querySelector('.log-row.is-tutorial');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.classList.contains('is-help')).toBe(false);
+    expect(row.querySelector('.log-row__text').textContent).toBe('ann turned on the tutorial.');
+    gameLog.replaceMessages([{ message: 'ann bid 3.' }, { message: 'ann turned off the tutorial.', tutorial: true }, { message: 'bob used /help.', help: true }]);
+    const again = [...gameLog.container.querySelectorAll('.log-row.is-tutorial')];
+    expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['ann turned off the tutorial.']);
+    expect(gameLog.container.querySelectorAll('.log-row.is-help')).toHaveLength(1);
+  });
 });
 
 describe('showGameLog', () => {
