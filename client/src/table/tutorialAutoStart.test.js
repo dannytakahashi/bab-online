@@ -33,7 +33,9 @@ describe('an auto-started tutorial at the start of a game', () => {
     const create = log.findIndex((e) => e.event === 'createUI');
     replay.replayLog(page, log, { to: create + 1 });
     // right after createUI, as handleDrawComplete sends them
-    page.socket.fire('gameLogEntry', { message: 'ios_eli is playing with the tutorial.', type: 'system' });
+    // (with the server's tutorial tag, 2026-11-23: held with its kind, so
+    // the row is the cap's green like a later tutorial line)
+    page.socket.fire('gameLogEntry', { message: 'ios_eli is playing with the tutorial.', type: 'system', tutorial: { position: 4, on: true } });
     page.socket.fire('assistState', { tutorial: true, auto: true, uses: 0, freeUses: 3, assisted: false });
     replay.advance(3000);
     const rows = rowTexts();
@@ -41,6 +43,8 @@ describe('an auto-started tutorial at the start of a game', () => {
     expect(at).toBeGreaterThanOrEqual(0);
     expect(rows[at + 1]).toBe('ios_eli is playing with the tutorial.');
     expect(rows.filter((r) => r === 'ios_eli is playing with the tutorial.')).toHaveLength(1);
+    const tagged = [...document.querySelectorAll('#gameFeedMessages .log-row.is-tutorial')];
+    expect(tagged.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['ios_eli is playing with the tutorial.']);
     // the deal and the first turn
     replay.replayLog(page, log, { from: create + 1, to: create + 3 });
     replay.advance(3000);

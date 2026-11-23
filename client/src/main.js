@@ -260,21 +260,28 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
 // auto-start notice "<name> is playing with the tutorial."): kept and
 // written after the log's 'Game started!' (flushEarlyLogLines), never
 // dropped. Only while a createUI is pending; a replay of the server's log
-// (a rejoin) brings them itself, so they are forgotten there
+// (a rejoin) brings them itself, so they are forgotten there. A line keeps
+// its kind ('help': the /help notice's gold, 'tutorial': the cap's green),
+// so the auto-start notice is drawn like a later tutorial line
 const EARLY_LOG_MAX = 20;
 let earlyLogLines = null;
 function flushEarlyLogLines() {
   const lines = earlyLogLines || [];
   earlyLogLines = null;
-  for (const [message, playerPosition, at] of lines) gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+  for (const [message, playerPosition, at, kind] of lines) {
+    if (kind === 'help' && gameLogInstance?.addHelpMessage) gameLogInstance.addHelpMessage(message, at);
+    else if (kind === 'tutorial' && gameLogInstance?.addTutorialMessage) gameLogInstance.addTutorialMessage(message, at);
+    else gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+  }
 }
 
-// Bridge for adding messages to game feed
-window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null) {
+// Bridge for adding messages to game feed (`kind`: an early line's row
+// style, kept for flushEarlyLogLines; the help / tutorial bridges pass it)
+window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null, kind = null) {
   if (gameLogInstance && gameLogInstance.addGameMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addGameMessage(message, playerPosition, at);
   } else if (earlyLogLines && earlyLogLines.length < EARLY_LOG_MAX) {
-    earlyLogLines.push([message, playerPosition, at]);
+    earlyLogLines.push([message, playerPosition, at, kind]);
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
@@ -302,7 +309,7 @@ window.addHelpToGameFeed = function(message) {
   if (gameLogInstance?.addHelpMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addHelpMessage(message);
   } else {
-    window.addToGameFeedFromLegacy(message, null); // no log yet: the plain line (buffered)
+    window.addToGameFeedFromLegacy(message, null, null, 'help'); // no log yet: buffered, drawn gold once it is up
   }
 };
 
@@ -315,7 +322,7 @@ window.addTutorialToGameFeed = function(message) {
   if (gameLogInstance?.addTutorialMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addTutorialMessage(message);
   } else {
-    window.addToGameFeedFromLegacy(message, null); // no log yet: the plain line (buffered)
+    window.addToGameFeedFromLegacy(message, null, null, 'tutorial'); // no log yet: buffered, drawn green once it is up
   }
 };
 
