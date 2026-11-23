@@ -262,7 +262,7 @@ class SKChatBubbleManager {
         bg.strokeColor = .clear
         // the label's block may sit off the node's origin: center it in the background
         label.position = CGPoint(x: -label.frame.midX, y: -label.frame.midY)
-        let bubble = SKNode()
+        let bubble = SpokenGroupNode()  // VoiceOver's frame is the bubble's (a plain SKNode's is empty)
         bubble.name = name
         bubble.speak(message)  // the whole line, not "chat.2" (SpriteKit reads a named node by its name)
         label.hideFromAccessibility()

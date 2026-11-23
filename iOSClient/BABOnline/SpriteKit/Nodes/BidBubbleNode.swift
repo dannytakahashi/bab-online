@@ -1,7 +1,7 @@
 import SpriteKit
 
 /// Floating bid display bubble.
-class BidBubbleNode: SKNode {
+class BidBubbleNode: SpokenGroupNode {
     private let background: SKShapeNode
     private let label: SKLabelNode
     let bid: String
