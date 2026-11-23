@@ -13,6 +13,7 @@ import { team, rotate } from '../utils/positions.js';
 import { parseWatching } from './snapshotV2.js';
 import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 import { isShoulder, validShoulder } from './shoulder.js';
+import { helpNoticeSeat, tutorialTag } from './seatBadges.js';
 
 // Game phases
 export const PHASE = {
@@ -191,6 +192,13 @@ export class GameState {
     // A seat's running bid clock (bidClock / snapshot bidClock; state/bidClock.js):
     // {position, deadline (bidClockNow ms), durationMs} or null
     this.bidClock = null;
+    // The avatar badges (state/seatBadges.js): {1..4} -> true. helpAsked: a
+    // counted /help on that seat's open turn (the lightbulb; the live help
+    // notice, until it bids or plays, or a snapshot's seats[].askedHelp);
+    // tutorialSeats: its owner's tutorial is on (the graduation cap; the
+    // live tutorial tag, or a snapshot's seats[].tutorial)
+    this.helpAsked = {};
+    this.tutorialSeats = {};
     // The over-the-shoulder view (state/shoulder.js): the seat a pure
     // spectator watches {position, paused}, or null (the plain table view).
     // While set, position is that seat (the table is drawn from it), myCards
@@ -701,6 +709,7 @@ export class GameState {
     // Clear rainbows
     this.rainbows = [];
     this.bidClock = null;
+    this.helpAsked = {};
 
     this._emit('newHandReset');
   }
@@ -866,6 +875,7 @@ export class GameState {
     this.stage = 'BIDDING';
     this.currentTurn = null;
     this.bidClock = null;
+    this.helpAsked = {};
     this.bids = {};
     this.teamBids = null;
     this.oppBids = null;
@@ -918,6 +928,8 @@ export class GameState {
     if (data.team2Mult !== undefined) this.team2Mult = data.team2Mult;
     // that seat's clock is over (the timeout's own bid 0 included)
     if (this.bidClock?.position === data.position) this.bidClock = null;
+    // its turn is over: the lightbulb goes
+    delete this.helpAsked[data.position];
     this._changed();
     this._emit('bidReceived', { position: data.position, bid });
   }
@@ -926,6 +938,7 @@ export class GameState {
   applyDoneBidding(data) {
     this.isBidding = false;
     this.bidClock = null;
+    this.helpAsked = {};
     this.phase = PHASE.PLAYING;
     this.stage = 'PLAYING';
     this._clearTrickState();
@@ -948,6 +961,8 @@ export class GameState {
     if (turn !== undefined) this.currentTurn = turn;
     // the turn moved to another seat: the clock was the last seat's
     if (this.bidClock && this.bidClock.position !== this.currentTurn) this.bidClock = null;
+    // (and its lightbulb: only the seat on turn keeps one)
+    this._keepHelpOnly(this.currentTurn);
     this.hasPlayedCard = false;
     if (this.stage === 'TRICK_RESOLVING' || this.stage === 'DEALING') this.stage = this.isBidding ? 'BIDDING' : 'PLAYING';
     this._changed();
@@ -968,6 +983,8 @@ export class GameState {
     this.playedCards.push({ card, position });
     this.currentTrick.push({ card, position });
     this.playedCardIndex = this.playedCards.length % 4;
+    // its turn is over: the lightbulb goes
+    delete this.helpAsked[position];
     if (this.seatCards[position] > 0) this.seatCards[position]--;
     // my own card, or the watched seat's (the shoulder view's hand)
     if (position === this.position && (!this.isSpectator || isShoulder(this))) {
@@ -1009,6 +1026,7 @@ export class GameState {
       this.setGameScores(mine, theirs);
     }
     this.stage = 'HAND_RESOLVING';
+    this.helpAsked = {};
     this._changed();
   }
 
@@ -1016,6 +1034,7 @@ export class GameState {
   applyDestroyHands() {
     this.myCards = [];
     this.bidClock = null;
+    this.helpAsked = {};
     this.bids = {};
     this.teamBids = null;
     this.oppBids = null;
@@ -1036,6 +1055,7 @@ export class GameState {
     }
     this.stage = 'ENDED';
     this.bidClock = null;
+    this.helpAsked = {};
     this.setPhase(PHASE.ENDED);
     this._changed();
   }
@@ -1132,6 +1152,46 @@ export class GameState {
       if (this.bidClock?.position !== ev.position) return false;
       this.bidClock = null;
     }
+    this._changed();
+    return true;
+  }
+
+  // ============================================
+  // The avatar badges (state/seatBadges.js)
+  // ============================================
+
+  _keepHelpOnly(pos) {
+    for (const p of Object.keys(this.helpAsked)) if (Number(p) !== pos) delete this.helpAsked[p];
+  }
+
+  /**
+   * A live gameLogEntry: the help notice (`help {position}`) lights that
+   * seat's lightbulb, the tutorial's tag (`tutorial {position, on}`) sets
+   * its graduation cap. Never called for a snapshot's log: its stored tags
+   * only style their rows (the snapshot's seats[] decide the badges, and a
+   * replayed notice is not this turn's).
+   * @returns {number|null} the seat whose badge changed, or null
+   */
+  applyLogEntry(data) {
+    const tag = tutorialTag(data);
+    if (tag) {
+      if (!!this.tutorialSeats[tag.position] === tag.on) return null;
+      if (tag.on) this.tutorialSeats[tag.position] = true;
+      else delete this.tutorialSeats[tag.position];
+      this._changed();
+      return tag.position;
+    }
+    const pos = helpNoticeSeat(data);
+    if (!pos || this.helpAsked[pos]) return null;
+    this.helpAsked[pos] = true;
+    this._changed();
+    return pos;
+  }
+
+  /** A seat went lazy or was replaced (playerLazyMode, playerResigned): its lightbulb goes. */
+  clearHelpAsked(position) {
+    if (!this.helpAsked[position]) return false;
+    delete this.helpAsked[position];
     this._changed();
     return true;
   }
@@ -1287,6 +1347,13 @@ export class GameState {
     this.resume = snap.resume || null;
     // the clock is in a snapshot only while it runs (inMs from receipt)
     this.bidClock = snap.bidClock ? clockFrom(snap.bidClock) : null;
+    // the avatar badges: the seats say (absent = off; an older server sends neither)
+    this.helpAsked = {};
+    this.tutorialSeats = {};
+    for (const st of this.seats) {
+      if (st?.askedHelp === true) this.helpAsked[st.position] = true;
+      if (st?.tutorial === true) this.tutorialSeats[st.position] = true;
+    }
     this._changed();
     this._emit('stateRestored', snap);
     this._companyChanged();

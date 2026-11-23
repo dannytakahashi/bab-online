@@ -38,7 +38,8 @@ export const TUTORIAL_BUTTON_ID = 'tutorial-toggle-btn';
 export const TUTORIAL_CONFIRM_ID = 'tutorial-confirm';
 
 // Our own filled graduation cap (currentColor), never Apple's SF Symbol artwork
-const CAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 3.5 1.5 8.75 12 14l10.5-5.25z"/><path fill="currentColor" d="M5.5 11.6v4.15c0 1.9 2.9 3.75 6.5 3.75s6.5-1.85 6.5-3.75V11.6L12 14.85z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M21 9.3v5.2"/><circle fill="currentColor" cx="21" cy="15.6" r="1.3"/></svg>';
+// (also the avatar badge's: ui/seatPlates.js)
+export const CAP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 3.5 1.5 8.75 12 14l10.5-5.25z"/><path fill="currentColor" d="M5.5 11.6v4.15c0 1.9 2.9 3.75 6.5 3.75s6.5-1.85 6.5-3.75V11.6L12 14.85z"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M21 9.3v5.2"/><circle fill="currentColor" cx="21" cy="15.6" r="1.3"/></svg>';
 
 /** The tooltip: the state, then what a press does (iOS's label and hint). */
 export function tutorialButtonTitle(on) {

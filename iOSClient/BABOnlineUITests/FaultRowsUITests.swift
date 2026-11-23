@@ -2,7 +2,8 @@ import XCTest
 
 /// Red fault rows in the game log (the server's hand-end fault lines): two stored in the
 /// seeded snapshot, one arriving live, then a reconnect's snapshot holding all three: each
-/// shows once ("logFaultRow"), and the snapshot's viewer.assist makes the /help count exact.
+/// shows once ("logFaultRow"), and the snapshot's viewer.assist makes the /help count exact. The
+/// stored /help notice ("logHelpRow") and tutorial line ("logTutorialRow") replay styled, badge-free.
 final class FaultRowsUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -34,6 +35,11 @@ final class FaultRowsUITests: XCTestCase {
                        "3: Fault: ivy (bid 3, took 1) | Fault: hal (bid 2, took 0) | Fault: hal (bid 4, took 2)")
         // the stored /help notice: a gold row, once, and never a fault row
         XCTAssertEqual(app.staticTexts.matching(identifier: "logHelpRow").allElementsBoundByIndex.map(\.label), ["ivy used /help."])
+        // the stored tutorial line: a row in the cap's colour, once, and no cap on hal's avatar (seats[] say)
+        XCTAssertEqual(app.staticTexts.matching(identifier: "logTutorialRow").allElementsBoundByIndex.map(\.label),
+                       ["hal is playing with the tutorial."])
+        let badges = Fixture.probe(app, "table.badges")
+        XCTAssertFalse(badges.contains(":cap") || badges.contains(":bulb"), badges)
         let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         shot.name = "fault-rows"
         shot.lifetime = .keepAlways

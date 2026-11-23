@@ -18,11 +18,27 @@
  * spectator entries' `shoulder` (GameState.watching). A watcher sees the eye
  * on the seat they watch only while someone else watches it too
  * (shoulder.js seatEyeNames).
+ *
+ * The avatar badges (owner 2026-11-23; rules in state/seatBadges.js): the
+ * gold lightbulb while a seat asked for /help on its open turn, the
+ * graduation cap in the Tutorial button's on green while its owner's
+ * tutorial is on; one small dark round chip (.hud-seat-badge, data-badge
+ * help | tutorial) in the ring's top left corner, the eye's corner
+ * (.hud-ring-corner holds both, the eye first: a watched seat's badge sits
+ * just right of its eye), never on the viewer's own seat. Its title and
+ * label are the seat's name and what it shows ("ann, asked for help this
+ * turn"). updateSeatBadges draws them (updateSeatPlates too); `pop` names
+ * the seats whose badge just came from a live event: one short pop
+ * (a fade under reduced motion), never for a snapshot.
  */
 import { team } from '../utils/positions.js';
 import { isBore, bidTricks, teamBidTotal } from '../rules/bids.js';
 import { watchersBySeat, watchTitle, seatEyeNames } from '../state/shoulder.js';
 import { EYE_ICON } from './components/SpectatorBadge.js';
+import { lightbulbIcon } from './components/AssistCard.js';
+import { CAP_ICON } from './components/TutorialButton.js';
+import { seatBadgeOf, seatBadgeLabel } from '../state/seatBadges.js';
+import { prefersReducedMotion } from './motion.js';
 
 const MAX_PIPS = 13;
 
@@ -47,11 +63,21 @@ export function buildAvatarRing(img, position = null) {
   pips.className = 'hud-pips';
   pips.setAttribute('aria-hidden', 'true');
   ring.appendChild(pips);
+  // the top left corner: the eye, then the seat's badge
+  const corner = document.createElement('span');
+  corner.className = 'hud-ring-corner';
   const eye = document.createElement('span');
   eye.className = 'hud-watch-chip';
   eye.innerHTML = EYE_ICON;
   eye.appendChild(document.createElement('b'));
-  ring.appendChild(eye);
+  corner.appendChild(eye);
+  const badge = document.createElement('span');
+  badge.className = 'hud-seat-badge';
+  badge.appendChild(lightbulbIcon('hud-seat-badge__bulb'));
+  badge.insertAdjacentHTML('beforeend', CAP_ICON); // a fixed icon, never user text
+  badge.lastElementChild.setAttribute('class', 'hud-seat-badge__cap');
+  corner.appendChild(badge);
+  ring.appendChild(corner);
   setRingPosition(ring, position);
   return ring;
 }
@@ -96,7 +122,7 @@ function seatPips(s, pos, me) {
 
 /** One ring's eye chip: who watches this seat's hand (none: hidden). */
 function updateWatchChip(ring, names, s, pos) {
-  const eye = ring.querySelector(':scope > .hud-watch-chip');
+  const eye = ring.querySelector(':scope > .hud-ring-corner > .hud-watch-chip');
   if (!eye) return;
   const on = names.length > 0;
   eye.classList.toggle('is-on', on);
@@ -113,6 +139,63 @@ function updateWatchChip(ring, names, s, pos) {
   eye.title = text;
   eye.setAttribute('role', 'img');
   eye.setAttribute('aria-label', text);
+}
+
+/**
+ * The badge's pop, in ms (owner spec: "~250 ms"; between MOTION.base 200
+ * and MOTION.slow 350, no token of its own): the scale pop, or the fade
+ * under reduced motion.
+ */
+export const SEAT_BADGE_POP_MS = 250;
+
+// The pop: up a little and settle (reduced motion: a fade, no scale)
+const POP = [
+  { transform: 'scale(0.6)', opacity: 0 },
+  { transform: 'scale(1.18)', opacity: 1, offset: 0.6 },
+  { transform: 'scale(1)', opacity: 1 },
+];
+const FADE = [{ opacity: 0 }, { opacity: 1 }];
+
+/** One short pop of a badge that just came (a live event; never a snapshot). */
+function popBadge(badge) {
+  if (typeof badge.animate !== 'function') return;
+  const reduced = prefersReducedMotion();
+  badge.getAnimations?.().forEach((a) => a.cancel());
+  badge.animate(reduced ? FADE : POP, { duration: SEAT_BADGE_POP_MS, easing: 'ease-out' });
+}
+
+/**
+ * Every ring's badge (state/seatBadges.js): the lightbulb, the cap or none.
+ * @param {ParentNode} root - the HUD (or the document)
+ * @param {Object} s - GameState (helpAsked, tutorialSeats, isSpectator, position)
+ * @param {Object} [o]
+ * @param {number[]} [o.pop] - seats whose badge a live event just set: one pop
+ */
+export function updateSeatBadges(root, s, { pop = [] } = {}) {
+  if (!root || !s) return;
+  for (const ring of root.querySelectorAll('.hud-avatar-ring[data-position]')) {
+    const badge = ring.querySelector(':scope > .hud-ring-corner > .hud-seat-badge');
+    if (!badge) continue;
+    const pos = Number(ring.dataset.position);
+    const kind = seatBadgeOf(s, pos);
+    const was = badge.dataset.badge || '';
+    if (!kind) {
+      if (was) {
+        delete badge.dataset.badge;
+        badge.removeAttribute('title');
+        badge.removeAttribute('aria-label');
+        badge.removeAttribute('role');
+      }
+      continue;
+    }
+    const name = s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
+    const text = seatBadgeLabel(kind, name);
+    badge.dataset.badge = kind;
+    if (badge.title !== text) badge.title = text;
+    badge.setAttribute('role', 'img');
+    badge.setAttribute('aria-label', text);
+    if (pop.includes(pos)) popBadge(badge);
+  }
 }
 
 /**
@@ -159,4 +242,5 @@ export function updateSeatPlates(root, s) {
     });
     pips.title = show ? title : '';
   }
+  updateSeatBadges(root, s);
 }

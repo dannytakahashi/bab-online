@@ -221,6 +221,10 @@ struct SeatState: Equatable {
     var isBot = false
     var lazy = false
     var cardsInHand = 0
+    /// The avatar badges (owner 2026-11-23; State/Table/SeatBadges.swift): a counted /help on
+    /// this seat's open turn (the lightbulb), and its owner's tutorial on (the graduation cap).
+    var askedHelp = false
+    var tutorial = false
 }
 
 /// Who is watching the table (spectatorsUpdated / snapshot v2 `watching`):

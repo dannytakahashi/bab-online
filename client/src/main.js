@@ -260,21 +260,28 @@ window.createGameFeedFromLegacy = function(isReconnection = false) {
 // auto-start notice "<name> is playing with the tutorial."): kept and
 // written after the log's 'Game started!' (flushEarlyLogLines), never
 // dropped. Only while a createUI is pending; a replay of the server's log
-// (a rejoin) brings them itself, so they are forgotten there
+// (a rejoin) brings them itself, so they are forgotten there. A line keeps
+// its kind ('help': the /help notice's gold, 'tutorial': the cap's green),
+// so the auto-start notice is drawn like a later tutorial line
 const EARLY_LOG_MAX = 20;
 let earlyLogLines = null;
 function flushEarlyLogLines() {
   const lines = earlyLogLines || [];
   earlyLogLines = null;
-  for (const [message, playerPosition, at] of lines) gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+  for (const [message, playerPosition, at, kind] of lines) {
+    if (kind === 'help' && gameLogInstance?.addHelpMessage) gameLogInstance.addHelpMessage(message, at);
+    else if (kind === 'tutorial' && gameLogInstance?.addTutorialMessage) gameLogInstance.addTutorialMessage(message, at);
+    else gameLogInstance?.addGameMessage?.(message, playerPosition, at);
+  }
 }
 
-// Bridge for adding messages to game feed
-window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null) {
+// Bridge for adding messages to game feed (`kind`: an early line's row
+// style, kept for flushEarlyLogLines; the help / tutorial bridges pass it)
+window.addToGameFeedFromLegacy = function(message, playerPosition = null, at = null, kind = null) {
   if (gameLogInstance && gameLogInstance.addGameMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addGameMessage(message, playerPosition, at);
   } else if (earlyLogLines && earlyLogLines.length < EARLY_LOG_MAX) {
-    earlyLogLines.push([message, playerPosition, at]);
+    earlyLogLines.push([message, playerPosition, at, kind]);
   } else {
     console.warn('Game log not initialized, message dropped:', message);
   }
@@ -302,7 +309,20 @@ window.addHelpToGameFeed = function(message) {
   if (gameLogInstance?.addHelpMessage && gameLogInstance.container?.isConnected !== false) {
     gameLogInstance.addHelpMessage(message);
   } else {
-    window.addToGameFeedFromLegacy(message, null); // no log yet: the plain line (buffered)
+    window.addToGameFeedFromLegacy(message, null, null, 'help'); // no log yet: buffered, drawn gold once it is up
+  }
+};
+
+// The tutorial's room lines ("ann turned on the tutorial."): the server's
+// gameLogEntry with `tutorial` (assistHandlers; onGameLogEntry), drawn like
+// the /help notice in the cap's green. A replay draws it again from the
+// entry's tutorial (renderTable)
+window.addTutorialToGameFeed = function(message) {
+  if (!message) return;
+  if (gameLogInstance?.addTutorialMessage && gameLogInstance.container?.isConnected !== false) {
+    gameLogInstance.addTutorialMessage(message);
+  } else {
+    window.addToGameFeedFromLegacy(message, null, null, 'tutorial'); // no log yet: buffered, drawn green once it is up
   }
 };
 
@@ -1345,9 +1365,11 @@ function initializeApp() {
     scene.render(model);
     const feed = ensureGameLog();
     if (log && feed?.replaceMessages) {
-      // a hand's fault line (server-stored, optional `fault`) is drawn red
-      // and the /help room notice (optional `help`) gold
-      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault, help: !!e.help })));
+      // a hand's fault line (server-stored, optional `fault`) is drawn red,
+      // the /help room notice (optional `help`) gold and the tutorial's
+      // lines (optional `tutorial`) in the cap's green; a replayed tag only
+      // styles its line (the snapshot's seats[] carry the badges)
+      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault, help: !!e.help, tutorial: !!e.tutorial })));
     }
     if (suffix) window.addToGameFeedFromLegacy(suffix);
     if (model.live && model.handSize) {
@@ -1754,6 +1776,8 @@ function initializeApp() {
 
         // Reset the HSI display; the new hand's value shows with its cards
         scene.clearPlayerHsi?.();
+        // a new deal: no lightbulb (the caps stay)
+        scene.updateSeatBadges?.();
 
         // Create DOM backgrounds via LayoutManager (show immediately)
         if (scene.layoutManager) {
@@ -2000,6 +2024,8 @@ function initializeApp() {
       // Nobody's turn any more: the turn ring stops (its animation with it)
       scene?.opponentManager?.removeTurnGlow?.();
       scene?.cardManager?.removeTurnGlow?.();
+      // (and no lightbulb)
+      scene?.updateSeatBadges?.();
       // the tutorial's tips go with the game (T.done is its log row)
       scene?.clearTips?.({ all: true });
       scene?.syncTutorial?.();
@@ -2311,7 +2337,15 @@ function initializeApp() {
     onShoulderViewChanged: () => {
       if (session.isAtTable) scheduleRender({});
     },
-    onGameLogEntry: (data) => {
+    onGameLogEntry: (data, { badge = null } = {}) => {
+      // The help notice or the tutorial's tag changed that seat's avatar
+      // badge (GameState has it): drawn with one pop when it comes on (the
+      // cap going off just goes, as on iOS), in order behind the scene work
+      // queued before it (a log row's kind: nothing to settle)
+      if (badge) {
+        const pop = data.tutorial && data.tutorial.on !== true ? [] : [badge];
+        withScene((scene) => scene.updateSeatBadges?.({ pop }), 'draw');
+      }
       // A hand's fault line (the server's, after handComplete): red, and
       // queued behind the scene like handComplete, so it lands after that
       // hand's lines even while the scene is not ready yet ('draw': a log
@@ -2321,8 +2355,10 @@ function initializeApp() {
         return;
       }
       if (data.type === 'system') {
-        // the /help room notice: gold, so the table notices it
+        // the /help room notice: gold, so the table notices it; the
+        // tutorial's lines in the cap's green (parity)
         if (data.help) window.addHelpToGameFeed?.(data.message);
+        else if (data.tutorial) window.addTutorialToGameFeed?.(data.message);
         else window.addToGameFeedFromLegacy?.(data.message, null);
         // the paused rule (the over-the-shoulder view): keep the watched seat, re-send after the resume
         getShoulderWatch().onLogLine(data.message);

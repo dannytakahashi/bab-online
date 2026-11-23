@@ -224,7 +224,8 @@ struct GameLogPanel: View {
 
 /// A set hand's fault line stands apart from the coral team's colour, as the web's
 /// .log-row.is-fault: a faint red ground, a solid red bar at the left, the full row's width.
-/// The /help room notice gets the same chrome in the suggestion's gold (.log-row.is-help).
+/// The /help room notice gets the same chrome in the suggestion's gold (.log-row.is-help), the
+/// tutorial's room lines in the avatar cap's colour (.log-row.is-tutorial).
 private struct HighlightRowChrome: ViewModifier {
     /// The bar's colour, nil for a plain row.
     let tint: Color?
@@ -256,12 +257,13 @@ struct GameLogEntryView: View {
                 Text(entry.message)
                     .font(Self.isHighlighted(entry) ? .caption2.weight(.semibold) : .caption2)
                     .foregroundColor(Self.systemColor(entry))
-                    // a fault line and the /help notice are upright, as the web's .log-row.is-fault /
-                    // .is-help; other system rows italic
+                    // a fault line, the /help notice and the tutorial's lines are upright, as the web's
+                    // .log-row.is-fault / .is-help / .is-tutorial; other system rows italic
                     .italic(!Self.isHighlighted(entry))
-                    .accessibilityIdentifier(entry.isFault ? "logFaultRow" : entry.isHelp ? "logHelpRow" : "")
+                    .accessibilityIdentifier(Self.rowIdentifier(entry))
                     .modifier(entry.isFault ? HighlightRowChrome(tint: Theme.danger)
                               : entry.isHelp ? HighlightRowChrome(tint: Theme.gold, groundOpacity: 0.14)
+                              : entry.isTutorial ? HighlightRowChrome(tint: Theme.primary, groundOpacity: 0.12)
                               : HighlightRowChrome(tint: nil))
             } else {
                 Text("\(entry.username):")
@@ -274,15 +276,22 @@ struct GameLogEntryView: View {
         }
     }
 
-    /// A fault line or the /help room notice: drawn upright and semibold in its chrome.
-    static func isHighlighted(_ entry: ChatMessage) -> Bool { entry.isFault || entry.isHelp }
+    /// A fault line, the /help room notice or a tutorial line: drawn upright and semibold in its chrome.
+    static func isHighlighted(_ entry: ChatMessage) -> Bool { entry.isFault || entry.isHelp || entry.isTutorial }
+
+    /// The UI tests' handle on a highlighted row ("" for any other).
+    static func rowIdentifier(_ entry: ChatMessage) -> String {
+        entry.isFault ? "logFaultRow" : entry.isHelp ? "logHelpRow" : entry.isTutorial ? "logTutorialRow" : ""
+    }
 
     /// A system row's colour: a set hand's fault line red (danger.text, the web's
     /// .log-row.is-fault), the /help room notice in the suggestion's gold (.log-row.is-help),
-    /// a row only I see (my /help answer) dim in that gold, any other dim.
+    /// a tutorial line in the cap's colour (primary.base, the tutorial switch's on colour:
+    /// .log-row.is-tutorial), a row only I see (my /help answer) dim in that gold, any other dim.
     static func systemColor(_ entry: ChatMessage) -> Color {
         if entry.isFault { return Theme.error }
         if entry.isHelp { return Theme.gold }
+        if entry.isTutorial { return Theme.primary }
         return entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim
     }
 
