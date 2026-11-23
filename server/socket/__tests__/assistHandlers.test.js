@@ -190,10 +190,15 @@ test('cap socket: assistHint; no-cap socket: private lines; nobody else gets eit
     expect(room[0].data.help).toEqual({ position: p1 });
     expect(game.gameLog.at(-1)).toMatchObject({ message: `${t.name(p1)} used /help.`, type: 'system', playerPosition: null, help: { position: p1 } });
     expect(game.getSnapshotV2(t.owner(p2).id).log.at(-1)).toMatchObject({ message: `${t.name(p1)} used /help.`, help: { position: p1 } });
+    // the lightbulb (2026-11-23): every viewer's snapshot marks the asking seat while its turn is open
+    const asked = (sid) => game.getSnapshotV2(sid).seats.filter((x) => x.askedHelp === true).map((x) => x.position);
+    expect(asked(t.owner(p2).id)).toEqual([p1]);
+    expect(asked(t.owner(p1).id)).toEqual([p1]);
     expect(game.assist[p1]).toMatchObject({ user: t.name(p1), help: 1, lastHelpKey: game.turnKey() });
 
     // the bid goes in; the next seat (no cap) types ?help
     await t.bid();
+    expect(asked(t.owner(p2).id)).toEqual([]);   // the turn moved on: no lightbulb
     mark = t.w.log.length;
     t.say(t.owner(p2), '  ?HELP ');
     const lines = privateTo(t, mark);

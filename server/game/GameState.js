@@ -1798,8 +1798,11 @@ class GameState {
      * @param {{position: number}} [meta.help] - the room notice "<name> used
      *   /help." (assistHandlers, a counted use): on the wire in the
      *   snapshot's log item (optional `help`), so clients can make it stand out
+     * @param {{position: number, on: boolean}} [meta.tutorial] - a tutorial
+     *   room line (assistHandlers): on the wire in the snapshot's log item
+     *   (optional `tutorial`), drawn in the cap's colour; never state
      */
-    addLogEntry(message, playerPosition = null, type = 'system', { from, fault, help } = {}) {
+    addLogEntry(message, playerPosition = null, type = 'system', { from, fault, help, tutorial } = {}) {
         const entry = {
             message,
             playerPosition,
@@ -1809,6 +1812,7 @@ class GameState {
         if (typeof from === 'string') entry.from = from;
         if (fault && typeof fault === 'object') entry.fault = { position: fault.position, bid: fault.bid, took: fault.took };
         if (help && typeof help === 'object') entry.help = { position: help.position };
+        if (tutorial && typeof tutorial === 'object') entry.tutorial = { position: tutorial.position, on: tutorial.on === true };
 
         this.gameLog.push(entry);
         this.logTotal++;

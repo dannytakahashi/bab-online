@@ -336,6 +336,8 @@ struct TableSnapshot: Codable, Equatable {
         var resignableAt: Int?
         var cardsInHand: Int
         var avatarUrl: String?
+        var tutorial: Bool?
+        var askedHelp: Bool?
     }
 
     enum Controller: Codable, Equatable, Hashable {
@@ -511,6 +513,7 @@ struct TableSnapshot: Codable, Equatable {
         var at: Int
         var fault: LogFault?
         var help: LogHelp?
+        var tutorial: LogTutorial?
     }
 
     enum LogType: Codable, Equatable, Hashable {
@@ -568,6 +571,11 @@ struct TableSnapshot: Codable, Equatable {
 
     struct LogHelp: Codable, Equatable {
         var position: Int
+    }
+
+    struct LogTutorial: Codable, Equatable {
+        var position: Int
+        var on: Bool
     }
 
     struct Resume: Codable, Equatable {

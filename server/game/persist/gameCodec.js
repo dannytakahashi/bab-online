@@ -62,6 +62,8 @@
  * way, still v3: the release before writes and reads log entries whole
  * (serialize copies each entry, restoreFrom keeps them), so it keeps the
  * key on a doc it adopts, and a doc without it restores as a plain line.
+ * A log entry's optional `tutorial` {position, on} (2026-11-23, the
+ * tutorial's room lines, drawn in the cap's colour) joined the same way.
  * `state.seatExact` (2026-11-20, the superlatives' My Quantitative;
  * GameState.seatExact, rules.normalizeSeatCounter: the same {hands, byPos}
  * shape) joined the same way, for the same reasons: still v3, optional both
@@ -161,7 +163,7 @@ const SAVED = deepFreeze({
     botPlayer: ['socketId', 'username', 'personality', 'position', 'pic', 'partnerHistory'],
     // fault (CODEC_V 3): a hand's fault line {position, bid, took}; help
     // (2026-11-23, still v3: header): the /help room notice {position}
-    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from', 'fault', 'help'],
+    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from', 'fault', 'help', 'tutorial'],
     // gameVoice.initCasualVoice's settings, by username: a restored family
     // game keeps its host and which watchers came from the lobby (hydrate
     // re-runs initCasualVoice with them). spectatorsCanTalk is always
