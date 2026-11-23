@@ -521,6 +521,18 @@ describe('/help in the autocomplete (plan H3)', () => {
     const again = [...gameLog.container.querySelectorAll('.log-row.is-fault')];
     expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['Fault: ann (bid 3, took 1)']);
   });
+
+  it('a /help notice row (the server\'s gameLogEntry with help): a system row marked is-help (table.css draws it gold); a replay marks only the entries that carry help', () => {
+    gameLog = createGameLog();
+    gameLog.addHelpMessage('ann used /help.');
+    const row = gameLog.container.querySelector('.log-row.is-help');
+    expect(row.classList.contains('is-system')).toBe(true);
+    expect(row.querySelector('.log-row__text').textContent).toBe('ann used /help.');
+    gameLog.replaceMessages([{ message: 'ann bid 3.' }, { message: 'ann used /help.', help: true }, { message: 'Fault: ann (bid 3, took 1)', fault: true }]);
+    const again = [...gameLog.container.querySelectorAll('.log-row.is-help')];
+    expect(again.map((r) => r.querySelector('.log-row__text').textContent)).toEqual(['ann used /help.']);
+    expect(gameLog.container.querySelectorAll('.log-row.is-fault')).toHaveLength(1);
+  });
 });
 
 describe('showGameLog', () => {

@@ -57,6 +57,11 @@
  * here as null (no counter: that game's record carries no bags, the
  * superlatives use the net per seat). Its pins in
  * gameCodec.fieldGuard.test.js were re-taken for v3.
+ * A log entry's optional `help` {position} (2026-11-23, the /help room
+ * notice "<name> used /help.", drawn gold by the clients) joined the same
+ * way, still v3: the release before writes and reads log entries whole
+ * (serialize copies each entry, restoreFrom keeps them), so it keeps the
+ * key on a doc it adopts, and a doc without it restores as a plain line.
  * `state.seatExact` (2026-11-20, the superlatives' My Quantitative;
  * GameState.seatExact, rules.normalizeSeatCounter: the same {hands, byPos}
  * shape) joined the same way, for the same reasons: still v3, optional both
@@ -154,8 +159,9 @@ const SAVED = deepFreeze({
     seat: ['controller', 'presence', 'ownerUsername', 'ownerPic', 'bot', 'lastPersonality', 'resignedAt', 'leftAt'],
     seatBot: ['socketId', 'username', 'pic', 'personality'],
     botPlayer: ['socketId', 'username', 'personality', 'position', 'pic', 'partnerHistory'],
-    // fault (CODEC_V 3): a hand's fault line {position, bid, took}
-    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from', 'fault'],
+    // fault (CODEC_V 3): a hand's fault line {position, bid, took}; help
+    // (2026-11-23, still v3: header): the /help room notice {position}
+    logEntry: ['message', 'playerPosition', 'type', 'timestamp', 'from', 'fault', 'help'],
     // gameVoice.initCasualVoice's settings, by username: a restored family
     // game keeps its host and which watchers came from the lobby (hydrate
     // re-runs initCasualVoice with them). spectatorsCanTalk is always

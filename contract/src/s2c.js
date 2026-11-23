@@ -604,7 +604,7 @@ const s2c = {
     },
     gameLogEntry: {
         payload: anyOf(
-            variant('room', obj({ message: str(), type: konst('system'), fault: ref('logFault') }, { optional: ['fault'] })),
+            variant('room', obj({ message: str(), type: konst('system'), fault: ref('logFault'), help: ref('logHelp') }, { optional: ['fault', 'help'] })),
             variant('private', obj({ message: str(), type: konst('system') })),
         ),
         status: 'active', to: ['room', 'socket'], seq: false,

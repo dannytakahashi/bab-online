@@ -73,9 +73,12 @@ const SERVER = path.join(__dirname, '../../..');
 // fields only) and one without it restores here as no counter
 // (gameCodec.js header, superlativeRecord.test.js). Re-pinned again the
 // same day, for the same reasons, for state.seatExact (the superlatives'
-// spot-on bid counter, My Quantitative).
+// spot-on bid counter, My Quantitative). Re-pinned again on 2026-11-23,
+// for the same reasons, for a log entry's optional `help` {position} (the
+// /help room notice, drawn gold): the release before keeps log entries
+// whole (restoreFrom copies each one), and one without it is a plain line.
 const PINNED = {
-    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '4c297bcc5a81e921' },
+    game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: 'c5bb4c4973e9dc36' },
     tournament: { 1: '4effc20c08b2654d' },
 };
 

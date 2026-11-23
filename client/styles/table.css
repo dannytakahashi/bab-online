@@ -910,6 +910,17 @@ body > .voice-btn {
 }
 .log-row.is-fault:has(+ .log-row.is-fault) { margin-bottom: 2px; }
 .log-row.is-fault .log-row__text.is-system { color: var(--danger-text); font-weight: var(--weight-semibold); }
+/* the /help room notice ("ann used /help."): the suggestion's gold, upright and
+   semibold on a faint gold ground with a gold bar at the left, so the table sees it
+   (owner 2026-11-23: the dim line was hard to see); the private answer stays dim gold */
+.log-row.is-help {
+    padding: 2px var(--space-2);
+    border-left: 3px solid var(--gold);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: rgb(var(--gold-rgb) / 0.14);
+    font-style: normal;
+}
+.log-row.is-help .log-row__text.is-system { color: var(--gold); font-weight: var(--weight-semibold); }
 .log-row__name { font-weight: var(--weight-bold); }
 .log-trick { margin-bottom: var(--space-2); padding: var(--space-2); border-radius: var(--radius-sm); background: rgb(var(--success-rgb) / 0.12); color: var(--success); }
 

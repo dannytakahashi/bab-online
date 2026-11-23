@@ -434,6 +434,19 @@ export function createGameLog({ onChatSubmit } = {}) {
     append(row);
   };
 
+  /**
+   * The /help room notice ("ann used /help."): the server's stored
+   * gameLogEntry that carries `help` (main.js onGameLogEntry), drawn in the
+   * suggestion's gold so the table sees it (owner 2026-11-23: the gray line
+   * was hard to see); a replay (replaceMessages, an entry's `help`) draws
+   * it again, in place.
+   */
+  const addHelpMessage = (message, at = null) => {
+    const row = buildRow(message, null, at);
+    row.classList.add('is-help');
+    append(row);
+  };
+
   const addTrickResult = (winner, teamTricks, oppTricks) => {
     const msgDiv = document.createElement('div');
     msgDiv.className = 'log-trick';
@@ -491,6 +504,8 @@ export function createGameLog({ onChatSubmit } = {}) {
       const row = buildRow(e.message, e.position ?? null, e.at ?? null);
       // a hand's fault line (the server's log item carries `fault`)
       if (e.fault) row.classList.add('is-fault');
+      // the /help room notice (the log item carries `help`)
+      else if (e.help) row.classList.add('is-help');
       frag.appendChild(row);
     }
     // A replay (rejoin, resync) shows the same story: the reader keeps
@@ -569,6 +584,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     addSystemMessage,
     addPrivateMessage,
     addFaultMessage,
+    addHelpMessage,
     addGameMessage,
     addTrickResult,
     updateScores,

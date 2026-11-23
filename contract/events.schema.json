@@ -1733,6 +1733,9 @@
               },
               "fault": {
                 "$ref": "#/$defs/logFault"
+              },
+              "help": {
+                "$ref": "#/$defs/logHelp"
               }
             },
             "required": [
@@ -1969,6 +1972,18 @@
         "position",
         "bid",
         "took"
+      ],
+      "additionalProperties": false
+    },
+    "logHelp": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "$ref": "#/$defs/position"
+        }
+      },
+      "required": [
+        "position"
       ],
       "additionalProperties": false
     },
@@ -7344,6 +7359,9 @@
               },
               "fault": {
                 "$ref": "#/$defs/logFault"
+              },
+              "help": {
+                "$ref": "#/$defs/logHelp"
               },
               "seq": {
                 "$ref": "#/$defs/seq"

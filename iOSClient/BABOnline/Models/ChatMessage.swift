@@ -13,6 +13,10 @@ struct ChatMessage: Identifiable, Equatable {
     /// A set hand's fault line "Fault: <name> (bid N, took M)": the server's stored log line
     /// that carries `fault` (live gameLogEntry or the snapshot log), drawn in red.
     var isFault = false
+    /// The /help room notice "<name> used /help.": the server's stored log line that carries
+    /// `help` (live gameLogEntry or the snapshot log), drawn in the suggestion's gold so the
+    /// table sees it (owner 2026-11-23: the dim line was hard to see).
+    var isHelp = false
 
     enum MessageType: String, Equatable {
         case player

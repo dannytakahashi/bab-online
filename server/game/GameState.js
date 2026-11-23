@@ -1795,8 +1795,11 @@ class GameState {
      * @param {{position: number, bid: number, took: number}} [meta.fault] -
      *   a hand's fault line (gameHandlers.handleHandComplete): on the wire
      *   in the snapshot's log item (optional `fault`)
+     * @param {{position: number}} [meta.help] - the room notice "<name> used
+     *   /help." (assistHandlers, a counted use): on the wire in the
+     *   snapshot's log item (optional `help`), so clients can make it stand out
      */
-    addLogEntry(message, playerPosition = null, type = 'system', { from, fault } = {}) {
+    addLogEntry(message, playerPosition = null, type = 'system', { from, fault, help } = {}) {
         const entry = {
             message,
             playerPosition,
@@ -1805,6 +1808,7 @@ class GameState {
         };
         if (typeof from === 'string') entry.from = from;
         if (fault && typeof fault === 'object') entry.fault = { position: fault.position, bid: fault.bid, took: fault.took };
+        if (help && typeof help === 'object') entry.help = { position: help.position };
 
         this.gameLog.push(entry);
         this.logTotal++;

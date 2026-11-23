@@ -294,6 +294,18 @@ window.addFaultToGameFeed = function(message) {
   if (message) gameLogInstance?.addFaultMessage?.(message);
 };
 
+// The /help room notice ("ann used /help."): the server's stored
+// gameLogEntry with `help` (assistHandlers; onGameLogEntry), drawn gold.
+// A replay of the snapshot log draws it again from the entry's help (renderTable)
+window.addHelpToGameFeed = function(message) {
+  if (!message) return;
+  if (gameLogInstance?.addHelpMessage && gameLogInstance.container?.isConnected !== false) {
+    gameLogInstance.addHelpMessage(message);
+  } else {
+    window.addToGameFeedFromLegacy(message, null); // no log yet: the plain line (buffered)
+  }
+};
+
 // Bridge for updating game log score display
 window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) {
   if (gameLogInstance && gameLogInstance.updateFullScore) {
@@ -1334,7 +1346,8 @@ function initializeApp() {
     const feed = ensureGameLog();
     if (log && feed?.replaceMessages) {
       // a hand's fault line (server-stored, optional `fault`) is drawn red
-      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault })));
+      // and the /help room notice (optional `help`) gold
+      feed.replaceMessages(log.map((e) => ({ message: e.message, position: e.position ?? null, at: e.at ?? null, fault: !!e.fault, help: !!e.help })));
     }
     if (suffix) window.addToGameFeedFromLegacy(suffix);
     if (model.live && model.handSize) {
@@ -2308,7 +2321,9 @@ function initializeApp() {
         return;
       }
       if (data.type === 'system') {
-        window.addToGameFeedFromLegacy?.(data.message, null);
+        // the /help room notice: gold, so the table notices it
+        if (data.help) window.addHelpToGameFeed?.(data.message);
+        else window.addToGameFeedFromLegacy?.(data.message, null);
         // the paused rule (the over-the-shoulder view): keep the watched seat, re-send after the resume
         getShoulderWatch().onLogLine(data.message);
       } else if (data.playerPosition !== undefined) {

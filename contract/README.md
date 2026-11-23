@@ -460,7 +460,10 @@ true` only while the player's tutorial is on, 2026-11-19, so a reload
 shows the "Tutorial on" chip); and a `log[]` item's `fault
 {position, bid, took}` (`$defs.logFault`), only on a hand's fault line
 ("Fault: <name> (bid N, took M)", the s2c gameLogEntry room variant's same
-optional `fault`), so a replay draws it red in place.
+optional `fault`), so a replay draws it red in place; and a `log[]` item's
+`help {position}` (`$defs.logHelp`, 2026-11-23), only on the /help room
+notice ("<name> used /help.", the same room variant's optional `help`), so
+a replay draws it in the suggestion's gold.
 
 Delivery (all additive): `snapshot` on rejoinSuccess, restorePlayerState,
 actionRejected (no log) and the spectator full state;

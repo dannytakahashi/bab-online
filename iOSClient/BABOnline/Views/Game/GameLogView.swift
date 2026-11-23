@@ -224,18 +224,21 @@ struct GameLogPanel: View {
 
 /// A set hand's fault line stands apart from the coral team's colour, as the web's
 /// .log-row.is-fault: a faint red ground, a solid red bar at the left, the full row's width.
-private struct FaultRowChrome: ViewModifier {
-    let isOn: Bool
+/// The /help room notice gets the same chrome in the suggestion's gold (.log-row.is-help).
+private struct HighlightRowChrome: ViewModifier {
+    /// The bar's colour, nil for a plain row.
+    let tint: Color?
+    var groundOpacity: Double = 0.16
 
     func body(content: Content) -> some View {
-        if isOn {
+        if let tint {
             content
                 .padding(.vertical, 2)
                 .padding(.horizontal, Theme.Space.s2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.danger.opacity(0.16))
+                .background(tint.opacity(groundOpacity))
                 .overlay(alignment: .leading) {
-                    Rectangle().fill(Theme.danger).frame(width: 3)
+                    Rectangle().fill(tint).frame(width: 3)
                 }
                 .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: Theme.Radius.sm, topTrailingRadius: Theme.Radius.sm))
         } else {
@@ -251,12 +254,15 @@ struct GameLogEntryView: View {
         HStack(alignment: .top, spacing: Theme.Space.s1) {
             if entry.type == .system {
                 Text(entry.message)
-                    .font(entry.isFault ? .caption2.weight(.semibold) : .caption2)
+                    .font(Self.isHighlighted(entry) ? .caption2.weight(.semibold) : .caption2)
                     .foregroundColor(Self.systemColor(entry))
-                    // a fault line is upright, as the web's .log-row.is-fault; other system rows italic
-                    .italic(!entry.isFault)
-                    .accessibilityIdentifier(entry.isFault ? "logFaultRow" : "")
-                    .modifier(FaultRowChrome(isOn: entry.isFault))
+                    // a fault line and the /help notice are upright, as the web's .log-row.is-fault /
+                    // .is-help; other system rows italic
+                    .italic(!Self.isHighlighted(entry))
+                    .accessibilityIdentifier(entry.isFault ? "logFaultRow" : entry.isHelp ? "logHelpRow" : "")
+                    .modifier(entry.isFault ? HighlightRowChrome(tint: Theme.danger)
+                              : entry.isHelp ? HighlightRowChrome(tint: Theme.gold, groundOpacity: 0.14)
+                              : HighlightRowChrome(tint: nil))
             } else {
                 Text("\(entry.username):")
                     .font(.caption2.bold())
@@ -268,11 +274,15 @@ struct GameLogEntryView: View {
         }
     }
 
+    /// A fault line or the /help room notice: drawn upright and semibold in its chrome.
+    static func isHighlighted(_ entry: ChatMessage) -> Bool { entry.isFault || entry.isHelp }
+
     /// A system row's colour: a set hand's fault line red (danger.text, the web's
-    /// .log-row.is-fault), a row only I see (my /help answer) dim in the suggestion's gold,
-    /// any other dim.
+    /// .log-row.is-fault), the /help room notice in the suggestion's gold (.log-row.is-help),
+    /// a row only I see (my /help answer) dim in that gold, any other dim.
     static func systemColor(_ entry: ChatMessage) -> Color {
         if entry.isFault { return Theme.error }
+        if entry.isHelp { return Theme.gold }
         return entry.isPrivate ? Theme.gold.opacity(0.75) : Theme.textDim
     }
 

@@ -7,6 +7,7 @@ import SwiftUI
 /// gameLogEntry `fault`, rules.handFaults), so they replay red; 2 s after launch one more fault
 /// line arrives live (sequenced, as handleHandComplete sends it); 4 s after launch the table is
 /// restored from a snapshot that holds all three (a reconnect), so each shows exactly once.
+/// Before them the log holds one stored /help room notice (`help`), a gold row.
 extension UIFixture {
     static let faultsMode: Bool = isActive && UserDefaults.standard.bool(forKey: "uiFaults")
 
@@ -16,6 +17,8 @@ extension UIFixture {
     private static func faultEntries(_ snap: [String: Any]) -> [[String: Any]] {
         let at = ((snap["log"] as? [[String: Any]])?.last?["at"] as? Int) ?? 1_767_268_800_000
         return [
+            // the /help room notice (server `help`, drawn gold): replayed in place too
+            ["message": "ivy used /help.", "type": "system", "position": NSNull(), "at": at, "help": ["position": 1]],
             ["message": "Hand 1 over. ivy and hal were set.", "type": "system", "position": NSNull(), "at": at + 1],
             ["message": "Fault: ivy (bid 3, took 1)", "type": "system", "position": NSNull(), "at": at + 1,
              "fault": ["position": 1, "bid": 3, "took": 1]],

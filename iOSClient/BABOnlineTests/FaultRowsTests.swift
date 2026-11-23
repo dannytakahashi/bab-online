@@ -119,6 +119,39 @@ final class FaultRowsTests: XCTestCase {
         XCTAssertEqual(GameLogEntryView.systemColor(mine), Theme.gold.opacity(0.75))
     }
 
+    // MARK: - The /help room notice (gold, 2026-11-23)
+
+    func testTheHelpNoticeIsAGoldRowLiveAndInAReplay() throws {
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("gameLogEntry", ["message": "ann used /help.", "type": "system", "seq": 3,
+                                                      "help": ["position": 2]]))
+        TableReducer.reduce(&s, T.ev("gameLogEntry", ["message": "bo used /help.", "type": "system", "seq": 4, "help": "odd"]))
+        XCTAssertEqual(s.log.entries.filter(\.isHelp).map(\.message), ["ann used /help."],
+                       "a help this build cannot read leaves a plain row, never a dropped line")
+        XCTAssertFalse(s.log.entries.contains { $0.isFault })
+        XCTAssertTrue(s.log.entries.contains { $0.message == "bo used /help." && !$0.isHelp })
+
+        let snap = try T.snapshot("trick-mid-lead3") { raw in
+            var log = raw["log"] as? [[String: Any]] ?? []
+            log.append(["message": "ivy used /help.", "type": "system", "position": NSNull(), "at": 1_767_268_800_000,
+                        "help": ["position": 1]])
+            raw["log"] = log
+        }
+        var r = TableState()
+        TableReducer.reduce(&r, .local(.identity(username: "ivy", playerId: "ui")))
+        TableReducer.reduce(&r, .snapshot(snap, .rejoin, hints: nil))
+        XCTAssertEqual(r.log.entries.filter(\.isHelp).map(\.message), ["ivy used /help."])
+        XCTAssertTrue(r.log.entries.last!.isHelp, "in place, where the server stored it")
+    }
+
+    func testTheHelpNoticeIsGoldAndHighlighted() {
+        var help = ChatMessage(username: "System", message: "ann used /help.", type: .system)
+        help.isHelp = true
+        XCTAssertEqual(GameLogEntryView.systemColor(help), Theme.gold)
+        XCTAssertTrue(GameLogEntryView.isHighlighted(help))
+        XCTAssertFalse(GameLogEntryView.isHighlighted(ChatMessage(username: "System", message: "x", type: .system)))
+    }
+
     // MARK: - /help uses from the snapshot
 
     func testTheSnapshotsViewerAssistMakesTheCountExact() throws {

@@ -428,9 +428,12 @@ function help(socket, io, game, pos) {
 
     // Notice (counted uses only)
     if (counted) {
+        // help {position} (additive 2026-11-23, owner: the gray line was hard
+        // to see): clients draw the notice in the suggestion's gold
         const message = crossed ? TEXT.crossed(owner) : TEXT.notice(owner);
-        game.addLogEntry(message, null, 'system');
-        game.broadcast(io, 'gameLogEntry', { message, type: 'system' });
+        const help = { position: pos };
+        game.addLogEntry(message, null, 'system', { help });
+        game.broadcast(io, 'gameLogEntry', { message, type: 'system', help });
         sendAssistState(io, game, pos);
     }
     return forced ? 'forced' : tutorialOn ? 'tutorial' : counted ? 'counted' : 'again';
