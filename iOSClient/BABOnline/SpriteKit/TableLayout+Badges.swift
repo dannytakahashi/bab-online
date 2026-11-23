@@ -27,8 +27,9 @@ extension TableLayout {
     /// The chip's diameter.
     static let seatBadge: CGFloat = 16
     /// The drawn disc's nearest point is at least this far from the avatar's centre (as the eye's
-    /// `watchClear`: past the turn glow, the voice ring and the bore outline).
-    static let badgeClear: CGFloat = 31
+    /// `watchClear`: past the turn glow, the voice ring and the bore outline; 2 pt past the glow's
+    /// 30, so the disc never touches the glow's soft edge on the seat whose turn it is).
+    static let badgeClear: CGFloat = 32
     /// The clear gap around it.
     static let badgeGap: CGFloat = 1
     /// Its least distance from the safe area's sides.
