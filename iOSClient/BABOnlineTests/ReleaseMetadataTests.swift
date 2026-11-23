@@ -49,8 +49,9 @@ final class ReleaseMetadataTests: XCTestCase {
     /// watched hand only while someone else watches it too; build 34 (still 1.2.4) lets the sound
     /// slider reach 0 and words the help-stats rule as on a win only; build 35 (still 1.2.4) lights
     /// the spectator badge while a spectator talks and puts the Duo's mic in its vertical bar; build 36
-    /// (still 1.2.4) gives chat and bid bubbles one VoiceOver element with the bubble's frame).
-    static let minimumBuild = 36
+    /// (still 1.2.4) gives chat and bid bubbles one VoiceOver element with the bubble's frame; build 37
+    /// (still 1.2.4) plays a fanfare for a won game and a sad trombone for a lost one).
+    static let minimumBuild = 37
 
     private func info(_ key: String) -> Any? { Bundle.main.object(forInfoDictionaryKey: key) }
 
@@ -63,13 +64,13 @@ final class ReleaseMetadataTests: XCTestCase {
     }
 
     /// server/socket/upgradeGate.js answers builds below MIN_IOS_BUILD (3: 1.0.0 (1) and
-    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9), 1.2.2 (10) to (13) and 1.2.3 (14) to (31) and 1.2.4 (32) to (36) are current, pinned
+    /// 1.1.0 (2)) with an update message only; 1.2.0 (3) to (6) and 1.2.1 (7) to (9), 1.2.2 (10) to (13) and 1.2.3 (14) to (31) and 1.2.4 (32) to (37) are current, pinned
     /// server-side by upgradeGate.test.js. The build number only grows:
     /// builds 3 to 6 went to App Store Connect and 1.2.0 (6) was released, so build 7 is 1.2.1.
     func testBuildIsNeverGatedByTheServer() throws {
         let build = try XCTUnwrap(Int(try XCTUnwrap(info("CFBundleVersion") as? String)))
-        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.4 ships as build 36 or later and builds never go back")
-        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.4", "1.2.3 (30) was released 2026-11-21, closing the 1.2.3 train, so builds 32 to 36 are 1.2.4")
+        XCTAssertGreaterThanOrEqual(build, Self.minimumBuild, "1.2.0 (6), 1.2.1 (9) and 1.2.2 (13) were released; 1.2.4 ships as build 37 or later and builds never go back")
+        XCTAssertEqual(info("CFBundleShortVersionString") as? String, "1.2.4", "1.2.3 (30) was released 2026-11-21, closing the 1.2.3 train, so builds 32 to 37 are 1.2.4")
     }
 
     /// README "Releasing (App Store)", which the owner follows to archive and upload, names
