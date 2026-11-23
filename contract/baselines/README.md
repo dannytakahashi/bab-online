@@ -81,7 +81,8 @@ the test and the release step alike:
 | iOS 1.2.4 (34) | `ios-1.2.4-b34.*` | 543d3bf4 (branch ios/release-1.2.4-b34, frozen 2026-11-22 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (33) plus the sound volume slider reaching 0 (#380) and the help-stats copy for the on-a-win rule (#381); no wire change; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight and swapped into the 1.2.4 review for build 33 2026-11-22 (App Store Connect API key) |
 | iOS 1.2.4 (35) | `ios-1.2.4-b35.*` | fc440d9c (branch ios/release-1.2.4-b35, frozen 2026-11-22 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (34) plus the spectator badge's green speaking outline (#385) and the Duo's vertical-bar mic (#386); no wire change; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight and swapped into the 1.2.4 review for build 34 2026-11-22 (App Store Connect API key) |
 | iOS 1.2.4 (36) | `ios-1.2.4-b36.*` | 50f317a5 (branch ios/release-1.2.4-b36, frozen 2026-11-22 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (35) plus the bubbles' VoiceOver frames (#389); no wire change; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight and swapped into the 1.2.4 review for build 35 2026-11-22 (App Store Connect API key) |
-| iOS 1.2.4 (37) | `ios-1.2.4-b37.*` | 5dc81d7b (branch ios/release-1.2.4-b37, frozen 2026-11-22 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (36) plus the game end's fanfare and sad trombone (#391); no wire change; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
+| iOS 1.2.4 (37) | `ios-1.2.4-b37.*` | 5dc81d7b (branch ios/release-1.2.4-b37, frozen 2026-11-22 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (36) plus the game end's fanfare and sad trombone (#391); no wire change; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight and swapped into the 1.2.4 review for build 36 2026-11-22 (App Store Connect API key) |
+| iOS 1.2.4 (38) | `ios-1.2.4-b38.*` | BUMP38 (branch ios/release-1.2.4-b38, frozen 2026-11-23 before its PR merged; main's merge has the same `iOSClient/BABOnline` and `contract/src`: 1.2.4 (37) plus the gold /help room notice (#393): the additive optional `help {position}` on gameLogEntry and snapshot log items, which this build decodes leniently; the `stateSnapshot.requestId` waiver holds) | to be uploaded to TestFlight |
 
 Not here: builds 3 to 5. Build 5 was replaced by 6 with the
 same source. TestFlight builds 3 (29f3536, uploaded, never submitted) and 4
@@ -102,8 +103,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 37                  # HEAD must be build 37 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 37 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 38                  # HEAD must be build 38 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 38 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
