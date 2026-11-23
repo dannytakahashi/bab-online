@@ -32,8 +32,8 @@ final class GameState: ObservableObject {
     var chatDraft = ""
     /// +1 per applied snapshot or reset (the coordinator's resync debounce).
     private(set) var sceneResets = 0
-    /// +1 per seat's lightbulb pop (`TableAnimation.helpBadge`: a live /help notice that turned it
-    /// on; never a snapshot or catch-up), by position: the watching pill's chip pops with it, as
+    /// +1 per seat's badge pop (`TableAnimation.helpBadge`: a live /help notice that turned the
+    /// lightbulb on, or a live tutorial tag that turned the cap on; never a snapshot or catch-up), by position: the watching pill's chip pops with it, as
     /// the felt's SeatBadgeNode does from the same animation.
     @Published private(set) var badgePops: [Int: Int] = [:]
     /// The latest table notice (why a bid or play was refused, or why a dimmed card cannot be

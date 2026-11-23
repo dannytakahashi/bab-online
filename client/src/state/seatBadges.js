@@ -13,16 +13,18 @@
  *     seat goes lazy or is replaced; a snapshot sets it from
  *     seats[].askedHelp instead;
  *   - the graduation cap: from the tutorial's live tag (gameLogEntry
- *     tutorial {position, on}; the stored / snapshot log lines carry none,
- *     so a replay never toggles it); a snapshot sets it from
- *     seats[].tutorial (absent = off);
+ *     tutorial {position, on}); the stored / snapshot log lines carry the
+ *     tag too, but a replay only draws its row in the cap's green and never
+ *     toggles the cap: a snapshot sets it from seats[].tutorial (absent =
+ *     off);
  *   - one badge per seat, the cap when both are known (a tutorial's /help
  *     is never counted, so in practice a seat never has both);
  *   - never on the viewer's own seat (a seat holder or a lazy watcher); a
  *     pure spectator sees every seat's, a watcher (the over-the-shoulder
  *     view) the watched seat's too, on its box.
- * Only the live notice or tag pops the badge (GameScene.updateSeatBadges);
- * a snapshot (rejoin, spectate, resync) draws it still.
+ * Only the live notice, or the live tag turning the cap on, pops the badge
+ * (GameScene.updateSeatBadges; iOS the same); a snapshot (rejoin, spectate,
+ * resync) draws it still.
  */
 
 const isSeat = (p) => p === 1 || p === 2 || p === 3 || p === 4;

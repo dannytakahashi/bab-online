@@ -215,7 +215,7 @@ extension TableReducer {
             // the avatar badges (SeatBadges.swift): the notice's lightbulb, the tutorial's cap (the
             // live tag only: a snapshot's stored tag styles its row and toggles nothing)
             if let pos = Position.valid(p.help?.position) { helpNotice(&s, position: pos, &fx) }
-            if let t = p.tutorial, let pos = Position.valid(t.position), let on = t.on { tutorialTag(&s, position: pos, on: on) }
+            if let t = p.tutorial, let pos = Position.valid(t.position), let on = t.on { tutorialTag(&s, position: pos, on: on, &fx) }
             // the paused rule (the over-the-shoulder view): the room's pause and resume lines
             if type == .system, let m = p.message { watchLogLine(&s, m, &fx) }
         case .chatMessage(let p, let blocked, let mine):

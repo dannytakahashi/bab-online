@@ -2339,9 +2339,13 @@ function initializeApp() {
     },
     onGameLogEntry: (data, { badge = null } = {}) => {
       // The help notice or the tutorial's tag changed that seat's avatar
-      // badge (GameState has it): drawn with one pop, in order behind the
-      // scene work queued before it (a log row's kind: nothing to settle)
-      if (badge) withScene((scene) => scene.updateSeatBadges?.({ pop: [badge] }), 'draw');
+      // badge (GameState has it): drawn with one pop when it comes on (the
+      // cap going off just goes, as on iOS), in order behind the scene work
+      // queued before it (a log row's kind: nothing to settle)
+      if (badge) {
+        const pop = data.tutorial && data.tutorial.on !== true ? [] : [badge];
+        withScene((scene) => scene.updateSeatBadges?.({ pop }), 'draw');
+      }
       // A hand's fault line (the server's, after handComplete): red, and
       // queued behind the scene like handComplete, so it lands after that
       // hand's lines even while the scene is not ready yet ('draw': a log

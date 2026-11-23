@@ -153,16 +153,17 @@ final class SeatBadgesTests: XCTestCase {
         var s = T.dealtState()
         let fx = TableReducer.reduce(&s, tutorialLine(3, on: true, seq: 3))
         XCTAssertEqual(caps(s), [3])
-        XCTAssertEqual(pops(fx), [], "the cap has no pop")
+        XCTAssertEqual(pops(fx), [3], "the live tag turning the cap on pops it once, as the web does")
+        XCTAssertEqual(pops(TableReducer.reduce(&s, tutorialLine(3, on: true, seq: 4))), [], "a cap already on does not pop again")
         XCTAssertTrue(s.log.entries.last!.isTutorial, "the live line is the cap's colour too")
-        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 2, "seq": 4]))
-        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 3, "seq": 5]))
-        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "Bot", "originalUsername": "P", "seq": 6]))
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 2, "seq": 5]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 3, "seq": 6]))
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "Bot", "originalUsername": "P", "seq": 7]))
         XCTAssertEqual(caps(s), [3], "turns, bids and a lazy bot leave it: the owner's tutorial is on")
         TableReducer.reduce(&s, T.ev("gameStart", ["gameId": "g1", "hand": [T.card("spades", "A")], "trump": T.card("diamonds", "5"),
-                                                   "score1": 0, "score2": 0, "dealer": 1, "position": 1, "currentHand": 1, "seq": 7]))
+                                                   "score1": 0, "score2": 0, "dealer": 1, "position": 1, "currentHand": 1, "seq": 8]))
         XCTAssertEqual(caps(s), [3], "a new deal too")
-        TableReducer.reduce(&s, tutorialLine(3, on: false, seq: 8))
+        XCTAssertEqual(pops(TableReducer.reduce(&s, tutorialLine(3, on: false, seq: 9))), [], "turning it off does not pop")
         XCTAssertEqual(caps(s), [])
     }
 

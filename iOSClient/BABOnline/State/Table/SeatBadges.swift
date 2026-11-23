@@ -56,10 +56,12 @@ extension TableReducer {
         fx.append(.animate(.helpBadge(position: pos)))
     }
 
-    /// The live tutorial tag: `pos`'s cap on or off.
-    static func tutorialTag(_ s: inout TableState, position pos: Int, on: Bool) {
-        guard s.players.seats[pos] != nil else { return }
+    /// The live tutorial tag: `pos`'s cap on or off; turning it on pops it once, as the web does
+    /// (the same `TableAnimation.helpBadge`, which pops whatever badge the seat shows).
+    static func tutorialTag(_ s: inout TableState, position pos: Int, on: Bool, _ fx: inout [TableEffect]) {
+        guard let seat = s.players.seats[pos] else { return }
         s.players.seats[pos]?.tutorial = on
+        if on && !seat.tutorial { fx.append(.animate(.helpBadge(position: pos))) }
     }
 
     /// Every lightbulb but `keep`'s goes (nil: all of them).

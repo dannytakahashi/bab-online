@@ -168,6 +168,11 @@ test('/tutorial on (human-only game): the notice, the welcome tip, a rule tip an
     expect(game.getSnapshotV2(other.id).log.at(-1)).toMatchObject({ tutorial: { position: p, on: true } });
     expect(seatTutorial(t, other.id)).toEqual([1, 2, 3, 4].map((q) => q === p));
     expect(game.getSnapshotV2(other.id).seats.every((x) => !('askedHelp' in x))).toBe(true);
+    // a record left by a previous owner (records are replaced only when the seat is next used) draws no cap
+    const own = game.assist[p];
+    game.assist[p] = { ...own, user: 'previous_owner' };
+    expect(seatTutorial(t, other.id)).toEqual([false, false, false, false]);
+    game.assist[p] = own;
     const h = hintsTo(t, s.id, mark);
     expect(h.map((x) => [x.source, x.kind, x.tipId || null])).toEqual([
         ['tutorial', 'tip', 'T.welcome'],

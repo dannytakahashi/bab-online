@@ -102,8 +102,8 @@ enum TableAnimation: Equatable {
     case chatBubble(position: Int, message: String)
     /// A spectator's chat ("Name: text") by the spectator badge, one at a time (isSpectator, not `type`).
     case spectatorChatBubble(username: String, message: String)
-    /// The live /help room notice: that seat's lightbulb pops once (SeatBadges.swift). Never from
-    /// a snapshot or a buffered catch-up.
+    /// The live /help room notice or the live tutorial tag turning the cap on: that seat's badge
+    /// pops once (SeatBadges.swift). Never from a snapshot or a buffered catch-up.
     case helpBadge(position: Int)
     case sceneReset
 }

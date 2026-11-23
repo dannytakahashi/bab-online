@@ -1167,8 +1167,9 @@ export class GameState {
   /**
    * A live gameLogEntry: the help notice (`help {position}`) lights that
    * seat's lightbulb, the tutorial's tag (`tutorial {position, on}`) sets
-   * its graduation cap. Never called for a snapshot's log (its lines carry
-   * no tutorial tag, and a replayed notice is not this turn's).
+   * its graduation cap. Never called for a snapshot's log: its stored tags
+   * only style their rows (the snapshot's seats[] decide the badges, and a
+   * replayed notice is not this turn's).
    * @returns {number|null} the seat whose badge changed, or null
    */
   applyLogEntry(data) {

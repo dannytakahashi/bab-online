@@ -934,3 +934,24 @@ test('a lazy bot is not a native one: the limit, the warning and the crossing st
     expect(game.getSnapshotV2(t.owner(asker).id).viewer.assist).toEqual({ uses: 4, freeUses: 3, assisted: true });
     await Promise.all(t.pending);
 });
+
+test('the lightbulb is only for the asking turn: gone when that seat is on turn again (a new turnKey)', async () => {
+    const t = await lobbyGame('lb');
+    const { game } = t;
+    const p1 = game.currentTurn;
+    t.say(t.owner(p1), '/help');
+    const asked = (sid) => game.getSnapshotV2(sid).seats.filter((x) => x.askedHelp === true).map((x) => x.position);
+    const watcher = t.owner((p1 % 4) + 1).id;
+    expect(asked(watcher)).toEqual([p1]);
+    const key = game.turnKey();
+    await t.bid();
+    for (let i = 0; i < 12 && game.currentTurn !== p1; i++) {
+        if (game.stage === Phase.BIDDING) await t.bid(); else await t.play();
+    }
+    // p1 is on turn again, with a turn it has not asked on: a snapshot (rejoin, a late spectator) shows no bulb
+    expect(game.currentTurn).toBe(p1);
+    expect(game.turnKey()).not.toBe(key);
+    expect(asked(watcher)).toEqual([]);
+    expect(asked(t.owner(p1).id)).toEqual([]);
+    await Promise.all(t.pending);
+});
