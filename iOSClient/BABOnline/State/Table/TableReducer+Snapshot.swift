@@ -149,8 +149,10 @@ extension TableReducer {
                                       position: Position.valid(entry.position), timestamp: ChatMessage.serverDate(entry.at) ?? Date())
                 // the stored fault line replays red, in place, once (the server's, never recomputed here)
                 row.isFault = entry.fault != nil
-                // and the /help room notice gold
+                // and the /help room notice gold, the tutorial's lines in the cap's colour (styled
+                // only: the snapshot's seats[].tutorial carries the cap)
                 row.isHelp = entry.help != nil
+                row.isTutorial = entry.tutorial != nil
                 return row
             }
         }

@@ -152,6 +152,47 @@ final class FaultRowsTests: XCTestCase {
         XCTAssertFalse(GameLogEntryView.isHighlighted(ChatMessage(username: "System", message: "x", type: .system)))
     }
 
+    // MARK: - The tutorial's room lines (the cap's colour, 2026-11-23)
+
+    func testTheTutorialLinesAreCapColouredRowsLiveAndInAReplay() throws {
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("gameLogEntry", ["message": "ann turned on the tutorial.", "type": "system", "seq": 3,
+                                                      "tutorial": ["position": 2, "on": true]]))
+        TableReducer.reduce(&s, T.ev("gameLogEntry", ["message": "This game now counts as bot-assisted for ann.", "type": "system", "seq": 4,
+                                                      "tutorial": ["position": 2, "on": true]]))
+        TableReducer.reduce(&s, T.ev("gameLogEntry", ["message": "bo turned off the tutorial.", "type": "system", "seq": 5, "tutorial": "odd"]))
+        XCTAssertEqual(s.log.entries.filter(\.isTutorial).map(\.message), ["ann turned on the tutorial.", "This game now counts as bot-assisted for ann."])
+        XCTAssertTrue(s.log.entries.contains { $0.message == "bo turned off the tutorial." && !$0.isTutorial },
+                      "a tag this build cannot read leaves a plain row, never a dropped line")
+        XCTAssertFalse(s.log.entries.contains { $0.isHelp || $0.isFault })
+
+        let snap = try T.snapshot("trick-mid-lead3") { raw in
+            var log = raw["log"] as? [[String: Any]] ?? []
+            log.append(["message": "hal is playing with the tutorial.", "type": "system", "position": NSNull(), "at": 1_767_268_800_000,
+                        "tutorial": ["position": 3, "on": true]])
+            raw["log"] = log
+        }
+        var r = TableState()
+        TableReducer.reduce(&r, .local(.identity(username: "ivy", playerId: "ui")))
+        TableReducer.reduce(&r, .snapshot(snap, .rejoin, hints: nil))
+        XCTAssertEqual(r.log.entries.filter(\.isTutorial).map(\.message), ["hal is playing with the tutorial."])
+        XCTAssertTrue(r.log.entries.last!.isTutorial, "in place, where the server stored it")
+        XCTAssertFalse(r.players.seats[3]?.tutorial ?? true, "styled only: no cap without the seats[] key")
+    }
+
+    func testTheTutorialLineIsCapColouredAndHighlighted() {
+        var row = ChatMessage(username: "System", message: "ann turned on the tutorial.", type: .system)
+        row.isTutorial = true
+        XCTAssertEqual(GameLogEntryView.systemColor(row), Theme.primary)
+        XCTAssertEqual(Theme.primary, Theme.Badge.cap, "the avatar cap's colour")
+        XCTAssertTrue(GameLogEntryView.isHighlighted(row))
+        XCTAssertEqual(GameLogEntryView.rowIdentifier(row), "logTutorialRow")
+        var help = ChatMessage(username: "System", message: "ann used /help.", type: .system)
+        help.isHelp = true
+        XCTAssertEqual(GameLogEntryView.rowIdentifier(help), "logHelpRow")
+        XCTAssertEqual(GameLogEntryView.rowIdentifier(ChatMessage(username: "System", message: "x", type: .system)), "")
+    }
+
     // MARK: - /help uses from the snapshot
 
     func testTheSnapshotsViewerAssistMakesTheCountExact() throws {

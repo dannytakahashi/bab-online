@@ -804,10 +804,19 @@ final class TableDebugProbe: ObservableObject {
     /// seats=<pos>:<x>,<y>;..." (each seat avatar's centre in the pane's points, for a tap).
     @Published var tableShoulder = "-"
     /// The watching pill's avatar badge (WatchingPill, SeatBadgeChip): "<bulb|cap|-> chip=<x y w h|->
-    /// avatar=<x y w h> text=<x y w h> pill=<x y w h>", global points ("-": no pill).
+    /// avatar=<x y w h> text=<x y w h> pill=<x y w h> pops=<n> pop=scale|fade|-", global points
+    /// ("-": no pill); pops counts the chip's pops this launch (BadgePop), pop the last one's kind.
     @Published var shoulderBadge = "-"
     var shoulderBadgeKind: String? { didSet { updateShoulderBadge() } }
     var shoulderBadgeFrames: [String: CGRect] = [:] { didSet { updateShoulderBadge() } }
+    private var pillPops = 0
+    private var lastPillPop = "-"
+
+    func notePillPop(fade: Bool) {
+        pillPops += 1
+        lastPillPop = fade ? "fade" : "scale"
+        updateShoulderBadge()
+    }
 
     private func updateShoulderBadge() {
         guard let kind = shoulderBadgeKind else {
@@ -818,7 +827,7 @@ final class TableDebugProbe: ObservableObject {
             guard key != "chip" || kind != "-", let f = shoulderBadgeFrames[key] else { return "-" }
             return String(format: "%.1f %.1f %.1f %.1f", f.minX, f.minY, f.width, f.height)
         }
-        let text = "\(kind) chip=\(r("chip")) avatar=\(r("avatar")) text=\(r("text")) pill=\(r("pill"))"
+        let text = "\(kind) chip=\(r("chip")) avatar=\(r("avatar")) text=\(r("text")) pill=\(r("pill")) pops=\(pillPops) pop=\(lastPillPop)"
         if text != shoulderBadge { shoulderBadge = text }
     }
     /// Where my mic is (UIFixture+SelfSpeaking): "at=bar|felt|- symbol=<sf symbol> tint=red|green|-".

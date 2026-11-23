@@ -154,6 +154,7 @@ final class SeatBadgesTests: XCTestCase {
         let fx = TableReducer.reduce(&s, tutorialLine(3, on: true, seq: 3))
         XCTAssertEqual(caps(s), [3])
         XCTAssertEqual(pops(fx), [], "the cap has no pop")
+        XCTAssertTrue(s.log.entries.last!.isTutorial, "the live line is the cap's colour too")
         TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 2, "seq": 4]))
         TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 3, "seq": 5]))
         TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "Bot", "originalUsername": "P", "seq": 6]))
@@ -208,17 +209,34 @@ final class SeatBadgesTests: XCTestCase {
         TableReducer.reduce(&r, .snapshot(plain, .requested("again"), hints: nil))
         XCTAssertEqual(caps(r), [])
         XCTAssertEqual(bulbs(r), [])
-        // the snapshot's stored tutorial line (plain, as the server stores it) toggles nothing
+        // the snapshot's stored tutorial line (tagged, as the server stores it since baaba3d5) styles
+        // its row and toggles nothing: the seats[] say
         let logged = try T.snapshot("trick-mid-lead3") { raw in
             var log = raw["log"] as? [[String: Any]] ?? []
-            log.append(["message": "kim turned on the tutorial.", "type": "system", "position": NSNull(), "at": 1_767_268_800_000])
+            log.append(["message": "kim turned on the tutorial.", "type": "system", "position": NSNull(), "at": 1_767_268_800_000,
+                        "tutorial": ["position": 2, "on": true]])
             log.append(["message": "kim used /help.", "type": "system", "position": NSNull(), "at": 1_767_268_800_001, "help": ["position": 2]])
             raw["log"] = log
         }
         let fx2 = TableReducer.reduce(&r, .snapshot(logged, .requested("log"), hints: nil))
-        XCTAssertEqual(caps(r), [])
+        XCTAssertEqual(caps(r), [], "a replayed tutorial tag is a green row, never a cap")
         XCTAssertEqual(bulbs(r), [], "a replayed notice is a gold row, never a lightbulb")
         XCTAssertEqual(pops(fx2), [])
+        XCTAssertEqual(r.log.entries.filter(\.isTutorial).map(\.message), ["kim turned on the tutorial."])
+        XCTAssertEqual(r.log.entries.filter(\.isHelp).map(\.message), ["kim used /help."])
+        // nor does a stored off line take a snapshot's cap away
+        let off = try T.snapshot("trick-mid-lead3") { raw in
+            var seats = raw["seats"] as? [[String: Any]] ?? []
+            for i in seats.indices where seats[i]["position"] as? Int == 2 { seats[i]["tutorial"] = true }
+            raw["seats"] = seats
+            var log = raw["log"] as? [[String: Any]] ?? []
+            log.append(["message": "kim turned off the tutorial.", "type": "system", "position": NSNull(), "at": 1_767_268_800_002,
+                        "tutorial": ["position": 2, "on": false]])
+            raw["log"] = log
+        }
+        TableReducer.reduce(&r, .snapshot(off, .requested("off"), hints: nil))
+        XCTAssertEqual(caps(r), [2], "the seats[] win over a replayed line")
+        XCTAssertTrue(r.log.entries.last!.isTutorial)
     }
 
     // MARK: whose avatar
@@ -448,6 +466,7 @@ final class SeatBadgesTests: XCTestCase {
             let (h, scene) = try makeScene("trick-mid-lead3")
             let animator = CapturingAnimator()
             scene.animator = animator
+            XCTAssertEqual(h.store.badgePops, [:], "the seeded snapshot pops nothing (the watching pill's chip either)")
             let seq = (h.store.state.sync.lastSeq ?? 0) + 1
             _ = h.store.apply(serverEvent: "gameLogEntry", payload: [["message": "kim used /help.", "type": "system", "seq": seq,
                                                                        "help": ["position": 2]] as [String: Any]])
@@ -465,6 +484,7 @@ final class SeatBadgesTests: XCTestCase {
                                                                        "help": ["position": 2]] as [String: Any]])
             XCTAssertEqual(animator.runs.filter { $0.node === b }.count, 1)
             XCTAssertEqual(scene.badgePops, 1)
+            XCTAssertEqual(h.store.badgePops, [2: 1], "the watching pill's chip pops with the felt's")
             // my own seat's notice: nothing to pop (no avatar)
             _ = h.store.apply(serverEvent: "gameLogEntry", payload: [["message": "ivy used /help.", "type": "system", "seq": seq + 2,
                                                                        "help": ["position": 1]] as [String: Any]])

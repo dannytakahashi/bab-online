@@ -21,6 +21,10 @@ struct WatchingPill: View {
     /// The watched seat's avatar badge (SeatBadge.of: its lightbulb or graduation cap), as a seat
     /// avatar's on the felt: the bottom seat has none there, so the pill's avatar carries it.
     var badge: SeatBadge? = nil
+    /// The watched seat (its chip's identity).
+    var position = 0
+    /// The watched seat's lightbulb pops so far (GameState.badgePops): a change pops the chip.
+    var badgePop = 0
     /// Seats a VoiceOver action may watch instead (position, name).
     var others: [(position: Int, name: String)] = []
     var onProfile: () -> Void
@@ -38,11 +42,18 @@ struct WatchingPill: View {
                         .overlay(Circle().stroke(speaking ? Theme.success : isTurn ? Theme.gold : Theme.inputBorder, lineWidth: speaking || isTurn ? 2.5 : 1))
                         .shoulderBadgeProbe("avatar")
                         .overlay {
-                            if let badge {
-                                SeatBadgeChip(badge: badge)
-                                    .shoulderBadgeProbe("chip")  // inside the offset: its drawn frame
-                                    .offset(Self.chipOffset)
+                            // always there (empty without a badge), so a pop that turns the
+                            // lightbulb on animates it; a new watched seat starts afresh (id)
+                            ZStack {
+                                if let badge {
+                                    SeatBadgeChip(badge: badge)
+                                        .shoulderBadgeProbe("chip")  // inside the offset: its drawn frame
+                                }
                             }
+                            .frame(width: Self.chip, height: Self.chip)
+                            .modifier(BadgePop(pop: badgePop))
+                            .id(position)
+                            .offset(Self.chipOffset)
                         }
                         // the chip sticks out past the avatar's trailing side: room for it before the name
                         .padding(.trailing, badge == nil ? 0 : Self.chipRoom)
@@ -91,6 +102,8 @@ struct WatchingPill: View {
 
     /// The avatar's side (points).
     static let avatar: CGFloat = 24
+    /// The chip's side (SeatBadgeChip's default).
+    static let chip: CGFloat = 12
     /// The chip's centre from the avatar's: `chipDistance` out, 30 degrees above the trailing
     /// side's horizontal, so the chip (12 across) stays 0.75 pt outside the rings (radius 12 +
     /// 1.25 for the 2.5 pt stroke) and its top inside the pill's 8 pt padding.
@@ -122,6 +135,45 @@ struct SeatBadgeChip: View {
             )
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+    }
+}
+
+/// The pill chip's pop on a live /help notice (`pop` changes; its first draw, a snapshot's, never
+/// pops), as SeatBadgeNode.pop: 1 -> 1.3 -> 1 in 0.25 s, a 0.25 s fade in under Reduce Motion
+/// (read when the pop starts, as the scene's effects do: Theme+Motion.swift).
+private struct BadgePop: ViewModifier {
+    let pop: Int
+
+    private struct Value { var scale: CGFloat = 1; var opacity: Double = 1 }
+
+    func body(content: Content) -> some View {
+        content
+            .keyframeAnimator(initialValue: Value(), trigger: pop) { view, v in
+                view.scaleEffect(v.scale).opacity(v.opacity)
+            } keyframes: { _ in
+                let fade = Theme.Motion.reduceMotion
+                KeyframeTrack(\.scale) {
+                    if fade {
+                        LinearKeyframe(1, duration: 0.25)
+                    } else {
+                        CubicKeyframe(1.3, duration: 0.125)
+                        CubicKeyframe(1, duration: 0.125)
+                    }
+                }
+                KeyframeTrack(\.opacity) {
+                    if fade {
+                        LinearKeyframe(0, duration: 0)
+                        LinearKeyframe(1, duration: 0.25)
+                    } else {
+                        LinearKeyframe(1, duration: 0.25)
+                    }
+                }
+            }
+            #if DEBUG
+            .onChange(of: pop) { _, _ in
+                if UIFixture.isActive { TableDebugProbe.shared.notePillPop(fade: Theme.Motion.reduceMotion) }
+            }
+            #endif
     }
 }
 

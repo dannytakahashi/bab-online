@@ -1560,7 +1560,7 @@ private struct GameScreen: View {
         let others = ShoulderRules.watchableSeats(s).filter { $0 != w }.map { (position: $0, name: gameState.players.name($0)) }
         return WatchingPill(player: name, pictureKey: seat.flatMap { $0.avatarUrl ?? $0.pic.string }, paused: gameState.watchPaused,
                             speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused,
-                            badge: SeatBadge.of(seat), others: others,
+                            badge: SeatBadge.of(seat), position: w, badgePop: gameState.badgePops[w] ?? 0, others: others,
                             onProfile: { SeatTaps.subject.send(name) },
                             onTableView: {
                                 gameState.apply(.local(.watchTableView))

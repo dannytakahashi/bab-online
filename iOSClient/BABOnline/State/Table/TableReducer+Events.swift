@@ -210,8 +210,10 @@ extension TableReducer {
             var row = ChatMessage(username: "System", message: p.message ?? "", type: type)
             row.isFault = p.fault != nil
             row.isHelp = p.help != nil
+            row.isTutorial = p.tutorial != nil
             s.log.entries.append(row)
-            // the avatar badges (SeatBadges.swift): the notice's lightbulb, the tutorial's cap
+            // the avatar badges (SeatBadges.swift): the notice's lightbulb, the tutorial's cap (the
+            // live tag only: a snapshot's stored tag styles its row and toggles nothing)
             if let pos = Position.valid(p.help?.position) { helpNotice(&s, position: pos, &fx) }
             if let t = p.tutorial, let pos = Position.valid(t.position), let on = t.on { tutorialTag(&s, position: pos, on: on) }
             // the paused rule (the over-the-shoulder view): the room's pause and resume lines

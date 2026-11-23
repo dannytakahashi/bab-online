@@ -15,8 +15,9 @@ import Foundation
 ///   seat going lazy, being replaced or coming back (playerLazyMode / playerResigned /
 ///   playerActiveMode); abortGame, leaving and a new game start the table afresh.
 /// - The graduation cap (`SeatState.tutorial`): the live tutorial tag (gameLogEntry `tutorial
-///   {position, on}`, on the room's broadcast only; the stored line is plain, so a replayed log
-///   never toggles it). It stays while the seat is lazy (the owner's tutorial stays on, as the
+///   {position, on}`). The server stores the tag on the line too (the log draws it in the cap's
+///   colour, `ChatMessage.isTutorial`), but a replayed one (the snapshot's log) never toggles
+///   the cap: the snapshot's seats[] says. It stays while the seat is lazy (the owner's tutorial stays on, as the
 ///   server's snapshot says).
 /// - A snapshot sets both from `seats[].askedHelp` / `seats[].tutorial` (present only when true:
 ///   a full snapshot without the key is off), with no pop; one with no seats yet keeps ours.

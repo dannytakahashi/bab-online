@@ -187,7 +187,30 @@ final class SeatBadgesUITests: XCTestCase {
         XCTAssertTrue(bulb.buttons["shoulder.pill"].waitForExistence(timeout: 20))
         checkPillChip(bulb, "bulb", "Asked for help this turn")
         XCTAssertNil(seats(Fixture.probe(bulb, "table.badges"))[1], "no second badge for ivy on the felt")
+        XCTAssertTrue(Fixture.probe(bulb, "table.shoulderBadge").hasSuffix("pops=0 pop=-"), "a snapshot's chip never pops")
         shot("badges-watching-bulb")
+    }
+
+    /// The watched seat's live /help notice (`pop:1`, 2 s after launch) pops the pill's chip once,
+    /// as the felt's lightbulb pops; Reduce Motion fades it in instead.
+    func testTheWatchingPillsChipPopsOnALiveNotice() {
+        for reduce in [false, true] {
+            let app = Fixture.launch("spectator-mid-hand", extra: ["-uiShoulder", "1", "-uiSeatBadges", "pop:1"]
+                                     + (reduce ? ["-uiReduceMotion", "YES"] : []))
+            XCTAssertTrue(app.buttons["shoulder.pill"].waitForExistence(timeout: 20))
+            let want = "pops=1 pop=\(reduce ? "fade" : "scale")"
+            let deadline = Date().addingTimeInterval(10)
+            var probe = Fixture.probe(app, "table.shoulderBadge")
+            while !probe.hasSuffix(want) && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.25)
+                probe = Fixture.probe(app, "table.shoulderBadge")
+            }
+            note("pill-pop-\(reduce ? "fade" : "scale")", probe)
+            XCTAssertTrue(probe.hasSuffix(want), probe)
+            checkPillChip(app, "bulb", "Asked for help this turn")
+            XCTAssertTrue(Fixture.probe(app, "table.badges").contains("pops=0 "), "ivy has no avatar on the felt: the pill's is the only pop")
+            app.terminate()
+        }
     }
 
     func testReduceMotionFadesTheLightbulbIn() {
