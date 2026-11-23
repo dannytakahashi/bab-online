@@ -21,8 +21,14 @@
  *                 the cards and the bid panel are there
  *   trickComplete trick-ours when my team took it, else trick
  *   handComplete  made / set: my team's tricks against its bid total
- *   gameEnd       gameend, GAME_END_AFTER_HAND_S after the last hand's
- *                 made / set (the server sends both in one tick)
+ *   gameEnd       by my team's final score against the other's (owner
+ *                 2026-11-22): gameend-win (a brass fanfare) above it,
+ *                 gameend-lose (the sad trombone, "wah, wah, wah") below
+ *                 it, gameend (the soft arpeggio) for a tie, no team (a
+ *                 spectator) or no score; a lazy watcher keeps its seat's
+ *                 team; GAME_END_AFTER_HAND_S
+ *                 after the last hand's made / set (the server sends both
+ *                 in one tick)
  *   bidClock      the bid clock's tune (owner 2026-11-18), for everyone at
  *                 the table (seats, lazy watchers, spectators): it follows
  *                 GameState.bidClock (_syncTune), END-aligned with the
@@ -450,8 +456,12 @@ export class TableSounds {
     return played;
   }
 
-  /** gameEnd: after the last hand's made / set when that has just started. */
-  gameEnd() {
+  /**
+   * gameEnd: after the last hand's made / set when that has just started.
+   * gameend-win / gameend-lose for my team's win / loss (its final score
+   * above / below the other's), else gameend (a tie, a spectator, no score).
+   */
+  gameEnd(data) {
     this.stopTune();
     this._wasMyTurn = false;
     this._cancelTurnReminder();
@@ -462,7 +472,17 @@ export class TableSounds {
     this._handEndAt = null;
     if (!this.live) return false;
     const delay = since < GAME_END_AFTER_HAND_S ? GAME_END_AFTER_HAND_S - since : 0;
-    return this._play('gameend', delay > 0 ? { delay } : undefined);
+    return this._play(this._gameEndSound(data), delay > 0 ? { delay } : undefined);
+  }
+
+  /** gameEnd's sound from my team's final score against the other's (gameEnd's score {team1, team2}). */
+  _gameEndSound(data) {
+    const parity = this._myParity();
+    const t1 = data?.score?.team1, t2 = data?.score?.team2;
+    if (parity === null || typeof t1 !== 'number' || typeof t2 !== 'number') return 'gameend';
+    const [mine, theirs] = parity === 1 ? [t1, t2] : [t2, t1];
+    if (mine === theirs) return 'gameend';
+    return mine > theirs ? 'gameend-win' : 'gameend-lose';
   }
 }
 

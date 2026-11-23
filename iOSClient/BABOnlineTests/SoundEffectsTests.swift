@@ -40,7 +40,42 @@ final class SoundEffectsTests: XCTestCase {
                                                                   "team1OldScore": 0, "team2OldScore": 0, "seq": seq]))
         XCTAssertEqual(sounds(made), [.made]); seq += 1
         let end = TableReducer.reduce(&s, T.ev("gameEnd", ["score": ["team1": 10, "team2": 0], "tournamentId": NSNull(), "seq": seq]))
-        XCTAssertEqual(sounds(end), [.gameEnd])
+        XCTAssertEqual(sounds(end), [.gameWon], "my team won")
+    }
+
+    /// Owner 2026-11-22: the fanfare for my team's win, the sad trombone for its loss, the soft
+    /// arpeggio for a tie.
+    func testGameEndIsTheFanfareOrTheTromboneByMyTeamsScore() {
+        func end(seat: Int, _ t1: Int, _ t2: Int) -> [SoundKind] {
+            var s = TableState()
+            TableReducer.reduce(&s, .local(.identity(username: "me", playerId: "sid-me")))
+            TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+            var sockets = ["bot:a", "bot:b", "bot:c", "bot:d"], names = ["A", "B", "C", "D"]
+            sockets[seat - 1] = "sid-me"; names[seat - 1] = "me"
+            TableReducer.reduce(&s, T.ev("positionUpdate", [
+                "positions": [1, 2, 3, 4], "sockets": sockets, "usernames": names.map { ["username": $0] }, "pics": [1, 2, 3, 4], "seq": 1,
+            ]))
+            TableReducer.reduce(&s, T.ev("gameStart", [
+                "gameId": "g1", "hand": [T.card("spades", "A")], "trump": T.card("diamonds", "5"), "score1": 0, "score2": 0,
+                "dealer": 4, "position": seat, "currentHand": 1, "seq": 2,
+            ]))
+            XCTAssertEqual(s.table.viewer.position, seat)
+            XCTAssertTrue(s.table.viewer.holdsSeat)
+            return sounds(TableReducer.reduce(&s, T.ev("gameEnd", ["score": ["team1": t1, "team2": t2], "tournamentId": NSNull(), "seq": 3])))
+        }
+        XCTAssertEqual(end(seat: 1, 120, 300), [.gameLost])
+        XCTAssertEqual(end(seat: 3, 120, 300), [.gameLost])
+        XCTAssertEqual(end(seat: 2, 120, 300), [.gameWon], "the other team won")
+        XCTAssertEqual(end(seat: 3, 300, 120), [.gameWon])
+        XCTAssertEqual(end(seat: 4, 310, -40), [.gameLost])
+        XCTAssertEqual(end(seat: 1, 200, 200), [.gameEnd], "a tie has no loser")
+    }
+
+    func testTheFanfareAndTheTromboneAreTheirOwnFiles() {
+        XCTAssertEqual(SoundKind.gameWon.files, ["gameend-win"])
+        XCTAssertEqual(SoundKind.gameLost.files, ["gameend-lose"])
+        XCTAssertEqual(SoundKind.gameWon.gain, 1)
+        XCTAssertEqual(SoundKind.gameLost.gain, 1)
     }
 
     func testTrickOursFollowsMyTeamsParity() {
@@ -303,7 +338,13 @@ final class SoundEffectsTests: XCTestCase {
                         }
                     case "gameStart": if heard == [.deal] { live.deals += 1 }
                     case "handComplete": if !heard.isEmpty { live.hands += 1 }
-                    case "gameEnd": if heard == [.gameEnd] { live.ends += 1 }
+                    case "gameEnd":
+                        if [[.gameEnd], [.gameWon], [.gameLost]].contains(heard) { live.ends += 1 }
+                        if heard != [.gameEnd], let me = h.store.position, let sc = d?["score"] as? [String: Any],
+                           let t1 = sc["team1"] as? Int, let t2 = sc["team2"] as? Int {
+                            let (mine, theirs) = me % 2 == 1 ? (t1, t2) : (t2, t1)
+                            XCTAssertEqual(heard, mine > theirs ? [.gameWon] : [.gameLost], "the verdict by my team's score: \(ctx)")
+                        }
                     case "actionRejected": if d?["action"] as? String == "play" { refusedPlays += 1 }
                     default: XCTAssertFalse(heard.contains { $0 != .turn }, ctx)
                     }
@@ -483,6 +524,21 @@ final class SoundEffectsTests: XCTestCase {
         c.clock.advance(5)
         c.cues.cue(.gameEnd)
         XCTAssertEqual(c.heard.last, .gameEnd)
+        // the trombone waits for the last hand's set the same way
+        c.clock.advance(5)
+        c.cues.cue(.set)
+        c.cues.cue(.gameLost)
+        c.clock.advance(TableSoundCues.afterHandEnd - 0.1)
+        XCTAssertEqual(c.heard.last, .set)
+        c.clock.advance(0.1)
+        XCTAssertEqual(c.heard.suffix(2), [.set, .gameLost])
+        // and the fanfare after a made
+        c.clock.advance(5)
+        c.cues.cue(.made)
+        c.cues.cue(.gameWon)
+        XCTAssertEqual(c.heard.last, .made)
+        c.clock.advance(TableSoundCues.afterHandEnd)
+        XCTAssertEqual(c.heard.suffix(2), [.made, .gameWon])
         XCTAssertEqual(c.times.last, c.clock.now)
     }
 

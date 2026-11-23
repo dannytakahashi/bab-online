@@ -104,7 +104,7 @@ extension TableReducer {
             // the over-the-shoulder view ends with the game: the end screen is the plain
             // spectator's (the server forgets the watch with the game; nothing is sent)
             endWatch(&s)
-            fx.append(.sound(.gameEnd))
+            fx.append(.sound(TableReducer.gameEndSound(s, data)))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
             s.table.phase = .ended(data ?? GameEndData(winningTeam: 0, team1Score: s.scores.score.team1, team2Score: s.scores.score.team2,
@@ -653,5 +653,20 @@ extension TableReducer {
         guard s.table.bidClock != nil else { return }
         s.table.bidClock = nil
         fx.append(.bidClock(.stop(kind)))
+    }
+}
+
+extension TableReducer {
+    /// The game end's sound (owner 2026-11-22), by my team's final score against the other's: the
+    /// fanfare above it, the sad trombone below it, the soft arpeggio for a tie or no team (a pure
+    /// spectator; a lazy owner watching keeps its seat's team, as for made / set). The scores are
+    /// the payload's (GameEndData), else the table's last.
+    static func gameEndSound(_ s: TableState, _ data: GameEndData?) -> SoundKind {
+        guard s.table.viewer.holdsSeat, let me = s.table.viewer.position else { return .gameEnd }
+        let t1 = data?.team1Score ?? s.scores.score.team1
+        let t2 = data?.team2Score ?? s.scores.score.team2
+        let (mine, theirs) = Positions.getTeamNumber(me) == 1 ? (t1, t2) : (t2, t1)
+        if mine == theirs { return .gameEnd }
+        return mine > theirs ? .gameWon : .gameLost
     }
 }

@@ -60,7 +60,7 @@ function checkOrder() {
     if (p.name === 'deal') handEnded = false;
     if (p.name === 'turn') expect(handEnded, `turn #${i} between a hand end and the next deal`).toBe(false);
     if (p.name === 'turn') expect(p.myTurn, `turn #${i} chimed when the turn was not mine`).toBe(true);
-    if (p.name === 'gameend' && played.some((q) => (q.name === 'made' || q.name === 'set') && q.t === p.t)) {
+    if (p.name.startsWith('gameend') && played.some((q) => (q.name === 'made' || q.name === 'set') && q.t === p.t)) {
       expect(p.opts?.delay).toBeCloseTo(GAME_END_AFTER_HAND_S, 2);
     }
   }
@@ -84,6 +84,14 @@ function expected(log, pos, from = 0) {
   };
 }
 
+/** The game end's sound for my seat: the fanfare / the trombone for my team's win / loss, the arpeggio for a tie. */
+function endSound(log, pos) {
+  const sc = s2c(log, 'gameEnd').at(-1)?.data?.score;
+  const [mine, theirs] = pos % 2 === 1 ? [sc.team1, sc.team2] : [sc.team2, sc.team1];
+  if (mine === theirs) return 'gameend';
+  return mine > theirs ? 'gameend-win' : 'gameend-lose';
+}
+
 function actual() {
   return {
     card: count('card'),
@@ -93,7 +101,7 @@ function actual() {
     'trick-ours': count('trick-ours'),
     trick: count('trick'),
     handEnd: count('made') + count('set'),
-    gameend: count('gameend'),
+    gameend: count('gameend') + count('gameend-lose') + count('gameend-win'),
   };
 }
 
@@ -172,7 +180,9 @@ describe('recorded game: one sound per moment, none for a rejoin', () => {
     expect(page.session.screen).toBe('gameEnd');
     checkOrder();
     // the last hand's made / set and the flourish come in one tick: the flourish waits
-    const end = played.findIndex((p) => p.name === 'gameend');
+    // the fanfare, the trombone or the tie's arpeggio, by my team's final score (owner 2026-11-22)
+    const end = played.findIndex((p) => p.name.startsWith('gameend'));
+    expect(played[end].name).toBe(endSound(log, pos));
     expect(['made', 'set']).toContain(played[end - 1].name);
     expect(played[end].opts?.delay).toBeGreaterThan(0.4);
   });

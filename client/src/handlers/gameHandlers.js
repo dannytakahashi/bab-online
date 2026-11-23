@@ -260,7 +260,7 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
 
     myAction.reset();
     state.applyGameEnd(data);
-    sounds.gameEnd();
+    sounds.gameEnd(data);
 
     // Nothing to rejoin any more (onGameEnd -> the client session's endGame
     // clears the spectatingGameId too)
