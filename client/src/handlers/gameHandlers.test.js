@@ -142,3 +142,53 @@ describe('bidClock (unsequenced)', () => {
     expect(myAction.isPending('bid')).toBe(false);
   });
 });
+
+describe('the avatar badges (gameLogEntry help / tutorial; state/seatBadges.js)', () => {
+  const G = 'g1';
+  let socket;
+  let state;
+  let onGameLogEntry;
+  let seq;
+  const fire = (event, data) => socket._trigger(event, { ...data, seq: ++seq });
+  const notice = () => socket._trigger(SERVER_EVENTS.GAME_LOG_ENTRY, { message: 'bob used /help.', type: 'system', help: { position: 2 } });
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    seq = 0;
+    state = resetGameState();
+    resetMyAction({ emit: () => {}, setTimer: () => 0, clearTimer: () => {} });
+    resetSeqGate({ requestSnapshot: vi.fn(), setTimer: () => 1, clearTimer: () => {} });
+    resetTableSounds({ sound: () => ({ play: () => true, start: () => null, duration: () => null }) });
+    socket = createMockSocket();
+    onGameLogEntry = vi.fn();
+    registerGameHandlers(new SocketManager(socket), { onGameLogEntry });
+    fire(SERVER_EVENTS.GAME_START, { gameId: G, position: 1, currentHand: 2, hand: [], trump: { suit: 'spades', rank: '5' } });
+    fire(SERVER_EVENTS.UPDATE_TURN, { currentTurn: 2 });
+  });
+
+  it('the notice and the tag (unsequenced) set the state first and tell the view whose badge changed', () => {
+    notice();
+    expect(state.helpAsked).toEqual({ 2: true });
+    expect(onGameLogEntry).toHaveBeenLastCalledWith(expect.objectContaining({ help: { position: 2 } }), { badge: 2 });
+    socket._trigger(SERVER_EVENTS.GAME_LOG_ENTRY, { message: 'cat turned on the tutorial.', type: 'system', tutorial: { position: 3, on: true } });
+    expect(state.tutorialSeats).toEqual({ 3: true });
+    expect(onGameLogEntry).toHaveBeenLastCalledWith(expect.anything(), { badge: 3 });
+    socket._trigger(SERVER_EVENTS.GAME_LOG_ENTRY, { message: 'hello', type: 'system' });
+    expect(onGameLogEntry).toHaveBeenLastCalledWith(expect.anything(), { badge: null });
+  });
+
+  it('the seat going lazy or replaced by a bot puts its lightbulb out', () => {
+    notice();
+    fire(SERVER_EVENTS.PLAYER_LAZY_MODE, { position: 2, botUsername: 'bot', botPic: 1 });
+    expect(state.helpAsked).toEqual({});
+    notice();
+    fire(SERVER_EVENTS.PLAYER_RESIGNED, { position: 2, oldUsername: 'bob', botUsername: 'bot', botPic: 1 });
+    expect(state.helpAsked).toEqual({});
+  });
+
+  it('its bid puts it out (through the seq gate, in order)', () => {
+    notice();
+    fire(SERVER_EVENTS.BID_RECEIVED, { position: 2, bid: '1' });
+    expect(state.helpAsked).toEqual({});
+  });
+});
