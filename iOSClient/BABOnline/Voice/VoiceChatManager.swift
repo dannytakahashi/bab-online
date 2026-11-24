@@ -120,12 +120,12 @@ final class VoiceChatManager: ObservableObject {
         }
 
         static let live = Hooks(
-            requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
+            requestRecordPermission: { await AVAudioApplication.requestRecordPermission() },
             recordPermissionGranted: { AVAudioApplication.shared.recordPermission == .granted },
-            // VoiceAudioSession: through RTCAudioSession, loudspeaker by default (WebRTC's own
-            // configuration carries the same options), with a route safety net while active
-            configureAudioSession: { try VoiceAudioSession.shared.activate() },
-            deactivateAudioSession: { VoiceAudioSession.shared.deactivate() },
+            // iOS (VoiceAudioSession): through RTCAudioSession, loudspeaker by default (WebRTC's
+            // own configuration carries the same options), with a route safety net while active
+            configureAudioSession: { try VoiceAudio.routing.activate() },
+            deactivateAudioSession: { VoiceAudio.routing.deactivate() },
             sendOffer: { VoiceEmitter.sendOffer(targetSocketId: $0, offer: $1, username: $2) },
             sendAnswer: { VoiceEmitter.sendAnswer(targetSocketId: $0, answer: $1) },
             notify: { SocketService.shared.serverError = ServerErrorNotice(message: $0, kind: .info) },
@@ -169,7 +169,7 @@ final class VoiceChatManager: ObservableObject {
         guard let audioDevice else {
             // Before the default module exists: its audio unit applies WebRTC's configuration
             // when a call starts playout (without this: no .defaultToSpeaker, the earpiece)
-            VoiceAudioSession.installWebRTCConfiguration()
+            VoiceAudio.installWebRTCConfiguration()
             // ...and before it makes its VoiceProcessingIO unit: that unit ducks the table
             // sounds as little as iOS allows (iOS 1.2.6, VoiceDucking)
             VoiceDucking.install()
@@ -1235,16 +1235,4 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {}
-}
-
-// MARK: - AVAudioSession extension for async permission
-
-extension AVAudioSession {
-    func requestRecordPermission() async -> Bool {
-        await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
-                continuation.resume(returning: granted)
-            }
-        }
-    }
 }
