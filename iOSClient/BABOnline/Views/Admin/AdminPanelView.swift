@@ -36,7 +36,7 @@ struct AdminPanelView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Admin")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { admin.close() }
@@ -44,7 +44,7 @@ struct AdminPanelView: View {
                         .accessibilityLabel("Close admin panel")
                         .accessibilityIdentifier("admin.close")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     if admin.inFlight > 0 {
                         ProgressView()
                             .accessibilityLabel("Waiting for the server")
@@ -112,7 +112,7 @@ struct AdminStatusLine: View {
             }
         }
         .onChange(of: status) { _, new in
-            if let new { UIAccessibility.post(notification: .announcement, argument: new.text) }
+            if let new { A11y.announce(new.text) }
         }
     }
 }
@@ -158,7 +158,7 @@ struct AdminField: View {
                 .foregroundStyle(Theme.textSecondary)
                 .accessibilityHidden(true)
             TextField(placeholder, text: $text)
-                .textInputAutocapitalization(.never)
+                .noAutocapitalization()
                 .autocorrectionDisabled()
                 .foregroundStyle(Theme.textPrimary)
                 .frame(minHeight: 36)
@@ -224,7 +224,7 @@ extension View {
 
     /// The panel's lists: grouped rows on the app's background.
     func adminListStyle() -> some View {
-        listStyle(.insetGrouped)
+        groupedInsetList()
             .scrollContentBackground(.hidden)
             .background(Theme.background)
     }

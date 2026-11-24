@@ -238,7 +238,7 @@ struct AuthField<Focus: Hashable>: View {
     let label: String
     @Binding var text: String
     var secure = false
-    let contentType: UITextContentType
+    let contentType: PlatformTextContentType
     let focus: FocusState<Focus?>.Binding
     let field: Focus
 
@@ -275,7 +275,7 @@ struct AuthField<Focus: Hashable>: View {
             SecureField(label, text: $text, prompt: Text(""))
         } else {
             TextField(label, text: $text, prompt: Text(""))
-                .textInputAutocapitalization(.never)
+                .noAutocapitalization()
                 .autocorrectionDisabled()
         }
     }

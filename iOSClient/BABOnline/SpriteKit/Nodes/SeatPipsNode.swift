@@ -112,23 +112,7 @@ extension SKNode {
         }
     }
 
-    /// Not an accessibility element (also no `name`: see `role`). A label's text is listed even
-    /// so (SpriteKit reads an SKLabelNode's text when it has no label of its own), so a label is
-    /// given an empty one.
-    func hideFromAccessibility() {
-        isAccessibilityElement = false
-        accessibilityElementsHidden = true
-        if self is SKLabelNode { accessibilityLabel = "" }
-    }
-
-    /// An accessibility element reading `label` (a card, a seat's name, a chat line, a bid). A named
-    /// node may keep its `name` for lookups only with a label: SpriteKit reads a node without one by
-    /// its name ("hand.card.Q_clubs", "seat.left"). Containers and drawing nodes take a `role` instead.
-    func speak(_ label: String, traits: UIAccessibilityTraits = .none) {
-        isAccessibilityElement = true
-        accessibilityLabel = label
-        accessibilityTraits = traits
-    }
+    // hideFromAccessibility() and speak(_:role:): Platform/A11y.swift
 }
 
 /// A drawing that VoiceOver reads as one element (a chat bubble, a bid bubble): a plain SKNode's

@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Reduce Motion (Settings > Accessibility > Motion; Apple HIG): the motion tokens
 /// (Generated/Theme.swift `Theme.Motion`) say how long things move, this says
@@ -22,7 +21,7 @@ extension Theme.Motion {
     static var reduceMotionOverride: Bool?
 
     /// Is Reduce Motion on?
-    static var reduceMotion: Bool { reduceMotionOverride ?? UIAccessibility.isReduceMotionEnabled }
+    static var reduceMotion: Bool { reduceMotionOverride ?? A11y.reduceMotion }
 
     /// The alpha a pulsing ring holds under Reduce Motion: the pulse's lit end.
     static let steadyGlowAlpha: CGFloat = 0.8

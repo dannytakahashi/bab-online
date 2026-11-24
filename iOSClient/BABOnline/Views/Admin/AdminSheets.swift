@@ -1,6 +1,4 @@
 import SwiftUI
-import UIKit
-import UniformTypeIdentifiers
 
 /// A destructive action that needs a name typed exactly (the web's openTypedConfirm): the
 /// confirm button stays disabled until the typed text matches, case and spaces included. A
@@ -70,7 +68,7 @@ struct AdminTypedConfirmSheet: View {
             .adminListStyle()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Confirm")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -90,7 +88,7 @@ struct AdminTypedConfirmSheet: View {
             busy = false
             if let res, !res.ok {
                 refusal = res.message
-                UIAccessibility.post(notification: .announcement, argument: res.message)
+                A11y.announce(res.message)
                 focused = true
             } else {
                 dismiss()
@@ -169,7 +167,7 @@ struct AdminRenameSheet: View {
             .adminListStyle()
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Rename \(oldName)")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -189,7 +187,7 @@ struct AdminRenameSheet: View {
             busy = false
             if let res, !res.ok {
                 refusal = res.message
-                UIAccessibility.post(notification: .announcement, argument: res.message)
+                A11y.announce(res.message)
                 focused = true
             } else {
                 dismiss()
@@ -259,7 +257,7 @@ struct AdminResetLinkSheet: View {
             }
             .adminListStyle()
             .navigationTitle("Reset link")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -273,10 +271,8 @@ struct AdminResetLinkSheet: View {
 
     /// This device only (no Universal Clipboard), and only until the link expires.
     private func copy() {
-        var options: [UIPasteboard.OptionsKey: Any] = [.localOnly: true]
-        if let expires = link.expiresAt { options[.expirationDate] = expires }
-        UIPasteboard.general.setItems([[UTType.utf8PlainText.identifier: link.url]], options: options)
+        Pasteboard.copySecret(link.url, expiresAt: link.expiresAt)
         copied = true
-        UIAccessibility.post(notification: .announcement, argument: AdminCopy.linkCopied)
+        A11y.announce(AdminCopy.linkCopied)
     }
 }
