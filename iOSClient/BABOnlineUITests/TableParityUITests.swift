@@ -358,22 +358,29 @@ final class TableParityUITests: XCTestCase {
         _ = Fixture.settledState(app)
         XCTAssertEqual(dealProbe(app), ["deals": "0", "cards": "0", "mode": "-", "peak": "0", "decks": "-", "hinges": "-",
                                         "flying": "0", "fading": "0", "deck": "0",
-                                        "deckBack": "-", "hinge": "-"])
+                                        "deckBack": "-", "hinge": "-", "fold": "-"])
         app.terminate()
     }
 
-    /// A live deal of `size` cards (`-uiDeal`, `-uiDealSize`) with `extra` launch arguments:
-    /// every card of the new hand (and every seat's backs) flies from the deck and lands; the
-    /// deck is `back` (the hand's colour, as the fans it deals) and never over the fold
-    /// (probe `hinge`). The probe's `peak` / `decks` / `hinges` hold the whole deal (the most
-    /// cards in flight at once, the deck's colours and hinge readings while it was up), so the
-    /// landed reading checks every card flew whenever the test happened to read it; its
-    /// `flying` / `deck` are only the last refresh's (the HSI reveal 1 s in refreshes them after
-    /// the first cards land and the deck went: "flying=40 deck=0" on a slow first reading).
-    private func checkLiveDeal(size: Int = 13, back: String, extra: [String] = [], shot: String) {
+    /// The fixture with a live deal of `size` cards (`-uiDeal`, `-uiDealSize`) and `extra` launch arguments.
+    private func launchDeal(size: Int = 13, extra: [String] = []) -> XCUIApplication {
         let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiDealSize", String(size)] + extra)
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+        return app
+    }
+
+    /// A live deal of `size` cards (`launchDeal`): every card of the new hand (and every seat's
+    /// backs) flies from the deck and lands; the deck is `back` (the hand's colour, as the fans it
+    /// deals). `fold` is what the layout does with the fold (probe `fold`: kept, ignored, "-"
+    /// none); where it keeps it, every reading while the deck is up is clear of it (`hinge` ok),
+    /// else there is nothing to read ("-"). The probe's `peak` / `decks` / `hinges` hold the whole
+    /// deal (the most cards in flight at once, the deck's colours and hinge readings while it was
+    /// up), so the landed reading checks every card flew whenever the test happened to read it;
+    /// its `flying` / `deck` are only the last refresh's (the HSI reveal 1 s in refreshes them
+    /// after the first cards land and the deck went: "flying=40 deck=0" on a slow first reading).
+    private func checkLiveDeal(_ app: XCUIApplication, size: Int = 13, back: String, fold: String = "-", shot: String) {
         let shown = fans(app)
+        let hinge = fold == "kept" ? "ok" : "-"
         // the deal 8 s after launch: every card of the new hand (and every seat's backs) flies
         var mid: [String: String]?
         var sawBefore = false
@@ -390,10 +397,11 @@ final class TableParityUITests: XCTestCase {
             }
         }) { $0["deals"] == "1" && Self.isIdle($0) }
         let cards = String(size + (shown == nil ? 0 : 3 * size))
-        // every card was in the air at once and the deck, the hand's colour, was up; then landed
-        XCTAssertEqual(end?.filter { $0.key != "hinges" },
-                       ["deals": "1", "cards": cards, "mode": "fly", "peak": cards, "decks": back, "flying": "0", "fading": "0",
-                        "deck": "0", "deckBack": "-", "hinge": "-"], "\(shot) landed: every card flew from the deck, nothing in flight")
+        // every card was in the air at once and the deck, the hand's colour, was up and (on a
+        // fold the layout keeps) clear of the hinge at every refresh; then landed
+        XCTAssertEqual(end, ["deals": "1", "cards": cards, "mode": "fly", "peak": cards, "decks": back, "hinges": hinge,
+                             "flying": "0", "fading": "0", "deck": "0", "deckBack": "-", "hinge": "-", "fold": fold],
+                       "\(shot) landed: every card flew from the deck, nothing in flight [\(Fixture.probe(app, "ui.pose"))]")
         // seen in flight: the probe is read every few tenths of a second during the deal's 1.3 s,
         // so a test that was reading before the deal sees it in the air (a launch slower than the
         // fixture's 8 s cannot, and the landed reading above still checks the deal)
@@ -402,9 +410,8 @@ final class TableParityUITests: XCTestCase {
             XCTAssertNotNil(mid, "\(shot): never seen in flight")
             XCTAssertEqual(mid?["peak"], cards, "\(shot) mid-deal: \(String(describing: mid))")
             XCTAssertTrue(backs.isSubset(of: [back]), "\(shot): the deck is the hand's colour: \(backs)")
+            XCTAssertTrue(hinges.isSubset(of: [hinge]), "\(shot): the deck against the hinge (want \(hinge)): \(hinges)")
         }
-        hinges.formUnion((end?["hinges"] ?? "?").split(separator: ",").map(String.init))
-        XCTAssertFalse(hinges.contains("over"), "\(shot): the deck sits on the hinge: \(hinges)")
         XCTAssertTrue(Fixture.settledState(app).contains("hand=\(size) trick=0"), Fixture.probe(app, "table.state"))
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", shot)
         if shown != nil {
@@ -416,21 +423,53 @@ final class TableParityUITests: XCTestCase {
     }
 
     func testALiveDealFliesFromTheDeckAndLands() {
-        checkLiveDeal(back: "red", shot: "deal")
+        checkLiveDeal(launchDeal(), back: "red", shot: "deal")
     }
 
     /// Hand 2 (10 cards) is blue: the deck and the backs it deals (CardBackColour).
     func testABlueHandsDealComesFromABlueDeck() {
-        checkLiveDeal(size: 10, back: "blue", shot: "deal-blue")
+        checkLiveDeal(launchDeal(size: 10), size: 10, back: "blue", shot: "deal-blue")
     }
 
-    /// The Duo's poses (`-uiFold`, FoldReader's synthetic hinge): the deck keeps off the fold
-    /// (TableLayout.dealOrigin is the cluster's centre, on the cluster's page / above a
-    /// tabletop hinge) and the deal lands inside the safe area.
-    func testOnAFoldTheDealKeepsOffTheHinge() {
-        for fold in ["book", "tabletop"] {
-            checkLiveDeal(back: "red", extra: ["-uiFold", fold], shot: "deal-\(fold)")
+    /// The first of `positions` (`-uiFoldAt`) where the synthetic fold (`-uiFold`, FoldReader)
+    /// is one the layout keeps, with the table inside the safe area (probes `fold=kept`,
+    /// `table.layoutCheck` ok, read once the table settled, on a launch without the deal), or nil
+    /// (every reading in `tried`).
+    private func keptFoldPosition(_ fold: String, at positions: [String], tried: inout [String]) -> String? {
+        for at in positions {
+            let app = Fixture.launch("trick-mid-lead3", extra: ["-uiFold", fold, "-uiFoldAt", at])
+            XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
+            _ = Fixture.settledState(app)
+            let state = dealProbe(app)["fold"] ?? "?", check = Fixture.probe(app, "table.layoutCheck")
+            let pose = Fixture.probe(app, "ui.pose")
+            app.terminate()
+            if state == "kept", check == "ok" { return at }
+            tried.append("\(fold)@\(at): fold=\(state) layoutCheck=\(check) [\(pose)]")
         }
+        return nil
+    }
+
+    /// The Duo's poses (`-uiFold`, FoldReader's synthetic hinge): on a fold the layout keeps to,
+    /// the deck keeps off it at every refresh while it is up (TableLayout.dealOrigin is the
+    /// cluster's centre, on the cluster's page / above a tabletop hinge) and the deal lands inside
+    /// the safe area. The centred fold is the open Duo's; other windows ignore it (a phone's:
+    /// TableLayout.foldIgnored, so the deck reads no hinge) or dock the log at it (a landscape
+    /// Duo, an iPad: the scene has no fold), so each fold moves off centre until the layout keeps
+    /// it with the table in the safe area (run: the iPhone 18 Pro keeps a book hinge at 0.05 and
+    /// a tabletop one at 0.1, the closed Duo a book one at 0.35; TableLayout's solves put the
+    /// 17e's book hinge at 0.05, an iPad's in portrait at 0.2, the open Duo's at the centre). A
+    /// window with no room for a tabletop split at either position (the closed Duo, the 17e) has
+    /// no hinge there to keep off and checks the book fold alone.
+    func testOnAFoldTheDealKeepsOffTheHinge() {
+        var tried: [String] = []
+        var checked: [String] = []
+        for (fold, positions) in [("book", ["0", "0.05", "0.2", "0.35"]), ("tabletop", ["0", "0.1"])] {
+            guard let at = keptFoldPosition(fold, at: positions, tried: &tried) else { continue }
+            checkLiveDeal(launchDeal(extra: ["-uiFold", fold, "-uiFoldAt", at]), back: "red", fold: "kept", shot: "deal-\(fold)@\(at)")
+            checked.append(fold)
+        }
+        print("[TableParityUITests] fold deal checked on \(checked); not kept: \(tried)")
+        XCTAssertTrue(checked.contains("book"), "the layout kept no book fold to check the deck against: \(tried)")
     }
 
     func testUnderReduceMotionTheDealFadesInPlace() {

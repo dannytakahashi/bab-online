@@ -340,7 +340,9 @@ foreground, Settings), no voice and no microphone prompt
 (`VoiceChatManager.voiceDisabled`, every start path, also in Xcode
 previews), avatars show initials, the sign-in screen shows the connected
 form. `-uiFold book|tabletop` fakes a 20 pt division at the window center
-(the composition only, not the API); `-uiEffect rainbow|b|2b|3b|4b|ot|all` holds
+(the composition only, not the API; `-uiFoldAt <f>` moves it f of the window off
+centre, book + right, tabletop + down: a phone's window ignores the centred fold,
+so `testOnAFoldTheDealKeepsOffTheHinge` moves it to where the layout keeps it); `-uiEffect rainbow|b|2b|3b|4b|ot|all` holds
 the effects on the table. Accessibility probes: `ui.pose` ("WxH
 t/l/b/r topBar N fold F occlusions N sc H/V vbar E", the window's size
 classes and the vertical bar edge), `table.layoutCheck` ("ok" when every stable node is inside
@@ -1099,11 +1101,12 @@ iOS rendered the new hand at once. Now:
   dealer 4; `-uiDealSize <n>` deals n cards: 10 is hand 2, blue) and
   `-uiReduceMotion YES`; probe `table.deal`
   ("deals=1 cards=52 mode=fly peak=52 decks=red hinges=ok flying=52 fading=0
-  deck=1 deckBack=red hinge=ok": deals shown, the latest one's cards and kind;
+  deck=1 deckBack=red hinge=ok fold=kept": deals shown, the latest one's cards and kind;
   over that deal, the most cards in flight at once and the deck's colours and
   hinge readings while it was up; then what is in flight or fading now, the
   deck, its backs' colour and whether it is clear of a fold the layout keeps
-  to ("-": no deck, or no such fold); refreshed when the deal starts, once it
+  to ("-": no deck, or no such fold), and the layout's fold: kept, ignored
+  (`foldIgnored`) or "-" (none in the scene's chrome, e.g. a docked book split); refreshed when the deal starts, once it
   has landed and on every render between: the HSI reveal 1 s in, after the
   first cards land and the deck went, reads "flying=40 deck=0", so the UI tests
   check the deal by `peak` / `decks` / `hinges`, which hold whenever they read).
