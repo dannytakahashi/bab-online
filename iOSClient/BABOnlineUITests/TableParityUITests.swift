@@ -325,7 +325,7 @@ final class TableParityUITests: XCTestCase {
 
     // MARK: (h) the deal's fly-in (iOS 1.2.2 (12))
 
-    /// "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1" -> ["deals": "1", "cards": "52", ...]
+    /// "deals=1 cards=52 mode=fly peak=52 ... flying=52 fading=0 deck=1" -> ["deals": "1", "cards": "52", ...]
     private func dealProbe(_ app: XCUIApplication) -> [String: String] {
         var out: [String: String] = [:]
         for part in Fixture.probe(app, "table.deal").split(separator: " ") {
@@ -356,7 +356,8 @@ final class TableParityUITests: XCTestCase {
         let app = Fixture.launch("trick-mid-lead3")
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
         _ = Fixture.settledState(app)
-        XCTAssertEqual(dealProbe(app), ["deals": "0", "cards": "0", "mode": "-", "flying": "0", "fading": "0", "deck": "0",
+        XCTAssertEqual(dealProbe(app), ["deals": "0", "cards": "0", "mode": "-", "peak": "0", "decks": "-", "hinges": "-",
+                                        "flying": "0", "fading": "0", "deck": "0",
                                         "deckBack": "-", "hinge": "-"])
         app.terminate()
     }
@@ -364,7 +365,11 @@ final class TableParityUITests: XCTestCase {
     /// A live deal of `size` cards (`-uiDeal`, `-uiDealSize`) with `extra` launch arguments:
     /// every card of the new hand (and every seat's backs) flies from the deck and lands; the
     /// deck is `back` (the hand's colour, as the fans it deals) and never over the fold
-    /// (probe `hinge`).
+    /// (probe `hinge`). The probe's `peak` / `decks` / `hinges` hold the whole deal (the most
+    /// cards in flight at once, the deck's colours and hinge readings while it was up), so the
+    /// landed reading checks every card flew whenever the test happened to read it; its
+    /// `flying` / `deck` are only the last refresh's (the HSI reveal 1 s in refreshes them after
+    /// the first cards land and the deck went: "flying=40 deck=0" on a slow first reading).
     private func checkLiveDeal(size: Int = 13, back: String, extra: [String] = [], shot: String) {
         let app = Fixture.launch("trick-mid-lead3", extra: ["-uiDeal", "YES", "-uiDealSize", String(size)] + extra)
         XCTAssertTrue(app.buttons["leave"].waitForExistence(timeout: 20))
@@ -385,17 +390,20 @@ final class TableParityUITests: XCTestCase {
             }
         }) { $0["deals"] == "1" && Self.isIdle($0) }
         let cards = String(size + (shown == nil ? 0 : 3 * size))
-        XCTAssertEqual(end, ["deals": "1", "cards": cards, "mode": "fly", "flying": "0", "fading": "0", "deck": "0",
-                             "deckBack": "-", "hinge": "-"], "\(shot) landed: nothing in flight, no deck")
-        // seen in flight: the probe is read every few tenths of a second and holds the deal's
-        // start for its 1.3 s, so a test that was reading before the deal sees it (a launch slower
-        // than the fixture's 8 s cannot, and the landed reading above still checks the deal)
+        // every card was in the air at once and the deck, the hand's colour, was up; then landed
+        XCTAssertEqual(end?.filter { $0.key != "hinges" },
+                       ["deals": "1", "cards": cards, "mode": "fly", "peak": cards, "decks": back, "flying": "0", "fading": "0",
+                        "deck": "0", "deckBack": "-", "hinge": "-"], "\(shot) landed: every card flew from the deck, nothing in flight")
+        // seen in flight: the probe is read every few tenths of a second during the deal's 1.3 s,
+        // so a test that was reading before the deal sees it in the air (a launch slower than the
+        // fixture's 8 s cannot, and the landed reading above still checks the deal)
         XCTAssertTrue(sawBefore || mid != nil, "\(shot): the probe was never read before the deal ended")
         if sawBefore {
-            XCTAssertEqual(mid?["flying"], cards, "\(shot) mid-deal: \(String(describing: mid))")
-            XCTAssertEqual(mid?["deck"], "1", shot)
-            XCTAssertEqual(backs, [back], "\(shot): the deck is the hand's colour")
+            XCTAssertNotNil(mid, "\(shot): never seen in flight")
+            XCTAssertEqual(mid?["peak"], cards, "\(shot) mid-deal: \(String(describing: mid))")
+            XCTAssertTrue(backs.isSubset(of: [back]), "\(shot): the deck is the hand's colour: \(backs)")
         }
+        hinges.formUnion((end?["hinges"] ?? "?").split(separator: ",").map(String.init))
         XCTAssertFalse(hinges.contains("over"), "\(shot): the deck sits on the hinge: \(hinges)")
         XCTAssertTrue(Fixture.settledState(app).contains("hand=\(size) trick=0"), Fixture.probe(app, "table.state"))
         XCTAssertEqual(Fixture.probe(app, "table.layoutCheck"), "ok", shot)
@@ -434,6 +442,8 @@ final class TableParityUITests: XCTestCase {
             if (d["deck"] ?? "0") != "0" { deck = true }
         }) { $0["deals"] == "1" && Self.isIdle($0) }
         XCTAssertEqual(end?["mode"], "fade")
+        XCTAssertEqual(end?["peak"], "0", "nothing flew")
+        XCTAssertEqual(end?["decks"], "-", "no deck")
         XCTAssertNotEqual(end?["cards"] ?? "0", "0")
         XCTAssertFalse(flew, "nothing crosses the table")
         XCTAssertFalse(deck, "no deck")

@@ -1098,11 +1098,15 @@ iOS rendered the new hand at once. Now:
 - Fixture flags: `-uiDeal YES` (8 s after launch a live gameStart of 13 cards,
   dealer 4; `-uiDealSize <n>` deals n cards: 10 is hand 2, blue) and
   `-uiReduceMotion YES`; probe `table.deal`
-  ("deals=1 cards=52 mode=fly flying=52 fading=0 deck=1 deckBack=red hinge=ok":
-  deals shown, the latest one's cards and kind, what is in flight or fading
-  now, the deck, its backs' colour and whether it is clear of a fold the
-  layout keeps to ("-": no deck, or no such fold); refreshed when the deal
-  starts and once it has landed).
+  ("deals=1 cards=52 mode=fly peak=52 decks=red hinges=ok flying=52 fading=0
+  deck=1 deckBack=red hinge=ok": deals shown, the latest one's cards and kind;
+  over that deal, the most cards in flight at once and the deck's colours and
+  hinge readings while it was up; then what is in flight or fading now, the
+  deck, its backs' colour and whether it is clear of a fold the layout keeps
+  to ("-": no deck, or no such fold); refreshed when the deal starts, once it
+  has landed and on every render between: the HSI reveal 1 s in, after the
+  first cards land and the deck went, reads "flying=40 deck=0", so the UI tests
+  check the deal by `peak` / `decks` / `hinges`, which hold whenever they read).
 
 Tests: `DealAnimationTests` (reducer: live gameStart yes, every fixture
 snapshot / rejoin no, catch-up after a snapshot and a lapsed resync no;

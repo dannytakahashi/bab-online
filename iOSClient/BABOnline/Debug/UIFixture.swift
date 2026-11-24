@@ -841,10 +841,19 @@ final class TableDebugProbe: ObservableObject {
     @Published var verticalBar = "-"
     /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
     @Published var sent = "-"
-    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1"
-    /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
-    /// in a flight or a fade now, the deck up or not).
+    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly peak=52 decks=red hinges=ok
+    /// flying=52 fading=0 deck=1 deckBack=red hinge=ok" (deals shown; the latest one's cards and
+    /// kind, fly or Reduce Motion's fade; over that deal's refreshes, the most cards in flight at
+    /// once, the deck colours and the hinge readings seen while its deck was up ("-": none);
+    /// then now: cards still in a flight or a fade, the deck up or not, its colour and hinge).
+    /// The "now" part is only what the last refresh saw, and any render refreshes it: the HSI
+    /// reveal 1 s into a deal, after the first cards land (0.9 s) and the deck is gone (0.87 s),
+    /// shows "flying=40 deck=0". The deal's first refresh is queued by dealIn itself, which has
+    /// every card in flight and the deck up by then, so `peak` / `decks` / `hinges` hold the
+    /// whole deal whenever the probe is read.
     @Published var tableDeal = "-"
+    /// The deal (`dealsShown`) the `peak` / `decks` / `hinges` above are for, and their values.
+    private var dealSeenFor = 0, dealPeak = 0, dealDecks = Set<String>(), dealHinges = Set<String>()
     /// My /help answer on the table (AssistCardView's hint, TableReducer+Assist):
     /// "card=<id> bid=<b> frame=<x y w h> clear=ok|over:<what>|- keeps=<what>|- seats=ok|over:<what>|-" from the scene's
     /// ringed hand card, the bid panel's ringed bid, the card's frame in the pane's points, what
@@ -1007,7 +1016,15 @@ final class TableDebugProbe: ObservableObject {
         let hinge = scene.dealDeck.flatMap { deck in
             (scene.layout.foldIgnored ? nil : scene.chrome.fold).map { deck.calculateAccumulatedFrame().intersects($0) ? "over" : "ok" }
         } ?? "-"
-        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) flying=\(flying) fading=\(fading) "
+        if scene.dealsShown != dealSeenFor { (dealSeenFor, dealPeak, dealDecks, dealHinges) = (scene.dealsShown, 0, [], []) }
+        dealPeak = max(dealPeak, flying)
+        if scene.dealDeck != nil {
+            dealDecks.insert(deckBack)
+            dealHinges.insert(hinge)
+        }
+        let seen = { (s: Set<String>) in s.isEmpty ? "-" : s.sorted().joined(separator: ",") }
+        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) "
+            + "peak=\(dealPeak) decks=\(seen(dealDecks)) hinges=\(seen(dealHinges)) flying=\(flying) fading=\(fading) "
             + "deck=\(scene.dealDeck == nil ? 0 : 1) deckBack=\(deckBack) hinge=\(hinge)"
         if deal != tableDeal { tableDeal = deal }
         let zoom = String(format: "%.2f", L.zoom)
