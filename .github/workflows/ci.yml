@@ -51,6 +51,11 @@ jobs:
       - name: Design tokens are current
         run: npm run tokens:check
 
+      # No UIKit / AppKit in a shared Swift file of the Apple app (iOSClient/CLAUDE.md,
+      # "iOS project": the platform rules); a source check, no Xcode needed
+      - name: Apple platform rule
+        run: node scripts/check-apple-platform.js
+
       # The web and iOS sound files against sounds-src/sounds.json (plain
       # python3: the check needs no numpy or afconvert, only the rebuild does)
       - name: Sound effects are current
