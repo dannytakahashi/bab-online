@@ -1,6 +1,5 @@
 #if DEBUG
 import SwiftUI
-import UIKit
 import SpriteKit
 
 /// Fixture mode (roadmap item 26), DEBUG builds only: `-uiFixture <name>`
@@ -781,8 +780,8 @@ enum UIFixture {
 /// No network in fixture mode: every avatar shows its initial, unless `UI_FIXTURE_AVATARS`
 /// names a folder with the stock art (`profile<N>.png`, the repo's client/assets: screenshots).
 struct FixtureAvatarLoader: AvatarLoading {
-    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
-        completion(UIFixture.avatarFolder.flatMap { UIImage(contentsOfFile: "\($0)/profile\(picNumber).png") })
+    func load(_ picNumber: Int, completion: @escaping (PlatformImage?) -> Void) {
+        completion(UIFixture.avatarFolder.flatMap { PlatformImage(contentsOfFile: "\($0)/profile\(picNumber).png") })
     }
 }
 

@@ -29,7 +29,7 @@ final class CardFanNode: SKNode {
     private static let redBack = makeBackTexture(.red)
     private static let blueBack = makeBackTexture(.blue)
     private static func makeBackTexture(_ colour: CardBackColour) -> SKTexture {
-        let texture = SKTexture(image: CardTextureGenerator.cardBackImage(width: CardFanNode.textureWidth, colour: colour))
+        let texture = SKTexture.make(CardTextureGenerator.cardBackImage(width: CardFanNode.textureWidth, colour: colour))
         texture.filteringMode = .linear
         return texture
     }

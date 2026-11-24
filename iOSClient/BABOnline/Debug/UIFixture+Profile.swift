@@ -1,5 +1,5 @@
 #if DEBUG
-import UIKit
+import SwiftUI
 
 /// Profiles in fixture mode (no socket): ProfileState's requests are answered here, 0.4 s
 /// later, with wire-shaped replies that go through the same decoding as the server's.
@@ -122,15 +122,13 @@ extension UIFixture {
     /// A 600 x 400 photo (a gradient with a disc off centre), as a JPEG file's bytes.
     static func samplePhotoData() -> Data {
         let size = CGSize(width: 600, height: 400)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-            let colors = [UIColor.systemTeal.cgColor, UIColor.systemIndigo.cgColor] as CFArray
+        let image = BitmapRenderer.image(pixelSize: size, standardRange: false) { gc in
+            let colors = [PlatformColor.systemTeal.cgColor, PlatformColor.systemIndigo.cgColor] as CFArray
             if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
-                ctx.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+                gc.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
             }
-            UIColor.systemYellow.setFill()
-            UIBezierPath(ovalIn: CGRect(x: 230, y: 120, width: 160, height: 160)).fill()
+            PlatformColor.systemYellow.setFill()
+            PlatformBezierPath(ovalIn: CGRect(x: 230, y: 120, width: 160, height: 160)).fill()
         }
         return image.jpegData(compressionQuality: 0.9) ?? Data()
     }

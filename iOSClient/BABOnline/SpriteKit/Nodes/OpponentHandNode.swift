@@ -4,23 +4,23 @@ import SpriteKit
 /// (`/assets/profile<N>.png`) and, from the clientHello avatarUrl cap on, the
 /// server's custom-picture paths (`/avatar/<name>?v=<version>`, immutable).
 protocol AvatarLoading {
-    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void)
+    func load(_ picNumber: Int, completion: @escaping (PlatformImage?) -> Void)
     /// An `/avatar/...` path on the game server (default: none, the caller falls back).
-    func load(path: String, completion: @escaping (UIImage?) -> Void)
+    func load(path: String, completion: @escaping (PlatformImage?) -> Void)
 }
 
 extension AvatarLoading {
-    func load(path: String, completion: @escaping (UIImage?) -> Void) { completion(nil) }
+    func load(path: String, completion: @escaping (PlatformImage?) -> Void) { completion(nil) }
 }
 
 struct HTTPAvatarLoader: AvatarLoading {
     /// Avatars come from the game server's origin (ServerConfig), through URLSession's
     /// shared cache: a versioned `/avatar` URL is `immutable` for a year, stock art a day.
-    func load(_ picNumber: Int, completion: @escaping (UIImage?) -> Void) {
+    func load(_ picNumber: Int, completion: @escaping (PlatformImage?) -> Void) {
         fetch("/assets/profile\(picNumber).png", completion: completion)
     }
 
-    func load(path: String, completion: @escaping (UIImage?) -> Void) {
+    func load(path: String, completion: @escaping (PlatformImage?) -> Void) {
         guard Self.isAvatarPath(path) else { return completion(nil) }
         fetch(path, completion: completion)
     }
@@ -30,11 +30,11 @@ struct HTTPAvatarLoader: AvatarLoading {
         path.hasPrefix("/avatar/") && !path.contains("//") && !path.contains(" ") && path.count <= 512
     }
 
-    private func fetch(_ path: String, completion: @escaping (UIImage?) -> Void) {
+    private func fetch(_ path: String, completion: @escaping (PlatformImage?) -> Void) {
         guard let url = URL(string: ServerConfig.baseURL + path) else { return completion(nil) }
         URLSession.shared.dataTask(with: url) { data, response, _ in
             let ok = (response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } ?? false
-            let image = ok ? data.flatMap { UIImage(data: $0) } : nil
+            let image = ok ? data.flatMap { PlatformImage(data: $0) } : nil
             DispatchQueue.main.async { completion(image) }
         }.resume()
     }

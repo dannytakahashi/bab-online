@@ -1,5 +1,4 @@
 import SpriteKit
-import UIKit
 
 /// A seat's avatar badge (State/Table/SeatBadges.swift, TableLayout+Badges.swift): a small dark
 /// disc with a glyph, "lightbulb.fill" in gold (a counted /help on the seat's open turn) or
@@ -80,18 +79,16 @@ final class SeatBadgeNode: SKNode {
     private static let capTexture = makeTexture(SeatBadge.cap.symbol, Theme.SK.badgeCap)
 
     /// `symbol` in `colour`, drawn at the table's zoom once per process (WatchChipNode's eye).
-    private static func makeTexture(_ symbol: String, _ colour: UIColor) -> SKTexture {
+    private static func makeTexture(_ symbol: String, _ colour: PlatformColor) -> SKTexture {
         let k = CardTextureGenerator.textureZoom
-        let config = UIImage.SymbolConfiguration(pointSize: 10 * k, weight: .semibold)
         let side = CGSize(width: glyphSize.width * k, height: glyphSize.height * k)
-        let image = UIGraphicsImageRenderer(size: side).image { _ in
-            guard let s = UIImage(systemName: symbol, withConfiguration: config)?
-                .withTintColor(colour, renderingMode: .alwaysOriginal) else { return }
+        let image = BitmapRenderer.screenImage(size: side) { _ in
+            guard let s = PlatformImage.tintedSymbol(symbol, pointSize: 10 * k, weight: .semibold, colour: colour) else { return }
             let f = min(side.width / max(s.size.width, 1), side.height / max(s.size.height, 1))
             let w = s.size.width * f, h = s.size.height * f
             s.draw(in: CGRect(x: (side.width - w) / 2, y: (side.height - h) / 2, width: w, height: h))
         }
-        let texture = SKTexture(image: image)
+        let texture = SKTexture.make(image)
         texture.filteringMode = .linear
         return texture
     }

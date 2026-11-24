@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Who is watching (V1_REMOVALS "iOS spectator badge"): an eye and the count at
 /// the layout's `spectatorBadge` rect, hidden at 0; "99+" past 99. A tap opens
@@ -137,13 +136,13 @@ struct SpectatorListView: View {
 struct AvatarImageView: View {
     let pictureKey: String?
     let name: String
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         ZStack {
             Circle().fill(Theme.surfaceRaised)
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                Image(platformImage: image).resizable().scaledToFill()
             } else {
                 Text(String(name.prefix(1)).uppercased())
                     .font(.caption.bold())
@@ -158,13 +157,13 @@ struct AvatarImageView: View {
 /// UIImages for SwiftUI rows, one load per picture key (the scene keeps its own textures).
 @MainActor
 enum AvatarImageCache {
-    private static let cache = NSCache<NSString, UIImage>()
+    private static let cache = NSCache<NSString, PlatformImage>()
 
-    static func image(for key: String?) async -> UIImage? {
+    static func image(for key: String?) async -> PlatformImage? {
         guard let key else { return nil }
         if let hit = cache.object(forKey: key as NSString) { return hit }
         let loader = OpponentHandNode.avatarLoader
-        let image: UIImage? = await withCheckedContinuation { cont in
+        let image: PlatformImage? = await withCheckedContinuation { cont in
             if let n = Int(key) {
                 loader.load(n) { cont.resume(returning: $0) }
             } else if key.hasPrefix("/avatar/") {

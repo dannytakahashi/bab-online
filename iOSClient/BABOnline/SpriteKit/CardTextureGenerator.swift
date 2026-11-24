@@ -1,5 +1,4 @@
 import SpriteKit
-import UIKit
 
 /// Card face textures, drawn at runtime with Core Graphics and cached for the
 /// app's lifetime (54 faces at ~0.5 MB each on a 3x screen; never evicted).
@@ -14,8 +13,8 @@ enum CardTextureGenerator {
     /// The same bitmaps as UIImages, only for the cards SwiftUI asked for (the draw for
     /// deal: four faces and the back) and the opponents' fans' backs (CardFanNode, red and
     /// blue), a few at a time (NSCache is thread safe).
-    private static let images: NSCache<NSString, UIImage> = {
-        let c = NSCache<NSString, UIImage>()
+    private static let images: NSCache<NSString, PlatformImage> = {
+        let c = NSCache<NSString, PlatformImage>()
         c.countLimit = 8
         return c
     }()
@@ -38,13 +37,13 @@ enum CardTextureGenerator {
 
     /// The screen scale textures are rendered for. Read on the main thread first
     /// (`prewarm()` and every scene build touch it there); a static let is initialized once.
-    static let displayScale: CGFloat = UIGraphicsImageRendererFormat.preferred().scale
+    static let displayScale: CGFloat = Platform.displayScale
 
     /// The largest zoom this device's table reaches: TableLayout.maxZoom, except on a phone
     /// (an iPhone, the Duo open or closed), whose panes never reach TableLayout.zoomMinSide, so
     /// its textures stay what they were (1:1 at zoom 1). Read on the main thread first, as
     /// `displayScale`.
-    static let textureZoom: CGFloat = UIDevice.current.userInterfaceIdiom == .phone ? 1 : TableLayout.maxZoom
+    static let textureZoom: CGFloat = DeviceClass.current == .phone ? 1 : TableLayout.maxZoom
 
     /// Bitmap size of every card texture: the largest on-screen card
     /// (`TableLayout.maxScreenCardPoints`: a hand card at s = 1 and the device's largest
@@ -72,20 +71,15 @@ enum CardTextureGenerator {
     /// image point = one pixel), 8-bit sRGB (the default `.automatic` range may pick a
     /// 16-bit float extended-range bitmap on a wide-color screen, twice the bytes for
     /// colors that are all sRGB), with alpha (rounded corners).
-    private static func renderCard(scale: CGFloat, _ draw: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
+    private static func renderCard(scale: CGFloat, _ draw: (CGContext) -> Void) -> PlatformImage {
         renderCard(pixelSize: pixelSize(scale: scale, zoom: textureZoom), draw)
     }
 
     /// The same at an explicit bitmap size (the draw's card back, rendered at its on-screen size).
-    private static func renderCard(pixelSize: CGSize, _ draw: (UIGraphicsImageRendererContext) -> Void) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        format.preferredRange = .standard
-        let renderer = UIGraphicsImageRenderer(size: pixelSize, format: format)
-        return renderer.image { ctx in
-            ctx.cgContext.scaleBy(x: pixelSize.width / cardPixelWidth, y: pixelSize.height / cardPixelHeight)
-            draw(ctx)
+    private static func renderCard(pixelSize: CGSize, _ draw: (CGContext) -> Void) -> PlatformImage {
+        BitmapRenderer.image(pixelSize: pixelSize) { gc in
+            gc.scaleBy(x: pixelSize.width / cardPixelWidth, y: pixelSize.height / cardPixelHeight)
+            draw(gc)
         }
     }
 
@@ -94,8 +88,8 @@ enum CardTextureGenerator {
     /// without visible shimmer, and a mip level blended in would soften every trick
     /// card's rank text (usesMipmaps also changed nothing measurable in SpriteKit on
     /// the iOS 27.2 simulator, POT or not, and would add a third to the memory).
-    private static func makeTexture(_ image: UIImage) -> SKTexture {
-        let tex = SKTexture(image: image)
+    private static func makeTexture(_ image: PlatformImage) -> SKTexture {
+        let tex = SKTexture.make(image)
         tex.filteringMode = .linear
         return tex
     }
@@ -141,7 +135,7 @@ enum CardTextureGenerator {
     /// Rendered here (about a millisecond), not read back from the SKTexture:
     /// `SKTexture.cgImage()` copies the bitmap back out of SpriteKit, 100x the render's
     /// cost, on the main thread in the frame a card arrives.
-    static func image(for card: Card) -> UIImage {
+    static func image(for card: Card) -> PlatformImage {
         uiImage(card.id) { renderFace(card, scale: displayScale) }
     }
 
@@ -149,7 +143,7 @@ enum CardTextureGenerator {
     private static func backKey(_ colour: CardBackColour) -> String { "\(backKeyPrefix)\(colour.rawValue)" }
 
     /// The card back of `colour` as a UIImage of the textures' size (`pixelSize()`), drawn for that density.
-    static func cardBackImage(colour: CardBackColour = .draw) -> UIImage {
+    static func cardBackImage(colour: CardBackColour = .draw) -> PlatformImage {
         uiImage(backKey(colour)) { renderCardBack(pixelSize: pixelSize(), colour: colour) }
     }
 
@@ -158,7 +152,7 @@ enum CardTextureGenerator {
     /// size, `width` points at the screen scale (`backPixelSize`), so it samples 1:1 and the
     /// lattice hints itself for the pixels it really gets (renderCardBack). Cached per pixel
     /// width and colour; `prewarm()` renders the one the draw is expected to ask for.
-    static func cardBackImage(width: CGFloat, colour: CardBackColour = .draw) -> UIImage {
+    static func cardBackImage(width: CGFloat, colour: CardBackColour = .draw) -> PlatformImage {
         let px = backPixelSize(width: width)
         return uiImage("\(backKey(colour))@\(Int(px.width))") { renderCardBack(pixelSize: px, colour: colour) }
     }
@@ -173,17 +167,16 @@ enum CardTextureGenerator {
     /// thread for `prewarm()`; nil without a window (then the draw renders its back on demand).
     @MainActor
     private static func expectedDrawCardWidth() -> CGFloat? {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        guard let window = windows.first(where: \.isKeyWindow) ?? windows.first, window.bounds.width > 0 else { return nil }
-        return DrawMetrics(width: window.bounds.inset(by: window.safeAreaInsets).width).card.width
+        guard let width = Platform.keyWindowSafeWidth() else { return nil }
+        return DrawMetrics(width: width).card.width
     }
 
     /// `render` gives a scale-1 bitmap (`pixelSize()`, or the draw back's `backPixelSize`); the
     /// cached UIImage wraps the same pixels at the screen scale (pixels / `displayScale` points).
-    private static func uiImage(_ key: String, _ render: () -> UIImage) -> UIImage {
+    private static func uiImage(_ key: String, _ render: () -> PlatformImage) -> PlatformImage {
         if let hit = images.object(forKey: key as NSString) { return hit }
         let bitmap = render()
-        let image = bitmap.cgImage.map { UIImage(cgImage: $0, scale: displayScale, orientation: .up) } ?? bitmap
+        let image = bitmap.cgImageValue.map { PlatformImage(cgImage: $0, scale: displayScale) } ?? bitmap
         images.setObject(image, forKey: key as NSString)
         return image
     }
@@ -244,15 +237,15 @@ enum CardTextureGenerator {
     static func removeImagesForTesting() { images.removeAllObjects() }
 
     /// Tests only: a face rendered now, as the textures' source bitmap (nothing cached).
-    static func renderFaceForTesting(_ card: Card) -> UIImage { renderFace(card, scale: displayScale) }
+    static func renderFaceForTesting(_ card: Card) -> PlatformImage { renderFace(card, scale: displayScale) }
 
     /// Tests only: the back of `colour` rendered now at `pixelSize` (nothing cached).
-    static func renderBackForTesting(pixelSize: CGSize, colour: CardBackColour = .draw) -> UIImage {
+    static func renderBackForTesting(pixelSize: CGSize, colour: CardBackColour = .draw) -> PlatformImage {
         renderCardBack(pixelSize: pixelSize, colour: colour)
     }
     #endif
 
-    private static func renderFace(_ card: Card, scale: CGFloat) -> UIImage {
+    private static func renderFace(_ card: Card, scale: CGFloat) -> PlatformImage {
         #if DEBUG
         if Thread.isMainThread { lock.lock(); mainThreadRenders += 1; lock.unlock() }
         #endif
@@ -261,13 +254,12 @@ enum CardTextureGenerator {
 
     // MARK: - Standard Card
 
-    private static func renderStandardCard(card: Card, scale: CGFloat) -> UIImage {
-        renderCard(scale: scale) { ctx in
+    private static func renderStandardCard(card: Card, scale: CGFloat) -> PlatformImage {
+        renderCard(scale: scale) { gc in
             let rect = CGRect(x: 0, y: 0, width: cardPixelWidth, height: cardPixelHeight)
-            let gc = ctx.cgContext
 
             // White background with rounded corners
-            let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
+            let path = PlatformBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
             Theme.Palette.Card.face.uiColor.setFill()
             path.fill()
 
@@ -284,7 +276,7 @@ enum CardTextureGenerator {
             let suitStr = suitSymbol(card.suit)
 
             // Top-left rank + suit
-            let smallFont = UIFont.systemFont(ofSize: 40, weight: .bold)
+            let smallFont = PlatformFont.systemFont(ofSize: 40, weight: .bold)
             let smallAttrs: [NSAttributedString.Key: Any] = [
                 .font: smallFont,
                 .foregroundColor: color,
@@ -295,7 +287,7 @@ enum CardTextureGenerator {
             let topLeftY: CGFloat = 16
             (rankStr as NSString).draw(at: CGPoint(x: topLeftX, y: topLeftY), withAttributes: smallAttrs)
 
-            let suitSmallFont = UIFont.systemFont(ofSize: 32, weight: .regular)
+            let suitSmallFont = PlatformFont.systemFont(ofSize: 32, weight: .regular)
             let suitSmallAttrs: [NSAttributedString.Key: Any] = [
                 .font: suitSmallFont,
                 .foregroundColor: color,
@@ -319,7 +311,7 @@ enum CardTextureGenerator {
             gc.restoreGState()
 
             // Large center suit symbol
-            let bigFont = UIFont.systemFont(ofSize: 100, weight: .regular)
+            let bigFont = PlatformFont.systemFont(ofSize: 100, weight: .regular)
             let bigAttrs: [NSAttributedString.Key: Any] = [
                 .font: bigFont,
                 .foregroundColor: color,
@@ -362,7 +354,7 @@ enum CardTextureGenerator {
 
     /// The web's cardBase: the card filled, its edge stroked `lineWidth` wide and clipped to
     /// the card (so half of it shows).
-    private static func cardBase(_ gc: CGContext, fill: UIColor, stroke: UIColor, lineWidth: CGFloat) {
+    private static func cardBase(_ gc: CGContext, fill: PlatformColor, stroke: PlatformColor, lineWidth: CGFloat) {
         gc.addPath(cardPath)
         gc.setFillColor(fill.cgColor)
         gc.fillPath()
@@ -389,7 +381,7 @@ enum CardTextureGenerator {
     private static let jokerWordPad: CGFloat = 6
 
     /// The ink box of `str` in `font`, pen at x = 0 on the baseline, y up (CoreText glyph bounds).
-    static func inkBounds(_ str: String, _ font: UIFont) -> CGRect {
+    static func inkBounds(_ str: String, _ font: PlatformFont) -> CGRect {
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: str, attributes: [.font: font]))
         return CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
     }
@@ -398,18 +390,18 @@ enum CardTextureGenerator {
     /// would then reach further right than the widest rank ("10"); then both words shrink
     /// alike until it does not (the web's jokerWordSize: the word never passes the index
     /// column), so a joker's corner shows in a hand's strip whenever a 10's does.
-    static let jokerWordFont: UIFont = {
-        let rank = UIFont.systemFont(ofSize: indexFontSize, weight: .bold)
+    static let jokerWordFont: PlatformFont = {
+        let rank = PlatformFont.systemFont(ofSize: indexFontSize, weight: .bold)
         let ten = inkBounds("10", rank).maxX
         let word = max(inkBounds("HI", rank).maxX, inkBounds("LO", rank).maxX)
         let size = word > ten ? indexFontSize * ten / word : indexFontSize
-        return UIFont.systemFont(ofSize: size, weight: .bold)
+        return PlatformFont.systemFont(ofSize: size, weight: .bold)
     }()
 
     /// The joker word's ink box on the canvas (y down): pen at indexOrigin.x, its cap top
     /// where a rank's cap top is (indexOrigin.y + the line's ascender less its cap height).
     static func jokerWordInk(_ word: String) -> (drawAt: CGPoint, ink: CGRect) {
-        let rank = UIFont.systemFont(ofSize: indexFontSize, weight: .bold)
+        let rank = PlatformFont.systemFont(ofSize: indexFontSize, weight: .bold)
         let font = jokerWordFont
         let capTop = indexOrigin.y + rank.ascender - rank.capHeight
         let drawAt = CGPoint(x: indexOrigin.x, y: capTop - (font.ascender - font.capHeight))
@@ -419,7 +411,7 @@ enum CardTextureGenerator {
     }
 
     /// One open stroked path (the sprite's lines: butt ends, round joins).
-    private static func strokeLines(_ gc: CGContext, _ color: UIColor, _ lineWidth: CGFloat, _ build: (CGMutablePath) -> Void) {
+    private static func strokeLines(_ gc: CGContext, _ color: PlatformColor, _ lineWidth: CGFloat, _ build: (CGMutablePath) -> Void) {
         let p = CGMutablePath()
         build(p)
         gc.addPath(p)
@@ -431,7 +423,7 @@ enum CardTextureGenerator {
     }
 
     /// The sprite's boxy double-bar dollar (cardFaces.js jokerDollar), in sprite pixels.
-    private static func jokerDollar(_ gc: CGContext, _ color: UIColor, _ lineWidth: CGFloat) {
+    private static func jokerDollar(_ gc: CGContext, _ color: PlatformColor, _ lineWidth: CGFloat) {
         func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x, y: y) }
         // the S
         strokeLines(gc, color, lineWidth) { p in
@@ -465,7 +457,7 @@ enum CardTextureGenerator {
     }
 
     /// A panel corner flourish (sprite pixels, the corner at (0, 0)): an L bracket and a ring.
-    private static func jokerFlourish(_ gc: CGContext, _ color: UIColor, _ lineWidth: CGFloat) {
+    private static func jokerFlourish(_ gc: CGContext, _ color: PlatformColor, _ lineWidth: CGFloat) {
         strokeLines(gc, color, lineWidth) { p in
             p.move(to: CGPoint(x: 6, y: 1.5))
             p.addLine(to: CGPoint(x: 1.5, y: 1.5))
@@ -481,9 +473,8 @@ enum CardTextureGenerator {
     /// slate outline, a light-blue inner border and centre panel with white corner flourishes,
     /// the black double-bar dollar, and HI (card red) or LO (card black) as the top-left corner
     /// index in the system bold, like the ranks (no top-right label, no bottom-right copy).
-    private static func renderJoker(card: Card, scale: CGFloat) -> UIImage {
-        renderCard(scale: scale) { ctx in
-            let gc = ctx.cgContext
+    private static func renderJoker(card: Card, scale: CGFloat) -> PlatformImage {
+        renderCard(scale: scale) { gc in
             let ink = Theme.JokerInk.self
             cardBase(gc, fill: Theme.Palette.Card.face.uiColor, stroke: ink.outline.uiColor, lineWidth: 12)  // ~6 units show
             // the light-blue inner border (sprite: a 1 px line 3 px in)
@@ -543,10 +534,9 @@ enum CardTextureGenerator {
     private static let backField: CGFloat = 16 + 15 + 3.5  // the lattice field's inset
     private static let backBeadPitch: CGFloat = 9
 
-    private static func renderCardBack(pixelSize: CGSize, colour: CardBackColour) -> UIImage {
-        renderCard(pixelSize: pixelSize) { ctx in
+    private static func renderCardBack(pixelSize: CGSize, colour: CardBackColour) -> PlatformImage {
+        renderCard(pixelSize: pixelSize) { gc in
             let k = pixelSize.width / cardPixelWidth
-            let gc = ctx.cgContext
             let ink = Theme.CardBack.ink(colour).uiColor.cgColor
             gc.saveGState()
             backPanel(gc, k: k, ink: ink)
@@ -721,7 +711,7 @@ enum CardTextureGenerator {
 
     // MARK: - Helpers
 
-    private static func suitColor(_ suit: Suit) -> UIColor {
+    private static func suitColor(_ suit: Suit) -> PlatformColor {
         Theme.CardInk.ink(suit).uiColor
     }
 
