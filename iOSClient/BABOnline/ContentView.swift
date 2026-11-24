@@ -161,9 +161,11 @@ struct ContentView: View {
             Text(restart.message ?? "")
         }
         .preferredColorScheme(.dark)
+        #if os(iOS)
         // the orientation mask follows the window scene's size classes (Duo fold / unfold)
         .onChange(of: hSizeClass) { OrientationLock.refresh() }
         .onChange(of: vSizeClass) { OrientationLock.refresh() }
+        #endif
         // drafts survive a rotation, not their context (sign-out, leaving a lobby or a game)
         .onChange(of: appState.screen) { old, new in
             ChatDrafts.screenChanged(from: old, to: new, mainRoom: mainRoomState, lobby: lobbyState,

@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import UIKit
 
 /// The admin panel (iOS 1.2.2; the web's client/src/ui/screens/AdminPanel.js): what each
 /// section shows and every action, over `AdminApi`. The Account sheet's Admin entry shows
@@ -104,7 +103,7 @@ final class AdminState: ObservableObject {
         self.api = api ?? AdminApi()
         // UIKit posts these on the main thread, before the app switcher's snapshot is taken
         // (scenePhase read inside a sheet can lag behind it)
-        for (name, covered) in [(UIApplication.willResignActiveNotification, true), (UIApplication.didBecomeActiveNotification, false)] {
+        for (name, covered) in AppPresence.coverNotifications {
             notifications.publisher(for: name).sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.linkCovered = covered }
             }.store(in: &appPhase)
