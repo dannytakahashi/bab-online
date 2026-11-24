@@ -10,9 +10,11 @@ enum FoldReader {
         #if DEBUG
         if let fold = UIFixture.fold { return synthetic(fold, p) }
         #endif
+        #if os(iOS)
         if #available(iOS 27.1, *) {
             return p.reservedRegions(kind: .division, layoutDirectionBehavior: .fixed).first(where: \.isActive)?.frame
         }
+        #endif
         return nil
     }
 
@@ -27,9 +29,11 @@ enum FoldReader {
 
     /// Active occlusions (system UI drawn over the app), in the proxy's local coordinates.
     static func occlusions(_ p: GeometryProxy) -> [CGRect] {
+        #if os(iOS)
         if #available(iOS 27.1, *) {
             return p.reservedRegions(kind: .occlusion, layoutDirectionBehavior: .fixed).filter(\.isActive).map(\.frame)
         }
+        #endif
         return []
     }
 
@@ -55,6 +59,7 @@ enum FoldReader {
     #endif
 }
 
+#if os(iOS)
 /// Bumps a counter on every hinge change (iOS 27.1 SDK), so a GeometryReader
 /// that reads FoldReader re-evaluates even when its size does not change.
 struct HingeTick: ViewModifier {
@@ -68,3 +73,4 @@ struct HingeTick: ViewModifier {
         }
     }
 }
+#endif

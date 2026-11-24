@@ -13,6 +13,7 @@ struct VerticalBarContext: Equatable {
     static let none = VerticalBarContext(usesVerticalBar: false, windowTopInset: nil)
 }
 
+#if os(iOS)
 /// Hosts a screen whose controls go into the vertical bar (iOS 27.1 SDK): standard
 /// toolbar items that the system lays out in that column under the status bar, and
 /// folds into its overflow menu when Live Activities need the room.
@@ -76,3 +77,4 @@ extension View {
             .toolbarBackground(.hidden, for: .navigationBar)
     }
 }
+#endif
