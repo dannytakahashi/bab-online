@@ -67,9 +67,11 @@ final class AuthScreensUITests: XCTestCase {
         // the keyboard's return goes from Username to Password
         name.tap()
         // a simulator with a hardware keyboard connected (an iPad's, often) shows no
-        // on-screen keyboard, so its return key is typed instead
+        // on-screen keyboard, so its return key is typed instead; the iOS 27 runtime still lists
+        // that hidden keyboard, below the window (its Next key at y 1087 on a 874 pt iPhone 18
+        // Pro), so the key is tapped only when it is on screen
         let nextKey = app.keyboards.buttons.matching(NSPredicate(format: "label ==[c] %@", "next")).firstMatch
-        if nextKey.waitForExistence(timeout: 2) { nextKey.tap() } else { name.typeText("\n") }
+        if nextKey.waitForExistence(timeout: 2) && nextKey.isHittable { nextKey.tap() } else { name.typeText("\n") }
         XCTAssertTrue((pass.value(forKey: "hasKeyboardFocus") as? Bool) ?? false, "Next moves to Password")
 
         // iOS AutoFill: leaving a filled password field asks "Save Password?" over the next
