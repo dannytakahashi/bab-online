@@ -23,7 +23,8 @@ import SpriteKit
 /// voice panel over `game-lobby` with two players (their volume sliders). `game-lobby-bots` is the game lobby with two bots
 /// that are not ready (my seat ready): there removeBot and addBot change the list the way
 /// the server answers them (`emulateLobby`) and show in "fixture.sent" as `removeBot:<id>` / `addBot`.
-/// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots.
+/// `-uiFold book|tabletop` simulates a fold region (FoldReader) for screenshots; `-uiFoldAt <f>`
+/// moves it off the window's centre by f of the window (book + right, tabletop + down).
 /// `-uiLobbyName "<title>"` (or the environment's `UI_FIXTURE_LOBBY_NAME`, which keeps an
 /// apostrophe: XCUITest's launch arguments read "iosplay1's" as a quote) renames a
 /// game-lobby fixture's lobby (the header's fit).
@@ -36,6 +37,12 @@ enum UIFixture {
     enum Fold: String { case book, tabletop }
     /// Synthetic 20 pt division at the window center (screenshots only; the real API is FoldReader's).
     static let fold: Fold? = UserDefaults.standard.string(forKey: "uiFold").flatMap(Fold.init(rawValue:))
+    /// `-uiFoldAt <f>`: the synthetic division's centre f of the window's width (book, + right) or
+    /// height (tabletop, + down) off the window's centre, at most 0.4 either way (default 0). The
+    /// centred 20 pt fold is the open Duo's; a phone's window ignores it (TableLayout.foldIgnored:
+    /// a book split crowds the seats, a tabletop one leaves no room), so the UI tests that check
+    /// what keeps off a fold move it to where that window's layout keeps it (TableParityUITests).
+    static let foldAt: CGFloat = min(0.4, max(-0.4, CGFloat(Double(UserDefaults.standard.string(forKey: "uiFoldAt") ?? "") ?? 0)))
 
     /// `-uiEffect rainbow|b|2b|3b|4b|ot|all`: effects held on the table (screenshots of the art).
     static let effect: String? = UserDefaults.standard.string(forKey: "uiEffect")
@@ -841,10 +848,21 @@ final class TableDebugProbe: ObservableObject {
     @Published var verticalBar = "-"
     /// The chat messages sent, "|"-joined ("-": none; UIFixture.recordSent).
     @Published var sent = "-"
-    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly flying=52 fading=0 deck=1"
-    /// (deals shown; the latest one's cards and kind, fly or Reduce Motion's fade; cards still
-    /// in a flight or a fade now, the deck up or not).
+    /// The live deal (GameSKScene.dealIn): "deals=1 cards=52 mode=fly peak=52 decks=red hinges=ok
+    /// flying=52 fading=0 deck=1 deckBack=red hinge=ok fold=kept" (deals shown; the latest one's cards and
+    /// kind, fly or Reduce Motion's fade; over that deal's refreshes, the most cards in flight at
+    /// once, the deck colours and the hinge readings seen while its deck was up ("-": none);
+    /// then now: cards still in a flight or a fade, the deck up or not, its colour and hinge, and
+    /// the layout's fold: kept (TableLayout keeps to it, so `hinge` is ok / over), ignored (no room:
+    /// `hinge` is "-") or "-" (none in the scene's chrome, e.g. a docked book split)).
+    /// The "now" part is only what the last refresh saw, and any render refreshes it: the HSI
+    /// reveal 1 s into a deal, after the first cards land (0.9 s) and the deck is gone (0.87 s),
+    /// shows "flying=40 deck=0". The deal's first refresh is queued by dealIn itself, which has
+    /// every card in flight and the deck up by then, so `peak` / `decks` / `hinges` hold the
+    /// whole deal whenever the probe is read.
     @Published var tableDeal = "-"
+    /// The deal (`dealsShown`) the `peak` / `decks` / `hinges` above are for, and their values.
+    private var dealSeenFor = 0, dealPeak = 0, dealDecks = Set<String>(), dealHinges = Set<String>()
     /// My /help answer on the table (AssistCardView's hint, TableReducer+Assist):
     /// "card=<id> bid=<b> frame=<x y w h> clear=ok|over:<what>|- keeps=<what>|- seats=ok|over:<what>|-" from the scene's
     /// ringed hand card, the bid panel's ringed bid, the card's frame in the pane's points, what
@@ -1004,11 +1022,22 @@ final class TableDebugProbe: ObservableObject {
             [CardBackColour.red, .blue].first { CardTextureGenerator.cardBackTexture(colour: $0) === t }?.rawValue ?? "other"
         })
         let deckBack = deckColours.count > 1 ? "mixed" : deckColours.first ?? "-"
+        // the fold in the layout's (scene) units: a zoomed table's scene is the pane / zoom
+        let keptFold = scene.layout.foldIgnored ? nil : scene.layout.chrome.fold
+        let fold = scene.layout.chrome.fold == nil ? "-" : keptFold == nil ? "ignored" : "kept"
         let hinge = scene.dealDeck.flatMap { deck in
-            (scene.layout.foldIgnored ? nil : scene.chrome.fold).map { deck.calculateAccumulatedFrame().intersects($0) ? "over" : "ok" }
+            keptFold.map { deck.calculateAccumulatedFrame().intersects($0) ? "over" : "ok" }
         } ?? "-"
-        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) flying=\(flying) fading=\(fading) "
-            + "deck=\(scene.dealDeck == nil ? 0 : 1) deckBack=\(deckBack) hinge=\(hinge)"
+        if scene.dealsShown != dealSeenFor { (dealSeenFor, dealPeak, dealDecks, dealHinges) = (scene.dealsShown, 0, [], []) }
+        dealPeak = max(dealPeak, flying)
+        if scene.dealDeck != nil {
+            dealDecks.insert(deckBack)
+            dealHinges.insert(hinge)
+        }
+        let seen = { (s: Set<String>) in s.isEmpty ? "-" : s.sorted().joined(separator: ",") }
+        let deal = "deals=\(scene.dealsShown) cards=\(scene.lastDeal.cards) mode=\(scene.lastDeal.mode) "
+            + "peak=\(dealPeak) decks=\(seen(dealDecks)) hinges=\(seen(dealHinges)) flying=\(flying) fading=\(fading) "
+            + "deck=\(scene.dealDeck == nil ? 0 : 1) deckBack=\(deckBack) hinge=\(hinge) fold=\(fold)"
         if deal != tableDeal { tableDeal = deal }
         let zoom = String(format: "%.2f", L.zoom)
         if zoom != tableZoom { tableZoom = zoom }

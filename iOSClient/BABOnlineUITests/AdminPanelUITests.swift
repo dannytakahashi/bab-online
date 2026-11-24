@@ -244,7 +244,12 @@ final class AdminPanelUITests: XCTestCase {
         filterPlayers(app, "pat")
         openMenu(app, "pat", item: "Delete account…")
         type(app, "admin.confirm.field", "pat")
-        app.buttons["admin.confirm.submit"].tap()
+        // the button sits under the field, below the fold on a phone (iOS 27's taller rows put
+        // the field at the bottom of an iPhone 18 Pro's sheet, the button's row not yet built)
+        let patSubmit = app.buttons["admin.confirm.submit"]
+        reveal(app, patSubmit)
+        XCTAssertTrue(patSubmit.isEnabled, "the exact name")
+        patSubmit.tap()
         waitForStatus(app, containing: "pat is deleted: 3 game record update(s) to [deleted], 1 report(s) marked, 0 live connection(s) closed.")
         XCTAssertFalse(app.buttons["admin.confirm.submit"].exists, "the sheet closed")
         XCTAssertTrue(element(app, "admin.player.pat").label.contains("deleted, name held until"), "the name is held")
@@ -254,7 +259,9 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(element(app, "admin.confirm.title").waitForExistence(timeout: 5))
         XCTAssertEqual(element(app, "admin.confirm.title").label, "Free the name pat?")
         type(app, "admin.confirm.field", "pat")
-        app.buttons["admin.confirm.submit"].tap()
+        let freeSubmit = app.buttons["admin.confirm.submit"]
+        reveal(app, freeSubmit)
+        freeSubmit.tap()
         waitForStatus(app, containing: "The name pat is free again.")
     }
 

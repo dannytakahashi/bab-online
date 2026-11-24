@@ -246,7 +246,10 @@ final class ScoreBarNamesTests: XCTestCase {
                     .environment(\.dynamicTypeSize, type)
                 let got = fit(line, width: column).width
                 let centred = scoreW + 2 * levelW + 2 * Theme.Space.s1
-                let whole = centred <= column + 0.5 ? centred : scoreW + levelW + Theme.Space.s1
+                // ViewThatFits takes the centred form only when it fits the column exactly: on the
+                // iPad (2x) "-1250" + "2B" with the copy measures 98.5 in the 98 pt column, so the
+                // side-by-side form (79.5, nothing cut) is right there
+                let whole = centred <= column + 0.01 ? centred : scoreW + levelW + Theme.Space.s1
                 XCTAssertEqual(got, whole, accuracy: 0.5, "\(score) \(level) \(type): the level was cut")
                 XCTAssertLessThanOrEqual(got, column + 0.5, "\(score) \(level) \(type)")
                 XCTAssertEqual(fit(line, width: 300).width, centred, accuracy: 0.5, "\(score) \(level) \(type): not centred with room")

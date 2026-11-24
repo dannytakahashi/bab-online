@@ -41,13 +41,15 @@ enum FoldReader {
     }
 
     #if DEBUG
-    /// `-uiFold`: a 20 pt division at the window center (screenshots of the composition only).
+    /// `-uiFold`: a 20 pt division at the window center (screenshots of the composition only),
+    /// or `-uiFoldAt` of the window off it.
     private static func synthetic(_ fold: UIFixture.Fold, _ p: GeometryProxy) -> CGRect {
         let i = p.safeAreaInsets
         let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
+        let at = UIFixture.foldAt
         switch fold {
-        case .book: return CGRect(x: w / 2 - 10 - i.leading, y: -i.top, width: 20, height: h)
-        case .tabletop: return CGRect(x: -i.leading, y: h / 2 - 10 - i.top, width: w, height: 20)
+        case .book: return CGRect(x: w * (0.5 + at) - 10 - i.leading, y: -i.top, width: 20, height: h)
+        case .tabletop: return CGRect(x: -i.leading, y: h * (0.5 + at) - 10 - i.top, width: w, height: 20)
         }
     }
     #endif
