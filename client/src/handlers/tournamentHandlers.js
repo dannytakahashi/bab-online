@@ -2,7 +2,8 @@
  * Tournament socket event handlers.
  *
  * Handles: tournamentCreated, tournamentJoined, tournamentPlayerJoined,
- *          tournamentPlayerLeft, tournamentReadyUpdate, tournamentMessage,
+ *          tournamentPlayerLeft, tournamentReadyUpdate, tournamentSettingsUpdated,
+ *          tournamentMessage,
  *          tournamentRoundStart, tournamentGameAssignment, tournamentGameComplete,
  *          tournamentRoundComplete, tournamentComplete, tournamentLeft
  *
@@ -25,6 +26,7 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
     onTournamentPlayerJoined,
     onTournamentPlayerLeft,
     onTournamentReadyUpdate,
+    onTournamentSettingsUpdated,
     onTournamentMessage,
     onTournamentRoundStart,
     onTournamentGameAssignment,
@@ -58,6 +60,11 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
   socketManager.on(SERVER_EVENTS.TOURNAMENT_READY_UPDATE, (data) => {
     console.log('Tournament ready update:', data);
     onTournamentReadyUpdate?.(data);
+  });
+
+  socketManager.on(SERVER_EVENTS.TOURNAMENT_SETTINGS_UPDATED, (data) => {
+    console.log('Tournament settings updated:', data);
+    onTournamentSettingsUpdated?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.TOURNAMENT_MESSAGE, (data) => {
