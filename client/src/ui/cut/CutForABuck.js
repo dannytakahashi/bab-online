@@ -123,9 +123,11 @@ export function paintCard(canvas, card, w, h) {
 export function fanGeometry(w, h, count, deckSize) {
   const share = deckSize > 0 ? Math.min(1, count / deckSize) : 0;
   const half = count <= 1 ? 0 : (Math.max(4, FAN_DEG * share) * Math.PI) / 180;
-  // fit: width 2 (ch sin a + cw/2 cos a), height ch + lift room
+  // fit: width 2 (ch sin a + cw/2 cos a); height the lift room, the card,
+  // and the outer cards' bottom corners dipping below the pivot (cw/2 sin a)
   const lift = 0.12;
-  let ch = h / (1 + lift + 0.06);
+  const dip = Math.sin(half) / CARD_RATIO / 2;
+  let ch = (h * 0.97) / (1 + lift + dip);
   const widthOf = (c) => 2 * (c * Math.sin(half) + (c / CARD_RATIO / 2) * Math.cos(half));
   if (widthOf(ch) > w * 0.96) ch = (w * 0.96) / (widthOf(1) || 1);
   const cw = ch / CARD_RATIO;
@@ -297,7 +299,11 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     : el('button', { className: 'cut-deck', attrs: { id: 'cutDeck', type: 'button', 'aria-label': 'Draw a card', 'aria-describedby': 'cutDeckCaption' }, children: [deckCanvas, shuffle] });
   const overlay = el('div', { className: 'cut-overlay', attrs: { 'aria-hidden': 'true' } });
   const stage = el('div', { className: 'cut-stage', attrs: { id: 'cutStage' }, children: [ring, deck, deckCaption, overlay] });
-  const list = el('div', { className: 'cut-list', attrs: { role: 'list', 'aria-label': 'Players', id: 'cutList' } });
+  const listRows = el('div', { className: 'cut-list__rows', attrs: { role: 'list', 'aria-label': 'Players' } });
+  // the list has no deck: its own Draw a card (a random card, slot null)
+  const listDraw = createButton({ label: 'Draw a card', variant: 'primary', onClick: () => drawSlot(null, -1) });
+  listDraw.id = 'cutListDraw';
+  const list = el('div', { className: 'cut-list', attrs: { id: 'cutList' }, children: spectator ? [listRows] : [listDraw, listRows] });
   const live = el('div', { className: 'visually-hidden', attrs: { 'aria-live': 'polite', id: 'cutLive' } });
   const liveLoud = el('div', { className: 'visually-hidden', attrs: { 'aria-live': 'assertive', id: 'cutLiveWinner' } });
   const popover = el('div', { className: 'cut-popover kit-panel kit-elev-3', attrs: { role: 'dialog', 'aria-modal': 'false', hidden: '' } });
@@ -657,7 +663,9 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   }
 
   function renderList() {
-    list.replaceChildren();
+    listRows.replaceChildren();
+    listDraw.disabled = !canDraw();
+    listDraw.hidden = !state || state.stage !== STAGE.DRAWING || !isAlive(state, me);
     for (const username of order) {
       const p = people.get(username) || {};
       const v = seatView(state, username, { me, connected: p.connected !== false, talking: talking.has(username) });
@@ -676,7 +684,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
           el('span', { className: 'cut-list__cards', text: v.cards.map(cardShort).join(' ') }),
         ],
       });
-      list.appendChild(row);
+      listRows.appendChild(row);
     }
   }
 
@@ -915,6 +923,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
       play('turn');
     }
     if (state.stage === STAGE.DRAWING) paintDeckState();
+    if (mode === 'list' && !spectator && listDraw.disabled === canDraw()) listDraw.disabled = !canDraw();
   }, 250);
   function paintDeckState() {
     if (spectator) return;

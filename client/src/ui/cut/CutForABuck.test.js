@@ -339,6 +339,12 @@ describe('spectators, restore, list, voice', () => {
     const rows = [...view.element.querySelectorAll('.cut-list__row')];
     expect(rows.map((r) => r.dataset.username)).toEqual(['me', 'bo', 'cy', 'al']);
     expect(rows[0].querySelector('.cut-list__name').textContent).toBe('you');
+    // the list has no deck: its own Draw a card (a random card)
+    const draw = view.element.querySelector('#cutListDraw');
+    expect(draw.hidden).toBe(false);
+    draw.click();
+    expect(socket.emitted('cutForABuckDraw')).toEqual([{ round: 1, slot: null }]);
+    expect(view.element.querySelector('#cutListDraw').disabled).toBe(true);
     view.element.querySelector('[data-view="ring"]').click();
     expect(view.element.querySelector('#cutStage').hidden).toBe(false);
   });
