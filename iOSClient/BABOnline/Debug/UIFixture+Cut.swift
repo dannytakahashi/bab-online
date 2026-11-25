@@ -18,7 +18,8 @@ import SwiftUI
 /// `-uiSpectator YES`: watched by a spectator (lou). `game-end-tournament -uiCut "<n> gather|drawing"`:
 /// the last table's score screen with the cut's strip. In the drawing stages a draw is answered as
 /// the server would: my cutForABuckDrew at once, then (`-uiCutPlay YES`) the others' and the reveal
-/// with me safe (`-uiCutLose YES`: me out), and after a tap in `away`, nothing but the send.
+/// with me safe (`-uiCutLose YES`: me out), then the next round 2.5 s later; after a tap in `away`,
+/// nothing but the send.
 extension UIFixture {
     static let cutSpec: (n: Int, stage: String)? = {
         guard isActive, let raw = UserDefaults.standard.string(forKey: "uiCut") else { return nil }
@@ -232,6 +233,15 @@ extension UIFixture {
                              "nextInMs": alive.count == 1 ? 6000 : 4000])
         if alive.count == 1 {
             t.applyCut(.winner, ["winner": alive[0], "participants": s.participants, "rounds": round])
+        } else {
+            // the next round opens after the reveal's pause (as CUT_REVEAL_MS)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                MainActor.assumeIsolated {
+                    guard let c = t.cut, c.round == round else { return }
+                    t.applyCut(.round, ["round": round + 1, "participants": c.participants, "alive": alive,
+                                        "deckCount": c.deckCount, "reshuffled": false, "closesInMs": 15000])
+                }
+            }
         }
     }
 }

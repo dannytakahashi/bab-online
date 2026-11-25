@@ -90,6 +90,12 @@ final class CutForABuckUITests: XCTestCase {
         XCTAssertEqual(any(app, "cut.seat.ivy").value as? String, "idle")
         let sent = Fixture.probe(app, "fixture.sent")
         XCTAssertEqual(sent.components(separatedBy: "cutForABuckDraw").count - 1, 1, "one draw a round: \(sent)")
+        // the next round: my draw is open again, and a tap draws again
+        waitFor(8, "round 4 opens") { any(app, "cut.status").label == "Tap the deck to draw" }
+        XCTAssertTrue(any(app, "cut.round").label.hasPrefix("Round 4"))
+        deck.tap()
+        waitFor(3, "the second draw went out") { Fixture.probe(app, "fixture.sent").contains("cutForABuckDraw:4:") }
+        waitFor(8, "the second verdict") { any(app, "cut.status").label == "You're safe with a 9" && any(app, "cut.round").label.hasPrefix("Round 4") }
     }
 
     func testAfterTheServerDrewForMeATapSaysIAmBack() {
