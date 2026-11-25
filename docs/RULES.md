@@ -202,6 +202,10 @@ After all 13 hands are completed:
 
 ---
 
+## Tournaments
+
+A tournament is a series of rounds (1 to 5; the host picks the number in the tournament lobby before it begins, 4 by default). Each round every player plays one game, with bots filling empty seats; partners rotate from round to round (see Drawing for Positions). Your round score is your team's final score in that round's game; if you miss a round you score that round's lowest score. After the last round the highest total wins (a tie gives co-winners).
+
 ## Get Your Bid
 
 A second way to play, chosen when a game is created (**+ Create Game → Get Your Bid**). On the website only, in casual lobbies (not tournaments). These games are not counted in statistics, standings or records.

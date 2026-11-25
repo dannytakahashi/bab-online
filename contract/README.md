@@ -310,6 +310,30 @@ client's view by the one-way delay. It appears on:
 The event order is unchanged; the shipped iOS app ignores the field and
 relies on the server's minimum gaps (`pacing.SHIPPED_IOS_FLOORS`).
 
+## Tournament rounds
+
+The host picks the number of rounds, 1 to 5 (default 4), in the tournament
+lobby (2026-11-25; `server/CLAUDE.md`, Tournament lifecycle).
+
+- c2s `setTournamentRounds {totalRounds}`: an integer 1..5 (Joi
+  `setTournamentRounds`, strict, so `"3"` is refused; rate limit 20 per
+  60 s). Host only, lobby phase only; a refusal is a `serverError` ('Not in a
+  tournament', 'Only the host can change the number of rounds', 'Rounds can
+  only change before the tournament begins'). The same count again sends
+  nothing.
+- s2c `tournamentSettingsUpdated {totalRounds, by}` to the tournament room,
+  then an unstored system `tournamentMessage` ("kim set the tournament to 3
+  rounds.") and `lobbiesUpdated` (the summary's `totalRounds`). Ready flags
+  are kept.
+- No cap and no new field: every tournament payload already carries
+  `totalRounds` (tournamentClientState, tournamentRoundStart,
+  tournamentGameComplete, tournamentRoundComplete, the main-room summary,
+  snapshot v2 `tournament`). Shipped iOS builds ignore the new event, see
+  the system line, and read the count from round 1's `tournamentRoundStart`
+  (their empty lobby scoreboard shows 4 columns until then).
+- Web reads it in the lobby (`TournamentLobby.setTournamentTotalRounds`) and
+  sends it from the host's Rounds picker; iOS from build 41.
+
 ## Client capabilities (clientHello) and avatar fields
 
 `clientHello {client, version, build?, caps}` (c2s, no reply) tells the
