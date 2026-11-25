@@ -853,6 +853,48 @@
     text-transform: uppercase;
 }
 
+/* Badges (ui/components/Badges.js): the earned ones, below the statistics */
+.badges-title {
+    margin-top: var(--space-6);
+}
+
+.badges-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.badge-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-4) var(--space-2);
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+    text-align: center;
+}
+
+.badge-item__art {
+    width: 64px;
+    height: 64px;
+}
+
+.badge-item__name {
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+}
+
+.badge-item__desc {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+}
+
 .profile-signout {
     margin-top: var(--space-6);
 }
@@ -1946,6 +1988,69 @@
 .search-row .kit-input {
     flex: 1;
     min-width: 0;
+}
+
+/* A scroll container clips at its padding box, outlines included: the
+   padding (pulled back by the margin, so rows stay aligned with the search
+   row) leaves room for the 2 px + 2 px focus ring of a result. */
+.search-results {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: var(--space-1);
+    margin: calc(-1 * var(--space-1));
+}
+
+.search-result {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 56px;
+    padding: var(--space-2) var(--space-3);
+    background: var(--surface-2);
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-md);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+    background: var(--surface-3);
+}
+
+.search-result img {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    box-shadow: 0 0 0 2px var(--line-strong);
+}
+
+.search-result__info {
+    flex: 1;
+    min-width: 0;
+}
+
+.search-result__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+    font-weight: var(--weight-bold);
+}
+
+.search-result__stats {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
 }
 
 /* ---------- Sign in / register ---------- */

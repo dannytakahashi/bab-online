@@ -180,6 +180,9 @@ export function foldAvatarPayload(event, data) {
     case 'leaderboardResponse':
       foldRows(data.leaderboard, urls);
       break;
+    case 'searchPlayersResponse':
+      foldRows(data.players, urls);
+      break;
     case 'profileResponse':
     case 'playerProfileResponse':
       if (data.profile && typeof data.profile === 'object') {
@@ -228,8 +231,10 @@ export function foldAvatarPayload(event, data) {
  * "Partners so far" and words a tournament table's draw as a draw for first
  * deal with the teams (startDraw.teams), so the server may draw honestly
  * there (each player the card picked).
+ * And badges (2026-11-25, ui/components/Badges.js): this page shows a
+ * player's earned badges on their profile and the badgesAwarded toast.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges'];
 
 export function clientHello(version, build, capable = true) {
   return {

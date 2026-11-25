@@ -36,6 +36,7 @@ const { MODE, normalizeMode, GYB_SEATS, CLASSIC_SEATS, isGyb } = require('./game
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
 const { defaultAssist, normalizeAssist } = require('./assistState');
+const { newTrack: newBadgeTrack, normalizeTrack: normalizeBadgeTrack } = require('./badges');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -179,6 +180,12 @@ class GameState {
         // and lifecycle as seatBags (its own field: a doc from a process
         // without it restores null, and the record then carries no counts)
         this.seatExact = { hands: 0, byPos: { 1: 0, 2: 0, 3: 0, 4: 0 } };
+        // Badges (server-only, game/badges.js): what happened in this game
+        // that a badge is for (score lows and leads, a 4B, over-trumps, zero
+        // bids in a row, ...). Saved like seatBags (optional both ways: a
+        // doc without it restores null, and that game then earns only the
+        // badges its final state shows)
+        this.badgeTrack = newBadgeTrack();
 
         // Per-hand trick tracking (reset each hand) for determining set responsibility
         this.handTricks = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -1470,6 +1477,7 @@ class GameState {
             // A doc without it (written by a process without the counter): none
             this.seatBags = normalizeSeatBags(state.seatBags);
             this.seatExact = normalizeSeatCounter(state.seatExact);
+            this.badgeTrack = normalizeBadgeTrack(state.badgeTrack);
             this.handTricks = clone(state.handTricks);
             this.hsiValues = clone(state.hsiValues) || {};
             // A CODEC_V 1 doc has none: every seat starts with no /help use

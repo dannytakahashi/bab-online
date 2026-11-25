@@ -45,6 +45,7 @@ const lobbyHandlers = require('../lobbyHandlers');
 const tournamentHandlers = require('../tournamentHandlers');
 const authHandlers = require('../authHandlers');
 const profileHandlers = require('../profileHandlers');
+const badgeAwards = require('../badgeAwards');
 const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
@@ -845,6 +846,23 @@ describe('(e) non-game handlers', () => {
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_alice' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_ghost' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });
+        // Badges (cap `badges`): a record that newly earns one tells the
+        // player's live socket (badgesAwarded), and the profile replies of
+        // such a socket list the earned ones; without the cap, neither
+        expect(events(w.log, 'profileResponse').pop().data).not.toHaveProperty('badges');
+        const helloBefore = c.data.client;
+        c.data.client = { client: 'web', version: '1', build: null, caps: ['badges'] };
+        badgeAwards.setIo(w.io);
+        const earning = { gameId: 'g-now', completedAt: new Date(), statsDeltas: { bucket: 'stats', byPosition: {}, names: { 1: 'e_alice' }, badges: { 1: ['felted'] } } };
+        await badgeAwards.awardAndNotify(earning, { users: mockDb.current.users, gameRecords: mockDb.current.gameRecords });
+        await badgeAwards.awardAndNotify(earning, { users: mockDb.current.users, gameRecords: mockDb.current.gameRecords }); // a replay: nothing new
+        expect(events(w.log, 'badgesAwarded').map((l) => [l.to, l.data.badges.map((x) => x.id)])).toEqual([['self:e-c', ['felted']]]);
+        await profileHandlers.getProfile(c, w.io);
+        expect(events(w.log, 'profileResponse').pop().data.badges.map((x) => x.id)).toEqual(['felted']);
+        await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });
+        expect(events(w.log, 'playerProfileResponse').pop().data.badges).toEqual([]);
+        expect(contract.validateS2C('badgesAwarded', { gameId: 'g-now', badges: [] }).ok).toBe(false);
+        c.data.client = helloBefore;
         const board = events(w.log, 'leaderboardResponse').pop().data;
         expect(board.leaderboard.map((r) => r.username)).toContain('e_vet');
         expect(contract.validateS2C('leaderboardResponse', { ...board, leaderboard: board.leaderboard.map((r) => ({ ...r, winRate: String(r.winRate) })) }).ok).toBe(false);

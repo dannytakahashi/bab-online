@@ -25,6 +25,7 @@ import { showGameLobby, addLobbyChatMessage, removeGameLobby } from './GameLobby
 import { showTournamentLobby, addTournamentChatMessage, removeTournamentLobby } from './TournamentLobby.js';
 import { showLeaderboardPage, removeLeaderboardPage } from './LeaderboardPage.js';
 import { showRecordsPage, removeRecordsPage } from './RecordsPage.js';
+import { showPlayerSearchPage, removePlayerSearchPage } from './PlayerSearchPage.js';
 import { showProfilePage, removeProfilePage } from './ProfilePage.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { setIsAdmin } from '../../admin/adminApi.js';
@@ -323,6 +324,7 @@ afterEach(() => {
   setIsAdmin(false);
   removeLeaderboardPage();
   removeRecordsPage();
+  removePlayerSearchPage();
   removeProfilePage();
   removeMainRoom();
   removeGameLobby();
@@ -577,6 +579,7 @@ describe('the pages open over the full-window main room as kit modals', () => {
   const pages = {
     Leaderboard: () => showLeaderboardPage([{ username: 'ann', gamesPlayed: 1, winRate: 100, pointsPerGame: 1, bidsPerGame: 1, tricksPerBid: 1, setRate: 0, drag: 0, avgHSI: 1 }], socket),
     Records: () => showRecordsPage({ allTime: null, thisYear: null, thisMonth: null }, 0),
+    Players: () => showPlayerSearchPage(socket),
     Profile: () => showProfilePage({ username: 'me', stats: {} }, socket),
     Admin: () => {
       setIsAdmin(true);
