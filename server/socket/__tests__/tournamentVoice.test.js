@@ -486,8 +486,8 @@ describe('the tournament room', () => {
                 expect(statusTo(ctx, 0, w.id)).toEqual([{ admitted: false, cap: 12 }]);
                 expect(relays(ctx, w, s[0])).toBe(false);
             }
-            // an admitted member is never told anything
-            for (const a of s.slice(0, 12)) expect(statusTo(ctx, 0, a.id)).toEqual([]);
+            // an admitted member is told it is in, once, on entry (clears a note a client carried over)
+            for (const a of s.slice(0, 12)) expect(statusTo(ctx, 0, a.id)).toEqual([{ admitted: true, cap: 12 }]);
             const mark = ctx.log.length;
             await tournamentHandlers.leaveTournament(s[5], ctx.io);
             expect(statusTo(ctx, mark, s[12].id)).toEqual([{ admitted: true, cap: 12 }]);
@@ -496,6 +496,21 @@ describe('the tournament room', () => {
             // the next in line still waits, and is not told again
             expect(statusTo(ctx, mark, s[13].id)).toEqual([]);
             expect(roomIds(ctx.t)).toHaveLength(12);
+        });
+
+        test('a member who waited, dropped and came back on a new socket into a room with space is told it is in (no stale "Voice is full")', async () => {
+            process.env.TOURNAMENT_VOICE_MAX = '2';
+            const ctx = await tournament(['webStatus', 'webStatus', 'webStatus']);
+            const [a, b, w] = ctx.sockets;
+            expect(statusTo(ctx, 0, w.id)).toEqual([{ admitted: false, cap: 2 }]);
+            const mark = ctx.log.length;
+            // w's socket goes (in the lobby phase a leave), a leaves, and w's username comes back on a new socket
+            await kill(ctx.io, w);
+            await tournamentHandlers.leaveTournament(a, ctx.io);
+            const back = again(ctx, w.username, 'webStatus');
+            await tournamentHandlers.joinTournament(back, ctx.io, { tournamentId: ctx.t.tournamentId });
+            expect(roomIds(ctx.t)).toEqual([b.id, back.id]);
+            expect(statusTo(ctx, mark, back.id)).toEqual([{ admitted: true, cap: 2 }]);
         });
 
         test('at 20 (the ceiling): 190 pairs; a member waiting in line whose lobby is drawn again is told again', async () => {

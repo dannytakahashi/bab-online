@@ -94,7 +94,8 @@ function parseArgs(argv) {
     if (!(o.steady >= 3)) bad('--steady must be at least 3 seconds');
     if (!['staggered', 'burst'].includes(o.entry)) bad('--entry must be staggered or burst');
     if (o.port !== null && (!Number.isInteger(o.port) || o.port < 1024 || o.port === 3000 || o.port === 27017)) bad('--port: never 3000 or 27017');
-    if (o.db !== null && (!/^[A-Za-z0-9_]{1,48}$/.test(o.db) || o.db.toLowerCase() === 'babonline')) bad('--db: letters, digits and _ only, never babonline');
+    // the harness drops its database at the end: only one of its own names
+    if (o.db !== null && !/^(voicemesh|v12)_[A-Za-z0-9_]{1,40}$/.test(o.db)) bad('--db: voicemesh_<x> or v12_<x> only (it is dropped at the end)');
     return o;
 }
 
@@ -340,6 +341,25 @@ function cpuReport(before, after, seconds) {
 }
 
 // ---------------------------------------------------------------- the run
+/**
+ * Why a MONGO_URI is refused, or null. Every host must carry an explicit
+ * port other than 27017 (no port means 27017), and mongodb+srv (a cluster,
+ * never a private test mongod) is refused outright.
+ */
+export function mongoUriRefusal(uri) {
+    const m = /^mongodb(\+srv)?:\/\/(?:[^@/]*@)?([^/?]*)/.exec(String(uri));
+    if (!m) return 'not a mongodb:// URI';
+    if (m[1]) return 'mongodb+srv is never a private test mongod';
+    const hosts = m[2].split(',').filter(Boolean);
+    if (hosts.length === 0) return 'no host';
+    for (const h of hosts) {
+        const port = /:(\d+)$/.exec(h);
+        if (!port) return `${h} has no port (that is 27017)`;
+        if (Number(port[1]) === 27017) return `${h} is port 27017`;
+    }
+    return null;
+}
+
 async function main() {
     let opts;
     try {
@@ -357,8 +377,9 @@ async function main() {
         console.error('voice-mesh-measure: set MONGO_URI to a test mongod (never 27017)');
         return 2;
     }
-    if (/:27017(\/|$)/.test(mongoUri)) {
-        console.error('voice-mesh-measure: MONGO_URI on 27017 refused (use a private test mongod)');
+    const refused = mongoUriRefusal(mongoUri);
+    if (refused) {
+        console.error(`voice-mesh-measure: MONGO_URI refused: ${refused} (use a private test mongod on its own port)`);
         return 2;
     }
     let chromium;

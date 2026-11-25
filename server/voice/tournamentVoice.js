@@ -278,9 +278,10 @@ function enter(io, t, sid) {
     const room = record(t);
     if (room.members.has(sid)) {
         relist(io, t, sid);
-        // still waiting in line: its lobby screen was drawn again, so say so again
+        // its lobby screen was drawn again: say where it stands again (a
+        // client keeps the note across a redraw, so an admitted one clears it)
         const cap = maxRoom();
-        if (!admitted(t, cap).some((p) => p.socketId === sid)) sendStatus(io, sid, false, cap);
+        sendStatus(io, sid, admitted(t, cap).some((p) => p.socketId === sid), cap);
         return true;
     }
     change(io, t, (members) => {
@@ -294,6 +295,10 @@ function enter(io, t, sid) {
         members.set(sid, { username, order: order ?? ++room.order });
     });
     const inVoice = admitted(t).some((p) => p.socketId === sid);
+    // Admitted at once: say so, so a note carried over from an earlier
+    // socket (a reconnect, a deploy handoff rebuilding the room in a new
+    // order) clears; a newcomer past the cap already got {admitted: false}
+    if (inVoice) sendStatus(io, sid, true, maxRoom());
     socketLogger.info('Voice: tournament room entered', { tournamentId: t.tournamentId, socketId: sid, admitted: inVoice, members: room.members.size });
     return true;
 }

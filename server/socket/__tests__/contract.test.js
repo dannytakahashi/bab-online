@@ -752,7 +752,13 @@ describe('(d) F3 tournament', () => {
             for (const x of s.slice(1)) await tournamentHandlers.joinTournament(x, io, { tournamentId: t.tournamentId });
             await tournamentHandlers.leaveTournament(s[0], io);
             const status = log.filter((l) => l.event === 'tournamentVoiceStatus').map((l) => [l.to, l.data]);
-            expect(status).toEqual([[s[2].id, { admitted: false, cap: 2 }], [s[2].id, { admitted: true, cap: 2 }]]);
+            // every admitted member is told so on entry; the one in line is told it waits, then that it is in
+            expect(status).toEqual([
+                [s[0].id, { admitted: true, cap: 2 }],
+                [s[1].id, { admitted: true, cap: 2 }],
+                [s[2].id, { admitted: false, cap: 2 }],
+                [s[2].id, { admitted: true, cap: 2 }],
+            ]);
             expect(errorLogs).toEqual([]);
         } finally {
             if (saved === undefined) delete process.env.TOURNAMENT_VOICE_MAX;
