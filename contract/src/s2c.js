@@ -869,9 +869,9 @@ const s2c = {
     badgesAwarded: {
         payload: obj({ gameId: str(), badges: arr(ref('earnedBadge'), { minItems: 1 }) }),
         status: 'active', to: 'socket', seq: false,
-        clientReads: reads(W.profile, []),
+        clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/badgeAwards.js:notify'],
-        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
+        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web and iOS 1.2.7 (41), which shows it as a toast over the score screen). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
     },
     profileResponse: {
         payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),

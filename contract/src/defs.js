@@ -338,8 +338,9 @@ const defs = {
     // A ninth, its own const for the same reason (2026-11-25, badges): the
     // client shows badges, so its profile replies carry the player's earned
     // ones (`badges`) and it gets the private s2c badgesAwarded after a
-    // game that earned one; without it neither is ever sent (the web; no
-    // iOS build) (contract/README.md "Client capabilities")
+    // game that earned one; without it neither is ever sent (the web and
+    // iOS 1.2.7 (41); no earlier iOS build) (contract/README.md "Client
+    // capabilities")
     clientCapBadges: konst('badges'),
     // One EARNED badge (server/game/badges.js publicBadge). The catalog is
     // never on the wire: a badge nobody told this client about stays a

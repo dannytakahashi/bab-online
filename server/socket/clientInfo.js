@@ -70,7 +70,7 @@ const { socketLogger } = require('../utils/logger');
  *                     playerProfileResponse, and the private s2c
  *                     badgesAwarded after a game that earned one
  *                     (server/socket/badgeAwards.js); a socket without it
- *                     gets neither (the web; no iOS build)
+ *                     gets neither (the web and iOS 1.2.7 (41))
  */
 const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'badges'];
 

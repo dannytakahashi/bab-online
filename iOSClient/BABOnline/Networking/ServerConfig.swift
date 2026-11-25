@@ -72,8 +72,11 @@ enum ClientHello {
     /// so the server announces it there (voicePeerList / voicePeerJoined / voicePeerLeft for the
     /// room `tournament:<id>`) and relays its offers; without it a tournament member has voice
     /// only at its table.
+    /// `badges` (iOS 1.2.7 (41); `Badges.cap`, $defs.clientCapBadges): this build shows earned
+    /// badges on profiles and the "Badge earned" toast, so the profile replies carry `badges`
+    /// and the server sends the private s2c badgesAwarded after a game that earned one.
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
-                       TournamentVoice.cap]
+                       TournamentVoice.cap, Badges.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

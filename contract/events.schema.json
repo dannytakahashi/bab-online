@@ -9074,12 +9074,14 @@
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/ProfileSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/badgeAwards.js:notify"
       ],
-      "notes": "New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game's stats are written, so shortly after gameEnd, ONLY to the player's live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile."
+      "notes": "New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game's stats are written, so shortly after gameEnd, ONLY to the player's live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web and iOS 1.2.7 (41), which shows it as a toast over the score screen). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile."
     },
     "profileResponse": {
       "payload": {
