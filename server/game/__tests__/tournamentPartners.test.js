@@ -156,6 +156,30 @@ describe('a round plan', () => {
         }
     });
 
+    test('never a back-to-back the round could avoid, judged on back-to-backs alone (2 to 9 members, random attendance)', () => {
+        // Independent of the planner's weighting: the plan's back-to-back count
+        // must equal the least over every arrangement, so a weight too small to
+        // outrank the repeats (CONSECUTIVE = 1) fails here
+        let rounds = 0;
+        for (let seed = 1; seed <= 3000; seed++) {
+            const rng = mulberry32(seed);
+            const all = names(2 + Math.floor(rng() * 8));
+            const history = P.emptyHistory();
+            for (let r = 0; r < 4; r++) {
+                // each round's attendance drawn as the round comes (sit-outs, returns)
+                const players = all.filter(() => rng() > 0.25);
+                if (players.length === 0) continue;
+                const plan = P.planRoundTables(players, history, rng);
+                const got = P.planCost(history, pairsOfPlan(plan)).consecutive;
+                const least = Math.min(...allArrangements(players).map((a) => P.planCost(history, a.pairs).consecutive));
+                expect(got).toBe(least);
+                rounds++;
+                P.addRound(history, teamsOfPlan(plan));
+            }
+        }
+        expect(rounds).toBeGreaterThan(10000);
+    });
+
     test('everyone playing every round: as good as the best whole-tournament plan (1 to 7 members)', () => {
         // The least total: 3 members (one pair each round, 3 pairs over 4
         // rounds) and 4 members (one table, 3 pairings over 4 rounds) must
