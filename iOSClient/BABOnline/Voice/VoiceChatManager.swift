@@ -114,6 +114,10 @@ final class VoiceChatManager: ObservableObject {
         /// This app's socket id now (a call signaled from an earlier socket is dead: the
         /// server told the peer that socket left).
         var socketId: @MainActor () -> String? = { nil }
+        /// A trickled ICE candidate (the tests wire two managers' candidates to each other).
+        var sendIceCandidate: @MainActor (_ target: String, _ candidate: RTCIceCandidate) -> Void = {
+            VoiceEmitter.sendIceCandidate(targetSocketId: $0, candidate: $1)
+        }
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
@@ -763,6 +767,8 @@ final class VoiceChatManager: ObservableObject {
     /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
     /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
     /// player; mute stays the track's `isEnabled`, so unmuting returns to this level.
+    /// 0% is silent: WebRTC scales the player's decoded audio by this gain, so 0 plays nothing
+    /// (measured on real calls, `VoiceVolumeSilenceTests`; the same as a disabled track).
     func setPeerVolume(_ socketId: String, _ volume: Double) {
         let level = VoiceVolume.clamp(volume)
         guard var info = peerInfos[socketId], info.volume != level else { return }
@@ -771,6 +777,18 @@ final class VoiceChatManager: ObservableObject {
         savedVolumes[info.username] = level
         peers[socketId]?.remoteTrack?.source.volume = level
     }
+
+    /// For tests: whether this peer's remote track plays (nil: no track yet).
+    func remoteTrackEnabled(_ socketId: String) -> Bool? { peers[socketId]?.remoteTrack?.isEnabled }
+    /// For tests: this peer's remote track's source gain (nil: no track yet).
+    func remoteTrackVolume(_ socketId: String) -> Double? { peers[socketId]?.remoteTrack?.source.volume }
+    /// The delegate's trickled candidate, through the hooks.
+    fileprivate func sendIceCandidate(_ target: String, _ candidate: RTCIceCandidate) {
+        hooks.sendIceCandidate(target, candidate)
+    }
+
+    /// For tests: this peer's remote track itself (`VoiceVolumeSilenceTests` sets it by hand).
+    func remoteTrack(_ socketId: String) -> RTCAudioTrack? { peers[socketId]?.remoteTrack }
 
     /// Toggle a peer's mute state.
     func togglePeerMute(_ socketId: String) {
@@ -1210,7 +1228,8 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         // WebRTC calls this on its signaling thread: emit from main like every other voice emit
         let target = socketId
-        Task { @MainActor in VoiceEmitter.sendIceCandidate(targetSocketId: target, candidate: candidate) }
+        weak let manager = self.manager
+        Task { @MainActor in manager?.sendIceCandidate(target, candidate) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}
