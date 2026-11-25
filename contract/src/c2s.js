@@ -172,10 +172,10 @@ const c2s = {
     tournamentUnready: { ...noPayload, status: 'active', joi: 'tournamentUnready', rateLimit: 'tournamentUnready', sentBy: both, examples: [{}] },
     setTournamentRounds: {
         payload: open({ totalRounds: int({ minimum: 1, maximum: 5 }) }),
-        status: 'active', joi: 'setTournamentRounds', rateLimit: 'setTournamentRounds', sentBy: webOnly,
+        status: 'active', joi: 'setTournamentRounds', rateLimit: 'setTournamentRounds', sentBy: both,
         examples: [{ totalRounds: 1 }, { totalRounds: 4 }, { totalRounds: 5 }],
         invalid: [{ totalRounds: 0 }, { totalRounds: 6 }, { totalRounds: 2.5 }, { totalRounds: '3' }, {}],
-        notes: 'New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage "<host> set the tournament to 3 rounds." to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: \'Not in a tournament\', \'Only the host can change the number of rounds\', \'Rounds can only change before the tournament begins\'. Web sends it from the lobby\'s Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41.',
+        notes: 'New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage "<host> set the tournament to 3 rounds." to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: \'Not in a tournament\', \'Only the host can change the number of rounds\', \'Rounds can only change before the tournament begins\'. Web sends it from the lobby\'s Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41 (the host\'s Rounds picker above Begin, Views/Tournament/TournamentRoundsPicker.swift, TournamentEmitter.setTournamentRounds).',
     },
     cutForABuckDraw: {
         payload: open({ round: int({ minimum: 1, maximum: 10000 }), slot: { type: ['integer', 'null'], minimum: 0, maximum: 107 } }, { optional: ['slot'] }),

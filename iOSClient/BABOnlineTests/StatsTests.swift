@@ -282,7 +282,12 @@ final class StatsTests: XCTestCase {
         state.apply(response: UIFixture.recordsFixture)
         let value = try XCTUnwrap(state.load.value)
         XCTAssertEqual(value.periods[.allTime]?.superlatives.map(\.id),
-                       ["bagBoy", "luckyDuck", "cursed", "helpFromFriends", "anchor"])
+                       ["bagBoy", "luckyDuck", "cursed", "helpFromFriends", "anchor", "luckyBuck"])
+        // Lucky Buck (the most Cut for a buck wins, 1.2.7 server) needs no client code: it is read
+        // and shown like any other title, ties included
+        let lucky = try XCTUnwrap(value.periods[.allTime]?.superlatives.last)
+        XCTAssertEqual([lucky.title, lucky.namesLine, lucky.detail], ["Lucky Buck", "kim", "3 wins in 7 cuts"])
+        XCTAssertEqual(value.periods[.thisYear]?.superlatives.last?.namesLine, "ivy, kim")
         XCTAssertEqual(value.periods[.thisYear]?.superlatives.first?.namesLine, "hal, kim, ned")
         XCTAssertNil(value.periods[.thisMonth], "no games this month: no card content, no superlatives")
         let bots = try XCTUnwrap(GameRecords.from(response: UIFixture.botsRecordsFixture))

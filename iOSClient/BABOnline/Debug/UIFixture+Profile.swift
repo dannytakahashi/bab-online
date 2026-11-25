@@ -89,13 +89,56 @@ extension UIFixture {
 
     private static func profileReply(_ name: String, pic: Int, stats: [String: Any], scope: StatsScope, avatarUrl: String? = nil,
                                      badges: [[String: Any]]? = nil) -> [String: Any] {
-        var reply: [String: Any] = [
-            "success": true, "scope": scope.rawValue,
-            "profile": ["username": name, "profilePic": pic, "customProfilePic": NSNull(), "stats": stats] as [String: Any],
-        ]
+        var profile: [String: Any] = ["username": name, "profilePic": pic, "customProfilePic": NSNull(), "stats": stats]
+        // the tournament history (iOS 1.2.7), the same in every scope
+        for (key, value) in tournamentsFixture(for: name) { profile[key] = value }
+        var reply: [String: Any] = ["success": true, "scope": scope.rawValue, "profile": profile]
         if let avatarUrl { reply["avatarUrl"] = avatarUrl }
         if let badges { reply["badges"] = badges }
         return reply
+    }
+
+    /// `-uiTournaments`: `ok` (the default; ivy, me, 6 played, 2 won, Cut for a buck 2 of 3 and five
+    /// recent results: a tie, a cut won, another's cut, a place and a '[deleted]' winner; kim 3
+    /// played, 1 won, 1 of 1, two results with a long name; hal one tournament before Cut for a buck (no cut, no cut stat);
+    /// everyone else nothing: zeros, so no section), `absent` (no keys: a server from before the
+    /// history) or `empty` (zeros for everyone). As profileHandlers.tournamentProfile sends it.
+    static let tournamentsMode: String = UserDefaults.standard.string(forKey: "uiTournaments") ?? "ok"
+
+    static func tournamentsFixture(for name: String) -> [String: Any] {
+        if tournamentsMode == "absent" { return [:] }
+        func r(_ id: String, _ t: String, _ day: Int, rounds: Int, players: Int, place: Int?, won: Bool, winners: [String],
+               cut: String?) -> [String: Any] {
+            ["id": id, "name": t, "completedAt": String(format: "2026-11-%02dT21:15:00.000Z", day), "totalRounds": rounds,
+             "players": players, "place": place.map { $0 as Any } ?? NSNull(), "won": won, "winners": winners,
+             "cutWinner": cut.map { $0 as Any } ?? NSNull()]
+        }
+        func reply(_ played: Int, _ won: Int, _ cutWins: Int, _ cutPlayed: Int, _ recent: [[String: Any]]) -> [String: Any] {
+            ["tournaments": ["played": played, "won": won, "recent": recent] as [String: Any],
+             "cutForABuck": ["wins": cutWins, "played": cutPlayed]]
+        }
+        let none = reply(0, 0, 0, 0, [])
+        guard tournamentsMode == "ok" else { return none }
+        switch name {
+        case "ivy":
+            return reply(6, 2, 2, 3, [
+                r("t6", "Sunday Cup", 24, rounds: 3, players: 6, place: 1, won: true, winners: ["ivy", "kim"], cut: "ivy"),
+                r("t5", "Friday Night Lights", 21, rounds: 4, players: 8, place: 2, won: false, winners: ["hal"], cut: "kim"),
+                r("t4", "Bores Only", 18, rounds: 1, players: 4, place: 1, won: true, winners: ["ivy"], cut: "ivy"),
+                r("t3", "Sunday Cup", 14, rounds: 5, players: 12, place: 7, won: false, winners: ["[deleted]"], cut: nil),
+                r("t2", "Practice", 9, rounds: 2, players: 3, place: nil, won: false, winners: ["ora"], cut: nil),
+            ])
+        case "kim":
+            return reply(3, 1, 1, 1, [
+                r("t5", "Friday Night Lights", 21, rounds: 4, players: 8, place: 3, won: false, winners: ["hal"], cut: "kim"),
+                r("k1", "The Extremely Long Tournament Name For Testing", 12, rounds: 4, players: 5, place: 1, won: true,
+                  winners: ["kim"], cut: nil),
+            ])
+        case "hal":
+            return reply(1, 1, 0, 0, [r("h1", "Tuesday League", 11, rounds: 4, players: 4, place: 1, won: true, winners: ["hal"], cut: nil)])
+        default:
+            return none
+        }
     }
 
     /// `-uiBadges`: `ok` (the default; my profile has three earned badges, kim seven, everyone

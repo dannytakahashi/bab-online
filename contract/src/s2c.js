@@ -997,9 +997,9 @@ const s2c = {
     tournamentSettingsUpdated: {
         payload: obj({ totalRounds: int({ minimum: 1, maximum: 5 }), by: orNull(str()) }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, []),
+        clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:setTournamentRounds'],
-        notes: 'New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host\'s Rounds picker and the round line ("Waiting to start · 3 rounds"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41. Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1\'s tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds.',
+        notes: 'New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host\'s Rounds picker and the round line ("Waiting to start · 3 rounds"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41 (TournamentSocketHandler.handleSettingsUpdated: the round line, the scoreboard\'s R1..RN columns and the host\'s picker follow it). Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1\'s tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds.',
     },
     tournamentRoundStart: {
         payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
@@ -1181,9 +1181,9 @@ const s2c = {
             cap: int({ minimum: 2, maximum: 20, description: 'the room\'s size limit now (tournamentVoice.maxRoom())' }),
         }),
         status: 'active', to: 'socket',
-        clientReads: reads(W.voice, []),
+        clientReads: reads(W.voice, I.tour),
         emittedFrom: ['server/voice/tournamentVoice.js:sendStatus'],
-        notes: 'New (2026-11-25, the over-cap notice; private, unsequenced): a tournament\'s voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others\' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows "Voice is full (N people)" in the tournament lobby\'s voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before).',
+        notes: 'New (2026-11-25, the over-cap notice; private, unsequenced): a tournament\'s voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others\' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows "Voice is full (N people)" in the tournament lobby\'s voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (TournamentSocketHandler.handleVoiceStatus: the same words in the tournament lobby\'s header, TournamentVoice.fullNote; its clientHello sends the cap). Shipped clients never send the cap, so they never get it (they wait silently, as before).',
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),

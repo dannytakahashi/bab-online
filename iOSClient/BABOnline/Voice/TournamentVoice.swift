@@ -32,6 +32,29 @@ enum TournamentVoice {
     /// to SocketEvents.swift, use it here.
     static let cap = "tournamentVoice"
 
+    /// The over-cap notice's clientHello cap (iOS 1.2.7; contract `$defs.clientCapTournamentVoiceStatus`,
+    /// server/voice/tournamentVoice.js `STATUS_CAP`): only a socket that sent it gets the private
+    /// s2c `tournamentVoiceStatus {admitted, cap}` while it waits in line for a full room.
+    static let statusCap = "tournamentVoiceStatus"
+
+    /// The room's size limit from tournamentVoiceStatus (server maxRoom(): env
+    /// TOURNAMENT_VOICE_MAX, clamped 2...20); nil for anything else.
+    static func roomCap(_ any: Any?) -> Int? {
+        if TournamentRounds.isBoolean(any) { return nil }
+        guard let n = any as? Int, (2...20).contains(n) else { return nil }
+        return n
+    }
+
+    /// The tournament lobby's line while this member waits in line (the web's
+    /// setTournamentVoiceFull): "Voice is full (8 people)"; "Voice is full" without a cap.
+    static func fullNote(cap: Int?) -> String {
+        guard let cap, cap > 0 else { return "Voice is full" }
+        return "Voice is full (\(cap) people)"
+    }
+
+    /// What a long press or VoiceOver's hint adds (the web's title).
+    static let fullHint = "You'll join voice when someone leaves it."
+
     /// The tournament lobby wants voice: a member's (a spectator is not in the room).
     static func wantsVoice(_ tournament: TournamentState) -> Bool {
         !tournament.tournamentId.isEmpty && !tournament.isSpectator
