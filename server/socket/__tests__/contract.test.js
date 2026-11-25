@@ -45,6 +45,7 @@ const lobbyHandlers = require('../lobbyHandlers');
 const tournamentHandlers = require('../tournamentHandlers');
 const authHandlers = require('../authHandlers');
 const profileHandlers = require('../profileHandlers');
+const badgeAwards = require('../badgeAwards');
 const safetyHandlers = require('../safetyHandlers');
 const voiceHandlers = require('../voiceHandlers');
 const snapshotHandlers = require('../snapshotHandlers');
@@ -57,7 +58,7 @@ const { Phase } = require('../../game/GamePhase');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 const { events, mulberry32 } = require('../../testUtils/gameDriver');
 const {
-    setupTournament, playTournament, liveTables, advanceUntil, newUser, creatorSocket,
+    setupTournament, playTournament, liveTables, advanceUntil, newUser, newIo, creatorSocket,
 } = require('../../testUtils/tournamentDriver');
 const {
     world, selfEvents, expectSilentAfterTerminal, playF1, watchSnapshots,
@@ -735,6 +736,37 @@ describe('(d) F3 tournament', () => {
         expect(errorLogs).toEqual([]);
     }, 120000);
 
+    test('a tournament voice room past its cap: tournamentVoiceStatus to the one waiting in line, then when it is let in', async () => {
+        const saved = process.env.TOURNAMENT_VOICE_MAX;
+        process.env.TOURNAMENT_VOICE_MAX = '2';
+        try {
+            const { io, log } = newIo();
+            const caps = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentVoiceStatus'];
+            const s = ['f3v_a', 'f3v_b', 'f3v_c'].map((name) => {
+                const x = newUser(io, log, name);
+                x.data.client = { client: 'web', version: '1', build: null, caps };
+                voiceHandlers.rememberBlockList(x, []);
+                return x;
+            });
+            tournamentHandlers.createTournament(s[0], io);
+            const t = gameManager.getPlayerTournament(s[0].id);
+            for (const x of s.slice(1)) await tournamentHandlers.joinTournament(x, io, { tournamentId: t.tournamentId });
+            await tournamentHandlers.leaveTournament(s[0], io);
+            const status = log.filter((l) => l.event === 'tournamentVoiceStatus').map((l) => [l.to, l.data]);
+            // every admitted member is told so on entry; the one in line is told it waits, then that it is in
+            expect(status).toEqual([
+                [s[0].id, { admitted: true, cap: 2 }],
+                [s[1].id, { admitted: true, cap: 2 }],
+                [s[2].id, { admitted: false, cap: 2 }],
+                [s[2].id, { admitted: true, cap: 2 }],
+            ]);
+            expect(errorLogs).toEqual([]);
+        } finally {
+            if (saved === undefined) delete process.env.TOURNAMENT_VOICE_MAX;
+            else process.env.TOURNAMENT_VOICE_MAX = saved;
+        }
+    });
+
     test('spectating during the draw, then a cancel', async () => {
         Math.random = mulberry32(6);
         const ctx = await setupTournament(2);
@@ -848,6 +880,23 @@ describe('(e) non-game handlers', () => {
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_alice' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_ghost' });
         await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });
+        // Badges (cap `badges`): a record that newly earns one tells the
+        // player's live socket (badgesAwarded), and the profile replies of
+        // such a socket list the earned ones; without the cap, neither
+        expect(events(w.log, 'profileResponse').pop().data).not.toHaveProperty('badges');
+        const helloBefore = c.data.client;
+        c.data.client = { client: 'web', version: '1', build: null, caps: ['badges'] };
+        badgeAwards.setIo(w.io);
+        const earning = { gameId: 'g-now', completedAt: new Date(), statsDeltas: { bucket: 'stats', byPosition: {}, names: { 1: 'e_alice' }, badges: { 1: ['felted'] } } };
+        await badgeAwards.awardAndNotify(earning, { users: mockDb.current.users, gameRecords: mockDb.current.gameRecords });
+        await badgeAwards.awardAndNotify(earning, { users: mockDb.current.users, gameRecords: mockDb.current.gameRecords }); // a replay: nothing new
+        expect(events(w.log, 'badgesAwarded').map((l) => [l.to, l.data.badges.map((x) => x.id)])).toEqual([['self:e-c', ['felted']]]);
+        await profileHandlers.getProfile(c, w.io);
+        expect(events(w.log, 'profileResponse').pop().data.badges.map((x) => x.id)).toEqual(['felted']);
+        await profileHandlers.getPlayerProfile(c, w.io, { username: 'e_vet' });
+        expect(events(w.log, 'playerProfileResponse').pop().data.badges).toEqual([]);
+        expect(contract.validateS2C('badgesAwarded', { gameId: 'g-now', badges: [] }).ok).toBe(false);
+        c.data.client = helloBefore;
         const board = events(w.log, 'leaderboardResponse').pop().data;
         expect(board.leaderboard.map((r) => r.username)).toContain('e_vet');
         expect(contract.validateS2C('leaderboardResponse', { ...board, leaderboard: board.leaderboard.map((r) => ({ ...r, winRate: String(r.winRate) })) }).ok).toBe(false);

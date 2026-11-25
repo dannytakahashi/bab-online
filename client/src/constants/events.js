@@ -184,6 +184,7 @@ export const SERVER_EVENTS = {
   PROFILE_RESPONSE: 'profileResponse',
   PROFILE_PIC_UPDATE_RESPONSE: 'profilePicUpdateResponse',
   PROFILE_PIC_UPLOAD_RESPONSE: 'profilePicUploadResponse',
+  BADGES_AWARDED: 'badgesAwarded',
 
   // Player Search & Profile Lookup
   SEARCH_PLAYERS_RESPONSE: 'searchPlayersResponse',
@@ -226,6 +227,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_ICE_SERVERS: 'voiceIceServers',
   VOICE_SETTINGS: 'voiceSettings',
+  TOURNAMENT_VOICE_STATUS: 'tournamentVoiceStatus',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',

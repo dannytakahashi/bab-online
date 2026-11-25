@@ -90,6 +90,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     // Voice callbacks
     onVoiceSettings,
     onVoicePeers,
+    onTournamentVoiceStatus,
     // Profile callbacks
     onProfileReceived,
     onProfileError,
@@ -97,7 +98,9 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
+    onSearchPlayersResult,
     onPlayerProfileReceived,
+    onBadgesAwarded,
     // Leaderboard callbacks
     onLeaderboardReceived,
     onLeaderboardError,
@@ -203,7 +206,9 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
+    onSearchPlayersResult,
     onPlayerProfileReceived,
+    onBadgesAwarded,
   });
 
   // Register leaderboard handlers
@@ -220,7 +225,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
 
   // Register voice handlers (signaling is self-contained; voiceSettings
   // goes to the page: the spectator talk mode, the switch, the pill)
-  registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers });
+  registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers, onTournamentVoiceStatus });
 
   // Register tournament handlers
   registerTournamentHandlers(socketManager, {

@@ -57,12 +57,14 @@ import {
   showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
   updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed, showChangePasswordResult,
 } from './ui/screens/ProfilePage.js';
+import { badgesEarnedText, badgesEarnedArt } from './ui/components/Badges.js';
 import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
+import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -467,6 +469,8 @@ socket.on('changePasswordResponse', (data) => {
  * restoreSessionResponse passwordReset {by, at}, additive 2026-11-15): one
  * info line, a little longer than a plain toast.
  */
+// A badge is rare news: its toast stays longer than the usual 5 s
+const BADGE_TOAST_MS = 8000;
 const PASSWORD_RESET_TOAST_MS = 10000;
 function notePasswordReset(data) {
   const text = passwordResetNoticeText(data?.passwordReset);
@@ -783,7 +787,8 @@ function initializeApp() {
   // The tournament lobby screen (the lobby phase, between rounds, sitting a
   // round out, back from a finished table) is a voice room on the server
   // (tournament:<id>, server/voice/tournamentVoice.js): the members on it
-  // whose page can talk there, at most 8, a blocked pair never listed. Its
+  // whose page can talk there, at most the server's cap (8 by default, up
+  // to 20), a blocked pair never listed. Its
   // company is exactly who the server announced to this socket there
   // (voicePeerList / voicePeerJoined, gone again on voicePeerLeft): a member
   // on another screen (at a table, watching one), an app that cannot talk
@@ -804,6 +809,18 @@ function initializeApp() {
       if (p && typeof p.socketId === 'string') tournamentVoicePeers.set(p.socketId, p.username ?? null);
     }
     voiceGate.update();
+  }
+
+  /**
+   * The over-cap notice (2026-11-25; s2c tournamentVoiceStatus, this page's
+   * clientHello cap tournamentVoiceStatus): past the room's cap this socket
+   * waits in line unlisted, so voice never starts (no company); the lobby's
+   * voice slot says "Voice is full (N people)" until the server lets it in
+   * (admitted true, its voicePeerList right behind) or the screen goes.
+   */
+  function onTournamentVoiceStatus(data) {
+    if (session.screen !== SCREEN.TOURNAMENT_LOBBY) return;
+    setTournamentVoiceFull(data.admitted ? null : data.cap);
   }
 
   function hasVoiceCompany() {
@@ -2381,6 +2398,7 @@ function initializeApp() {
     // A casual game's voice settings (spectator voice)
     onVoiceSettings: (data) => onVoiceSettings(data),
     onVoicePeers: (kind, data) => onVoicePeers(kind, data),
+    onTournamentVoiceStatus: (data) => onTournamentVoiceStatus(data),
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
     // ping. Any snapshot of this table is applied (R3); not_in_game applies
     // what the gap buffer holds (no snapshot is coming)
@@ -2478,10 +2496,10 @@ function initializeApp() {
     // for (state/statsScope.js): one for an older choice (a fast switch) is
     // dropped; one for an open page updates it in place (focus stays on
     // the scope control)
-    onProfileReceived: (profile, scope) => {
+    onProfileReceived: (profile, scope, badges) => {
       if (isStaleScopeReply(scope)) return;
       if (updateProfileStats(profile, scope)) return;
-      showProfilePage(profile, socket, scope ?? getStatsScope());
+      showProfilePage(profile, socket, scope ?? getStatsScope(), badges);
     },
     onProfileError: (message) => {
       profileStatsRequestFailed();
@@ -2501,10 +2519,20 @@ function initializeApp() {
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
     },
-    onPlayerProfileReceived: (profile, scope) => {
+    onSearchPlayersResult: (players, query) => {
+      updatePlayerSearchResults(players, query);
+    },
+    onPlayerProfileReceived: (profile, scope, badges) => {
       if (isStaleScopeReply(scope)) return;
       if (updatePlayerProfileStats(profile, scope)) return;
-      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username), scope: scope ?? getStatsScope() });
+      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username), scope: scope ?? getStatsScope(), badges });
+    },
+    // Badges just earned (after a game's stats are written, so over the
+    // score screen): one toast with their pictures and names; the profile
+    // lists them
+    onBadgesAwarded: (badges) => {
+      const text = badgesEarnedText(badges);
+      if (text) showToast(text, { type: 'success', duration: BADGE_TOAST_MS, art: badgesEarnedArt(badges) });
     },
     onPlayerProfileError: () => {
       profileStatsRequestFailed();
