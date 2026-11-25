@@ -10,6 +10,7 @@ import { generateDistinctColor } from '../../utils/colors.js';
 import { el, createButton, createPanel } from '../kit/index.js';
 import { createTournamentScoreboard } from '../components/TournamentScoreboard.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
+import { LOBBY_VOICE_SLOT_ID } from './GameLobby.js';
 
 /**
  * Module state
@@ -135,6 +136,11 @@ function removeCreatorControls() {
 export function showTournamentLobby(data, socket, username) {
   console.log('Showing tournament lobby...', data);
 
+  // Tournament voice (2026-11-24) runs on across a re-render (every
+  // tournamentJoined draws the lobby again): its buttons move to the new header
+  const oldLobby = document.getElementById('tournamentLobbyContainer');
+  const voiceButtons = oldLobby ? [...(oldLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
+
   // Remove any existing tournament lobby (this resets module state, so the
   // server-provided phase must be applied afterwards — otherwise the Begin
   // button emits beginTournament instead of beginNextRound after round 1)
@@ -162,9 +168,17 @@ export function showTournamentLobby(data, socket, username) {
     attrs: { id: 'tournamentRoundIndicator' },
     text: data.currentRound > 0 ? `Round ${data.currentRound} of ${data.totalRounds}` : 'Waiting to start',
   });
+  // The voice slot (VoiceChatUI.js puts the mute and microphone buttons in
+  // it while the tournament's voice runs), beside the round, clear of the
+  // chat's Send in the window's bottom-right corner (as the game lobby's)
+  const voiceSlot = el('div', { className: 'lobby-voice', attrs: { id: LOBBY_VOICE_SLOT_ID, role: 'group', 'aria-label': 'Voice chat' } });
+  voiceSlot.append(...voiceButtons);
   container.appendChild(el('header', {
     className: 'screen-header',
-    children: [el('h1', { className: 'screen-title screen-title--md', text: data.name || 'Tournament' }), roundIndicator],
+    children: [
+      el('h1', { className: 'screen-title screen-title--md', text: data.name || 'Tournament' }),
+      el('div', { className: 'tournament-header-end', children: [roundIndicator, voiceSlot] }),
+    ],
   }));
 
   // The window's two columns (styles/screens.css .screen--full): the

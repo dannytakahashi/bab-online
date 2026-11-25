@@ -477,7 +477,7 @@ final class BidClockTests: XCTestCase {
         defer { sub.cancel() }
         XCTAssertTrue(player.startTune(endingIn: 20))
         XCTAssertEqual(out.log, ["start 20.0 @0.35"])
-        XCTAssertEqual(session.category, .ambient, "the ambient session first, as every sound")
+        XCTAssertTrue(session.isAmbient, "the ambient session first, as every sound")
         // volume follows mid-tune; 0 stops it; back up resyncs
         player.volume = 0.5
         XCTAssertEqual(out.log.last, "volume 0.5")

@@ -227,7 +227,7 @@ export function renderSwift(tokens) {
   out.push(`// ${HEADER('Swift for the iOS app')}`);
   out.push('');
   out.push('import SwiftUI');
-  out.push('import UIKit');
+  out.push('import SpriteKit');
   out.push('');
   out.push('/// A token color: sRGB components in 0...1 (SwiftUI `color`, UIKit/SpriteKit `uiColor`).');
   out.push('struct ThemeColor: Equatable, Sendable {');
@@ -256,7 +256,7 @@ export function renderSwift(tokens) {
   line(1, '}');
   line(0);
   line(1, 'var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha) }');
-  line(1, 'var uiColor: UIColor { UIColor(red: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: CGFloat(alpha)) }');
+  line(1, 'var uiColor: PlatformColor { .token(red: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: CGFloat(alpha)) }');
   out.push('}');
   out.push('');
   out.push('/// The shared design tokens (roadmap item 29): the same tokens.json as the web\'s');

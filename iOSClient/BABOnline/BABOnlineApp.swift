@@ -2,162 +2,35 @@ import SwiftUI
 
 @main
 struct BABOnlineApp: App {
+    #if os(iOS)
     /// Orientation policy per window scene (item 27-1).
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var appState: AppState
-    @StateObject private var authState: AuthState
-    @StateObject private var mainRoomState: MainRoomState
-    @StateObject private var lobbyState: LobbyState
-    @StateObject private var gameState: GameState
-    @StateObject private var actions: ActionCoordinator
-    @StateObject private var tournamentState: TournamentState
-    @StateObject private var leaderboardState: LeaderboardState
-    @StateObject private var recordsState: RecordsState
-    @StateObject private var safetyState: SafetyState
-    @StateObject private var profileState: ProfileState
+    #endif
+    /// The state objects and the socket's wiring (App/AppGraph.swift).
+    @StateObject private var graph: AppGraph
     @Environment(\.scenePhase) private var scenePhase
-    /// True once the scene has actually reached `.background`. Control Center, the
-    /// notification shade and system alerts (e.g. the mic permission prompt) only
-    /// move the scene to `.inactive`, and must not tear down the socket.
-    @State private var didEnterBackground = false
-
-    private let socketService = SocketService.shared
 
     init() {
-        let store = GameState()
-        let app = AppState(), auth = AuthState(), mainRoom = MainRoomState(), lobby = LobbyState(), tournament = TournamentState()
-        let leaderboard = LeaderboardState(), records = RecordsState(), profile = ProfileState(), safety = SafetyState()
-        #if DEBUG
-        UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
-        UIFixture.seedStats(leaderboard: leaderboard, records: records)
-        UIFixture.seedProfile(profile, safety: safety)
-        UIFixture.seedAdmin(AdminState.shared, auth: auth)
-        #endif
-        _leaderboardState = StateObject(wrappedValue: leaderboard)
-        _recordsState = StateObject(wrappedValue: records)
-        _profileState = StateObject(wrappedValue: profile)
-        _safetyState = StateObject(wrappedValue: safety)
-        _appState = StateObject(wrappedValue: app)
-        _authState = StateObject(wrappedValue: auth)
-        _mainRoomState = StateObject(wrappedValue: mainRoom)
-        _lobbyState = StateObject(wrappedValue: lobby)
-        _tournamentState = StateObject(wrappedValue: tournament)
-        _gameState = StateObject(wrappedValue: store)
-        _actions = StateObject(wrappedValue: ActionCoordinator(store: store))
+        // made here, as the state objects were made in this init before AppGraph
+        let graph = AppGraph()
+        _graph = StateObject(wrappedValue: graph)
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(appState)
-                .environmentObject(authState)
-                .environmentObject(mainRoomState)
-                .environmentObject(lobbyState)
-                .environment(\.lobbyStateLink, LobbyStateLink(state: lobbyState))
-                .environmentObject(gameState)
-                .environmentObject(actions)
-                .environmentObject(tournamentState)
-                .environmentObject(leaderboardState)
-                .environmentObject(recordsState)
-                .environmentObject(safetyState)
-                .environmentObject(profileState)
-                .environmentObject(socketService)
+                .inject(graph)
                 .onAppear {
-                    setupSocket()
+                    graph.setupSocket()
                 }
+                #if os(iOS)
+                // the background keep-alive, the mic and the connection check (AppPresence+iOS)
                 .onChange(of: scenePhase) { _, newPhase in
-                    handleScenePhase(newPhase)
+                    AppPresence.shared.handleScenePhase(newPhase)
                 }
+                #endif
                 // a profile sheet of the screen that went away no longer holds the Safety alerts back
-                .onChange(of: appState.screen) { _, _ in ProfileSheets.shared.screenChanged() }
-        }
-    }
-
-    private func setupSocket() {
-        // Hosted unit tests launch the whole app: never connect (a running dev
-        // server plus the simulator keychain would sign in and play).
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
-        #if DEBUG
-        if UIFixture.isActive { return }  // fixture mode: never connect
-        #endif
-        // Error reports (c2s clientError): an uncaught exception is saved for the next launch,
-        // and the last launch's goes out after the first connect
-        ErrorReporter.installExceptionHandler()
-        ErrorReporter.shared.page = { [weak screens = appState] in screens.map { "\($0.screen)" } }
-        ErrorReporter.shared.reportPendingCrash()
-        socketService.authState = authState
-        socketService.gameState = gameState
-        // a dropped socket ends the bid clock's tune and countdown (no `stopped` can reach it)
-        actions.watchConnection(socketService.$isConnected.receive(on: DispatchQueue.main))
-        // what a serverShutdown would cost the player now (RestartNotice)
-        let app = appState, store = gameState, tournament = tournamentState
-        socketService.restartPlace = {
-            RestartNotice.place(screen: app.screen, role: store.table.viewer.role, phase: store.phase,
-                                inTournament: !tournament.tournamentId.isEmpty || store.tournamentId != nil,
-                                tournamentComplete: tournament.phase == "complete")
-        }
-        // the admin panel's requests (only an admin's Account sheet shows its entry)
-        AdminState.shared.attach(socket: socketService, auth: authState)
-        socketService.connect()
-
-        // Register event router — stored on socketService so handlers stay alive
-        let router = SocketEventRouter(
-            socket: socketService,
-            authState: authState,
-            mainRoomState: mainRoomState,
-            lobbyState: lobbyState,
-            gameState: gameState,
-            appState: appState,
-            tournamentState: tournamentState,
-            leaderboardState: leaderboardState,
-            recordsState: recordsState,
-            safetyState: safetyState,
-            profileState: profileState,
-            adminApi: AdminState.shared.api
-        )
-        router.registerAll()
-        socketService.eventRouter = router
-    }
-
-    private func handleScenePhase(_ phase: ScenePhase) {
-        switch phase {
-        case .active:
-            // inactive -> active without a real background (Control Center, notification
-            // shade, permission alert): the socket was never at risk, so leave it alone.
-            // A reconnect here looks like a real disconnect to the server.
-            guard didEnterBackground else { return }
-            didEnterBackground = false
-
-            // Restore voice mic state
-            VoiceChatManager.shared.handleForeground()
-
-            if socketService.isBackgroundTaskActive {
-                // Returned within the background keep-alive window (~30s).
-                // Socket likely still connected — end the task and only reconnect if needed.
-                print("[App] Foregrounded within keep-alive window")
-                socketService.endBackgroundKeepAlive()
-                if !socketService.isConnected {
-                    print("[App] Socket disconnected during background — force reconnecting")
-                    socketService.forceReconnect()
-                }
-            } else {
-                // Background task expired or was never started. iOS can silently kill the
-                // WebSocket without firing a disconnect event, so `isConnected` alone proves
-                // nothing here: the connection is kept only if it is connected, session-ready
-                // and answers a round trip at once; otherwise a new one (forceReconnect).
-                print("[App] Foregrounded after keep-alive expired — checking the connection")
-                socketService.resumeAfterKeepAlive()
-            }
-        case .background:
-            didEnterBackground = true
-
-            // Mute voice mic for privacy while backgrounded
-            VoiceChatManager.shared.handleBackground()
-
-            print("[App] Backgrounded — starting socket keep-alive")
-            socketService.beginBackgroundKeepAlive()
-        default:
-            break
+                .onChange(of: graph.appState.screen) { _, _ in ProfileSheets.shared.screenChanged() }
         }
     }
 }

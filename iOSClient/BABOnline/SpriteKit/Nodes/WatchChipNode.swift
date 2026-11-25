@@ -1,5 +1,4 @@
 import SpriteKit
-import UIKit
 
 /// The seat eye (TableLayout+Watchers.swift): a small pill with an eye ("eye.fill", as the
 /// spectator badge's) and the count past one, on a seat whose hand somebody watches. Drawn only;
@@ -65,17 +64,15 @@ final class WatchChipNode: SKNode {
     /// "eye.fill" in text.primary, drawn at the table's zoom once per process.
     private static let eyeTexture: SKTexture = {
         let k = CardTextureGenerator.textureZoom
-        let config = UIImage.SymbolConfiguration(pointSize: 9 * k, weight: .bold)
         let side = CGSize(width: eyeSize.width * k, height: eyeSize.height * k)
-        let image = UIGraphicsImageRenderer(size: side).image { _ in
-            guard let symbol = UIImage(systemName: "eye.fill", withConfiguration: config)?
-                .withTintColor(Theme.SK.label, renderingMode: .alwaysOriginal) else { return }
+        let image = BitmapRenderer.screenImage(size: side) { _ in
+            guard let symbol = PlatformImage.tintedSymbol("eye.fill", pointSize: 9 * k, weight: .bold, colour: Theme.SK.label) else { return }
             let s = symbol.size
             let f = min(side.width / max(s.width, 1), side.height / max(s.height, 1))
             let w = s.width * f, h = s.height * f
             symbol.draw(in: CGRect(x: (side.width - w) / 2, y: (side.height - h) / 2, width: w, height: h))
         }
-        let texture = SKTexture(image: image)
+        let texture = SKTexture.make(image)
         texture.filteringMode = .linear
         return texture
     }()

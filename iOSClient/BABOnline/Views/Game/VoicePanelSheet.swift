@@ -84,13 +84,13 @@ struct VoicePanelSheet: View {
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .groupedInsetList()
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("Voice Chat")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     Button("Done") { dismiss() }
                 }
             }

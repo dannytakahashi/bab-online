@@ -101,8 +101,11 @@ const isMember = (game, sid) => gameVoiceMembers(game).some((m) => m.socketId ==
 
 /**
  * The voice room `socketId` is in: `lobby:<id>` (a lobby seat), `game:<id>`
- * (mapped to a game: entrant, seat owner incl. a lazy owner's socket), or
- * `game:<id>` for an admitted voice spectator; null otherwise.
+ * (mapped to a game: entrant, seat owner incl. a lazy owner's socket; a
+ * tournament table's too), `game:<id>` for an admitted voice spectator, or
+ * `tournament:<id>` for an admitted member of a tournament's voice room
+ * (on its lobby screen with the cap tournamentVoice:
+ * server/voice/tournamentVoice.js); null otherwise.
  */
 function voiceRoomOf(socketId) {
     const lobbyId = gameManager.playerLobbies.get(socketId);
@@ -113,8 +116,9 @@ function voiceRoomOf(socketId) {
     if (watched !== undefined) {
         const game = gameManager.games.get(watched);
         if (game?.voiceSpectators?.has(socketId)) return `game:${watched}`;
+        return null;
     }
-    return null;
+    return require('./tournamentVoice').roomOf(socketId);
 }
 
 function isVoiceSpectator(game, sid) {

@@ -1,3 +1,4 @@
+#if os(iOS)
 import UIKit
 
 enum HapticManager {
@@ -37,3 +38,4 @@ enum HapticManager {
         generator.selectionChanged()
     }
 }
+#endif

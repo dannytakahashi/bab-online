@@ -1,7 +1,7 @@
 import Foundation
 
 /// The game server's origin (socket and HTTP: avatars, stock art): the
-/// simulator talks to localhost:3000, a device to production.
+/// simulator (and a Debug Mac build) talks to localhost:3000, a device to production.
 ///
 /// Debug builds only: `-serverURL http://localhost:<port>` (a launch
 /// argument, so it lands in the arguments domain of UserDefaults) points the
@@ -12,7 +12,8 @@ enum ServerConfig {
         #if DEBUG
         if let override = debugOverride { return override }
         #endif
-        #if targetEnvironment(simulator)
+        // a Debug Mac build is the simulator's peer: a local server, never production by accident
+        #if targetEnvironment(simulator) || (os(macOS) && DEBUG)
         return "http://localhost:3000"
         #else
         return "https://babonline.io"
@@ -66,7 +67,13 @@ enum ClientHello {
     /// over the player's shoulder as a spectator (c2s watchHand, viewer.shoulder, gameStart
     /// .shoulder, assistHint watched, spectator entries' shoulder; State/Table/Shoulder.swift);
     /// without it the server sends none of them and drops a watchHand silently.
-    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap]
+    /// `tournamentVoice` (iOS 1.2.6; `TournamentVoice.cap`): this build runs voice in the
+    /// tournament room (the lobby, between rounds, a finished table's members back in the room),
+    /// so the server announces it there (voicePeerList / voicePeerJoined / voicePeerLeft for the
+    /// room `tournament:<id>`) and relays its offers; without it a tournament member has voice
+    /// only at its table.
+    static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
+                       TournamentVoice.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

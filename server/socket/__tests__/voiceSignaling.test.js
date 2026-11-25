@@ -258,8 +258,15 @@ describe('block lists on every path that signs a socket in (fail closed)', () =>
     }
 
     test('rejoinGame by token loads the stored list: the blocked peer is refused both ways, others pass', async () => {
+        const mark = log.length;
         const { fresh, socks: [, blocked, other] } = await rejoinedOnly();
         expect(fresh.data.blockedUsers).toEqual(new Set([nameOf(blocked)]));
+        // the reconnect's owner list leaves the blocked seat out (and does not tell it)
+        const since = log.slice(mark);
+        const lists = since.filter((l) => l.event === 'voicePeerList' && String(l.to).replace(/^self:/, '') === fresh.id).flatMap((l) => l.data.peers.map((p) => p.socketId));
+        expect(lists).toContain(other.id);
+        expect(lists).not.toContain(blocked.id);
+        expect(since.some((l) => l.event === 'voicePeerJoined' && l.to === blocked.id && l.data.socketId === fresh.id)).toBe(false);
         sendAll(fresh, blocked.id); // sender's own list
         sendAll(blocked, fresh.id); // target's list (blocked has not blocked anyone)
         for (const ev of VOICE_EVENTS) expect(relayed(ev)).toHaveLength(0);

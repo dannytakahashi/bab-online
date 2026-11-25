@@ -31,8 +31,10 @@ struct TournamentChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Theme.Space.s1) {
                         let dividers = ChatTimestamps.dividerIndices(tournamentState.messages.map(\.timestamp))
+                        // distinct name colours, as the web's chats (generateDistinctColor)
+                        let hues = UsernameColor.distinctHues(for: tournamentState.messages)
                         ForEach(Array(tournamentState.messages.enumerated()), id: \.element.id) { i, msg in
-                            ChatBubbleView(message: msg)
+                            ChatBubbleView(message: msg, hue: hues[msg.username])
                                 .id(msg.id)
                                 .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
                                 .chatTimeDivider(dividers.contains(i), date: msg.timestamp)

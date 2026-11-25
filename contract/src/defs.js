@@ -266,8 +266,9 @@ const defs = {
         superlatives: arr(ref('recordsSuperlative')),
     }, { open: true, optional: ['superlatives'] })),
     // One Records title: id (bagBoy, luckyDuck, cursed, botFriends,
-    // helpFromFriends, anchor today; more may come, render unknown ids the
-    // same way), the title shown, the winner(s) (human usernames, up to 3
+    // helpFromFriends, myQuantitative, delusionsOfGrandeur today; anchor
+    // until 2026-11-20, renamed delusionsOfGrandeur; more may come, render
+    // unknown ids the same way), the title shown, the winner(s) (human usernames, up to 3
     // tied, alphabetical) and the value line ("2.4 bags a game"; " (+N
     // more)" when more players tied).
     recordsSuperlative: obj({
@@ -319,7 +320,15 @@ const defs = {
     // is ever sent (contract/README.md "Client capabilities",
     // docs/claude/spectators.md "Over-the-shoulder view")
     clientCapShoulderView: konst('shoulderView'),
-    // A seventh, its own const for the same reason (2026-11-24, Get Your
+    // A seventh, its own const for the same reason (2026-11-24, tournament
+    // voice): the client starts voice on its tournament lobby screen and at
+    // a tournament table, so it may be a peer of the tournament's voice room
+    // (voicePeerList / voicePeerJoined / voicePeerLeft for tournament:<id>)
+    // and is announced at its table's seating; without it a socket is never
+    // listed in the tournament room (contract/README.md "Client
+    // capabilities", docs/claude/voice.md "Tournament voice")
+    clientCapTournamentVoice: konst('tournamentVoice'),
+    // An eighth, its own const for the same reason (2026-11-24, Get Your
     // Bid): the client can show a Get Your Bid lobby and table (3 seats,
     // no teams; server/game/gameMode.js). Only such a socket is listed
     // one, may create, join, rejoin or watch one, so every `gyb` / `mode`

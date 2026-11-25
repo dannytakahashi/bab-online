@@ -322,3 +322,30 @@ final class LobbyParityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Unmute hal"].exists)
     }
 }
+
+extension LobbyParityUITests {
+    /// Owner 2026-11-24: "you still can't reduce the volume to zero for talking (seems like 5%
+    /// min?)". As a player does it: the thumb dragged past the track's left end reads 0%, and
+    /// from 0% up again (`adjust(toNormalizedSliderPosition:)` stops a step short of an end, so
+    /// this drags the thumb itself, as `SoundToggleUITests.testTheVolumeSliderGoesToZero`).
+    func testAVoiceVolumeDraggedToTheEndIsZero() {
+        let app = launch("game-lobby", extra: ["-uiVoicePanel", "YES"])
+        let kim = app.sliders["voice.volume.kim"]
+        XCTAssertTrue(kim.waitForExistence(timeout: 8))
+        let note = app.staticTexts["voice.panel.note"]
+        for _ in 0..<3 where !kim.isHittable && note.exists { note.swipeUp() }
+        XCTAssertTrue(kim.isHittable)
+        XCTAssertEqual(kim.value as? String, "100%")
+        let thumb = kim.coordinate(withNormalizedOffset: CGVector(dx: kim.normalizedSliderPosition, dy: 0.5))
+        thumb.press(forDuration: 0.1, thenDragTo: kim.coordinate(withNormalizedOffset: CGVector(dx: -0.3, dy: 0.5)))
+        XCTAssertEqual(kim.value as? String, "0%", "all the way down is 0%, not 5%")
+        keep("voice-panel-volume-zero")
+        // and a slow drag that ends right on the left end
+        kim.adjust(toNormalizedSliderPosition: 0.5)
+        XCTAssertNotEqual(kim.value as? String, "0%")
+        let mid = kim.coordinate(withNormalizedOffset: CGVector(dx: kim.normalizedSliderPosition, dy: 0.5))
+        mid.press(forDuration: 0.3, thenDragTo: kim.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)),
+                  withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertEqual(kim.value as? String, "0%", "dragged to the end: 0%")
+    }
+}

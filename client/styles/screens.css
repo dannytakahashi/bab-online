@@ -236,6 +236,15 @@
     flex-shrink: 0;
 }
 
+/* the tournament lobby's header end: the round, then its voice slot */
+.tournament-header-end {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .screen-title {
     margin: 0;
     color: var(--text-primary);

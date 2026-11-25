@@ -620,10 +620,7 @@ extension GameSKScene {
     /// its 75% x 70% proportions in every size.
     static let feltTexture: SKTexture = {
         let side: CGFloat = 256
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: format).image { ctx in
-            let gc = ctx.cgContext
+        let image = BitmapRenderer.image(pixelSize: CGSize(width: side, height: side), standardRange: false) { gc in
             let P = Theme.Palette.Felt.self
             Theme.Palette.Felt.edge.uiColor.setFill()
             gc.fill(CGRect(x: 0, y: 0, width: side, height: side))
@@ -631,7 +628,7 @@ extension GameSKScene {
             // the stops over the edge color, opaque (the scene composites nothing under it)
             let colors = stops.map { c, _ -> CGColor in
                 let a = c.alpha, e = P.edge
-                return UIColor(red: c.red * a + e.red * (1 - a), green: c.green * a + e.green * (1 - a),
+                return PlatformColor(red: c.red * a + e.red * (1 - a), green: c.green * a + e.green * (1 - a),
                                blue: c.blue * a + e.blue * (1 - a), alpha: 1).cgColor
             }
             var locations = stops.map(\.1)
@@ -643,7 +640,7 @@ extension GameSKScene {
             gc.drawRadialGradient(gradient, startCenter: .zero, startRadius: 0, endCenter: .zero, endRadius: side,
                                   options: [.drawsAfterEndLocation])
         }
-        let texture = SKTexture(image: image)
+        let texture = SKTexture.make(image)
         texture.filteringMode = .linear
         return texture
     }()

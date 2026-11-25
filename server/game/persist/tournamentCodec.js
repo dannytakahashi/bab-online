@@ -12,7 +12,7 @@
  *   players [{username, pic}] in Map order (transferCreator walks it),
  *   scoreboard (roundScores, roundDetails with their missed / aborted /
  *   left flags), rounds [{roundNumber, games: [[gameId, {humanPlayers,
- *   botCount, status}]], completedGames: [gameId]}], messages (all chat,
+ *   botCount, status, teams}]], completedGames: [gameId]}], messages (all chat,
  *   players' and spectators' with isSpectator, at most maxMessages),
  *   readyDeadlineAt, handedOffThisWait, completedAt, and tableScores
  *   {gameId: {score, seats: [{username, position, gone}]}}: the running
@@ -58,7 +58,10 @@ const SAVED = deepFreeze({
     ],
     player: ['username', 'pic'],
     round: ['roundNumber', 'games', 'completedGames'],
-    roundGame: ['humanPlayers', 'botCount', 'status'],
+    // teams (2026-11-24, partner rotation: tournamentPartners.js): optional,
+    // null when the entry has none; an older doc without it restores
+    // without (that round adds nothing to partnerHistory)
+    roundGame: ['humanPlayers', 'botCount', 'status', 'teams'],
     message: ['username', 'message', 'isSpectator', 'timestamp']
 });
 
@@ -69,7 +72,10 @@ const DERIVED = deepFreeze({
         'maxMessages', '_debugMode',
         // Deploy survival PR 6 (LIVE_PERSIST=on): set on the old instance by
         // the handoff (frozen, handedOff) and on an adopted one (restored)
-        'frozen', 'handedOff', 'restored'
+        'frozen', 'handedOff', 'restored',
+        // Tournament voice room (server/voice/tournamentVoice.js): socket-keyed,
+        // members enter again with their next tournamentJoined
+        'voiceRoom'
     ],
     player: ['ready', 'connected'],                             // false after a restore
     round: [],
@@ -163,7 +169,8 @@ function serialize(t, { getGame = defaultGetGame } = {}) {
             games: Array.from(r.games.entries(), ([gameId, g]) => [gameId, {
                 humanPlayers: json(g.humanPlayers) || [],
                 botCount: g.botCount,
-                status: g.status
+                status: g.status,
+                teams: json(g.teams)
             }]),
             completedGames: Array.from(r.completedGames)
         })),
@@ -221,7 +228,8 @@ function hydrate(doc) {
         games: new Map((r.games || []).map(([gameId, g]) => [gameId, {
             humanPlayers: json(g.humanPlayers) || [],
             botCount: g.botCount,
-            status: g.status
+            status: g.status,
+            ...(Array.isArray(g.teams) ? { teams: json(g.teams) } : {})
         }])),
         completedGames: new Set(r.completedGames || [])
     }));

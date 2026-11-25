@@ -213,11 +213,15 @@ export function foldAvatarPayload(event, data) {
  * (2026-11-21, state/shoulder.js): this page watches a seat's hand over the
  * player's shoulder as a spectator (c2s watchHand, viewer.shoulder,
  * gameStart.shoulder, assistHint watched, spectator entries' shoulder).
+ * And tournamentVoice (2026-11-24, main.js "Tournament voice"): this page
+ * starts voice on the tournament lobby screen and at a tournament table, so
+ * the server puts it in the tournament's voice room and announces it at its
+ * table's seating.
  * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
  * lobby and its three-seat table; only such a client is listed, may create,
  * join, rejoin or watch one (server/game/gameMode.js).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'getYourBid'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
 
 export function clientHello(version, build, capable = true) {
   return {

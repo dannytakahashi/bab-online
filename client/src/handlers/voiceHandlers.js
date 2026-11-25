@@ -15,8 +15,11 @@ import { getVoiceChatManager } from '../voice/VoiceChatManager.js';
  * @param {Object} [callbacks]
  * @param {Function} [callbacks.onVoiceSettings] - voiceSettings (a casual game's
  *   spectator voice: role, canTalk, canChange; docs/claude/voice.md)
+ * @param {Function} [callbacks.onVoicePeers] - (kind 'list' | 'joined' | 'left', data)
+ *   after the manager handled a voicePeerList / voicePeerJoined / voicePeerLeft:
+ *   the page's tournament-room company (main.js, Tournament voice)
  */
-export function registerVoiceHandlers(socketManager, { onVoiceSettings } = {}) {
+export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers } = {}) {
   const voiceManager = getVoiceChatManager();
 
   // A casual game's voice settings (private, unsequenced; only to a socket
@@ -32,16 +35,19 @@ export function registerVoiceHandlers(socketManager, { onVoiceSettings } = {}) {
     peers.forEach(peer => {
       voiceManager.connectToPeer(peer.socketId, peer.username);
     });
+    onVoicePeers?.('list', data);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_JOINED, (data) => {
     // Don't initiate here — the new joiner will initiate to us via voicePeerList.
     // If both sides initiate simultaneously, WebRTC glare breaks both connections.
     console.log('Voice peer joined:', data.socketId, data.username);
+    onVoicePeers?.('joined', data);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LEFT, (data) => {
     voiceManager.removePeer(data.socketId);
+    onVoicePeers?.('left', data);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_OFFER, async (data) => {

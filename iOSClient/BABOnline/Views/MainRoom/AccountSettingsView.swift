@@ -50,14 +50,14 @@ struct AccountSettingsView: View {
                 legalSection
                 deleteSection
             }
-            .listStyle(.insetGrouped)
+            .groupedInsetList()
             .modifier(OwnProfileHost(pickedPhoto: $pickedPhoto, showsAvatarPicker: $showsAvatarPicker))
             .scrollContentBackground(.hidden)
             .background(Theme.background)
             .navigationTitle("Account")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     Button("Done") { dismiss() }
                 }
             }
@@ -83,7 +83,7 @@ struct AccountSettingsView: View {
                     newPassword = ""
                     newPasswordAgain = ""
                 }
-                UIAccessibility.post(notification: .announcement, argument: result.message)
+                A11y.announce(result.message)
             }
             // Present safety feedback (e.g. unblock confirmation/errors) here:
             // the chat-surface alert hosts are covered while this sheet is up

@@ -1,14 +1,14 @@
 import AVFoundation
 import Combine
-import UIKit
 
 /// Table sounds (owner 2026-11-15: tasteful, on by default at a quiet volume, easy to mute).
 /// The reducer says WHAT happened (`TableEffect.sound`, live delta events only); this says
 /// whether and how it plays: muted, the app not active, the same sound within `throttle`.
 ///
 /// Audio session (docs/claude/voice.md, "iOS sounds and voice"): voice chat (`VoiceChatManager`) owns the
-/// session while it runs (playAndRecord / voiceChat, set before `isActive`), so a sound then
-/// just plays through it and the session is never touched. Otherwise, right before a sound,
+/// session while it has a call (playAndRecord / voiceChat, claimed at its first peer connection:
+/// `ownsAudioSession`, iOS 1.2.6; before, from every voice start), so a sound then just plays
+/// through it and the session is never touched. Otherwise, right before a sound,
 /// the category is made `.ambient` (the silent switch silences it, the user's music keeps
 /// playing) if it is anything else: the launch default soloAmbient (would stop their music)
 /// or the playAndRecord voice left behind when it shut down. Nothing touches the session
@@ -53,16 +53,17 @@ protocol SoundOutput: AnyObject {
 /// The shared audio session as the player needs it (tests inject a fake).
 @MainActor
 protocol SoundSession: AnyObject {
-    var category: AVAudioSession.Category { get }
+    /// The session's category is `.ambient` already (iOS; macOS has no session: always).
+    var isAmbient: Bool { get }
     func useAmbient() throws
 }
 
 enum SoundSessionPolicy {
     enum Action: Equatable { case leave, setAmbient }
 
-    static func action(voiceActive: Bool, category: AVAudioSession.Category) -> Action {
+    static func action(voiceActive: Bool, isAmbient: Bool) -> Action {
         if voiceActive { return .leave }
-        return category == .ambient ? .leave : .setAmbient
+        return isAmbient ? .leave : .setAmbient
     }
 }
 
@@ -134,8 +135,8 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
         self.tune = tune ?? SilentTuneOutput()
         self.session = session
         self.defaults = defaults
-        self.isAppActive = isAppActive ?? { UIApplication.shared.applicationState == .active }
-        self.isVoiceActive = isVoiceActive ?? { VoiceChatManager.shared.isActive }
+        self.isAppActive = isAppActive ?? { AppPresence.shared.mayPlaySound }
+        self.isVoiceActive = isVoiceActive ?? { VoiceChatManager.shared.ownsAudioSession }
         self.now = now
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         volume = (defaults.object(forKey: Self.volumeKey) as? NSNumber).map { min(max($0.floatValue, 0), 1) } ?? Self.defaultVolume
@@ -180,14 +181,14 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
     /// (soloAmbient) would stop the user's music, so it is skipped.
     @discardableResult
     func prepareSession() -> Bool {
-        // Voice owns the session: no AVAudioSession read at all (owner 2026-11-18, build 15 on an
+        // Voice's call owns the session: no AVAudioSession read at all (owner 2026-11-18, build 15 on an
         // iPhone Air: every sound froze the table ~1 s with voice on; a session getter is a
         // synchronous call into the audio server, which is busy while WebRTC runs).
         if isVoiceActive() { return true }
         let started = ProcessInfo.processInfo.systemUptime
-        let category = session.category
+        let isAmbient = session.isAmbient
         SoundStall.check("category read", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: false)
-        guard SoundSessionPolicy.action(voiceActive: false, category: category) == .setAmbient else { return true }
+        guard SoundSessionPolicy.action(voiceActive: false, isAmbient: isAmbient) == .setAmbient else { return true }
         do {
             try session.useAmbient()
             return true
@@ -237,7 +238,7 @@ final class AudioPlayerPool: SoundOutput {
     private let engine = PoolEngine()
 
     func play(file: String, volume: Float) {
-        let voiceActive = VoiceChatManager.shared.isActive
+        let voiceActive = VoiceChatManager.shared.ownsAudioSession
         let engine = self.engine
         SoundQueue.queue.async { engine.play(file: file, volume: volume, voiceActive: voiceActive) }
     }
@@ -313,7 +314,7 @@ final class AudioTuneOutput: TuneOutput {
         // on the sound queue, as the pool's players (a start can block while voice holds the
         // hardware); the clock reads timeLeft from the player afterwards
         let box = PlayerBox(p)
-        let voiceActive = VoiceChatManager.shared.isActive
+        let voiceActive = VoiceChatManager.shared.ownsAudioSession
         endsAt = nowUptime + min(remaining, p.duration)
         SoundQueue.queue.async {
             let started = ProcessInfo.processInfo.systemUptime
@@ -365,14 +366,16 @@ final class SilentTuneOutput: TuneOutput {
     func stop(fade: TimeInterval) {}
 }
 
+#if os(iOS)
 @MainActor
 final class SystemSoundSession: SoundSession {
-    var category: AVAudioSession.Category { AVAudioSession.sharedInstance().category }
+    var isAmbient: Bool { AVAudioSession.sharedInstance().category == .ambient }
     func useAmbient() throws {
         // ambient mixes with other audio, so activating it never interrupts the user's music
         try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
     }
 }
+#endif
 
 @MainActor
 final class SilentSoundOutput: SoundOutput {
@@ -381,6 +384,6 @@ final class SilentSoundOutput: SoundOutput {
 
 @MainActor
 final class InertSoundSession: SoundSession {
-    var category: AVAudioSession.Category { .ambient }
+    var isAmbient: Bool { true }
     func useAmbient() throws {}
 }

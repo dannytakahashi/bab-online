@@ -1,5 +1,5 @@
 import SwiftUI
-import UIKit
+import SpriteKit
 
 /// Semantic roles over the generated design tokens (Generated/Theme.swift, from
 /// client/tokens/tokens.json; roadmap item 29). Views and SpriteKit nodes use these
@@ -207,7 +207,7 @@ extension Theme {
         static let cap = Palette.Primary.base.color
     }
 
-    // MARK: SpriteKit (UIColor)
+    // MARK: SpriteKit (PlatformColor)
 
     enum SK {
         /// The scene behind the felt and the felt itself.
@@ -257,21 +257,21 @@ extension Theme {
         static let pileDanger = Palette.Danger.text.uiColor
         static let pileSlot = Palette.Surface.s3.opacity(0.9).uiColor
 
-        static func team(_ teamNumber: Int) -> UIColor { teamNumber == 2 ? teamB : teamA }
+        static func team(_ teamNumber: Int) -> PlatformColor { teamNumber == 2 ? teamB : teamA }
 
         /// A font for SKLabelNode.fontName by weight. SpriteKit loads fonts by name and the
         /// system font has no public one (its ".SFUI" name falls back to Times), so this is
         /// the first family of tokens.json font.ui that UIKit knows by name: Helvetica Neue.
-        static func fontName(_ weight: UIFont.Weight) -> String { fontNames[weight] ?? resolveFontName(weight) }
+        static func fontName(_ weight: PlatformFont.Weight) -> String { fontNames[weight] ?? resolveFontName(weight) }
 
-        private static let fontNames: [UIFont.Weight: String] = Dictionary(
-            uniqueKeysWithValues: [UIFont.Weight.regular, .medium, .semibold, .bold].map { ($0, resolveFontName($0)) })
+        private static let fontNames: [PlatformFont.Weight: String] = Dictionary(
+            uniqueKeysWithValues: [PlatformFont.Weight.regular, .medium, .semibold, .bold].map { ($0, resolveFontName($0)) })
 
-        private static func resolveFontName(_ weight: UIFont.Weight) -> String {
+        private static func resolveFontName(_ weight: PlatformFont.Weight) -> String {
             let suffix = weight >= .bold ? "-Bold" : weight >= .medium ? "-Medium" : ""
-            for family in Theme.fontStack where !UIFont.fontNames(forFamilyName: family).isEmpty {
+            for family in Theme.fontStack where !PlatformFont.fontNames(forFamilyName: family).isEmpty {
                 let name = family.replacingOccurrences(of: " ", with: "") + suffix
-                if UIFont(name: name, size: 12) != nil { return name }
+                if PlatformFont(name: name, size: 12) != nil { return name }
             }
             return weight >= .medium ? "HelveticaNeue-Bold" : "HelveticaNeue"
         }
@@ -282,7 +282,7 @@ extension Theme {
     /// A token type size as a system font that follows Dynamic Type (scaled relative to `style`).
     static func font(_ size: CGFloat, weight: Font.Weight = Weight.regular, design: Font.Design = .default,
                      relativeTo style: Font.TextStyle = .body) -> Font {
-        let scaled = UIFontMetrics(forTextStyle: style.uiKit).scaledValue(for: size)
+        let scaled = Theme.scaled(size, relativeTo: style)
         return .system(size: scaled, weight: weight, design: design)
     }
 }
@@ -326,20 +326,3 @@ private struct ThemeFontModifier: ViewModifier {
     }
 }
 
-private extension Font.TextStyle {
-    var uiKit: UIFont.TextStyle {
-        switch self {
-        case .largeTitle: return .largeTitle
-        case .title: return .title1
-        case .title2: return .title2
-        case .title3: return .title3
-        case .headline: return .headline
-        case .subheadline: return .subheadline
-        case .callout: return .callout
-        case .footnote: return .footnote
-        case .caption: return .caption1
-        case .caption2: return .caption2
-        default: return .body
-        }
-    }
-}

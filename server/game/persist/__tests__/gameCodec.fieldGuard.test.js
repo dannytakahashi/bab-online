@@ -78,17 +78,21 @@ const SERVER = path.join(__dirname, '../../..');
 // /help room notice, drawn gold): the release before keeps log entries
 // whole (restoreFrom copies each one), and one without it is a plain line.
 // And again (same day, same reasons) for the optional `tutorial` {position,
-// on} on the tutorial's room lines.
+// on} on the tutorial's room lines. Tournament v1 re-pinned (not bumped)
+// on 2026-11-24, for the same reasons, for a round game's optional `teams`
+// (partner rotation, game/tournamentPartners.js): the release before's
+// hydrate builds round games from named fields and drops it, and a v1 doc
+// without it restores here as a round with no partner history.
 const PINNED = {
     game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: '9a530f022a443638' },
-    tournament: { 1: '4effc20c08b2654d' },
+    tournament: { 1: 'a116c48a7c168758' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
     game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: 'd06b33c13ed4001f' },
-    tournament: { 1: 'b361a440bd865499' },
+    tournament: { 1: '7429f2b6873ce9b9' },
 };
 
 const hash = (o) => crypto.createHash('sha256').update(JSON.stringify(o)).digest('hex').slice(0, 16);

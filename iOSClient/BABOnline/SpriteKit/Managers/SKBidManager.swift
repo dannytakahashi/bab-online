@@ -244,7 +244,7 @@ class SKChatBubbleManager {
     }
 
     /// One bubble node: the text (at most `limit` characters, two lines) on a rounded background.
-    static func makeBubble(_ message: String, maxWidth: CGFloat, name: String, fill: UIColor, text: UIColor, limit: Int = 40) -> (SKNode, CGSize) {
+    static func makeBubble(_ message: String, maxWidth: CGFloat, name: String, fill: PlatformColor, text: PlatformColor, limit: Int = 40) -> (SKNode, CGSize) {
         let label = SKLabelNode(text: message.count > limit ? String(message.prefix(limit - 1)) + "\u{2026}" : message)
         label.fontName = Theme.SK.fontName(.regular)
         label.fontSize = 13

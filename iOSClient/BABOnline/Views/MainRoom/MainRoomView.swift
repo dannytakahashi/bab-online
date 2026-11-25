@@ -63,7 +63,7 @@ private struct MainRoomScreen: View {
             if bar.usesVerticalBar { barControls }
         }
         .onTapGesture {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            Keyboard.dismiss()
         }
         .onAppear {
             LobbyEmitter.joinMainRoom()
@@ -192,14 +192,14 @@ private struct MainRoomScreen: View {
     /// count and the account settings as the trailing group.
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: .barLeading) {
             barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
                 .disabled(!socketService.canSendMainRoomActions)
             barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)
             barButton("Stats", icon: "chart.bar.fill", color: Theme.textSecondary) { showLeaderboard = true }
         }
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .barTrailing) {
             // The vertical bar lays out symbols only (a text or custom label lands outside
             // the column), and a badge reads as an alert: the count is in the chat header.
             Button(action: { showOnlineUsers = true }) {
@@ -280,9 +280,9 @@ private struct OnlineUsersSheet: View {
             .background(Theme.background)
             .scrollContentBackground(.hidden)
             .navigationTitle("Online Players")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .barTrailing) {
                     Button("Done") { dismiss() }
                 }
             }

@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import UIKit
 
 /// The "server restarted" notice (owner 2026-11-11, roadmap #17; the web's
 /// restart banner). The server sends `serverShutdown {message}` about 1 s
@@ -119,7 +118,7 @@ final class RestartNotices: ObservableObject {
     func serverShutdown(place: RestartNotice.Place?, now: Date = Date()) {
         notice.shutdown(place: place, at: now)
         isRestarting = true
-        UIAccessibility.post(notification: .announcement, argument: Self.restartingText)
+        A11y.announce(Self.restartingText)
         // a notice the server never followed with a disconnect must not leave the toast up
         waitGeneration += 1
         let gen = waitGeneration

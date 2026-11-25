@@ -377,11 +377,11 @@ struct DrawMetrics: Equatable {
 /// A card bitmap from CardTextureGenerator at `size` (its pixels sample 1:1 at
 /// the hand card's size), with the table's raised-card shadow.
 private struct CardArtImage: View {
-    let image: UIImage
+    let image: PlatformImage
     let size: CGSize
 
     var body: some View {
-        Image(uiImage: image)
+        Image(platformImage: image)
             .resizable()
             .interpolation(.high)
             .antialiased(true)
@@ -394,8 +394,8 @@ private struct CardArtImage: View {
 /// then the face (`flat`, Reduce Motion: no turn, the face replaces the back half way).
 private struct FlipCard: View, Animatable {
     var angle: Double
-    let face: UIImage?
-    let back: UIImage
+    let face: PlatformImage?
+    let back: PlatformImage
     let size: CGSize
     let flat: Bool
 
@@ -419,7 +419,7 @@ private struct DrawAvatar: View {
     let name: String?
     let pictureKey: String?
     let isLocal: Bool
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
     private let diameter = Theme.Space.s8
 
     var body: some View {
@@ -428,7 +428,7 @@ private struct DrawAvatar: View {
                 ZStack {
                     Circle().fill(Theme.surfaceLight)
                     if let image {
-                        Image(uiImage: image).resizable().scaledToFill()
+                        Image(platformImage: image).resizable().scaledToFill()
                     } else {
                         Text(String(name.prefix(1)).uppercased())
                             .font(.system(size: diameter * 0.45, weight: .bold))  // the seat's radius * 0.9

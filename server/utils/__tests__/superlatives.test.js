@@ -4,7 +4,7 @@
  */
 
 const {
-    computeSuperlatives, createSuperlatives, seatNames, isSolo, SUPERLATIVE_MIN_GAMES, TITLE_IDS
+    computeSuperlatives, createSuperlatives, seatNames, isSolo, accountTotals, SUPERLATIVE_MIN_GAMES, TITLE_IDS, ACCOUNT_TITLE_IDS, ACCOUNT_FIELDS
 } = require('../superlatives');
 
 /** One seat's counters (the 12 of seatStatsDelta; `totalBags` and `spotOn` are not among them). */
@@ -112,7 +112,7 @@ describe('the titles', () => {
         // help and solo games carry no counter: neither counted nor diluting)
         expect(s.myQuantitative).toEqual({ id: 'myQuantitative', title: 'My Quantitative', names: ['Cat'], detail: '62% of bids spot on' });
         // Ann: 20 sets / 104 hands = 19%
-        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19.2% of hands set' });
     });
 
     test('a count title whose best value is 0 is left out; the HSI titles still show', () => {
@@ -391,15 +391,21 @@ describe('review fixes (2026-11-20)', () => {
         // no per-seat values from it: no HSI, bags or sets titles
         expect(Object.keys(s)).toEqual(['botFriends']);
 
-        // old games make up the 5, the per-seat values come from the new one
+        // old games no longer make up the 5 of a per-seat title (2026-11-24):
+        // that takes 5 games with per-seat counters
         const mixed = [...times(4, () => ({ team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'] })), ...regulars(1, { Ann: { totalBags: 3 } })];
-        expect(byId(computeSuperlatives(mixed)).bagBoy).toMatchObject({ names: ['Ann'], detail: '3.0 bags a game' });
+        expect(computeSuperlatives(mixed)).toEqual([]);
+        expect(byId(computeSuperlatives([...mixed, ...regulars(4)])).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.6 bags a game' });
         // '[deleted]', bot personas and a merge duplicate in the teams: as for named seats
         const odd = times(5, () => ({ withBots: true, team1Players: ['[deleted]', 'Fay'], team2Players: ['Fay'], team1Bots: [], team2Bots: ['🤖 Ivy'] }));
         const acc = createSuperlatives();
         for (const g of odd) acc.add(g);
         expect(acc.result()).toEqual([]);
-        expect(computeSuperlatives([...odd, ...times(5, () => soloGame('Fay'))], { minGames: 10 }).map((t) => t.names)).toEqual([['Fay'], ['Fay']]);
+        // Fay's 10 games (each record once) qualify her for the game-level
+        // title; her 5 with per-seat counters do not reach 10 for the rest
+        expect(computeSuperlatives([...odd, ...times(5, () => soloGame('Fay'))], { minGames: 10 }).map((t) => [t.id, t.names]))
+            .toEqual([['botFriends', ['Fay']]]);
+        expect(computeSuperlatives([...odd, ...times(5, () => soloGame('Fay'))], { minGames: 5 }).map((t) => t.id)).toEqual(['luckyDuck', 'botFriends']);
     });
 
     test('Cursed is left out when it is the same value as Lucky Duck (one qualifier); shown when they differ', () => {
@@ -411,18 +417,29 @@ describe('review fixes (2026-11-20)', () => {
         expect(two.cursed).toMatchObject({ names: ['Fay'], detail: '100.0 avg HSI' });
     });
 
-    test('a count title whose best value only shows as 0 ("0.0 bags a game", "0% of hands set") is left out', () => {
-        // one bag and one set in 30 games of 13 hands: 0.03 a game, 0.26% of hands
-        const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1, totalSets: 1 })];
-        const s = byId(computeSuperlatives(games));
-        expect(s.bagBoy).toBeUndefined();
-        expect(s.delusionsOfGrandeur).toBeUndefined();
+    test('a count title whose best value only shows as 0 ("0.0 bags a game", "0.0% of hands set") is left out', () => {
+        // one bag in 30 games: 0.03 a game; one set in 5 games of 500 hands: 0.04% of hands
+        const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
+        expect(byId(computeSuperlatives(games)).bagBoy).toBeUndefined();
+        const few = times(5, (i) => soloGame('Ann', { totalHands: 500, totalSets: i === 0 ? 1 : 0 }));
+        expect(byId(computeSuperlatives(few)).delusionsOfGrandeur).toBeUndefined();
         // 0.05 a game shows as 0.1 (rounded half up): shown
         const half = [...times(19, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
         expect(byId(computeSuperlatives(half)).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.1 bags a game' });
-        // 1 set in 100 hands shows as 1%
+        // 1 set in 2000 hands shows as 0.1% (the leaderboard's toFixed(1)): shown
+        const tenth = times(5, (i) => soloGame('Ann', { totalHands: 400, totalSets: i === 0 ? 1 : 0 }));
+        expect(byId(computeSuperlatives(tenth)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '0.1% of hands set' });
+        // 1 set in 100 hands shows as 1.0%
         const sets = times(5, (i) => soloGame('Ann', { totalHands: 20, totalSets: i === 0 ? 1 : 0 }));
-        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
+        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1.0% of hands set' });
+    });
+
+    test('Delusions of Grandeur prints Set % as the leaderboard and profiles do (one decimal, toFixed(1))', () => {
+        // 2 sets in 7 hands = 28.571...%: the leaderboard shows 28.6%, not 29%
+        const games = times(5, (i) => soloGame('Ann', { totalHands: i < 2 ? 2 : 1, totalSets: i === 0 ? 2 : 0 }));
+        const leaderboardText = ((2 / 7) * 100).toFixed(1) + '%';
+        expect(leaderboardText).toBe('28.6%');
+        expect(byId(computeSuperlatives(games)).delusionsOfGrandeur.detail).toBe(`${leaderboardText} of hands set`);
     });
 
     test('bags come from statsDeltas.bags only; a byPosition totalBags (never written) is ignored for the net', () => {
@@ -447,5 +464,120 @@ describe('review fixes (2026-11-20)', () => {
             ? { ...g, statsDeltas: { ...g.statsDeltas, assist: { 2: { help: 4 } } } } : g));
         const cut = games.map((g) => applyProjection(g, { team1Players: 1, team2Players: 1, team1Bots: 1, team2Bots: 1, ...SUPERLATIVES_PROJECTION }));
         expect(computeSuperlatives(cut)).toEqual(computeSuperlatives(games));
+    });
+});
+
+describe('eligibility by the data a title reads (2026-11-24)', () => {
+    /** A record from before the per-seat counters (2026-11-15): names, no statsDeltas. */
+    const oldGame = (a, b, c, d) => ({ team1Players: [a, c], team2Players: [b, d] });
+
+    test('Hannah: many games without per-seat counters and 2 bad recent ones do not qualify her for a per-seat title', () => {
+        const games = [
+            ...times(30, () => oldGame('Hannah', 'Ben', 'Cat', 'Dan')),
+            // her two recent games: set 5 hands of 13 each (38%)
+            ...times(2, () => humanGame({ 1: ['Hannah', { totalSets: 5, totalBags: 4, totalHSI: 2600, spotOn: 13 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] },
+                { assist: { 1: { help: 9 } } })),
+            // the others' five games with counters: 1 set in 13 hands
+            ...times(3, () => humanGame({ 1: ['Eve'], 2: ['Ben', { totalSets: 1 }], 3: ['Cat', { totalSets: 1 }], 4: ['Dan', { totalSets: 1 }] }))
+        ];
+        const s = byId(computeSuperlatives(games));
+        // 32 games, but 2 with per-seat data: no per-seat title for her
+        for (const id of ['bagBoy', 'luckyDuck', 'cursed', 'helpFromFriends', 'myQuantitative', 'delusionsOfGrandeur']) {
+            expect(s[id]?.names || []).not.toContain('Hannah');
+        }
+        // Ben, Cat and Dan have 5 such games: 3 sets in 65 hands = 5%
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben', 'Cat', 'Dan'], detail: '4.6% of hands set' });
+        // three more and she qualifies (5 games with counters)
+        const more = byId(computeSuperlatives([...games, ...times(3, () => humanGame({ 1: ['Hannah'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))]));
+        expect(more.delusionsOfGrandeur).toMatchObject({ names: ['Hannah'], detail: '15.4% of hands set' });
+        expect(more.bagBoy).toMatchObject({ names: ['Hannah'], detail: '1.6 bags a game' });
+        expect(more.helpFromFriends).toMatchObject({ names: ['Hannah'], detail: '18 /help uses' });
+    });
+
+    test('a game-level title (solo games) still counts every record of the period', () => {
+        const oldSolo = { withBots: true, team1Players: ['Eve'], team2Players: [], team1Bots: ['🤖 Mary'], team2Bots: ['🤖 A', '🤖 B'] };
+        const s = byId(computeSuperlatives([...times(4, () => oldSolo), soloGame('Eve', { totalSets: 6 })]));
+        expect(s.botFriends).toMatchObject({ names: ['Eve'], detail: '5 solo games' });
+        expect(s.delusionsOfGrandeur).toBeUndefined();
+    });
+
+    test('My Quantitative: 5 games whose spot-on counter covers one of the player\'s seats; per-seat games without it do not count', () => {
+        const counted = (n) => times(n, () => soloGame('Ann', { spotOn: 7 }));
+        const without = times(10, () => soloGame('Ann'));
+        expect(byId(computeSuperlatives([...without, ...counted(4)])).myQuantitative).toBeUndefined();
+        // the other per-seat titles have their 14 games
+        expect(byId(computeSuperlatives([...without, ...counted(4)])).luckyDuck.names).toEqual(['Ann']);
+        expect(byId(computeSuperlatives([...without, ...counted(5)])).myQuantitative).toMatchObject({ names: ['Ann'], detail: '54% of bids spot on' });
+        // a counter on a seat with no hands is not a counted game
+        expect(byId(computeSuperlatives([...counted(4), soloGame('Ann', { spotOn: 0, totalHands: 0 })])).myQuantitative).toBeUndefined();
+    });
+
+    test('a merge that left one player in two seats of a game: that game counts once toward the 5 per-seat games', () => {
+        const twoSeats = humanGame({ 1: ['Ann', { totalBags: 2 }], 2: ['Ben'], 3: ['Ann', { totalBags: 2 }], 4: ['Dan'] });
+        expect(computeSuperlatives([twoSeats, ...times(3, () => humanGame({ 1: ['Ann', { totalBags: 2 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))])).toEqual([]);
+    });
+});
+
+describe('All Time account titles (accounts: the leaderboard\'s totals, 2026-11-24)', () => {
+    const acct = (name, games, hands, sets, hsi) => accountTotals(name, { gamesPlayed: games, totalHands: hands, totalSets: sets, totalHSI: hsi, wins: 3 });
+
+    test('the account titles are Lucky Duck, Cursed and Delusions of Grandeur, from {gamesPlayed, totalHands, totalSets, totalHSI}', () => {
+        expect(ACCOUNT_TITLE_IDS).toEqual(['luckyDuck', 'cursed', 'delusionsOfGrandeur']);
+        expect(ACCOUNT_FIELDS).toEqual(['gamesPlayed', 'totalHands', 'totalSets', 'totalHSI']);
+        expect(acct('Ann', 6, 78, 9, 9000)).toEqual({ name: 'Ann', games: 6, hands: 78, sets: 9, hsi: 9000 });
+        expect(accountTotals('Ann', undefined)).toEqual({ name: 'Ann', games: 0, hands: 0, sets: 0, hsi: 0 });
+        expect(accountTotals('Ann', { gamesPlayed: 'x', totalHands: null })).toEqual({ name: 'Ann', games: 0, hands: 0, sets: 0, hsi: 0 });
+        for (const bad of ['[deleted]', '', null, 7]) expect(accountTotals(bad, { gamesPlayed: 9 })).toBeNull();
+    });
+
+    test('Hannah: All Time Delusions of Grandeur is her lifetime Set % (totalSets / totalHands), not her 2 recent games', () => {
+        const games = [
+            ...times(30, () => ({ team1Players: ['Hannah', 'Cat'], team2Players: ['Ben', 'Dan'] })),
+            ...times(2, () => humanGame({ 1: ['Hannah', { totalSets: 5 }], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))
+        ];
+        // 32 games of 13 hands; 50 sets in 416 hands = 12.02%
+        const hannah = acct('Hannah', 32, 416, 50, 416 * 90);
+        const ben = acct('Ben', 32, 416, 40, 416 * 110);
+        const cat = acct('Cat', 32, 416, 30, 416 * 100);
+        const s = byId(computeSuperlatives(games, { accounts: [hannah, ben, cat] }));
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: '12.0% of hands set' });
+        expect(Math.round((50 / 416) * 100)).toBe(12);
+        expect(s.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ben'], detail: '110.0 avg HSI' });
+        expect(s.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Hannah'], detail: '90.0 avg HSI' });
+        // without accounts (the other periods): from the records, and she has no 5 per-seat games
+        expect(byId(computeSuperlatives(games)).delusionsOfGrandeur).toBeUndefined();
+    });
+
+    test('only accounts with SUPERLATIVE_MIN_GAMES games in the scope; the other titles still come from the records', () => {
+        const games = regulars(5, { Ann: { totalBags: 3, totalSets: 13, totalHSI: 2600 } });
+        const accounts = [acct('Ann', 5, 65, 1, 6500), acct('Zed', 4, 52, 52, 52 * 300), null];
+        const s = byId(computeSuperlatives(games, { accounts }));
+        // Zed (4 games) is not a candidate; Ann's records (13 sets a game) are not read for it
+        expect(s.delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1.5% of hands set' });
+        expect(s.luckyDuck).toMatchObject({ names: ['Ann'], detail: '100.0 avg HSI' });
+        expect(s.cursed).toBeUndefined(); // one candidate: the same value as Lucky Duck
+        // Bag Boy from the records
+        expect(s.bagBoy).toMatchObject({ names: ['Ann'], detail: '3.0 bags a game' });
+        // no account qualifies: the account titles are left out (never the records' instead)
+        expect(Object.keys(byId(computeSuperlatives(games, { accounts: [] })))).toEqual(['bagBoy']);
+    });
+
+    test('ties, MAX_NAMES, zeroOmits and a duplicate account document', () => {
+        const names = ['dora', 'Bob', 'alice', 'Carl', 'Eve'];
+        const accounts = names.map((n) => acct(n, 10, 130, 13, 130 * 100));
+        const s = byId(computeSuperlatives(regulars(5), { accounts }));
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10.0% of hands set (+2 more)' });
+        expect(s.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['alice', 'Bob', 'Carl'], detail: '100.0 avg HSI (+2 more)' });
+        expect(s.cursed).toBeUndefined();
+        // nobody set (or only 0.04%, shown as 0.0%): left out; HSI titles still show
+        const none = byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 30, 2500, 1, 250000), acct('Ben', 30, 390, 0, 30000)] }));
+        expect(none.delusionsOfGrandeur).toBeUndefined();
+        expect(none.luckyDuck.names).toEqual(['Ann']);
+        expect(none.cursed).toMatchObject({ names: ['Ben'], detail: '76.9 avg HSI' });
+        // no hands at all: no value
+        expect(byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 5, 0, 0, 0)] })).luckyDuck).toBeUndefined();
+        // a legacy duplicate name: one entry (the first), never listed twice
+        const dup = byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 9, 117, 30, 0), acct('Ann', 9, 117, 30, 0)] }));
+        expect(dup.delusionsOfGrandeur.names).toEqual(['Ann']);
     });
 });

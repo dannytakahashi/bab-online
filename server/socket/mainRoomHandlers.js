@@ -15,6 +15,7 @@ const { deletedSince } = require('../admin/accountDelete');
 const clientInfo = require('./clientInfo');
 const gameVoice = require('../voice/gameVoice');
 const playAgain = require('./playAgain');
+const tournamentVoice = require('../voice/tournamentVoice');
 const pointerResolve = require('./pointerResolve');
 const { MODE, GYB_CAP, GYB_UNSUPPORTED, isGyb } = require('../game/gameMode');
 
@@ -28,6 +29,8 @@ function joinMainRoom(socket, io) {
     // An older app's Return to Lobby from the score screen: its calls with
     // the players who went back to the lobby end now (play again, lingering)
     playAgain.endLingering(io, socket.id, 'joinMainRoom');
+    // Off the tournament lobby screen: out of its voice room
+    tournamentVoice.leaveSocket(io, socket.id);
 
     // Back in the main room: a pure spectator stops watching its game
     // (never affects a seat owner's socket)
@@ -155,6 +158,8 @@ function createLobby(socket, io, data) {
         return;
     }
     playAgain.endLingering(io, socket.id, 'createLobby');
+    // Off the tournament lobby screen: out of its voice room
+    tournamentVoice.leaveSocket(io, socket.id);
 
     const { filterProfanity } = require('../utils/profanityFilter');
     const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name, { capable: isCapable(socket), io, mode });
@@ -201,6 +206,8 @@ function joinLobby(socket, io, data) {
         return;
     }
     playAgain.endLingering(io, socket.id, 'joinLobby');
+    // Off the tournament lobby screen: out of its voice room
+    tournamentVoice.leaveSocket(io, socket.id);
 
     // A lobby that just became a game: one of its extras (a reload during
     // the start) watches that game instead; anyone else, a table member
@@ -302,6 +309,8 @@ function joinLobby(socket, io, data) {
 function joinAsSpectator(socket, io, data, { fromLobby = false, resolved = false } = {}) {
     const { gameId } = data;
     playAgain.endLingering(io, socket.id, 'joinAsSpectator');
+    // Off the tournament lobby screen: out of its voice room
+    tournamentVoice.leaveSocket(io, socket.id);
 
     // The ambient demo game is "not found" outside its audience (owner,
     // 2026-11-14: AMBIENT_CHAT_USERS, default test1), the same reply as an

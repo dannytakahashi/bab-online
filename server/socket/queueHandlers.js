@@ -35,6 +35,8 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
     // An older app still on a score screen: its lingering calls with the
     // players back in the lobby end (play again)
     playAgain.endLingering(io, socket.id, 'disconnect');
+    // Out of a tournament's voice room (its peers drop the calls)
+    require('../voice/tournamentVoice').leaveSocket(io, socket.id);
     const wasOnline = onlinePresence.isOnline(user?.username);
     const result = gameManager.handleDisconnect(socket.id, {
         lobbyGrace,

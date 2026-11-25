@@ -35,8 +35,10 @@ struct MainRoomChatView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
                         let dividers = ChatTimestamps.dividerIndices(mainRoomState.messages.map(\.timestamp))
+                        // distinct name colours, as the web's chats (generateDistinctColor)
+                        let hues = UsernameColor.distinctHues(for: mainRoomState.messages)
                         ForEach(Array(mainRoomState.messages.enumerated()), id: \.element.id) { i, msg in
-                            ChatBubbleView(message: msg)
+                            ChatBubbleView(message: msg, hue: hues[msg.username])
                                 .id(msg.id)
                                 .reportBlockMenu(for: msg, currentUsername: authState.username, reportTarget: $reportTarget)
                                 .chatTimeDivider(dividers.contains(i), date: msg.timestamp)
@@ -87,6 +89,8 @@ struct MainRoomChatView: View {
 
 struct ChatBubbleView: View {
     let message: ChatMessage
+    /// The name's hue in this chat (`UsernameColor.distinctHues`); nil: its own hash hue.
+    var hue: Double? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 6) {
@@ -110,6 +114,7 @@ struct ChatBubbleView: View {
         if message.type == .spectator {
             return Theme.textDim
         }
+        if let hue { return UsernameColor.color(hue: hue) }
         return UsernameColor.color(for: message.username)
     }
 }

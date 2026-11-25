@@ -420,6 +420,24 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   whose user owns a seat at the table may watch only that seat. No client
   sends it yet (server phase 1); docs/claude/spectators.md
   "Over-the-shoulder view" is the client spec.
+- `tournamentVoice` (`$defs.clientCapTournamentVoice`, its own const for the
+  same reason; 2026-11-24, tournament voice): the client starts voice on its
+  tournament lobby screen (muted, only with another member there) and at a
+  tournament table, so the server may put it in the tournament's voice room
+  (`tournament:<id>`: the members on that screen, at most 8; voicePeerList /
+  voicePeerJoined / voicePeerLeft as in a lobby, offers relayed between two
+  admitted members) and announces it at its table's seating. Without it a
+  socket is never a tournament-room peer: shipped iOS 1.2.5 (39) and older
+  start no voice on their tournament lobby screen, so a listed one would be
+  offered to and never answer. At a tournament table `casualSpectators`
+  from iOS that starts voice muted counts too (with `assist`, 1.2.3 (19)
+  and later, or build 18 and later: they start voice there and clear
+  buffered peers on teardown; 1.2.2 (12) to 1.2.3 (17) start with the mic
+  live and are never announced there); a web tab with
+  `casualSpectators` but not this cap is cached from before it and never
+  starts voice there. No new event or field: only the existing voice
+  events. The web sends it from 2026-11-24; iOS from its next build
+  (server/voice/tournamentVoice.js, docs/claude/voice.md "Tournament voice").
 - `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid

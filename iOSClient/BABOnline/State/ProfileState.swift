@@ -1,4 +1,5 @@
-import UIKit
+import Foundation
+import Combine
 
 /// One scope's stats on a profile: the last good numbers stay while a refresh runs or after
 /// one fails.
@@ -32,7 +33,7 @@ final class ProfileState: ObservableObject {
     @Published private(set) var ownStockPic: Int?
     @Published private(set) var ownAvatarPath: String?
     /// The picture just uploaded, shown at once (the server's copy loads from `ownAvatarPath` later).
-    @Published private(set) var ownUploaded: UIImage?
+    @Published private(set) var ownUploaded: PlatformImage?
     @Published private(set) var ownLoads: [StatsScope: ProfileStatsLoad] = [:]
     /// A picture change is waiting for its answer.
     @Published private(set) var pictureBusy = false
@@ -82,7 +83,7 @@ final class ProfileState: ObservableObject {
     private var playerWaiting: [PlayerRequest] = []
     private var pictureRequest = 0
     private var lastOwnScope: StatsScope = .human
-    private var pendingUpload: UIImage?
+    private var pendingUpload: PlatformImage?
 
     // MARK: - Mine
 
@@ -160,7 +161,7 @@ final class ProfileState: ObservableObject {
     }
 
     /// The same with the image already made (the Account sheet makes it off the main thread).
-    func upload(prepared: Result<(url: String, image: UIImage), ProfilePicture.Failure>) {
+    func upload(prepared: Result<(url: String, image: PlatformImage), ProfilePicture.Failure>) {
         guard !pictureBusy else { return }
         switch prepared {
         case .failure(let failure):

@@ -719,17 +719,17 @@ final class SoundEffectsTests: XCTestCase {
     // MARK: - Audio session policy
 
     func testPolicy() {
-        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: true, category: .playAndRecord), .leave)
-        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: true, category: .ambient), .leave)
-        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, category: .soloAmbient), .setAmbient)
-        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, category: .playAndRecord), .setAmbient)
-        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, category: .ambient), .leave)
+        // voice's playAndRecord, or the launch default soloAmbient: not ambient
+        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: true, isAmbient: false), .leave)
+        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: true, isAmbient: true), .leave)
+        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, isAmbient: false), .setAmbient)
+        XCTAssertEqual(SoundSessionPolicy.action(voiceActive: false, isAmbient: true), .leave)
     }
 
     /// Owner 2026-11-18 (build 15, iPhone Air, voice on): every sound froze the table. While voice
     /// runs a sound never even reads the session (a getter is a synchronous audio-server call).
     func testASoundDuringVoiceNeverReadsTheSession() {
-        let session = FakeSession(category: .playAndRecord)
+        let session = FakeSession(isAmbient: false)
         let clock = SoundClock()
         let player = SoundPlayer(output: RecordingOutput(), session: session, defaults: defaults,
                                  isAppActive: { true }, isVoiceActive: { true }, now: { clock.t })
@@ -742,7 +742,7 @@ final class SoundEffectsTests: XCTestCase {
     }
 
     func testAmbientWithoutVoiceAndUntouchedDuringVoice() {
-        let session = FakeSession(category: .soloAmbient)
+        let session = FakeSession(isAmbient: false)
         let out = RecordingOutput()
         var voice = false
         let clock = SoundClock()
@@ -750,18 +750,18 @@ final class SoundEffectsTests: XCTestCase {
                             isAppActive: { true }, isVoiceActive: { voice }, now: { clock.t })
         p.play(.deal)
         XCTAssertEqual(session.ambientCalls, 1)
-        XCTAssertEqual(session.category, .ambient)
+        XCTAssertTrue(session.isAmbient)
         clock.t = 1
         p.play(.deal)
         XCTAssertEqual(session.ambientCalls, 1, "already ambient")
 
         // voice starts: it owns the session (playAndRecord); sounds play through it untouched
         voice = true
-        session.category = .playAndRecord
+        session.isAmbient = false  // voice's playAndRecord
         clock.t = 2
         p.play(.turn)
         XCTAssertEqual(session.ambientCalls, 1)
-        XCTAssertEqual(session.category, .playAndRecord)
+        XCTAssertFalse(session.isAmbient)
         XCTAssertEqual(out.played.map(\.file), ["deal", "deal", "turn"])
 
         // voice stops and leaves playAndRecord behind: the next sound puts ambient back
@@ -769,11 +769,11 @@ final class SoundEffectsTests: XCTestCase {
         clock.t = 3
         p.play(.trick)
         XCTAssertEqual(session.ambientCalls, 2)
-        XCTAssertEqual(session.category, .ambient)
+        XCTAssertTrue(session.isAmbient)
     }
 
     func testAMutedPlayerNeverTouchesTheSession() {
-        let session = FakeSession(category: .soloAmbient)
+        let session = FakeSession(isAmbient: false)
         let p = player(session: session)
         p.isEnabled = false
         for k in SoundKind.allCases { p.play(k) }
@@ -782,7 +782,7 @@ final class SoundEffectsTests: XCTestCase {
 
     /// Still soloAmbient, a sound would stop the user's music: skipped.
     func testAFailedCategoryChangeSkipsTheSound() {
-        let session = FakeSession(category: .soloAmbient)
+        let session = FakeSession(isAmbient: false)
         session.fails = true
         let out = RecordingOutput()
         let clock = SoundClock()
@@ -862,20 +862,21 @@ final class RecordingOutput: SoundOutput {
 
 @MainActor
 final class FakeSession: SoundSession {
-    private var stored: AVAudioSession.Category
+    private var stored: Bool
     /// Reads of the category (a synchronous call into the audio server on a device).
     var categoryReads = 0
-    var category: AVAudioSession.Category {
+    var isAmbient: Bool {
         get { categoryReads += 1; return stored }
         set { stored = newValue }
     }
     var ambientCalls = 0
     var fails = false
-    init(category: AVAudioSession.Category = .soloAmbient) { self.stored = category }
+    /// Not ambient by default: the launch default soloAmbient.
+    init(isAmbient: Bool = false) { self.stored = isAmbient }
     func useAmbient() throws {
         ambientCalls += 1
         if fails { throw NSError(domain: "FakeSession", code: 1) }
-        category = .ambient
+        isAmbient = true
     }
 }
 

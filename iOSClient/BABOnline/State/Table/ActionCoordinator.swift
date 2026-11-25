@@ -1,6 +1,5 @@
 import Foundation
 import Combine
-import UIKit
 
 /// Sends my plays and bids and keeps each one acknowledged: confirmed by
 /// cardPlayed / bidReceived, rolled back by actionRejected (its snapshot is
@@ -117,12 +116,12 @@ final class ActionCoordinator: ObservableObject {
         // (Notification Center, Control Center or the app switcher make it inactive, not
         // background: SoundPlayer.isAppActive would not have started it there either), back at
         // its place when the app is active again or the sound comes back on
-        for name in [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification] {
+        for name in AppPresence.resignActiveNotifications {
             notifications.publisher(for: name)
                 .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.backgrounded() } }
                 .store(in: &cancellables)
         }
-        notifications.publisher(for: UIApplication.didBecomeActiveNotification)
+        notifications.publisher(for: AppPresence.becomeActiveNotification)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.tune.sync() } }
             .store(in: &cancellables)
         if tunePlayer == nil {

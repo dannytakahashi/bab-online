@@ -18,6 +18,7 @@ struct GameContainerView: View {
 enum ExitIcon {
     static let symbolName = "rectangle.portrait.and.arrow.right"
 
+    #if os(iOS)
     /// For the vertical bar's Exit (iOS 27.1). The bar draws a toolbar item's
     /// symbol itself, ignoring SwiftUI transforms and a symbol image's mirrored
     /// orientation, so the mirrored symbol is drawn into a template bitmap at the
@@ -41,6 +42,7 @@ enum ExitIcon {
         }
         return mirrored.withRenderingMode(.alwaysTemplate)
     }
+    #endif
 }
 
 /// Hosts the SpriteKit game scene with SwiftUI overlay panels.
@@ -65,6 +67,8 @@ private struct GameScreen: View {
     @EnvironmentObject var appState: AppState
     /// Read only in onDisappear, so not observed (LobbyStateLink).
     @Environment(\.lobbyStateLink) private var lobbyLink
+    /// Read only in onDisappear (back in the tournament room), so not observed.
+    @Environment(\.tournamentStateLink) private var tournamentLink
     @EnvironmentObject var actions: ActionCoordinator
 
     @State private var scene: GameSKScene = {
@@ -219,27 +223,27 @@ private struct GameScreen: View {
                                showsBarControls: showsBarControls)
             .toolbar {
                 if showsBarControls {
-                    ToolbarItem(placement: .topBarLeading) { leaveBarButton }
+                    ToolbarItem(placement: .barLeading) { leaveBarButton }
                     // the bar's first trailing item: it folds its items into the overflow menu
                     // from the last one up, and the mic asks for the high visibility priority too
                     if micInBar && !Self.barMicLast { micBarItem }
                     #if DEBUG
                     // -uiBarFiller <n>: extra items that push the bar into its overflow menu
                     ForEach(0..<UIFixture.barFiller, id: \.self) { i in
-                        ToolbarItem(placement: .topBarTrailing) {
+                        ToolbarItem(placement: .barTrailing) {
                             Button {} label: { Label("Filler \(i + 1)", systemImage: "\(i + 1).circle") }
                                 .accessibilityIdentifier("bar.filler.\(i + 1)")
                         }
                     }
                     #endif
                     if showsLogButton {
-                        ToolbarItem(placement: .topBarTrailing) { logBarButton }
+                        ToolbarItem(placement: .barTrailing) { logBarButton }
                     }
                     if askInBar {
-                        ToolbarItem(placement: .topBarTrailing) { askBarButton }
+                        ToolbarItem(placement: .barTrailing) { askBarButton }
                     }
                     if tutorialInBar {
-                        ToolbarItem(placement: .topBarTrailing) { tutorialBarToggle }
+                        ToolbarItem(placement: .barTrailing) { tutorialBarToggle }
                     }
                     if micInBar && Self.barMicLast { micBarItem }
                 }
@@ -357,7 +361,11 @@ private struct GameScreen: View {
             scene.cleanupAll()
             // play again (1.2.2 (12)): off to the lobby this game's end returned me to, voice
             // carries on (the server kept those calls); any other way off the table ends it
-            LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
+            // back in the tournament lobby (iOS 1.2.6): that room's voice, its room change done
+            // at tournamentJoined (TournamentVoice), so nothing is torn down here
+            if !TournamentVoice.tableGone(screen: appState.screen, tournament: tournamentLink.state, voice: .shared) {
+                LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
+            }
         }
         // no voice alone (owner 2026-11-19): who is here, for the voice gate (a child of its own,
         // so the lobby kept behind the results is observed without rebuilding the table)
@@ -396,7 +404,7 @@ private struct GameScreen: View {
         }
         let i = p.safeAreaInsets
         let w = p.size.width + i.leading + i.trailing, h = p.size.height + i.top + i.bottom
-        if !drawing, UIDevice.current.userInterfaceIdiom == .phone, hSizeClass == .regular, vSizeClass == .regular,
+        if !drawing, DeviceClass.current == .phone, hSizeClass == .regular, vSizeClass == .regular,
            w > h, w - 320 >= 560 {
             return .side
         }
@@ -808,7 +816,7 @@ private struct GameScreen: View {
             } icon: {
                 // The vertical bar draws the image itself and drops SwiftUI transforms
                 // (a scale-effect mirror still pointed right): the mirror is in the image.
-                Image(uiImage: ExitIcon.barImage(dynamicTypeSize: dynamicTypeSize, legibilityWeight: legibilityWeight))
+                Image(platformImage: ExitIcon.barImage(dynamicTypeSize: dynamicTypeSize, legibilityWeight: legibilityWeight))
                     .accessibilityHidden(true)
             }
         }
@@ -850,12 +858,16 @@ private struct GameScreen: View {
     /// when it folds items into its overflow menu).
     @ToolbarContentBuilder
     private var micBarItem: some ToolbarContent {
+        #if os(iOS)
         if #available(iOS 27.0, *), !Self.barMicStandardPriority {
-            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+            ToolbarItem(placement: .barTrailing) { micBarButton }
                 .visibilityPriority(.high)
         } else {
-            ToolbarItem(placement: .topBarTrailing) { micBarButton }
+            ToolbarItem(placement: .barTrailing) { micBarButton }
         }
+        #else
+        ToolbarItem(placement: .barTrailing) { micBarButton }
+        #endif
     }
 
     /// DEBUG `-uiBarMicLast YES`: the mic as the bar's last item (the overflow check: does the
