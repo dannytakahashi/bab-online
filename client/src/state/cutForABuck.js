@@ -228,6 +228,8 @@ const secondsLeft = (endsAt, now) => (endsAt == null ? null : Math.max(0, Math.c
 
 export const RULES_LINE = "Lowest card is out. Suits don't count; aces are high and jokers higher.";
 export const RESHUFFLE_LINE = 'Not enough cards left. Shuffling them back in.';
+/** My draw was the server's (I was away, disconnected or the window closed). */
+export const DREW_FOR_YOU_LINE = 'We drew a card for you';
 export const BRAGGING_LINE = 'Just for bragging rights.';
 export const WATCHING_LINE = 'Watching Cut for a buck';
 
@@ -328,7 +330,10 @@ export function statusLines(s, { me, spectator = false, now = Date.now() } = {})
       if (!isInCut(s, me) || !isAlive(s, me)) {
         return { main: isInCut(s, me) ? "You're out. Watching the rest" : WATCHING_LINE, sub: waiting.length ? `Waiting for ${joinNames(waiting)}` : '' };
       }
-      return { main: waiting.length ? `Waiting for ${joinNames(waiting.map((u) => nameOf(u, me)))}` : 'Turning the cards over', sub: s.reshuffled ? RESHUFFLE_LINE : RULES_LINE };
+      return {
+        main: waiting.length ? `Waiting for ${joinNames(waiting.map((u) => nameOf(u, me)))}` : 'Turning the cards over',
+        sub: s.drawn[me]?.auto ? DREW_FOR_YOU_LINE : s.reshuffled ? RESHUFFLE_LINE : RULES_LINE
+      };
     }
     case STAGE.REVEAL: {
       const lines = verdictLines(s.lastReveal, me);

@@ -233,6 +233,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   let mode = null; // 'ring' | 'list'
   let peek = -1;
   let myDrawSent = null; // the round I drew in (no second emit)
+  let backSent = null; // the round I tapped in after the server drew for me (canSayBack)
   let turnCued = null;
   let verdictRound = null; // the reveal whose verdict is showing
   let pendingVerdict = null;
@@ -333,6 +334,21 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   function canDraw() {
     return !spectator && !!state && state.stage === STAGE.DRAWING && isAlive(state, me) && !state.drawn[me] && myDrawSent !== state.round && now() >= introUntil;
   }
+  /**
+   * The server drew for me this round (away: 2 timeouts in a row, so it
+   * draws for me at each open before I can). A tap still sends a draw,
+   * once a round: the server drops it as a repeat but stops drawing for me
+   * at the open, so the next round waits for me again.
+   */
+  function canSayBack() {
+    return !spectator && !!state && state.stage === STAGE.DRAWING && isAlive(state, me) && !!state.drawn[me]?.auto && backSent !== state.round;
+  }
+  function sayBack() {
+    if (!canSayBack()) return;
+    backSent = state.round;
+    socket?.emit('cutForABuckDraw', { round: state.round, slot: null });
+    listDraw.disabled = true;
+  }
   function fanPoint(e) {
     const r = deck.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -351,7 +367,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     });
     deck.addEventListener('pointerleave', () => setPeek(-1));
     deck.addEventListener('click', (e) => {
-      if (!canDraw()) return;
+      if (!canDraw()) return sayBack();
       const free = freeSlots(state);
       let i = peek;
       if (e.detail > 0 && layout && e.clientX !== undefined && (e.clientX || e.clientY)) {
@@ -373,7 +389,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
 
   /** Send my draw (slot null: a random one) and fly a back to my spot at once. */
   function drawSlot(slot, freeIndex) {
-    if (!canDraw()) return;
+    if (!canDraw()) return sayBack();
     myDrawSent = state.round;
     socket?.emit('cutForABuckDraw', { round: state.round, slot: Number.isInteger(slot) ? slot : null });
     play('draw');
@@ -671,7 +687,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
 
   function renderList() {
     listRows.replaceChildren();
-    listDraw.disabled = !canDraw();
+    listDraw.disabled = !canDraw() && !canSayBack();
     listDraw.hidden = !state || state.stage !== STAGE.DRAWING || !isAlive(state, me);
     for (const username of order) {
       const p = people.get(username) || {};
@@ -931,7 +947,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
       play('turn');
     }
     if (state.stage === STAGE.DRAWING) paintDeckState();
-    if (mode === 'list' && !spectator && listDraw.disabled === canDraw()) listDraw.disabled = !canDraw();
+    if (mode === 'list' && !spectator && listDraw.disabled === (canDraw() || canSayBack())) listDraw.disabled = !canDraw() && !canSayBack();
   }, 250);
   function paintDeckState() {
     if (spectator) return;

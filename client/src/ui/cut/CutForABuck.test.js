@@ -145,6 +145,41 @@ describe('drawing', () => {
     expect(view.element.querySelector('#cutStatus').textContent).toBe("You're out. Watching the rest");
   });
 
+  it('drawn for at the open (away): a tap still goes out once, so the server waits for me next round', () => {
+    mount();
+    let s = round(started(), 3);
+    s = cutReduce(s, 'drew', { round: 3, username: 'me', slot: 0, auto: true }, T0);
+    view.update(s);
+    expect(view.element.querySelector('#cutStatusSub').textContent).toBe('We drew a card for you');
+    const deck = view.element.querySelector('#cutDeck');
+    deck.click();
+    expect(socket.emitted('cutForABuckDraw')).toEqual([{ round: 3, slot: null }]);
+    // once a round; no draw sound, my card stays the server's
+    deck.click();
+    view.drawFree(2);
+    expect(socket.emitted('cutForABuckDraw')).toHaveLength(1);
+    expect(sound.played).not.toContain('draw');
+    expect(view.getState().drawn.me).toEqual({ slot: 0, auto: true });
+    // the list view's button does the same
+    view.destroy();
+    socket = fakeSocket();
+    mount();
+    view.update(s);
+    view.element.querySelector('[data-view="list"]').click();
+    const draw = view.element.querySelector('#cutListDraw');
+    expect(draw.disabled).toBe(false);
+    draw.click();
+    expect(socket.emitted('cutForABuckDraw')).toEqual([{ round: 3, slot: null }]);
+    expect(view.element.querySelector('#cutListDraw').disabled).toBe(true);
+    // my own draw (not the server's): nothing more to send
+    view.destroy();
+    socket = fakeSocket();
+    mount();
+    view.update(cutReduce(round(started(), 4), 'drew', { round: 4, username: 'me', slot: 1, auto: false }, T0));
+    view.element.querySelector('#cutDeck').click();
+    expect(socket.emitted('cutForABuckDraw')).toEqual([]);
+  });
+
   it('another player\'s draw: a back flies to them; never a card', () => {
     mount();
     let s = round(started());
