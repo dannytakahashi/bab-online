@@ -1381,12 +1381,22 @@ the iPad the disconnect banner sits off the avatars.
 
 All bullets are done except these, which are follow-ups:
 
-- **Tournament voice peer discovery (server, gated on C10).** iOS now starts
-  voice on every game entry as a seat and on rejoin (rejoin is fully fixed:
-  `reconnectOwner` sends `voicePeerList`). No server path sends the peer list
-  to a tournament table; emitting it to everyone would reach the App Store
-  build, which buffers peers while voice is inactive and later offers to
-  stale sockets. It needs clientHello capabilities (item C10) to gate it.
+- **Tournament voice peer discovery: table done (server, 2026-11-24); the
+  tournament lobby room waits for the next iOS build.** iOS starts voice on
+  every game entry as a seat and on rejoin (rejoin: `reconnectOwner` sends
+  `voicePeerList`). Since 2026-11-24 the server also announces a tournament
+  table's humans to each other at seating (`server/voice/tournamentVoice.js`
+  `announceTable`, right after positionUpdate), gated on the clientHello cap
+  `casualSpectators` from iOS (1.2.2 (12) and later clear buffered peers and
+  offers on teardown, which was the C10 stale-socket worry) or the new cap
+  `tournamentVoice`, so shipped iOS 1.2.5 (39) gets table voice with no app
+  change. The tournament lobby and the time between rounds are a voice room
+  too (`tournament:<id>`), but only for sockets that send `tournamentVoice`:
+  the next iOS build must start voice on its tournament lobby screen (muted,
+  no voice alone: company = the members the server listed or announced there,
+  gone on voicePeerLeft), tear it down when it leaves that screen (seated at a
+  round's table, watching a table, the main room) and send the cap
+  (docs/claude/voice.md "Tournament voice").
 - **21.10b `serverError`**: listened to since 1.2.0 (deduped against the
   `error` twin, above); the server emits it since V1_REMOVALS #1 phase A and,
   since phase B, ONLY it (no app-level `error`). It shows a toast and, for

@@ -28,6 +28,17 @@ remove an item in the PR that fixes it.
   Device Hub's Open posture for the next release.
 - **The Leave alert can show stale words for up to ~1.5 s** after the other human
   leaves while it is open (`LeaveAlertFlow`, `leaveCheck`).
+- **Tournament lobby voice on iOS** (server and web 2026-11-24): the next build
+  should start voice on the tournament lobby screen and send the clientHello cap
+  `tournamentVoice` (docs/claude/voice.md "Tournament voice", the client rules;
+  docs/ios-table-store.md, Items 21 / 22). Until then iOS members are never in
+  the tournament room (table voice works already).
+- **Card sounds while voice runs on iOS** (owner report 2026-11-24, the tournament
+  voice investigation): with voice's playAndRecord / voiceChat session active, table
+  sounds play through it and seem quieter; tournament tables now get real calls, so
+  this shows more. Options (pick after a device measurement): raise the sound gain
+  while `VoiceChatManager.isActive`, activate the session only at the first call,
+  or try `.videoChat` mode.
 
 ## Server
 
