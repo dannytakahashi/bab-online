@@ -102,8 +102,9 @@ final class VoiceChatManager: ObservableObject {
         /// Whether the microphone is already allowed (read at a start, never prompts): an
         /// unmuted start (`sessionUnmuted`) needs it.
         var recordPermissionGranted: @MainActor () -> Bool = { false }
+        /// The first call's audio session (`claimAudioSession`, iOS 1.2.6: never at the start).
         var configureAudioSession: @MainActor () throws -> Void
-        /// shutdown(): drop our activation (WebRTC drops its own when its audio unit stops; the
+        /// The last call closed, or shutdown(): drop our activation (WebRTC drops its own when its audio unit stops; the
         /// mic indicator goes; the category is kept).
         var deactivateAudioSession: @MainActor () -> Void
         var sendOffer: @MainActor (_ target: String, _ offer: RTCSessionDescription, _ username: String?) -> Void
@@ -113,6 +114,10 @@ final class VoiceChatManager: ObservableObject {
         /// This app's socket id now (a call signaled from an earlier socket is dead: the
         /// server told the peer that socket left).
         var socketId: @MainActor () -> String? = { nil }
+        /// A trickled ICE candidate (the tests wire two managers' candidates to each other).
+        var sendIceCandidate: @MainActor (_ target: String, _ candidate: RTCIceCandidate) -> Void = {
+            VoiceEmitter.sendIceCandidate(targetSocketId: $0, candidate: $1)
+        }
 
         static let live = Hooks(
             requestRecordPermission: { await AVAudioSession.sharedInstance().requestRecordPermission() },
@@ -165,6 +170,9 @@ final class VoiceChatManager: ObservableObject {
             // Before the default module exists: its audio unit applies WebRTC's configuration
             // when a call starts playout (without this: no .defaultToSpeaker, the earpiece)
             VoiceAudioSession.installWebRTCConfiguration()
+            // ...and before it makes its VoiceProcessingIO unit: that unit ducks the table
+            // sounds as little as iOS allows (iOS 1.2.6, VoiceDucking)
+            VoiceDucking.install()
             return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory)
         }
         return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory, audioDevice: audioDevice)
@@ -274,9 +282,10 @@ final class VoiceChatManager: ObservableObject {
         let username = SocketService.shared.authState?.username
         let iceReady = Task { @MainActor in await self.iceStore.ensure(username: username) }
 
-        // Configure audio session (.playAndRecord before any mic: WebRTC's one VoIP audio unit
-        // plays and records together)
-        try hooks.configureAudioSession()
+        // No audio session yet (iOS 1.2.6): voice's playAndRecord / voiceChat session is set
+        // at the first call (`claimAudioSession`, before its offer or answer), so a session
+        // with nobody to talk to never changes how the table sounds play (owner 2026-11-24: in
+        // a tournament nobody had voice and the card sounds were "very quiet")
 
         localUsername = SocketService.shared.authState?.username
 
@@ -377,6 +386,39 @@ final class VoiceChatManager: ObservableObject {
         teardown(keepSettings: false)
     }
 
+    /// A voice room change in a tournament (iOS 1.2.6, TournamentVoice: the tournament room to
+    /// a round's table at tournamentGameAssignment, back at tournamentJoined): every call and
+    /// buffered signal of the old room ends now, in the socket's event order, so the new room's
+    /// announcements that follow are kept; the screens' company words go (the new room's screen
+    /// says who is there). Still wanted: the new screen's voice starts with its company.
+    func changeRoom() {
+        print("[Voice] Room change: the old room's calls end")
+        teardown(keepSettings: false)
+        tournamentPeers = [:]
+        gate.forgetCompany()
+        roomChanges &+= 1
+    }
+
+    /// Counts the room changes: the tournament lobby's onChange key (`TournamentVoice.lobbyWord`)
+    /// reports the room's company again after each one, even when it reads the same.
+    @Published private(set) var roomChanges = 0
+
+    /// Who the server announced to this socket in the tournament room, by socket id (voicePeerList
+    /// and voicePeerJoined add, voicePeerLeft removes, a room change clears): that room's
+    /// company (`VoiceCompany.tournament(announced:me:)`). The table's announcements land here
+    /// too and go at the next room change; only the tournament lobby reads it.
+    @Published private(set) var tournamentPeers: [String: String] = [:]
+
+    /// voicePeerList / voicePeerJoined.
+    func noteAnnounced(_ socketId: String, username: String) {
+        tournamentPeers[socketId] = username
+    }
+
+    /// The tournament room has another human for me.
+    func tournamentCompany(me: String?) -> Bool {
+        VoiceCompany.tournament(announced: Array(tournamentPeers.values), me: me)
+    }
+
     /// The last other human left and the grace ran out (VoiceGate): the session ends (no audio
     /// session, no calls), still wanted, and this table's voice settings stay, so the next
     /// arrival starts it again (muted, or unmuted after an unmute by hand: `sessionUnmuted`).
@@ -423,8 +465,8 @@ final class VoiceChatManager: ObservableObject {
         localAudioTrack?.isEnabled = false
         localAudioTrack = nil
 
-        // Deactivate audio session to remove mic indicator
-        hooks.deactivateAudioSession()
+        // Deactivate audio session to remove mic indicator (only if a call ever claimed it)
+        releaseAudioSession()
 
         // Clear state
         speakingLastActive.removeAll()
@@ -507,6 +549,8 @@ final class VoiceChatManager: ObservableObject {
                 pendingCandidates[fromSocketId] = nil
             }
             pendingOffers.append((fromSocketId: fromSocketId, offer: offer, username: username))
+            // a table before its seating: the offerer is company, answer it now (VoiceGate)
+            if !isActive, !startPending { gate.peerOffered() }
             return
         }
 
@@ -591,6 +635,7 @@ final class VoiceChatManager: ObservableObject {
 
     /// Remove a peer connection (peer left), and whatever it sent that is still buffered.
     func removePeer(_ socketId: String) {
+        tournamentPeers[socketId] = nil
         pendingPeers.removeAll { $0.socketId == socketId }
         pendingOffers.removeAll { $0.fromSocketId == socketId }
         pendingCandidates[socketId] = nil
@@ -722,6 +767,8 @@ final class VoiceChatManager: ObservableObject {
     /// My volume for one player, 0 to 2 (200%), as the web's per-peer slider. The gain is the
     /// remote track's source volume (WebRTC: 0...10, 1 = unity), so above 1 boosts a quiet
     /// player; mute stays the track's `isEnabled`, so unmuting returns to this level.
+    /// 0% is silent: WebRTC scales the player's decoded audio by this gain, so 0 plays nothing
+    /// (measured on real calls, `VoiceVolumeSilenceTests`; the same as a disabled track).
     func setPeerVolume(_ socketId: String, _ volume: Double) {
         let level = VoiceVolume.clamp(volume)
         guard var info = peerInfos[socketId], info.volume != level else { return }
@@ -730,6 +777,18 @@ final class VoiceChatManager: ObservableObject {
         savedVolumes[info.username] = level
         peers[socketId]?.remoteTrack?.source.volume = level
     }
+
+    /// For tests: whether this peer's remote track plays (nil: no track yet).
+    func remoteTrackEnabled(_ socketId: String) -> Bool? { peers[socketId]?.remoteTrack?.isEnabled }
+    /// For tests: this peer's remote track's source gain (nil: no track yet).
+    func remoteTrackVolume(_ socketId: String) -> Double? { peers[socketId]?.remoteTrack?.source.volume }
+    /// The delegate's trickled candidate, through the hooks.
+    fileprivate func sendIceCandidate(_ target: String, _ candidate: RTCIceCandidate) {
+        hooks.sendIceCandidate(target, candidate)
+    }
+
+    /// For tests: this peer's remote track itself (`VoiceVolumeSilenceTests` sets it by hand).
+    func remoteTrack(_ socketId: String) -> RTCAudioTrack? { peers[socketId]?.remoteTrack }
 
     /// Toggle a peer's mute state.
     func togglePeerMute(_ socketId: String) {
@@ -755,11 +814,15 @@ final class VoiceChatManager: ObservableObject {
         isBackgrounded = false
         guard isActive else { return }
         localAudioTrack?.isEnabled = !isSelfMuted
+        // a call whose activation was refused (in the background, during a cellular call)
+        if !peers.isEmpty { activateAudioSessionIfNeeded() }
     }
 
     // MARK: - Private Helpers
 
     private func createPeerConnection(socketId: String, username: String) -> RTCPeerConnection {
+        // the first call takes the audio session (before its offer / answer can start playout)
+        claimAudioSession()
         let pc = factory.peerConnection(with: Self.rtcConfiguration(iceStore.current), constraints: mediaConstraints, delegate: nil)!
 
         let delegate = PeerConnectionDelegate(manager: self, socketId: socketId)
@@ -797,6 +860,66 @@ final class VoiceChatManager: ObservableObject {
         if !keepRecovery { peerInfos.removeValue(forKey: socketId) }
 
         print("[Voice] Closed peer: \(socketId)")
+        // the last call gone: the sounds get their ambient session back (checked a turn later:
+        // a restart or a replaced offer closes and makes a call in the same turn)
+        if peers.isEmpty { scheduleAudioSessionRelease() }
+    }
+
+    // MARK: - The audio session (claimed by calls, iOS 1.2.6)
+
+    /// Voice holds its audio session (playAndRecord / voiceChat through `VoiceAudioSession`)
+    /// only while it has a call: claimed when the first peer connection is made, released when
+    /// the last one closes and at shutdown. A session that runs with nobody to talk to (a
+    /// tournament table whose peers were never announced, everyone else's voice unavailable,
+    /// the 30 s grace) leaves the audio session alone, so the table sounds and the bid tune keep
+    /// playing on `.ambient` exactly as without voice (`SoundPlayer` reads this, not `isActive`).
+    /// Before 1.2.6 the session was set at every voice start, and the sounds played through
+    /// voice's session from then on, which the owner heard as "very quiet" on an iPhone
+    /// (2026-11-24, a tournament where nobody had voice).
+    @Published private(set) var ownsAudioSession = false
+    /// Our activation went through (the hooks' configure did not throw): the loudspeaker
+    /// configuration and the route safety net run (`VoiceAudioSession.activate`).
+    private var audioSessionActivated = false
+    /// Bumped by each claim, so a release scheduled before it does nothing.
+    private var audioClaims = 0
+
+    private func claimAudioSession() {
+        audioClaims &+= 1
+        // set before the hooks run: SoundPlayer leaves the session alone from here on (WebRTC
+        // configures it for the call's playout with the same values even if this throws)
+        ownsAudioSession = true
+        activateAudioSessionIfNeeded()
+    }
+
+    /// Our activation, until it goes through. It can be refused (an offer during a cellular
+    /// call: insufficient priority; in the seconds after a background), and then the call ran
+    /// without the loudspeaker safety net until every call closed (review 2026-11-24). Tried
+    /// at each claim (a new call or a restart's) and at the foreground while a call runs.
+    private func activateAudioSessionIfNeeded() {
+        guard ownsAudioSession, !audioSessionActivated else { return }
+        do {
+            try hooks.configureAudioSession()
+            audioSessionActivated = true
+        } catch {
+            print("[Voice] Audio session not set: \(error.localizedDescription)")
+        }
+    }
+
+    private func scheduleAudioSessionRelease() {
+        let claims = audioClaims
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.audioClaims == claims, self.peers.isEmpty else { return }
+                self.releaseAudioSession()
+            }
+        }
+    }
+
+    private func releaseAudioSession() {
+        guard ownsAudioSession else { return }
+        ownsAudioSession = false
+        audioSessionActivated = false
+        hooks.deactivateAudioSession()
     }
 
     // MARK: - ICE servers and recovery
@@ -1105,7 +1228,8 @@ private class PeerConnectionDelegate: NSObject, RTCPeerConnectionDelegate {
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         // WebRTC calls this on its signaling thread: emit from main like every other voice emit
         let target = socketId
-        Task { @MainActor in VoiceEmitter.sendIceCandidate(targetSocketId: target, candidate: candidate) }
+        weak let manager = self.manager
+        Task { @MainActor in manager?.sendIceCandidate(target, candidate) }
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate]) {}

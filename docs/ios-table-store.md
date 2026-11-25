@@ -1382,7 +1382,7 @@ the iPad the disconnect banner sits off the avatars.
 All bullets are done except these, which are follow-ups:
 
 - **Tournament voice peer discovery: table done (server, 2026-11-24); the
-  tournament lobby room waits for the next iOS build.** iOS starts voice on
+  tournament lobby room in iOS 1.2.6.** iOS starts voice on
   every game entry as a seat and on rejoin (rejoin: `reconnectOwner` sends
   `voicePeerList`). Since 2026-11-24 the server also announces a tournament
   table's humans to each other at seating (`server/voice/tournamentVoice.js`
@@ -1399,6 +1399,13 @@ All bullets are done except these, which are follow-ups:
   gone on voicePeerLeft), tear it down when it leaves that screen (seated at a
   round's table, watching a table, the main room) and send the cap
   (docs/claude/voice.md "Tournament voice").
+  iOS 1.2.6 (owner 2026-11-24, "nobody had voice" in a tournament) does that:
+  it sends the cap, runs tournament-room voice in the tournament lobby,
+  answers a table-mate's offer before the seating, claims voice's audio
+  session only for a call, and has a call's voice-processing unit duck the
+  table sounds only at the Min level (VoiceDucking; docs/claude/voice.md,
+  "iOS tournament voice"). Still open: how loud the sounds are during a call
+  on a device (the simulator cannot record its output).
 - **21.10b `serverError`**: listened to since 1.2.0 (deduped against the
   `error` twin, above); the server emits it since V1_REMOVALS #1 phase A and,
   since phase B, ONLY it (no app-level `error`). It shows a toast and, for

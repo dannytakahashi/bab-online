@@ -16,9 +16,28 @@ private struct TournamentLobbyScreen: View {
     @EnvironmentObject var authState: AuthState
     @EnvironmentObject var tournamentState: TournamentState
     @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.dynamicTypeSize) private var typeSize
     /// Bumped by every hinge change so the fold is read again at the same size.
     @State private var hingeTick = 0
     @ObservedObject private var socketService = SocketService.shared
+    @ObservedObject private var voiceManager = VoiceChatManager.shared
+    @State private var showVoicePanel = false
+
+    /// The header's mic: voice is on (iOS 1.2.6, the tournament room; fixture mode: `-uiVoice
+    /// YES`), as the game lobby's header mic.
+    private var showsMic: Bool {
+        #if DEBUG
+        voiceManager.isActive || UIFixture.showsVoiceButton
+        #else
+        voiceManager.isActive
+        #endif
+    }
+
+    /// The server announced another member in the tournament room (no voice alone;
+    /// TournamentVoice).
+    private var voiceCompany: TournamentVoice.LobbyWord {
+        TournamentVoice.lobbyWord(voiceManager, me: authState.username)
+    }
 
     /// Ready, Begin and Cancel wait for the session and for the restore's joinTournament
     /// (`TournamentState.rejoiningTournamentId`: this socket is not a member until it is
@@ -96,6 +115,27 @@ private struct TournamentLobbyScreen: View {
                 }
             }
         }
+        // Tournament-room voice (iOS 1.2.6, TournamentVoice): a member wants it here (lobby,
+        // between rounds, a round I sit out or whose table finished, the results); it runs,
+        // muted at the start, while another member is in the room
+        .onChange(of: TournamentVoice.wantsVoice(tournamentState), initial: true) { _, wants in
+            if wants { VoiceChatManager.shared.ensureStarted() }
+        }
+        .onChange(of: voiceCompany, initial: true) { _, word in
+            VoiceChatManager.shared.setCompany(word.company, from: .tournament)
+        }
+        .onDisappear {
+            TournamentVoice.lobbyGone(screen: appState.screen,
+                                      watching: SocketService.shared.gameState?.isSpectator ?? false,
+                                      voice: .shared)
+        }
+        .sheet(isPresented: $showVoicePanel) {
+            VoicePanelSheet()
+                .presentationDetents([.medium])
+        }
+        #if DEBUG
+        .onAppear { if UIFixture.showsVoicePanel { showVoicePanel = true } }
+        #endif
     }
 
     // MARK: - Wide Layout (regular width)
@@ -170,6 +210,7 @@ private struct TournamentLobbyScreen: View {
         return VStack(spacing: 0) {
             headerBar
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
+                .zIndex(1)  // the voice panel tip hangs over what follows
             CappedAboveChat(chatMin: Self.compactChatMin) {
                 VStack(spacing: Theme.Space.s4) {
                     TournamentPlayerListView()
@@ -193,46 +234,93 @@ private struct TournamentLobbyScreen: View {
 
     // MARK: - Header
 
+    /// The header: Leave, the title with the round line, the member count and, while voice runs,
+    /// the mic (iOS 1.2.6). At the accessibility text sizes (AX1 to AX5) one row left the title a
+    /// letter wide on a phone, so Leave and the mic take a row of their own and the title, the
+    /// round line and the count wrap under them.
     private var headerBar: some View {
         VStack(spacing: 0) {
-            HStack {
-                // in the vertical bar Leave is a toolbar item and the title leads
-                if !bar.usesVerticalBar {
-                    Button(action: leaveTournament) {
-                        HStack(spacing: Theme.Space.s1) {
-                            Image(systemName: "chevron.left")
-                                .accessibilityHidden(true)
-                            Text("Leave")
+            Group {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                        HStack {
+                            if !bar.usesVerticalBar { leaveButton.lineLimit(1).fixedSize() }
+                            Spacer()
+                            headerMic
                         }
-                        .foregroundColor(Theme.textSecondary)
+                        titleBlock(alignment: .leading)
+                        countText
                     }
-
-                    Spacer()
-                }
-
-                VStack(alignment: bar.usesVerticalBar ? .leading : .center, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "trophy.fill")
-                            .foregroundColor(Theme.warning)
-                            .accessibilityHidden(true)
-                        Text(tournamentState.name.isEmpty ? "Tournament" : tournamentState.name)
-                            .font(.headline)
-                            .foregroundColor(Theme.warning)
+                } else {
+                    HStack {
+                        // in the vertical bar Leave is a toolbar item and the title leads
+                        if !bar.usesVerticalBar {
+                            leaveButton
+                            Spacer()
+                        }
+                        titleBlock(alignment: bar.usesVerticalBar ? .leading : .center)
+                        Spacer()
+                        countText
+                        headerMic
                     }
-                    Text(roundIndicator)
-                        .font(.caption)
-                        .foregroundColor(Theme.textSecondary)
                 }
-
-                Spacer()
-
-                Text("\(tournamentState.players.count) players")
-                    .font(.caption)
-                    .foregroundColor(Theme.textSecondary)
             }
+            // the mic coming and going never changes the header's height
+            .frame(minHeight: Theme.hitTarget)
             .padding()
+            // the voice panel tip, once (VoicePanelTip): just under the header, off its mic
+            .overlay(alignment: .bottom) {
+                VoicePanelTipToast()
+                    .alignmentGuide(.bottom) { $0[.top] }
+            }
+            .zIndex(1)
 
             Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
+        }
+        .zIndex(1)  // the tip hangs over the player list
+    }
+
+    private var leaveButton: some View {
+        Button(action: leaveTournament) {
+            HStack(spacing: Theme.Space.s1) {
+                Image(systemName: "chevron.left")
+                    .accessibilityHidden(true)
+                Text("Leave")
+            }
+            .foregroundColor(Theme.textSecondary)
+        }
+    }
+
+    private func titleBlock(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            HStack(spacing: 6) {
+                Image(systemName: "trophy.fill")
+                    .foregroundColor(Theme.warning)
+                    .accessibilityHidden(true)
+                Text(tournamentState.name.isEmpty ? "Tournament" : tournamentState.name)
+                    .font(.headline)
+                    .foregroundColor(Theme.warning)
+            }
+            Text(roundIndicator)
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+        }
+    }
+
+    private var countText: some View {
+        Text("\(tournamentState.players.count) players")
+            .font(.caption)
+            .foregroundColor(Theme.textSecondary)
+    }
+
+    /// The game lobby's header mic (LobbyHeaderView): a tap mutes / unmutes, touch and hold
+    /// opens the voice panel.
+    @ViewBuilder
+    private var headerMic: some View {
+        if showsMic {
+            VoiceMuteButton(onLongPress: { showVoicePanel = true })
+                .scaleEffect(0.8)
+                .accessibilityIdentifier("tournament.mic")
         }
     }
 

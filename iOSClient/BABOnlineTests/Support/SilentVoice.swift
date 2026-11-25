@@ -9,7 +9,7 @@ import Foundation
 /// ("Initialize: RPC timeout. Apparently deadlocked. Aborting now."; docs/claude/voice.md,
 /// Tests). With this device the peer connections, SDP, transceiver directions and track
 /// state are WebRTC's real ones; only the samples never flow.
-final class SilentAudioDevice: NSObject, RTCAudioDevice, @unchecked Sendable {
+class SilentAudioDevice: NSObject, RTCAudioDevice, @unchecked Sendable {
     private let lock = NSLock()
     private var initialized = false
     private var playoutReady = false, playing = false
@@ -66,16 +66,20 @@ extension VoiceChatManager {
                        sendAnswer: @escaping @MainActor (String, RTCSessionDescription) -> Void = { _, _ in },
                        notify: @escaping @MainActor (String) -> Void = { _ in },
                        socketId: @escaping @MainActor () -> String? = { nil },
+                       configureAudioSession: @escaping @MainActor () throws -> Void = {},
+                       deactivateAudioSession: @escaping @MainActor () -> Void = {},
+                       sendIceCandidate: @escaping @MainActor (String, RTCIceCandidate) -> Void = { _, _ in },
                        audioDevice: SilentAudioDevice = SilentAudioDevice(),
                        after: ((TimeInterval, @escaping @MainActor () -> Void) -> Void)? = nil) -> VoiceChatManager {
         VoiceChatManager(hooks: .init(requestRecordPermission: requestRecordPermission,
                                       recordPermissionGranted: recordPermissionGranted,
-                                      configureAudioSession: {},
-                                      deactivateAudioSession: {},
+                                      configureAudioSession: configureAudioSession,
+                                      deactivateAudioSession: deactivateAudioSession,
                                       sendOffer: sendOffer,
                                       sendAnswer: sendAnswer,
                                       notify: notify,
-                                      socketId: socketId),
+                                      socketId: socketId,
+                                      sendIceCandidate: sendIceCandidate),
                          iceStore: IceServerStore(timeout: 0.05, emit: { _ in }),
                          audioDevice: audioDevice,
                          after: after)

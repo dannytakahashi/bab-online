@@ -31,17 +31,22 @@ final class VoiceSocketHandler {
                 guard let socketId = peer["socketId"] as? String,
                       let username = peer["username"] as? String else { continue }
                 DispatchQueue.main.async {
+                    VoiceChatManager.shared.noteAnnounced(socketId, username: username)
                     VoiceChatManager.shared.connectToPeer(socketId, username: username)
                 }
             }
         }
 
-        // New peer joined — log only (they will initiate from their side via voicePeerList)
+        // New peer joined: they offer (they got voicePeerList); in the tournament room it is
+        // company (iOS 1.2.6, TournamentVoice), so this side's voice starts to answer
         socket.on(SocketEvents.Server.voicePeerJoined) { data, _ in
             guard let dict = data.first as? [String: Any],
                   let socketId = dict["socketId"] as? String,
                   let username = dict["username"] as? String else { return }
             print("[Voice] Peer joined: \(socketId) \(username)")
+            DispatchQueue.main.async {
+                VoiceChatManager.shared.noteAnnounced(socketId, username: username)
+            }
         }
 
         // Peer left
