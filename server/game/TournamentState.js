@@ -61,6 +61,10 @@ class TournamentState {
         // key → handle ('readyDeadline', 'hostIdle'); all cleared on every
         // round start and on retire, so none outlives its phase
         this.timers = new Map();
+        // The tournament voice room (server/voice/tournamentVoice.js): the
+        // members on the tournament lobby screen with the cap tournamentVoice,
+        // socketId -> {username, order}; never saved (members enter again)
+        this.voiceRoom = { order: 0, members: new Map() };
 
         this._debugMode = process.env.NODE_ENV !== 'production';
     }

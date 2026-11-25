@@ -51,8 +51,18 @@ const { socketLogger } = require('../utils/logger');
  *                     spectator list's entries); a socket without it gets
  *                     none of that (server/socket/shoulderView.js). A hello
  *                     that drops it ends the socket's watch
+ *   tournamentVoice   tournament voice (2026-11-24): the client starts voice
+ *                     on its tournament lobby screen, so it may be put in
+ *                     the tournament's voice room (tournament:<id>) and
+ *                     listed there, and it starts voice at a tournament
+ *                     table, so it is announced at seating; a socket
+ *                     without it is never a tournament-room peer (shipped
+ *                     iOS 1.2.5 (39) and older start no voice on that
+ *                     screen); at a table casualSpectators from a client
+ *                     that is not the web also counts
+ *                     (server/voice/tournamentVoice.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

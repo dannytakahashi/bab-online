@@ -17,6 +17,7 @@ const liveness = require('./tournamentLiveness');
 const { systemLine } = liveness;
 const { recordTableScores } = require('../game/tournamentScoring');
 const pointerResolve = require('./pointerResolve');
+const tournamentVoice = require('../voice/tournamentVoice');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
 
 /**
@@ -48,6 +49,8 @@ function createTournament(socket, io) {
 
     // Send tournament state to creator
     socket.emit('tournamentCreated', tournament.getClientState());
+    // Its voice room (alone for now: nobody to list)
+    tournamentVoice.enter(io, tournament, socket.id);
 
     // Notify main room
     emitLobbiesUpdated(io);
@@ -69,6 +72,7 @@ function createTournament(socket, io) {
 function releaseStaleTournamentSeat(io, evicted, username) {
     if (!evicted) return;
     const { oldSocketId, tournament, leaveResult } = evicted;
+    tournamentVoice.leaveSocket(io, oldSocketId);
     tournament.leaveRoom(io, oldSocketId);
     io.to(oldSocketId).emit('tournamentLeft', {});
     if (leaveResult?.success && !leaveResult.deleted) {
@@ -164,6 +168,9 @@ async function joinTournament(socket, io, data, { resolved = false } = {}) {
 
     // Send full state to joining player
     socket.emit('tournamentJoined', tournament.getClientState());
+    // The tournament's voice room (a reattach on a new socket replaces the
+    // old entry; already in it: listed again)
+    tournamentVoice.enter(io, tournament, socket.id);
 
     // Notify existing tournament players: the roster and the scoreboard,
     // which addPlayer just gave the joiner a row on (additive; without it a
@@ -211,6 +218,8 @@ function sendToMainRoom(socket) {
 async function leaveTournament(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
     const user = gameManager.getUserBySocketId(socket.id);
+    // Out of the tournament's voice room first (its peers drop the calls)
+    tournamentVoice.leaveSocket(io, socket.id);
 
     if (!tournament) {
         // Spectators aren't in playerTournaments — resolve via spectator maps
@@ -541,6 +550,10 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
         rollbackRound(io, tournament, roundNumber);
         return false;
     }
+    // Seated members leave the tournament's voice room (private voicePeerLeft
+    // both ways with everyone still in it); their table's voice is announced
+    // at seating (tournamentVoice.announceTable)
+    tournamentVoice.leave(io, tournament, tables.flatMap(({ humanSocketIds }) => humanSocketIds));
     emitLobbiesUpdated(io);
 
     // The tournament is gone: abort whatever table is still alive (a cancel
@@ -794,6 +807,8 @@ function spectateTournament(socket, io, data, { resolved = false } = {}) {
     // Leave main room
     socket.leave('mainRoom');
     gameManager.leaveMainRoom(socket.id);
+    // A spectator is in no tournament voice room
+    tournamentVoice.leaveSocket(io, socket.id);
 
     // Add as spectator
     tournament.addSpectator(socket.id, user.username, null);
@@ -854,6 +869,10 @@ function spectateTournamentGame(socket, io, data, { resolved = false } = {}) {
         return;
     }
 
+    // Watching a table is off the tournament lobby screen: out of its voice
+    // room (a returnToTournament enters it again)
+    tournamentVoice.leaveSocket(io, socket.id);
+
     // The room notice (not to the joiner), then the joiner's full state
     sendSpectatorJoin(game, socket, user.username);
 }
@@ -897,6 +916,8 @@ async function cancelTournament(socket, io) {
     // 1. Unresolvable before anything can await
     const tables = gameManager.deleteTournament(tournamentId);
     cancelTournamentCleanup(tournamentId);
+    // Its voice room closes (private voicePeerLeft both ways)
+    tournamentVoice.closeRoom(io, tournament);
 
     // 2. End the round's games
     const aborts = tables.map(game => abortGame(io, game, 'Tournament cancelled'));
@@ -986,6 +1007,9 @@ function returnToTournament(socket, io, data, { resolved = false } = {}) {
 
     // Send current tournament state
     socket.emit('tournamentJoined', tournament.getClientState());
+    // Back on the tournament lobby screen: its voice room (a member back from
+    // a finished table, a reattach; a spectator never enters)
+    tournamentVoice.enter(io, tournament, socket.id);
     // A reattach may have moved the host role or readiness
     liveness.refreshHostIdle(io, tournament);
 }
@@ -1004,6 +1028,7 @@ function scheduleTournamentCleanup(io, tournamentId, delayMs = COMPLETED_TOURNAM
         const tournament = gameManager.getTournamentById(tournamentId);
         if (!tournament) return;
 
+        tournamentVoice.closeRoom(io, tournament);
         for (const [playerSocketId] of tournament.players) {
             tournament.leaveRoom(io, playerSocketId);
         }

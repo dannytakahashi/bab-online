@@ -543,6 +543,11 @@ async function handleDrawComplete(io, game) {
     if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
     game.broadcast(io, 'positionUpdate', positionUpdate);
 
+    // A tournament table's voice (owner 2026-11-24: whole-table voice as in
+    // casual games): the connected human owners are announced to each other
+    // now that both clients know who sits here (server/voice/tournamentVoice.js)
+    if (game.tournamentId) require('../voice/tournamentVoice').announceTable(io, game);
+
     // Now that seats have positions, show draw-phase disconnects on the
     // table (their grace began at seating). Skip anyone who rejoined during
     // the delay above (they already got playerReconnected).
