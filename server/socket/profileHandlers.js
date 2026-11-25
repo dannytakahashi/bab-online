@@ -913,8 +913,11 @@ const NOT_MERGED = { mergedInto: { $exists: false } };
  * Games a player needs in a scope before they get a ranked leaderboard row
  * there (one lucky win shouldn't top the board). Players below it still
  * count toward that scope's Population row; records and profiles ignore it.
+ * The same number as SUPERLATIVE_MIN_GAMES, by definition: the All Time
+ * account superlatives are meant to be won by the ranked leaderboard players
+ * (owner 2026-11-24), so the two minimums are one constant.
  */
-const LEADERBOARD_MIN_GAMES = 5;
+const LEADERBOARD_MIN_GAMES = SUPERLATIVE_MIN_GAMES;
 let leaderboardMinGames = LEADERBOARD_MIN_GAMES;
 
 /**
