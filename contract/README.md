@@ -430,8 +430,10 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   socket is never a tournament-room peer: shipped iOS 1.2.5 (39) and older
   start no voice on their tournament lobby screen, so a listed one would be
   offered to and never answer. At a tournament table `casualSpectators`
-  from a client that is not the web counts too (iOS 1.2.2 (12) and later
-  start voice there and clear buffered peers on teardown); a web tab with
+  from iOS that starts voice muted counts too (with `assist`, 1.2.3 (19)
+  and later, or build 18 and later: they start voice there and clear
+  buffered peers on teardown; 1.2.2 (12) to 1.2.3 (17) start with the mic
+  live and are never announced there); a web tab with
   `casualSpectators` but not this cap is cached from before it and never
   starts voice there. No new event or field: only the existing voice
   events. The web sends it from 2026-11-24; iOS from its next build

@@ -1387,8 +1387,10 @@ All bullets are done except these, which are follow-ups:
   `voicePeerList`). Since 2026-11-24 the server also announces a tournament
   table's humans to each other at seating (`server/voice/tournamentVoice.js`
   `announceTable`, right after positionUpdate), gated on the clientHello cap
-  `casualSpectators` from iOS (1.2.2 (12) and later clear buffered peers and
-  offers on teardown, which was the C10 stale-socket worry) or the new cap
+  `casualSpectators` from iOS that starts voice muted (`assist`, 1.2.3 (19)
+  and later, or build 18 and later; they clear buffered peers and offers on
+  teardown, which was the C10 stale-socket worry; 1.2.2 (12) to 1.2.3 (17)
+  start with the mic live and are left out) or the new cap
   `tournamentVoice`, so shipped iOS 1.2.5 (39) gets table voice with no app
   change. The tournament lobby and the time between rounds are a voice room
   too (`tournament:<id>`), but only for sockets that send `tournamentVoice`:

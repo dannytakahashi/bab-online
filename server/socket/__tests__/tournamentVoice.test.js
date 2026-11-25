@@ -7,13 +7,17 @@
  *     other at seating (one voicePeerList / voicePeerJoined per pair, from
  *     the later seat), offers relay both ways; a 1-human table, a socket
  *     without a table cap, a cached web tab and a blocked pair get nothing;
- *     a drop during the draw is a voicePeerLeft; a rejoin is unchanged
+ *     iOS that starts with a live mic (12 to "17") neither; a drop during
+ *     the draw is a voicePeerLeft; a reconnect lists only table-capable,
+ *     unblocked owners, and nobody during the seating's reveal hold (one
+ *     list per pair)
  *   - the tournament room (tournament:<id>): members on the lobby screen
  *     with the cap tournamentVoice; join / leave / disconnect / reattach,
  *     seated at a round (out), back from a finished table (in), offers in
  *     the room and refused across tournaments, cancel / complete / the
  *     results window's end, at most 8, shipped iOS (casualSpectators
- *     without tournamentVoice) never listed
+ *     without tournamentVoice) never listed, a socket whose membership a
+ *     table rejoin on another tab took leaves the room
  */
 
 const { createMemoryDb } = require('../../testUtils/memoryDb');
@@ -44,12 +48,19 @@ const WEB = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial',
 const OLD_WEB = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'];
 const IOS_SHIPPED = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial']; // 1.2.5 (39)
 const IOS_LEGACY = ['avatarUrl']; // before 1.2.2 (12)
+const IOS_LIVE_MIC = ['avatarUrl', 'casualSpectators', 'playAgain']; // 1.2.2 (12) to 1.2.3 (18): mic live at the start up to 17
 const KINDS = {
     web: { client: 'web', caps: WEB },
     oldWeb: { client: 'web', caps: OLD_WEB },
     ios: { client: 'ios', caps: IOS_SHIPPED },
     iosLegacy: { client: 'ios', caps: IOS_LEGACY },
     iosNext: { client: 'ios', caps: [...IOS_SHIPPED, 'tournamentVoice'] },
+    // the App Store's 1.2.2 (13): voice at every seat with the mic live
+    ios13: { client: 'ios', build: '13', caps: IOS_LIVE_MIC },
+    // TestFlight's "1.2.3 (17)" is build 16's code (mic live)
+    ios17: { client: 'ios', build: '17', caps: IOS_LIVE_MIC },
+    // 1.2.3 (18): the first muted start, still without `assist`
+    ios18: { client: 'ios', build: '18', caps: IOS_LIVE_MIC },
 };
 const VOICE = new Set(['voicePeerList', 'voicePeerJoined', 'voicePeerLeft', 'voiceSettings']);
 // SDP built from obviously fake parts (never secret-shaped)
@@ -79,7 +90,7 @@ afterEach(() => {
 /** A signed-in socket that said hello as `kind` (block list loaded). */
 function member(ctx, name, kind = 'web', blocked = []) {
     const s = newUser(ctx.io, ctx.log, name);
-    s.data.client = { client: KINDS[kind].client, version: '1', build: null, caps: KINDS[kind].caps };
+    s.data.client = { client: KINDS[kind].client, version: '1', build: KINDS[kind].build ?? null, caps: KINDS[kind].caps };
     voice.rememberBlockList(s, blocked);
     s.username = name;
     return s;
@@ -145,6 +156,24 @@ async function startRound1(ctx) {
 const humansAt = (game) => game.seatList().filter((s) => s.ownerSocketId && s.controller === 'human').map((s) => s.ownerSocketId);
 const sock = (ctx, sid) => ctx.sockets.find((s) => s.id === sid);
 const roomIds = (t) => tournamentVoice.admitted(t).map((p) => p.socketId);
+
+/** A new socket of `name` (a reload, another tab) that said hello as `kind`, block list loaded. */
+function again(ctx, name, kind = 'web', blocked = []) {
+    const s = member(ctx, name, kind, blocked);
+    ctx.sockets.push(s);
+    return s;
+}
+
+/** Round 1 begun, run until its tables are dealing the draw (seats not made yet). */
+async function toDraw(ctx) {
+    readyAll(ctx);
+    const starting = tournamentHandlers.beginTournament(sock(ctx, ctx.t.createdBy), ctx.io);
+    await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t).every((g) => g.stage === Phase.DRAWING), 50, 60000);
+    return starting;
+}
+
+/** Run every table of `ctx` to its bidding (or play). */
+const toBidding = (ctx, tables) => advanceUntil(() => tables.every((g) => [Phase.BIDDING, Phase.PLAYING].includes(g.stage)), 100, 120000);
 
 // ==================== the table ====================
 
@@ -246,6 +275,100 @@ describe('a tournament table', () => {
         // a member at a table is never in the tournament room
         expect(roomIds(ctx.t)).toEqual([]);
     });
+
+    test('iOS that starts voice with the mic live (1.2.2 (12) to "1.2.3 (17)") is never announced; 1.2.3 (18) and `assist` builds are', async () => {
+        for (const other of ['ios13', 'ios17']) {
+            const ctx = await tournament(['web', other]);
+            const mark = ctx.log.length;
+            await startRound1(ctx);
+            expect(voiceSince(ctx, mark).filter(([e]) => e !== 'voicePeerLeft')).toEqual([]);
+            for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+        }
+        const ctx = await tournament(['web', 'ios18']);
+        const mark = ctx.log.length;
+        const [table] = await startRound1(ctx);
+        expect(pairsSince(ctx, mark)).toHaveLength(1);
+        expect(humansAt(table)).toHaveLength(2);
+        const capable = (client) => tournamentVoice.tableCapable({ sockets: { sockets: new Map([['x', { data: { client } }]]) } }, 'x');
+        expect(capable({ client: 'ios', build: '13', caps: IOS_LIVE_MIC })).toBe(false);
+        expect(capable({ client: 'ios', build: null, caps: IOS_LIVE_MIC })).toBe(false);
+        expect(capable({ client: 'ios', build: '18', caps: IOS_LIVE_MIC })).toBe(true);
+        expect(capable({ client: 'ios', build: null, caps: IOS_SHIPPED })).toBe(true);
+        expect(capable({ client: 'web', build: null, caps: IOS_SHIPPED })).toBe(false);
+        // the User-Agent's build when the hello sent none
+        expect(tournamentVoice.tableCapable({ sockets: { sockets: new Map([['x', { data: { appBuild: 18, client: { client: 'ios', build: null, caps: IOS_LIVE_MIC } } }]]) } }, 'x')).toBe(true);
+    });
+
+    test('a reconnect at the table lists neither a socket without a table cap nor a blocked table-mate, and a non-capable rejoiner lists nobody', async () => {
+        // the web seat back: the cached web tab is not listed (nor told)
+        let ctx = await tournament(['web', 'oldWeb']);
+        let [a, old] = ctx.sockets;
+        let [table] = await startRound1(ctx);
+        await kill(ctx.io, a);
+        let back = again(ctx, a.username);
+        let mark = ctx.log.length;
+        await reconnectHandlers.rejoinGame(back, ctx.io, { gameId: table.gameId, username: a.username });
+        expect(table.seat(table.seatList().find((x) => x.ownerUsername === a.username).position).ownerSocketId).toBe(back.id);
+        expect(voiceSince(ctx, mark).filter(([e]) => e === 'voicePeerList' || e === 'voicePeerJoined')).toEqual([]);
+        for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+
+        // the cached web tab back: it lists nobody, and the web seat is not told
+        ctx = await tournament(['web', 'oldWeb']);
+        [a, old] = ctx.sockets;
+        [table] = await startRound1(ctx);
+        await kill(ctx.io, old);
+        back = again(ctx, old.username, 'oldWeb');
+        mark = ctx.log.length;
+        await reconnectHandlers.rejoinGame(back, ctx.io, { gameId: table.gameId, username: old.username });
+        expect(voiceSince(ctx, mark).filter(([e]) => e === 'voicePeerList' || e === 'voicePeerJoined')).toEqual([]);
+        for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+
+        // a blocked pair (p0 blocked p1): p1 back is not listed p0, p0 not told
+        ctx = await tournament(['web', 'web', 'web'], { blocks: { 0: [1] } });
+        const [p0, p1, p2] = ctx.sockets;
+        [table] = await startRound1(ctx);
+        await kill(ctx.io, p1);
+        back = again(ctx, p1.username);
+        mark = ctx.log.length;
+        await reconnectHandlers.rejoinGame(back, ctx.io, { gameId: table.gameId, username: p1.username });
+        expect(listsTo(ctx, mark, back.id)).toEqual([[p2.id]]);
+        expect(joinedTo(ctx, mark, p0.id)).toEqual([]);
+        expect(joinedTo(ctx, mark, p2.id)).toEqual([back.id]);
+        expect(relays(ctx, back, p2)).toBe(true);
+    });
+
+    test('a rejoin during the seating\'s reveal hold: the pair is announced once (one voicePeerList), whichever seat is earlier', async () => {
+        const orders = new Set();
+        for (let k = 0; k < 12 && orders.size < 2; k++) {
+            const ctx = await tournament(['web', 'web']);
+            const [a, b] = ctx.sockets;
+            const starting = await toDraw(ctx);
+            const [table] = liveTables(ctx.t);
+            await kill(ctx.io, b);
+            // the seats are made, positionUpdate not sent yet
+            await advanceUntil(() => table.entrants === null, 10, 120000);
+            expect(ctx.log.some((l) => l.event === 'positionUpdate' && l.to === `game:${table.gameId}`)).toBe(false);
+            const back = again(ctx, b.username);
+            const mark = ctx.log.length;
+            await reconnectHandlers.rejoinGame(back, ctx.io, { gameId: table.gameId, username: b.username });
+            expect(table.seatList().some((x) => x.ownerSocketId === back.id)).toBe(true);
+            // nobody listed during the hold
+            expect(voiceSince(ctx, mark).filter(([e]) => e === 'voicePeerList' || e === 'voicePeerJoined')).toEqual([]);
+            await toBidding(ctx, [table]);
+            await starting;
+            const pairs = pairsSince(ctx, mark);
+            expect(pairs).toHaveLength(1);
+            const [offerer, listed] = pairs[0].split('>');
+            expect([offerer, listed].sort()).toEqual([a.id, back.id].sort());
+            // the later seat offers
+            const posOf = (sid) => table.seatList().find((x) => x.ownerSocketId === sid).position;
+            expect(posOf(offerer)).toBeGreaterThan(posOf(listed));
+            orders.add(offerer === back.id ? 'rejoiner later' : 'rejoiner earlier');
+            expect(relays(ctx, back, a)).toBe(true);
+            for (const id of Array.from(gameManager.games.keys())) gameManager.abortGame(id);
+        }
+        expect(orders).toEqual(new Set(['rejoiner later', 'rejoiner earlier']));
+    }, 60000);
 });
 
 // ==================== the tournament room ====================
@@ -441,6 +564,43 @@ describe('the tournament room', () => {
         expect(leftTo(ctx, mark, smallHumans[1].id)).toEqual([smallHumans[0].id]);
         expect(gameVoice.voiceRoomOf(smallHumans[0].id)).toBeNull();
     });
+
+    test('a rejoin at the table on another tab takes the membership: that user\'s socket in the room leaves it', async () => {
+        // 5 members: tables of 3 and 2 humans
+        const ctx = await tournament(Array(5).fill('web'));
+        const starting = await toDraw(ctx);
+        const tables = liveTables(ctx.t);
+        const humansIn = (g) => ctx.sockets.filter((s) => g.entrants?.has(s.id));
+        const big = tables.find((g) => humansIn(g).length === 3);
+        const small = tables.find((g) => g !== big);
+        const c = humansIn(big)[0];
+        // c drops during the draw; its new tab lands on the tournament lobby (in the room)
+        await kill(ctx.io, c);
+        const c2 = again(ctx, c.username);
+        await tournamentHandlers.joinTournament(c2, ctx.io, { tournamentId: ctx.t.tournamentId });
+        await toBidding(ctx, tables);
+        await starting;
+        expect(roomIds(ctx.t)).toEqual([c2.id]);
+        // the small table ends: its members come back and are paired with c2
+        const smallHumans = humansAt(small).map((sid) => sock(ctx, sid));
+        await gameLifecycle.abortGame(ctx.io, small, 'test');
+        for (const s of smallHumans) tournamentHandlers.returnToTournament(s, ctx.io, {});
+        expect(roomIds(ctx.t)).toEqual([c2.id, ...smallHumans.map((s) => s.id)]);
+        // another tab of c rejoins c's seat: the membership moves to c3
+        const c3 = again(ctx, c.username);
+        const mark = ctx.log.length;
+        await reconnectHandlers.rejoinGame(c3, ctx.io, { gameId: big.gameId, username: c.username });
+        expect(big.seatList().find((x) => x.ownerUsername === c.username).ownerSocketId).toBe(c3.id);
+        expect(gameManager.playerTournaments.get(c2.id)).toBeUndefined();
+        // c2 is out of the room, both ways told
+        expect(roomIds(ctx.t)).toEqual(smallHumans.map((s) => s.id));
+        for (const s of smallHumans) expect(leftTo(ctx, mark, s.id)).toEqual([c2.id]);
+        expect(leftTo(ctx, mark, c2.id).sort()).toEqual(smallHumans.map((s) => s.id).sort());
+        // a member entering again lists only the room's real members
+        const m2 = ctx.log.length;
+        tournamentHandlers.returnToTournament(smallHumans[1], ctx.io, {});
+        expect(listsTo(ctx, m2, smallHumans[1].id)).toEqual([[smallHumans[0].id]]);
+    }, 60000);
 
     test('the room gets TURN like any voice room (a voice peer), a member who is alone too', async () => {
         const ctx = await tournament(['web', 'ios']);

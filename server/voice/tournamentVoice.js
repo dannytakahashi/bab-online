@@ -51,27 +51,50 @@ const { socketLogger } = require('../utils/logger');
 
 const CAP = 'tournamentVoice';
 const TABLE_CAP = 'casualSpectators';
+// iOS's muted start (VoiceChatManager isSelfMuted = true) arrived in 1.2.3 (18);
+// `assist` is sent from 1.2.3 (19)
+const MUTED_START_CAP = 'assist';
+const MUTED_START_IOS_BUILD = 18;
 const MAX_ROOM = 8;
 
 const lazyGameVoice = () => require('./gameVoice');
 
 /**
  * May `sid` be announced at a tournament table? The cap tournamentVoice
- * (this web bundle on, iOS from its next build), or casualSpectators from a
- * client that is not the web: iOS 1.2.2 (12) and later start voice at a
- * tournament table on their own (GameContainerView, once positionUpdate
- * shows another human) and clear buffered peers and offers on teardown,
- * which was the old stale-socket worry (C10). A web bundle without
+ * (this web bundle on, iOS from its next build), or an iOS build that starts
+ * voice there MUTED: casualSpectators from a client that is not the web,
+ * plus the cap `assist` (iOS 1.2.3 (19) and later, incl. the shipped 1.2.5
+ * (39)) or an iOS build number of 18 or more (1.2.3 (18), the first with the
+ * voice defaults: mic muted to start, no voice while the only human). Those
+ * builds start voice at a tournament table on their own (GameContainerView,
+ * once positionUpdate shows another human) and clear buffered peers and
+ * offers on teardown, which was the old stale-socket worry (C10). iOS 1.2.2
+ * (12) to 1.2.3 (17) send the same three caps (avatarUrl, casualSpectators,
+ * playAgain) but start voice at every seat with the mic LIVE (the App
+ * Store's 1.2.2 (13) among them; TestFlight's "1.2.3 (17)" is build 16's
+ * code): announced, they would talk to the whole table, opponents included,
+ * before anyone chose to (owner: starting muted). A web bundle without
  * tournamentVoice (a tab cached from before 2026-11-24) never starts voice
- * there: listed, it would buffer the peers forever, and an offer to it
- * would end as "voice unavailable" on the other side.
+ * there: listed, it would buffer the peers forever, and an offer to it would
+ * end as "voice unavailable" on the other side.
  */
 function tableCapable(io, sid) {
     if (!sid || typeof sid !== 'string' || sid.startsWith('bot:')) return false;
     const socket = io?.sockets?.sockets?.get(sid);
     if (!socket) return false;
     if (clientInfo.hasCap(socket, CAP)) return true;
-    return clientInfo.hasCap(socket, TABLE_CAP) && socket.data?.client?.client !== 'web';
+    const client = socket.data?.client;
+    if (!client || client.client === 'web' || !clientInfo.hasCap(socket, TABLE_CAP)) return false;
+    if (clientInfo.hasCap(socket, MUTED_START_CAP)) return true;
+    return client.client === 'ios' && iosBuild(socket) >= MUTED_START_IOS_BUILD;
+}
+
+/** The iOS build number the socket reported (clientHello's build, else the User-Agent's), or NaN. */
+function iosBuild(socket) {
+    const hello = Number.parseInt(socket.data?.client?.build, 10);
+    if (Number.isFinite(hello)) return hello;
+    const ua = Number(socket.data?.appBuild);
+    return Number.isFinite(ua) ? ua : NaN;
 }
 
 /**
@@ -87,6 +110,7 @@ function tableCapable(io, sid) {
  * @returns {number} pairs announced
  */
 function announceTable(io, game) {
+    seatingPending.delete(game);
     if (!io || !game?.tournamentId || game.isTerminal?.()) return 0;
     const { gameVoiceMembers, blockedPair } = lazyGameVoice();
     const humans = gameVoiceMembers(game).filter((m) => tableCapable(io, m.socketId));
@@ -101,6 +125,28 @@ function announceTable(io, game) {
     }
     if (pairs > 0) socketLogger.info('Voice: tournament table announced', { gameId: game.gameId, humans: humans.length, pairs });
     return pairs;
+}
+
+/*
+ * A tournament table between its seats' creation and its seating's
+ * positionUpdate (gameHandlers.handleDrawComplete's reveal hold): an owner
+ * back at its seat then (seatLifecycle.announceOwnerVoice) is listed to
+ * nobody, since announceTable lists every connected owner a moment later;
+ * listed both then, a pair whose rejoiner sits earlier would get a
+ * voicePeerList each way and both sides would offer (shipped iOS answers a
+ * crossing offer by closing its own call). Never saved: a restored table is
+ * past its seating.
+ */
+const seatingPending = new WeakSet();
+
+/** handleDrawComplete, the seats made and the reveal hold begun (a tournament table only). */
+function holdSeating(game) {
+    if (game?.tournamentId) seatingPending.add(game);
+}
+
+/** Is `game` in its reveal hold (its owners not announced yet)? */
+function seatingHeld(game) {
+    return !!game && seatingPending.has(game);
 }
 
 // ==================== the tournament room ====================
@@ -227,6 +273,21 @@ function leave(io, t, sids) {
     return true;
 }
 
+/**
+ * `username`'s tournament membership moved to the socket `keepSid` (a rejoin
+ * at its table on another tab: seatLifecycle.reattachTournament): any other
+ * socket of that user still in `t`'s room no longer belongs to `t` and
+ * leaves it (voicePeerLeft both ways; it held a place and every newcomer
+ * would list it, and an offer to it is refused not_peers).
+ */
+function leaveUser(io, t, username, keepSid) {
+    if (!t?.voiceRoom || !username) return false;
+    const stale = [...t.voiceRoom.members.entries()]
+        .filter(([sid, e]) => sid !== keepSid && e.username === username && gameManager.playerTournaments.get(sid) !== t.tournamentId)
+        .map(([sid]) => sid);
+    return stale.length > 0 && leave(io, t, stale);
+}
+
 /** `sid` leaves whatever tournament room holds it (but `except`). */
 function leaveSocket(io, sid, { except = null } = {}) {
     let left = false;
@@ -263,10 +324,13 @@ module.exports = {
     MAX_ROOM,
     tableCapable,
     announceTable,
+    holdSeating,
+    seatingHeld,
     admitted,
     enter,
     relist,
     leave,
+    leaveUser,
     leaveSocket,
     closeRoom,
     roomOf,

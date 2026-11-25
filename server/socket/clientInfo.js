@@ -58,9 +58,9 @@ const { socketLogger } = require('../utils/logger');
  *                     table, so it is announced at seating; a socket
  *                     without it is never a tournament-room peer (shipped
  *                     iOS 1.2.5 (39) and older start no voice on that
- *                     screen); at a table casualSpectators from a client
- *                     that is not the web also counts
- *                     (server/voice/tournamentVoice.js)
+ *                     screen); at a table casualSpectators from iOS that
+ *                     starts voice muted also counts (with assist, or
+ *                     build 18 and later; server/voice/tournamentVoice.js)
  */
 const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice'];
 

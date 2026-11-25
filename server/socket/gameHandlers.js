@@ -520,6 +520,9 @@ async function handleDrawComplete(io, game) {
         }
     }
 
+    // A tournament table's owners are announced at its seating below; one
+    // back at its seat during the hold is listed to nobody before that
+    if (game.tournamentId) require('../voice/tournamentVoice').holdSeating(game);
     if (!(await game.hold('drawReveal', pacing(game).DRAW_REVEAL_MS))) return;
 
     // ONE room broadcast for every recipient (never split: seq): pics are
