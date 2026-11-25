@@ -226,6 +226,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_ICE_SERVERS: 'voiceIceServers',
   VOICE_SETTINGS: 'voiceSettings',
+  TOURNAMENT_VOICE_STATUS: 'tournamentVoiceStatus',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',

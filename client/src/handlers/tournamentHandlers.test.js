@@ -24,6 +24,8 @@ const TOURNAMENT_EVENTS = {
   tournamentComplete: 'onTournamentComplete',
   tournamentLeft: 'onTournamentLeft',
   tournamentCancelled: 'onTournamentCancelled',
+  // the over-cap notice (#406): registered by voiceHandlers.js, still through registerAllHandlers
+  tournamentVoiceStatus: 'onTournamentVoiceStatus',
 };
 
 describe('tournament events through registerAllHandlers', () => {
@@ -41,7 +43,8 @@ describe('tournament events through registerAllHandlers', () => {
     registerAllHandlers(socketManager, callbacks);
     for (const [event, name] of Object.entries(TOURNAMENT_EVENTS)) {
       expect(Object.values(SERVER_EVENTS)).toContain(event);
-      const payload = { probe: event };
+      // the voice handler drops a malformed notice, so it gets a real one
+      const payload = event === 'tournamentVoiceStatus' ? { admitted: false, cap: 8 } : { probe: event };
       for (const fn of handlers[event] || []) fn(payload);
       expect(callbacks[name], `${event} -> ${name}`).toHaveBeenCalledWith(payload);
     }
