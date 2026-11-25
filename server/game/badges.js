@@ -15,7 +15,21 @@
  *   - 500 points also earn the 400 badge; Go Big or Go Home needs only the
  *     bid; Spectator's five zero bids are in a row within one game (kept
  *     hands: an all-zero redeal's bids are not counted); Heavy Hitter is
- *     the team's score for one hand.
+ *     the team's score for one hand;
+ *   - (owner 2026-11-25) a badge credited from a seat's own bids, plays or
+ *     held cards counts only what the seat did while its controller was
+ *     HUMAN: a lazy, AFK or resign bot's bids and plays earn its owner
+ *     nothing. The tracker marks each seat's bid of the hand (`hb`) and
+ *     card of the trick (`hp`) human or not when it is made
+ *     (GameState.applyBid / applyPlay -> noteBid / notePlay), and only a
+ *     human-made one counts toward Go Big or Go Home, Spectator (a
+ *     bot-made bid ends the run of zeros), Hammer Time (the hand's bid
+ *     was the human's), Double Rainbow (the seat's own hand was the
+ *     human's), Bet Big Win Big / Lost the Farm (the 4B was a human's
+ *     bid) and the over-trumped count behind Child Labor (the beaten
+ *     card was a human's). The badges about the result (the scores,
+ *     sets, leads, a hand's points, the tricks of a won game) are the
+ *     team's and stay as they are.
  *
  * The tracker (game.badgeTrack, saved by the game codec like seatBags:
  * optional both ways, null for a game restored from a doc without it) only
@@ -87,8 +101,13 @@ const int = (v) => (Number.isSafeInteger(v) ? v : 0);
 const count = (v) => Math.max(0, int(v));
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
+/**
+ * One seat's counts. `hb` / `hp`: the seat's bid of this hand / card of
+ * this trick was made by a HUMAN controller (1) or not (0; also a tracker
+ * restored from a doc without them, so it under-awards, never wrongly).
+ */
 function newSeatTrack() {
-    return { ot: 0, zeros: 0, zeroBest: 0, bigBid: 0, hi: 0, dbl: 0 };
+    return { ot: 0, zeros: 0, zeroBest: 0, bigBid: 0, hi: 0, dbl: 0, hb: 0, hp: 0 };
 }
 
 /** A new game's tracker (GameState starts with one). */
@@ -122,7 +141,8 @@ function normalizeTrack(v) {
         const s = isPlainObject(v.byPos[pos]) ? v.byPos[pos] : {};
         out.byPos[pos] = {
             ot: count(s.ot), zeros: count(s.zeros), zeroBest: count(s.zeroBest),
-            bigBid: count(s.bigBid), hi: count(s.hi), dbl: count(s.dbl)
+            bigBid: count(s.bigBid), hi: count(s.hi), dbl: count(s.dbl),
+            hb: s.hb === 1 ? 1 : 0, hp: s.hp === 1 ? 1 : 0
         };
     }
     return out;
@@ -171,8 +191,28 @@ function overTrumps(lead, cards, trump) {
 }
 
 /**
+ * A bid went in (GameState.applyBid, every bid path: the player's socket
+ * and every bot): was the seat's controller HUMAN when it was made.
+ * @param {Object|null} track
+ * @param {number} pos
+ * @param {boolean} human
+ */
+function noteBid(track, pos, human) {
+    const seat = track?.byPos?.[pos];
+    if (seat) seat.hb = human ? 1 : 0;
+}
+
+/** A card went on the table (GameState.applyPlay): played by a HUMAN controller or not. */
+function notePlay(track, pos, human) {
+    const seat = track?.byPos?.[pos];
+    if (seat) seat.hp = human ? 1 : 0;
+}
+
+/**
  * A hand the bids keep (handlePostBid, BIDDING -> PLAYING; never an
- * all-zero redeal): each seat's bid and who holds the HI joker.
+ * all-zero redeal): each seat's bid and who holds the HI joker, counted
+ * only for a seat whose bid a human made (noteBid; a bot-made bid also
+ * ends the seat's run of zeros).
  * @param {Object|null} track
  * @param {{playerBids: string[], handSize: number, hiJokerPosition: number|null}} hand - bids by position - 1
  */
@@ -181,6 +221,10 @@ function noteHandKept(track, { playerBids, handSize, hiJokerPosition }) {
     for (const pos of POSITIONS) {
         const seat = track.byPos[pos];
         const bid = playerBids[pos - 1];
+        if (seat.hb !== 1) {
+            seat.zeros = 0;
+            continue;
+        }
         // A bore bids the whole hand (client rules/bids.js: a bore = the hand)
         const tricks = isBore(bid) ? int(handSize) : (parseInt(bid, 10) || 0);
         if (tricks >= LIMITS.bigBid) seat.bigBid = 1;
@@ -194,11 +238,14 @@ function noteHandKept(track, { playerBids, handSize, hiJokerPosition }) {
     }
 }
 
-/** A resolved trick (resumeTrick): the seats over-trumped in it. */
+/**
+ * A resolved trick (resumeTrick): the seats over-trumped in it, each only
+ * when its beaten card was a human's play (notePlay).
+ */
 function noteTrick(track, { lead, cards, trump }) {
     if (!track) return;
     for (const { victim } of overTrumps(lead, cards, trump)) {
-        if (track.byPos[victim]) track.byPos[victim].ot++;
+        if (track.byPos[victim]?.hp === 1) track.byPos[victim].ot++;
     }
 }
 
@@ -222,11 +269,13 @@ function noteHandScored(track, { score, delta, playerBids, bids, tricks, rainbow
         if (own - other > track.lead[team]) track.lead[team] = own - other;
         if (int(delta?.[team]) > track.bestHand[team]) track.bestHand[team] = int(delta[team]);
         const seats = team === 'team1' ? [1, 3] : [2, 4];
-        if (Array.isArray(playerBids) && seats.some((pos) => playerBids[pos - 1] === '4B')) {
+        // A 4B counts for the team only when a human bid it (noteBid)
+        if (Array.isArray(playerBids) && seats.some((pos) => playerBids[pos - 1] === '4B' && track.byPos[pos].hb === 1)) {
             if (int(tricks?.[team]) >= int(bids?.[team])) track.quadWon[team] = 1;
             else track.quadLost[team] = 1;
         }
-        if (int(rainbows?.[team]) >= 2) for (const pos of seats) track.byPos[pos].dbl = 1;
+        // Double Rainbow: for each seat whose own hand was the human's
+        if (int(rainbows?.[team]) >= 2) for (const pos of seats) if (track.byPos[pos].hb === 1) track.byPos[pos].dbl = 1;
     }
 }
 
@@ -284,6 +333,23 @@ function overTrumpedByPos(game) {
     return out;
 }
 
+/**
+ * Does seat `position` of a stored game record count for badges: its stats
+ * went to the human bucket (profileHandlers.seatBucket: not a 'botStats'
+ * game, not a seat whose bucketByPosition is 'botStats'). A record from
+ * before statsDeltas counts when it is not withBots. Chemistry
+ * (badgeAwards.gamesTogether, the same rule as a query) and the backfill
+ * read it, so an opponent's /help win never takes a game from a pair.
+ * @param {{statsDeltas?: Object, withBots?: boolean}} record
+ * @param {number|string} position
+ */
+function recordSeatCounts(record, position) {
+    const sd = record?.statsDeltas;
+    if (!isPlainObject(sd)) return record?.withBots !== true;
+    if (sd.bucket === 'botStats') return false;
+    return !(isPlainObject(sd.bucketByPosition) && sd.bucketByPosition[position] === 'botStats');
+}
+
 /** The wire form of an earned badge: {id, name, description} (+ `at` as ISO when given). */
 function publicBadge(id, at) {
     const b = BY_ID.get(id);
@@ -322,11 +388,14 @@ module.exports = {
     newTrack,
     normalizeTrack,
     overTrumps,
+    noteBid,
+    notePlay,
     noteHandKept,
     noteTrick,
     noteHandScored,
     gameBadges,
     overTrumpedByPos,
+    recordSeatCounts,
     publicBadge,
     publicBadges
 };

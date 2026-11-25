@@ -36,7 +36,7 @@ const { MODE, normalizeMode, GYB_SEATS, CLASSIC_SEATS, isGyb } = require('./game
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
 const { defaultAssist, normalizeAssist } = require('./assistState');
-const { newTrack: newBadgeTrack, normalizeTrack: normalizeBadgeTrack } = require('./badges');
+const { newTrack: newBadgeTrack, normalizeTrack: normalizeBadgeTrack, noteBid: noteBadgeBid, notePlay: noteBadgePlay } = require('./badges');
 
 /** game.resume.kind values (snapshot v2 resume.kind) */
 const RESUME_KINDS = ['countdown', 'drawReveal', 'seating', 'teams', 'firstTurn', 'trick', 'hand'];
@@ -2311,6 +2311,8 @@ class GameState {
         const bidStr = String(bid).toUpperCase();
         if (!this.isBidLegal(bidStr)) return { ok: false, reason: 'invalid_bid', bid: bidStr };
         this.recordBid(position, bidStr);
+        // Badges: only a bid the seat's human made counts (game/badges.js)
+        noteBadgeBid(this.badgeTrack, position, this.seats[position]?.controller === Controller.HUMAN);
         return { ok: true, bid: bidStr };
     }
 
@@ -2382,6 +2384,8 @@ class GameState {
         this.playedCards[position - 1] = card;
         this.playedCardsIndex++;
         this.cardIndex++;
+        // Badges: only a card the seat's human played counts (game/badges.js)
+        noteBadgePlay(this.badgeTrack, position, this.seats[position]?.controller === Controller.HUMAN);
         if (card.suit === this.trump.suit || card.suit === 'joker') {
             this.isTrumpBroken = true;
         }

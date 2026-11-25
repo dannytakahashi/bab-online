@@ -3,17 +3,22 @@
  * confirm have scored that high. Also Felted"): the badges the stored data
  * proves a player already earned before badges existed.
  *
- *   five-hundred / four-hundred / felted   from the human game records
- *       (gameRecords without withBots: teamNScore and teamNPlayers; 500
- *       also earns 400), dated by the first game that earned each;
- *   chemistry   20 human game records with the same partner on one team,
- *       dated by the 20th;
+ *   five-hundred / four-hundred / felted   from the game records, for
+ *       each player whose seat went to the human bucket (teamNScore and
+ *       teamNPlayers, or statsDeltas.names for a team with one such seat;
+ *       500 also earns 400), dated by the first game that earned each;
+ *   chemistry   20 game records with the same partner on one team where
+ *       BOTH partners' seats went to the human bucket, dated by the 20th
+ *       (the live rule, badgeAwards.gamesTogether);
  *   century     users.stats.gamesPlayed >= 100 (the human bucket), dated
  *       when the backfill runs (the 100th game is not recorded as such).
  *
  * Nothing else can be backfilled: the other badges need what happened
- * inside a game, which no record holds. A bot game never counts (the
- * leaderboard's rule), '[deleted]' and names with no live account are
+ * inside a game, which no record holds. A seat counts by the stats'
+ * bucket (badges.recordSeatCounts: statsDeltas.bucket / bucketByPosition,
+ * a record from before statsDeltas by withBots), so a bot game or a seat
+ * /help moved never counts and an opponent's /help win does not take the
+ * game from the other team; '[deleted]' and names with no live account are
  * skipped, and a badge a player already has is left as it is (its date
  * too). plan() only reads; apply() writes each award with the guarded
  * $push the game end uses (`badges.id: {$ne: id}`), so running it twice,
@@ -23,10 +28,14 @@
 
 'use strict';
 
-const { LIMITS, isBadgeId } = require('../game/badges');
+const { LIMITS, isBadgeId, recordSeatCounts } = require('../game/badges');
 const { DELETED_NAME } = require('./nameHold');
 
-const RECORD_PROJECTION = { _id: 0, gameId: 1, completedAt: 1, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1 };
+const RECORD_PROJECTION = {
+    _id: 0, gameId: 1, completedAt: 1, withBots: 1, team1Score: 1, team2Score: 1, team1Players: 1, team2Players: 1,
+    'statsDeltas.bucket': 1, 'statsDeltas.bucketByPosition': 1, 'statsDeltas.names': 1
+};
+const TEAM_SEATS = Object.freeze({ 1: [1, 3], 2: [2, 4] });
 const isName = (v) => typeof v === 'string' && v.length > 0 && v !== DELETED_NAME;
 const timeOf = (r) => (r.completedAt instanceof Date ? r.completedAt.getTime() : 0);
 
@@ -47,7 +56,12 @@ function scoreBadges(score) {
  * @returns {Promise<{records: number, players: number, awards: Array<{username, id, at, gameId?}>, skipped: string[]}>}
  */
 async function plan(db, { now = new Date() } = {}) {
-    const records = await db.gameRecords.find({ withBots: { $ne: true } }, { projection: RECORD_PROJECTION }).toArray();
+    // A whole bot game never counts (both filters are what recordSeatCounts
+    // says for every seat of it); the rest are decided seat by seat
+    const records = await db.gameRecords.find(
+        { 'statsDeltas.bucket': { $ne: 'botStats' }, $or: [{ statsDeltas: { $exists: true } }, { withBots: { $ne: true } }] },
+        { projection: RECORD_PROJECTION }
+    ).toArray();
     records.sort((a, b) => timeOf(a) - timeOf(b));
 
     // username -> badge id -> {at, gameId}: the first game that earned it
@@ -60,9 +74,15 @@ async function plan(db, { now = new Date() } = {}) {
     const together = new Map();
     for (const record of records) {
         for (const n of [1, 2]) {
-            const players = [...new Set((Array.isArray(record[`team${n}Players`]) ? record[`team${n}Players`] : []).filter(isName))];
+            const counting = TEAM_SEATS[n].filter((pos) => recordSeatCounts(record, pos));
+            if (counting.length === 0) continue;
+            const team = Array.isArray(record[`team${n}Players`]) ? record[`team${n}Players`] : [];
+            // One seat of the two: its own name (statsDeltas.names), never
+            // the partner whose seat /help moved
+            const names = counting.length === 2 ? team : [record.statsDeltas?.names?.[counting[0]]];
+            const players = [...new Set(names.filter(isName))];
             for (const id of scoreBadges(record[`team${n}Score`])) for (const username of players) note(username, id, record);
-            if (players.length === 2) {
+            if (counting.length === 2 && players.length === 2) {
                 const key = JSON.stringify([...players].sort());
                 const games = (together.get(key) || 0) + 1;
                 together.set(key, games);
