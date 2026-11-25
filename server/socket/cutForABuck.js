@@ -456,7 +456,9 @@ function _pendingCardsForTests() {
     for (const t of gameManager.tournaments.values()) {
         const e = t.cut?.engine;
         if (!e || !e.open) continue;
-        out.push({ tournamentId: t.tournamentId, cards: e.pendingCards(), table: [...e.table.values()].flat() });
+        const revealed = [...e.table.values()].flat();
+        for (const d of t.cut.lastReveal?.draws || []) revealed.push(d.card);
+        out.push({ tournamentId: t.tournamentId, cards: e.pendingCards(), revealed });
     }
     return out;
 }

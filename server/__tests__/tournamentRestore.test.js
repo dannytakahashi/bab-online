@@ -696,6 +696,118 @@ describe('chat', () => {
     });
 });
 
+describe('Cut for a buck (codec v2)', () => {
+    const cutForABuck = require('../socket/cutForABuck');
+    const { giveCap, deckOf } = require('../testUtils/cutDriver');
+
+    afterEach(() => cutForABuck.setEngineOptionsForTests({}));
+
+    /** A 3-member, 1-round tournament with the cap, played on A into its cut, at `stage`. */
+    async function intoCut(stage) {
+        const { A, ctx, tid } = await bootTournament(3, { totalRounds: 1 });
+        ctx.sockets.forEach((s) => giveCap(s));
+        // redraws first (three 7s), so every stage is reachable with 3 alive
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf('7s', '7h', '7d', '2s', '9h', 'Kd', '3c', 'Qc'), randomInt: () => 0 });
+        await beginRound(ctx, A.io);
+        await playOutUntil(ctx, A, () => ctx.t.phase !== 'round_active');
+        expect(ctx.t.phase).toBe('cut');
+        const drawAt = (slots) => {
+            const e = ctx.t.cut.engine;
+            e.aliveList().forEach((u, i) => {
+                const s = ctx.sockets[ctx.usernames.indexOf(u)];
+                if (slots === 'one' && i > 0) return;
+                cutForABuck.draw(s, A.io, { round: e.round, slot: i });
+            });
+        };
+        const until = async (pred) => {
+            for (let i = 0; i < 400 && !pred(); i++) await jest.advanceTimersByTimeAsync(100);
+            expect(pred()).toBe(true);
+        };
+        if (stage !== 'gather') {
+            await until(() => ctx.t.cut.stage === 'drawing');
+            if (stage === 'drawing') drawAt('one');
+            if (stage === 'reveal' || stage === 'winner') drawAt('all'); // round 1: the 7s tie
+            if (stage === 'winner') {
+                await until(() => ctx.t.cut.stage === 'drawing');
+                drawAt('all'); // 2s, 9h, Kd: the 2 out
+                await until(() => ctx.t.cut.stage === 'drawing');
+                drawAt('all'); // 3c, Qc: the 3 out, a winner
+            }
+        }
+        expect(ctx.t.cut.stage).toBe(stage);
+        await h.flushStore(A.store);
+        return { A, ctx, tid };
+    }
+
+    test.each([
+        ['gather', 'handoff'], ['drawing', 'handoff'], ['reveal', 'handoff'], ['winner', 'handoff'],
+        ['gather', 'kill'], ['drawing', 'kill'], ['reveal', 'kill'], ['winner', 'kill'],
+    ])('a %s stage survives a %s: one winner, one tournamentComplete, one record', async (stage, kind) => {
+        const record = jest.spyOn(tournamentHandlers, 'recordTournament');
+        const { A, ctx, tid } = await intoCut(stage);
+        const stageBefore = ctx.t.cut.stage;
+        const aliveBefore = ctx.t.cut.engine ? ctx.t.cut.engine.aliveList() : null;
+        const roundBefore = ctx.t.cut.engine ? ctx.t.cut.engine.round : 0;
+        const B = await deploy.restart({ kind });
+        // a kill: the successor adopts once the dead holder's heartbeat is stale
+        for (let i = 0; i < 120 && !T(tid); i++) await jest.advanceTimersByTimeAsync(500);
+        const t = T(tid);
+        expect(t).toBeTruthy();
+        expect(t.phase).toBe('cut');
+        expect(t.cut.stage).toBe(stageBefore === 'gather' ? 'gather' : stageBefore === 'winner' ? 'winner' : 'reveal');
+        if (aliveBefore) {
+            expect(t.cut.engine.aliveList()).toEqual(aliveBefore);
+            t.cut.engine.assertValid();
+            // an open round is redrawn as the same round
+            expect(t.cut.engine.round).toBe(stageBefore === 'drawing' ? roundBefore - 1 : roundBefore);
+            expect(t.cut.engine.pending.size).toBe(0);
+        }
+        expect(t.finalWinners).toEqual(ctx.t.finalWinners);
+        // the members come back with the cap; the first one gets the "continues" line
+        const sockets = [];
+        for (const u of ctx.usernames) {
+            const s = back(B, u);
+            giveCap(s);
+            await tournamentHandlers.joinTournament(s, B.io, { tournamentId: tid });
+            sockets.push(s);
+        }
+        const continues = events(B, 'tournamentMessage').filter((e) => e.data.message === cutForABuck.RESTORE_LINE);
+        expect(continues).toHaveLength(1);
+        const joined = events(B, 'tournamentJoined').at(-1).data;
+        expect(joined.phase).toBe('cut');
+        expect(joined.cut.stage).toBe(t.cut.stage);
+        // nothing for 30 s, then it goes on: everyone draws whenever asked
+        await jest.advanceTimersByTimeAsync(29000);
+        expect(events(B, 'cutForABuckRound')).toHaveLength(0);
+        for (let i = 0; i < 400 && t.phase === 'cut'; i++) {
+            const e = t.cut?.engine;
+            if (t.cut?.stage === 'drawing' && e?.open) {
+                for (const u of e.aliveList()) {
+                    if (!e.pending.has(u)) cutForABuck.draw(sockets[ctx.usernames.indexOf(u)], B.io, { round: e.round, slot: null });
+                }
+            }
+            await jest.advanceTimersByTimeAsync(500);
+        }
+        expect(t.phase).toBe('complete');
+        const completes = [...events(A, 'tournamentComplete'), ...events(B, 'tournamentComplete')];
+        expect(completes).toHaveLength(1);
+        expect(completes[0].data.cutForABuck.participants).toEqual(ctx.t.cut?.engine?.participants ?? completes[0].data.cutForABuck.participants);
+        expect(events(B, 'cutForABuckWinner').length).toBeGreaterThanOrEqual(1);
+        expect(record).toHaveBeenCalledTimes(1);
+        expect(record.mock.calls[0][1]).toEqual(completes[0].data.cutForABuck);
+    }, 120000);
+
+    test('nobody comes back: the cut runs with ghosts (drawn for) and the tournament completes', async () => {
+        const { tid } = await intoCut('drawing');
+        const B = await deploy.restart({ kind: 'handoff' });
+        const t = T(tid);
+        for (let i = 0; i < 400 && t.phase === 'cut'; i++) await jest.advanceTimersByTimeAsync(1000);
+        expect(t.phase).toBe('complete');
+        expect(events(B, 'tournamentComplete')).toHaveLength(1);
+        expect(events(B, 'tournamentComplete')[0].data.cutForABuck.winner).toBeTruthy();
+    }, 120000);
+});
+
 describe('the handoff itself', () => {
     /** What A's handoff told each table. */
     const toldOf = (inst) => new Map(deploy.outcomes.filter((o) => o.instance === inst.name && o.kind === 'run').flatMap((o) => o.tables.map((x) => [x.gameId, x.outcome])));
