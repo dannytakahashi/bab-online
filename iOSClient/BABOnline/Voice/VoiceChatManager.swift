@@ -166,6 +166,9 @@ final class VoiceChatManager: ObservableObject {
             // Before the default module exists: its audio unit applies WebRTC's configuration
             // when a call starts playout (without this: no .defaultToSpeaker, the earpiece)
             VoiceAudioSession.installWebRTCConfiguration()
+            // ...and before it makes its VoiceProcessingIO unit: that unit ducks the table
+            // sounds as little as iOS allows (iOS 1.2.6, VoiceDucking)
+            VoiceDucking.install()
             return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory)
         }
         return RTCPeerConnectionFactory(encoderFactory: encoderFactory, decoderFactory: decoderFactory, audioDevice: audioDevice)
