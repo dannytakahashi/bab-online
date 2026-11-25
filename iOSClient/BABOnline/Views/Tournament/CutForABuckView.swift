@@ -29,7 +29,24 @@ struct CutForABuckView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @AppStorage("bab.cutView") private var savedMode: String = ""
+    /// Ring or List as chosen (remembered on the device; fixture mode: `-uiCutView ring|list`, never saved).
+    @State private var savedMode: String = CutForABuckView.storedMode
+
+    static let modeKey = "bab.cutView"
+    static var storedMode: String {
+        #if DEBUG
+        if UIFixture.isActive { return UserDefaults.standard.string(forKey: "uiCutView") ?? "" }
+        #endif
+        return UserDefaults.standard.string(forKey: modeKey) ?? ""
+    }
+
+    private func choose(_ m: String) {
+        savedMode = m
+        #if DEBUG
+        if UIFixture.isActive { return }
+        #endif
+        UserDefaults.standard.set(m, forKey: Self.modeKey)
+    }
 
     private var state: CutState? { tournamentState.cut }
     private var me: String? { tournamentState.isSpectator ? nil : authState.username }
@@ -43,6 +60,32 @@ struct CutForABuckView: View {
     }
 
     var body: some View {
+        Group {
+            if typeSize.isAccessibilitySize && part == .full {
+                // the accessibility sizes: one scroll (the bar and the status take most of a phone)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        bar
+                        status
+                        if mode == "list" {
+                            CutListView(model: model, scrolls: false)
+                        } else {
+                            CutStageView(model: model).frame(height: 460)
+                        }
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            } else {
+                content
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("cut")
+        .onAppear { model.reduceMotion = reduceMotion || CutForABuckView.fixtureReduceMotion }
+        .onChange(of: reduceMotion) { _, r in model.reduceMotion = r }
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
             if part != .controls { bar }
             if part != .stage { status }
@@ -54,10 +97,6 @@ struct CutForABuckView: View {
             }
             if part == .controls { drawButton.padding(Theme.Space.s3) }
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("cut")
-        .onAppear { model.reduceMotion = reduceMotion || CutForABuckView.fixtureReduceMotion }
-        .onChange(of: reduceMotion) { _, r in model.reduceMotion = r }
     }
 
     static var fixtureReduceMotion: Bool {
@@ -71,7 +110,7 @@ struct CutForABuckView: View {
     // MARK: - Bar
 
     private var bar: some View {
-        let picker = Picker("Show the players as", selection: Binding(get: { mode }, set: { savedMode = $0 })) {
+        let picker = Picker("Show the players as", selection: Binding(get: { mode }, set: { choose($0) })) {
             Text("Ring").tag("ring")
             Text("List").tag("list")
         }
@@ -107,6 +146,7 @@ struct CutForABuckView: View {
                 Text(CutCopy.title)
                     .font(.headline)
                     .foregroundStyle(Theme.gold)
+                    .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
             }
             let line = CutCopy.roundLine(state)
@@ -123,7 +163,7 @@ struct CutForABuckView: View {
 
     private var status: some View {
         TimelineView(.periodic(from: .now, by: 0.25)) { _ in
-            let st = model.status(state)
+            let st = CutCopy.forList(model.status(state), list: mode == "list" || part == .controls)
             VStack(spacing: 2) {
                 Text(st.main)
                     .font(.headline)
@@ -706,6 +746,8 @@ struct CutDeckView: View {
 /// Draw a card. The default at the accessibility text sizes on a compact width.
 struct CutListView: View {
     @ObservedObject var model: CutScreenModel
+    /// Its own scroll view (false: inside the accessibility sizes' one scroll).
+    var scrolls = true
     @EnvironmentObject var tournamentState: TournamentState
     @EnvironmentObject var authState: AuthState
 
@@ -714,8 +756,7 @@ struct CutListView: View {
         let me = tournamentState.isSpectator ? nil : authState.username
         let order = CutOrder.ring(s?.ringPlayers ?? [], me: me)
         let pending = model.verdictPending(s)
-        ScrollView {
-            VStack(spacing: Theme.Space.s2) {
+        let rows = VStack(spacing: Theme.Space.s2) {
                 if let s, s.stage == .drawing, s.isAlive(me) {
                     CutDrawButton(model: model)
                 }
@@ -749,6 +790,8 @@ struct CutListView: View {
                 }
             }
             .padding(Theme.Space.s3)
+        Group {
+            if scrolls { ScrollView { rows } } else { rows }
         }
         .accessibilityIdentifier("cut.list")
     }

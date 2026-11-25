@@ -282,6 +282,7 @@ private struct TournamentLobbyScreen: View {
                 Text(unread > 0 ? "Chat (\(unread))" : "Chat")
             }
             .font(.subheadline.bold())
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .frame(maxWidth: .infinity, minHeight: Theme.hitTarget)
             .background(Theme.surface)
             .foregroundColor(Theme.textPrimary)

@@ -305,6 +305,14 @@ enum CutCopy {
     static let watching = "Watching cut for a buck"
     static let outWatching = "You're out. Watching the rest"
     static let tapToDraw = "Tap the deck to draw"
+    /// The list (and a tabletop's lower half) has no deck: its own button.
+    static let tapDrawButton = "Tap Draw a card"
+
+    /// The status where the draw is the list's button, not the deck.
+    static func forList(_ st: Status, list: Bool) -> Status {
+        guard list, st.main == tapToDraw else { return st }
+        return Status(main: tapDrawButton, sub: st.sub)
+    }
     static let turning = "Turning the cards over"
     static let drawACard = "Draw a card"
     static let mainRoomCard = "Cut for a buck!"
