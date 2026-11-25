@@ -441,7 +441,9 @@ describe('projected sign-in reads', () => {
         // V1_REMOVALS #19 B: customProfilePic is always null on the wire (the picture
         // is the reply's avatarUrl; none here: the avatar pipeline is off under Jest)
         expect(lastEmit(socket, 'profileResponse').profile).toEqual({
-            username: 'Cara', profilePic: 9, customProfilePic: null, stats: { gamesPlayed: 2, wins: 1 }
+            username: 'Cara', profilePic: 9, customProfilePic: null, stats: { gamesPlayed: 2, wins: 1 },
+            // the tournament history (additive 2026-11-25): none recorded here
+            tournaments: { played: 0, won: 0, recent: [] }, cutForABuck: { wins: 0, played: 0 }
         });
         // ...but the projected read still loads the stored picture, for its URL
         expect((await spy.mock.results[spy.mock.results.length - 1].value).customProfilePic).toBe(bigPic);
