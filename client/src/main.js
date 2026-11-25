@@ -1140,12 +1140,12 @@ function initializeApp() {
 
   // The last table's score screen (spec section 3.3): it stays as long as
   // the player wants, with a strip saying the cut is on and its button
-  // reading "Join Cut for a buck" (the same returnToTournament)
+  // reading "Join cut for a buck" (the same returnToTournament)
   let scoreCutTimer = null;
   function syncScoreCutStrip() {
     const tid = gameState.tournamentId;
     const st = session.screen === SCREEN.GAME_END && tid && getCutTournamentId() === tid ? getCutState() : null;
-    const join = session.isSpectator ? 'Watch Cut for a buck' : 'Join Cut for a buck';
+    const join = session.isSpectator ? 'Watch cut for a buck' : 'Join cut for a buck';
     let info = null;
     if (st?.stage === CUT_STAGE.GATHER) {
       const secs = st.endsAt == null ? 0 : Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000));

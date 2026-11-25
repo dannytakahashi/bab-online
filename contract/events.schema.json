@@ -11056,7 +11056,7 @@
       "emittedFrom": [
         "server/socket/cutForABuck.js:declareWinner"
       ],
-      "notes": "One player is left: the winner of Cut for a buck (\"Just for bragging rights\"), with every participant and the rounds drawn. A room system line \"<winner> won Cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
+      "notes": "One player is left: the winner of Cut for a buck, with every participant and the rounds drawn. A room system line \"<winner> won cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
     },
     "tournamentLeft": {
       "payload": {

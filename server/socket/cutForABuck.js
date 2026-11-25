@@ -14,7 +14,7 @@
  *            (pacing) for people to come back from their score screens
  *   begin    the participants are the members connected then (in member
  *            order; sat-out members included); fewer than 2, or none with
- *            the cap: "Not enough players for Cut for a buck." and the
+ *            the cap: "Not enough players for cut for a buck." and the
  *            tournament completes with no cut
  *   round    cutForABuckRound {round, participants, alive, deckCount,
  *            reshuffled, closesInMs}; a participant still in who is
@@ -32,7 +32,7 @@
  *            spectators without the cap get the round as a private system
  *            line; CUT_REVEAL_MS, then the next round
  *   winner   one player left: cutForABuckWinner {winner, participants,
- *            rounds} and "<winner> won Cut for a buck."; CUT_WINNER_MS, then
+ *            rounds} and "<winner> won cut for a buck."; CUT_WINNER_MS, then
  *            finishTournament with the result (tournamentComplete gains
  *            cutForABuck). Once announced the result stands: the winner
  *            leaving, a Cancel, the last member leaving or a deploy handoff
@@ -76,7 +76,7 @@ const TIMER = 'cut';
 const OFF = new Set(['off', 'false', '0', 'disabled', 'no']);
 
 const START_LINE = 'Cut for a buck! Everyone still here draws a card. The lowest card is out, round after round, until one player is left.';
-const NOT_ENOUGH_LINE = 'Not enough players for Cut for a buck.';
+const NOT_ENOUGH_LINE = 'Not enough players for cut for a buck.';
 const RESTORE_LINE = 'Cut for a buck continues in 30 s after a server update.';
 
 const isTest = () => process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined;
@@ -344,7 +344,7 @@ function declareWinner(io, t, saved = null) {
     t.cut.result = result;
     t._changed();
     t.broadcast(io, 'cutForABuckWinner', { winner: result.winner, participants: [...result.participants], rounds: result.rounds });
-    roomLine(io, t, `${result.winner} won Cut for a buck.`);
+    roomLine(io, t, `${result.winner} won cut for a buck.`);
     socketLogger.info('Cut for a buck: winner', { tournamentId: t.tournamentId, rounds: result.rounds, participants: result.participants.length });
     arm(io, t, pacing().CUT_WINNER_MS, () => finish(io, t, result));
 }
@@ -428,7 +428,7 @@ function memberLeft(io, t, username) {
 
 /**
  * The host's cancelTournament during the cut (any stage): the cut ends and
- * the tournament completes ("<host> ended Cut for a buck." first). Before a
+ * the tournament completes ("<host> ended cut for a buck." first). Before a
  * winner there is no cut result; in the winner stage the announced result
  * stands (no line: nothing was cut short, the hold just ends early). Also
  * the last member leaving ({line: false}).
@@ -437,7 +437,7 @@ function cancel(io, t, hostName, { line = true } = {}) {
     if (!t || t.phase !== 'cut') return Promise.resolve(false);
     t.clearTimer(TIMER);
     const result = t.cut?.stage === 'winner' ? t.cut.result || null : null;
-    if (line && !result) roomLine(io, t, `${hostName || 'The host'} ended Cut for a buck.`);
+    if (line && !result) roomLine(io, t, `${hostName || 'The host'} ended cut for a buck.`);
     socketLogger.info(line ? 'Cut for a buck: ended by the host' : 'Cut for a buck: the last member left', { tournamentId: t.tournamentId, stage: t.cut?.stage, result: !!result });
     return finish(io, t, result);
 }
