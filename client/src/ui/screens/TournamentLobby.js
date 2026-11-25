@@ -12,6 +12,7 @@ import { createTournamentScoreboard } from '../components/TournamentScoreboard.j
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 import { LOBBY_VOICE_SLOT_ID } from './GameLobby.js';
 import { renderPairings } from './tournamentPairings.js';
+import { createRoundsPicker, isRoundCount, roundsLabel, DEFAULT_ROUNDS } from '../components/RoundsPicker.js';
 
 /**
  * Module state
@@ -33,6 +34,18 @@ let readyDeadlinePassed = false;
 /** The rounds' pairings as the server last sent them (2026-11-25), and whether I only watch. */
 let lobbyPairings = [];
 let lobbySpectator = false;
+/** The scoreboard as last drawn (the columns follow totalRounds). */
+let lobbyScoreboard = [];
+/** The host's Rounds picker while it is shown (lobby phase only). */
+let roundsPicker = null;
+
+/**
+ * The header's round line: "Round 2 of 3" once begun, else "Waiting to
+ * start · 3 rounds" (the host's pick, 2026-11-25).
+ */
+function roundLine(currentRound, totalRounds) {
+  return currentRound > 0 ? `Round ${currentRound} of ${totalRounds}` : `Waiting to start · ${roundsLabel(totalRounds)}`;
+}
 
 /** Ready / Ready! on the tournament's Ready button. */
 function renderReady(readyBtn) {
@@ -128,6 +141,56 @@ function addCreatorControls(readyBtn, socket, players) {
 function removeCreatorControls() {
   document.getElementById('tournamentBeginBtn')?.remove();
   document.getElementById('tournamentCancelBtn')?.remove();
+  removeRoundsPicker();
+}
+
+/**
+ * The host's Rounds picker (1 to 5), right above Begin, in the lobby phase
+ * only; it follows host hand-offs like Begin and Cancel. A pick is sent at
+ * once (setTournamentRounds) and shown at once; the server's
+ * tournamentSettingsUpdated confirms it for everyone.
+ */
+function addRoundsPicker(socket) {
+  if (roundsPicker || currentPhase !== 'lobby') return;
+  const buttonRow = document.getElementById('tournamentButtonRow');
+  if (!buttonRow) return;
+  roundsPicker = createRoundsPicker({
+    value: rounds.totalRounds,
+    onChange: (n) => {
+      socket?.emit('setTournamentRounds', { totalRounds: n });
+      setTournamentTotalRounds(n);
+    },
+  });
+  buttonRow.before(roundsPicker.element);
+}
+
+function removeRoundsPicker() {
+  roundsPicker?.element.remove();
+  roundsPicker = null;
+}
+
+const VOICE_FULL_ID = 'tournamentVoiceFull';
+
+/**
+ * The over-cap notice (2026-11-25; s2c tournamentVoiceStatus): this member
+ * waits in line for the tournament's full voice room (`cap` people, the
+ * server's TOURNAMENT_VOICE_MAX), shown beside the voice slot; null clears
+ * it (let in, or the screen left). A redraw of the lobby keeps it.
+ * @param {number|null} cap
+ */
+export function setTournamentVoiceFull(cap) {
+  const end = document.querySelector('#tournamentLobbyContainer .tournament-header-end');
+  let note = document.getElementById(VOICE_FULL_ID);
+  if (cap === null || cap === undefined || !end) {
+    note?.remove();
+    return;
+  }
+  if (!note) {
+    note = el('div', { className: 'screen-subtitle tournament-voice-full', attrs: { id: VOICE_FULL_ID, role: 'status' } });
+    end.insertBefore(note, end.querySelector(`#${LOBBY_VOICE_SLOT_ID}`));
+  }
+  note.textContent = Number.isInteger(cap) && cap > 0 ? `Voice is full (${cap} people)` : 'Voice is full';
+  note.title = "You'll join voice when someone leaves it.";
 }
 
 /**
@@ -144,6 +207,8 @@ export function showTournamentLobby(data, socket, username) {
   // tournamentJoined draws the lobby again): its buttons move to the new header
   const oldLobby = document.getElementById('tournamentLobbyContainer');
   const voiceButtons = oldLobby ? [...(oldLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
+  // and so does the over-cap notice (still waiting in line)
+  const voiceFullNote = oldLobby?.querySelector(`#${VOICE_FULL_ID}`) || null;
 
   // Remove any existing tournament lobby (this resets module state, so the
   // server-provided phase must be applied afterwards — otherwise the Begin
@@ -157,7 +222,8 @@ export function showTournamentLobby(data, socket, username) {
   lobbyPlayers = data.players || [];
   currentPhase = data.phase || 'lobby';
   readyDeadlinePassed = data.readyDeadlinePassed === true;
-  rounds = { currentRound: data.currentRound || 0, totalRounds: data.totalRounds || 4 };
+  rounds = { currentRound: data.currentRound || 0, totalRounds: isRoundCount(data.totalRounds) ? data.totalRounds : DEFAULT_ROUNDS };
+  lobbyScoreboard = data.scoreboard || [];
 
   const isSpectator = data.isSpectator || false;
   const isCreator = isHost(data.players, username, data.creatorUsername);
@@ -172,7 +238,7 @@ export function showTournamentLobby(data, socket, username) {
   const roundIndicator = el('div', {
     className: 'screen-subtitle',
     attrs: { id: 'tournamentRoundIndicator' },
-    text: data.currentRound > 0 ? `Round ${data.currentRound} of ${data.totalRounds}` : 'Waiting to start',
+    text: roundLine(rounds.currentRound, rounds.totalRounds),
   });
   // The voice slot (VoiceChatUI.js puts the mute and microphone buttons in
   // it while the tournament's voice runs), beside the round, clear of the
@@ -183,7 +249,7 @@ export function showTournamentLobby(data, socket, username) {
     className: 'screen-header',
     children: [
       el('h1', { className: 'screen-title screen-title--md', text: data.name || 'Tournament' }),
-      el('div', { className: 'tournament-header-end', children: [roundIndicator, voiceSlot] }),
+      el('div', { className: 'tournament-header-end', children: [roundIndicator, ...(voiceFullNote ? [voiceFullNote] : []), voiceSlot] }),
     ],
   }));
 
@@ -195,7 +261,7 @@ export function showTournamentLobby(data, socket, username) {
   mainColumn.appendChild(el('h2', { className: 'section-title section-title--sm', text: 'Scoreboard' }));
 
   const scoreboardContainer = el('div', { className: 'tournament-scoreboard-wrap', attrs: { id: 'tournamentScoreboardContainer' } });
-  scoreboardContainer.appendChild(createTournamentScoreboard(data.scoreboard || [], data.currentRound, data.totalRounds));
+  scoreboardContainer.appendChild(createTournamentScoreboard(lobbyScoreboard, rounds.currentRound, rounds.totalRounds));
   mainColumn.appendChild(scoreboardContainer);
 
   // The round's pairings and "Partners so far" (shown openly, owner
@@ -282,6 +348,7 @@ export function showTournamentLobby(data, socket, username) {
   mainColumn.appendChild(buttonRow);
   container.appendChild(chatPanel);
   document.body.appendChild(container);
+  if (!isSpectator && isCreator) addRoundsPicker(socket);
   // Open on the newest message and stay there through resizes
   scrollChatToEnd(chatArea);
   followChatOnResize(chatArea);
@@ -293,7 +360,7 @@ export function showTournamentLobby(data, socket, username) {
 // Track current phase at module level for begin button handler
 let currentPhase = 'lobby';
 /** The round the scoreboard shows (an update without one keeps it). */
-let rounds = { currentRound: 0, totalRounds: 4 };
+let rounds = { currentRound: 0, totalRounds: DEFAULT_ROUNDS };
 
 function colorFor(username) {
   if (!tournamentUserColors[username]) {
@@ -411,6 +478,7 @@ export function updateTournamentPlayers(players, currentUsername, newCreator = n
     isCreator = true;
     lobbyContainer.dataset.isCreator = 'true';
     addCreatorControls(readyBtn, lobbySocket, players);
+    addRoundsPicker(lobbySocket);
   } else if (isCreator && lobbyContainer && someoneElseHosts(players, currentUsername, newCreator)) {
     // An idle host loses the role while still here (server hand-off,
     // 2026-11-15); a dropped one comes back through a full render
@@ -443,6 +511,7 @@ export function setReadyDeadlinePassed(passed) {
  */
 export function updateTournamentScoreboardUI(scoreboard, currentRound = rounds.currentRound, totalRounds = rounds.totalRounds) {
   rounds = { currentRound, totalRounds };
+  lobbyScoreboard = scoreboard || [];
   const container = document.getElementById('tournamentScoreboardContainer');
   if (!container) return;
   container.replaceChildren(createTournamentScoreboard(scoreboard, currentRound, totalRounds));
@@ -465,8 +534,24 @@ export function updateTournamentRoundIndicator(currentRound, totalRounds) {
   rounds = { currentRound, totalRounds };
   const indicator = document.getElementById('tournamentRoundIndicator');
   if (indicator) {
-    indicator.textContent = `Round ${currentRound} of ${totalRounds}`;
+    indicator.textContent = roundLine(currentRound, totalRounds);
   }
+}
+
+/**
+ * The host's round count (tournamentSettingsUpdated, or my own pick): the
+ * round line, the scoreboard's columns and the picker follow it.
+ */
+export function setTournamentTotalRounds(totalRounds) {
+  if (!isRoundCount(totalRounds)) return;
+  updateTournamentRoundIndicator(rounds.currentRound, totalRounds);
+  updateTournamentScoreboardUI(lobbyScoreboard, rounds.currentRound, totalRounds);
+  roundsPicker?.setValue(totalRounds);
+}
+
+/** The round count the lobby shows (the results modal's columns). */
+export function getTournamentTotalRounds() {
+  return rounds.totalRounds;
 }
 
 /**
@@ -500,6 +585,9 @@ export function setTournamentPhase(phase) {
   const readyBtn = document.getElementById('tournamentReadyBtn');
   const beginBtn = document.getElementById('tournamentBeginBtn');
 
+  // The count is fixed once the tournament begins
+  if (phase !== 'lobby') removeRoundsPicker();
+
   if (phase === 'round_active') {
     if (readyBtn) readyBtn.hidden = true;
     if (beginBtn) beginBtn.hidden = true;
@@ -531,6 +619,8 @@ export function removeTournamentLobby() {
   readyDeadlinePassed = false;
   lobbyPairings = [];
   lobbySpectator = false;
+  lobbyScoreboard = [];
+  roundsPicker = null;
   tournamentUserColors = {};
   currentPhase = 'lobby';
 }

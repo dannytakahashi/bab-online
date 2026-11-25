@@ -36,11 +36,17 @@
  * (`relist`): its session may be new; a client skips a peer it is
  * connected to already.
  *
- * At most MAX_VOICE_PEOPLE (8, as a family lobby's mesh; the signaling rate
- * limits and the web's audio pool are sized for 7 calls each) are admitted,
- * the first 8 to enter; a tournament has no size limit, so the rest wait in
- * the record, unannounced, and the next in line is admitted (listed) when
- * an admitted member leaves.
+ * At most `maxRoom()` are admitted, the first to enter: env
+ * TOURNAMENT_VOICE_MAX, read at call time, clamped to 2..20, default 8 (a
+ * family lobby's mesh; owner 2026-11-25: 12 once iOS 1.2.7 is the floor,
+ * 20 waits for an SFU). The signaling rate limits (rateLimiter.js) and the
+ * web's audio pool are sized for the ceiling, 19 calls each. A tournament
+ * has no size limit, so the rest wait in the record, unannounced, and the
+ * next in line is admitted (listed) when an admitted member leaves. A
+ * waiting member whose client sent the clientHello cap
+ * tournamentVoiceStatus is told so (private tournamentVoiceStatus
+ * {admitted: false, cap}: "Voice is full (N people)"), and told again
+ * ({admitted: true, cap}) when it is admitted.
  */
 
 'use strict';
@@ -55,7 +61,22 @@ const TABLE_CAP = 'casualSpectators';
 // `assist` is sent from 1.2.3 (19)
 const MUTED_START_CAP = 'assist';
 const MUTED_START_IOS_BUILD = 18;
-const MAX_ROOM = 8;
+// The over-cap notice (tournamentVoiceStatus) goes only to a client that renders it
+const STATUS_CAP = 'tournamentVoiceStatus';
+const MAX_ROOM_DEFAULT = 8;
+const MAX_ROOM_MIN = 2;
+const MAX_ROOM_MAX = 20;
+
+/**
+ * The most members admitted to a tournament's voice room: env
+ * TOURNAMENT_VOICE_MAX (a whole number; clamped to 2..20), else 8. Read at
+ * call time, so a test or a restart with a new value needs no reload.
+ */
+function maxRoom(env = process.env) {
+    const raw = env?.TOURNAMENT_VOICE_MAX;
+    if (typeof raw !== 'string' || !/^\s*\d+\s*$/.test(raw)) return MAX_ROOM_DEFAULT;
+    return Math.min(MAX_ROOM_MAX, Math.max(MAX_ROOM_MIN, Number.parseInt(raw, 10)));
+}
 
 const lazyGameVoice = () => require('./gameVoice');
 
@@ -161,13 +182,26 @@ function registered(t) {
     return !!t && !t.retired && gameManager.tournaments.get(t.tournamentId) === t;
 }
 
-/** The admitted members, in entry order: [{socketId, username}] (at most MAX_ROOM). */
-function admitted(t) {
+/** The admitted members, in entry order: [{socketId, username}] (at most maxRoom()). */
+function admitted(t, cap = maxRoom()) {
     if (!t?.voiceRoom) return [];
     return [...t.voiceRoom.members.entries()]
         .sort((a, b) => a[1].order - b[1].order)
-        .slice(0, MAX_ROOM)
+        .slice(0, cap)
         .map(([socketId, e]) => ({ socketId, username: e.username }));
+}
+
+/** The members waiting in line (in the record, past the cap), as a Set of socket ids. */
+function waitingIds(t, admittedList) {
+    if (!t?.voiceRoom) return new Set();
+    const ids = new Set(admittedList.map((p) => p.socketId));
+    return new Set([...t.voiceRoom.members.keys()].filter((sid) => !ids.has(sid)));
+}
+
+/** The private over-cap notice, only to a socket with the cap tournamentVoiceStatus. */
+function sendStatus(io, sid, admittedNow, cap) {
+    if (!clientInfo.socketHasCap(io, sid, STATUS_CAP)) return;
+    io.to(sid).emit('tournamentVoiceStatus', { admitted: admittedNow, cap });
 }
 
 /**
@@ -178,10 +212,20 @@ function admitted(t) {
  * those voicePeerJoined.
  */
 function change(io, t, mutate) {
-    const before = admitted(t);
+    const cap = maxRoom();
+    const before = admitted(t, cap);
+    const waitingBefore = waitingIds(t, before);
     mutate(record(t).members);
-    const after = admitted(t);
+    const after = admitted(t, cap);
     if (!io) return;
+    // The over-cap notice: a member that now waits in line and did not
+    // before (a newcomer past the cap), and one that waited and is in now
+    const waitingAfter = waitingIds(t, after);
+    for (const sid of waitingAfter) if (!waitingBefore.has(sid)) sendStatus(io, sid, false, cap);
+    for (const p of after) if (waitingBefore.has(p.socketId)) sendStatus(io, p.socketId, true, cap);
+    if (waitingAfter.size > waitingBefore.size) {
+        socketLogger.info('Voice: tournament room full', { tournamentId: t.tournamentId, cap, waiting: waitingAfter.size });
+    }
     const afterIds = new Set(after.map((p) => p.socketId));
     const beforeIds = new Set(before.map((p) => p.socketId));
     const told = new Set();
@@ -234,6 +278,10 @@ function enter(io, t, sid) {
     const room = record(t);
     if (room.members.has(sid)) {
         relist(io, t, sid);
+        // its lobby screen was drawn again: say where it stands again (a
+        // client keeps the note across a redraw, so an admitted one clears it)
+        const cap = maxRoom();
+        sendStatus(io, sid, admitted(t, cap).some((p) => p.socketId === sid), cap);
         return true;
     }
     change(io, t, (members) => {
@@ -247,6 +295,10 @@ function enter(io, t, sid) {
         members.set(sid, { username, order: order ?? ++room.order });
     });
     const inVoice = admitted(t).some((p) => p.socketId === sid);
+    // Admitted at once: say so, so a note carried over from an earlier
+    // socket (a reconnect, a deploy handoff rebuilding the room in a new
+    // order) clears; a newcomer past the cap already got {admitted: false}
+    if (inVoice) sendStatus(io, sid, true, maxRoom());
     socketLogger.info('Voice: tournament room entered', { tournamentId: t.tournamentId, socketId: sid, admitted: inVoice, members: room.members.size });
     return true;
 }
@@ -321,7 +373,11 @@ function roomOf(sid) {
 
 module.exports = {
     CAP,
-    MAX_ROOM,
+    STATUS_CAP,
+    MAX_ROOM_DEFAULT,
+    MAX_ROOM_MIN,
+    MAX_ROOM_MAX,
+    maxRoom,
     tableCapable,
     announceTable,
     holdSeating,

@@ -1,6 +1,7 @@
 /**
  * Encapsulates all state for a single tournament instance.
- * Manages tournament lifecycle: lobby → round_active → between_rounds → complete.
+ * Manages tournament lifecycle: lobby → round_active → between_rounds → complete,
+ * over totalRounds rounds (1 to 5, the host's pick in the lobby; default 4).
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -27,8 +28,9 @@ class TournamentState {
         // gets tables, assignments or allPlayersReady.
         this.epoch = 0;
         this.retired = false;
-        this.currentRound = 0; // 0 = not started, 1-4 = round number
-        this.totalRounds = 4;
+        this.currentRound = 0; // 0 = not started, then 1..totalRounds
+        // The host picks 1 to 5 in the lobby (setTotalRounds, 2026-11-25)
+        this.totalRounds = TournamentState.DEFAULT_ROUNDS;
 
         // Players: socketId → { username, pic, ready }
         this.players = new Map();
@@ -44,7 +46,7 @@ class TournamentState {
         // Rounds data
         this.rounds = [];
 
-        // Scoreboard: username → { totalScore, roundScores: [r1..r4], roundDetails: [...] }
+        // Scoreboard: username → { totalScore, roundScores: [r1..rN] (N = totalRounds), roundDetails: [...] }
         this.scoreboard = {};
 
         // Between rounds: when Begin may start with only the ready members
@@ -337,6 +339,20 @@ class TournamentState {
     clearTimers() {
         for (const handle of this.timers.values()) clearTimeout(handle);
         this.timers.clear();
+    }
+
+    /**
+     * The host's round count (2026-11-25): 1 to 5, in the lobby phase only.
+     * Ready flags are kept (iOS 1.2.6 syncs its own only on a rejoin).
+     * @returns {boolean} whether it was set
+     */
+    setTotalRounds(n) {
+        if (this.phase !== 'lobby') return false;
+        if (!Number.isInteger(n) || n < TournamentState.MIN_ROUNDS || n > TournamentState.MAX_ROUNDS) return false;
+        this.totalRounds = n;
+        this.logAction('setTotalRounds', { totalRounds: n });
+        this._changed();
+        return true;
     }
 
     // ---------- between-rounds ready deadline ----------
@@ -882,5 +898,10 @@ class TournamentState {
         }
     }
 }
+
+// The round count the host may pick in the lobby (2026-11-25)
+TournamentState.MIN_ROUNDS = 1;
+TournamentState.MAX_ROUNDS = 5;
+TournamentState.DEFAULT_ROUNDS = 4;
 
 module.exports = TournamentState;

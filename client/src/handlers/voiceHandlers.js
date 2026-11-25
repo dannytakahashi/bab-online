@@ -18,8 +18,12 @@ import { getVoiceChatManager } from '../voice/VoiceChatManager.js';
  * @param {Function} [callbacks.onVoicePeers] - (kind 'list' | 'joined' | 'left', data)
  *   after the manager handled a voicePeerList / voicePeerJoined / voicePeerLeft:
  *   the page's tournament-room company (main.js, Tournament voice)
+ * @param {Function} [callbacks.onTournamentVoiceStatus] - tournamentVoiceStatus
+ *   {admitted, cap} (private, unsequenced; only to a socket that sent the cap
+ *   tournamentVoiceStatus): waiting in line for a full tournament voice room,
+ *   or let in (main.js, Tournament voice: "Voice is full (N people)")
  */
-export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers } = {}) {
+export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers, onTournamentVoiceStatus } = {}) {
   const voiceManager = getVoiceChatManager();
 
   // A casual game's voice settings (private, unsequenced; only to a socket
@@ -28,6 +32,13 @@ export function registerVoiceHandlers(socketManager, { onVoiceSettings, onVoiceP
   socketManager.on(SERVER_EVENTS.VOICE_SETTINGS, (data) => {
     if (!data || typeof data !== 'object') return;
     onVoiceSettings?.(data);
+  });
+
+  // The tournament voice room's over-cap notice: the page shows it on the
+  // tournament lobby screen while this socket waits in line
+  socketManager.on(SERVER_EVENTS.TOURNAMENT_VOICE_STATUS, (data) => {
+    if (!data || typeof data !== 'object' || typeof data.admitted !== 'boolean') return;
+    onTournamentVoiceStatus?.(data);
   });
 
   socketManager.on(SERVER_EVENTS.VOICE_PEER_LIST, (data) => {

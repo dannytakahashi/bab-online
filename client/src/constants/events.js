@@ -48,6 +48,7 @@ export const CLIENT_EVENTS = {
   LEAVE_TOURNAMENT: 'leaveTournament',
   TOURNAMENT_READY: 'tournamentReady',
   TOURNAMENT_UNREADY: 'tournamentUnready',
+  SET_TOURNAMENT_ROUNDS: 'setTournamentRounds',
   BEGIN_TOURNAMENT: 'beginTournament',
   BEGIN_NEXT_ROUND: 'beginNextRound',
   TOURNAMENT_CHAT: 'tournamentChat',
@@ -199,6 +200,7 @@ export const SERVER_EVENTS = {
   TOURNAMENT_PLAYER_JOINED: 'tournamentPlayerJoined',
   TOURNAMENT_PLAYER_LEFT: 'tournamentPlayerLeft',
   TOURNAMENT_READY_UPDATE: 'tournamentReadyUpdate',
+  TOURNAMENT_SETTINGS_UPDATED: 'tournamentSettingsUpdated',
   TOURNAMENT_MESSAGE: 'tournamentMessage',
   TOURNAMENT_ROUND_START: 'tournamentRoundStart',
   TOURNAMENT_GAME_ASSIGNMENT: 'tournamentGameAssignment',
@@ -217,6 +219,7 @@ export const SERVER_EVENTS = {
   VOICE_PEER_LEFT: 'voicePeerLeft',
   VOICE_ICE_SERVERS: 'voiceIceServers',
   VOICE_SETTINGS: 'voiceSettings',
+  TOURNAMENT_VOICE_STATUS: 'tournamentVoiceStatus',
 
   // Admin
   ADMIN_RESPONSE: 'adminResponse',

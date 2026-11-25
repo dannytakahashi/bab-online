@@ -351,6 +351,42 @@ function tournamentUnready(socket, io) {
 }
 
 /**
+ * The host picks the number of rounds, 1 to 5, in the lobby (2026-11-25).
+ * Ready flags are kept. Everyone in the room gets tournamentSettingsUpdated
+ * and an unstored system line; the main room's list shows the new count.
+ * The same count again changes nothing and sends nothing.
+ */
+function setTournamentRounds(socket, io, data) {
+    const tournament = gameManager.getPlayerTournament(socket.id);
+    if (!tournament) {
+        emitError(socket, { message: 'Not in a tournament' }, 'setTournamentRounds');
+        return;
+    }
+    if (tournament.createdBy !== socket.id) {
+        emitError(socket, { message: 'Only the host can change the number of rounds' }, 'setTournamentRounds');
+        return;
+    }
+    if (tournament.phase !== 'lobby') {
+        emitError(socket, { message: 'Rounds can only change before the tournament begins' }, 'setTournamentRounds');
+        return;
+    }
+    const totalRounds = data?.totalRounds;
+    if (totalRounds === tournament.totalRounds) {
+        liveness.noteActivity(io, tournament, socket.id);
+        return;
+    }
+    if (!tournament.setTotalRounds(totalRounds)) {
+        emitError(socket, { message: 'Rounds must be from 1 to 5' }, 'setTournamentRounds');
+        return;
+    }
+    const by = tournament.players.get(socket.id)?.username ?? null;
+    tournament.broadcast(io, 'tournamentSettingsUpdated', { totalRounds, by });
+    tournament.broadcast(io, 'tournamentMessage', systemLine(`${by} set the tournament to ${totalRounds} round${totalRounds === 1 ? '' : 's'}.`));
+    emitLobbiesUpdated(io);
+    liveness.noteActivity(io, tournament, socket.id);
+}
+
+/**
  * Begin tournament (round 1) — creator only
  */
 async function beginTournament(socket, io) {
@@ -411,7 +447,7 @@ async function beginTournament(socket, io) {
 }
 
 /**
- * Begin next round (rounds 2-4) — creator only
+ * Begin next round (rounds 2 to totalRounds) — creator only
  */
 async function beginNextRound(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
@@ -1145,6 +1181,7 @@ module.exports = {
     cancelTournament,
     tournamentReady,
     tournamentUnready,
+    setTournamentRounds,
     beginTournament,
     beginNextRound,
     startNextRound,
