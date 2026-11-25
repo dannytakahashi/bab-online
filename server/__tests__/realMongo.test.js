@@ -146,17 +146,28 @@ const sock = () => {
 };
 const last = (event) => log.filter(l => l.event === event).pop()?.data;
 /**
+ * The seed's All Time superlatives (2026-11-24): its records predate
+ * statsDeltas, so only the account titles, from the human stats bucket as
+ * the leaderboard reads it: Alan alone has 5 games (10: 30 avg HSI over 13
+ * hands = 23.1, 10 sets in 130 hands = 8%); Cursed is his Lucky Duck value,
+ * so left out.
+ */
+const SEED_ALL_TIME = Object.freeze([
+    { id: 'luckyDuck', title: 'Lucky Duck', names: ['Alan'], detail: '23.1 avg HSI' },
+    { id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Alan'], detail: '8% of hands set' }
+]);
+/**
  * A records reply without each period's superlatives (additive
  * 2026-11-20), for comparing with the 3db87b1 reference; the seed's records
  * predate statsDeltas (they count as games, with no per-seat values), so
- * every list is empty.
+ * every list is empty but All Time's account titles (SEED_ALL_TIME).
  */
 function withoutSuperlatives(reply, expected = {}) {
     const records = {};
     for (const [period, rec] of Object.entries(reply.records || {})) {
         if (rec === null) { records[period] = null; continue; }
         const { superlatives, ...rest } = rec;
-        expect(superlatives).toEqual(expected[period] || []);
+        expect(superlatives).toEqual(expected[period] || (period === 'allTime' ? SEED_ALL_TIME : []));
         records[period] = rest;
     }
     return { ...reply, records };
@@ -816,7 +827,8 @@ describe('real mongod', () => {
         expect(humanRest).toEqual(humanBefore);
         expect(humanPeriods).toEqual({ allTime: 5, thisYear: 3, thisMonth: 3 });
         await profile.getRecords(b, io, { scope: 'bots' });
-        const bots = reply(b);
+        // nobody has 5 games in botStats: no account titles there
+        const bots = reply(b, { allTime: [] });
         expect(bots.totalGames).toBe(2);
         expect(bots.periodGames).toEqual({ allTime: 2, thisYear: 2, thisMonth: 2 });
         expect(bots.records.thisMonth.highestScore).toEqual({ score: 990, players: ['Cy', '🤖 Mary'] });
@@ -824,9 +836,15 @@ describe('real mongod', () => {
         await profile.getRecords(b, io, { scope: 'all' });
         // Cy's solo game b1 has no statsDeltas (like every seed game) but
         // names its one human: with Cy's 4 older games all time, 5 games
-        // and one solo game (no per-seat values from any of them)
-        const cySolo = [{ id: 'botFriends', title: 'Some of my best friends are bots', names: ['Cy'], detail: '1 solo game' }];
-        const all = reply(b, { allTime: cySolo });
+        // and one solo game (no per-seat values from any of them). His
+        // stats + botStats now sum to 5 games too: the account titles tie
+        // him with Alan (the same 300 HSI and 1 set a game)
+        const cyAll = [
+            { id: 'luckyDuck', title: 'Lucky Duck', names: ['Alan', 'Cy'], detail: '23.1 avg HSI' },
+            { id: 'botFriends', title: 'Some of my best friends are bots', names: ['Cy'], detail: '1 solo game' },
+            { id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Alan', 'Cy'], detail: '8% of hands set' }
+        ];
+        const all = reply(b, { allTime: cyAll });
         expect(all.totalGames).toBe(7);
         expect(all.periodGames).toEqual({ allTime: 7, thisYear: 5, thisMonth: 5 });
 
@@ -899,6 +917,13 @@ describe('real mongod', () => {
         const all = periodOf('allTime');
         expect(all.bagBoy).toMatchObject({ names: ['Gil'], detail: '9.0 bags a game' });
         expect(all.helpFromFriends).toMatchObject({ names: ['Kai'], detail: '100 /help uses' });
+        // the account titles from the users read (dotted projection, the
+        // tombstone filter) on the real driver: the leaderboard's numbers
+        await profile.getLeaderboard(b, io);
+        const alan = reply(b).leaderboard.find((r) => r.username === 'Alan');
+        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Alan'], detail: `${Math.round(alan.setRate)}% of hands set` });
+        expect(all.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Alan'], detail: `${alan.avgHSI.toFixed(1)} avg HSI` });
+        await profile.getRecords(b, io);
         const { computeSuperlatives } = require('../utils/superlatives');
         for (const [period, filter] of [['thisYear', { completedAt: { $gte: new Date(new Date(now).getFullYear(), 0, 1) } }],
             ['thisMonth', { completedAt: { $gte: new Date(new Date(now).getFullYear(), new Date(now).getMonth(), 1) } }]]) {

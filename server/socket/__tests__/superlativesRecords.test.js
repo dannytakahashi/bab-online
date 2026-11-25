@@ -78,6 +78,27 @@ function soloGame(name, completedAt, o = {}) {
 }
 const times = (k, f) => Array.from({ length: k }, (_, i) => f(i));
 
+/**
+ * The users documents these records would have left (each named seat's
+ * byPosition counters summed into its statsDeltas.bucket, as
+ * applyPendingStats does): the All Time account titles then agree with
+ * the records-based ones.
+ */
+function usersFrom(gameRecords) {
+    const users = new Map();
+    for (const g of gameRecords) {
+        const sd = g.statsDeltas;
+        if (!sd || !sd.byPosition || !sd.names) continue;
+        for (const [pos, counters] of Object.entries(sd.byPosition)) {
+            const name = sd.names[pos];
+            if (!users.has(name)) users.set(name, { username: name, password: 'x' });
+            const bucket = users.get(name)[sd.bucket] = users.get(name)[sd.bucket] || {};
+            for (const [k, v] of Object.entries(counters)) bucket[k] = (bucket[k] || 0) + v;
+        }
+    }
+    return [...users.values()];
+}
+
 beforeEach(() => {
     log = [];
     io = makeIo(log);
@@ -87,28 +108,26 @@ beforeEach(() => {
     jest.spyOn(authLogger, 'debug').mockImplementation(() => {});
     jest.spyOn(authLogger, 'info').mockImplementation(() => {});
     const earlier = EARLIER_THIS_YEAR();
-    mockDb.current = createMemoryDb({
-        users: [],
-        gameRecords: [
-            // this month: Ann bags, Ben asks for /help, Cat is lucky
-            ...times(5, () => humanGame(['Ann', 'Ben', 'Cat', 'Dan'], THIS_MONTH(), {
-                overrides: { Ann: { totalBags: 4, totalSets: 5 }, Cat: { totalHSI: 2000 } }, assist: { 2: { help: 3 } }
-            })),
-            // last year: another table entirely (all time only)
-            ...times(6, () => humanGame(['Old', 'Pat', 'Quin', 'Rae'], LAST_YEAR(), { overrides: { Old: { totalBags: 9 } } })),
-            // earlier this year (this year, not this month)
-            ...(earlier ? times(5, () => humanGame(['Yan', 'Zoe', 'Xia', 'Wes'], earlier, { overrides: { Yan: { totalHSI: 2600 } } })) : []),
-            // bot games this month: Eve plays solo; a resigned seat is not solo
-            ...times(5, () => soloGame('Eve', THIS_MONTH(), { totalHSI: 650 })),
-            ...times(5, () => ({
-                gameId: `r${++id}`, withBots: true, team1Score: 250, team2Score: 260, team1Players: ['Fay', 'Gus'], team2Players: [],
-                team1Bots: [], team2Bots: ['🤖 Ivy', '🤖 Mary'], team1Bags: 0, team2Bags: 0, completedAt: THIS_MONTH(),
-                statsDeltas: { bucket: 'botStats', byPosition: { 1: seat(), 3: seat() }, names: { 1: 'Fay', 3: 'Gus' } }
-            })),
-            // legacy records before statsDeltas: names only, ignored
-            ...times(5, () => ({ gameId: `l${++id}`, team1Score: 100, team2Score: 90, team1Players: ['Hal', 'Ida'], team2Players: ['Jo', 'Kim'], completedAt: THIS_MONTH() }))
-        ]
-    });
+    const gameRecords = [
+        // this month: Ann bags, Ben asks for /help, Cat is lucky
+        ...times(5, () => humanGame(['Ann', 'Ben', 'Cat', 'Dan'], THIS_MONTH(), {
+            overrides: { Ann: { totalBags: 4, totalSets: 5 }, Cat: { totalHSI: 2000 } }, assist: { 2: { help: 3 } }
+        })),
+        // last year: another table entirely (all time only)
+        ...times(6, () => humanGame(['Old', 'Pat', 'Quin', 'Rae'], LAST_YEAR(), { overrides: { Old: { totalBags: 9 } } })),
+        // earlier this year (this year, not this month)
+        ...(earlier ? times(5, () => humanGame(['Yan', 'Zoe', 'Xia', 'Wes'], earlier, { overrides: { Yan: { totalHSI: 2600 } } })) : []),
+        // bot games this month: Eve plays solo; a resigned seat is not solo
+        ...times(5, () => soloGame('Eve', THIS_MONTH(), { totalHSI: 650 })),
+        ...times(5, () => ({
+            gameId: `r${++id}`, withBots: true, team1Score: 250, team2Score: 260, team1Players: ['Fay', 'Gus'], team2Players: [],
+            team1Bots: [], team2Bots: ['🤖 Ivy', '🤖 Mary'], team1Bags: 0, team2Bags: 0, completedAt: THIS_MONTH(),
+            statsDeltas: { bucket: 'botStats', byPosition: { 1: seat(), 3: seat() }, names: { 1: 'Fay', 3: 'Gus' } }
+        })),
+        // legacy records before statsDeltas: names only, ignored
+        ...times(5, () => ({ gameId: `l${++id}`, team1Score: 100, team2Score: 90, team1Players: ['Hal', 'Ida'], team2Players: ['Jo', 'Kim'], completedAt: THIS_MONTH() }))
+    ];
+    mockDb.current = createMemoryDb({ users: usersFrom(gameRecords), gameRecords });
 });
 
 afterEach(() => {
@@ -291,6 +310,160 @@ describe('cache, throttle and the wire', () => {
         // all five tied on HSI too: Cursed would name the Lucky Ducks again, so it is left out
         expect(res.records.thisMonth.superlatives.map((s) => s.id)).toEqual(['bagBoy', 'luckyDuck', 'botFriends', 'delusionsOfGrandeur']);
         // the always-on contract guard (makeIo) saw no violation
+        expect(require('../../testUtils/contractCheck').takeViolations()).toEqual([]);
+    });
+});
+
+describe('All Time account titles from the leaderboard totals (2026-11-24)', () => {
+    /** A stats bucket of `games` games of 13 hands with `sets` sets and `hsi` avg HSI. */
+    const bucket = (games, sets, hsi = 100) => ({
+        gamesPlayed: games, wins: Math.floor(games / 2), losses: games - Math.floor(games / 2), draws: 0, totalPoints: games * 200,
+        totalTricksBid: games * 20, totalTricksTaken: games * 20, totalHands: games * 13, totalSets: sets,
+        totalSetPoints: sets * 10, totalFaults: 0, totalHSI: games * 13 * hsi
+    });
+    const legacy = (names, completedAt) => ({ gameId: `l${++id}`, team1Score: 100, team2Score: 90, team1Players: [names[0], names[2]], team2Players: [names[1], names[3]], completedAt });
+    async function board(data) {
+        const s = sock();
+        if (data === undefined) await profile.getLeaderboard(s, io);
+        else await profile.getLeaderboard(s, io, data);
+        return lastTo(s, 'leaderboardResponse').leaderboard;
+    }
+
+    /**
+     * Hannah (Danny's report): 40 games this month before the per-seat
+     * counters, 2 bad recent ones with them; her lifetime Set % is 9%.
+     */
+    function hannahDb({ users = [] } = {}) {
+        const table = ['Hannah', 'Ben', 'Cat', 'Dan'];
+        mockDb.current = createMemoryDb({
+            users: [
+                { username: 'Hannah', password: 'x', stats: bucket(42, 49, 95), botStats: bucket(3, 30, 150) },
+                { username: 'Ben', password: 'x', stats: bucket(42, 60, 105) },
+                { username: 'Cat', password: 'x', stats: bucket(42, 20, 100) },
+                { username: 'Dan', password: 'x', stats: bucket(42, 40, 100) },
+                ...users
+            ],
+            gameRecords: [
+                ...times(40, () => legacy(table, THIS_MONTH())),
+                ...times(2, () => humanGame(table, THIS_MONTH(), { overrides: { Hannah: { totalSets: 5 }, Ben: { totalSets: 0 }, Cat: { totalSets: 0 }, Dan: { totalSets: 0 } } }))
+            ]
+        });
+    }
+
+    test('Hannah: no per-seat title this month or this year on 2 counted games; All Time Delusions of Grandeur = her leaderboard Set %', async () => {
+        hannahDb();
+        const res = await records();
+        for (const period of ['thisMonth', 'thisYear']) {
+            const named = res.records[period].superlatives.flatMap((x) => x.names);
+            expect(named).not.toContain('Hannah');
+            // nobody has 5 games with per-seat counters
+            expect(res.records[period].superlatives).toEqual([]);
+        }
+        const all = byId(res.records.allTime.superlatives);
+        // Ben: 60 sets in 546 hands = 10.99%
+        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben'], detail: '11% of hands set' });
+        const rows = Object.fromEntries((await board()).map((r) => [r.username, r]));
+        expect(all.delusionsOfGrandeur.detail).toBe(`${Math.round(rows.Ben.setRate)}% of hands set`);
+        expect(all.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ben'], detail: `${rows.Ben.avgHSI.toFixed(1)} avg HSI` });
+        expect(all.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Hannah'], detail: `${rows.Hannah.avgHSI.toFixed(1)} avg HSI` });
+
+        // the value IS hers too: with Ben gone she wins at her own Set %
+        await mockDb.current.users.updateOne({ username: 'Ben' }, { $set: { 'stats.totalSets': 0 } });
+        await mockDb.current.users.updateOne({ username: 'Dan' }, { $set: { 'stats.totalSets': 0 } });
+        profile.invalidateRecords();
+        profile.invalidateLeaderboard();
+        const hers = byId((await records()).records.allTime.superlatives).delusionsOfGrandeur;
+        const row = (await board()).find((r) => r.username === 'Hannah');
+        expect(hers).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: `${Math.round(row.setRate)}% of hands set` });
+        expect(hers.detail).toBe('9% of hands set');
+    });
+
+    test('per scope, as the leaderboard: human = stats, bots = botStats, all = both summed; eligibility = gamesPlayed in that scope', async () => {
+        hannahDb({ users: [
+            // 3 + 3 games: only 'all' has 5; a lot of sets
+            { username: 'Mia', password: 'x', stats: bucket(3, 30), botStats: bucket(3, 30) },
+            // bots only
+            { username: 'Bo', password: 'x', botStats: bucket(8, 52, 120) }
+        ] });
+        // a bot game so the bots / all All Time periods are not null
+        await mockDb.current.gameRecords.insertOne(soloGame('Bo', THIS_MONTH()));
+        for (const scope of ['human', 'bots', 'all']) {
+            const res = await records({ scope });
+            const lb = await board({ scope });
+            const ranked = lb.filter((r) => !r.isPopulation);
+            const best = (key) => ranked.reduce((a, r) => (r[key] > a[key] ? r : a));
+            const worst = (key) => ranked.reduce((a, r) => (r[key] < a[key] ? r : a));
+            const all = byId(res.records.allTime.superlatives);
+            expect(all.delusionsOfGrandeur).toMatchObject({ names: [best('setRate').username], detail: `${Math.round(best('setRate').setRate)}% of hands set` });
+            expect(all.luckyDuck).toMatchObject({ names: [best('avgHSI').username], detail: `${best('avgHSI').avgHSI.toFixed(1)} avg HSI` });
+            if (ranked.length > 1) expect(all.cursed).toMatchObject({ names: [worst('avgHSI').username] });
+            // the candidates are exactly the ranked leaderboard players
+            expect(ranked.map((r) => r.username).sort()).toEqual({
+                human: ['Ben', 'Cat', 'Dan', 'Hannah'], bots: ['Bo'], all: ['Ben', 'Bo', 'Cat', 'Dan', 'Hannah', 'Mia']
+            }[scope]);
+        }
+        // Mia's 60 sets in 78 hands: all only
+        expect(byId((await records({ scope: 'all' })).records.allTime.superlatives).delusionsOfGrandeur).toMatchObject({ names: ['Mia'], detail: '77% of hands set' });
+        expect(byId((await records({ scope: 'human' })).records.allTime.superlatives).delusionsOfGrandeur.names).toEqual(['Ben']);
+        // bots: Bo alone, Cursed left out (the same value as Lucky Duck)
+        const bots = byId((await records({ scope: 'bots' })).records.allTime.superlatives);
+        expect(bots.delusionsOfGrandeur).toMatchObject({ names: ['Bo'], detail: '50% of hands set' });
+        expect(bots.luckyDuck).toMatchObject({ names: ['Bo'], detail: '120.0 avg HSI' });
+        expect(bots.cursed).toBeUndefined();
+    });
+
+    test('merged-away and deleted accounts (tombstones) never win, as on the leaderboard', async () => {
+        hannahDb({ users: [
+            { username: 'OldBen', mergedInto: 'Ben', mergedAt: new Date(), stats: bucket(50, 600, 300) },
+            { username: 'Gone', mergedInto: '[deleted]', deletedAt: new Date(), stats: bucket(50, 600, 1) },
+            { username: '[deleted]', password: 'x', stats: bucket(50, 600, 1) }
+        ] });
+        const all = byId((await records()).records.allTime.superlatives);
+        const named = Object.values(all).flatMap((x) => x.names);
+        for (const nope of ['OldBen', 'Gone', '[deleted]']) expect(named).not.toContain(nope);
+        expect(all.delusionsOfGrandeur.names).toEqual(['Ben']);
+        expect(all.cursed.names).toEqual(['Hannah']);
+        expect((await board()).map((r) => r.username)).not.toContain('OldBen');
+    });
+
+    test('ties among accounts: up to 3 names, alphabetical, (+N more)', async () => {
+        mockDb.current = createMemoryDb({
+            users: ['dora', 'Bob', 'alice', 'Carl', 'Eve'].map((username) => ({ username, password: 'x', stats: bucket(10, 13) })),
+            gameRecords: [humanGame(['Bob', 'Carl', 'dora', 'Eve'], LAST_YEAR())]
+        });
+        const all = byId((await records()).records.allTime.superlatives);
+        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10% of hands set (+2 more)' });
+        expect(all.luckyDuck.detail).toBe('100.0 avg HSI (+2 more)');
+        expect(all.cursed).toBeUndefined();
+    });
+
+    test('the users read: one narrow, filtered find per fill, never from the cache; a failed read falls back to the records', async () => {
+        hannahDb();
+        const find = jest.spyOn(mockDb.current.users, 'find');
+        await records();
+        expect(find).toHaveBeenCalledTimes(1);
+        const [filter, options] = find.mock.calls[0];
+        expect(filter).toEqual({ 'stats.gamesPlayed': { $gte: 5 }, mergedInto: { $exists: false } });
+        expect(options.projection).toEqual({ _id: 0, username: 1, 'stats.gamesPlayed': 1, 'stats.totalHands': 1, 'stats.totalSets': 1, 'stats.totalHSI': 1 });
+        await records();
+        expect(find).toHaveBeenCalledTimes(1); // the 60 s cache
+        profile.invalidateRecords();
+        await records({ scope: 'all' });
+        expect(find.mock.calls[1][0]).toEqual({ $or: [{ 'stats.gamesPlayed': { $gt: 0 } }, { 'botStats.gamesPlayed': { $gt: 0 } }], mergedInto: { $exists: false } });
+        expect(Object.keys(find.mock.calls[1][1].projection)).toHaveLength(10);
+        await records({ scope: 'bots' });
+        expect(find.mock.calls[2][0]).toEqual({ 'botStats.gamesPlayed': { $gte: 5 }, mergedInto: { $exists: false } });
+        find.mockRestore();
+
+        // the read fails: logged, the records page still answers, All Time from the records
+        profile.invalidateRecords();
+        const error = jest.spyOn(authLogger, 'error').mockImplementation(() => {});
+        jest.spyOn(mockDb.current.users, 'find').mockImplementation(() => { throw new Error('boom'); });
+        const res = await records();
+        expect(res.success).toBe(true);
+        expect(error).toHaveBeenCalledWith('Could not read the accounts for the All Time superlatives', expect.objectContaining({ scope: 'human', error: 'boom' }));
+        // nobody has 5 games with per-seat counters
+        expect(res.records.allTime.superlatives).toEqual([]);
         expect(require('../../testUtils/contractCheck').takeViolations()).toEqual([]);
     });
 });
