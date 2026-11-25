@@ -76,6 +76,16 @@ final class TournamentState: ObservableObject {
     /// The tournament is in Cut for a buck (this app sent the cap, so the server says 'cut').
     var isCutPhase: Bool { phase == CutForABuck.phase }
 
+    /// The wire's `cut.drawn` says only who drew (never "auto"): a rejoin mid-round keeps what this
+    /// app already knew of the same round's draws, so "We drew a card for you" and the tap that says
+    /// I am back survive a return from the score screen.
+    static func keepAutoDraws(_ new: CutState, from old: CutState?) -> CutState {
+        guard let old, old.round == new.round, old.stage == .drawing, new.stage == .drawing else { return new }
+        var s = new
+        for (u, d) in new.drawn { if let o = old.drawn[u], o.slot == d.slot { s.drawn[u]?.auto = o.auto } }
+        return s
+    }
+
     /// One cutForABuck* event (start puts the tournament in phase 'cut').
     func applyCut(_ type: CutState.Event, _ data: [String: Any], now: Date = Date()) {
         if type == .start { phase = CutForABuck.phase }
@@ -88,6 +98,8 @@ final class TournamentState: ObservableObject {
     }
 
     func loadFromServerState(_ dict: [String: Any]) {
+        // the same tournament's cut as this app had it (keepAutoDraws)
+        let previousCut = (dict["tournamentId"] as? String) == tournamentId ? cut : nil
         tournamentId = dict["tournamentId"] as? String ?? ""
         name = dict["name"] as? String ?? ""
         phase = dict["phase"] as? String ?? "lobby"
@@ -118,7 +130,7 @@ final class TournamentState: ObservableObject {
         // the whole state: no key, nothing to show
         pairings = TournamentRoundPairings.list(dict["pairings"]) ?? []
         // Cut for a buck as it stands (phase 'cut' only), and the complete phase's result
-        cut = phase == CutForABuck.phase ? CutState.fromWire(dict["cut"]) : nil
+        cut = phase == CutForABuck.phase ? CutState.fromWire(dict["cut"]).map { Self.keepAutoDraws($0, from: previousCut) } : nil
         cutResult = phase == "complete" ? CutResult.from(dict["cutForABuck"]) : nil
     }
 }

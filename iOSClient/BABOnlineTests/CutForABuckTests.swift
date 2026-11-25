@@ -139,6 +139,26 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertEqual(CutState.reduce(s, .drew, ["round": 2, "username": "a", "slot": 1, "auto": false]), s)
     }
 
+    /// Back from the score screen mid-round after the server drew for me: the wire says only that I
+    /// drew; the app keeps that it was the server's ("We drew a card for you", the tap that says I am back).
+    func testARejoinMidRoundKeepsTheServersDrawForMe() {
+        let t = TournamentState()
+        t.tournamentId = "t1"
+        t.phase = "cut"
+        t.applyCut(.round, ["round": 2, "participants": ["ivy", "kim"], "alive": ["ivy", "kim"], "deckCount": 50, "closesInMs": 9000])
+        t.applyCut(.drew, ["round": 2, "username": "ivy", "slot": 7, "auto": true])
+        t.loadFromServerState(["tournamentId": "t1", "phase": "cut",
+                               "cut": ["stage": "drawing", "inMs": 5000, "round": 2, "participants": ["ivy", "kim"], "alive": ["ivy", "kim"],
+                                       "out": [], "table": [], "drawn": [["username": "ivy", "slot": 7]], "deckCount": 50]])
+        XCTAssertEqual(t.cut?.drawn["ivy"]?.auto, true)
+        XCTAssertTrue(t.cut!.canSayBack(me: "ivy", spectator: false))
+        // another tournament's state never inherits it
+        t.loadFromServerState(["tournamentId": "t2", "phase": "cut",
+                               "cut": ["stage": "drawing", "inMs": 5000, "round": 2, "participants": ["ivy", "kim"], "alive": ["ivy", "kim"],
+                                       "out": [], "table": [], "drawn": [["username": "ivy", "slot": 7]], "deckCount": 50]])
+        XCTAssertEqual(t.cut?.drawn["ivy"]?.auto, false)
+    }
+
     func testALeaveFreesTheSlotAndMarksLeft() {
         var s = CutState.reduce(nil, .round, ["round": 2, "participants": ["a", "b", "c"], "alive": ["a", "b", "c"], "deckCount": 40,
                                               "closesInMs": 1000])

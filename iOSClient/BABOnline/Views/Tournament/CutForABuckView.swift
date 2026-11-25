@@ -483,8 +483,8 @@ struct CutCardStack: View {
                     if i < table.count {
                         let card = table[i]
                         let newest = i == table.count - 1
-                        let flips = newest && revealIndex != nil && reveal.map { $0.draws.count } != nil
-                            && s.map { $0.last == .reveal(reveal!.round) } == true
+                        // the reveal's cards turn over while its verdict waits (a rejoin shows them face up)
+                        let flips = newest && revealIndex != nil && verdictPending
                         let losing = newest && !verdictPending && lowRank != nil && CardConstants.rankValues[card.rank] == lowRank
                             && model.verdictRound == reveal?.round
                         CutRevealCard(card: card, size: size, flips: flips,
@@ -516,7 +516,7 @@ struct CutCardStack: View {
         }
         .frame(width: seat.stack.width, height: seat.stack.height, alignment: .topLeading)
         .position(x: seat.stack.midX, y: seat.stack.midY)
-        .opacity(out != nil && !verdictPending ? 0.55 : 1)
+        .opacity(out != nil && !(verdictPending && out?.left != true && out?.round == reveal?.round) ? 0.55 : 1)
         .accessibilityHidden(true)
     }
 
