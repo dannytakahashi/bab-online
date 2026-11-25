@@ -1396,6 +1396,9 @@
     "clientCapGetYourBid": {
       "const": "getYourBid"
     },
+    "clientCapTournamentVoiceStatus": {
+      "const": "tournamentVoiceStatus"
+    },
     "gybMode": {
       "const": "gyb"
     },
@@ -2794,7 +2797,7 @@
           "caps": []
         }
       ],
-      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial), shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket's watch; $defs.clientCapShoulderView), and tournamentVoice (2026-11-24: the client starts voice on its tournament lobby screen and at a tournament table, so it is a peer of the tournament's voice room and announced at its table's seating; without it a socket is never listed in the tournament room; $defs.clientCapTournamentVoice), and tournamentPairings (2026-11-25: the client shows the tournament events' pairings and, at a tournament table, startDraw.teams / snapshot draw.teams as a draw for first deal; a tournament table draws honestly, each player the card they picked, only when every human there and every spectator present at its startDraw has it, else the draw is staged as before; $defs.clientCapTournamentPairings)."
+      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial), shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket's watch; $defs.clientCapShoulderView), and tournamentVoice (2026-11-24: the client starts voice on its tournament lobby screen and at a tournament table, so it is a peer of the tournament's voice room and announced at its table's seating; without it a socket is never listed in the tournament room; $defs.clientCapTournamentVoice), and tournamentPairings (2026-11-25: the client shows the tournament events' pairings and, at a tournament table, startDraw.teams / snapshot draw.teams as a draw for first deal; a tournament table draws honestly, each player the card they picked, only when every human there and every spectator present at its startDraw has it, else the draw is staged as before; $defs.clientCapTournamentPairings), getYourBid (2026-11-24: the Get Your Bid mode; $defs.clientCapGetYourBid) and tournamentVoiceStatus (2026-11-25: the client renders the over-cap notice s2c tournamentVoiceStatus for a member waiting in line for a full tournament voice room; $defs.clientCapTournamentVoiceStatus)."
     },
     "changePassword": {
       "payload": {
@@ -11849,7 +11852,41 @@
         "server/voice/tournamentVoice.js:change",
         "server/voice/tournamentVoice.js:relist"
       ],
-      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table's seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating's reveal hold); in a tournament's voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most 8) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again."
+      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table's seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating's reveal hold); in a tournament's voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most tournamentVoice.maxRoom(): env TOURNAMENT_VOICE_MAX, 2..20, default 8; the rest wait in line unlisted, see tournamentVoiceStatus) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again."
+    },
+    "tournamentVoiceStatus": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "admitted": {
+            "type": "boolean",
+            "description": "false: waiting in line for a full room; true: let in (its voicePeerList follows)"
+          },
+          "cap": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 20,
+            "description": "the room's size limit now (tournamentVoice.maxRoom())"
+          }
+        },
+        "required": [
+          "admitted",
+          "cap"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "clientReads": {
+        "web": [
+          "client/src/handlers/voiceHandlers.js:registerVoiceHandlers"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/voice/tournamentVoice.js:sendStatus"
+      ],
+      "notes": "New (2026-11-25, the over-cap notice; private, unsequenced): a tournament's voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows \"Voice is full (N people)\" in the tournament lobby's voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before)."
     },
     "voicePeerJoined": {
       "payload": {

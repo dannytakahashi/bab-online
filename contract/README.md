@@ -448,7 +448,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   same reason; 2026-11-24, tournament voice): the client starts voice on its
   tournament lobby screen (muted, only with another member there) and at a
   tournament table, so the server may put it in the tournament's voice room
-  (`tournament:<id>`: the members on that screen, at most 8; voicePeerList /
+  (`tournament:<id>`: the members on that screen, at most `TOURNAMENT_VOICE_MAX`, default 8, 2..20; voicePeerList /
   voicePeerJoined / voicePeerLeft as in a lobby, offers relayed between two
   admitted members) and announces it at its table's seating. Without it a
   socket is never a tournament-room peer: shipped iOS 1.2.5 (39) and older
@@ -462,6 +462,17 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   starts voice there. No new event or field: only the existing voice
   events. The web sends it from 2026-11-24; iOS from its next build
   (server/voice/tournamentVoice.js, docs/claude/voice.md "Tournament voice").
+- `tournamentVoiceStatus` (`$defs.clientCapTournamentVoiceStatus`, its own
+  const for the same reason; 2026-11-25, the over-cap notice): the client
+  renders the private s2c `tournamentVoiceStatus {admitted, cap}`. A member
+  waiting in line for a full tournament voice room (past
+  `TOURNAMENT_VOICE_MAX`, default 8) gets `admitted: false` when it enters
+  the line (and again when its lobby screen is drawn again while it waits)
+  and `admitted: true` when it is let in; nothing else. Without the cap
+  nothing is sent (it waits silently, as before). The web sends it from
+  2026-11-25 ("Voice is full (N people)" in the tournament lobby); iOS from
+  1.2.7, which lists the event for Swift (`contract/layout.json` excludes
+  it until then).
 - `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid
