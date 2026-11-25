@@ -51,8 +51,12 @@ const { socketLogger } = require('../utils/logger');
  *                     spectator list's entries); a socket without it gets
  *                     none of that (server/socket/shoulderView.js). A hello
  *                     that drops it ends the socket's watch
+ *   getYourBid        can show a Get Your Bid lobby and table (3 seats, no
+ *                     teams; server/game/gameMode.js): only such a socket
+ *                     is listed, may create, join, rejoin or watch one
+ *                     (the web; no iOS build)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'getYourBid'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {
@@ -76,4 +80,13 @@ function socketHasCap(io, socketId, cap) {
     return hasCap(io?.sockets?.sockets?.get(socketId), cap);
 }
 
-module.exports = { KNOWN_CAPS, handle, hasCap, socketHasCap };
+/**
+ * What the main room's lists hold for `socket` (GameManager.getAllLobbies /
+ * getInProgressGames / joinMainRoom): `wide` lobby entries with the cap
+ * casualSpectators, Get Your Bid lobbies and tables with getYourBid.
+ */
+function listOpts(socket) {
+    return { wide: hasCap(socket, 'casualSpectators'), gyb: hasCap(socket, 'getYourBid') };
+}
+
+module.exports = { KNOWN_CAPS, handle, hasCap, socketHasCap, listOpts };

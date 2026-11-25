@@ -11,13 +11,16 @@
  * here: resumeTrick moves the trick to trickHistory and advances the bots.
  * Used for a seat bot's card memory (seatLifecycle.createSeatBot, restore)
  * and for cardMemory.fromHistory.
+ * @param {Object} game
+ * @param {number} [N=4] - seats at the table (the caller's game.seatCount;
+ *   not read here: assist/seatView may only read its own list of fields)
  * @returns {{lead: number, cards: Object[]}|null}
  */
-function openTrick(game) {
+function openTrick(game, N = 4) {
     if (!game.playedCardsIndex || !game.leadPosition) return null;
     const cards = [];
-    for (let k = 0; k < 4; k++) {
-        const c = game.playedCards[((game.leadPosition - 1 + k) % 4)];
+    for (let k = 0; k < N; k++) {
+        const c = game.playedCards[((game.leadPosition - 1 + k) % N)];
         if (!c) break;
         cards.push(c);
     }

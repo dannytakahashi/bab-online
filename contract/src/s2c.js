@@ -86,8 +86,13 @@ const LOBBY_EXTRA_PROPS = {
     // Play again (2026-11-16): the last game's older-app players whose
     // place is saved (a reservation; they have no row)
     expected: arr(str(), { minItems: 1, maxItems: 4 }),
+    // Get Your Bid (2026-11-24): the lobby's mode, on every lobby event of
+    // a Get Your Bid lobby (3 seats; its members all sent the cap
+    // getYourBid); absent in any other lobby
+    mode: ref('gybMode'),
 };
 const LOBBY_EXTRA_KEYS = Object.keys(LOBBY_EXTRA_PROPS);
+const GYB_NOTE = ' gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web; no iOS build).';
 const LOBBY_EXTRA_NOTE = 'members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets "Spectators can talk" (passes to the first connected member when it leaves); settings {spectatorsCanTalk} (always true since 2026-11-18: spectators always may talk); capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game\'s older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4). members[].onResults (additive 2026-11-16) marks a member moved back at the last game\'s end whose app still shows that game\'s results (lobby.afterGame.unsettled: no lobbyReturnSeen nor any act in the lobby yet), present and connected (never on a held row: a drop makes it returning or reconnecting instead); every moved member\'s row carries it in lobbyReturn. When one settles (lobbyReturnSeen, a joinLobby re-entry, an act whose own reply sends no list: chat, a refused Ready / Unready / Add Bot / Remove Bot / talk setting / Don\'t wait) the other capable members get a playerReadyUpdate (neither) without it; a leave or drop takes it off with that event\'s list. Web and iOS 1.2.2 (12) and later show "Still on the results" on the row (never on one\'s own) where it would say Waiting..., in the "Not back yet" style, with no "Don\'t wait" (they are present).';
 // One gameEnd.playerStats entry (also lobbyReturn.lastGame.playerStats)
 const GAME_END_STATS = obj({
@@ -327,8 +332,10 @@ const s2c = {
                 score: ref('teamPair'),
                 playerStats: byPosition(GAME_END_STATS),
                 position: orNull(ref('position')),
-            }),
-        }, { optional: ['reconnecting', 'expected'] }),
+                // additive (2026-11-24): a Get Your Bid game's result
+                gyb: ref('gybEnd'),
+            }, { optional: ['gyb'] }),
+        }, { optional: ['reconnecting', 'expected', 'mode'] }),
         status: 'active', to: 'socket',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/playAgain.js:openLobby'],
@@ -374,8 +381,10 @@ const s2c = {
         emittedFrom: ['server/socket/lobbyHandlers.js:playerReady', 'server/socket/lobbyHandlers.js:playerUnready', 'server/socket/lobbyHandlers.js:sendLobbyState', 'server/socket/lobbyHandlers.js:addBot', 'server/socket/lobbyHandlers.js:removeBot', 'server/socket/lobbyHandlers.js:lobbySeatSuspended', 'server/socket/lobbyHandlers.js:lobbySeatResumed', 'server/socket/lobbyHandlers.js:setLobbySpectatorsCanTalk', 'server/socket/playAgain.js:sendExpected'],
     },
     allPlayersReady: {
-        payload: obj({ gameId: str() }),
+        // mode (additive 2026-11-24): only for a Get Your Bid table (3 seats)
+        payload: obj({ gameId: str(), mode: ref('gybMode') }, { optional: ['mode'] }),
         status: 'active', to: 'socket',
+        added: ['mode'],
         notes: 'To the table\'s humans only. A family lobby\'s extras (members who did not get a seat) never get it (every client would open the draw as an entrant): they get spectatorJoined (fullState at CREATED, no room notice) in the same tick, then voiceSettings when capable (lobbyHandlers.startExtras).',
         clientReads: reads(W.lobby, I.lobby),
         emittedFrom: ['server/socket/lobbyHandlers.js:startLobbyIfAllReady', 'server/socket/tournamentHandlers.js:startTournamentRound'],
@@ -464,7 +473,9 @@ const s2c = {
                 hsiValues: ref('hsiValues'),
                 playerInfo: arr(ref('playerInfoGameStart'), { maxItems: 4 }),
                 avatarUrls: ref('avatarUrlsByPosition'),
-            }, { optional: ['avatarUrls'] })),
+                // additive (2026-11-24): a Get Your Bid table's scores
+                gyb: obj({ scores: ref('gybBySeat') }),
+            }, { optional: ['avatarUrls', 'gyb'] })),
             variant('spectator', obj({
                 gameId: str(),
                 trump: ref('card'),
@@ -477,10 +488,12 @@ const s2c = {
                 avatarUrls: ref('avatarUrlsByPosition'),
                 // additive (2026-11-21): the watched seat's new hand (cap shoulderView)
                 shoulder: ref('shoulderHand'),
-            }, { optional: ['avatarUrls', 'shoulder'] })),
+                // additive (2026-11-24): a Get Your Bid table's scores
+                gyb: obj({ scores: ref('gybBySeat') }),
+            }, { optional: ['avatarUrls', 'shoulder', 'gyb'] })),
         ),
         status: 'active', to: 'socket', seq: false,
-        added: ['avatarUrls', 'shoulder'],
+        added: ['avatarUrls', 'shoulder', 'gyb'],
         clientReads: reads([W.game, 'client/src/state/GameState.js:applyDeal'], I.game('handleGameStart')),
         emittedFrom: ['server/socket/gameHandlers.js:dealHand'],
         notes: 'One per connected seat owner (seat) and per spectator (spectator), each deal. The seat variant\'s players (seat socket ids in deal order) went with V1_REMOVALS #6 (2026-11-12): web maps a voice peer to a seat by username (voice/speakingSlot.js) and keeps the ids positionUpdate gave (GameState.applyDeal); iOS 1.2.0 decodes it optionally and never reads it. playerInfo: web reads it only when present; iOS 1.2.0 needs it (its loop is what clears, each deal, the owner custom-picture avatarUrl a lazy / resign bot keeps, and its only read of gameStart avatarUrls), so it stays (V1_REMOVALS #5).',
@@ -497,9 +510,9 @@ const s2c = {
         notes: 'bid is always the normalized string (bidString), also for an iOS numeric bid sent as an Int (c2s playerBid keeps accepting Int: iOS 1.1.0 sends one). Until 2026-11-11 it echoed the client value ($defs.bidWire, Int | string; V1_REMOVALS #11); 1.1.0 decodes either (BidWire) and web applyBid calls String(data.bid).',
     },
     doneBidding: {
-        payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }) }),
+        payload: obj({ bids: ref('bidArray'), lead: ref('position'), teamBids: ref('teamPair'), mults: obj({ team1: int({ minimum: 1 }), team2: int({ minimum: 1 }) }), gyb: obj({ forbidden: orNull(ref('gybForbidden')) }) }, { optional: ['gyb'] }),
         status: 'active', to: 'room', seq: false,
-        added: ['teamBids', 'mults'],
+        added: ['teamBids', 'mults', 'gyb'],
         clientReads: reads(W.game, I.game('registerBiddingPhase')),
         emittedFrom: ['server/socket/gameHandlers.js:handlePostBid'],
         notes: 'Web reads bids and lead; iOS reads lead. teamBids (capped at the hand size) and mults (bore multipliers) are additive and read by neither shipped client. Not sent for an all-zero redeal.',
@@ -545,9 +558,11 @@ const s2c = {
             action: enm('bid', 'play'),
             reason: enm('not_your_turn', 'already_bid', 'invalid_bid', 'invalid_play', 'already_played', 'illegal_card'),
             snapshot: ref('snapshotV2'),
-        }),
+            // additive (2026-11-24): beside the snapshot of a Get Your Bid table
+            gyb: ref('gybSnapshot'),
+        }, { optional: ['gyb'] }),
         status: 'active', to: 'self',
-        added: ['snapshot'],
+        added: ['snapshot', 'gyb'],
         clientReads: reads([W.game, W.main('onActionRejected')], [I.game('registerPlayingPhase'), 'iOSClient/BABOnline/State/Table/TableReducer+Events.swift:apply']),
         emittedFrom: ['server/socket/gameHandlers.js:rejectAction'],
         notes: 'iOS reads action == "play" (rollbackCardPlay); web (item 16) rolls its pending bid/play back (state/MyAction.js) and renders the snapshot (the card returns to the hand; partial log: the log is kept). Always BEFORE the restorePlayerState of a "Card not in hand" play. reason: web toasts it in words (main.js onActionRejected); iOS 1.2.2 shows the same words (RejectReason, the server-error toast), an unknown reason as "Action not accepted"; earlier iOS builds decode it and show nothing.',
@@ -564,8 +579,10 @@ const s2c = {
         emittedFrom: ['server/socket/gameHandlers.js:resumeTrick'],
     },
     handComplete: {
-        payload: obj({ score: ref('teamPair'), team1Tricks: int({ minimum: 0 }), team2Tricks: int({ minimum: 0 }), team1OldScore: int(), team2OldScore: int() }),
+        payload: obj({ score: ref('teamPair'), team1Tricks: int({ minimum: 0 }), team2Tricks: int({ minimum: 0 }), team1OldScore: int(), team2OldScore: int(), gyb: ref('gybHand') }, { optional: ['gyb'] }),
         status: 'active', to: 'room', seq: false,
+        added: ['gyb'],
+        notes: 'At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat\'s bid, tricks and points, the scores before and after, the Forbidden Bid).' + GYB_NOTE,
         clientReads: reads(W.game, I.game('handleHandComplete')),
         emittedFrom: ['server/socket/gameHandlers.js:handleHandComplete'],
     },
@@ -574,8 +591,12 @@ const s2c = {
             score: ref('teamPair'),
             playerStats: byPosition(GAME_END_STATS),
             tournamentId: orNull(str()),
-        }),
+            // additive (2026-11-24): a Get Your Bid game's result (score
+            // then carries nothing; playerStats has its three seats)
+            gyb: ref('gybEnd'),
+        }, { optional: ['gyb'] }),
         status: 'active', to: 'room', seq: false,
+        added: ['gyb'],
         reserved: ['winner', 'winningTeam', 'team1Score', 'team1Players', 'team2Players', 'handHistory']
             .map((key) => ({ key, why: 'the iOS game-end screen reads it ahead of score/playerStats' })),
         clientReads: reads([W.game, W.main('onGameEnd')], I.game('registerGameEnd')),
@@ -616,11 +637,11 @@ const s2c = {
     // ==================== Reconnection ====================
     rejoinSuccess: {
         payload: anyOf(
-            variant('withTournament', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), tournamentId: orNull(str()), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] })),
-            variant('watchViaSpectate', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] })),
+            variant('withTournament', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), tournamentId: orNull(str()), gyb: ref('gybSnapshot'), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls', 'gyb'] })),
+            variant('watchViaSpectate', obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), isLazy: bool(), gyb: ref('gybSnapshot'), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls', 'gyb'] })),
         ),
         status: 'active', to: 'self',
-        added: ['snapshot', 'avatarUrls'],
+        added: ['snapshot', 'avatarUrls', 'gyb'],
         reserved: ['teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: 'iOS restoreFromRejoin reads it ahead of the legacy key and would take it as the viewer-relative value' })),
         clientReads: { ...CARRIER_READS, web: [...CARRIER_READS.web, W.main('onRejoinSuccess')] },
@@ -628,9 +649,9 @@ const s2c = {
         notes: 'A snapshot carrier (V1_REMOVALS #9, 2026-11-12: the 22 getClientState keys went; the table is the snapshot): gameId, players, avatarUrls (capable sockets with a URL), isLazy, tournamentId (string|null) on a rejoin; watchSeat via joinAsSpectator sends no tournamentId (web reads tournamentId !== undefined). Before playerReconnected and the presence replays.',
     },
     restorePlayerState: {
-        payload: obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls'] }),
+        payload: obj({ ...CARRIER_PROPS, avatarUrls: ref('avatarUrlsByPosition'), gyb: ref('gybSnapshot'), snapshot: ref('snapshotV2') }, { optional: ['avatarUrls', 'gyb'] }),
         status: 'active', to: 'self',
-        added: ['snapshot', 'avatarUrls'],
+        added: ['snapshot', 'avatarUrls', 'gyb'],
         reserved: ['tournamentId', 'teamTricks', 'oppTricks', 'teamScore', 'oppScore', 'isBidding', 'leadCard', 'playedCardIndex', 'trumpBroken']
             .map((key) => ({ key, why: key === 'tournamentId' ? 'web routes a payload with tournamentId as a rejoin' : 'iOS restoreFromRejoin reads it ahead of the legacy key' })),
         clientReads: { ...CARRIER_READS, web: [...CARRIER_READS.web, W.main('onRestorePlayerState')] },
@@ -644,7 +665,9 @@ const s2c = {
                 requestId: anyOf(str({ maxLength: 64 }), int()),
                 // additive (2026-11-21): the reply to an accepted c2s watchHand
                 reason: konst('watchHand'),
-            }, { optional: ['requestId', 'reason'] })),
+                // additive (2026-11-24): beside the snapshot of a Get Your Bid table
+                gyb: ref('gybSnapshot'),
+            }, { optional: ['requestId', 'reason', 'gyb'] })),
             variant('notInGame', obj({
                 snapshot: nul(),
                 requestId: anyOf(str({ maxLength: 64 }), int()),
@@ -723,12 +746,13 @@ const s2c = {
                 ...CARRIER_PROPS,
                 avatarUrls: ref('avatarUrlsByPosition'),
                 trump: orNull(ref('card')),
+                gyb: ref('gybSnapshot'),
                 snapshot: ref('snapshotV2'),
-            }, { optional: ['avatarUrls'] })),
+            }, { optional: ['avatarUrls', 'gyb'] })),
             variant('notice', obj({ username: str(), spectatorCount: int({ minimum: 0 }) })),
         ),
         status: 'active', to: ['room', 'self'], seq: false,
-        added: ['snapshot', 'avatarUrls'],
+        added: ['snapshot', 'avatarUrls', 'gyb'],
         reserved: [
             { key: 'players', why: 'notice only: both clients route a payload with players + trump as the full state' },
             { key: 'trump', why: 'notice only: both clients route a payload with players + trump as the full state' },

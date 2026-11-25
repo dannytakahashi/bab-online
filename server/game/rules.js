@@ -49,10 +49,11 @@ function bidLeadRank(bid) {
  * Seating: Position 1 (bottom), 2 (left), 3 (top), 4 (right)
  * Clockwise order: 1 → 2 → 3 → 4 → 1
  * @param {number} position - Current position (1-4)
+ * @param {number} [seatCount=4] - seats at the table (3 in Get Your Bid)
  * @returns {number} - Next position
  */
-function rotatePosition(position) {
-    return (position % 4) + 1;
+function rotatePosition(position, seatCount = 4) {
+    return (position % seatCount) + 1;
 }
 
 /**
@@ -156,9 +157,11 @@ function isHighestTrumpInHand(rank, hand, trump) {
  * @param {boolean} trumpBroken - Whether trump has been played
  * @param {number} playPosition - Position of player
  * @param {number} leadPosition - Position that led
+ * @param {boolean} [solo=false] - no partners (Get Your Bid): every other
+ *   seat is an opponent of the HI joker's lead
  * @returns {boolean}
  */
-function isLegalMove(card, hand, leadCard, isLeading, trump, trumpBroken, playPosition, leadPosition) {
+function isLegalMove(card, hand, leadCard, isLeading, trump, trumpBroken, playPosition, leadPosition, solo = false) {
     // Leading
     if (isLeading) {
         // Can't lead trump unless broken (or only have trump)
@@ -178,7 +181,7 @@ function isLegalMove(card, hand, leadCard, isLeading, trump, trumpBroken, playPo
     }
 
     // Special rule: HI joker lead requires highest trump (from opponents)
-    if (leadCard.rank === 'HI' && (playPosition % 2 !== leadPosition % 2)) {
+    if (leadCard.rank === 'HI' && (solo ? playPosition !== leadPosition : playPosition % 2 !== leadPosition % 2)) {
         if (!isHighestTrumpInHand(card.rank, [card, ...hand], trump)) {
             return false;
         }
@@ -194,16 +197,17 @@ function isLegalMove(card, hand, leadCard, isLeading, trump, trumpBroken, playPo
  * @param {Object} card
  * @param {Array} hand
  * @param {{leadCard: Object|null, isLeading: boolean, trump: Object,
- *   trumpBroken: boolean, position: number, leadPosition: number|null}} trick
+ *   trumpBroken: boolean, position: number, leadPosition: number|null,
+ *   solo?: boolean}} trick - solo: no partners (Get Your Bid)
  * @returns {boolean}
  */
-function isLegalPlay(card, hand, { leadCard, isLeading, trump, trumpBroken, position, leadPosition }) {
+function isLegalPlay(card, hand, { leadCard, isLeading, trump, trumpBroken, position, leadPosition, solo = false }) {
     const i = hand.findIndex(c => c.suit === card.suit && c.rank === card.rank);
     if (i === -1) return false;
     const remaining = hand.slice(0, i).concat(hand.slice(i + 1));
     return isLeading
-        ? isLegalMove(card, remaining, card, true, trump, trumpBroken, position, position)
-        : isLegalMove(card, remaining, leadCard, false, trump, trumpBroken, position, leadPosition);
+        ? isLegalMove(card, remaining, card, true, trump, trumpBroken, position, position, solo)
+        : isLegalMove(card, remaining, leadCard, false, trump, trumpBroken, position, leadPosition, solo);
 }
 
 /**
@@ -231,16 +235,17 @@ function safeBid(playerBids) {
  * @param {Array} trick - Array of 4 cards (indexed by position-1)
  * @param {number} leadPosition - Position that led (1-4)
  * @param {Object} trump - Trump card
+ * @param {number} [seatCount=4] - seats at the table (3 in Get Your Bid)
  * @returns {number} - Winning position (1-4)
  */
-function determineWinner(trick, leadPosition, trump) {
+function determineWinner(trick, leadPosition, trump, seatCount = 4) {
     let winner = leadPosition;
     const leadCard = trick[leadPosition - 1];
     const leadSuit = leadCard.suit === 'joker' ? trump.suit : leadCard.suit;
 
-    for (let i = 1; i < 4; i++) {
+    for (let i = 1; i < seatCount; i++) {
         let checkPos = leadPosition + i;
-        if (checkPos > 4) checkPos -= 4;
+        if (checkPos > seatCount) checkPos -= seatCount;
 
         const currentCard = trick[checkPos - 1];
         const winningCard = trick[winner - 1];
@@ -403,18 +408,18 @@ function normalizeSeatBags(v) {
  * @param {Array} bids - Array of bid strings
  * @returns {number} - Index (0-3) of highest bidder
  */
-function findHighestBidder(startPosition, bids) {
+function findHighestBidder(startPosition, bids, seatCount = 4) {
     let maxIndex = startPosition - 1;
     let maxValue = bidLeadRank(bids[maxIndex]);
     let spot = startPosition - 1;
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < seatCount; i++) {
         const bidValue = bidLeadRank(bids[spot]);
         if (bidValue > maxValue) {
             maxIndex = spot;
             maxValue = bidValue;
         }
-        spot = (spot + 1) % 4;
+        spot = (spot + 1) % seatCount;
     }
 
     return maxIndex;
@@ -483,6 +488,79 @@ function determineDrawPosition(myCard, allCards) {
     return position;
 }
 
+
+// ============================================================
+// Get Your Bid (owner 2026-11-24): the 3-player, no-teams mode a lobby may
+// choose. Card play is the base game's (every other seat is an opponent of
+// a HI joker lead: isLegalMove's `solo`); bidding and scoring are these.
+// ============================================================
+
+/** Seats at a Get Your Bid table. */
+const GYB_SEATS = 3;
+/** The Forbidden Bid applies only to hands of at least this many cards. */
+const GYB_FORBIDDEN_MIN_HAND = 5;
+
+/**
+ * The Forbidden Bid of the LAST bidder (Get Your Bid): on a hand of 5 or
+ * more cards the bids may not add up to the hand, so the last bidder may
+ * not bid `handSize - (the other bids)`. Null while it does not apply: a
+ * smaller hand, a seat that is not the last to bid, or bids that already
+ * exceed the hand.
+ * @param {Array} playerBids - the deal's bids so far, by position - 1
+ * @param {number} handSize
+ * @param {number} [seatCount=3]
+ * @returns {number|null}
+ */
+function gybForbiddenBid(playerBids, handSize, seatCount = GYB_SEATS) {
+    if (!(handSize >= GYB_FORBIDDEN_MIN_HAND)) return null;
+    const placed = [];
+    for (let i = 0; i < seatCount; i++) if (playerBids[i] != null) placed.push(playerBids[i]);
+    if (placed.length !== seatCount - 1) return null;
+    const left = handSize - placed.reduce((sum, b) => sum + (parseInt(b, 10) || 0), 0);
+    return left >= 0 ? left : null;
+}
+
+/** Get Your Bid bid legality: a number up to the hand (no bores), never the Forbidden Bid. */
+function isValidGybBid(bid, playerBids, handSize, seatCount = GYB_SEATS) {
+    if (!/^\d+$/.test(bid) || Number(bid) > handSize) return false;
+    return Number(bid) !== gybForbiddenBid(playerBids, handSize, seatCount);
+}
+
+/** The fallback bid of a failing bot or a bid clock timeout: '0', or '1' when 0 is the Forbidden Bid. */
+function gybSafeBid(playerBids, handSize, seatCount = GYB_SEATS) {
+    return gybForbiddenBid(playerBids, handSize, seatCount) === 0 ? '1' : '0';
+}
+
+/**
+ * One seat's points for a hand of Get Your Bid: exactly the bid scores 10
+ * plus the bid (an exact 0 scores 5); anything else scores nothing, except
+ * 1 point for the seat that took exactly its Forbidden Bid. Never negative.
+ * @param {string|number} bid
+ * @param {number} took - tricks the seat won this hand
+ * @param {number|null} [forbidden] - this seat's Forbidden Bid, if it had one
+ * @returns {number}
+ */
+function gybHandScore(bid, took, forbidden = null) {
+    const b = parseInt(bid, 10) || 0;
+    const t = Number(took) || 0;
+    if (t === b) return b === 0 ? 5 : 10 + b;
+    return forbidden != null && t === forbidden ? 1 : 0;
+}
+
+/**
+ * Seat order from the draw at a 3-seat table: the highest card sits at 1,
+ * then 2, then 3 (no teams, so no 2/3 swap).
+ */
+function gybDrawPosition(myCard, allCards) {
+    const suitOrder = { clubs: 0, diamonds: 1, hearts: 2, spades: 3, joker: 4 };
+    let rank = 0;
+    for (const card of allCards) {
+        if (RANK_VALUES[myCard.rank] > RANK_VALUES[card.rank]) rank++;
+        else if (RANK_VALUES[myCard.rank] === RANK_VALUES[card.rank] && suitOrder[myCard.suit] > suitOrder[card.suit]) rank++;
+    }
+    return allCards.length - rank;
+}
+
 // Hand Strength Index: server/game/hsi.js (expected share of the tricks, on the
 // 55 .. 130 (average) .. 355 scale)
 const { calculateHSI } = require('./hsi');
@@ -519,5 +597,12 @@ module.exports = {
     findHighestBidder,
     calculateMultiplier,
     determineDrawPosition,
-    calculateHSI
+    calculateHSI,
+    GYB_SEATS,
+    GYB_FORBIDDEN_MIN_HAND,
+    gybForbiddenBid,
+    isValidGybBid,
+    gybSafeBid,
+    gybHandScore,
+    gybDrawPosition
 };

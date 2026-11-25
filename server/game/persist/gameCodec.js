@@ -193,6 +193,7 @@ const DERIVED = deepFreeze({
         'tournamentId',                               // the doc's top-level tournamentId (hydrate sets it)
         'avatarVersions',                             // recomputed after warming custom pictures
         'isDemo',                                     // the demo game is never saved
+        'mode', 'gyb',                                // a Get Your Bid table is never saved (refusal 'mode'); a restored game is classic
         'frozen', '_tainted',                         // a frozen or tainted game is never saved
         '_suspended',                                 // the holder self-fence (suspend): never saved while set
         'restored',                                   // restoreGame's gate and restored abandon: set fresh by the adopter
@@ -293,6 +294,9 @@ function decodeLobbyOrigin(d) {
 function refusal(game) {
     if (!game) return 'no game';
     if (game.isDemo) return 'demo';
+    // Get Your Bid (gameMode.js): 3 seats and its own scores, not in the
+    // codec. Such a table does not survive a deploy
+    if (game.mode === 'gyb') return 'mode';
     if (game.isTerminal()) return 'terminal';
     if (game.frozen) return 'frozen';
     if (game.isSuspended) return 'suspended';

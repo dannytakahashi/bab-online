@@ -42,6 +42,7 @@
 const SeatState = require('../game/SeatState');
 const { Phase } = require('../game/GamePhase');
 const { gameLogger } = require('../utils/logger');
+const { gybSafeBid } = require('../game/rules');
 const restoreGame = require('../game/persist/restoreGame');
 
 const { Controller, Presence } = SeatState;
@@ -169,7 +170,9 @@ function expire(io, game, turn) {
     gameLogger.info('Bid clock ran out: bidding 0', { gameId: game.gameId, position: pos });
     // Lazily: gameHandlers requires this module
     const { placeBid } = require('./gameHandlers');
-    const r = placeBid(io, game, pos, '0', { timedOut: true });
+    // (Get Your Bid: '1' when 0 is this seat's Forbidden Bid)
+    const zero = game.mode === 'gyb' ? gybSafeBid(game.playerBids, game.currentHand, game.seatCount) : '0';
+    const r = placeBid(io, game, pos, zero, { timedOut: true });
     if (!r.ok) {
         // '0' is always legal on an open turn; a refusal means the turn moved
         gameLogger.warn('Bid clock: the timeout bid was refused', { gameId: game.gameId, position: pos, reason: r.reason });

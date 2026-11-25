@@ -5,6 +5,8 @@
  */
 
 import { getCardImageKey } from '../../utils/cards.js';
+import { slotOf } from '../../utils/positions.js';
+import { getGameState } from '../../state/GameState.js';
 import { CARD_CONFIG, ANIMATION_CONFIG } from '../config.js';
 import { collectMs } from '../pacing.js';
 import { sceneTween } from '../TableDirector.js';
@@ -38,7 +40,24 @@ const CORNER = RADIUS.sm;
  * A history block's border: 'safe' once the team has its bid total (the
  * bore team's total is the whole hand: rules/bids.js), else 'danger'.
  */
-export const pileBorder = (tricksWon, bidTotal) => (tricksWon >= bidTotal ? 'safe' : 'danger');
+export const pileBorder = (tricksWon, bidTotal, { exact = false } = {}) =>
+  ((exact ? tricksWon === bidTotal : tricksWon >= bidTotal) ? 'safe' : 'danger');
+
+/**
+ * The trick piles: my team's ('team'), the opponents' ('opp') and, at a
+ * three-seat table (Get Your Bid: each seat for itself), the second
+ * opponent's own ('opp2': the layout has that block only there). A pile is
+ * named by its key; true / false (the base game's "my team's trick?") still
+ * mean 'team' / 'opp'.
+ */
+const PILES = ['team', 'opp', 'opp2'];
+const pileKey = (v) => (v === true ? 'team' : (PILES.includes(v) ? v : 'opp'));
+const HISTORY = { team: '_teamTrickHistory', opp: '_oppTrickHistory', opp2: '_opp2TrickHistory' };
+const COUNT = { team: '_teamTrickCount', opp: '_oppTrickCount', opp2: '_opp2TrickCount' };
+const TOTAL = { team: '_teamBidTotal', opp: '_oppBidTotal', opp2: '_opp2BidTotal' };
+
+/** The layout's trick slot of each of the viewer's slots (utils/positions.js slotOf). */
+const TRICK_SLOT = Object.freeze({ self: 'self', partner: 'partner', opp1: 'opponent1', opp2: 'opponent2' });
 
 /**
  * TrickManager handles all trick-related sprite operations.
@@ -56,6 +75,7 @@ export class TrickManager {
     // Trick history (stacked off to sides)
     this._teamTrickHistory = [];
     this._oppTrickHistory = [];
+    this._opp2TrickHistory = [];
 
     // Play positions for card animations
     this._playPositions = {
@@ -71,10 +91,12 @@ export class TrickManager {
     // Track trick counts
     this._teamTrickCount = 0;
     this._oppTrickCount = 0;
+    this._opp2TrickCount = 0;
 
     // Bid totals (used for initial box size)
     this._teamBidTotal = 0;
     this._oppBidTotal = 0;
+    this._opp2BidTotal = 0;
 
     // Background graphics
     this._backgroundGraphics = null;
@@ -152,9 +174,11 @@ export class TrickManager {
    * @param {number} teamBid - Total bid for player's team
    * @param {number} oppBid - Total bid for opponent team
    */
-  setBidTotals(teamBid, oppBid) {
+  setBidTotals(teamBid, oppBid, opp2Bid = 0) {
     this._teamBidTotal = teamBid;
     this._oppBidTotal = oppBid;
+    // (a three-seat table: the second opponent's own bid)
+    this._opp2BidTotal = opp2Bid;
     this._bidTotalsGen = (this._bidTotalsGen || 0) + 1;
   }
 
@@ -172,13 +196,24 @@ export class TrickManager {
     if (gen !== undefined && gen !== this.bidTotalsGen()) return;
     this._teamBidTotal = 0;
     this._oppBidTotal = 0;
+    this._opp2BidTotal = 0;
+  }
+
+  /** The piles this table has: the layout's history blocks. */
+  _piles() {
+    const h = this.layout().history;
+    return PILES.filter((k) => h[k]);
   }
 
   /** Both history blocks' borders now: {team, opp}, 'safe' | 'danger'. */
   pileBorders() {
+    // (Get Your Bid: only exactly the bid is safe; 'team' is my own pile,
+    // 'opp' the other two seats' together)
+    const exact = getGameState().isSolo;
     return {
-      team: pileBorder(this._teamTrickCount, this._teamBidTotal),
-      opp: pileBorder(this._oppTrickCount, this._oppBidTotal),
+      team: pileBorder(this._teamTrickCount, this._teamBidTotal, { exact }),
+      opp: pileBorder(this._oppTrickCount, this._oppBidTotal, { exact }),
+      ...(this.layout().history.opp2 && { opp2: pileBorder(this._opp2TrickCount, this._opp2BidTotal, { exact }) }),
     };
   }
 
@@ -213,7 +248,9 @@ export class TrickManager {
    * @returns {Object} {x, y}
    */
   _getTrickPosition(trickNumber, isTeamTrick) {
-    const p = historySlot(this.layout(), isTeamTrick ? 'team' : 'opp', trickNumber);
+    // (a pile the layout does not have, 'opp2' off a three-seat table: the opponents')
+    const key = pileKey(isTeamTrick);
+    const p = historySlot(this.layout(), this.layout().history[key] ? key : 'opp', trickNumber);
     return { x: p.x, y: p.y };
   }
 
@@ -222,12 +259,8 @@ export class TrickManager {
    */
   updatePlayPositions() {
     const { slots } = this.layout().trick;
-    this._playPositions = {
-      opponent1: { x: slots.opponent1.x, y: slots.opponent1.y },
-      opponent2: { x: slots.opponent2.x, y: slots.opponent2.y },
-      partner: { x: slots.partner.x, y: slots.partner.y },
-      self: { x: slots.self.x, y: slots.self.y },
-    };
+    // (a three-seat table's layout has no partner slot)
+    this._playPositions = Object.fromEntries(Object.entries(slots).map(([key, p]) => [key, { x: p.x, y: p.y }]));
   }
 
   /**
@@ -242,23 +275,9 @@ export class TrickManager {
    */
   getRelativePositionKey(absolutePosition) {
     if (!this._playerPosition) return null;
-
-    if (absolutePosition === this._playerPosition) {
-      return 'self';
-    }
-    if (absolutePosition === this._playerPosition + 1 ||
-        absolutePosition === this._playerPosition - 3) {
-      return 'opponent1';
-    }
-    if (absolutePosition === this._playerPosition + 2 ||
-        absolutePosition === this._playerPosition - 2) {
-      return 'partner';
-    }
-    if (absolutePosition === this._playerPosition + 3 ||
-        absolutePosition === this._playerPosition - 1) {
-      return 'opponent2';
-    }
-    return null;
+    // (the seats round the viewer: three at a Get Your Bid table)
+    const slot = slotOf(absolutePosition, this._playerPosition, getGameState().seatCount);
+    return slot ? TRICK_SLOT[slot] : null;
   }
 
   /**
@@ -335,16 +354,13 @@ export class TrickManager {
     const duration = collectMs(resumeInMs);
 
     // Increment count and get position using new two-row layout
-    let trickNumber;
-    if (isMyTeam) {
-      this._teamTrickCount++;
-      trickNumber = this._teamTrickCount;
-    } else {
-      this._oppTrickCount++;
-      trickNumber = this._oppTrickCount;
-    }
+    // (isMyTeam: true / false, or a pile key: 'team', 'opp', 'opp2')
+    const pile = pileKey(isMyTeam);
+    isMyTeam = pile === 'team';
+    this[COUNT[pile]]++;
+    const trickNumber = this[COUNT[pile]];
 
-    const winningPosition = this._getTrickPosition(trickNumber, isMyTeam);
+    const winningPosition = this._getTrickPosition(trickNumber, pile);
     const stackScale = this.historyScale();
 
     // Copy trick cards for history
@@ -405,7 +421,7 @@ export class TrickManager {
       position: { ...winningPosition },
       trickNumber,
     };
-    (isMyTeam ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
+    this[HISTORY[pile]].push(entry);
     this._setupTrickHover(trickCards, entry.position, token);
 
     // Clear current trick
@@ -560,11 +576,11 @@ export class TrickManager {
     // Slot size, spacing and padding all at the layout's one scale (ui-6)
     const { slotW, slotH, spacing, rowSpacing, pad: padding } = this.layout().history.team;
 
-    // Draw both team and opponent areas
-    [true, false].forEach((isTeamTrick) => {
+    // Draw both team and opponent areas (three at a three-seat table)
+    this._piles().forEach((isTeamTrick) => {
       // Determine how many slots to show (start at team bid, expand as tricks are won)
-      const tricksWon = isTeamTrick ? this._teamTrickCount : this._oppTrickCount;
-      const bidTotal = isTeamTrick ? this._teamBidTotal : this._oppBidTotal;
+      const tricksWon = this[COUNT[isTeamTrick]];
+      const bidTotal = this[TOTAL[isTeamTrick]];
       // Minimum 1 slot if bid is 0, otherwise use bid total
       const minSlots = Math.max(1, bidTotal);
       const slotsToShow = Math.max(minSlots, tricksWon);
@@ -584,8 +600,12 @@ export class TrickManager {
         ? slotH * 2 + rowSpacing - slotH + padding * 2
         : slotH + padding * 2;
 
-      // Container X: left edge of first slot minus padding
-      const containerX = firstCardPos.x - slotW / 2 - padding;
+      // Container X: left edge of its leftmost slot minus padding (the first
+      // slot; a block that fills from the right, a three-seat table's
+      // right-hand pile, has its last shown slot there)
+      const slotAt = (n) => this._getTrickPosition(n, isTeamTrick);
+      const leftX = Math.min(firstCardPos.x, slotAt(row0Count).x);
+      const containerX = leftX - slotW / 2 - padding;
 
       // Container Y: top of row 0 minus padding
       const containerY = firstCardPos.y - slotH / 2 - padding;
@@ -595,7 +615,7 @@ export class TrickManager {
       graphics.fillRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 
       // Draw border - red if tricks < bid, green if tricks >= bid
-      const borderColor = pileBorder(tricksWon, bidTotal) === 'safe' ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
+      const borderColor = pileBorder(tricksWon, bidTotal, { exact: getGameState().isSolo }) === 'safe' ? BORDER_COLOR_SAFE : BORDER_COLOR_DANGER;
       graphics.lineStyle(BORDER_WIDTH, borderColor, BORDER_ALPHA);
       graphics.strokeRoundedRect(containerX, containerY, containerWidth, containerHeight, CORNER);
 
@@ -604,19 +624,16 @@ export class TrickManager {
 
       // Row 0: up to 7 slots (tricks 1-7)
       for (let col = 0; col < row0Count; col++) {
-        const slotX = firstCardPos.x + col * spacing - slotW / 2;
-        const slotY = firstCardPos.y - slotH / 2;
-        graphics.fillRoundedRect(slotX, slotY, slotW, slotH, CORNER);
+        const at = slotAt(col + 1);
+        graphics.fillRoundedRect(at.x - slotW / 2, at.y - slotH / 2, slotW, slotH, CORNER);
       }
 
       // Row 1: remaining slots (tricks 8-13, centered under row 0)
       if (needsSecondRow) {
-        const row1Y = firstCardPos.y + rowSpacing - slotH / 2;
-        const row1Offset = spacing / 2; // Center under row above
+        // (the layout's second-row slots: centred under the row above)
         for (let col = 0; col < row1Count; col++) {
-          const slotX = firstCardPos.x + col * spacing + row1Offset - slotW / 2;
-          const slotY = row1Y;
-          graphics.fillRoundedRect(slotX, slotY, slotW, slotH, CORNER);
+          const at = slotAt(TRICKS_ROW_1 + col + 1);
+          graphics.fillRoundedRect(at.x - slotW / 2, at.y - slotH / 2, slotW, slotH, CORNER);
         }
       }
     });
@@ -637,39 +654,23 @@ export class TrickManager {
     // moved them out): snapping them would kill the tweens whose onComplete
     // destroys them and fires the hand-end callback
 
-    // Reposition team trick history
-    this._teamTrickHistory.forEach((trick, index) => {
-      const trickNumber = trick.trickNumber || index + 1;
-      const newPos = this._getTrickPosition(trickNumber, true);
+    for (const pile of PILES) {
+      this[HISTORY[pile]].forEach((trick, index) => {
+        const trickNumber = trick.trickNumber || index + 1;
+        const newPos = this._getTrickPosition(trickNumber, pile);
 
-      // Update stored position
-      trick.position.x = newPos.x;
-      trick.position.y = newPos.y;
+        // Update stored position
+        trick.position.x = newPos.x;
+        trick.position.y = newPos.y;
 
-      // Move all cards in this trick
-      trick.cards.forEach((card) => {
-        if (card && card.active) {
-          this._snapToStack(card, newPos);
-        }
+        // Move all cards in this trick
+        trick.cards.forEach((card) => {
+          if (card && card.active) {
+            this._snapToStack(card, newPos);
+          }
+        });
       });
-    });
-
-    // Reposition opponent trick history
-    this._oppTrickHistory.forEach((trick, index) => {
-      const trickNumber = trick.trickNumber || index + 1;
-      const newPos = this._getTrickPosition(trickNumber, false);
-
-      // Update stored position
-      trick.position.x = newPos.x;
-      trick.position.y = newPos.y;
-
-      // Move all cards in this trick
-      trick.cards.forEach((card) => {
-        if (card && card.active) {
-          this._snapToStack(card, newPos);
-        }
-      });
-    });
+    }
   }
 
   /**
@@ -736,27 +737,17 @@ export class TrickManager {
     // The finished hand's cards still flying to the trump
     this._whisking.forEach((card) => card?.destroy?.());
     this._whisking = [];
-    // Clear team tricks
-    this._teamTrickHistory.forEach((trick) => {
-      trick.cards.forEach((card) => {
-        if (card && card.destroy) {
-          card.destroy();
-        }
+    for (const pile of PILES) {
+      this[HISTORY[pile]].forEach((trick) => {
+        trick.cards.forEach((card) => {
+          if (card && card.destroy) {
+            card.destroy();
+          }
+        });
       });
-    });
-    this._teamTrickHistory = [];
-    this._teamTrickCount = 0;
-
-    // Clear opponent tricks
-    this._oppTrickHistory.forEach((trick) => {
-      trick.cards.forEach((card) => {
-        if (card && card.destroy) {
-          card.destroy();
-        }
-      });
-    });
-    this._oppTrickHistory = [];
-    this._oppTrickCount = 0;
+      this[HISTORY[pile]] = [];
+      this[COUNT[pile]] = 0;
+    }
     this._animatingAway = false;
   }
 
@@ -784,10 +775,10 @@ export class TrickManager {
    */
   resetForNewHand() {
     this.clearAll();
-    this._teamTrickCount = 0;
-    this._oppTrickCount = 0;
-    this._teamBidTotal = 0;
-    this._oppBidTotal = 0;
+    for (const pile of PILES) {
+      this[COUNT[pile]] = 0;
+      this[TOTAL[pile]] = 0;
+    }
   }
 
   /**
@@ -810,15 +801,16 @@ export class TrickManager {
         if (card && card.active) cardsByTrickNumber[num].push(card);
       });
     };
-    this._teamTrickHistory.forEach(collect);
-    this._oppTrickHistory.forEach(collect);
+    for (const pile of PILES) this[HISTORY[pile]].forEach(collect);
 
     // The stacks leave the history now: they belong to the finished hand,
     // and the next hand's tricks start a fresh history even while these fly
     this._teamTrickHistory = [];
     this._oppTrickHistory = [];
+    this._opp2TrickHistory = [];
     this._teamTrickCount = 0;
     this._oppTrickCount = 0;
+    this._opp2TrickCount = 0;
 
     // Count total cards
     let totalCards = 0;
@@ -895,25 +887,18 @@ export class TrickManager {
    * @param {number} teamTricks - Number of tricks won by team
    * @param {number} oppTricks - Number of tricks won by opponents
    */
-  restoreTrickPlaceholders(teamTricks, oppTricks) {
+  restoreTrickPlaceholders(teamTricks, oppTricks, opp2Tricks = 0) {
     const scene = this._scene;
 
-    for (let i = 1; i <= teamTricks; i++) {
-      this._teamTrickCount++;
-      const pos = this._getTrickPosition(i, true);
-      const cards = this._createPlaceholderStack(scene, pos);
-      const entry = { cards, position: { ...pos }, trickNumber: i };
-      this._teamTrickHistory.push(entry);
-      this._setupTrickHover(cards, entry.position);
-    }
-
-    for (let i = 1; i <= oppTricks; i++) {
-      this._oppTrickCount++;
-      const pos = this._getTrickPosition(i, false);
-      const cards = this._createPlaceholderStack(scene, pos);
-      const entry = { cards, position: { ...pos }, trickNumber: i };
-      this._oppTrickHistory.push(entry);
-      this._setupTrickHover(cards, entry.position);
+    for (const [pile, n] of [['team', teamTricks], ['opp', oppTricks], ['opp2', opp2Tricks]]) {
+      for (let i = 1; i <= n; i++) {
+        this[COUNT[pile]]++;
+        const pos = this._getTrickPosition(i, pile);
+        const cards = this._createPlaceholderStack(scene, pos);
+        const entry = { cards, position: { ...pos }, trickNumber: i };
+        this[HISTORY[pile]].push(entry);
+        this._setupTrickHover(cards, entry.position);
+      }
     }
 
     if (this._backgroundGraphics) {
@@ -933,9 +918,11 @@ export class TrickManager {
   restoreTrickHistory(history, isMyTeam) {
     const scene = this._scene;
     for (const trick of history || []) {
-      const mine = isMyTeam(trick);
-      const trickNumber = mine ? ++this._teamTrickCount : ++this._oppTrickCount;
-      const pos = this._getTrickPosition(trickNumber, mine);
+      // (true / false, or a pile key: 'team', 'opp', 'opp2')
+      const pile = pileKey(isMyTeam(trick));
+      const mine = pile === 'team';
+      const trickNumber = ++this[COUNT[pile]];
+      const pos = this._getTrickPosition(trickNumber, pile);
       const cards = !trick.cards ? this._createPlaceholderStack(scene, pos) : trick.cards.map((c, index) => {
         const faceUp = mine || this._isSpectatorMode;
         const sprite = faceUp
@@ -949,7 +936,7 @@ export class TrickManager {
         return sprite;
       });
       const entry = { cards, position: { ...pos }, trickNumber };
-      (mine ? this._teamTrickHistory : this._oppTrickHistory).push(entry);
+      this[HISTORY[pile]].push(entry);
       this._setupTrickHover(cards, entry.position);
     }
     if (this._backgroundGraphics) this._drawBackgrounds();
@@ -961,8 +948,9 @@ export class TrickManager {
     return {
       trick: this._currentTrick.length,
       teamStacks: this._teamTrickHistory.length,
-      oppStacks: this._oppTrickHistory.length,
-      stackCards: stacked(this._teamTrickHistory) + stacked(this._oppTrickHistory),
+      // (every opponent's: a three-seat table's two piles together)
+      oppStacks: this._oppTrickHistory.length + this._opp2TrickHistory.length,
+      stackCards: stacked(this._teamTrickHistory) + stacked(this._oppTrickHistory) + stacked(this._opp2TrickHistory),
       whisking: this._whisking.filter((c) => c && c.active !== false).length,
     };
   }
@@ -972,7 +960,7 @@ export class TrickManager {
    */
   _createPlaceholderStack(scene, pos) {
     const cards = [];
-    for (let j = 0; j < 4; j++) {
+    for (let j = 0; j < getGameState().seatCount; j++) {
       const sprite = scene.add.image(pos.x, pos.y, CARD_TEXTURE_KEY, tableBackFrame());
       sprite.setScale(this.historyScale());
       sprite.setDepth(200 + j);

@@ -9,7 +9,8 @@
  * A pending bid or play is not table state: state/MyAction.js holds it.
  */
 
-import { team, rotate } from '../utils/positions.js';
+import { team, seatsAround } from '../utils/positions.js';
+import { gybForbidden } from '../rules/bids.js';
 import { parseWatching } from './snapshotV2.js';
 import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 import { isShoulder, validShoulder } from './shoulder.js';
@@ -64,6 +65,16 @@ export class GameState {
     this.position = null;
     this.pic = null;
     this.isSpectator = false;
+
+    // The game mode: null (the base game) or 'gyb', a Get Your Bid table
+    // (owner 2026-11-24: three seats, no teams). Told by the lobby's start
+    // (allPlayersReady.mode, setMode), each deal (gameStart.gyb) and the
+    // `gyb` key beside every snapshot. At such a table `gyb` holds what the
+    // team fields below cannot: each seat's score and exact bids (by
+    // position - 1), the hands counted, the last hand's result
+    // (handComplete.gyb) and the game's (gameEnd.gyb)
+    this.mode = null;
+    this.gyb = null;
 
     // Game info
     this.gameId = null;
@@ -215,6 +226,78 @@ export class GameState {
 
     this._emit('reset');
     this._companyChanged();
+  }
+
+  // ============================================
+  // Game mode (Get Your Bid)
+  // ============================================
+
+  /** Seats at this table: 4, or 3 at a Get Your Bid table. */
+  get seatCount() {
+    return this.mode === 'gyb' ? 3 : 4;
+  }
+
+  /** No teams (Get Your Bid): every other seat is an opponent. */
+  get isSolo() {
+    return this.mode === 'gyb';
+  }
+
+  /**
+   * This game's mode: 'gyb' (a Get Your Bid table), anything else the base
+   * game. Keeps the scores it already has for the same mode.
+   */
+  setMode(mode) {
+    const next = mode === 'gyb' ? 'gyb' : null;
+    if (next === this.mode) return;
+    this.mode = next;
+    this.gyb = next ? { scores: [0, 0, 0], made: [0, 0, 0], hands: 0, last: null, end: null } : null;
+    if (this.position) this._updatePlayerNames();
+    this._changed();
+  }
+
+  /** What a `gyb` payload says of the game so far (scores, exact bids, hands). */
+  _applyGybTotals(g) {
+    if (!g || typeof g !== 'object') return;
+    this.setMode('gyb');
+    const three = (a) => Array.isArray(a) && a.length === 3 && a.every((n) => Number.isFinite(n));
+    if (three(g.scores)) this.gyb.scores = [...g.scores];
+    if (three(g.made)) this.gyb.made = [...g.made];
+    if (Number.isInteger(g.hands)) this.gyb.hands = g.hands;
+    this._syncSoloScores();
+  }
+
+  /** At a Get Your Bid table teamScore is my seat's score and oppScore the best of the others. */
+  _syncSoloScores() {
+    if (!this.gyb) return;
+    const me = this.position || 1;
+    const others = this.gyb.scores.filter((_, i) => i + 1 !== me);
+    this.teamScore = this.gyb.scores[me - 1] || 0;
+    this.oppScore = others.length ? Math.max(...others) : 0;
+  }
+
+  /** At a Get Your Bid table teamTricks is my seat's tricks and oppTricks the others'. */
+  _syncSoloTricks() {
+    if (!this.isSolo) return;
+    const me = this.position || 1;
+    const by = this.tricksByPosition || {};
+    let mine = 0;
+    let theirs = 0;
+    for (let p = 1; p <= 3; p++) {
+      if (p === me) mine += by[p] || 0;
+      else theirs += by[p] || 0;
+    }
+    this.teamTricks = mine;
+    this.oppTricks = theirs;
+  }
+
+  /**
+   * This deal's Forbidden Bid at a Get Your Bid table (rules/bids.js
+   * gybForbidden; the server's GameState.gybForbidden): {position, bid} for
+   * the last bidder (the dealer) once the other two have bid, on a hand of
+   * 5 or more cards; else null.
+   */
+  gybForbidden() {
+    return this.isSolo ? gybForbidden(this.bids, this.dealer, this.currentHand) : null;
   }
 
   // ============================================
@@ -434,6 +517,13 @@ export class GameState {
    * Update team bid summary.
    */
   _updateTeamBids() {
+    if (this.isSolo) {
+      // no teams: my own bid, and the other two seats'
+      const { opp1, opp2 } = seatsAround(this.position || 1, 3);
+      this.teamBids = `${this.bids[this.position || 1] ?? '-'}`;
+      this.oppBids = `${this.bids[opp1] ?? '-'}/${this.bids[opp2] ?? '-'}`;
+      return;
+    }
     const myTeam = this.position % 2; // 0 or 1
     const myBid = this.bids[this.position];
     const partnerBid = this.bids[team(this.position)];
@@ -543,22 +633,23 @@ export class GameState {
     const posIdx = this.playerData.position.indexOf(this.position);
     if (posIdx === -1) return;
 
-    // Partner (position +/- 2)
-    const partnerPos = team(this.position);
-    const partnerIdx = this.playerData.position.indexOf(partnerPos);
+    // Partner (position +/- 2; none at a three-seat table)
+    const around = seatsAround(this.position, this.seatCount);
+    const partnerPos = around.partner;
+    const partnerIdx = partnerPos ? this.playerData.position.indexOf(partnerPos) : -1;
     this.partnerName = partnerIdx !== -1
       ? (this.playerData.username[partnerIdx]?.username || this.playerData.username[partnerIdx])
-      : 'Partner';
+      : (this.isSolo ? null : 'Partner');
 
     // Opponent 1 (next position clockwise)
-    const opp1Pos = rotate(this.position);
+    const opp1Pos = around.opp1;
     const opp1Idx = this.playerData.position.indexOf(opp1Pos);
     this.opp1Name = opp1Idx !== -1
       ? (this.playerData.username[opp1Idx]?.username || this.playerData.username[opp1Idx])
       : 'Opp1';
 
     // Opponent 2 (previous position clockwise)
-    const opp2Pos = rotate(rotate(rotate(this.position)));
+    const opp2Pos = around.opp2;
     const opp2Idx = this.playerData.position.indexOf(opp2Pos);
     this.opp2Name = opp2Idx !== -1
       ? (this.playerData.username[opp2Idx]?.username || this.playerData.username[opp2Idx])
@@ -729,14 +820,14 @@ export class GameState {
    * Get partner's position.
    */
   getPartnerPosition() {
-    return team(this.position);
+    return this.isSolo ? null : team(this.position);
   }
 
   /**
    * Check if a position is on my team.
    */
   isTeammate(position) {
-    return team(this.position) === position;
+    return !this.isSolo && team(this.position) === position;
   }
 
   /**
@@ -783,11 +874,11 @@ export class GameState {
    * history entries applyTrickComplete keeps ({winner, cards: [{position,
    * card}]}); null when the snapshot has none (an older server).
    */
-  static _historyFromSnapshot(history) {
+  static _historyFromSnapshot(history, seats = 4) {
     if (!Array.isArray(history)) return null;
     return history.map((t) => ({
       winner: t.winner,
-      cards: t.cards.map((card, k) => ({ position: ((t.lead - 1 + k) % 4) + 1, card: { suit: card.suit, rank: card.rank } })),
+      cards: t.cards.map((card, k) => ({ position: ((t.lead - 1 + k) % seats) + 1, card: { suit: card.suit, rank: card.rank } })),
     }));
   }
 
@@ -850,6 +941,10 @@ export class GameState {
   /** gameStart: a new deal (a zero-bid redeal keeps the hand number). */
   applyDeal(data) {
     if (data.position) this.position = data.position;
+    // a Get Your Bid table's deal says so, with the scores; another game's
+    // deal without them is the base game
+    if (data.gyb) this._applyGybTotals(data.gyb);
+    else if (data.gameId && data.gameId !== this.gameId) this.setMode(null);
     // a watcher's deal: the watched seat's new hand (gameStart.shoulder)
     const sh = this.isSpectator && !this.isLazy ? validShoulder(data.shoulder) : null;
     if (sh) {
@@ -894,7 +989,9 @@ export class GameState {
     // the watched seat's HSI only (spectator gameStarts carry no hsiValues)
     if (sh) this.hsiValues = sh.hsi !== null ? { [sh.position]: sh.hsi } : {};
     else if (isShoulder(this)) this.hsiValues = {};
-    if (data.score1 !== undefined && data.score2 !== undefined) {
+    if (this.isSolo) {
+      this._syncSoloScores();
+    } else if (data.score1 !== undefined && data.score2 !== undefined) {
       const [mine, theirs] = this._mine({ team1: data.score1, team2: data.score2 });
       this.teamScore = mine;
       this.oppScore = theirs;
@@ -973,7 +1070,8 @@ export class GameState {
   applyCardPlayed(data) {
     const { card, position } = data;
     if (!card || !position) return;
-    if (this.playedCards.length >= 4) this._clearTrickState();
+    const seats = this.seatCount;
+    if (this.playedCards.length >= seats) this._clearTrickState();
     if (this.playedCards.length === 0) {
       this.leadCard = card;
       this.leadPosition = position;
@@ -982,7 +1080,7 @@ export class GameState {
     if (data.trumpBroken !== undefined) this.trumpBroken = !!data.trumpBroken;
     this.playedCards.push({ card, position });
     this.currentTrick.push({ card, position });
-    this.playedCardIndex = this.playedCards.length % 4;
+    this.playedCardIndex = this.playedCards.length % seats;
     // its turn is over: the lightbulb goes
     delete this.helpAsked[position];
     if (this.seatCards[position] > 0) this.seatCards[position]--;
@@ -993,7 +1091,7 @@ export class GameState {
       this.hasPlayedCard = true;
       this._emit('handChanged', this.myCards);
     }
-    if (this.playedCards.length === 4) {
+    if (this.playedCards.length === seats) {
       this.stage = 'TRICK_RESOLVING';
       this.currentTurn = null;
     }
@@ -1004,7 +1102,8 @@ export class GameState {
   /** trickComplete: count it (cli-8: here, not in the scene) and open the next trick. */
   applyTrickComplete(data) {
     const winner = data.winner;
-    const mineTeam = winner % 2 === (this.position || 1) % 2;
+    // (a Get Your Bid table: "mine" is my own seat's trick)
+    const mineTeam = this.isSolo ? winner === (this.position || 1) : winner % 2 === (this.position || 1) % 2;
     if (mineTeam) this.teamTricks++;
     else this.oppTricks++;
     if (typeof this.tricksByPosition?.[winner] === 'number') this.tricksByPosition[winner]++;
@@ -1021,7 +1120,16 @@ export class GameState {
 
   /** handComplete: the scores (the hand's bids and tricks reset with resetForNewHand). */
   applyHandComplete(data) {
-    if (data.score) {
+    if (data.gyb) {
+      // a Get Your Bid hand: each seat's result and the new scores
+      this._applyGybTotals({ scores: data.gyb.scores });
+      this.gyb.last = data.gyb;
+      this.gyb.hands = (this.gyb.hands || 0) + 1;
+      for (const s of Array.isArray(data.gyb.seats) ? data.gyb.seats : []) {
+        if (s && s.bid === s.took && s.position >= 1 && s.position <= 3) this.gyb.made[s.position - 1]++;
+      }
+      this.setGameScores(this.teamScore, this.oppScore);
+    } else if (data.score) {
       const [mine, theirs] = this._mine(data.score);
       this.setGameScores(mine, theirs);
     }
@@ -1048,7 +1156,10 @@ export class GameState {
 
   /** gameEnd */
   applyGameEnd(data) {
-    if (data?.score) {
+    if (data?.gyb) {
+      this._applyGybTotals(data.gyb);
+      this.gyb.end = data.gyb;
+    } else if (data?.score) {
       const [mine, theirs] = this._mine(data.score);
       this.teamScore = mine;
       this.oppScore = theirs;
@@ -1219,8 +1330,13 @@ export class GameState {
    * @param {Object} [opts]
    * @param {Array} [opts.players] - the v1 payload's players[] (pictures already folded)
    */
-  applySnapshot(snap, { players = null } = {}) {
+  applySnapshot(snap, { players = null, gyb = null } = {}) {
     if (!snap) return;
+    // The mode: a Get Your Bid table's snapshot comes with `gyb` beside it
+    // (the carrier's key); another game's snapshot without one is the base
+    // game; the same game's keeps what it is
+    if (gyb) this.setMode('gyb');
+    else if (!snap.gameId || snap.gameId !== this.gameId) this.setMode(null);
     const role = snap.viewer?.role || 'none';
     const sameDeal = snap.gameId === this.gameId && !!snap.deal && snap.deal.handNo === this.handNo &&
       (snap.deal.dealSeq ?? null) === (this.dealSeq ?? null);
@@ -1313,7 +1429,7 @@ export class GameState {
       this.playedCards.push({ card: { ...c.card }, position: c.position });
       this.currentTrick.push({ card: { ...c.card }, position: c.position });
     }
-    this.playedCardIndex = this.playedCards.length % 4;
+    this.playedCardIndex = this.playedCards.length % this.seatCount;
     if (cards.length) {
       this.leadPosition = snap.trick.leadPosition ?? cards[0].position;
       this.leadCard = { ...cards[0].card };
@@ -1325,7 +1441,8 @@ export class GameState {
     this.oppTricks = oppTricks;
     const total = teamTricks + oppTricks;
     this.trickNo = snap.trick?.number || (deal ? (this.isBidding ? 1 : total + 1) : 0);
-    const served = GameState._historyFromSnapshot(snap.trickHistory);
+    // (a Get Your Bid table's tricks hold three cards: gyb.trickHistory)
+    const served = gyb ? GameState._historyFromSnapshot(gyb.trickHistory, 3) : GameState._historyFromSnapshot(snap.trickHistory);
     if (served && this._historyMatches(served, snap.tricks)) this.trickHistory = served;
     else if (sameDeal && this._historyMatches(prevHistory, snap.tricks)) this.trickHistory = prevHistory;
     else this.trickHistory = GameState._unknownTricks(snap.tricks);
@@ -1334,6 +1451,11 @@ export class GameState {
     const [teamScore, oppScore] = this._mine(snap.score);
     this.teamScore = teamScore;
     this.oppScore = oppScore;
+    if (gyb) {
+      // each seat for itself: my tricks and score, the others'
+      this._applyGybTotals(gyb);
+      this._syncSoloTricks();
+    }
     const [teamRainbows, oppRainbows] = this._mine(snap.rainbows);
     this.teamRainbows = teamRainbows;
     this.oppRainbows = oppRainbows;
@@ -1370,7 +1492,11 @@ export class GameState {
   _reorient(pos) {
     const old = this.position || 1;
     this.position = pos;
-    if (old % 2 !== pos % 2) {
+    if (this.isSolo) {
+      // no teams: "mine" follows the seat itself
+      this._syncSoloTricks();
+      this._syncSoloScores();
+    } else if (old % 2 !== pos % 2) {
       [this.teamTricks, this.oppTricks] = [this.oppTricks, this.teamTricks];
       [this.teamScore, this.oppScore] = [this.oppScore, this.teamScore];
       [this.teamRainbows, this.oppRainbows] = [this.oppRainbows, this.teamRainbows];
@@ -1496,7 +1622,7 @@ export class GameState {
       });
       return;
     }
-    if (!Array.isArray(seats) || seats.length !== 4) {
+    if (!Array.isArray(seats) || seats.length !== this.seatCount) {
       if (this.position && this.playerData) this._updatePlayerNames();
       return;
     }
@@ -1547,6 +1673,10 @@ export class GameState {
     if (hand && position) seatCards[position] = hand.length;
     return {
       gameId: this.gameId,
+      // a Get Your Bid table: the mode, its seats' scores, this deal's Forbidden Bid
+      mode: this.mode,
+      seatCount: this.seatCount,
+      gyb: this.gyb ? { scores: [...this.gyb.scores], made: [...this.gyb.made], hands: this.gyb.hands, forbidden: this.gybForbidden() } : null,
       stage: this.stage,
       live,
       viewer: {

@@ -40,6 +40,10 @@ const clientInfo = require('./clientInfo');
  *   sent per socket (null: one broadcast)
  */
 function emitLobbiesUpdated(io) {
+    // A Get Your Bid lobby or table exists (gameMode.js): each main-room
+    // socket gets its own lists, with those only for a client that can
+    // show them. Otherwise everything below is exactly as before.
+    if (gameManager.hasGybActivity()) return emitLobbiesUpdatedPerSocket(io);
     const lobbies = gameManager.getAllLobbies();
     const tournaments = gameManager.getAllTournaments();
     const full = gameManager.getInProgressGames(null, { includeDemo: true });
@@ -68,6 +72,32 @@ function emitLobbiesUpdated(io) {
     const filteredPayload = payload(withoutDemo);
     for (const socketId of seeing) io.to(socketId).emit('lobbiesUpdated', fullPayload);
     for (const socketId of others) io.to(socketId).emit('lobbiesUpdated', filteredPayload);
+    return seeing;
+}
+
+/**
+ * emitLobbiesUpdated, one emit per main-room socket, each list built for
+ * that socket's caps (clientInfo.listOpts: wide entries, Get Your Bid) and
+ * audience (the ambient demo game).
+ * @returns {string[]} the socket ids that got the demo game listed
+ */
+function emitLobbiesUpdatedPerSocket(io) {
+    const tournaments = gameManager.getAllTournaments();
+    const lobbyLists = new Map();
+    const gameLists = new Map();
+    const seeing = [];
+    for (const socketId of gameManager.mainRoomSocketIds) {
+        const opts = clientInfo.listOpts(io?.sockets?.sockets?.get(socketId));
+        const user = gameManager.getUserBySocketId(socketId);
+        const sees = !!user && seesAmbientGame(user.username);
+        const lobbyKey = `${opts.wide}|${opts.gyb}`;
+        const gameKey = `${sees}|${opts.gyb}`;
+        if (!lobbyLists.has(lobbyKey)) lobbyLists.set(lobbyKey, gameManager.getAllLobbies(opts));
+        if (!gameLists.has(gameKey)) gameLists.set(gameKey, gameManager.getInProgressGames(null, { includeDemo: sees, gyb: opts.gyb }));
+        const inProgressGames = gameLists.get(gameKey);
+        if (sees && inProgressGames.some((g) => gameManager.getGameById(g.gameId)?.isDemo)) seeing.push(socketId);
+        io.to(socketId).emit('lobbiesUpdated', { lobbies: lobbyLists.get(lobbyKey), inProgressGames, tournaments });
+    }
     return seeing;
 }
 
@@ -177,7 +207,7 @@ function beginDraw(io, game, { announce = true } = {}) {
         if (e.presence === 'connected' || game.drawIDs.includes(e.socketId)) continue;
         autoDraw(io, game, e.socketId, e.username || 'Player');
     }
-    if (game.drawIndex === 4) {
+    if (game.drawIndex === game.seatCount) {
         handleDrawComplete(io, game).catch(err =>
             socketLogger.error('handleDrawComplete failed', { gameId: game.gameId, error: err.message, stack: err.stack })
         );

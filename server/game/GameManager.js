@@ -21,6 +21,7 @@ const MERGE_LOCKED = 'This account is being updated. Please try again in a minut
 const LEGACY_LIMIT = 'This lobby is limited to 4 players because someone in it is on an older app version';
 const TABLE_FULL = "The table is full — you'll watch this game";
 const TABLE_SIZE = 4;
+const { MODE, isGyb, seatsOf, normalizeMode, GYB_UNSUPPORTED } = require('./gameMode');
 const WIDE_LOBBY = 8;
 
 /** The voice room module, loaded lazily (it requires this one). */
@@ -262,7 +263,7 @@ class GameManager {
     /**
      * Add player to main room
      */
-    joinMainRoom(socketId, { wide = false } = {}) {
+    joinMainRoom(socketId, { wide = false, gyb = false } = {}) {
         // Validate user is registered
         const user = this.getUserBySocketId(socketId);
         if (!user) {
@@ -284,7 +285,7 @@ class GameManager {
         return {
             success: true,
             messages: this.mainRoomMessagesFor(user.username),
-            lobbies: this.getAllLobbies({ wide }),
+            lobbies: this.getAllLobbies({ wide, gyb }),
             onlineCount: this.mainRoomSocketIds.size,
             username: user.username
         };
@@ -393,9 +394,12 @@ class GameManager {
     /**
      * Get all lobbies for display
      */
-    getAllLobbies({ wide = false } = {}) {
+    getAllLobbies({ wide = false, gyb = false } = {}) {
         const lobbies = [];
         for (const [lobbyId, lobby] of this.lobbies) {
+            // A Get Your Bid lobby is listed only for a client that can
+            // show one (`gyb`: the clientHello cap getYourBid)
+            if (isGyb(lobby) && !gyb) continue;
             // A shipped client reads playerCount / maxPlayers / players and
             // shows a lobby of 4 or more as Full: they stay at most 4 (the
             // frozen $defs.lobby). memberCount / capacity / memberUsernames
@@ -405,7 +409,7 @@ class GameManager {
             const entry = {
                 id: lobbyId,
                 name: lobby.name || `${lobby.players[0]?.username || 'Unknown'}'s Game`,
-                playerCount: Math.min(lobby.players.length, TABLE_SIZE),
+                playerCount: Math.min(lobby.players.length, seatsOf(lobby)),
                 maxPlayers: 4,
                 players: lobby.players.slice(0, TABLE_SIZE).map(p => ({
                     username: p.username,
@@ -418,6 +422,12 @@ class GameManager {
                 entry.capacity = this.lobbyCapacity(lobby);
                 entry.memberUsernames = lobby.players.map(p => p.username);
             }
+            // additive: the mode and its table size (maxPlayers stays the
+            // frozen 4; a client that knows the mode reads `seats`)
+            if (isGyb(lobby)) {
+                entry.mode = MODE.GYB;
+                entry.seats = seatsOf(lobby);
+            }
             lobbies.push(entry);
         }
         return lobbies;
@@ -426,7 +436,7 @@ class GameManager {
     /**
      * Create a named lobby from main room
      */
-    createNamedLobby(socketId, name = null, { capable = false, io = null } = {}) {
+    createNamedLobby(socketId, name = null, { capable = false, io = null, mode = null } = {}) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
         // One membership per socket (a finished tournament's results window
         // does not count)
@@ -478,6 +488,9 @@ class GameManager {
             // Sockets that announced casualSpectators (lobbyCapacity)
             capable: new Set(capable ? [socketId] : [])
         };
+        // The game mode (gameMode.js): only 'gyb' is ever set; absent is
+        // the base game. Fixed for the lobby's life (and its play-again copy)
+        if (normalizeMode(mode) === MODE.GYB) lobby.mode = MODE.GYB;
 
         this.lobbies.set(lobbyId, lobby);
         this.playerLobbies.set(socketId, lobbyId);
@@ -490,8 +503,10 @@ class GameManager {
     /**
      * Join a specific lobby by ID
      */
-    joinSpecificLobby(socketId, lobbyId, { capable = false, io = null } = {}) {
+    joinSpecificLobby(socketId, lobbyId, { capable = false, io = null, gyb = false } = {}) {
         if (this._mergeLockedUser(socketId)) return { success: false, error: MERGE_LOCKED };
+        // A Get Your Bid lobby only takes a client that can show one
+        if (isGyb(this.lobbies.get(lobbyId)) && !gyb) return { success: false, error: GYB_UNSUPPORTED };
         // Already seated in THIS lobby (a socket that took its held seat
         // back in place, sessionIdentity.clearSuperseded, then re-sends the
         // join as clients do after a restore): the lobby again, no change
@@ -535,7 +550,7 @@ class GameManager {
         // app never sees more than 4, and a lobby with one in stays at 4
         const capacity = this.lobbyCapacity(lobby, capable);
         if (lobby.players.length >= capacity) {
-            const legacyLimited = capable && capacity === TABLE_SIZE && lobby.players.length < WIDE_LOBBY;
+            const legacyLimited = capable && capacity === seatsOf(lobby) && lobby.players.length < WIDE_LOBBY;
             return { success: false, error: legacyLimited ? LEGACY_LIMIT : 'Lobby is full' };
         }
         // Places saved for the last game's players who are not back yet
@@ -832,10 +847,11 @@ class GameManager {
      */
     lobbyCapacity(lobby, joinerCapable = null) {
         if (!lobby) return TABLE_SIZE;
-        if (joinerCapable === false) return TABLE_SIZE;
+        const seats = seatsOf(lobby);
+        if (joinerCapable === false) return seats;
         const caps = lobby.capable instanceof Set ? lobby.capable : new Set();
         const allCapable = lobby.players.every(p => p.isBot || caps.has(p.socketId));
-        return allCapable ? WIDE_LOBBY : TABLE_SIZE;
+        return allCapable ? WIDE_LOBBY : seats;
     }
 
     /** Is lobby member `p` a seat held for its reconnect grace? */
@@ -890,7 +906,7 @@ class GameManager {
     tableBots(lobby) {
         const bots = lobby.players.filter(p => p.isBot);
         const humans = lobby.players.length - bots.length;
-        return bots.slice(0, Math.max(0, TABLE_SIZE - humans));
+        return bots.slice(0, Math.max(0, seatsOf(lobby) - humans));
     }
 
     /**
@@ -902,7 +918,7 @@ class GameManager {
     lobbyTable(lobby) {
         const table = this.tableBots(lobby);
         for (const sid of lobby.readyPlayers) {
-            if (table.length >= TABLE_SIZE) break;
+            if (table.length >= seatsOf(lobby)) break;
             const p = lobby.players.find(x => x.socketId === sid && !x.isBot);
             if (p && p.ready && this.playerLobbies.get(sid) === lobby.id) table.push(p);
         }
@@ -916,7 +932,7 @@ class GameManager {
      */
     lobbyTableReady(lobby) {
         const table = this.lobbyTable(lobby);
-        return table.length === TABLE_SIZE && table.every(p => lobby.readyPlayers.has(p.socketId));
+        return table.length === seatsOf(lobby) && table.every(p => lobby.readyPlayers.has(p.socketId));
     }
 
     /**
@@ -927,11 +943,12 @@ class GameManager {
     readyBotsAfterHumanReady(lobbyId) {
         const lobby = this.lobbies.get(lobbyId);
         if (!lobby) return;
-        if (lobby.players.length === TABLE_SIZE) {
+        const seats = seatsOf(lobby);
+        if (lobby.players.length === seats) {
             this.setBotsReady(lobbyId);
             return;
         }
-        if (lobby.players.length > TABLE_SIZE && this.lobbyTable(lobby).length === TABLE_SIZE) {
+        if (lobby.players.length > seats && this.lobbyTable(lobby).length === seats) {
             for (const bot of this.tableBots(lobby)) {
                 bot.ready = true;
                 lobby.readyPlayers.add(bot.socketId);
@@ -952,7 +969,7 @@ class GameManager {
      *   list and starts the lobby)
      */
     readyTableBotsIfFull(lobby) {
-        if (!lobby || this.lobbyTable(lobby).length !== TABLE_SIZE) return false;
+        if (!lobby || this.lobbyTable(lobby).length !== seatsOf(lobby)) return false;
         let readied = false;
         for (const bot of this.tableBots(lobby)) {
             if (lobby.readyPlayers.has(bot.socketId)) continue;
@@ -987,7 +1004,7 @@ class GameManager {
      * Sitting out).
      */
     lobbyExtrasWire(lobby) {
-        const wide = lobby.players.length > TABLE_SIZE;
+        const wide = lobby.players.length > seatsOf(lobby);
         const seated = new Set(this.lobbyTable(lobby).map(p => p.socketId));
         const members = lobby.players.map(p => {
             const m = { ...this._memberWire(p), playing: wide ? seated.has(p.socketId) : true };
@@ -1028,7 +1045,10 @@ class GameManager {
             lobbyId: lobby.id,
             players: this.lobbyPlayersWire(lobby),
             ...own,
-            ...(withReconnecting ? this.reconnectingField(lobby.id) : {})
+            ...(withReconnecting ? this.reconnectingField(lobby.id) : {}),
+            // A Get Your Bid lobby says so on every lobby event (additive;
+            // every member announced the cap getYourBid)
+            ...(isGyb(lobby) ? { mode: MODE.GYB } : {})
         };
         return to != null && lobby.capable instanceof Set && lobby.capable.has(to)
             ? { ...wire, ...this.lobbyExtrasWire(lobby) }
@@ -1064,7 +1084,7 @@ class GameManager {
         // only be full with every member in it)
         if (!lobby.readyPlayers.has(socketId)) {
             const table = this.lobbyTable(lobby);
-            if (table.length >= TABLE_SIZE && !table.some(p => p.socketId === socketId)) {
+            if (table.length >= seatsOf(lobby) && !table.some(p => p.socketId === socketId)) {
                 return { success: false, error: TABLE_FULL, tableFull: true, lobby };
             }
         }
@@ -1136,7 +1156,7 @@ class GameManager {
 
         // A lobby open to 8 never resets the others' ready flags on a leave
         // (the first 4 to tap Ready keep their seats); a lobby of 4 does
-        const wide = this.lobbyCapacity(lobby) > TABLE_SIZE;
+        const wide = this.lobbyCapacity(lobby) > seatsOf(lobby);
         // Nor does a play-again hold going (expiry, "Don't wait", sign-out,
         // eviction): that person was never ready, and a reset would put
         // iOS's local isReady out of step (removeBotFromLobby, 2026-11-13)
@@ -1188,7 +1208,7 @@ class GameManager {
             success: true,
             lobby,
             playerLeft: socketId,
-            needsMorePlayers: lobby.players.length < 4,
+            needsMorePlayers: lobby.players.length < seatsOf(lobby),
             ...(botsReadied ? { botsReadied: true } : {})
         };
     }
@@ -1250,7 +1270,7 @@ class GameManager {
         this.lobbies.delete(lobbyId);
 
         // Create the actual game
-        const game = this.createGame(playerSocketIds);
+        const game = this.createGame(playerSocketIds, { mode: lobby.mode });
         game.lobbyOrigin = lobbyOrigin;
 
         // A casual game's voice room (players + spectators; never a
@@ -1291,7 +1311,7 @@ class GameManager {
         }
 
         // (a place saved for the last game's player counts: play again)
-        if (lobby.players.length >= 4 || playAgain().reservationBlocks(lobby)) {
+        if (lobby.players.length >= seatsOf(lobby) || playAgain().reservationBlocks(lobby)) {
             return { success: false, error: 'Lobby is full' };
         }
 
@@ -1411,12 +1431,12 @@ class GameManager {
      */
     readyBotsIfHumansReady(lobbyId) {
         const lobby = this.lobbies.get(lobbyId);
-        if (!lobby || lobby.players.length !== 4) return false;
+        if (!lobby || lobby.players.length !== seatsOf(lobby)) return false;
         const humans = lobby.players.filter(p => !p.isBot);
         if (!humans.every(p => p.ready && lobby.readyPlayers.has(p.socketId))) return false;
         if (this.reconnectingIn(lobbyId).length > 0) return false;
         this.setBotsReady(lobbyId);
-        return lobby.readyPlayers.size === 4;
+        return lobby.readyPlayers.size === seatsOf(lobby);
     }
 
     // ==================== END BOT METHODS ====================
@@ -1426,9 +1446,9 @@ class GameManager {
     /**
      * Create new game with players
      */
-    createGame(playerSocketIds) {
+    createGame(playerSocketIds, { mode } = {}) {
         const gameId = uuidv4();
-        const game = new GameState(gameId);
+        const game = new GameState(gameId, { mode });
 
         playerSocketIds.forEach((socketId) => {
             this.playerGames.set(socketId, gameId);
@@ -1723,13 +1743,15 @@ class GameManager {
      * @param {{includeDemo?: boolean}} [opts]
      * @returns {Array} - Array of { gameId, players, currentHand, score, spectatorCount }
      */
-    getInProgressGames(viewer, { includeDemo } = {}) {
+    getInProgressGames(viewer, { includeDemo, gyb = false } = {}) {
         const showDemo = includeDemo ?? seesAmbientGame(viewer);
         const games = [];
         for (const [gameId, game] of this.games) {
             if (game.phase === 'waiting' || game.phase === 'drawing') continue;
             if (this.tournamentGames.has(gameId)) continue;
             if (game.isDemo && !showDemo) continue;
+            // A Get Your Bid table: only for a client that can show one
+            if (isGyb(game) && !gyb) continue;
 
             const players = [];
             for (let pos = 1; pos <= 4; pos++) {
@@ -1744,10 +1766,19 @@ class GameManager {
                 players,
                 currentHand: game.currentHand,
                 score: game.score,
-                spectatorCount: game.getSpectators().length
+                spectatorCount: game.getSpectators().length,
+                // additive: the mode and each seat's score, by position - 1
+                ...(isGyb(game) ? { mode: MODE.GYB, scores: game.gybWire().scores } : {})
             });
         }
         return games;
+    }
+
+    /** Is there a Get Your Bid lobby or live table (gameLifecycle.emitLobbiesUpdated)? */
+    hasGybActivity() {
+        for (const lobby of this.lobbies.values()) if (isGyb(lobby)) return true;
+        for (const game of this.games.values()) if (isGyb(game) && !game.isTerminal()) return true;
+        return false;
     }
 
     /**

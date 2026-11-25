@@ -212,7 +212,7 @@ describe('clientHello wiring', () => {
     s.emit('rejoinGame', {});
     s.fire('connect');
     expect(s.sent.map(([ev]) => ev)).toEqual(['clientHello', 'restoreSession', 'rejoinGame', 'clientHello']);
-    expect(s.sent[0][1]).toEqual({ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'] });
+    expect(s.sent[0][1]).toEqual({ client: 'web', version: '1.0.0', build: 'abc1234', caps: ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'getYourBid'] });
   });
 
   test('installed while connected: hello now, and on every reconnect', () => {
@@ -236,8 +236,8 @@ describe('clientHello wiring', () => {
     const s = mockSocket();
     delete s.onAny;
     expect(() => installAvatarSupport(s, {})).not.toThrow();
-    expect(s.sent[0]).toEqual(['clientHello', { client: 'web', version: '0.0.0', build: '', caps: ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'] }]);
-    expect(clientHello(undefined, undefined)).toEqual({ client: 'web', version: '0.0.0', build: '', caps: ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView'] });
+    expect(s.sent[0]).toEqual(['clientHello', { client: 'web', version: '0.0.0', build: '', caps: ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'getYourBid'] }]);
+    expect(clientHello(undefined, undefined)).toEqual({ client: 'web', version: '0.0.0', build: '', caps: ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'getYourBid'] });
   });
 });
 

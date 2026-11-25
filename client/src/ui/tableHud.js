@@ -160,7 +160,9 @@ function applyRootVars(hud, L) {
   set('--canvas-w', L.w);
   set('--canvas-h', L.h);
   // avatars and plates
-  const av = L.seats.partner.avatar;
+  // (every seat's avatar, frog and badge are one size; a three-seat table has no partner)
+  const anySeat = L.seats.partner || L.seats.opp1;
+  const av = anySeat.avatar;
   set('--av-img', av.img);
   set('--av-border', av.border);
   set('--av', av.size);
@@ -170,10 +172,10 @@ function applyRootVars(hud, L) {
   set('--plate-font', L.plate.font);
   set('--plate-lh', L.plate.lh);
   set('--plate-pad', Math.max(2, 8 * L.s));
-  set('--frog', L.seats.partner.dealer.size);
+  set('--frog', anySeat.dealer.size);
   // the avatar badge (ui/seatPlates.js): its size; the ring corner's origin
   // (the eye's spot) from the ring's top left; the badge from that origin
-  const badge = L.seats.partner.seatBadge;
+  const badge = anySeat.seatBadge;
   set('--seat-badge', badge.size);
   set('--ring-corner-left', badge.eye.dx + av.size / 2);
   set('--ring-corner-top', badge.eye.dy + av.size / 2);

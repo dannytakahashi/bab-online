@@ -242,7 +242,7 @@ function handleDrawPhaseLeave(socket, io, game, { notify = true } = {}) {
 
     // Only when this leave supplied the 4th card: if the leaver had already
     // drawn, the 4th draw has already started handleDrawComplete
-    if (drewNow && game.drawIndex === 4) {
+    if (drewNow && game.drawIndex === game.seatCount) {
         const { handleDrawComplete } = require('./gameHandlers');
         handleDrawComplete(io, game).catch(err =>
             socketLogger.error('handleDrawComplete failed', { gameId: game.gameId, error: err.message, stack: err.stack })

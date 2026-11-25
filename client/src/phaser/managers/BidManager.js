@@ -31,13 +31,24 @@
  * that seat's countdown (aria-label "Alice: N seconds to bid", never
  * announced). Nothing is ever sent from it; the player's own in-progress
  * selection is not on the wire and is not shown.
+ *
+ * Get Your Bid (owner 2026-11-24; GameState.isSolo): no bores row, and the
+ * last bidder's Forbidden Bid (rules/bids.js gybForbidden: the number that
+ * would make the three bids add up to a hand of 5 or more cards) is on the
+ * sheet but cannot be bid: its button is disabled, struck through and
+ * marked with the no-entry sign (`.bid-button.is-forbidden`, named
+ * "N, the Forbidden Bid" for a screen reader), and a line under the title
+ * says "Forbidden Bid: N" (`.bid-sheet__forbidden`; it keeps its height
+ * while empty, so the sheet never jumps). The trick chips are coloured by
+ * seat (three colours), mine first.
  */
 
 import { getGameState } from '../../state/GameState.js';
 import { getHud } from '../../ui/tableHud.js';
 import { motionMs } from '../../ui/motion.js';
 import { BID_SHEET, BID_CHIP, BID_SHEET_PAD, BID_SHEET_BORDER } from '../layout/computeTableLayout.js';
-import { BORES, bidTotalsFor } from '../../rules/bids.js';
+import { BORES, bidTotalsFor, bidTricks } from '../../rules/bids.js';
+import { seatsAround, seatLetter } from '../../utils/positions.js';
 import { getMyAction } from '../../state/MyAction.js';
 import { NOTICE } from '../../state/noticeText.js';
 import { showNotice } from '../../ui/components/Toast.js';
@@ -143,6 +154,16 @@ export class BidManager {
     this.bidContainer.appendChild(header);
     this.titleRow = header;
 
+    // Get Your Bid: the Forbidden Bid's line (empty until it applies)
+    this.forbiddenLine = null;
+    if (this.state.isSolo) {
+      this.bidContainer.classList.add('bid-sheet--solo');
+      this.forbiddenLine = document.createElement('div');
+      this.forbiddenLine.className = 'bid-sheet__forbidden';
+      this.forbiddenLine.setAttribute('role', 'status');
+      this.bidContainer.appendChild(this.forbiddenLine);
+    }
+
     // Trick indicator: one chip per trick (the sheet's width: an overbid's
     // chips shrink to fit instead of sticking out past the sheet)
     this.handSize = handSize;
@@ -174,6 +195,8 @@ export class BidManager {
       }
       const btn = this.createBidButton(i.toString(), () => {
         if (this._refuseOffTurn()) return;
+        // the Forbidden Bid is never sent (its button is disabled too)
+        if (btn.classList.contains('is-forbidden')) return;
         this.chooseBid(btn, i.toString(), onBidSelect);
       });
       this.allBidButtons.push(btn);
@@ -181,12 +204,12 @@ export class BidManager {
     }
     this.bidContainer.appendChild(numericRow);
 
-    // Bore row (B, 2B, 3B, 4B): a segmented control
+    // Bore row (B, 2B, 3B, 4B): a segmented control (no bores in Get Your Bid)
     const boreRow = document.createElement('div');
     boreRow.className = 'bid-bores';
     boreRow.setAttribute('role', 'group');
     boreRow.setAttribute('aria-label', 'Bores');
-    BORES.forEach((bid) => {
+    (this.state.isSolo ? [] : BORES).forEach((bid) => {
       if (this.readOnly) {
         const choice = this.createBidChoice(bid, true);
         choice.dataset.bid = bid;
@@ -205,7 +228,7 @@ export class BidManager {
       this.allBidButtons.push(btn);
       boreRow.appendChild(btn);
     });
-    this.bidContainer.appendChild(boreRow);
+    if (!this.state.isSolo) this.bidContainer.appendChild(boreRow);
 
     // Update bore button states
     this.updateBoreButtonStates();
@@ -290,7 +313,8 @@ export class BidManager {
       const on = !!this.suggestedBid && b.textContent === this.suggestedBid;
       b.classList.toggle('is-suggested', on);
       if (on) b.setAttribute('aria-label', `${b.textContent} (suggested)`);
-      else b.removeAttribute('aria-label');
+      // (the Forbidden Bid keeps its own name: updateForbidden)
+      else if (!b.classList.contains('is-forbidden')) b.removeAttribute('aria-label');
     }
   }
 
@@ -333,9 +357,69 @@ export class BidManager {
     this._setUnavailable(this.boreButtons['3B'], !has2B || has3B);
     this._setUnavailable(this.boreButtons['4B'], !has3B || has4B);
 
+    this.updateForbidden();
     this.updateTrickIndicator();
     // a bid came in (mine ends my clock)
     this.syncClock();
+  }
+
+  /**
+   * Get Your Bid: mark the Forbidden Bid (GameState.gybForbidden) on the
+   * sheet of the seat it binds, the last bidder: mine, or the watched
+   * seat's on a read-only sheet. Every other number stays open.
+   */
+  updateForbidden() {
+    if (!this.state.isSolo || !this.bidContainer) return;
+    const f = this.state.gybForbidden();
+    const mine = !!f && f.position === this.state.position;
+    const label = mine ? String(f.bid) : null;
+    for (const b of this.allBidButtons || []) {
+      const on = label !== null && b.textContent === label;
+      const was = b.classList.contains('is-forbidden');
+      if (on === was) continue;
+      b.classList.toggle('is-forbidden', on);
+      this._setUnavailable(b, on);
+      if (on) {
+        b.setAttribute('aria-label', `${label}, the Forbidden Bid`);
+        b.title = 'The Forbidden Bid: the bids may not add up to the hand';
+      } else {
+        b.removeAttribute('aria-label');
+        b.removeAttribute('title');
+      }
+    }
+    if (this.forbiddenLine) {
+      const text = mine ? `Forbidden Bid: ${label}` : '';
+      if (this.forbiddenLine.textContent !== text) this.forbiddenLine.textContent = text;
+      this.forbiddenLine.classList.toggle('is-on', mine);
+    }
+  }
+
+  /**
+   * Get Your Bid's trick chips: each seat's bid in its own colour, mine
+   * first, then the next seats in turn; past the hand size an overbid.
+   */
+  _updateSoloIndicator() {
+    const me = this.state.position || 1;
+    const { opp1, opp2 } = seatsAround(me, 3);
+    const runs = [me, opp1, opp2].map((p) => ({ letter: seatLetter(p, 3), n: bidTricks(this.state.bids?.[p], this.handSize) ?? 0, mine: p === me }));
+    const totalBid = runs.reduce((n, r) => n + r.n, 0);
+    const totalNeeded = Math.min(Math.max(totalBid, this.handSize), 16);
+    while (this.trickIndicators.length < totalNeeded) {
+      const rect = this.createIndicatorRect();
+      this.trickIndicators.push(rect);
+      this.indicatorRow.appendChild(rect);
+    }
+    while (this.trickIndicators.length > totalNeeded) this.trickIndicators.pop().remove();
+    const owner = [];
+    for (const r of runs) for (let k = 0; k < r.n; k++) owner.push(r);
+    for (let i = 0; i < this.trickIndicators.length; i++) {
+      const rect = this.trickIndicators[i];
+      const r = owner[i] || null;
+      rect.classList.toggle('is-team', !!r && r.mine);
+      rect.classList.toggle('is-opp', !!r && !r.mine);
+      for (const letter of ['a', 'b', 'c']) rect.classList.toggle(`is-team-${letter}`, !!r && r.letter === letter);
+      rect.classList.toggle('is-overbid', i >= this.handSize);
+    }
   }
 
   /**
@@ -353,6 +437,10 @@ export class BidManager {
    */
   updateTrickIndicator() {
     if (!this.indicatorRow) return;
+    if (this.state.isSolo) {
+      this._updateSoloIndicator();
+      return;
+    }
 
     const myTeam = this.state.position % 2;
     // a bore counts as the whole hand, each team capped at the hand size

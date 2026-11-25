@@ -93,7 +93,10 @@ const schemas = {
     // Lobby creation — the name is run through the profanity filter, so it
     // must be length-capped here
     createLobby: Joi.object({
-        name: Joi.string().max(50).allow('', null).optional()
+        name: Joi.string().max(50).allow('', null).optional(),
+        // The game mode (server/game/gameMode.js): 'gyb' is Get Your Bid;
+        // absent or 'classic' the base game
+        mode: Joi.string().valid('classic', 'gyb').optional()
     }),
 
     // Hardening (V1_REMOVALS #18): both clients send these shapes (web on

@@ -200,6 +200,39 @@ After all 13 hands are completed:
 
 ---
 
+## Get Your Bid
+
+A second way to play, chosen when a game is created (**+ Create Game → Get Your Bid**). On the website only, in casual lobbies (not tournaments). These games are not counted in statistics, standings or records.
+
+- **3 players, no teams.** Everyone plays for themselves. A lobby starts when three players are ready; anyone else in the lobby watches
+- **The same 13 hands** (12 → 10 → 8 → 6 → 4 → 2 → 1 → 3 → 5 → 7 → 9 → 11 → 13) and **the same card play**: follow suit, trump can't be led until it is broken, and a HI joker lead makes both other players play their highest trump
+- **Seats**: everyone draws a card; the highest deals first
+- **Bidding**: numbers only, there is no bore. The highest bidder leads (the first of equals in bidding order)
+- **The Forbidden Bid**: on hands of 5 or more cards, the bids may not add up to the number of cards. The last player to bid (the dealer) cannot bid the number that would make them add up. Example, on the 12: the first player bids 5, the second bids 4, so the third cannot bid 3 and may bid anything else. Hands of 4 cards or fewer have no Forbidden Bid, and neither does a hand where the first two bids already exceed the cards
+- **All zeros is played**, not redealt: the first player to bid zero leads
+- **The bid timer** works as in the main game. If it runs out it bids 0 for you, or 1 when 0 is your Forbidden Bid
+
+### Scoring
+
+You score only by taking **exactly** the tricks you bid.
+
+| | Points |
+| --- | --- |
+| Took exactly your bid | 10 + your bid (bid 1, took 1: 11) |
+| Bid 0, took 0 | 5 |
+| Anything else (over or under) | 0 |
+| Took exactly your Forbidden Bid | 1 |
+
+There is no penalty for missing: a missed bid scores nothing, never less. There is no rainbow bonus. After the 13 hands the highest score wins; equal top scores share the win.
+
+### What is different at the table
+
+- The hand strength index (HSI) is not shown
+- `/help` and the tutorial are not available
+- A player who leaves, goes idle or uses `/lazy` is replaced by a bot, as in the main game. The bots here simply try to take exactly what they bid
+
+---
+
 ## Suggestions (/help)
 
 - On your turn, type `/help` in the game chat (in the iOS app, type `?help`, exactly that; newer versions also accept `/help`) to see the bid or card our strongest bot would choose in your seat, with a short reason. It is a strong guess, not a guarantee

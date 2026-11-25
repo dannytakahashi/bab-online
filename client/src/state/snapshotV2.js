@@ -132,7 +132,8 @@ function validate(s, c) {
   c.nullable(s.hsi, '$.hsi', (h, p) => c.arr(h, p, 4) && h.every((x, i) => c.nullable(x, `${p}[${i}]`, c.num)));
 
   if (c.arr(s.seats, '$.seats')) {
-    if (s.seats.length !== 0 && s.seats.length !== 4) c.fail('$.seats', `expected 0 or 4 seats, got ${s.seats.length}`);
+    // (three at a Get Your Bid table)
+    if (![0, 3, 4].includes(s.seats.length)) c.fail('$.seats', `expected 0, 3 or 4 seats, got ${s.seats.length}`);
     s.seats.forEach((st, i) => {
       const p = `$.seats[${i}]`;
       if (!c.obj(st, p)) return;

@@ -24,6 +24,7 @@ import { getClientErrorReporter } from './telemetry/clientErrors.js';
 // Rules
 import { isLegalMove } from './rules/legality.js';
 import { bidTotalsFor } from './rules/bids.js';
+import { soloHeaderRows, formatSoloGameEndMessages } from './state/gyb.js';
 
 // State
 import { PHASE, getGameState } from './state/GameState.js';
@@ -333,6 +334,13 @@ window.updateGameLogScoreFromLegacy = function(teamNames, oppNames, teamScore, o
   } else {
     console.warn('Game log not initialized, score update dropped');
   }
+};
+
+// The same for a three-seat table (Get Your Bid): one row per player
+// (state/gyb.js soloHeaderRows; GameLog.updateSoloScore)
+window.updateGameLogSoloScore = function(rows) {
+  if (gameLogInstance && gameLogInstance.updateSoloScore) gameLogInstance.updateSoloScore(rows);
+  else console.warn('Game log not initialized, score update dropped');
 };
 
 // Bridge for updating game log hand indicator
@@ -971,6 +979,7 @@ function initializeApp() {
           myPosition: gameState.position,
           owners: gameState.seatOwners,
           spectator: session.isSpectator,
+          seats: gameState.seatCount,
         });
         if (slotId) {
           const el = slotId === 'bottom' && isShoulder(gameState)
@@ -1170,6 +1179,8 @@ function initializeApp() {
       capacity: data.capacity,
       // play again: the last game's older-app players whose place is saved
       expected: data.expected,
+      // the lobby's game mode ('gyb': Get Your Bid, three seats; absent: the base game)
+      mode: data.mode,
       messages: (data.messages || []).filter(m => !isUserBlocked(m.username))
     };
   }
@@ -1668,7 +1679,9 @@ function initializeApp() {
     },
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
-      // The game will start via positionUpdate/gameStart events
+      // The game's mode before its draw (Get Your Bid: three seats); the
+      // game itself starts via positionUpdate/gameStart events
+      gameState.setMode(data?.mode);
     },
 
     // Spectator callback
@@ -1729,7 +1742,9 @@ function initializeApp() {
       console.log('📍 onPositionUpdate callback');
       // GameState applied the seating (handlers/gameHandlers.js). A log
       // already up (a spectator's draw) names the teams now, not at the deal
-      if (gameLogInstance?.container?.isConnected) {
+      if (gameLogInstance?.container?.isConnected && gameState.isSolo) {
+        gameLogInstance.updateSoloScore?.(soloHeaderRows(gameState, { spectator: !!gameState.isSpectator }));
+      } else if (gameLogInstance?.container?.isConnected) {
         const { teamName, oppName } = scoreHeaderNames(gameState.position, gameState.playerData, { spectator: !!gameState.isSpectator });
         gameLogInstance.updateNames(teamName, oppName);
       }
@@ -1981,8 +1996,10 @@ function initializeApp() {
         if (scene.trickManager && data.bids) {
           // Bids array is indexed by position-1; a bore counts as the whole
           // hand and each total is capped at the hand size (rules/bids.js)
-          const totals = bidTotalsFor(data.bids, gameState.position || 1, gameState.currentHand);
-          scene.trickManager.setBidTotals(totals.team, totals.opp);
+          const totals = bidTotalsFor(data.bids, gameState.position || 1, gameState.currentHand, gameState.seatCount);
+          // (a Get Your Bid table: my own pile and one per opponent)
+          if (gameState.isSolo) scene.trickManager.setBidTotals(totals.team, totals.opp1, totals.opp2);
+          else scene.trickManager.setBidTotals(totals.team, totals.opp);
           scene.trickManager.createTrickBackgrounds();
         }
       });
@@ -2036,6 +2053,22 @@ function initializeApp() {
       // Spectators view from position 1 but aren't on either team
       const position = gameState.position;
       const isSpectator = gameState.isSpectator;
+      if (data.gyb) {
+        // Get Your Bid: three players, each for themselves
+        const pd = gameState.playerData;
+        formatSoloGameEndMessages(data.gyb, pd, { myPosition: position, isSpectator }).forEach((msg) => window.addToGameFeedFromLegacy(msg));
+        window.updateGameLogSoloScore(soloHeaderRows(gameState, { spectator: !!isSpectator }));
+        session.endGame();
+        showFinalScoreOverlay({
+          solo: { end: data.gyb, playerData: pd, myPosition: isSpectator ? null : position },
+          isSpectator,
+          onReturnToLobby: () => {
+            if (returnToReopenedLobby()) return;
+            session.exitTable(EXIT.GAME_END_RETURN);
+          },
+        });
+        return;
+      }
       let teamScore, oppScore;
       if (position % 2 !== 0) {
         teamScore = data.score.team1;

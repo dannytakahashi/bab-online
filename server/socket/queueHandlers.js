@@ -115,7 +115,7 @@ function routeGameDisconnect(socket, io, result) {
         // Auto-draw for the disconnected player (random card); a no-op
         // if they already drew or the draw is no longer open
         const { autoDraw, handleDrawComplete } = require('./gameHandlers');
-        if (autoDraw(io, game, socket.id, username) && game.drawIndex === 4) {
+        if (autoDraw(io, game, socket.id, username) && game.drawIndex === game.seatCount) {
             // This draw completed the phase
             handleDrawComplete(io, game).catch(err =>
                 socketLogger.error('handleDrawComplete failed', { gameId: result.gameId, error: err.message, stack: err.stack })

@@ -13,6 +13,7 @@ const { botController, personalities } = require('../game/bot');
 const { getDisplayName } = personalities;
 const gameVoice = require('../voice/gameVoice');
 const clientInfo = require('./clientInfo');
+const { isGyb, seatsOf } = require('../game/gameMode');
 const playAgain = require('./playAgain');
 
 /**
@@ -126,7 +127,9 @@ async function startLobbyIfAllReady(io, lobby) {
     startResult.players.forEach(socketId => {
         if (!gameManager.isBot(socketId)) {
             io.to(socketId).emit('allPlayersReady', {
-                gameId: game.gameId
+                gameId: game.gameId,
+                // additive: a Get Your Bid table (3 seats; gameMode.js)
+                ...(isGyb(game) ? { mode: game.mode } : {})
             });
         }
     });
@@ -276,7 +279,8 @@ function leaveLobby(socket, io) {
     const user = gameManager.getUserBySocketId(socket.id);
 
     // Auto-rejoin main room
-    const mainRoomResult = gameManager.joinMainRoom(socket.id, { wide: clientInfo.hasCap(socket, gameVoice.CAP) });
+    const lists = clientInfo.listOpts(socket);
+    const mainRoomResult = gameManager.joinMainRoom(socket.id, lists);
     socket.join('mainRoom');
 
     // Compute online users once so count and list always agree
@@ -289,7 +293,7 @@ function leaveLobby(socket, io) {
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username),
+        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username, { gyb: lists.gyb }),
         tournaments: gameManager.getAllTournaments()
     });
 
@@ -452,7 +456,7 @@ async function addBot(socket, io) {
     }
 
     // (a place saved for the last game's player counts: play again)
-    if (lobby.players.length >= 4 || playAgain.reservationBlocks(lobby)) {
+    if (lobby.players.length >= seatsOf(lobby) || playAgain.reservationBlocks(lobby)) {
         emitError(socket, { message: 'Lobby is full' }, 'addBot');
         playAgain.announceSettled(io, settled, socket.id);
         return;

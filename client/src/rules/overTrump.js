@@ -55,15 +55,18 @@ export function trickWinnerIndex(trick, trump) {
  * Is the LAST card of `trick` an over-trump?
  * @param {Array<{card, position}>} trick - play order, the lead first
  * @param {Object} trump - the trump card
+ * @param {Object} [opts]
+ * @param {boolean} [opts.solo=false] - no partners (a Get Your Bid table):
+ *   every other seat is an opponent
  * @returns {boolean}
  */
-export function isOverTrump(trick, trump) {
+export function isOverTrump(trick, trump, { solo = false } = {}) {
   if (!Array.isArray(trick) || trick.length < 3 || !trump) return false;
   if (isTrumpCard(trick[0].card, trump)) return false;
   const last = trick[trick.length - 1];
   if (!isTrumpCard(last.card, trump)) return false;
   const before = trick[trickWinnerIndex(trick.slice(0, -1), trump)];
   if (!isTrumpCard(before.card, trump)) return false;
-  if (before.position % 2 === last.position % 2) return false;
+  if (solo ? before.position === last.position : before.position % 2 === last.position % 2) return false;
   return trickWinnerIndex(trick, trump) === trick.length - 1;
 }

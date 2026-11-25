@@ -31,7 +31,7 @@
  * the seats whose badge just came from a live event: one short pop
  * (a fade under reduced motion), never for a snapshot.
  */
-import { team } from '../utils/positions.js';
+import { team, seatLetter } from '../utils/positions.js';
 import { isBore, bidTricks, teamBidTotal } from '../rules/bids.js';
 import { watchersBySeat, watchTitle, seatEyeNames } from '../state/shoulder.js';
 import { EYE_ICON } from './components/SpectatorBadge.js';
@@ -211,6 +211,9 @@ export function updateSeatPlates(root, s) {
   const watched = watchersBySeat(s.watching);
   for (const ring of root.querySelectorAll('.hud-avatar-ring[data-position]')) {
     const pos = Number(ring.dataset.position);
+    // the seat's colour: its team's, or its own at a three-seat table (Get Your Bid)
+    const letter = seatLetter(pos, s.seatCount || 4);
+    if (ring.dataset.team !== letter) ring.dataset.team = letter;
     updateWatchChip(ring, seatEyeNames(s, pos, watched[pos]), s, pos);
     // the chip: this seat's bid, once placed
     const chip = ring.querySelector(':scope > .hud-bid-chip');
@@ -223,11 +226,13 @@ export function updateSeatPlates(root, s) {
     // the pips: the seat's own tricks out of its own bid, after the bidding
     const pips = ring.querySelector(':scope > .hud-pips');
     if (!pips) continue;
-    const placed = bidTricks(bids[pos], s.currentHand) !== null && bidTricks(bids[team(pos)], s.currentHand) !== null;
+    // (no partner at a three-seat table: the seat's own bid is enough)
+    const placed = bidTricks(bids[pos], s.currentHand) !== null &&
+      (s.isSolo || bidTricks(bids[team(pos)], s.currentHand) !== null);
     const { need, won, title } = seatPips(s, pos, me);
     const show = !s.isBidding && placed && need + won > 0;
     const n = show ? Math.min(MAX_PIPS, Math.max(need, won)) : 0;
-    pips.dataset.team = teamLetter(pos);
+    pips.dataset.team = letter;
     pips.classList.toggle('is-bore', show && isBore(bid));
     if (pips.childElementCount !== n) {
       pips.replaceChildren(...Array.from({ length: n }, () => {

@@ -8,6 +8,7 @@ const rateLimiter = require('./rateLimiter');
 const { describeClientAddress, ipBucketKey, ipNet48Key } = require('../utils/clientIp');
 const { getUsersCollection, getGameRecordsCollection } = require('../database');
 const gameManager = require('../game/GameManager');
+const { isGyb, GYB_CAP } = require('../game/gameMode');
 const { authLogger } = require('../utils/logger');
 const { safeTimeout } = require('../utils/safeTimer');
 const { randomStockPic } = require('../avatar/stockAvatars');
@@ -314,6 +315,15 @@ async function usersCollectionWhenReady() {
 }
 
 /**
+ * Is `game` a Get Your Bid table (gameMode.js) this socket's client cannot
+ * show (no clientHello cap getYourBid: every iOS build)? Sign-in then
+ * names no active game, and leaves the pointer for the web.
+ */
+function gybHidden(socket, game) {
+    return isGyb(game) && !require('./clientInfo').hasCap(socket, GYB_CAP);
+}
+
+/**
  * The game a signing-in user's saved activeGameId names, for the signIn /
  * restoreSession reply: {game, held}. Off / write: today's in-memory
  * lookup, synchronous (nothing more is awaited). LIVE_PERSIST=on (deploy
@@ -497,7 +507,10 @@ async function signIn(socket, io, data) {
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
         rememberTutorialFlag(socket, user); // the tutorial's auto-start reads it
 
-        if (where.game || where.held) {
+        // (a Get Your Bid table is not offered to a client that cannot
+        // show it; its pointer stays for the web: gybHidden)
+        const hidden = gybHidden(socket, where.game);
+        if ((where.game || where.held) && !hidden) {
             // User has an active game - notify client
             socket.emit('signInResponse', {
                 success: true,
@@ -513,7 +526,7 @@ async function signIn(socket, io, data) {
             // Scoped to the stale id: a game that starts meanwhile and
             // writes a new pointer must keep it. Never while this process
             // hands its tables off (LIVE_PERSIST=on, shutting down)
-            if (activeGameId && !pointerResolve.holdsPointers()) {
+            if (activeGameId && !hidden && !pointerResolve.holdsPointers()) {
                 await gameManager.clearActiveGame(username, activeGameId);
             }
 
@@ -933,7 +946,8 @@ async function restoreSession(socket, io, data) {
         rememberBlockList(socket, blockedUsers); // voice signaling checks it
         rememberTutorialFlag(socket, user); // the tutorial's auto-start reads it
 
-        if (where.game || where.held) {
+        const hidden = gybHidden(socket, where.game);
+        if ((where.game || where.held) && !hidden) {
             socket.emit('restoreSessionResponse', {
                 success: true,
                 username,
@@ -947,7 +961,7 @@ async function restoreSession(socket, io, data) {
             // Scoped to the stale id: a game that starts meanwhile and
             // writes a new pointer must keep it. Never while this process
             // hands its tables off (LIVE_PERSIST=on, shutting down)
-            if (activeGameId && !pointerResolve.holdsPointers()) {
+            if (activeGameId && !hidden && !pointerResolve.holdsPointers()) {
                 await gameManager.clearActiveGame(username, activeGameId);
             }
 

@@ -29,14 +29,19 @@
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
-import { el, createButton, createIconButton, createPanel } from '../kit/index.js';
+import { createChip, el, createButton, createIconButton, createPanel } from '../kit/index.js';
+import { GYB_MODE, GYB_SEATS, GYB_NAME, GYB_BLURB } from '../../state/gyb.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 
 /** The lobby header's voice slot (VoiceChatUI.js places the voice buttons in it). */
 export const LOBBY_VOICE_SLOT_ID = 'lobbyVoiceSlot';
 
-/** The table's size: the first 4 to tap Ready play. */
-const TABLE = 4;
+/**
+ * The table's size: the first 4 to tap Ready play; 3 in a Get Your Bid
+ * lobby (lobbyMode: the payload's `mode`, set when the lobby is shown).
+ */
+let lobbyMode = null;
+const tableSize = () => (lobbyMode === GYB_MODE ? GYB_SEATS : 4);
 
 /**
  * Module state.
@@ -81,18 +86,18 @@ function colorFor(username) {
 function renderReadyButton(readyBtn, playerCount, { watching = false } = {}) {
   if (!readyBtn) return;
   readyBtn.removeAttribute('title');
-  if (playerCount < TABLE) {
+  if (playerCount < tableSize()) {
     // Not enough players - disable button
     readyBtn.disabled = true;
     setButtonVariant(readyBtn, 'secondary');
     readyBtn.classList.remove('is-on');
-    readyBtn.textContent = `Waiting for ${TABLE - playerCount} more...`;
+    readyBtn.textContent = `Waiting for ${tableSize() - playerCount} more...`;
   } else if (watching && !isPlayerReady) {
     readyBtn.disabled = true;
     setButtonVariant(readyBtn, 'secondary');
     readyBtn.classList.remove('is-on');
     readyBtn.textContent = 'Table full — you\'ll watch';
-    readyBtn.title = 'The first 4 to tap Ready play; you will watch this game and can join its voice chat';
+    readyBtn.title = `The first ${tableSize()} to tap Ready play; you will watch this game and can join its voice chat`;
   } else if (isPlayerReady) {
     readyBtn.disabled = false;
     setButtonVariant(readyBtn, 'secondary');
@@ -104,7 +109,7 @@ function renderReadyButton(readyBtn, playerCount, { watching = false } = {}) {
     readyBtn.classList.remove('is-on');
     readyBtn.textContent = 'Ready';
   }
-  readyBtn.setAttribute('aria-pressed', String(playerCount >= TABLE && isPlayerReady));
+  readyBtn.setAttribute('aria-pressed', String(playerCount >= tableSize() && isPlayerReady));
 }
 
 /**
@@ -115,7 +120,7 @@ function renderReadyButton(readyBtn, playerCount, { watching = false } = {}) {
 function membersOf(players, lobby) {
   if (lobby && Array.isArray(lobby.members)) {
     lobbyView = {
-      capacity: Number.isInteger(lobby.capacity) ? lobby.capacity : TABLE,
+      capacity: Number.isInteger(lobby.capacity) ? lobby.capacity : tableSize(),
       host: typeof lobby.host === 'string' ? lobby.host : null,
       settings: lobby.settings && typeof lobby.settings === 'object' ? { spectatorsCanTalk: lobby.settings.spectatorsCanTalk !== false } : null,
     };
@@ -189,9 +194,9 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   // Assign colors to new players - existing players keep their color for the session
   members.forEach((player) => colorFor(player.username));
 
-  const wide = !!lobbyView && members.length > TABLE;
+  const wide = !!lobbyView && members.length > tableSize();
   const seated = members.filter((m) => m.playing);
-  const tableFull = wide && seated.length >= TABLE;
+  const tableFull = wide && seated.length >= tableSize();
   const host = lobbyView?.host ?? null;
   // "Don't wait": the host, or anyone present while the host is away
   const hostAway = !host || reconnecting.has(host) || returning.has(host) || !present.has(host);
@@ -199,8 +204,8 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
 
   // Header: the ready count only (owner 2026-11-19: "Ready n/4"; the rows
   // show who is here, so "Players n/8" went), a legacy payload too
-  const ready = Math.min(TABLE, members.filter((m) => m.ready).length);
-  container.appendChild(el('div', { className: 'section-label', text: `Ready ${ready}/${TABLE}` }));
+  const ready = Math.min(tableSize(), members.filter((m) => m.ready).length);
+  container.appendChild(el('div', { className: 'section-label', text: `Ready ${ready}/${tableSize()}` }));
 
   // Show existing players
   members.forEach((player) => {
@@ -271,7 +276,7 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
 
   // Show empty slots (a table's 4, less the saved places; a family
   // lobby's further places need no row)
-  for (let i = members.length + saved.length; i < TABLE; i++) {
+  for (let i = members.length + saved.length; i < tableSize(); i++) {
     container.appendChild(el('div', {
       className: 'seat-row seat-row--empty',
       children: [el('span', { className: 'seat-row__name', text: '— Empty Slot —' })],
@@ -292,7 +297,7 @@ export function updateLobbyPlayersList(container, players, currentUsername, { re
   // Update Add Bot button visibility (a bot only fills a table seat; while
   // places are saved for the last game's players, members + saved count)
   const addBotBtn = document.getElementById('lobbyAddBotBtn');
-  if (addBotBtn) addBotBtn.hidden = members.length + saved.length >= TABLE;
+  if (addBotBtn) addBotBtn.hidden = members.length + saved.length >= tableSize();
 
   renderVoiceSettings();
 }
@@ -314,7 +319,7 @@ function renderVoiceSettings() {
   if (!section.querySelector('#lobbyVoiceHint')) {
     section.replaceChildren(el('p', { className: 'lobby-voice-hint', attrs: { id: 'lobbyVoiceHint' } }));
   }
-  section.querySelector('#lobbyVoiceHint').textContent = 'The first 4 to tap Ready play; everyone else watches and can talk.';
+  section.querySelector('#lobbyVoiceHint').textContent = `The first ${tableSize()} to tap Ready play; everyone else watches and can talk.`;
 }
 
 /**
@@ -328,6 +333,8 @@ export function showGameLobby(lobbyData, socket, username) {
   console.log('Showing game lobby...', lobbyData);
   currentLobbyId = lobbyData.lobbyId;
   isPlayerReady = false;
+  // the lobby's game mode (fixed for the lobby's life; absent: the base game)
+  lobbyMode = lobbyData.mode === GYB_MODE ? GYB_MODE : null;
 
   // Remove any existing game lobby (a re-render: a reconnect's lobbyJoined
   // keeps the voice running, so its buttons move to the new header)
@@ -358,6 +365,14 @@ export function showGameLobby(lobbyData, socket, username) {
   // the right (as on iOS). Reading and focus order follow it.
   const mainColumn = el('section', { className: 'screen-main', attrs: { 'aria-label': 'Seats' } });
   container.appendChild(mainColumn);
+  // A Get Your Bid lobby says so above its seats: the mode and its rules in a line
+  if (lobbyMode === GYB_MODE) {
+    mainColumn.appendChild(el('div', {
+      className: 'lobby-mode',
+      attrs: { id: 'lobbyMode' },
+      children: [createChip({ label: GYB_NAME, tone: 'gold' }), el('span', { className: 'lobby-mode__blurb', text: GYB_BLURB })],
+    }));
+  }
 
   // Players list
   const playersDiv = el('div', { className: 'screen-section seat-list', attrs: { id: 'lobbyPlayersList' } });

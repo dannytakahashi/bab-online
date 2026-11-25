@@ -212,10 +212,12 @@ function watchHand(socket, io, data) {
         if (before !== position) require('../game/spectatorRoster').spectatorsChanged(io, game);
         return;
     }
-    const { snapshotFor, hideChatFrom } = require('./snapshotHandlers'); // lazy: snapshotHandlers requires this module
+    const { snapshotFor, hideChatFrom, gybExtra } = require('./snapshotHandlers'); // lazy: snapshotHandlers requires this module
     const reply = {
         snapshot: snapshotFor(game, socket.id, { log: false, hideChatFrom: hideChatFrom(socket), socket }),
         reason: 'watchHand',
+        // (a Get Your Bid table's own state rides beside its snapshot)
+        ...gybExtra(game),
     };
     if (data.requestId !== undefined) reply.requestId = data.requestId;
     socket.emit('stateSnapshot', reply);

@@ -419,7 +419,7 @@ export class TableSounds {
     if (!this.live) return [];
     const played = [];
     if (this._play('card')) played.push('card');
-    if (isOverTrump(s.currentTrick, s.trump) && this._play('overtrump', { delay: OVER_TRUMP_DELAY_S, gain: OVER_TRUMP_GAIN })) {
+    if (isOverTrump(s.currentTrick, s.trump, { solo: !!s.isSolo }) && this._play('overtrump', { delay: OVER_TRUMP_DELAY_S, gain: OVER_TRUMP_GAIN })) {
       played.push('overtrump');
     }
     return played;
@@ -429,7 +429,9 @@ export class TableSounds {
   trick(data) {
     if (!this.live || !Number.isInteger(data?.winner)) return false;
     const parity = this._myParity();
-    const ours = parity !== null && data.winner % 2 === parity;
+    // (a Get Your Bid table: only my own seat's trick is "ours")
+    const s = this._state();
+    const ours = parity !== null && (s.isSolo ? data.winner === s.position : data.winner % 2 === parity);
     return this._play(ours ? 'trick-ours' : 'trick');
   }
 
@@ -444,6 +446,11 @@ export class TableSounds {
     let played;
     if (parity === null) {
       played = this._play('made', { gain: SPECTATOR_HAND_END_GAIN });
+    } else if (this._state().isSolo) {
+      // Get Your Bid: made is exactly my bid (handComplete.gyb's seats)
+      const me = this._state().position;
+      const seat = (Array.isArray(data?.gyb?.seats) ? data.gyb.seats : []).find((x) => x && x.position === me);
+      played = this._play(seat && seat.bid === seat.took ? 'made' : 'set');
     } else {
       const s = this._state();
       const teamOne = parity === 1;
@@ -478,6 +485,13 @@ export class TableSounds {
   /** gameEnd's sound from my team's final score against the other's (gameEnd's score {team1, team2}). */
   _gameEndSound(data) {
     const parity = this._myParity();
+    if (data?.gyb) {
+      // Get Your Bid: my seat among the winners (a shared win is a tie)
+      const winners = Array.isArray(data.gyb.winners) ? data.gyb.winners : [];
+      if (parity === null || !winners.length) return 'gameend';
+      if (!winners.includes(this._state().position)) return 'gameend-lose';
+      return winners.length > 1 ? 'gameend' : 'gameend-win';
+    }
     const t1 = data?.score?.team1, t2 = data?.score?.team2;
     if (parity === null || typeof t1 !== 'number' || typeof t2 !== 'number') return 'gameend';
     const [mine, theirs] = parity === 1 ? [t1, t2] : [t2, t1];

@@ -305,7 +305,7 @@ function validateSeats(game) {
 
     // 10 (entrants exist only before seating is complete; the 4th seat
     // clears them. Four seats from TEAMS_ANNOUNCED on is a stage invariant.)
-    if (!terminal && game.entrants != null && (seats.length === 4 || !PRE_SEATING.has(game.stage))) {
+    if (!terminal && game.entrants != null && (seats.length === (game.seatCount || 4) || !PRE_SEATING.has(game.stage))) {
         errors.push(`entrants still set with ${seats.length} seats in ${game.stage}`);
     }
 

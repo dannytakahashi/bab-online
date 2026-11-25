@@ -13,11 +13,20 @@
  * shoulder (the over-the-shoulder view: only for a receiving socket with
  * the clientHello cap shoulderView, socket/shoulderView.js) and a log
  * item's fault.
+ *
+ * A Get Your Bid table (3 seats, gameMode.js) keeps this shape, which the
+ * frozen schema pins at four seats: `bids.byPosition`, `bids.order` and
+ * `tricksByPosition` are padded to four (a null bid, position 4, 0 tricks),
+ * `seats` has three items, the team pairs carry nothing, `hsi` is null and
+ * `trickHistory` is [] (its items must hold four cards). What the mode
+ * really needs travels beside the snapshot, as the carrier's own `gyb` key
+ * (GameState.gybWire, snapshotHandlers.gybExtra): only clients with the
+ * clientHello cap getYourBid ever receive such a table.
  */
 
 'use strict';
 
-const { calculateMultiplier, determineDrawPosition, HAND_PROGRESSION } = require('./rules');
+const { calculateMultiplier, determineDrawPosition, gybDrawPosition, HAND_PROGRESSION } = require('./rules');
 const { Phase } = require('./GamePhase');
 const { Controller, isBotSocket, seatDisplay } = require('./SeatState');
 const { spectatorsWire } = require('./spectatorWire');
@@ -83,7 +92,10 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         const b = game.playerBids[p - 1];
         return b == null ? null : String(b).toUpperCase();
     });
-    const order = POSITIONS.map((k) => ((game.bidder - 1 + k - 1) % 4) + 1);
+    const N = game.seatCount || 4;
+    const solo = N !== 4;
+    // (a 3-seat table: its three seats in bidding order, then the padding 4)
+    const order = POSITIONS.map((k) => (k <= N ? ((game.bidder - 1 + k - 1) % N) + 1 : k));
     const teamBids = stage !== Phase.BIDDING && !preDeal && isTeamShaped(game.bids)
         ? { team1: game.bids.team1, team2: game.bids.team2 }
         : null;
@@ -100,8 +112,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         trick.number = game.tricks.team1 + game.tricks.team2 + 1;
         if (game.playedCardsIndex > 0) {
             trick.leadPosition = game.leadPosition;
-            for (let k = 0; k < 4; k++) {
-                const p = ((game.leadPosition - 1 + k) % 4) + 1;
+            for (let k = 0; k < N; k++) {
+                const p = ((game.leadPosition - 1 + k) % N) + 1;
                 const c = game.playedCards[p - 1];
                 if (!c) break;
                 trick.cards.push({ position: p, card: card(c) });
@@ -120,8 +132,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
 
     // ---- seats: [] until all four exist (never presenceSummary: it has socket ids) ----
     let seats = [];
-    if (game.seatList().length === 4) {
-        seats = POSITIONS.map((p) => {
+    if (game.seatList().length === N) {
+        seats = POSITIONS.slice(0, N).map((p) => {
             const s = game.seat(p);
             const d = seatDisplay(s);
             const custom = typeof d.pic === 'string' && d.pic.startsWith('data:image');
@@ -170,7 +182,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         }));
     let draw = null;
     if (preDeal) {
-        const complete = game.drawCards.length === 4;
+        const complete = game.drawCards.length === N;
+        const drawPosition = solo ? gybDrawPosition : determineDrawPosition;
         const names = game.drawNames || [];
         draw = {
             deckRemaining: game.deck ? game.deck.cards.length : null,
@@ -179,7 +192,7 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
                 username: names[i] ?? null,
                 isBot: isBotSocket(game.drawIDs[i]),
                 card: card(c),
-                position: complete ? determineDrawPosition(c, game.drawCards) : null,
+                position: complete ? drawPosition(c, game.drawCards) : null,
             })),
             viewerDrawOrder: viewerSid != null && game.drawIDs.includes(viewerSid) ? game.drawIDs.indexOf(viewerSid) + 1 : null,
         };
@@ -269,7 +282,8 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         // This deal's won tricks (as many as `tricks` counts), each with its
         // winner, lead and 4 cards in play order: public, every viewer saw
         // them played. At most 13 x 4 cards
-        trickHistory: (game.trickHistory || []).map((t) => ({ winner: t.winner, lead: t.lead, cards: t.cards.map(card) })),
+        // (a 3-seat table's tricks hold three cards: [] here, the carrier's gyb.trickHistory)
+        trickHistory: solo ? [] : (game.trickHistory || []).map((t) => ({ winner: t.winner, lead: t.lead, cards: t.cards.map(card) })),
         score: pair(game.score),
         rainbows: pair(game.rainbows),
         hsi,

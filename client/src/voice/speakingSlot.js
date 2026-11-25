@@ -13,7 +13,7 @@
  * needs no socket id on the wire (V1_REMOVALS #6 / #14).
  */
 
-import { team, rotate } from '../utils/positions.js';
+import { slotOf } from '../utils/positions.js';
 
 /**
  * @param {Object} args
@@ -25,9 +25,10 @@ import { team, rotate } from '../utils/positions.js';
  * @param {boolean} [args.spectator] - I watch (the view from seat 1, whose
  *   player sits in the 'bottom' slot, OpponentManager's spectator seat): a
  *   peer at myPosition is that player, never me
+ * @param {number} [args.seats=4] - seats at the table (3: Get Your Bid)
  * @returns {'partner'|'opp1'|'opp2'|'bottom'|null}
  */
-export function speakingSlotFor({ username, socketId, playerData, myPosition, owners = null, spectator = false }) {
+export function speakingSlotFor({ username, socketId, playerData, myPosition, owners = null, spectator = false, seats = 4 }) {
   if (!myPosition) return null;
 
   let pos = null;
@@ -48,10 +49,7 @@ export function speakingSlotFor({ username, socketId, playerData, myPosition, ow
   if (!pos) return null;
 
   if (pos === myPosition) return spectator ? 'bottom' : null;
-  if (pos === team(myPosition)) return 'partner';
-  if (pos === rotate(myPosition)) return 'opp1';
-  if (pos === rotate(rotate(rotate(myPosition)))) return 'opp2';
-  return null;
+  return slotOf(pos, myPosition, seats);
 }
 
 /**

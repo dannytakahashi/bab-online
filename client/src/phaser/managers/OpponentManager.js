@@ -8,7 +8,8 @@
  */
 
 import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
-import { team, rotate } from '../../utils/positions.js';
+import { seatsAround, slotOf } from '../../utils/positions.js';
+import { getGameState } from '../../state/GameState.js';
 import { getSocketManager } from '../../socket/SocketManager.js';
 import { getShoulderWatch } from '../../state/shoulder.js';
 import { sceneTween } from '../TableDirector.js';
@@ -85,9 +86,9 @@ export class OpponentManager {
    * Get the slot keys to iterate over based on mode.
    */
   _getSlotKeys() {
-    return this._isSpectatorMode
-      ? ['partner', 'opp1', 'opp2', 'bottom']
-      : ['partner', 'opp1', 'opp2'];
+    // (a three-seat table, Get Your Bid, has no partner)
+    const others = getGameState().seatCount === 3 ? ['opp1', 'opp2'] : ['partner', 'opp1', 'opp2'];
+    return this._isSpectatorMode ? [...others, 'bottom'] : others;
   }
 
   /** The table layout this manager draws with. */
@@ -194,7 +195,8 @@ export class OpponentManager {
   slotPositions() {
     const me = this._playerPosition;
     if (!me) return {};
-    const map = { partner: team(me), opp1: rotate(me), opp2: rotate(rotate(rotate(me))) };
+    const around = seatsAround(me, getGameState().seatCount);
+    const map = { ...(around.partner && { partner: around.partner }), opp1: around.opp1, opp2: around.opp2 };
     if (this._isSpectatorMode) map.bottom = me;
     return map;
   }
@@ -223,9 +225,7 @@ export class OpponentManager {
     const me = this._playerPosition;
     if (!me || !position) return null;
     if (position === me) return this._isSpectatorMode ? 'bottom' : 'self';
-    if (position === team(me)) return 'partner';
-    if (position === rotate(me)) return 'opp1';
-    return 'opp2';
+    return slotOf(position, me, getGameState().seatCount);
   }
 
   /**
@@ -421,17 +421,8 @@ export class OpponentManager {
     }
 
     // Determine which opponent has the turn
-    const partnerPos = team(this._playerPosition);
-    const opp1Pos = rotate(this._playerPosition);
-    const opp2Pos = rotate(rotate(rotate(this._playerPosition)));
-
-    if (currentTurn === partnerPos) {
-      this.addTurnGlow('partner');
-    } else if (currentTurn === opp1Pos) {
-      this.addTurnGlow('opp1');
-    } else if (currentTurn === opp2Pos) {
-      this.addTurnGlow('opp2');
-    }
+    const slot = slotOf(currentTurn, this._playerPosition, getGameState().seatCount);
+    if (slot && slot !== 'self') this.addTurnGlow(slot);
   }
 
   /**
@@ -445,15 +436,8 @@ export class OpponentManager {
     if (!this._playerPosition) return;
 
     // Determine which opponent slot this position maps to
-    const partnerPos = team(this._playerPosition);
-    const opp1Pos = rotate(this._playerPosition);
-    const opp2Pos = rotate(rotate(rotate(this._playerPosition)));
-
-    let opponentId = null;
-    if (position === partnerPos) opponentId = 'partner';
-    else if (position === opp1Pos) opponentId = 'opp1';
-    else if (position === opp2Pos) opponentId = 'opp2';
-    else if (position === this._playerPosition && this._isSpectatorMode) opponentId = 'bottom';
+    let opponentId = slotOf(position, this._playerPosition, getGameState().seatCount);
+    if (opponentId === 'self') opponentId = this._isSpectatorMode ? 'bottom' : null;
 
     if (!opponentId) return; // This is the local player's own position
 

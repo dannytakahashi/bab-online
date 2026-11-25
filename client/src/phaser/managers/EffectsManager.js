@@ -6,7 +6,8 @@
 
 import { motionMs, prefersReducedMotion, EASE_EMPHASIZED, EASE_STANDARD } from '../../ui/motion.js';
 import { MOTION } from '../../ui/tokens.js';
-import { team, rotate } from '../../utils/positions.js';
+import { slotOf } from '../../utils/positions.js';
+import { getGameState } from '../../state/GameState.js';
 import { sceneDelay, sceneTween } from '../TableDirector.js';
 import { layoutOf } from '../layout/computeTableLayout.js';
 
@@ -113,12 +114,8 @@ export class EffectsManager {
     const { effects } = this.layout();
 
     // Beside the seat's avatar (the layout's rainbow anchor per seat)
-    let seat;
-    if (rainbowPosition === this._playerPosition) seat = 'self';
-    else if (rainbowPosition === rotate(this._playerPosition)) seat = 'opp1';
-    else if (rainbowPosition === team(this._playerPosition)) seat = 'partner';
-    else if (rainbowPosition === rotate(rotate(rotate(this._playerPosition)))) seat = 'opp2';
-    else {
+    const seat = slotOf(rainbowPosition, this._playerPosition, getGameState().seatCount);
+    if (!seat || !effects.rainbow[seat]) {
       console.warn('EffectsManager: Invalid rainbow position');
       return;
     }

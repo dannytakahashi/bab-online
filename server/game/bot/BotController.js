@@ -9,7 +9,9 @@ const { safeTimeout } = require('../../utils/safeTimer');
 const persistHooks = require('../persist/hooks');
 const { Phase } = require('../GamePhase');
 const pacing = require('../pacing');
-const { safeBid: fallbackBid, HAND_PROGRESSION, nextHandSize } = require('../rules');
+const { safeBid: fallbackBid, gybSafeBid, HAND_PROGRESSION, nextHandSize } = require('../rules');
+const gybStrategy = require('./gybStrategy');
+const { isGyb } = require('../gameMode');
 
 const PLAY_STAGES = [Phase.PLAYING, Phase.TRICK_RESOLVING, Phase.HAND_RESOLVING];
 
@@ -413,7 +415,7 @@ class BotController {
         game.broadcast(io, 'playerDrew', { username: bot.username, card, drawOrder });
 
         // Check if all players have drawn - trigger draw completion
-        if (game.drawIndex === 4) {
+        if (game.drawIndex === game.seatCount) {
             // Use lazy require to avoid circular dependency
             const { handleDrawComplete } = require('../../socket/gameHandlers');
             handleDrawComplete(io, game).catch(err =>
@@ -457,7 +459,10 @@ class BotController {
         let chosen;
         let failure = null;
         try {
-            chosen = bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
+            // A Get Your Bid table: its own exact-bid bot (gybStrategy.js)
+            chosen = isGyb(game)
+                ? gybStrategy.decideBid(hand, game.trump, game.playerBids, game.currentHand)
+                : bot.decideBid(hand, game.trump, game.playerBids, game.currentHand, gameContext);
         } catch (err) {
             failure = { error: err.message, stack: err.stack };
         }
@@ -467,7 +472,9 @@ class BotController {
         let result = failure ? null : game.applyBid(bot.position, chosen);
         if (!result || !result.ok) {
             this.noteFallback('bid', game, bot, { chosen, reason: result ? result.reason : 'strategy_threw', ...failure });
-            result = game.applyBid(bot.position, fallbackBid(game.playerBids));
+            result = game.applyBid(bot.position, isGyb(game)
+                ? gybSafeBid(game.playerBids, game.currentHand, game.seatCount)
+                : fallbackBid(game.playerBids));
             if (!result.ok) {
                 gameLogger.error('Bot safe bid refused', { gameId: game.gameId, position: bot.position, stage: game.stage, reason: result.reason });
                 return false;
@@ -514,7 +521,7 @@ class BotController {
         // The game may have moved on while this action sat on a timer (e.g.
         // forceResign during trick resolution) — never inject a 5th card or
         // overwrite an occupied slot
-        if (game.playedCardsIndex >= 4 || game.playedCards[bot.position - 1] != null) {
+        if (game.playedCardsIndex >= game.seatCount || game.playedCards[bot.position - 1] != null) {
             gameLogger.warn('Bot play skipped: trick already full or slot occupied', {
                 gameId: game.gameId, botName: bot.username, position: bot.position,
                 playedCardsIndex: game.playedCardsIndex
@@ -533,7 +540,16 @@ class BotController {
         let card = null;
         let failure = null;
         try {
-            card = bot.decideCard(
+            card = isGyb(game) ? gybStrategy.decideCard(hand, {
+                playedCards: game.playedCards,
+                leadCard: game.leadCard,
+                leadPosition: game.leadPosition,
+                trump: game.trump,
+                trumpBroken: game.isTrumpBroken,
+                position: bot.position,
+                seatCount: game.seatCount,
+                need: (parseInt(game.playerBids[bot.position - 1], 10) || 0) - (game.handTricks?.[bot.position] || 0)
+            }) : bot.decideCard(
                 hand,
                 game.playedCards,
                 game.leadCard,
@@ -725,6 +741,8 @@ class BotController {
     }
 
     sentABoyChat(io, game, card, position) {
+        // Team quips are the base game's (no teams in Get Your Bid)
+        if (isGyb(game)) return;
         if (!isSentABoy(game, card, position)) return;
         const since = this.sentABoyTricks.get(game.gameId);
         if (since !== undefined && since < SENT_A_BOY.cooldownTricks) return;
@@ -758,6 +776,7 @@ class BotController {
     }
 
     notBeStupidChat(io, game) {
+        if (isGyb(game)) return;
         if (!isFinalHand(game.currentHand) || this.notBeStupidGames.has(game.gameId)) return;
         this.notBeStupidGames.add(game.gameId);
         const lead = game.score.team1 - game.score.team2;
@@ -781,6 +800,7 @@ class BotController {
      * @param {Object} game - GameState
      */
     handleHandCompleteChat(io, game) {
+        if (isGyb(game)) return;
         const bots = this.getGameBots(game.gameId);
 
         // Helper: get numeric bid value, treating bore bids as 0
@@ -838,6 +858,7 @@ class BotController {
      * @param {Object} game - GameState
      */
     updatePartnerHistory(game) {
+        if (isGyb(game)) return;
         const bots = this.getGameBots(game.gameId);
 
         for (const bot of bots) {

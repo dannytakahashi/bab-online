@@ -3,6 +3,7 @@
  */
 
 const gameManager = require('../game/GameManager');
+const { isGyb, GYB_CAP, GYB_UNSUPPORTED } = require('../game/gameMode');
 const { Controller, Presence } = require('../game/SeatState');
 const seatLifecycle = require('./seatLifecycle');
 const { socketLogger } = require('../utils/logger');
@@ -177,6 +178,14 @@ async function gameGone(socket, gameId, username) {
 
 /** rejoinGame once the game is found: the socket's seat (or a refusal). */
 function seatRejoin(socket, io, game, gameId, username) {
+    // A Get Your Bid table (gameMode.js) from a client that cannot show it
+    // (the owner opened an app without the mode): refused, and the pointer
+    // stays, so the web still brings them back
+    if (isGyb(game) && !require('./clientInfo').hasCap(socket, GYB_CAP)) {
+        socketLogger.info('Rejoin refused: client cannot show Get Your Bid', { username, gameId, socketId: socket.id });
+        socket.emit('rejoinFailed', { reason: GYB_UNSUPPORTED });
+        return;
+    }
     // A socket seated (or entered) in another game keeps that game: taking
     // this seat would overwrite its mapping and strand the other seat on a
     // socket whose disconnect that game never hears
