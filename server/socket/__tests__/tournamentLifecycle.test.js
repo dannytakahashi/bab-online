@@ -546,6 +546,39 @@ describe('full tournaments through the real handlers', () => {
         expect(errorLogs).toEqual([]);
     }, 180000);
 
+    test('six humans who all send the cap tournamentPairings: every multi-member table draws honestly, seats its plan, the highest card deals', async () => {
+        const ctx = await setupTournament(6);
+        const caps = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentPairings'];
+        for (const s of ctx.sockets) s.data.client = { client: 'web', version: '1', build: null, caps };
+        const honest = [];
+        const { drawBeats } = require('../../game/rules');
+        const { allTables } = await playTournament(ctx, {
+            round: async (round, c, tables) => {
+                for (const g of tables) {
+                    const room = ctx.log.filter((e) => e.to === g.roomName);
+                    const start = room.find((e) => e.event === 'startDraw').data;
+                    const line = room.find((e) => e.event === 'gameLogEntry' && /^Partners this round: /.test(e.data.message));
+                    honest.push(!!line);
+                    expect(!!start.teams).toBe(!!line);
+                    // the highest card sits at 1 (it deals first)
+                    const drawn = room.filter((e) => e.event === 'playerDrew').map((e) => e.data);
+                    const top = drawn.find((d) => drawBeats(d.card, drawn.map((x) => x.card)) === 3);
+                    expect(g.getOriginalPlayer(1).username).toBe(top.username);
+                    // partners opposite, as planned
+                    const planned = ctx.t.roundOfGame(g.gameId).games.get(g.gameId).teams.map((t) => t.filter(Boolean).sort().join());
+                    const seated = [[1, 3], [2, 4]].map((ps) => ps.map((p) => g.getOriginalPlayer(p).username).filter((u) => ctx.usernames.includes(u)).sort().join());
+                    expect(seated.sort()).toEqual(planned.sort());
+                }
+            },
+        });
+        expect(allTables).toHaveLength(8);
+        // 6 members: a 4-human and a 2-human table each round, both planned
+        expect(honest).toEqual(Array(8).fill(true));
+        expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        expect(gameManager.tournamentGames.size).toBe(0);
+        expect(errorLogs).toEqual([]);
+    }, 180000);
+
     test('stats: a table with a filler bot is a bot game (botStats + withBots record), a 4-human table stays a human game; round scores unchanged', async () => {
         const ctx = await setupTournament(5);
         const { allTables } = await playTournament(ctx);

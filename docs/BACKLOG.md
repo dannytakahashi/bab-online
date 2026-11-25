@@ -25,6 +25,26 @@ First version; each of these was left out on purpose (`server/CLAUDE.md` "Get Yo
   over-the-shoulder view of such a table, voice, Safari / Firefox, window sizes
   other than 1600 x 900.
 
+## Tournament voice room size (owner 2026-11-25)
+
+The room's cap is a setting (`TOURNAMENT_VOICE_MAX`, code default 8, clamped
+2..20; docs/claude/voice.md "Tournament voice"). Point to point stays below the
+cap for latency; an SFU only lifts the size limit.
+
+- **Default to 12** in a one-line PR (`MAX_ROOM_DEFAULT` in
+  server/voice/tournamentVoice.js) once `MIN_IOS_BUILD` reaches 41 (iOS 1.2.7:
+  the speaking poll fixed for 11 calls, the over-cap notice decoded) and a local
+  12-peer run of `scripts/voice-mesh-measure.mjs` passes. No Railway variable.
+- **20 through an SFU** (after 1.2.7, before the macOS PRs). Cloudflare Realtime
+  SFU is the natural fit (the same account as the TURN): each client keeps one
+  connection, so the per-pair mesh, TURN allocations and signaling go away. The
+  server maps tracks to usernames, mutes and blocks (blocks enforced on
+  subscription); both clients get a second voice transport; iOS needs a release.
+  The signaling limits and the web audio pool are already sized for 20.
+- **Opus DTX** (`usedtx=1` in both clients' SDP) only after a measured run; it
+  would be the prerequisite for ever trying 20 in a mesh.
+- **The harness** has no TURN, reload, network-drop or WebKit scenario yet.
+
 ## iOS: iPad (since 1.2.0 build 5, PR #241)
 
 - **Draw for Deal cards don't grow on iPad** (the owner's top pick of the three).

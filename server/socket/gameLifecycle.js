@@ -17,6 +17,7 @@ const { Phase } = require('../game/GamePhase');
 const { socketLogger } = require('../utils/logger');
 const { ambientAudience, seesAmbientGame } = require('../utils/ambientChatUsers');
 const clientInfo = require('./clientInfo');
+const { PAIRINGS_CAP, teamsText } = require('../game/tournamentPartners');
 
 /**
  * Refresh the main room's lobby / in-progress / tournament lists. Every
@@ -175,6 +176,18 @@ async function abortGame(io, game, reason) {
  * socket auto-draws now, and handleDrawComplete later seats it as a resign
  * bot (left) or a disconnected seat — or aborts if every human left.
  * Used by the lobby, tournament and ambient start paths.
+ *
+ * A tournament table with planned teams (game.drawTeams, two or more
+ * members) decides here, once, how its draw runs (owner 2026-11-25): honest
+ * (game.drawHonest: each player the card they picked; the draw decides only
+ * the seats and who deals first) when every human entrant there and every
+ * spectator present now sent the clientHello cap tournamentPairings,
+ * otherwise staged (GameState._plannedDrawIndex) so a legacy client's
+ * printed rule stays true. Either way startDraw carries the teams by name
+ * (`teams`, every planned table: a cap client always shows the draw for
+ * first deal), and an honest table stores and broadcasts one system log
+ * line naming them (it reaches a legacy spectator who comes later through
+ * the snapshot log). TOURNAMENT_HONEST_DRAW=off forces staged.
  * @param {Object} io
  * @param {GameState} game
  * @param {Object} [opts]
@@ -189,7 +202,23 @@ function beginDraw(io, game, { announce = true } = {}) {
     deck.shuffle();
     game.deck = deck;
 
-    if (announce) game.broadcast(io, 'startDraw', { start: true });
+    let payload = { start: true };
+    if (game.drawTeams) {
+        const legacy = legacyAudience(io, game);
+        game.drawHonest = !honestDrawOff() && legacy.humans === 0 && legacy.spectators === 0;
+        game.drawTeamsWire = plannedTeamsWire(game);
+        payload = { start: true, teams: game.drawTeamsWire };
+        socketLogger.info('Tournament draw', {
+            gameId: game.gameId, mode: game.drawHonest ? 'firstDeal' : 'staged',
+            legacyHumans: legacy.humans, legacySpectators: legacy.spectators,
+        });
+    }
+    if (announce) game.broadcast(io, 'startDraw', payload);
+    if (game.drawHonest && announce) {
+        const line = `Partners this round: ${teamsText(game.drawTeamsWire)}. The draw decides who deals first.`;
+        game.addLogEntry(line, null, 'system');
+        game.broadcast(io, 'gameLogEntry', { message: line, type: 'system' });
+    }
 
     // The draw ends within DRAW_WATCHDOG_MS whatever the sockets do
     require('./seatLifecycle').startDrawWatchdog(io, game);
@@ -215,8 +244,45 @@ function beginDraw(io, game, { announce = true } = {}) {
     return true;
 }
 
+/** TOURNAMENT_HONEST_DRAW=off (also false / 0 / disabled / no), read at each draw: every planned table stages its draw. */
+const honestDrawOff = () => /^(off|false|0|disabled|no)$/i.test(process.env.TOURNAMENT_HONEST_DRAW || '');
+
+/**
+ * Who at a planned table cannot show a draw for first deal (no
+ * tournamentPairings cap): {humans, spectators}. A human entrant who is not
+ * connected counts (it may come back on any client); one who left is
+ * seated as a resign bot and is not at the table.
+ */
+function legacyAudience(io, game) {
+    let humans = 0;
+    let spectators = 0;
+    for (const e of game.entrants ? game.entrants.values() : []) {
+        if (e.isBot || e.presence === 'left') continue;
+        if (e.presence !== 'connected' || !clientInfo.socketHasCap(io, e.socketId, PAIRINGS_CAP)) humans++;
+    }
+    for (const sid of game.spectators.keys()) {
+        if (!clientInfo.socketHasCap(io, sid, PAIRINGS_CAP)) spectators++;
+    }
+    return { humans, spectators };
+}
+
+/**
+ * game.drawTeams by name: always two teams of two complete
+ * {username, isBot} entries (build 41 decodes snapshot draw.teams
+ * strictly), in plan order.
+ */
+function plannedTeamsWire(game) {
+    const entry = (sid) => {
+        if (game.isBot(sid)) return { username: String(botController.getBot(game.gameId, sid)?.username || 'Bot'), isBot: true };
+        return { username: String(game.entrant(sid)?.username || 'Player'), isBot: false };
+    };
+    return game.drawTeams.map((team) => team.map(entry));
+}
+
 module.exports = {
     abortGame,
     beginDraw,
-    emitLobbiesUpdated
+    emitLobbiesUpdated,
+    legacyAudience,
+    plannedTeamsWire
 };

@@ -9,8 +9,8 @@ import { el, createButton, openModal } from '../kit/index.js';
  * Create a tournament scoreboard table element.
  *
  * @param {Array} scoreboard - Sorted array of { username, totalScore, roundScores }
- * @param {number} currentRound - Current round number (1-4)
- * @param {number} totalRounds - Total rounds (4)
+ * @param {number} currentRound - Current round number (0 before round 1)
+ * @param {number} totalRounds - Total rounds (1 to 5, the host's pick; default 4)
  * @returns {HTMLElement} Scoreboard container div
  */
 export function createTournamentScoreboard(scoreboard, currentRound, totalRounds) {
@@ -54,6 +54,16 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
   return container;
 }
 
+/**
+ * The rounds a final scoreboard covers: every member has a score for every
+ * round played (TournamentState.scoreMissedRound), so the longest
+ * roundScores; 4 when there is nothing to read.
+ */
+export function roundsOfScoreboard(scoreboard) {
+  const most = Math.max(0, ...(scoreboard || []).map((e) => (Array.isArray(e?.roundScores) ? e.roundScores.length : 0)));
+  return most > 0 ? most : 4;
+}
+
 /** The results modal on screen. */
 let resultsModal = null;
 
@@ -65,9 +75,10 @@ let resultsModal = null;
  * @param {Array} options.scoreboard - Final sorted scoreboard
  * @param {string} [options.winner] - Winner's username (single-winner fallback)
  * @param {string[]} [options.winners] - All winners (ties produce co-winners)
+ * @param {number} [options.totalRounds] - The tournament's rounds (else read from the scoreboard)
  * @param {Function} options.onReturn - Called when user clicks return
  */
-export function showTournamentResultsOverlay({ scoreboard, winner, winners, onReturn }) {
+export function showTournamentResultsOverlay({ scoreboard, winner, winners, totalRounds, onReturn }) {
   removeTournamentResultsOverlay();
 
   const body = [];
@@ -79,7 +90,9 @@ export function showTournamentResultsOverlay({ scoreboard, winner, winners, onRe
       text: winnerList.length > 1 ? `Winners (tie): ${winnerList.join(' & ')}` : `Winner: ${winnerList[0]}`,
     }));
   }
-  body.push(createTournamentScoreboard(scoreboard, 4, 4));
+  // The host picked 1 to 5 rounds (2026-11-25): never a fixed 4 columns
+  const rounds = Number.isInteger(totalRounds) && totalRounds > 0 ? totalRounds : roundsOfScoreboard(scoreboard);
+  body.push(createTournamentScoreboard(scoreboard, rounds, rounds));
 
   const returnBtn = createButton({ label: 'Return to Lobby', variant: 'primary', size: 'lg' });
   const modal = openModal({

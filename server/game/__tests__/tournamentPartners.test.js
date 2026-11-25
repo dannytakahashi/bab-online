@@ -196,6 +196,43 @@ describe('a round plan', () => {
         }
     });
 
+    // The host picks 1 to 5 rounds (2026-11-25): the least repeats grow with
+    // N only for 3 members (3 pairs) and 4 members (3 pairings); every other
+    // size has none up to 5 rounds
+    const LEAST_REPEATS = {
+        1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0], 3: [0, 0, 0, 1, 2], 4: [0, 0, 0, 2, 4],
+        5: [0, 0, 0, 0, 0], 6: [0, 0, 0, 0, 0], 7: [0, 0, 0, 0, 0],
+    };
+    test.each([1, 2, 3, 4, 5])('%i round(s), everyone playing: as good as the best whole-tournament plan (1 to 7 members)', (rounds) => {
+        for (let n = 1; n <= 7; n++) {
+            const lineups = Array.from({ length: rounds }, () => names(n));
+            const least = oracleTournament(lineups);
+            expect(least).toBe(LEAST_REPEATS[n][rounds - 1]);
+            for (let seed = 1; seed <= 30; seed++) {
+                const costs = playRounds(lineups, mulberry32(rounds * 1000 + n * 100 + seed));
+                expect(costs.reduce((sum, c) => sum + score(c), 0)).toBe(least);
+                expect(costs.every((c) => c.consecutive === 0)).toBe(true);
+            }
+        }
+    });
+
+    test('5 rounds with 3 and 4 members: never the same partner two rounds in a row, repeats the least for 5', () => {
+        for (const n of [3, 4]) {
+            for (let seed = 1; seed <= 100; seed++) {
+                const last = new Map();
+                const costs = playRounds(Array.from({ length: 5 }, () => names(n)), mulberry32(7000 + n * 100 + seed), (plan) => {
+                    for (const [a, b] of pairsOfPlan(plan)) {
+                        expect(last.get(a)).not.toBe(b);
+                        expect(last.get(b)).not.toBe(a);
+                    }
+                    last.clear();
+                    for (const [a, b] of pairsOfPlan(plan)) { last.set(a, b); last.set(b, a); }
+                });
+                expect(costs.reduce((sum, c) => sum + c.repeats, 0)).toBe(LEAST_REPEATS[n][4]);
+            }
+        }
+    });
+
     test('4 members: the first three rounds use the three pairings; the fourth repeats one, never round 3\'s', () => {
         for (let seed = 1; seed <= 100; seed++) {
             const rounds = [];
@@ -406,5 +443,53 @@ describe('the draw seats the planned teams', () => {
         expect(P.planDrawCards(deck.cards, [['a', 'a'], ['b', 'c']])).toBeNull();
         expect(P.planDrawCards(deck.cards, [['a', null], ['b', 'c']])).toBeNull();
         expect(P.planDrawCards(deck.cards.slice(0, 3), [['a', 'b'], ['c', 'd']])).toBeNull();
+    });
+});
+
+describe('TournamentState pairings (shown openly, owner 2026-11-25)', () => {
+    const TournamentState = require('../TournamentState');
+    const make = () => {
+        const t = new TournamentState('t-pairings', 'P', 's0', 'ann');
+        for (const [i, u] of ['ann', 'bob', 'cat', 'dan', 'eve'].entries()) t.addPlayer(`s${i}`, u, 1);
+        return t;
+    };
+
+    test('one entry per round from the saved teams; the planned round replaces or adds its entry', () => {
+        const t = make();
+        expect(t.pairings()).toEqual([]);
+        t.startRound(1);
+        const planned = { roundNumber: 1, tables: [{ gameId: null, teams: [['ann', 'bob'], ['cat', 'dan']] }, { gameId: null, teams: [['eve', null], [null, null]] }] };
+        expect(t.pairings({ planned })).toEqual([planned]);
+        t.addGameToRound('g1', ['ann', 'bob', 'cat', 'dan'], 0, [['ann', 'bob'], ['cat', 'dan']]);
+        t.addGameToRound('g2', ['eve'], 3, [['eve', null], [null, null]]);
+        expect(t.pairings()).toEqual([{ roundNumber: 1, tables: [
+            { gameId: 'g1', teams: [['ann', 'bob'], ['cat', 'dan']] },
+            { gameId: 'g2', teams: [['eve', null], [null, null]] },
+        ] }]);
+        // a table that never seated drops out, as from partnerHistory
+        t.dropGameTeams('g1');
+        expect(t.pairings()[0].tables.map((x) => x.gameId)).toEqual(['g2']);
+        // only a 1-member table left: nothing to show
+        expect(t.pairingsWire()).toBeNull();
+        expect(t.pairingsField()).toEqual({});
+        expect('pairings' in t.getClientState()).toBe(false);
+        const p2 = { roundNumber: 2, tables: [{ gameId: null, teams: [['ann', 'cat'], ['bob', 'eve']] }] };
+        t.startRound(2);
+        expect(t.pairingsWire({ planned: p2 }).map((r) => r.roundNumber)).toEqual([1, 2]);
+        // a rollback pops the round
+        t.rounds.pop();
+        expect(t.pairings().map((r) => r.roundNumber)).toEqual([1]);
+    });
+
+    test('a member missing from a round (sat out) is simply absent; the wire copies, never shares, the saved teams', () => {
+        const t = make();
+        t.startRound(1);
+        const teams = [['ann', 'bob'], ['cat', null]];
+        t.addGameToRound('g1', ['ann', 'bob', 'cat'], 1, teams);
+        const wire = t.pairingsWire();
+        expect(wire[0].tables[0].teams).toEqual(teams);
+        wire[0].tables[0].teams[0][0] = 'x';
+        expect(t.roundOfGame('g1').games.get('g1').teams[0][0]).toBe('ann');
+        expect(JSON.stringify(wire)).not.toContain('dan');
     });
 });

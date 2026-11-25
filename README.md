@@ -311,15 +311,15 @@ If you have not bid 10 seconds into your bidding turn, a 30-second timer starts:
 
 ### Tournaments
 
-Create a tournament from the main room to compete across 4 rounds of randomly-assigned games:
+Create a tournament from the main room to compete across 1 to 5 rounds (the host picks, 4 by default) of planned games:
 
 1. Click **Create Tournament** — opens a tournament lobby (unbounded player count)
 2. Other players click **Join** on the tournament listing in the main room (joining is only open before the tournament starts)
-3. All players ready up, then the creator clicks **Begin Tournament**
+3. The host picks the number of rounds (**Rounds 1 2 3 4 5**, beside Begin; everyone sees "Waiting to start · 3 rounds"), all players ready up, then the host clicks **Begin Tournament**
 4. Players are shuffled and divided into games of 4 (bots fill remaining slots)
 5. Play a normal game — when it ends, click **Return to Tournament** to see the scoreboard
-6. Ready up again for the next round (4 rounds total)
-7. After round 4, the player with the highest cumulative score wins (ties produce co-winners)
+6. Ready up again for the next round
+7. After the last round, the player with the highest cumulative score wins (ties produce co-winners)
 
 Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby. Disconnecting mid-tournament doesn't forfeit your seat — your scores are kept and you're re-attached when you reconnect; disconnected players just sit out rounds until they return. Final standings stay viewable for ~10 minutes after the tournament completes.
 
@@ -455,8 +455,9 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `joinTournament` | Join an existing tournament |
 | `leaveTournament` | Leave a tournament |
 | `tournamentReady` | Mark ready in tournament lobby |
+| `setTournamentRounds` | Pick the number of rounds, 1 to 5 (host only, before Begin) |
 | `beginTournament` | Start round 1 (creator only) |
-| `beginNextRound` | Start rounds 2-4 (creator only) |
+| `beginNextRound` | Start the next round (creator only) |
 | `returnToTournament` | Return to tournament lobby after game |
 | `deleteAccount` | Permanently delete account (password re-confirm) |
 | `reportUser` | Report a user (stored for review) |
@@ -491,6 +492,7 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `leaderboardResponse` | Leaderboard data |
 | `tournamentCreated` | Tournament created, show lobby |
 | `tournamentJoined` | Joined tournament, show lobby |
+| `tournamentSettingsUpdated` | The host changed the number of rounds (`{totalRounds, by}`) |
 | `tournamentRoundStart` | Round started, games being created |
 | `tournamentGameAssignment` | Player assigned to a game |
 | `tournamentGameComplete` | A game in the round finished |

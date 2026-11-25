@@ -74,8 +74,11 @@ export const REOFFER_DELAY_MS = 300;
 // Audio elements unlocked by the session's first gesture (WebKit plays an
 // element with sound without a gesture only once a gesture has played it,
 // or while the page captures a microphone, which a muted start does not):
-// the most calls a session holds (7, a mesh of 8) and one spare
-export const AUDIO_POOL_SIZE = 8;
+// the most calls a session holds (19: a tournament voice room at its
+// ceiling of 20, server/voice/tournamentVoice.js MAX_ROOM_MAX) and one spare.
+// An idle unlocked element costs nothing; a call past the pool gets a new
+// element that WebKit has not unlocked, silent until the next gesture
+export const AUDIO_POOL_SIZE = 20;
 
 /** Keep only well-formed RTCIceServer entries from a voiceIceServers payload. */
 export function sanitizeIceServers(list) {

@@ -193,6 +193,9 @@ function setupSocketHandlers(io) {
         socket.on('tournamentUnready', () =>
             asyncHandler('tournamentUnready', tournamentHandlers.tournamentUnready)(socket, io, {})
         );
+        socket.on('setTournamentRounds', (data) =>
+            asyncHandler('setTournamentRounds', tournamentHandlers.setTournamentRounds)(socket, io, data)
+        );
         socket.on('beginTournament', () =>
             asyncHandler('beginTournament', tournamentHandlers.beginTournament)(socket, io, {})
         );

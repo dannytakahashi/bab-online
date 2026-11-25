@@ -44,6 +44,7 @@
 import { CARD_CONFIG } from '../config.js';
 import { cardTextureSize } from '../cards/CardAtlas.js';
 import { TYPE, SPACE } from '../../ui/tokens.js';
+import * as drawCopy from '../../ui/drawCopy.js';
 
 /**
  * A card at design scale 1 (CSS px; item 18a: the hi-res faces have the iOS
@@ -267,13 +268,15 @@ function slotCardSize(design, dpr) {
 
 /**
  * The draw for deal's words (DrawManager puts them in the HUD; the layout
- * sizes their boxes from them). The same words as the iOS DrawPhaseView,
- * with "Click" for "Tap".
+ * sizes their boxes from them): the casual draw's, from ui/drawCopy.js (the
+ * same words as the iOS DrawPhaseView, with "Click" for "Tap"). A
+ * tournament table's draw for first deal has its own title and rule
+ * (drawCopy PLANNED) and a teams line: computeTableLayout's `drawTeams`.
  */
 export const DRAW_TEXT = Object.freeze({
-  title: 'Draw for Deal',
-  rules: 'The two highest cards are partners; the highest deals.',
-  prompt: 'Click a card to draw',
+  title: drawCopy.CASUAL.title,
+  rules: drawCopy.CASUAL.rules,
+  prompt: drawCopy.PROMPT,
 });
 /** The same for a three-seat table (Get Your Bid: no partners). */
 export const DRAW_TEXT_SOLO = Object.freeze({ ...DRAW_TEXT, rules: 'Highest card deals. Everyone plays for themselves.' });
@@ -283,7 +286,7 @@ export const DRAW_TEXT_SOLO = Object.freeze({ ...DRAW_TEXT, rules: 'Highest card
  * its regular and semibold lines; a little over the system font's own, so
  * a box is never narrower than its text).
  */
-const EM = { title: 0.62, rules: 0.52, prompt: 0.56 };
+const EM = { title: 0.62, rules: 0.52, prompt: 0.56, teams: 0.56 };
 
 /**
  * The draw for deal (item 17's draw-phase part; iOS DrawPhaseView's
@@ -308,8 +311,10 @@ const EM = { title: 0.62, rules: 0.52, prompt: 0.56 };
  */
 export const DRAW_GROW = Object.freeze({ max: 2, share: 0.6 });
 
-function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, text = DRAW_TEXT }) {
+function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, text = DRAW_TEXT, titleText = null, rulesText = null, teamsLine = '' }) {
   const DRAW_TEXT = text; // (the words this draw shows: the three-seat table's rule differs)
+  titleText = titleText ?? DRAW_TEXT.title;
+  rulesText = rulesText ?? DRAW_TEXT.rules;
   const cx = cw / 2;
   const avail = Math.max(1, cw - 2 * M);
   const baseFont = {
@@ -322,8 +327,12 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, 
   // the slot row's growth g: a share of the height left over at the ideal
   // gaps (the base column, below), at most DRAW_GROW.max and at most what
   // four slots (card plus the gap G) fit across
-  const baseRuleLines = Math.min(3, Math.max(1, Math.ceil((EM.rules * baseFont.rules * DRAW_TEXT.rules.length) / avail - 1e-9)));
-  const baseFixed = baseFont.title * 1.2 + Math.max(4, SPACE.s2 * s) + baseRuleLines * baseFont.rules * 1.35 +
+  const baseRuleLines = Math.min(3, Math.max(1, Math.ceil((EM.rules * baseFont.rules * rulesText.length) / avail - 1e-9)));
+  // a tournament table's teams line: one name-size line under the title
+  // (the HUD shrinks it, then cuts each name, so it never wraps)
+  const hasTeams = !!teamsLine;
+  const baseTeams = hasTeams ? baseFont.name * 1.3 + Math.max(4, SPACE.s2 * s) : 0;
+  const baseFixed = baseFont.title * 1.2 + baseTeams + Math.max(4, SPACE.s2 * s) + baseRuleLines * baseFont.rules * 1.35 +
     baseAvatar + Math.max(4, SPACE.s2 * s) + baseFont.name * 1.3 + Math.max(4, SPACE.s3 * s) +
     handCard.h + deckCard.h + Math.max(4, SPACE.s4 * s) + baseFont.prompt * 1.3;
   const room = ch - 2 * M - baseFixed - Math.max(G, SPACE.s8 * s) - Math.max(G, SPACE.s10 * s) - 2;
@@ -341,21 +350,24 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, 
   const pitch = Math.max(drawn.w + G, Math.min(drawn.w + 72 * s, avail / n));
   const nameW = Math.max(drawn.w, pitch - Math.max(G, SPACE.s3 * s));
   // the boxes (the rule wraps where it must, at most 3 lines)
-  const ruleEst = EM.rules * font.rules * DRAW_TEXT.rules.length;
+  const ruleEst = EM.rules * font.rules * rulesText.length;
   const ruleLines = Math.min(3, Math.max(1, Math.ceil(ruleEst / avail - 1e-9)));
+  const teamsFont = baseFont.name;
   const box = {
-    title: { w: Math.min(avail, EM.title * font.title * DRAW_TEXT.title.length), h: font.title * 1.2 },
+    title: { w: Math.min(avail, EM.title * font.title * titleText.length), h: font.title * 1.2 },
+    teams: { w: hasTeams ? Math.min(avail, EM.teams * teamsFont * teamsLine.length) : 0, h: hasTeams ? teamsFont * 1.3 : 0 },
     rules: { w: Math.min(avail, ruleEst), h: ruleLines * font.rules * 1.35 },
     name: { w: nameW, h: font.name * 1.3 },
     prompt: { w: Math.min(avail, EM.prompt * font.prompt * DRAW_TEXT.prompt.length), h: font.prompt * 1.3 },
   };
   const gap = {
+    titleTeams: hasTeams ? Math.max(4, SPACE.s2 * s) : 0,
     titleRules: Math.max(4, SPACE.s2 * s),
     avatarName: Math.max(4, SPACE.s2 * s),
     nameCard: Math.max(4, SPACE.s3 * s),
     deckPrompt: Math.max(4, SPACE.s4 * s),
   };
-  const fixed = box.title.h + gap.titleRules + box.rules.h + avatar + gap.avatarName + box.name.h +
+  const fixed = box.title.h + gap.titleTeams + box.teams.h + gap.titleRules + box.rules.h + avatar + gap.avatarName + box.name.h +
     gap.nameCard + drawn.h + deckCard.h + gap.deckPrompt + box.prompt.h;
   // the two gaps around the slot row: their tokens (s8, s10) where the
   // canvas is tall enough, down to G each where it is not
@@ -377,6 +389,8 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, 
     return c;
   };
   const titleY = take(box.title.h);
+  y += gap.titleTeams;
+  const teamsY = take(box.teams.h);
   y += gap.titleRules;
   const rulesY = take(box.rules.h);
   y += headerRow;
@@ -404,6 +418,9 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, 
     avatar: { size: avatar, y: avatarY, rects: slots.map((p) => around(p.x, avatarY, avatar, avatar)) },
     name: { dy: nameY - slotY, y: nameY, w: nameW, font: font.name, gap: gap.nameCard, rects: slots.map((p) => around(p.x, nameY, nameW, box.name.h)) },
     title: line(titleY, box.title, font.title),
+    // the teams line (a tournament table's draw for first deal), else null;
+    // `maxW` is the room the HUD may fit it into
+    teams: hasTeams ? line(teamsY, box.teams, teamsFont, { maxW: avail }) : null,
     rules: line(rulesY, box.rules, font.rules, { lines: ruleLines }),
     prompt: line(promptY, box.prompt, font.prompt),
   };
@@ -413,7 +430,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, 
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false, solo = false }) {
+function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false, solo = false, drawTeams = '' }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -975,7 +992,12 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   const bubbles = { ...bubbleBox };
 
   // ---------- draw phase (no hand, no seats yet) ----------
-  const draw = placeDraw({ cw, ch, s, M, G, q, dpr, deckCard: card.deck, drawn: card.drawn, ...(solo && { n: 3, text: DRAW_TEXT_SOLO }) });
+  const draw = placeDraw({
+    cw, ch, s, M, G, q, dpr, deckCard: card.deck, drawn: card.drawn,
+    ...(solo && { n: 3, text: DRAW_TEXT_SOLO }),
+    // a tournament table's draw for first deal (never a three-seat table)
+    ...(drawTeams && !solo && { titleText: drawCopy.title(true), rulesText: drawCopy.rules(true), teamsLine: drawTeams }),
+  });
 
   // teams panel (DrawManager, the HUD's .hud-teams): centred on the canvas,
   // at most the canvas less its margins wide (a long name wraps inside it)
@@ -1103,6 +1125,7 @@ export function drawRects(L) {
   return [
     { id: 'draw.title', group: 'title', rect: d.title.rect, allow: [] },
     { id: 'draw.rules', group: 'rules', rect: d.rules.rect, allow: [] },
+    ...(d.teams ? [{ id: 'draw.teams', group: 'teams', rect: d.teams.rect, allow: [] }] : []),
     { id: 'draw.deck', group: 'deck', rect: d.deck.rect, allow: [] },
     { id: 'draw.prompt', group: 'prompt', rect: d.prompt.rect, allow: [] },
     ...d.avatar.rects.map((r, i) => ({ id: `draw.avatar${i}`, group: `avatar${i}`, rect: r, allow: [] })),
@@ -1156,12 +1179,13 @@ export function findOutside(L, rects = null) {
  *   no partner seat, the other two raised to the upper corners, a triangular
  *   trick, three draw slots (every other layout as without it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false, watcher = false, solo = false } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false, watcher = false, solo = false, drawTeams = '' } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
   const watch = !!watcher && !isSpectator;
-  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator && !watch, ...(watch && { watcher: true }), ...(solo && { solo: true }) };
+  const teamsLine = typeof drawTeams === 'string' ? drawTeams : '';
+  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator && !watch, ...(watch && { watcher: true }), ...(solo && { solo: true }), ...(teamsLine && { drawTeams: teamsLine }) };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
@@ -1190,16 +1214,16 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
   }
   // the Tutorial button's slot never costs a clean table (the narrowest
   // phones, 360 px, which the phone gate sends to the app): without it there
-  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW, solo });
+  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW, solo, drawTeams: teamsLine });
   const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
   L.degraded = true;
   return L;
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false, watcher = false, solo = false } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false, watcher = false, solo = false, drawTeams = '' } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial, watcher, solo });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial, watcher, solo, drawTeams });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */

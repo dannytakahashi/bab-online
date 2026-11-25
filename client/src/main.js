@@ -64,7 +64,7 @@ import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/s
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -787,7 +787,8 @@ function initializeApp() {
   // The tournament lobby screen (the lobby phase, between rounds, sitting a
   // round out, back from a finished table) is a voice room on the server
   // (tournament:<id>, server/voice/tournamentVoice.js): the members on it
-  // whose page can talk there, at most 8, a blocked pair never listed. Its
+  // whose page can talk there, at most the server's cap (8 by default, up
+  // to 20), a blocked pair never listed. Its
   // company is exactly who the server announced to this socket there
   // (voicePeerList / voicePeerJoined, gone again on voicePeerLeft): a member
   // on another screen (at a table, watching one), an app that cannot talk
@@ -808,6 +809,18 @@ function initializeApp() {
       if (p && typeof p.socketId === 'string') tournamentVoicePeers.set(p.socketId, p.username ?? null);
     }
     voiceGate.update();
+  }
+
+  /**
+   * The over-cap notice (2026-11-25; s2c tournamentVoiceStatus, this page's
+   * clientHello cap tournamentVoiceStatus): past the room's cap this socket
+   * waits in line unlisted, so voice never starts (no company); the lobby's
+   * voice slot says "Voice is full (N people)" until the server lets it in
+   * (admitted true, its voicePeerList right behind) or the screen goes.
+   */
+  function onTournamentVoiceStatus(data) {
+    if (session.screen !== SCREEN.TOURNAMENT_LOBBY) return;
+    setTournamentVoiceFull(data.admitted ? null : data.cap);
   }
 
   function hasVoiceCompany() {
@@ -2385,6 +2398,7 @@ function initializeApp() {
     // A casual game's voice settings (spectator voice)
     onVoiceSettings: (data) => onVoiceSettings(data),
     onVoicePeers: (kind, data) => onVoicePeers(kind, data),
+    onTournamentVoiceStatus: (data) => onTournamentVoiceStatus(data),
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
     // ping. Any snapshot of this table is applied (R3); not_in_game applies
     // what the gap buffer holds (no snapshot is coming)
@@ -2589,6 +2603,7 @@ function initializeApp() {
         showTournamentResultsOverlay({
           scoreboard,
           winners,
+          totalRounds: data.totalRounds,
           onReturn: () => {
             gameState.tournamentId = null;
             gameState.pendingTournamentResults = null;
@@ -2614,6 +2629,11 @@ function initializeApp() {
       }
     },
 
+    // The host changed the number of rounds in the lobby (2026-11-25)
+    onTournamentSettingsUpdated: (data) => {
+      setTournamentTotalRounds(data.totalRounds);
+    },
+
     onTournamentReadyUpdate: (data) => {
       updateTournamentPlayers(data.players, gameState.username);
       // between rounds only (servers since 2026-11-15): past the ready deadline
@@ -2630,6 +2650,8 @@ function initializeApp() {
     onTournamentRoundStart: (data) => {
       updateTournamentRoundIndicator(data.roundNumber, data.totalRounds);
       setTournamentPhase('round_active');
+      // the round's pairings, shown before its draw (servers since 2026-11-25)
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentGameAssignment: (data) => {
@@ -2646,6 +2668,7 @@ function initializeApp() {
       if (data.scoreboard) {
         updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
       }
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentRoundComplete: (data) => {
@@ -2654,9 +2677,11 @@ function initializeApp() {
         updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
       }
       updateTournamentRoundIndicator(data.currentRound, data.totalRounds);
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentComplete: (data) => {
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
       const winners = data.winners && data.winners.length > 0
         ? data.winners
         : (data.scoreboard && data.scoreboard.length > 0 ? [data.scoreboard[0].username] : []);

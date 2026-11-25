@@ -68,6 +68,7 @@ enum SocketEvents {
         static let leaveTournament = "leaveTournament"
         static let tournamentReady = "tournamentReady"
         static let tournamentUnready = "tournamentUnready"
+        static let setTournamentRounds = "setTournamentRounds"
         static let beginTournament = "beginTournament"
         static let beginNextRound = "beginNextRound"
         static let tournamentChat = "tournamentChat"
@@ -100,6 +101,7 @@ enum SocketEvents {
         static let activeGameFound = "activeGameFound"
         static let deleteAccountResponse = "deleteAccountResponse"
         static let changePasswordResponse = "changePasswordResponse"
+        static let updateRequired = "updateRequired"
 
         // Safety / moderation
         static let reportUserResponse = "reportUserResponse"
@@ -175,6 +177,7 @@ enum SocketEvents {
         static let tournamentPlayerJoined = "tournamentPlayerJoined"
         static let tournamentPlayerLeft = "tournamentPlayerLeft"
         static let tournamentReadyUpdate = "tournamentReadyUpdate"
+        static let tournamentSettingsUpdated = "tournamentSettingsUpdated"
         static let tournamentMessage = "tournamentMessage"
         static let tournamentRoundStart = "tournamentRoundStart"
         static let tournamentGameAssignment = "tournamentGameAssignment"

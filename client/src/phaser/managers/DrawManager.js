@@ -64,6 +64,16 @@ export class DrawManager {
     this._fadeTimer = null;
   }
 
+  /**
+   * showDrawHud's teams options: a tournament table's planned teams
+   * (startDraw.teams / snapshot draw.teams, kept on GameState.draw) and my
+   * username, so the HUD says the draw is for first deal and names the
+   * teams, mine first; none at a casual table.
+   */
+  _teams(teams = this.state.draw?.teams) {
+    return { teams: teams || null, me: this.state.username || null };
+  }
+
   /** The table layout this manager draws with (its `draw` and `teams` parts). */
   layout() {
     return layoutOf(this.scene);
@@ -90,7 +100,7 @@ export class DrawManager {
 
     const L = this.layout();
     applyHudLayout(L);
-    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L) });
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L), ...this._teams() });
     const flyIn = this.isVisible();
     for (let i = 0; i < 54; i++) this._addDeckCard(L, i, { flyIn, pickable: !this._spectator });
   }
@@ -110,7 +120,7 @@ export class DrawManager {
     const L = this.layout();
     const done = this._spectator || !!draw.hasDrawn || draw.viewerDrawOrder !== null;
     applyHudLayout(L);
-    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L) });
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L), ...this._teams(draw.teams) });
     if (done && !this._spectator) endMyDraw();
     const left = Math.max(0, 54 - draw.drawn.length);
     for (let i = 0; i < left; i++) this._addDeckCard(L, i, { flyIn: false, pickable: !done });
@@ -306,7 +316,7 @@ export class DrawManager {
     // its words and slots, as a spectator's (no deck to pick from)
     if (!drawHud()) {
       applyHudLayout(L);
-      showDrawHud({ spectator: true, ...drawHudOpts(L) });
+      showDrawHud({ spectator: true, ...drawHudOpts(L), ...this._teams() });
     }
     const order = Math.max(1, Math.min(4, data.drawOrder || 1));
     const slot = draw.slots[order - 1];

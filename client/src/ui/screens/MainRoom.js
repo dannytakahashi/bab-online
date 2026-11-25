@@ -230,7 +230,9 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
 
       let detail;
       if (tournament.phase === 'lobby') {
-        detail = 'Waiting for players';
+        // the host's pick, 1 to 5 (2026-11-25)
+        const n = tournament.totalRounds;
+        detail = Number.isInteger(n) ? `Waiting for players · ${n} round${n === 1 ? '' : 's'}` : 'Waiting for players';
       } else if (tournament.phase === 'between_rounds') {
         detail = `Between rounds (${tournament.currentRound}/${tournament.totalRounds})`;
       } else if (tournament.phase === 'round_active') {

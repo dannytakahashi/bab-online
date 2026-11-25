@@ -462,27 +462,42 @@ function calculateMultiplier(bid1, bid2) {
     return 1;
 }
 
+const DRAW_SUIT_ORDER = { clubs: 0, diamonds: 1, hearts: 2, spades: 3, joker: 4 };
+
 /**
- * Determine draw order position based on card drawn
+ * How many of `allCards` `myCard` beats in the draw (0..3 over four drawn
+ * cards): rank first (RANK_VALUES: 2 low .. A, then LO 15 < HI 16), then
+ * suit clubs < diamonds < hearts < spades < joker. The 54 cards are
+ * distinct and every one has its own (rank, suit) place, so over four drawn
+ * cards the counts are always 0, 1, 2 and 3: a draw never ties.
+ * @param {Object} myCard - Card drawn by player
+ * @param {Array} allCards - All cards drawn
+ * @returns {number}
+ */
+function drawBeats(myCard, allCards) {
+    let beats = 0;
+    for (const card of allCards) {
+        if (RANK_VALUES[myCard.rank] > RANK_VALUES[card.rank]) {
+            beats++;
+        } else if (RANK_VALUES[myCard.rank] === RANK_VALUES[card.rank] &&
+                   DRAW_SUIT_ORDER[myCard.suit] > DRAW_SUIT_ORDER[card.suit]) {
+            beats++;
+        }
+    }
+    return beats;
+}
+
+/**
+ * Determine draw order position based on card drawn (the ordinary draw:
+ * the two highest cards are partners at 1 and 3, the highest at 1 deals
+ * first; the third highest at 2 bids first)
  * @param {Object} myCard - Card drawn by player
  * @param {Array} allCards - All cards drawn
  * @returns {number} - Position (1-4)
  */
 function determineDrawPosition(myCard, allCards) {
-    const suitOrder = { clubs: 0, diamonds: 1, hearts: 2, spades: 3, joker: 4 };
-    let rank = 0;
-
-    for (const card of allCards) {
-        if (RANK_VALUES[myCard.rank] > RANK_VALUES[card.rank]) {
-            rank++;
-        } else if (RANK_VALUES[myCard.rank] === RANK_VALUES[card.rank] &&
-                   suitOrder[myCard.suit] > suitOrder[card.suit]) {
-            rank++;
-        }
-    }
-
     // Handle position 2/3 swap
-    const position = 4 - rank;
+    const position = 4 - drawBeats(myCard, allCards);
     if (position === 2) return 3;
     if (position === 3) return 2;
     return position;
@@ -561,6 +576,36 @@ function gybDrawPosition(myCard, allCards) {
     return allCards.length - rank;
 }
 
+/**
+ * Seats for a table whose teams are fixed before the draw (a tournament
+ * round's plan, tournamentPartners): the team holding the highest of the
+ * four cards sits 1 & 3, that card at 1 (it deals first: game.dealer
+ * starts at 1), its partner at 3; the other team 2 & 4, its higher card at
+ * 2 (it bids first). Equals determineDrawPosition whenever the partners
+ * hold the two highest or the two lowest cards (every staged draw:
+ * planDrawCards), so a staged table seats exactly as before.
+ * @param {Array<{suit, rank}>} drawCards - the four drawn cards, in draw order
+ * @param {string[]} drawIDs - who drew each (same order)
+ * @param {Array<[string, string]>} teams - the two planned teams of socket ids
+ * @returns {Map<string, 1|2|3|4>|null} socket id -> position; null on
+ *   malformed input (the caller falls back to determineDrawPosition)
+ */
+function seatPlannedTeams(drawCards, drawIDs, teams) {
+    if (!Array.isArray(drawCards) || !Array.isArray(drawIDs) || drawCards.length !== 4 || drawIDs.length !== 4) return null;
+    if (!Array.isArray(teams) || teams.length !== 2 || teams.some((t) => !Array.isArray(t) || t.length !== 2)) return null;
+    if (drawCards.some((c) => !c || RANK_VALUES[c.rank] === undefined || DRAW_SUIT_ORDER[c.suit] === undefined)) return null;
+    const ids = teams.flat();
+    if (new Set(drawIDs).size !== 4 || new Set(ids).size !== 4 || ids.some((id) => !drawIDs.includes(id))) return null;
+    const beats = new Map(drawIDs.map((id, i) => [id, drawBeats(drawCards[i], drawCards)]));
+    if (new Set(beats.values()).size !== 4) return null;
+    const high = teams.find((t) => t.some((id) => beats.get(id) === 3));
+    const low = teams.find((t) => t !== high);
+    const order = (t) => [...t].sort((a, b) => beats.get(b) - beats.get(a));
+    const [h1, h3] = order(high);
+    const [l2, l4] = order(low);
+    return new Map([[h1, 1], [l2, 2], [h3, 3], [l4, 4]]);
+}
+
 // Hand Strength Index: server/game/hsi.js (expected share of the tricks, on the
 // 55 .. 130 (average) .. 355 scale)
 const { calculateHSI } = require('./hsi');
@@ -596,7 +641,9 @@ module.exports = {
     normalizeSeatCounter: normalizeSeatBags,
     findHighestBidder,
     calculateMultiplier,
+    drawBeats,
     determineDrawPosition,
+    seatPlannedTeams,
     calculateHSI,
     GYB_SEATS,
     GYB_FORBIDDEN_MIN_HAND,

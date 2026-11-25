@@ -279,6 +279,11 @@ describe('refusals', () => {
         ['a non-finite round score', (t) => { t.scoreboard.bob.roundScores[0] = Infinity; }, 'scores'],
         ['a creator who is not a member', (t) => { t.creatorUsername = 'zed'; }, 'creator'],
         ['an unknown phase', (t) => { t.phase = 'paused'; }, 'phase'],
+        // The host's pick is 1 to 5 (2026-11-25)
+        ['no rounds', (t) => { t.totalRounds = 0; }, 'totalRounds'],
+        ['six rounds', (t) => { t.totalRounds = 6; }, 'totalRounds'],
+        ['a fractional count', (t) => { t.totalRounds = 2.5; }, 'totalRounds'],
+        ['a count as a string', (t) => { t.totalRounds = '3'; }, 'totalRounds'],
     ])('%s', (_label, breakIt, reason) => {
         const t = lobby();
         playRound(t, 1, 'g-1', { alice: 1, bob: 2, cy: 3 });
@@ -300,6 +305,21 @@ describe('refusals', () => {
         expect(() => codec.hydrate({ ...doc, state: null })).toThrow(expect.objectContaining({ reason: 'malformed' }));
         expect(() => codec.hydrate({ ...doc, state: { ...doc.state, phase: 'starting' } })).toThrow(expect.objectContaining({ reason: 'malformed' }));
         expect(() => codec.hydrate({ ...doc, state: { ...doc.state, currentRound: 2 } })).toThrow(expect.objectContaining({ reason: 'invalid' }));
+    });
+
+    test('the host\'s round count (1 to 5) round-trips; a doc without one (saved before the picker) is 4', () => {
+        for (const n of [1, 2, 3, 5]) {
+            const t = lobby();
+            expect(t.setTotalRounds(n)).toBe(true);
+            const { doc, restored } = roundTrip(t);
+            expect(doc.state.totalRounds).toBe(n);
+            expect(restored.totalRounds).toBe(n);
+            expectSame(t, restored);
+        }
+        const doc = json(codec.serialize(lobby()));
+        delete doc.state.totalRounds;
+        expect(codec.hydrate(doc).tournament.totalRounds).toBe(4);
+        expect(() => codec.hydrate({ ...doc, state: { ...doc.state, totalRounds: 7 } })).toThrow(expect.objectContaining({ reason: 'invalid' }));
     });
 
     test('hydrate refuses a member named twice or without a name (ids are per username)', () => {

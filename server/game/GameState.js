@@ -31,7 +31,7 @@ const {
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
 const { isValidBid, isValidGybBid, gybForbiddenBid, isLegalPlay, firstLegalCard, normalizeSeatBags, normalizeSeatCounter } = require('./rules');
-const { MODE, normalizeMode, GYB_SEATS, CLASSIC_SEATS } = require('./gameMode');
+const { MODE, normalizeMode, GYB_SEATS, CLASSIC_SEATS, isGyb } = require('./gameMode');
 // The persist store's change hooks (persist/hooks.js): passive, one null
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
@@ -197,11 +197,20 @@ class GameState {
         // The name playerDrew showed for each draw, in draw order (snapshot v2)
         this.drawNames = [];
         // A tournament table's planned teams (two pairs of entrant socket
-        // ids; set by tournamentHandlers.createRoundTable) and the card each
-        // of them draws, chosen at the first draw so the draw seats those
-        // teams (tournamentPartners.planDrawCards); null elsewhere
+        // ids; set by tournamentHandlers.createRoundTable); null elsewhere.
+        // drawHonest (set only by gameLifecycle.beginDraw, owner
+        // 2026-11-25): every human and spectator there can show a draw for
+        // first deal, so each draw takes the card picked and the draw
+        // decides only seats and who deals first (drawPositions). Otherwise
+        // (a legacy client present, or drawTeams set without beginDraw's
+        // decision) the draw is staged: drawPlan, chosen at the first draw,
+        // hands each planned entrant the card that seats the plan
+        // (tournamentPartners.planDrawCards). drawTeamsWire: the teams by
+        // name as startDraw.teams / snapshot draw.teams sent them
         this.drawTeams = null;
         this.drawPlan = null;
+        this.drawHonest = false;
+        this.drawTeamsWire = null;
 
         // Seat records (SeatState.js): position -> who controls the seat and
         // whether its owner is present. `players` / `positions` above are the
@@ -863,13 +872,15 @@ class GameState {
     }
 
     /**
-     * A tournament table's draw (drawTeams): the deck index of the card
-     * planned for `socketId`, or -1 (no plan, or not one of the planned).
-     * The draw stays a real draw on the wire; only who gets which of four
-     * cards off the shuffled deck is chosen.
+     * A staged tournament table's draw (drawTeams, not drawHonest): the deck
+     * index of the card planned for `socketId`, or -1 (no plan, an honest
+     * draw, or not one of the planned). The draw stays a real draw on the
+     * wire; only who gets which of four cards off the shuffled deck is
+     * chosen. An honest draw never plans (drawPlan stays null), so every
+     * draw there is the card asked for (a bot's, an auto-draw's random one).
      */
     _plannedDrawIndex(socketId) {
-        if (!this.drawTeams) return -1;
+        if (!this.drawTeams || this.drawHonest) return -1;
         if (!this.drawPlan) {
             this.drawPlan = require('./tournamentPartners').planDrawCards(this.deck.cards, this.drawTeams) || new Map();
         }
@@ -888,6 +899,29 @@ class GameState {
             }
         }
         return i;
+    }
+
+    /**
+     * The seat of each draw, in draw order (null until every seat drew): the
+     * only source of seating (gameHandlers.handleDrawComplete, snapshot v2
+     * draw.drawn[].position). A planned table (drawTeams) seats its teams
+     * (rules.seatPlannedTeams: the highest card's team at 1 & 3, that card
+     * at 1), anything else by determineDrawPosition; a malformed plan falls
+     * back to the cards (logged).
+     * @returns {Array<1|2|3|4>|null}
+     */
+    drawPositions() {
+        const n = this.seatCount;
+        if (this.drawCards.length !== n || this.drawIDs.length !== n) return null;
+        const { determineDrawPosition, gybDrawPosition, seatPlannedTeams } = require('./rules');
+        // Get Your Bid: three seats in draw order, no teams (never planned)
+        if (isGyb(this)) return this.drawCards.map((c) => gybDrawPosition(c, this.drawCards));
+        if (this.drawTeams) {
+            const seats = seatPlannedTeams(this.drawCards, this.drawIDs, this.drawTeams);
+            if (seats) return this.drawIDs.map((id) => seats.get(id));
+            gameLogger.warn('Planned draw teams do not match the draw; seating by the cards', { gameId: this.gameId });
+        }
+        return this.drawCards.map((c) => determineDrawPosition(c, this.drawCards));
     }
 
     // ========================================

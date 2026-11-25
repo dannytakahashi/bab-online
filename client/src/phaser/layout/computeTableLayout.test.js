@@ -409,6 +409,34 @@ describe('the draw for deal (iOS DrawPhaseView\'s column)', () => {
     }
   });
 
+  it('a tournament table\'s draw for first deal: the teams line under the title, the longer rule, the slots and deck still on screen (320, 375, 768, desktop)', () => {
+    const line = 'You & Hannah vs Danny & 🤖 Clara';
+    const long = 'You & Bartholomew_the_Great vs Maximiliana_Q & 🤖 Bartholomew';
+    for (const [vw, vh] of [[320, 568], [375, 667], [375, 812], [768, 1024], [1024, 668], [1440, 900]]) {
+      for (const teams of [line, long]) {
+        const L = layoutForViewport({ vw, vh, withLog: false, drawTeams: teams });
+        const d = L.draw;
+        const label = `${vw}x${vh} ${teams.length}`;
+        expect(d.teams, label).toBeTruthy();
+        // the line sits between the title and the rule, one name-size line
+        expect(d.teams.rect.y, label).toBeGreaterThanOrEqual(bottom(d.title.rect) - 0.01);
+        expect(d.rules.rect.y, label).toBeGreaterThanOrEqual(bottom(d.teams.rect) - 0.01);
+        expect(d.teams.rect.h, label).toBeCloseTo(d.teams.font * 1.3, 6);
+        expect(d.teams.maxW, label).toBeLessThanOrEqual(L.w - 2 * L.margin + 0.01);
+        // the first-deal words are what the boxes were sized for
+        expect(d.title.rect.w, label).toBeGreaterThan(layoutForViewport({ vw, vh, withLog: false }).draw.title.rect.w - 0.01);
+        const col = [['title', d.title.rect], ['teams', d.teams.rect], ...column(d).slice(1)];
+        for (let i = 1; i < col.length; i++) {
+          expect(col[i][1].y, `${label}: ${col[i][0]} below ${col[i - 1][0]}`).toBeGreaterThanOrEqual(bottom(col[i - 1][1]) - 0.01);
+        }
+        expect(findIntersections(L, drawRects(L)), label).toEqual([]);
+        expect(findOutside(L, drawRects(L)), label).toEqual([]);
+      }
+    }
+    // a casual table has no line
+    expect(layoutForViewport({ vw: 375, vh: 667, withLog: false }).draw.teams).toBeNull();
+  });
+
   it('the rule wraps (and its box grows) only where one line does not fit', () => {
     const wide = layoutForViewport({ vw: 1440, vh: 900, withLog: false }).draw.rules;
     const phone = layoutForViewport({ vw: 390, vh: 844, withLog: false });

@@ -413,8 +413,10 @@ describe('the three screens: one grid, content left, chat right', () => {
         expect(mainItems.length).toBeGreaterThan(0);
         expect(Math.max(...mainItems.map((n) => order.indexOf(n)))).toBeLessThan(firstChat);
         expect(order.slice(firstChat).every((n) => root.querySelector('.screen-chat').contains(n))).toBe(true);
-        // nothing takes itself out of the tab order
-        expect(root.querySelectorAll('[tabindex]:not([tabindex="0"])').length).toBe(0);
+        // nothing takes itself out of the tab order (a radio group's other
+        // options excepted: one tab stop, the arrows move; the tournament
+        // host's Rounds picker)
+        expect(root.querySelectorAll('[tabindex]:not([tabindex="0"]):not([role="radio"])').length).toBe(0);
       });
 
       it('computed style (the real stylesheet): a fixed full-window grid with the chat column on the right', () => {

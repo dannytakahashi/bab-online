@@ -73,6 +73,8 @@ class RateLimiter {
             tournamentReady: { max: 10, windowMs: 10000 },
             tournamentUnready: { max: 10, windowMs: 10000 },
             beginTournament: { max: 5, windowMs: 60000 },
+            // The host's round picker (2026-11-25): a few taps in the lobby
+            setTournamentRounds: { max: 20, windowMs: 60000 },
             beginNextRound: { max: 5, windowMs: 60000 },
             returnToTournament: { max: 10, windowMs: 30000 },
             // "Don't wait for <name>" in a play-again lobby (host): one per tap
@@ -131,22 +133,29 @@ class RateLimiter {
 
             // Voice signaling (checked inside voiceHandlers: over the limit
             // the message is dropped silently, never serverError, which the
-            // clients would show as a toast). Per socket, all peers together
-            // (a family lobby or a casual game with spectators is up to 8
-            // people: 7 peers each, 2026-11-16; a table alone was 3).
-            // Measured 2026-11-11 in the desktop app's Chromium with the
-            // clients' two Google STUN servers: 2 candidates per peer
-            // connection (mDNS host), gathered in ~20 ms; more interfaces,
-            // IPv6, iOS cellular and several Cloudflare relay URLs
-            // (turnCredentials.js) add a few srflx/host/relay each, so
-            // 600 / 10 s leaves room for a 7-peer burst plus a restart.
-            // Offers/answers: one per peer plus renegotiation and restarts
-            // (estimates: not yet measured with TURN).
+            // clients would show as a toast). Per socket, all peers together.
+            // Sized for the largest mesh a room may be: a tournament's voice
+            // room at its ceiling of 20 (tournamentVoice.MAX_ROOM_MAX; env
+            // TOURNAMENT_VOICE_MAX, default 8), 19 calls each (a family lobby
+            // or a casual game with spectators is up to 8 people). Measured
+            // 2026-11-11 in the desktop app's Chromium with the clients' two
+            // Google STUN servers: 2 candidates per peer connection (mDNS
+            // host), gathered in ~20 ms; more interfaces, IPv6, iOS cellular
+            // and several Cloudflare relay URLs (turnCredentials.js) add a
+            // few srflx/host/relay each, up to ~30 a call: 1200 / 10 s holds
+            // an entry burst to 19 peers plus a full ICE-restart round
+            // (19 x 30 x 2 = 1140). Offers/answers: one per peer on entry, a
+            // re-offer to each on the first unmute and a restart per failed
+            // call, at most ~3 x 19 = 57 (2026-11-25, owner: room cap as a
+            // setting; voiceSignaling.test.js ties these to the ceiling;
+            // scripts/voice-mesh-measure.mjs counts them on a real mesh).
+            // These are DoS guards on a relay to one connected same-room
+            // peer, so the headroom costs nothing on the server.
             // (The old web PCM relay and its voiceRelayAudio key are gone:
             // V1_REMOVALS #20.)
-            voiceOffer: { max: 60, windowMs: 10000 },
-            voiceAnswer: { max: 60, windowMs: 10000 },
-            voiceIceCandidate: { max: 600, windowMs: 10000 },
+            voiceOffer: { max: 120, windowMs: 10000 },
+            voiceAnswer: { max: 120, windowMs: 10000 },
+            voiceIceCandidate: { max: 1200, windowMs: 10000 },
             // "Spectators can talk" (lobby host / in-game controller): one per
             // tap; the game coalesces changes to one per 3 s anyway
             setSpectatorsCanTalk: { max: 4, windowMs: 30000 },

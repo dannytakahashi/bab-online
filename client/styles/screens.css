@@ -681,6 +681,41 @@
     margin-bottom: var(--space-3);
 }
 
+/* the round's pairings and "Partners so far" (ui/screens/tournamentPairings.js) */
+.tournament-pairings {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.tournament-pairings[hidden] { display: none; }
+
+.tournament-pairings .section-title + .tournament-pairings__list,
+.tournament-pairings .section-title + .tournament-pairings__partners {
+    margin-top: var(--space-1);
+}
+
+.tournament-pairings__list,
+.tournament-pairings__partners {
+    margin: 0 0 var(--space-2);
+    padding: 0;
+    list-style: none;
+}
+
+.tournament-pairings__row,
+.tournament-pairings__partner {
+    padding: var(--space-1) 0;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.tournament-pairings__row.is-mine {
+    color: var(--text-primary);
+    font-weight: var(--weight-semibold);
+}
+
 .tournament-games {
     flex-shrink: 0;
     max-height: 150px;
@@ -1008,6 +1043,43 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* ---------- Tournament lobby: the host's Rounds picker (1 to 5) ----------
+   (components/RoundsPicker.js, a radio group in the scope-control look),
+   right above Begin in the lobby phase */
+
+.rounds-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    flex-shrink: 0;
+}
+
+.rounds-picker + .screen-actions {
+    margin-top: var(--space-3);
+}
+
+.rounds-picker__label {
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-semibold);
+}
+
+.rounds-picker__group.scope-control {
+    /* sized by its options (the stats scope control is a size container,
+       which would collapse an auto-width group to nothing) */
+    container-type: normal;
+    width: auto;
+    max-width: none;
+    margin: 0;
+}
+
+.rounds-picker__group .scope-control__option {
+    flex: 0 0 auto;
+    min-width: var(--hit-target);
+    font-variant-numeric: tabular-nums;
 }
 
 /* ---------- Stats scope: Human games | Bot games | All games ----------

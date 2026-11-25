@@ -351,6 +351,42 @@ function tournamentUnready(socket, io) {
 }
 
 /**
+ * The host picks the number of rounds, 1 to 5, in the lobby (2026-11-25).
+ * Ready flags are kept. Everyone in the room gets tournamentSettingsUpdated
+ * and an unstored system line; the main room's list shows the new count.
+ * The same count again changes nothing and sends nothing.
+ */
+function setTournamentRounds(socket, io, data) {
+    const tournament = gameManager.getPlayerTournament(socket.id);
+    if (!tournament) {
+        emitError(socket, { message: 'Not in a tournament' }, 'setTournamentRounds');
+        return;
+    }
+    if (tournament.createdBy !== socket.id) {
+        emitError(socket, { message: 'Only the host can change the number of rounds' }, 'setTournamentRounds');
+        return;
+    }
+    if (tournament.phase !== 'lobby') {
+        emitError(socket, { message: 'Rounds can only change before the tournament begins' }, 'setTournamentRounds');
+        return;
+    }
+    const totalRounds = data?.totalRounds;
+    if (totalRounds === tournament.totalRounds) {
+        liveness.noteActivity(io, tournament, socket.id);
+        return;
+    }
+    if (!tournament.setTotalRounds(totalRounds)) {
+        emitError(socket, { message: 'Rounds must be from 1 to 5' }, 'setTournamentRounds');
+        return;
+    }
+    const by = tournament.players.get(socket.id)?.username ?? null;
+    tournament.broadcast(io, 'tournamentSettingsUpdated', { totalRounds, by });
+    tournament.broadcast(io, 'tournamentMessage', systemLine(`${by} set the tournament to ${totalRounds} round${totalRounds === 1 ? '' : 's'}.`));
+    emitLobbiesUpdated(io);
+    liveness.noteActivity(io, tournament, socket.id);
+}
+
+/**
  * Begin tournament (round 1) — creator only
  */
 async function beginTournament(socket, io) {
@@ -411,7 +447,7 @@ async function beginTournament(socket, io) {
 }
 
 /**
- * Begin next round (rounds 2-4) — creator only
+ * Begin next round (rounds 2 to totalRounds) — creator only
  */
 async function beginNextRound(socket, io) {
     const tournament = gameManager.getPlayerTournament(socket.id);
@@ -523,11 +559,15 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
     const assignments = planRoundTables(usernames, tournament.partnerHistory());
     tournament.startRound(roundNumber);
 
-    // Broadcast round start
+    // Broadcast round start; pairings (additive 2026-11-25): the rounds so
+    // far plus this round's plan, shown openly before the draw (a member
+    // who goes during the announce is corrected by the next event)
+    const planned = { roundNumber, tables: assignments.map(a => ({ gameId: null, teams: a.teams })) };
     tournament.broadcast(io, 'tournamentRoundStart', {
         roundNumber,
         totalRounds: tournament.totalRounds,
-        assignments: assignments.map(a => ({ humanCount: a.humans.length, botCount: a.botCount }))
+        assignments: assignments.map(a => ({ humanCount: a.humans.length, botCount: a.botCount })),
+        ...tournament.pairingsField({ planned })
     });
 
     await delay(pacing().ROUND_ANNOUNCE_MS);
@@ -726,7 +766,8 @@ function rollbackRound(io, tournament, roundNumber) {
         tournament.broadcast(io, 'tournamentRoundComplete', {
             scoreboard: tournament.getScoreboard(),
             currentRound: tournament.currentRound,
-            totalRounds: tournament.totalRounds
+            totalRounds: tournament.totalRounds,
+            ...tournament.pairingsField()
         });
         tournament.broadcast(io, 'tournamentReadyUpdate', liveness.readyUpdatePayload(tournament));
     }
@@ -1073,7 +1114,8 @@ async function broadcastRoundOutcome(io, tournament) {
     if (tournament.isTournamentComplete()) {
         tournament.broadcast(io, 'tournamentComplete', {
             scoreboard: tournament.getScoreboard(),
-            winners: tournament.getWinners()
+            winners: tournament.getWinners(),
+            ...tournament.pairingsField()
         });
         await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
         scheduleTournamentCleanup(io, tournament.tournamentId);
@@ -1081,7 +1123,8 @@ async function broadcastRoundOutcome(io, tournament) {
         tournament.broadcast(io, 'tournamentRoundComplete', {
             scoreboard: tournament.getScoreboard(),
             currentRound: tournament.currentRound,
-            totalRounds: tournament.totalRounds
+            totalRounds: tournament.totalRounds,
+            ...tournament.pairingsField()
         });
         liveness.armReadyDeadline(io, tournament);
         liveness.refreshHostIdle(io, tournament);
@@ -1113,7 +1156,8 @@ async function handleAbortedTournamentGame(io, gameId, game = gameManager.getGam
         activeGames: tournament.getActiveGames(),
         scoreboard: tournament.getScoreboard(),
         currentRound: tournament.currentRound,
-        totalRounds: tournament.totalRounds
+        totalRounds: tournament.totalRounds,
+        ...tournament.pairingsField()
     });
 
     if (result.roundComplete) {
@@ -1137,6 +1181,7 @@ module.exports = {
     cancelTournament,
     tournamentReady,
     tournamentUnready,
+    setTournamentRounds,
     beginTournament,
     beginNextRound,
     startNextRound,

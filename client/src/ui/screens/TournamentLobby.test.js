@@ -4,7 +4,7 @@
  * begin or cancel, so without them the tournament was stuck until a reload).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed } from './TournamentLobby.js';
+import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, updateTournamentRoundIndicator, updateTournamentScoreboardUI, getTournamentTotalRounds, setTournamentVoiceFull } from './TournamentLobby.js';
 
 function fakeSocket() {
   const sent = [];
@@ -223,5 +223,171 @@ describe('between rounds: the ready deadline and the idle-host hand-off (2026-11
     showTournamentLobby(hosting(), fakeSocket(), 'me');
     updateTournamentPlayers(hosting({ cat: true }).players, 'me');
     expect(cancel()).not.toBeNull();
+  });
+});
+
+describe('tournament voice: the over-cap notice (2026-11-25, s2c tournamentVoiceStatus)', () => {
+  const note = () => document.getElementById('tournamentVoiceFull');
+
+  it('"Voice is full (N people)" beside the voice slot while waiting in line, cleared when let in', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    expect(note()).toBeNull();
+    setTournamentVoiceFull(12);
+    expect(note().textContent).toBe('Voice is full (12 people)');
+    expect(note().getAttribute('role')).toBe('status');
+    // in the header, just before the voice slot
+    expect(note().nextElementSibling.id).toBe('lobbyVoiceSlot');
+    setTournamentVoiceFull(20);
+    expect(document.querySelectorAll('#tournamentVoiceFull')).toHaveLength(1);
+    expect(note().textContent).toBe('Voice is full (20 people)');
+    setTournamentVoiceFull(null);
+    expect(note()).toBeNull();
+  });
+
+  it('kept across a redraw of the lobby (every tournamentJoined), gone with the screen', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    setTournamentVoiceFull(8);
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    expect(note().textContent).toBe('Voice is full (8 people)');
+    removeTournamentLobby();
+    expect(note()).toBeNull();
+    // no lobby on screen: nothing drawn
+    setTournamentVoiceFull(8);
+    expect(note()).toBeNull();
+  });
+
+  it('a cap that is not a whole number still says the room is full', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    setTournamentVoiceFull('x');
+    expect(note().textContent).toBe('Voice is full');
+  });
+});
+
+describe('the round pairings and Partners so far (2026-11-25)', () => {
+  const PAIRINGS = [
+    { roundNumber: 1, tables: [{ gameId: 'g1', teams: [['me', 'cat'], ['bob', null]] }] },
+  ];
+  const section = () => document.getElementById('tournamentPairings');
+
+  it('hidden in the lobby phase (no pairings key), shown from tournamentJoined and updated by the events', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(lobby(), socket, 'me');
+    expect(section().hidden).toBe(true);
+    updateTournamentPairings([{ roundNumber: 1, tables: [{ gameId: null, teams: [['me', 'cat'], ['bob', null]] }] }]);
+    expect(section().hidden).toBe(false);
+    expect(section().querySelector('h3').textContent).toBe('Round 1 pairings');
+    expect(section().querySelector('.tournament-pairings__row').textContent).toBe('You & cat vs bob & a bot');
+    // a payload without pairings changes nothing
+    updateTournamentPairings(undefined);
+    expect(section().hidden).toBe(false);
+  });
+
+  it('a returning member: the state\'s pairings with Partners so far', () => {
+    showTournamentLobby({ ...lobby({ phase: 'between_rounds', currentRound: 1 }), pairings: PAIRINGS }, fakeSocket(), 'me');
+    expect([...section().querySelectorAll('.tournament-pairings__partner')].map((r) => r.textContent)).toEqual(['Round 1 · cat']);
+  });
+
+  it('a spectator: the tables, no Partners so far', () => {
+    showTournamentLobby({ ...lobby({ phase: 'round_active', currentRound: 1, isSpectator: true }), pairings: PAIRINGS }, fakeSocket(), 'zed');
+    expect(section().querySelector('.tournament-pairings__row').textContent).toBe('me & cat vs bob & a bot');
+    expect(section().querySelector('.tournament-pairings__partners')).toBeNull();
+  });
+});
+
+describe('the host picks the number of rounds (2026-11-25)', () => {
+  const picker = () => document.getElementById('tournamentRoundsPicker');
+  const checked = () => picker()?.querySelector('[aria-checked="true"]')?.textContent;
+  const option = (n) => picker().querySelector(`[data-rounds="${n}"]`);
+  const indicator = () => document.getElementById('tournamentRoundIndicator').textContent;
+  const columns = () => [...document.querySelectorAll('#tournamentScoreboardContainer th')].map((th) => th.textContent);
+  const SCORES = [{ username: 'bob', totalScore: 0, roundScores: [] }, { username: 'me', totalScore: 0, roundScores: [] }];
+
+  it('the host: a Rounds radio group 1 to 5 above Begin, 4 by default; a pick is sent and shown at once', () => {
+    const socket = fakeSocket();
+    showTournamentLobby({ ...lobby(), scoreboard: SCORES }, socket, 'bob');
+    expect(picker()).not.toBeNull();
+    expect(picker().nextElementSibling.id).toBe('tournamentButtonRow');
+    expect(picker().querySelector('[role="radiogroup"]').getAttribute('aria-labelledby')).toBe('tournamentRoundsLabel');
+    expect([...picker().querySelectorAll('[role="radio"]')].map((b) => b.textContent)).toEqual(['1', '2', '3', '4', '5']);
+    expect(checked()).toBe('4');
+    expect(indicator()).toBe('Waiting to start · 4 rounds');
+    expect(columns()).toEqual(['#', 'Player', 'R1', 'R2', 'R3', 'R4', 'Total']);
+
+    option(2).click();
+    expect(socket.emitted('setTournamentRounds')).toEqual([{ totalRounds: 2 }]);
+    expect(checked()).toBe('2');
+    expect(indicator()).toBe('Waiting to start · 2 rounds');
+    expect(columns()).toEqual(['#', 'Player', 'R1', 'R2', 'Total']);
+    expect(getTournamentTotalRounds()).toBe(2);
+    // the same count again sends nothing
+    option(2).click();
+    expect(socket.emitted('setTournamentRounds')).toHaveLength(1);
+  });
+
+  it('keyboard: one tab stop, the arrows move and select, Home / End', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(lobby(), socket, 'bob');
+    expect([...picker().querySelectorAll('[role="radio"]')].map((b) => b.tabIndex)).toEqual([-1, -1, -1, 0, -1]);
+    const group = picker().querySelector('[role="radiogroup"]');
+    group.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(checked()).toBe('5');
+    group.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(checked()).toBe('1');
+    group.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(checked()).toBe('5');
+    expect(document.activeElement).toBe(option(5));
+    expect(socket.emitted('setTournamentRounds').map((d) => d.totalRounds)).toEqual([5, 1, 5]);
+  });
+
+  it('members and spectators: no picker; the round line, columns and a host\'s picker follow tournamentSettingsUpdated', () => {
+    showTournamentLobby({ ...lobby(), scoreboard: SCORES }, fakeSocket(), 'me');
+    expect(picker()).toBeNull();
+    setTournamentTotalRounds(1);
+    expect(indicator()).toBe('Waiting to start · 1 round');
+    expect(columns()).toEqual(['#', 'Player', 'R1', 'Total']);
+    setTournamentTotalRounds(6); // never a count the server refuses
+    expect(indicator()).toBe('Waiting to start · 1 round');
+    removeTournamentLobby();
+
+    showTournamentLobby({ ...lobby({ isSpectator: true }), totalRounds: 3 }, fakeSocket(), 'zed');
+    expect(picker()).toBeNull();
+    expect(indicator()).toBe('Waiting to start · 3 rounds');
+    removeTournamentLobby();
+
+    showTournamentLobby(lobby(), fakeSocket(), 'bob');
+    setTournamentTotalRounds(3);
+    expect(checked()).toBe('3');
+  });
+
+  it('gone once the tournament begins: "Round x of N" and N columns from there on', () => {
+    showTournamentLobby({ ...lobby(), totalRounds: 2, scoreboard: SCORES }, fakeSocket(), 'bob');
+    expect(checked()).toBe('2');
+    updateTournamentRoundIndicator(1, 2);
+    setTournamentPhase('round_active');
+    expect(picker()).toBeNull();
+    expect(indicator()).toBe('Round 1 of 2');
+    updateTournamentScoreboardUI([{ username: 'bob', totalScore: 120, roundScores: [120] }], 1, 2);
+    expect(columns()).toEqual(['#', 'Player', 'R1', 'R2', 'Total']);
+    setTournamentPhase('between_rounds');
+    expect(picker()).toBeNull();
+  });
+
+  it('a returning host between rounds gets no picker; a hand-off in the lobby moves it', () => {
+    showTournamentLobby({ ...lobby({ phase: 'between_rounds', currentRound: 1 }), totalRounds: 2 }, fakeSocket(), 'bob');
+    expect(picker()).toBeNull();
+    expect(indicator()).toBe('Round 1 of 2');
+    removeTournamentLobby();
+
+    const socket = fakeSocket();
+    showTournamentLobby({ ...lobby(), totalRounds: 5 }, socket, 'me');
+    expect(picker()).toBeNull();
+    updateTournamentPlayers(afterBobLeft('me'), 'me', 'me');
+    expect(checked()).toBe('5');
+    option(3).click();
+    expect(socket.emitted('setTournamentRounds')).toEqual([{ totalRounds: 3 }]);
+    // the role moves on again: the picker goes with Begin and Cancel
+    updateTournamentPlayers(afterBobLeft('cat'), 'me', 'cat');
+    expect(picker()).toBeNull();
+    expect(begin()).toBeNull();
   });
 });

@@ -310,6 +310,30 @@ client's view by the one-way delay. It appears on:
 The event order is unchanged; the shipped iOS app ignores the field and
 relies on the server's minimum gaps (`pacing.SHIPPED_IOS_FLOORS`).
 
+## Tournament rounds
+
+The host picks the number of rounds, 1 to 5 (default 4), in the tournament
+lobby (2026-11-25; `server/CLAUDE.md`, Tournament lifecycle).
+
+- c2s `setTournamentRounds {totalRounds}`: an integer 1..5 (Joi
+  `setTournamentRounds`, strict, so `"3"` is refused; rate limit 20 per
+  60 s). Host only, lobby phase only; a refusal is a `serverError` ('Not in a
+  tournament', 'Only the host can change the number of rounds', 'Rounds can
+  only change before the tournament begins'). The same count again sends
+  nothing.
+- s2c `tournamentSettingsUpdated {totalRounds, by}` to the tournament room,
+  then an unstored system `tournamentMessage` ("kim set the tournament to 3
+  rounds.") and `lobbiesUpdated` (the summary's `totalRounds`). Ready flags
+  are kept.
+- No cap and no new field: every tournament payload already carries
+  `totalRounds` (tournamentClientState, tournamentRoundStart,
+  tournamentGameComplete, tournamentRoundComplete, the main-room summary,
+  snapshot v2 `tournament`). Shipped iOS builds ignore the new event, see
+  the system line, and read the count from round 1's `tournamentRoundStart`
+  (their empty lobby scoreboard shows 4 columns until then).
+- Web reads it in the lobby (`TournamentLobby.setTournamentTotalRounds`) and
+  sends it from the host's Rounds picker; iOS from build 41.
+
 ## Client capabilities (clientHello) and avatar fields
 
 `clientHello {client, version, build?, caps}` (c2s, no reply) tells the
@@ -424,7 +448,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   same reason; 2026-11-24, tournament voice): the client starts voice on its
   tournament lobby screen (muted, only with another member there) and at a
   tournament table, so the server may put it in the tournament's voice room
-  (`tournament:<id>`: the members on that screen, at most 8; voicePeerList /
+  (`tournament:<id>`: the members on that screen, at most `TOURNAMENT_VOICE_MAX`, default 8, 2..20; voicePeerList /
   voicePeerJoined / voicePeerLeft as in a lobby, offers relayed between two
   admitted members) and announces it at its table's seating. Without it a
   socket is never a tournament-room peer: shipped iOS 1.2.5 (39) and older
@@ -438,6 +462,17 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   starts voice there. No new event or field: only the existing voice
   events. The web sends it from 2026-11-24; iOS from its next build
   (server/voice/tournamentVoice.js, docs/claude/voice.md "Tournament voice").
+- `tournamentVoiceStatus` (`$defs.clientCapTournamentVoiceStatus`, its own
+  const for the same reason; 2026-11-25, the over-cap notice): the client
+  renders the private s2c `tournamentVoiceStatus {admitted, cap}`. A member
+  waiting in line for a full tournament voice room (past
+  `TOURNAMENT_VOICE_MAX`, default 8) gets `admitted: false` when it enters
+  the line (and again when its lobby screen is drawn again while it waits)
+  and `admitted: true` when it is let in; nothing else. Without the cap
+  nothing is sent (it waits silently, as before). The web sends it from
+  2026-11-25 ("Voice is full (N people)" in the tournament lobby); iOS from
+  1.2.7, which lists the event for Swift (`contract/layout.json` excludes
+  it until then).
 - `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid
@@ -469,6 +504,30 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `score2`, `teamBids`, `mults`, `team1Tricks`, ...) keep their shape and
   carry nothing, `teamsAnnounced` is never sent, `gameStart.hsiValues` is
   `{}`, and no `rainbow`, `destroyHands` or `assistHint` is ever sent.
+- `tournamentPairings` (`$defs.clientCapTournamentPairings`, its own const
+  for the same reason; 2026-11-25, partners shown openly): the client shows
+  the tournament events' `pairings` (the round's tables and "Partners so
+  far") and, at a tournament table, `startDraw.teams` / snapshot v2
+  `draw.teams` as a draw for first deal ("Partners are set for this round.
+  The highest card deals first." with the teams on one line). Every planned
+  table (two or more members) sends the teams; the draw is honest (each
+  player the card they picked; the draw decides only seats and the first
+  deal) only when every human there and every spectator present at its
+  startDraw has the cap, otherwise it is staged as before (invisible on the
+  wire), so a client without it (iOS 1.2.6 (40) and older, cached web tabs)
+  keeps its "The two highest cards are partners" and it stays true. An
+  honest table also gets one stored system `gameLogEntry` "Partners this
+  round: A & B vs C & D. The draw decides who deals first." The web sends
+  it from 2026-11-25; iOS from build 41 (server/CLAUDE.md "Tournament
+  partners"). Additive keys: `startDraw.teams` and `draw.teams` (both 2 x 2
+  `$defs.plannedTeamPlayer {username, isBot}`, both keys always present:
+  build 41 decodes the generated `TableSnapshot` strictly, `Draw.teams:
+  [[PlannedTeamPlayer]]?`), `pairings` (`[$defs.roundPairings]`:
+  `{roundNumber, tables: [{gameId | null, teams: [$defs.pairingTeam] x 2]}]}`,
+  usernames or null for a bot) on tournamentRoundStart, tournamentGameComplete,
+  tournamentRoundComplete, tournamentComplete and tournamentClientState
+  (tournamentCreated / tournamentJoined), absent while no table has two
+  members.
 - `badges` (`$defs.clientCapBadges`, its own const for the same reason;
   2026-11-25, badges: `server/game/badges.js`, `server/socket/badgeAwards.js`,
   `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it;

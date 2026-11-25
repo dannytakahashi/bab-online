@@ -61,10 +61,27 @@ const { socketLogger } = require('../utils/logger');
  *                     screen); at a table casualSpectators from iOS that
  *                     starts voice muted also counts (with assist, or
  *                     build 18 and later; server/voice/tournamentVoice.js)
+ *   tournamentVoiceStatus  renders the over-cap notice (2026-11-25): a
+ *                     member waiting in line for a full tournament voice
+ *                     room gets the private s2c tournamentVoiceStatus
+ *                     {admitted: false, cap} ("Voice is full (N people)")
+ *                     and {admitted: true, cap} once it is let in; a
+ *                     socket without it gets nothing (it waits silently,
+ *                     as before; server/voice/tournamentVoice.js)
  *   getYourBid        can show a Get Your Bid lobby and table (3 seats, no
  *                     teams; server/game/gameMode.js): only such a socket
  *                     is listed, may create, join, rejoin or watch one
  *                     (the web; no iOS build)
+ *   tournamentPairings the round pairings and "Partners so far" (the
+ *                     tournament events' `pairings`), and at a tournament
+ *                     table startDraw.teams / snapshot draw.teams shown as a
+ *                     draw for first deal (2026-11-25). A tournament table
+ *                     draws honestly (each player the card they picked; the
+ *                     draw decides only seats and the first deal) only when
+ *                     every human there and every spectator present at the
+ *                     draw's start has it; otherwise the draw is staged as
+ *                     before (gameLifecycle.beginDraw, PAIRINGS_CAP in
+ *                     game/tournamentPartners.js)
  *   badges            shows badges (owner 2026-11-24): the player's earned
  *                     ones as `badges` on profileResponse /
  *                     playerProfileResponse, and the private s2c
@@ -72,7 +89,7 @@ const { socketLogger } = require('../utils/logger');
  *                     (server/socket/badgeAwards.js); a socket without it
  *                     gets neither (the web; no iOS build)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'badges'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

@@ -23,6 +23,8 @@ Partners sit across from each other at the table (positions 1 & 3 vs positions 2
 
 **Tie-breaking**: If two cards have the same rank, suit order breaks the tie: clubs < diamonds < hearts < spades.
 
+**In a tournament**, partners are set by the round's plan and shown before the draw (partners rotate from round to round); the draw decides seats and who deals first. The player with the highest card deals first and sits with their partner at positions 1 & 3; of the other team, the player with the higher card sits at position 2 (and bids first), their partner at position 4.
+
 ---
 
 ## Hand Progression
@@ -199,6 +201,10 @@ After all 13 hands are completed:
 - The team with the higher total score wins
 
 ---
+
+## Tournaments
+
+A tournament is a series of rounds (1 to 5; the host picks the number in the tournament lobby before it begins, 4 by default). Each round every player plays one game, with bots filling empty seats; partners rotate from round to round (see Drawing for Positions). Your round score is your team's final score in that round's game; if you miss a round you score that round's lowest score. After the last round the highest total wins (a tie gives co-winners).
 
 ## Get Your Bid
 

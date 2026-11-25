@@ -1,6 +1,7 @@
 /**
  * Encapsulates all state for a single tournament instance.
- * Manages tournament lifecycle: lobby → round_active → between_rounds → complete.
+ * Manages tournament lifecycle: lobby → round_active → between_rounds → complete,
+ * over totalRounds rounds (1 to 5, the host's pick in the lobby; default 4).
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -27,8 +28,9 @@ class TournamentState {
         // gets tables, assignments or allPlayersReady.
         this.epoch = 0;
         this.retired = false;
-        this.currentRound = 0; // 0 = not started, 1-4 = round number
-        this.totalRounds = 4;
+        this.currentRound = 0; // 0 = not started, then 1..totalRounds
+        // The host picks 1 to 5 in the lobby (setTotalRounds, 2026-11-25)
+        this.totalRounds = TournamentState.DEFAULT_ROUNDS;
 
         // Players: socketId → { username, pic, ready }
         this.players = new Map();
@@ -44,7 +46,7 @@ class TournamentState {
         // Rounds data
         this.rounds = [];
 
-        // Scoreboard: username → { totalScore, roundScores: [r1..r4], roundDetails: [...] }
+        // Scoreboard: username → { totalScore, roundScores: [r1..rN] (N = totalRounds), roundDetails: [...] }
         this.scoreboard = {};
 
         // Between rounds: when Begin may start with only the ready members
@@ -339,6 +341,20 @@ class TournamentState {
         this.timers.clear();
     }
 
+    /**
+     * The host's round count (2026-11-25): 1 to 5, in the lobby phase only.
+     * Ready flags are kept (iOS 1.2.6 syncs its own only on a rejoin).
+     * @returns {boolean} whether it was set
+     */
+    setTotalRounds(n) {
+        if (this.phase !== 'lobby') return false;
+        if (!Number.isInteger(n) || n < TournamentState.MIN_ROUNDS || n > TournamentState.MAX_ROUNDS) return false;
+        this.totalRounds = n;
+        this.logAction('setTotalRounds', { totalRounds: n });
+        this._changed();
+        return true;
+    }
+
     // ---------- between-rounds ready deadline ----------
 
     /** Past the ready deadline: Begin may start with the ready members only. */
@@ -396,6 +412,49 @@ class TournamentState {
             }
         }
         return history;
+    }
+
+    /**
+     * Each round's tables and teams so far, for the clients' round pairings
+     * and "Partners so far" (owner 2026-11-25): one entry per round in
+     * `rounds`, {roundNumber, tables: [{gameId, teams}]} with the tables
+     * that kept their planned `teams` (usernames, null for a bot; a table
+     * that never seated dropped them: dropGameTeams). `planned` (the round
+     * just planned: {roundNumber, tables: [{gameId: null, teams}]}) replaces
+     * or adds that round's entry. Derived from the saved round entries, so
+     * it survives a deploy handoff unchanged.
+     */
+    pairings({ planned = null } = {}) {
+        const list = this.rounds.map((round) => {
+            const tables = [];
+            for (const [gameId, game] of round.games) {
+                if (!Array.isArray(game.teams)) continue;
+                tables.push({ gameId, teams: game.teams.map((t) => [t[0] ?? null, t[1] ?? null]) });
+            }
+            return { roundNumber: round.roundNumber, tables };
+        });
+        if (planned) {
+            const i = list.findIndex((r) => r.roundNumber === planned.roundNumber);
+            if (i >= 0) list[i] = planned; else list.push(planned);
+        }
+        return list;
+    }
+
+    /**
+     * pairings() for the wire, or null when no table anywhere has two
+     * members (the lobby phase, a 1-member tournament: their payloads stay
+     * as they were).
+     */
+    pairingsWire(opts) {
+        const list = this.pairings(opts);
+        const shown = list.some((r) => r.tables.some((t) => t.teams.flat().filter(Boolean).length >= 2));
+        return shown ? list : null;
+    }
+
+    /** `{pairings}` to spread into a tournament event's payload, or {} (pairingsWire is null). */
+    pairingsField(opts) {
+        const pairings = this.pairingsWire(opts);
+        return pairings ? { pairings } : {};
     }
 
     getCurrentRound() {
@@ -731,6 +790,9 @@ class TournamentState {
             state.winners = this.getWinners();
         }
 
+        // Additive (2026-11-25): each round's pairings so far
+        Object.assign(state, this.pairingsField());
+
         return state;
     }
 
@@ -836,5 +898,10 @@ class TournamentState {
         }
     }
 }
+
+// The round count the host may pick in the lobby (2026-11-25)
+TournamentState.MIN_ROUNDS = 1;
+TournamentState.MAX_ROUNDS = 5;
+TournamentState.DEFAULT_ROUNDS = 4;
 
 module.exports = TournamentState;
