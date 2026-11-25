@@ -258,8 +258,9 @@ const defs = {
         superlatives: arr(ref('recordsSuperlative')),
     }, { open: true, optional: ['superlatives'] })),
     // One Records title: id (bagBoy, luckyDuck, cursed, botFriends,
-    // helpFromFriends, anchor today; more may come, render unknown ids the
-    // same way), the title shown, the winner(s) (human usernames, up to 3
+    // helpFromFriends, myQuantitative, delusionsOfGrandeur today; anchor
+    // until 2026-11-20, renamed delusionsOfGrandeur; more may come, render
+    // unknown ids the same way), the title shown, the winner(s) (human usernames, up to 3
     // tied, alphabetical) and the value line ("2.4 bags a game"; " (+N
     // more)" when more players tied).
     recordsSuperlative: obj({

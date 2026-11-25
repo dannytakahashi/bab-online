@@ -14,7 +14,7 @@ const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
-const { createSuperlatives, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION } = require('../utils/superlatives');
+const { createSuperlatives, accountTotals, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION, ACCOUNT_FIELDS } = require('../utils/superlatives');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial, isBotStatsGame, assistedSeatMoves } = require('../game/assistState');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../game/rules');
@@ -913,8 +913,11 @@ const NOT_MERGED = { mergedInto: { $exists: false } };
  * Games a player needs in a scope before they get a ranked leaderboard row
  * there (one lucky win shouldn't top the board). Players below it still
  * count toward that scope's Population row; records and profiles ignore it.
+ * The same number as SUPERLATIVE_MIN_GAMES, by definition: the All Time
+ * account superlatives are meant to be won by the ranked leaderboard players
+ * (owner 2026-11-24), so the two minimums are one constant.
  */
-const LEADERBOARD_MIN_GAMES = 5;
+const LEADERBOARD_MIN_GAMES = SUPERLATIVE_MIN_GAMES;
 let leaderboardMinGames = LEADERBOARD_MIN_GAMES;
 
 /**
@@ -939,6 +942,53 @@ const LEADERBOARD_QUERIES = {
         bucket: (user) => sumBuckets(user.stats, user.botStats)
     }
 };
+
+/**
+ * The All Time superlatives' accounts (utils/superlatives.js, the `account`
+ * titles: the leaderboard's Set % and avg HSI), per scope: the leaderboard's
+ * users (LEADERBOARD_QUERIES: never a tombstone, so never a merged-away or
+ * deleted account) and bucket, only the bucket fields those titles read.
+ * human / bots read only accounts that can qualify (gamesPlayed at least
+ * SUPERLATIVE_MIN_GAMES in that bucket); 'all' sums two buckets, so it
+ * takes the leaderboard's filter and superlatives.js checks the sum. Like
+ * the leaderboard's read, no index: one small document per account, read
+ * once per records fill (the 60 s per-scope cache).
+ */
+const accountFields = (...buckets) => Object.fromEntries(buckets.flatMap((b) => ACCOUNT_FIELDS.map((f) => [`${b}.${f}`, 1])));
+const SUPERLATIVE_ACCOUNT_QUERIES = {
+    human: {
+        filter: { 'stats.gamesPlayed': { $gte: SUPERLATIVE_MIN_GAMES }, ...NOT_MERGED },
+        projection: { _id: 0, username: 1, ...accountFields('stats') }
+    },
+    bots: {
+        filter: { 'botStats.gamesPlayed': { $gte: SUPERLATIVE_MIN_GAMES }, ...NOT_MERGED },
+        projection: { _id: 0, username: 1, ...accountFields('botStats') }
+    },
+    all: {
+        filter: LEADERBOARD_QUERIES.all.filter,
+        projection: { _id: 0, username: 1, ...accountFields('stats', 'botStats') }
+    }
+};
+
+/**
+ * accountTotals() of every account SUPERLATIVE_ACCOUNT_QUERIES reads for
+ * `scope`, or null (no users collection, or the read failed: logged, and
+ * the All Time titles fall back to the records, so the records page still
+ * answers).
+ */
+async function superlativeAccounts(scope) {
+    try {
+        const usersCollection = getUsersCollection();
+        if (!usersCollection) throw new Error('no users collection');
+        const query = SUPERLATIVE_ACCOUNT_QUERIES[scope] || SUPERLATIVE_ACCOUNT_QUERIES.human;
+        const bucket = (LEADERBOARD_QUERIES[scope] || LEADERBOARD_QUERIES.human).bucket;
+        const users = await usersCollection.find(query.filter, { projection: query.projection }).toArray();
+        return users.map((user) => accountTotals(user.username, bucket(user)));
+    } catch (error) {
+        authLogger.error('Could not read the accounts for the All Time superlatives', { scope, error: error.message });
+        return null;
+    }
+}
 
 /**
  * The leaderboard rows (one per player with at least LEADERBOARD_MIN_GAMES
@@ -1256,7 +1306,11 @@ function recordTeam(game, n, scope) {
  *
  * Superlatives (2026-11-20, utils/superlatives.js): each non-null period
  * also carries `superlatives` [{id, title, names, detail}], from players
- * with SUPERLATIVE_MIN_GAMES games there. They do not depend on order, so
+ * with SUPERLATIVE_MIN_GAMES games there (per-seat titles: games with
+ * per-seat counters). All Time's Lucky Duck, Cursed and Delusions of
+ * Grandeur come from the account totals instead (superlativeAccounts,
+ * 2026-11-24: the leaderboard's avg HSI and Set %), read alongside the
+ * finds. The record-based ones do not depend on order, so
  * they take ONE pass over the allTime documents (same scope filter), each
  * also added to thisYear / thisMonth when its completedAt is a Date on or
  * after that period's start: exactly the period finds' `$gte` (a Date
@@ -1277,15 +1331,20 @@ async function fillRecords(now, scope = 'human') {
     };
 
     const periods = Object.keys(filters);
-    const [totalGames, ...results] = await Promise.all([
+    const [totalGames, accounts, ...results] = await Promise.all([
         gameRecordsCollection.countDocuments({ ...base }),
+        superlativeAccounts(scope),
         ...periods.map(period => gameRecordsCollection.find(filters[period], { projection }).toArray())
     ]);
 
     const records = {};
     const periodGames = {};
 
-    const superlatives = Object.fromEntries(periods.map((period) => [period, createSuperlatives({ minGames: SUPERLATIVE_MIN_GAMES })]));
+    // All Time: the account titles from the account totals (the
+    // leaderboard's numbers), the rest from the records
+    const superlatives = Object.fromEntries(periods.map((period) => [period, createSuperlatives({
+        minGames: SUPERLATIVE_MIN_GAMES, accounts: period === 'allTime' ? accounts : null
+    })]));
     for (const game of results[periods.indexOf('allTime')]) {
         superlatives.allTime.add(game);
         const at = game.completedAt;
