@@ -180,6 +180,9 @@ export function foldAvatarPayload(event, data) {
     case 'leaderboardResponse':
       foldRows(data.leaderboard, urls);
       break;
+    case 'searchPlayersResponse':
+      foldRows(data.players, urls);
+      break;
     case 'profileResponse':
     case 'playerProfileResponse':
       if (data.profile && typeof data.profile === 'object') {
@@ -220,17 +223,22 @@ export function foldAvatarPayload(event, data) {
  * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
  * lobby and its three-seat table; only such a client is listed, may create,
  * join, rejoin or watch one (server/game/gameMode.js).
+ * And tournamentVoiceStatus (2026-11-25, main.js "Tournament voice"): this
+ * page shows "Voice is full (N people)" on the tournament lobby while it
+ * waits in line for a full tournament voice room (s2c tournamentVoiceStatus).
  * And tournamentPairings (2026-11-25, ui/drawCopy.js,
  * ui/screens/tournamentPairings.js): this page shows the round pairings and
  * "Partners so far" and words a tournament table's draw as a draw for first
  * deal with the teams (startDraw.teams), so the server may draw honestly
  * there (each player the card picked).
+ * And badges (2026-11-25, ui/components/Badges.js): this page shows a
+ * player's earned badges on their profile and the badgesAwarded toast.
  * And cutForABuck (2026-11-25, ui/cut/, state/cutForABuck.js): this page
  * shows Cut for a buck, the tournament's finale (phase 'cut', the
  * cutForABuck* events, tournamentJoined.cut) and the complete phase as the
  * lobby's final results, so the server runs the cut when a member has it.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'cutForABuck'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck'];
 
 export function clientHello(version, build, capable = true) {
   return {

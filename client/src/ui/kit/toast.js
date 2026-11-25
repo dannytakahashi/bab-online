@@ -6,7 +6,8 @@
  *   - a pill at the top centre (under the connection banner while that
  *     shows), as iOS's ServerErrorToast: an icon (teal "i" for info, amber
  *     "!" for a refusal or warning, red "!" for a real error, green check
- *     for success) and bold text; a tap dismisses it;
+ *     for success) and bold text; a tap dismisses it; a caller may give
+ *     pictures to show in place of the icon (`art`: a badge just earned);
  *   - one toast is shown at a time (z-index token 'toast'); the rest wait
  *     their turn, in order;
  *   - a toast of the type on screen replaces it (the newer message wins),
@@ -116,9 +117,39 @@ function icon(type) {
   return wrap;
 }
 
-function build(message, type) {
+/** At most this many pictures in one toast (the words name every one). */
+export const TOAST_ART_MAX = 4;
+
+/** Picture sources as a clean list (a string, an array or nothing). */
+function artList(art) {
+  const list = Array.isArray(art) ? art : (art ? [art] : []);
+  return list.filter((src) => typeof src === 'string' && src).slice(0, TOAST_ART_MAX);
+}
+
+/**
+ * What leads the pill: the type's icon, or the caller's pictures (a badge
+ * just earned). Decorative: the words say it all. A picture that fails to
+ * load hides, and the type's icon is never shown beside pictures.
+ */
+function lead(type, art) {
+  if (art.length === 0) return icon(type);
+  const wrap = el('span', { className: 'kit-toast__art', attrs: { 'aria-hidden': 'true' } });
+  for (const src of art) {
+    const img = el('img', { attrs: { src, alt: '', width: 40, height: 40, decoding: 'async' } });
+    img.addEventListener('error', () => { img.hidden = true; }, { once: true });
+    wrap.appendChild(img);
+  }
+  return wrap;
+}
+
+function setLead(item, art) {
+  item.art = art;
+  item.el.firstElementChild?.replaceWith(lead(item.type, art));
+}
+
+function build(message, type, art) {
   const card = el('div', { className: `kit-toast toast toast-${type}` });
-  card.appendChild(icon(type));
+  card.appendChild(lead(type, art));
   card.appendChild(el('span', { className: 'kit-toast__text', text: message }));
   // a tap (or click) dismisses it, as on iOS; not focusable (no close button, no focus trap)
   card.addEventListener('click', () => {
@@ -198,17 +229,21 @@ function nudge(card) {
  * @param {'info'|'success'|'warning'|'error'} [o.type='info']
  * @param {number} [o.duration=5000]
  * @param {boolean} [o.announce=true] - false when the caller already spoke the words
+ * @param {string|string[]} [o.art] - picture source(s) shown in place of the type's icon (a badge just earned)
  * @returns {HTMLElement} the toast's element (attached once it is its turn)
  */
-export function toast(message, { type = 'info', duration = TOAST_DURATION, announce = true } = {}) {
+export function toast(message, { type = 'info', duration = TOAST_DURATION, announce = true, art = null } = {}) {
   const kind = TOAST_TYPES.includes(type) ? type : 'info';
   const text = String(message);
+  const pictures = artList(art);
+  const sameArt = (item) => (item.art || []).join('\n') === pictures.join('\n');
   const ms = readable(text, duration);
   if (current && current.type === kind && !current.el.classList.contains('is-leaving')) {
     // the same words again: restart the timer, nudge, say it again;
     // other words of the same kind replace the ones on screen
-    if (current.text === text) nudge(current.el);
+    if (current.text === text && sameArt(current)) nudge(current.el);
     else setText(current, text);
+    if (!sameArt(current)) setLead(current, pictures);
     current.duration = ms;
     current.announce = announce;
     arm(current);
@@ -218,11 +253,12 @@ export function toast(message, { type = 'info', duration = TOAST_DURATION, annou
   const queued = queue.find((q) => q.type === kind);
   if (queued) {
     setText(queued, text);
+    if (!sameArt(queued)) setLead(queued, pictures);
     queued.duration = ms;
     queued.announce = announce;
     return queued.el;
   }
-  const item = { el: build(text, kind), type: kind, duration: ms, timer: null, text, announce };
+  const item = { el: build(text, kind, pictures), type: kind, duration: ms, timer: null, text, announce, art: pictures };
   // ahead of every waiting toast it outranks (in order among its equals)
   const at = queue.findIndex((q) => RANK[q.type] < RANK[kind]);
   if (at === -1) queue.push(item);

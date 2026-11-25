@@ -159,6 +159,7 @@ const scoreboard = arr(ref('scoreboardRow'));
 // Stats scope echo (server/utils/statsScope.js, owner 2026-11-13)
 const statsScope = enm('human', 'bots', 'all');
 const SCOPE_ECHO_NOTE = 'scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).';
+const BADGES_NOTE = ' badges (additive 2026-11-25): the badges this player has earned (server/game/badges.js publicBadges: oldest first, each once, whatever the scope), ONLY for a socket with the clientHello cap badges ($defs.clientCapBadges); never an unearned one.';
 const seatNotice = obj({ position: ref('position'), username: str() });
 
 // The snapshot carriers (rejoinSuccess, restorePlayerState, the spectator
@@ -876,11 +877,18 @@ const s2c = {
     },
 
     // ==================== Profile ====================
+    badgesAwarded: {
+        payload: obj({ gameId: str(), badges: arr(ref('earnedBadge'), { minItems: 1 }) }),
+        status: 'active', to: 'socket', seq: false,
+        clientReads: reads(W.profile, []),
+        emittedFrom: ['server/socket/badgeAwards.js:notify'],
+        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
+    },
     profileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl', 'scope'],
-        notes: SCOPE_ECHO_NOTE,
+        added: ['avatarUrl', 'scope', 'badges'],
+        notes: SCOPE_ECHO_NOTE + BADGES_NOTE,
         clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
@@ -911,10 +919,10 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
     playerProfileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl', 'scope'],
-        notes: SCOPE_ECHO_NOTE,
+        added: ['avatarUrl', 'scope', 'badges'],
+        notes: SCOPE_ECHO_NOTE + BADGES_NOTE,
         clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
@@ -1165,7 +1173,17 @@ const s2c = {
         status: 'active', to: 'self',
         clientReads: reads(W.voice, I.voice),
         emittedFrom: ['server/socket/mainRoomHandlers.js:joinLobby', 'server/socket/seatLifecycle.js:announceOwnerVoice', 'server/voice/gameVoice.js:announceSpectator', 'server/socket/playAgain.js:voiceAtReturn', 'server/voice/tournamentVoice.js:announceTable', 'server/voice/tournamentVoice.js:change', 'server/voice/tournamentVoice.js:relist'],
-        notes: 'Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game\'s voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table\'s seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating\'s reveal hold); in a tournament\'s voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most 8) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again.',
+        notes: 'Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game\'s voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table\'s seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating\'s reveal hold); in a tournament\'s voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most tournamentVoice.maxRoom(): env TOURNAMENT_VOICE_MAX, 2..20, default 8; the rest wait in line unlisted, see tournamentVoiceStatus) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again.',
+    },
+    tournamentVoiceStatus: {
+        payload: obj({
+            admitted: bool({ description: 'false: waiting in line for a full room; true: let in (its voicePeerList follows)' }),
+            cap: int({ minimum: 2, maximum: 20, description: 'the room\'s size limit now (tournamentVoice.maxRoom())' }),
+        }),
+        status: 'active', to: 'socket',
+        clientReads: reads(W.voice, []),
+        emittedFrom: ['server/voice/tournamentVoice.js:sendStatus'],
+        notes: 'New (2026-11-25, the over-cap notice; private, unsequenced): a tournament\'s voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others\' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows "Voice is full (N people)" in the tournament lobby\'s voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before).',
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),

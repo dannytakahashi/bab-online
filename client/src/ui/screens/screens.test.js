@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showMainRoom, addMainRoomChatMessage, updateLobbyList, removeMainRoom } from './MainRoom.js';
 import { showGameLobby, addLobbyChatMessage, removeGameLobby, updateLobbyPlayersList } from './GameLobby.js';
 import { showTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentActiveGames, removeTournamentLobby } from './TournamentLobby.js';
+import { showPlayerSearchPage, updatePlayerSearchResults, removePlayerSearchPage } from './PlayerSearchPage.js';
 import { showProfilePage, showPlayerProfilePage, removeProfilePage, removePlayerProfilePage, handleFileUpload } from './ProfilePage.js';
 import { showLeaderboardPage, removeLeaderboardPage } from './LeaderboardPage.js';
 import { showRecordsPage, removeRecordsPage } from './RecordsPage.js';
@@ -46,6 +47,7 @@ afterEach(() => {
   removeMainRoom();
   removeGameLobby();
   removeTournamentLobby();
+  removePlayerSearchPage();
   removeProfilePage();
   removePlayerProfilePage();
   removeLeaderboardPage();
@@ -131,6 +133,22 @@ describe('user text is text (ui-13)', () => {
     expect(t.querySelector('#tournamentChatArea').textContent).toContain(`${EVIL}: ${EVIL}`);
     expect(t.querySelector('#tournamentActiveGames').textContent).toContain(`${EVIL} +2 bots`);
     expect(t.querySelector('#tournamentActiveGames').hidden).toBe(false);
+  });
+
+  it('player search: a result is a button with the name as text that opens the profile', () => {
+    const opener = createButton({ label: 'Players' });
+    document.body.appendChild(opener);
+    opener.focus();
+    showPlayerSearchPage(socket);
+    updatePlayerSearchResults([{ username: EVIL, gamesPlayed: 4, wins: 1 }]);
+    expect(injected()).toEqual([]);
+    const row = document.querySelector('#playerSearchResults .search-result');
+    expect(row.tagName).toBe('BUTTON');
+    expect(row.textContent).toBe(`${EVIL}4 games | 25% win rate`);
+    row.click();
+    expect(socket.emitted('getPlayerProfile')).toEqual([{ username: EVIL, scope: 'human' }]);
+    expect(document.getElementById('playerSearchPageOverlay')).toBeNull();
+    expect(document.activeElement).toBe(opener);
   });
 
   it('own and other profiles, leaderboard, records, queue, the resignation offer', () => {
@@ -259,7 +277,7 @@ describe('every dialog is a kit Modal', () => {
     expect(document.getElementById('blockUserDialog')).toBeNull();
   });
 
-  it('leaderboard and records are kit Modals with a named close button', () => {
+  it('leaderboard, records and player search are kit Modals with a named close button', () => {
     showLeaderboardPage([], socket);
     expect(document.querySelector('#leaderboardPageOverlay [role="dialog"]').id).toBe('leaderboardPageModal');
     document.querySelector('#leaderboardPageModal .kit-modal__close').click();
@@ -270,6 +288,12 @@ describe('every dialog is a kit Modal', () => {
     expect(document.querySelector('#recordsPageModal .kit-modal__close').getAttribute('aria-label')).toBe('Close records');
     document.dispatchEvent(key('Escape'));
     expect(document.getElementById('recordsPageOverlay')).toBeNull();
+
+    showPlayerSearchPage(socket);
+    expect(document.activeElement.id).toBe('playerSearchInput');
+    expect(document.activeElement.getAttribute('aria-label')).toBe('Search players by username');
+    document.dispatchEvent(key('Escape'));
+    expect(document.getElementById('playerSearchPageOverlay')).toBeNull();
   });
 
   it('the leaderboard sorts from the keyboard: the header is a button and the column carries aria-sort', () => {
