@@ -335,6 +335,12 @@ const defs = {
     // key below reaches only clients that know the mode (the web; no iOS
     // build) (contract/README.md "Client capabilities")
     clientCapGetYourBid: konst('getYourBid'),
+    // A ninth, its own const for the same reason (2026-11-25, the over-cap
+    // notice): the client renders the private s2c tournamentVoiceStatus
+    // ("Voice is full (N people)") for a member waiting in line for a full
+    // tournament voice room; without it nothing is sent (contract/README.md
+    // "Client capabilities", docs/claude/voice.md "Tournament voice")
+    clientCapTournamentVoiceStatus: konst('tournamentVoiceStatus'),
     // ---------- Get Your Bid (2026-11-24; server/game/gameMode.js) ----------
     // The one mode value on the wire (absent = the base game)
     gybMode: konst('gyb'),

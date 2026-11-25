@@ -61,12 +61,19 @@ const { socketLogger } = require('../utils/logger');
  *                     screen); at a table casualSpectators from iOS that
  *                     starts voice muted also counts (with assist, or
  *                     build 18 and later; server/voice/tournamentVoice.js)
+ *   tournamentVoiceStatus  renders the over-cap notice (2026-11-25): a
+ *                     member waiting in line for a full tournament voice
+ *                     room gets the private s2c tournamentVoiceStatus
+ *                     {admitted: false, cap} ("Voice is full (N people)")
+ *                     and {admitted: true, cap} once it is let in; a
+ *                     socket without it gets nothing (it waits silently,
+ *                     as before; server/voice/tournamentVoice.js)
  *   getYourBid        can show a Get Your Bid lobby and table (3 seats, no
  *                     teams; server/game/gameMode.js): only such a socket
  *                     is listed, may create, join, rejoin or watch one
  *                     (the web; no iOS build)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentVoiceStatus'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {
