@@ -121,6 +121,8 @@ struct TournamentSummary: Identifiable, Equatable {
     let currentRound: Int
     let totalRounds: Int
     let creatorUsername: String
+    /// Cut for a buck is on (additive 2026-11-25; the phase reads 'round_active' for everyone).
+    var cut = false
 
     static func from(_ dict: [String: Any]) -> TournamentSummary? {
         guard let id = dict["id"] as? String else { return nil }
@@ -130,7 +132,8 @@ struct TournamentSummary: Identifiable, Equatable {
         let currentRound = dict["currentRound"] as? Int ?? 0
         let totalRounds = dict["totalRounds"] as? Int ?? 4
         let creatorUsername = dict["creatorUsername"] as? String ?? ""
-        return TournamentSummary(id: id, name: name, playerCount: playerCount, phase: phase, currentRound: currentRound, totalRounds: totalRounds, creatorUsername: creatorUsername)
+        return TournamentSummary(id: id, name: name, playerCount: playerCount, phase: phase, currentRound: currentRound, totalRounds: totalRounds,
+                                 creatorUsername: creatorUsername, cut: dict["cut"] as? Bool ?? false)
     }
 }
 

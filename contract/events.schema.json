@@ -4708,7 +4708,7 @@
       "rateLimit": "cutForABuckDraw",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -4748,7 +4748,7 @@
           "slot": 1
         }
       ],
-      "notes": "New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room's cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper's serverError {code: 'validation'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (sentBy says what shipped clients send)."
+      "notes": "New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room's cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper's serverError {code: 'validation'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (TournamentEmitter.cutForABuckDraw: a tap on the fan sends the slot under the finger, VoiceOver's Draw a card and the list's button null, and a tap after the server drew for me (away) null once a round, so the next round waits for me)."
     },
     "beginTournament": {
       "payload": {
@@ -10841,12 +10841,14 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:startGather"
       ],
-      "notes": "New (2026-11-25; contract/README.md \"Cut for a buck\"): the last table's result came in and Cut for a buck starts in startsInMs (the gather, CUT_GATHER_MS 15 s: people come back from their score screens). Only when CUT_FOR_A_BUCK is not off, 2 or more members are connected and one of them has the clientHello cap cutForABuck; then the tournament is in phase 'cut' (sockets without the cap see 'round_active'). candidates: the members connected now; the participants are fixed at the gather's end (cutForABuckRound). deckCount: the full deck(s), 54 per 54 players. Followed by a room system line and lobbiesUpdated (the summary's cut: true). Read by the web and iOS from build 41; shipped clients ignore it."
+      "notes": "New (2026-11-25; contract/README.md \"Cut for a buck\"): the last table's result came in and Cut for a buck starts in startsInMs (the gather, CUT_GATHER_MS 15 s: people come back from their score screens). Only when CUT_FOR_A_BUCK is not off, 2 or more members are connected and one of them has the clientHello cap cutForABuck; then the tournament is in phase 'cut' (sockets without the cap see 'round_active'). candidates: the members connected now; the participants are fixed at the gather's end (cutForABuckRound). deckCount: the full deck(s), 54 per 54 players. Followed by a room system line and lobbiesUpdated (the summary's cut: true). Read by the web and iOS from build 41 (TournamentSocketHandler handleCut, State/CutForABuck.swift); shipped clients ignore it."
     },
     "cutForABuckRound": {
       "payload": {
@@ -10896,7 +10898,9 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:openRound"
@@ -10936,7 +10940,9 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:draw",
@@ -10979,7 +10985,9 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:memberLeft"
@@ -11036,7 +11044,9 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:reveal"
@@ -11053,12 +11063,14 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/cutForABuck.js:declareWinner"
       ],
-      "notes": "One player is left: the winner of Cut for a buck (\"Just for bragging rights\"), with every participant and the rounds drawn. A room system line \"<winner> won Cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
+      "notes": "One player is left: the winner of Cut for a buck, with every participant and the rounds drawn. A room system line \"<winner> won Cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
     },
     "tournamentLeft": {
       "payload": {

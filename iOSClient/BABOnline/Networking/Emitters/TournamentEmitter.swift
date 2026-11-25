@@ -47,6 +47,12 @@ enum TournamentEmitter {
         socket.emit(SocketEvents.Client.returnToTournament)
     }
 
+    /// Cut for a buck: my draw for the open round, the fan's slot I touched or nil for a random one
+    /// (VoiceOver's "Draw a card", the list's button, a tap after the server drew for me).
+    static func cutForABuckDraw(round: Int, slot: Int?) {
+        socket.emit(SocketEvents.Client.cutForABuckDraw, ["round": round, "slot": slot.map { $0 as Any } ?? NSNull()])
+    }
+
     static func cancelTournament() {
         socket.emit(SocketEvents.Client.cancelTournament)
     }

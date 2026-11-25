@@ -4,7 +4,7 @@ import Foundation
 final class TournamentState: ObservableObject {
     @Published var tournamentId: String = ""
     @Published var name: String = ""
-    @Published var phase: String = "lobby"      // lobby, round_active, between_rounds, complete
+    @Published var phase: String = "lobby"      // lobby, round_active, between_rounds, cut, complete
     @Published var currentRound: Int = 0
     @Published var totalRounds: Int = 4
     @Published var players: [TournamentPlayer] = []
@@ -24,6 +24,13 @@ final class TournamentState: ObservableObject {
     /// partners are shown openly; `TournamentPairingRules`). Empty: nothing to show (an older
     /// server, the lobby phase, a 1-member tournament).
     @Published var pairings: [TournamentRoundPairings] = []
+    /// Cut for a buck as it stands (iOS 1.2.7 (41), the clientHello cap `cutForABuck`; phase 'cut'),
+    /// from the cutForABuck* events (`CutState.reduce`) or tournamentJoined.cut; nil: no cut. It is
+    /// fed on any screen (the last table's score screen shows it as a strip: GameEndView).
+    @Published var cut: CutState?
+    /// The cut's result in the complete phase (tournamentComplete / tournamentJoined `cutForABuck`);
+    /// nil when no cut ran.
+    @Published var cutResult: CutResult?
     /// The unsent chat line (survives a recreated view; not @Published).
     var chatDraft = ""
     /// The joinTournament a restore sent for the tournament lobby on screen
@@ -62,6 +69,17 @@ final class TournamentState: ObservableObject {
         isReady = false
         readyDeadlinePassed = false
         pairings = []
+        cut = nil
+        cutResult = nil
+    }
+
+    /// The tournament is in Cut for a buck (this app sent the cap, so the server says 'cut').
+    var isCutPhase: Bool { phase == CutForABuck.phase }
+
+    /// One cutForABuck* event (start puts the tournament in phase 'cut').
+    func applyCut(_ type: CutState.Event, _ data: [String: Any], now: Date = Date()) {
+        if type == .start { phase = CutForABuck.phase }
+        cut = CutState.reduce(cut, type, data, now: now)
     }
 
     /// An event's `pairings`, when it carries the key (absent: kept).
@@ -99,6 +117,9 @@ final class TournamentState: ObservableObject {
         }
         // the whole state: no key, nothing to show
         pairings = TournamentRoundPairings.list(dict["pairings"]) ?? []
+        // Cut for a buck as it stands (phase 'cut' only), and the complete phase's result
+        cut = phase == CutForABuck.phase ? CutState.fromWire(dict["cut"]) : nil
+        cutResult = phase == "complete" ? CutResult.from(dict["cutForABuck"]) : nil
     }
 }
 
