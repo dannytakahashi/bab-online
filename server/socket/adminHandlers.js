@@ -124,7 +124,8 @@ function adminDb() {
         gameRecords: database.getGameRecordsCollection(),
         reports: database.getReportsCollection(),
         passwordResets: database.getPasswordResetsCollection?.(),
-        adminAudit: database.getAdminAuditCollection?.()
+        adminAudit: database.getAdminAuditCollection?.(),
+        tournamentRecords: database.getTournamentRecordsCollection?.()
     };
 }
 
@@ -271,6 +272,7 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
                 statsMerged: result.statsMerged,
                 retired: result.retired,
                 gameRecords: result.gameRecords,
+                tournamentRecords: result.tournamentRecords || 0,
                 reports: result.reports,
                 otherUsersBlocks: result.otherUsersBlocks,
                 chainedTombstones: result.chainedTombstones,
@@ -279,7 +281,7 @@ async function applyMergeNow({ db, io, actor }, { target, sources, planHash: pre
             }
         },
         target,
-        detail: `merged ${sources.join(', ')}: retired ${result.retired.join(', ') || 'none'}; ${result.gameRecords} game record(s), ${result.reports} report(s); ${signedOut} signed out`
+        detail: `merged ${sources.join(', ')}: retired ${result.retired.join(', ') || 'none'}; ${result.gameRecords} game record(s), ${result.tournamentRecords || 0} tournament record(s), ${result.reports} report(s); ${signedOut} signed out`
     };
 }
 
@@ -305,7 +307,7 @@ async function deleteAccountNow({ db, io, actor }, { username }) {
         { projection: { username: 1, mergedInto: 1, deletedAt: 1, isAdmin: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1, renamePending: 1 } }
     );
     if (!found) throw new AdminError('not_found', `No account is named "${username}" (names are case-sensitive).`);
-    const counts = { gameRecords: 0, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 0 };
+    const counts = { gameRecords: 0, tournamentRecords: 0, reports: 0, blockLists: 0, resetLinks: 0, tombstones: 0, signedOut: 0 };
     if (!found.mergedInto && found.renamePending?.from) {
         throw new AdminError('refused', `"${username}" has an unfinished rename from "${found.renamePending.from}". Finish it first (Finish rename on its row), then delete the account.`);
     }
@@ -385,13 +387,13 @@ async function deleteAccountNow({ db, io, actor }, { username }) {
     counts.signedOut += signOutUser(io, username);
     await forgetAccount(io, db, username, erased);
     Object.assign(counts, {
-        gameRecords: erased.gameRecords, reports: erased.reports, blockLists: erased.blockLists,
+        gameRecords: erased.gameRecords, tournamentRecords: erased.tournamentRecords || 0, reports: erased.reports, blockLists: erased.blockLists,
         resetLinks: erased.resetLinks, tombstones: erased.tombstones
     });
     return {
         reply: { username, kind: 'account', mergedInto: null, ...counts },
         target: username,
-        detail: `account deleted: ${counts.gameRecords} game record update(s) to [deleted], ${counts.reports} report(s) marked, ${counts.blockLists} block list(s) and ${counts.resetLinks} open reset link(s) cleared, ${counts.tombstones} tombstone(s) removed; ${counts.signedOut} signed out`
+        detail: `account deleted: ${counts.gameRecords} game record update(s) and ${counts.tournamentRecords} tournament record(s) to [deleted], ${counts.reports} report(s) marked, ${counts.blockLists} block list(s) and ${counts.resetLinks} open reset link(s) cleared, ${counts.tombstones} tombstone(s) removed; ${counts.signedOut} signed out`
     };
 }
 
@@ -431,7 +433,7 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
         { projection: { username: 1, mergedInto: 1, renamedAt: 1, deletedAt: 1, nameHeldUntil: 1, activeGameId: 1, activeTournamentId: 1, socketId: 1, renamePending: 1 } }
     );
 
-    const counts = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, adminSetBy: 0, resetLinks: 0, revokedSessions: 0, signedOut: 0 };
+    const counts = { gameRecords: 0, tournamentRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0, adminSetBy: 0, resetLinks: 0, revokedSessions: 0, signedOut: 0 };
     const invalidate = (names) => {
         const profile = require('./profileHandlers');
         profile.invalidateLeaderboard?.();
@@ -569,10 +571,10 @@ async function renameAccountNow({ db, io, actor }, { username: from, newName: to
 }
 
 const pick = (m) => ({
-    gameRecords: m.gameRecords, reports: m.reports, otherUsersBlocks: m.otherUsersBlocks,
+    gameRecords: m.gameRecords, tournamentRecords: m.tournamentRecords || 0, reports: m.reports, otherUsersBlocks: m.otherUsersBlocks,
     chainedTombstones: m.chainedTombstones, adminSetBy: m.adminSetBy
 });
-const describeMoved = (c) => `${c.gameRecords} game record update(s), ${c.reports} report field(s), ${c.otherUsersBlocks} block list(s), ${c.chainedTombstones} old name(s) re-pointed`;
+const describeMoved = (c) => `${c.gameRecords} game record update(s), ${c.tournamentRecords || 0} tournament record(s), ${c.reports} report field(s), ${c.otherUsersBlocks} block list(s), ${c.chainedTombstones} old name(s) re-pointed`;
 
 /**
  * Each action: run(ctx, args) → {reply, target, detail}. `reply` is spread

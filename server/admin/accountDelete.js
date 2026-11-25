@@ -15,6 +15,12 @@
  *     (a game still being credited: profileHandlers.recordGameStats);
  *     `statsDeltas.names.<pos>` (the seat names the Records superlatives
  *     read, 2026-11-20) becomes '[deleted]' too;
+ *   - tournamentRecords (the tournament history, 2026-11-25): the name
+ *     becomes '[deleted]' wherever a record holds it (players, winners,
+ *     standings, the Cut for a buck participants and winner, the host:
+ *     tournamentRecordNames.js); a tournament still running records the
+ *     deleted name as '[deleted]' when it ends (deletedUsernames, and the
+ *     name hold: profileHandlers.recordRenamer);
  *   - other players' blockedUsers: for an ADMIN delete the name is pulled,
  *     so a new account that later takes the freed name does not start out
  *     blocked; a player's OWN delete keeps them (pullBlocks: false), so a
@@ -77,6 +83,7 @@
 
 const { revokeOpenResetLinks } = require('./setPassword');
 const { renameSeatNames } = require('./seatNames');
+const { renameInTournamentRecords } = require('./tournamentRecordNames');
 const { createModuleLogger } = require('../utils/logger');
 
 const logger = createModuleLogger('admin');
@@ -121,11 +128,11 @@ function deletedSince(username, sinceMs) {
  * @param {{users, gameRecords?, reports?, passwordResets?}} db
  * @param {{_id: *, username: string}} user - the account, already checked by the caller
  * @param {{now?: Date}} [options]
- * @returns {Promise<{resetLinks: number, gameRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number, oldName: string|null, heldUntil: Date}>}
+ * @returns {Promise<{resetLinks: number, gameRecords: number, tournamentRecords: number, blockLists: number, blockers: string[], reports: number, tombstones: number, oldName: string|null, heldUntil: Date}>}
  */
 async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = {}) {
     const { username } = user;
-    const out = { resetLinks: 0, gameRecords: 0, blockLists: 0, blockers: [], reports: 0, tombstones: 0, oldName: null };
+    const out = { resetLinks: 0, gameRecords: 0, tournamentRecords: 0, blockLists: 0, blockers: [], reports: 0, tombstones: 0, oldName: null };
     out.oldName = await unfinishedOldName(db, user);
     const names = out.oldName ? [username, out.oldName] : [username];
 
@@ -151,6 +158,10 @@ async function eraseAccount(db, user, { now = new Date(), pullBlocks = true } = 
                 { $pull: { statsPending: { username: name } } }
             );
         }
+    }
+
+    for (const name of names) {
+        out.tournamentRecords += await renameInTournamentRecords(db.tournamentRecords, name, DELETED_NAME);
     }
 
     // Who blocked this name (their live sockets are told afterwards)

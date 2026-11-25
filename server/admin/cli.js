@@ -44,7 +44,8 @@ async function connect() {
             gameRecords: db.collection('gameRecords'),
             reports: db.collection('reports'),
             passwordResets: db.collection('passwordResets'),
-            adminAudit: db.collection('adminAudit')
+            adminAudit: db.collection('adminAudit'),
+            tournamentRecords: db.collection('tournamentRecords')
         }
     };
 }
