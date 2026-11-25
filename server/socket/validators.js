@@ -215,6 +215,11 @@ const schemas = {
         gameId: Joi.string().uuid().required()
     }),
 
+    // The host's round count, lobby only (2026-11-25)
+    setTournamentRounds: Joi.object({
+        totalRounds: Joi.number().integer().strict().min(1).max(5).required()
+    }),
+
     // No-payload tournament events (schemas exist so rate limiting applies)
     createTournament: Joi.object({}).unknown(true),
     leaveTournament: Joi.object({}).unknown(true),

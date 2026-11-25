@@ -71,7 +71,7 @@ async function advanceUntil(pred, step = 100, cap = 60000) {
 }
 
 /**
- * Drive a whole tournament: every round, every table with its humans going
+ * Drive a whole tournament: every round (t.totalRounds), every table with its humans going
  * /lazy as soon as they are seated (the bots play everything), until
  * tournamentComplete. `hooks.round(r, ctx)` runs once per round while the
  * tables play.
@@ -84,7 +84,7 @@ async function playTournament(ctx, hooks = {}) {
         return real(gameId);
     });
     const allTables = [];
-    for (let round = 1; round <= 4; round++) {
+    for (let round = 1; round <= ctx.t.totalRounds; round++) {
         if (round === 1) {
             ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         } else {

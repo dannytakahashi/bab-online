@@ -62,7 +62,7 @@ import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } 
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -2589,6 +2589,7 @@ function initializeApp() {
         showTournamentResultsOverlay({
           scoreboard,
           winners,
+          totalRounds: data.totalRounds,
           onReturn: () => {
             gameState.tournamentId = null;
             gameState.pendingTournamentResults = null;
@@ -2612,6 +2613,11 @@ function initializeApp() {
       if (data.newCreator) {
         showInfo(data.newCreator === gameState.username ? 'You are now the tournament host' : `${data.newCreator} is now the tournament host`);
       }
+    },
+
+    // The host changed the number of rounds in the lobby (2026-11-25)
+    onTournamentSettingsUpdated: (data) => {
+      setTournamentTotalRounds(data.totalRounds);
     },
 
     onTournamentReadyUpdate: (data) => {

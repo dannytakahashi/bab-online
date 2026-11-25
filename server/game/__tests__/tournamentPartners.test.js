@@ -196,6 +196,43 @@ describe('a round plan', () => {
         }
     });
 
+    // The host picks 1 to 5 rounds (2026-11-25): the least repeats grow with
+    // N only for 3 members (3 pairs) and 4 members (3 pairings); every other
+    // size has none up to 5 rounds
+    const LEAST_REPEATS = {
+        1: [0, 0, 0, 0, 0], 2: [0, 0, 0, 0, 0], 3: [0, 0, 0, 1, 2], 4: [0, 0, 0, 2, 4],
+        5: [0, 0, 0, 0, 0], 6: [0, 0, 0, 0, 0], 7: [0, 0, 0, 0, 0],
+    };
+    test.each([1, 2, 3, 4, 5])('%i round(s), everyone playing: as good as the best whole-tournament plan (1 to 7 members)', (rounds) => {
+        for (let n = 1; n <= 7; n++) {
+            const lineups = Array.from({ length: rounds }, () => names(n));
+            const least = oracleTournament(lineups);
+            expect(least).toBe(LEAST_REPEATS[n][rounds - 1]);
+            for (let seed = 1; seed <= 30; seed++) {
+                const costs = playRounds(lineups, mulberry32(rounds * 1000 + n * 100 + seed));
+                expect(costs.reduce((sum, c) => sum + score(c), 0)).toBe(least);
+                expect(costs.every((c) => c.consecutive === 0)).toBe(true);
+            }
+        }
+    });
+
+    test('5 rounds with 3 and 4 members: never the same partner two rounds in a row, repeats the least for 5', () => {
+        for (const n of [3, 4]) {
+            for (let seed = 1; seed <= 100; seed++) {
+                const last = new Map();
+                const costs = playRounds(Array.from({ length: 5 }, () => names(n)), mulberry32(7000 + n * 100 + seed), (plan) => {
+                    for (const [a, b] of pairsOfPlan(plan)) {
+                        expect(last.get(a)).not.toBe(b);
+                        expect(last.get(b)).not.toBe(a);
+                    }
+                    last.clear();
+                    for (const [a, b] of pairsOfPlan(plan)) { last.set(a, b); last.set(b, a); }
+                });
+                expect(costs.reduce((sum, c) => sum + c.repeats, 0)).toBe(LEAST_REPEATS[n][4]);
+            }
+        }
+    });
+
     test('4 members: the first three rounds use the three pairings; the fourth repeats one, never round 3\'s', () => {
         for (let seed = 1; seed <= 100; seed++) {
             const rounds = [];

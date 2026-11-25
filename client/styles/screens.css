@@ -1003,6 +1003,43 @@
     object-fit: cover;
 }
 
+/* ---------- Tournament lobby: the host's Rounds picker (1 to 5) ----------
+   (components/RoundsPicker.js, a radio group in the scope-control look),
+   right above Begin in the lobby phase */
+
+.rounds-picker {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+    flex-shrink: 0;
+}
+
+.rounds-picker + .screen-actions {
+    margin-top: var(--space-3);
+}
+
+.rounds-picker__label {
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-semibold);
+}
+
+.rounds-picker__group.scope-control {
+    /* sized by its options (the stats scope control is a size container,
+       which would collapse an auto-width group to nothing) */
+    container-type: normal;
+    width: auto;
+    max-width: none;
+    margin: 0;
+}
+
+.rounds-picker__group .scope-control__option {
+    flex: 0 0 auto;
+    min-width: var(--hit-target);
+    font-variant-numeric: tabular-nums;
+}
+
 /* ---------- Stats scope: Human games | Bot games | All games ----------
    (StatsScopeControl.js, a radio group; Leaderboard, Records, Profile).
    A query container: too narrow for the three full labels (a phone, in a

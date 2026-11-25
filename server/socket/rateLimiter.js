@@ -73,6 +73,8 @@ class RateLimiter {
             tournamentReady: { max: 10, windowMs: 10000 },
             tournamentUnready: { max: 10, windowMs: 10000 },
             beginTournament: { max: 5, windowMs: 60000 },
+            // The host's round picker (2026-11-25): a few taps in the lobby
+            setTournamentRounds: { max: 20, windowMs: 60000 },
             beginNextRound: { max: 5, windowMs: 60000 },
             returnToTournament: { max: 10, windowMs: 30000 },
             // "Don't wait for <name>" in a play-again lobby (host): one per tap
