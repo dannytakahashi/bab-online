@@ -186,6 +186,7 @@ const DERIVED = deepFreeze({
         'epoch', '_timers', '_pauses', 'resume',      // back to 0 / none; the restore kick re-arms
         '_history', '_seatHistory', '_debugMode', 'maxLogEntries',
         'entrants', 'drawCards', 'drawIDs', 'drawIndex', 'drawNames', 'deck', // pre-deal only
+        'drawTeams', 'drawPlan',                      // pre-deal only: a tournament table's planned teams (tournamentPartners)
         'offerPos', 'idleOffer', 'afkClock',          // offers re-made, a fresh AFK clock
         'bidClock', 'bidTimeouts',                    // a fresh bid clock (the restore kick's trigger) and no strikes
         'spectators',                                 // people re-spectate

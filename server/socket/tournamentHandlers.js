@@ -4,7 +4,6 @@
  */
 
 const gameManager = require('../game/GameManager');
-const TournamentState = require('../game/TournamentState');
 const { socketLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
 const { beginDraw, abortGame, emitLobbiesUpdated } = require('./gameLifecycle');
@@ -16,6 +15,7 @@ const { botController, BotPlayer, personalities } = require('../game/bot');
 const liveness = require('./tournamentLiveness');
 const { systemLine } = liveness;
 const { recordTableScores } = require('../game/tournamentScoring');
+const { planRoundTables } = require('../game/tournamentPartners');
 const pointerResolve = require('./pointerResolve');
 const tournamentVoice = require('../voice/tournamentVoice');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
@@ -517,13 +517,9 @@ async function startTournamentRound(io, tournament, roundNumber, epoch = tournam
             usernames.push(player.username);
         }
     }
-    // Fisher-Yates shuffle
-    for (let i = usernames.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [usernames[i], usernames[j]] = [usernames[j], usernames[i]];
-    }
-
-    const assignments = TournamentState.distributePlayersIntoGames(usernames);
+    // Tables and teams: distributePlayersIntoGames's shapes, partners
+    // rotated over the rounds (game/tournamentPartners.js)
+    const assignments = planRoundTables(usernames, tournament.partnerHistory());
     tournament.startRound(roundNumber);
 
     // Broadcast round start
@@ -675,8 +671,17 @@ function createRoundTable(io, tournament, assignment, roundNumber) {
 
     const allSocketIds = [...humanSocketIds, ...botSocketIds.map(b => b.socketId)];
 
+    // The planned teams by socket (a bot for a planned bot partner or a
+    // member who went meanwhile); the draw seats them (GameState.drawTeams).
+    // A table with one member left has nothing to plan: an ordinary draw
+    const spare = botSocketIds.map(b => b.socketId);
+    const socketOf = u => (u && presentHumans.includes(u) ? humanSocketIds[presentHumans.indexOf(u)] : spare.shift());
+    const teams = assignment.teams?.map(team => team.map(socketOf));
+    const playedTeams = assignment.teams?.map(team => team.map(u => (presentHumans.includes(u) ? u : null)));
+
     // Create game via GameManager
     const game = gameManager.createGame(allSocketIds);
+    if (teams && presentHumans.length >= 2) game.drawTeams = teams;
 
     // Map game to tournament (on the game too: it outlives the map entry)
     gameManager.tournamentGames.set(game.gameId, tournament.tournamentId);
@@ -689,7 +694,7 @@ function createRoundTable(io, tournament, assignment, roundNumber) {
     }
 
     // Add game to tournament round
-    tournament.addGameToRound(game.gameId, presentHumans, botCount);
+    tournament.addGameToRound(game.gameId, presentHumans, botCount, playedTeams);
 
     // Join the game room now, so an abort at any later point (a cancel
     // during the DB writes or the countdown) reaches every player here
