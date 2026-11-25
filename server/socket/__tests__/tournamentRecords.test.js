@@ -159,6 +159,20 @@ describe('the record of a completed tournament', () => {
         expect(records()[0]).toMatchObject({ _id: ctx.t.tournamentId, cut: null, players: ctx.usernames });
     }, 120000);
 
+    test('the host cancels after the winner is announced: recorded with that cut (it counts for Lucky Buck)', async () => {
+        const ctx = await setupCut(2);
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf('As', '2s') });
+        await playToCut(ctx);
+        await toStage(ctx, 'drawing');
+        const [a, b] = ctx.usernames;
+        cutForABuck.draw(ctx.sockets[0], ctx.io, { round: 1, slot: 0 });
+        cutForABuck.draw(ctx.sockets[1], ctx.io, { round: 1, slot: 1 });
+        expect(ctx.t.cut.stage).toBe('winner');
+        await tournamentHandlers.cancelTournament(creatorSocket(ctx), ctx.io);
+        await settleRecord();
+        expect(records()[0]).toMatchObject({ _id: ctx.t.tournamentId, cut: { winner: a, participants: [a, b], rounds: 1 }, players: ctx.usernames });
+    }, 120000);
+
     test('the last member leaving during the cut: recorded with cut null', async () => {
         const ctx2 = await setupCut(2);
         await playToCut(ctx2);
