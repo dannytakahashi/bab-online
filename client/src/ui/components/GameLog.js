@@ -7,7 +7,7 @@
  */
 
 import { getUsernameColor } from '../../utils/colors.js';
-import { getGameState } from '../../state/GameState.js';
+import { getGameState, teamPlayerDataOf } from '../../state/GameState.js';
 import { bidTotalsFor, bidTricks } from '../../rules/bids.js';
 import { seatLetter } from '../../utils/positions.js';
 import { soloHeaderRows } from '../../state/gyb.js';
@@ -75,7 +75,7 @@ export function createGameLog({ onChatSubmit } = {}) {
   // until the score header is drawn: never a "Your Team" / "Opponents"
   // placeholder (owner 2026-11-17)
   const state = getGameState();
-  const placeholder = scoreHeaderNames(state.position, state.playerData, { spectator: isPureSpectator(state) });
+  const placeholder = scoreHeaderNames(state.position, teamPlayerDataOf(state), { spectator: isPureSpectator(state) });
   const teamScoreDiv = document.createElement('div');
   teamScoreDiv.id = 'teamScoreDisplay';
   teamScoreDiv.className = 'log-score__team is-mine';

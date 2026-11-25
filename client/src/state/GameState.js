@@ -29,6 +29,29 @@ export const PHASE = {
 /**
  * Client game state with event system.
  */
+/**
+ * GameState.teamPlayerData for any state shaped like one ({playerData,
+ * seatOwners}): each seat named by its owner (a lazy or resigned seat's,
+ * never the bot playing it), else the name it shows. Team names, the hand
+ * and game-over lines and the score screen read it; the avatars keep
+ * playerData. Returns playerData itself when nothing differs.
+ */
+export function teamPlayerDataOf(state) {
+  const pd = state?.playerData;
+  if (!pd || !Array.isArray(pd.position) || !Array.isArray(pd.username)) return pd ?? null;
+  const owners = state.seatOwners || {};
+  let changed = false;
+  const names = pd.position.map((pos, i) => {
+    const entry = pd.username[i];
+    const shown = typeof entry === 'string' ? entry : entry?.username;
+    const owner = owners[pos];
+    if (typeof owner !== 'string' || !owner || owner === shown) return entry;
+    changed = true;
+    return entry && typeof entry === 'object' ? { ...entry, username: owner } : { username: owner };
+  });
+  return changed ? { ...pd, username: names } : pd;
+}
+
 export class GameState {
   constructor() {
     this._listeners = new Map();
@@ -1177,6 +1200,17 @@ export class GameState {
   applyMyLazy(isLazy) {
     this.isLazy = !!isLazy;
     this._changed();
+  }
+
+  /**
+   * playerData for team names and the score screen (owner rule: teams by
+   * player names): each seat named by its owner (seatOwners: a lazy or
+   * resigned seat's owner, never the bot playing it), else the name the
+   * seat shows (a native bot's persona). The avatars keep playerData.
+   * @returns {Object|null} { position, username: [{username}], ... } or playerData itself
+   */
+  get teamPlayerData() {
+    return teamPlayerDataOf(this);
   }
 
   /**
