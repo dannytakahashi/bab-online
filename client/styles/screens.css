@@ -183,6 +183,19 @@
     margin-bottom: 0;
 }
 
+/* a narrow window: the roster's columns stack, each as tall as it is (the
+   content column scrolls) rather than three slivers side by side */
+@media (max-width: 559px) {
+    .tournament-roster {
+        flex-direction: column;
+        flex: none;
+    }
+
+    .tournament-roster > .screen-section {
+        flex: none;
+    }
+}
+
 /* compact: below 1100 px wide (down to the 1024 x 668 minimum) */
 @media (max-width: 1099px) {
     .screen--full {
@@ -681,13 +694,13 @@
     margin-bottom: var(--space-3);
 }
 
-/* the round's pairings and "Partners so far" (ui/screens/tournamentPairings.js) */
+/* the round's pairings and "Partners so far" (ui/screens/tournamentPairings.js):
+   a roster column beside the players (the roster's height, scrolling inside
+   itself), so they never take the standings' rows */
 .tournament-pairings {
-    flex: 0 1 auto;
-    min-height: 0;
     overflow-y: auto;
     padding: var(--space-3);
-    margin-bottom: var(--space-3);
+    text-align: left;
 }
 
 .tournament-pairings[hidden] { display: none; }
