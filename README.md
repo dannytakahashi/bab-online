@@ -329,7 +329,7 @@ The Leaderboard, Records and Profile pages count **human games** by default (no 
 
 ### Badges
 
-Players earn **badges** for things that happen in human games (bot games never count, by the same rule as the leaderboard). The badges a player has earned are listed on their profile page on the web, below the statistics, and when a game earns you a new one a toast says so on the score screen. Badges nobody has shown you are a surprise: there is no list of them anywhere, on purpose. To look at another player's, open their profile from a seat at the table or from the main room's **Players** search. Web only for now.
+Players earn **badges** for things that happen in human games (bot games never count, by the same rule as the leaderboard). The badges a player has earned are listed on their profile page on the web, below the statistics, and when a game earns you a new one a toast says so on the score screen. Badges nobody has shown you are a surprise: there is no list of them anywhere, on purpose. To look at another player's, open their profile from a seat at the table or from the main room's **Players** search. The iOS app shows them too from version 1.2.7: your badges in the Account sheet, another player's on their profile, and the toast over the score screen.
 
 A few badges can be proven from games recorded before badges existed. To award those once, against production with `MONGO_URI` set as for the server:
 
@@ -487,7 +487,7 @@ The iOS client uses SwiftUI for UI and SpriteKit for the game canvas:
 | `playerActiveMode` | Player took back control from bot |
 | `spectatorJoined` | Spectator joined the game |
 | `profileResponse` | User profile data |
-| `badgesAwarded` | The badges you just earned (private, after a game; web only) |
+| `badgesAwarded` | The badges you just earned (private, after a game; the web and iOS 1.2.7) |
 | `leaderboardResponse` | Leaderboard data |
 | `tournamentCreated` | Tournament created, show lobby |
 | `tournamentJoined` | Joined tournament, show lobby |

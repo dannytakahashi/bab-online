@@ -471,8 +471,9 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `{}`, and no `rainbow`, `destroyHands` or `assistHint` is ever sent.
 - `badges` (`$defs.clientCapBadges`, its own const for the same reason;
   2026-11-25, badges: `server/game/badges.js`, `server/socket/badgeAwards.js`,
-  `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it;
-  no iOS build does. With it `profileResponse` / `playerProfileResponse`
+  `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it,
+  and iOS from 1.2.7 (41) (`iOSClient/CLAUDE.md` "iOS badges"; no earlier
+  iOS build does). With it `profileResponse` / `playerProfileResponse`
   carry `badges` (`$defs.earnedBadge` {id, name, description, at}: the
   badges that player has EARNED, oldest first, whatever the stats scope),
   and after a game that newly earned one the player's live socket gets the

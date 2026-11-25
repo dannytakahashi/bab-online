@@ -23,8 +23,8 @@
  * it twice for a record (a replay, the pending-stats resume, a tombstone)
  * awards nothing twice, and a matched write is exactly "newly earned": that
  * is what the player's private `badgesAwarded {gameId, badges}` lists, sent
- * to their live socket when it has the clientHello cap `badges` (the web;
- * no iOS build). A player who is offline just finds the badge on their
+ * to their live socket when it has the clientHello cap `badges` (the web
+ * and iOS 1.2.7 (41)). A player who is offline just finds the badge on their
  * profile. Never throws: a badge must not fail the stats chain.
  */
 

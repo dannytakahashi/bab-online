@@ -23,7 +23,7 @@ Loads automatically when Claude reads a file under `contract/`; the full rules a
 
 ## Badges
 
-- Badges (2026-11-25; `server/CLAUDE.md` "Badges", `contract/README.md` "Client capabilities"): cap `badges` (`$defs.clientCapBadges`; web only), the new private unsequenced s2c `badgesAwarded {gameId, badges}` (`layout.json`: listed for the web, excluded for Swift with its reason, so `SocketEvents.swift` is byte-identical) and the optional `badges` (`$defs.earnedBadge` [{id, name, description, at}]) on `profileResponse` / `playerProfileResponse`. All three only for a socket with the cap, so every iOS build's wire is unchanged. Never add the catalog (unearned badges) to any payload: the owner wants them to be a surprise
+- Badges (2026-11-25; `server/CLAUDE.md` "Badges", `contract/README.md` "Client capabilities"): cap `badges` (`$defs.clientCapBadges`; the web, and iOS from 1.2.7 (41): `iOSClient/CLAUDE.md` "iOS badges"), the new private unsequenced s2c `badgesAwarded {gameId, badges}` (`layout.json`: listed for the web and, since iOS 1.2.7, for Swift in the Profile section, read by `ProfileSocketHandler`) and the optional `badges` (`$defs.earnedBadge` [{id, name, description, at}]) on `profileResponse` / `playerProfileResponse`. All three only for a socket with the cap, so the wire of every iOS build before 1.2.7 is unchanged. Never add the catalog (unearned badges) to any payload: the owner wants them to be a surprise
 
 ## seq
 
