@@ -32,20 +32,25 @@ final class TournamentPairingsUITests: XCTestCase {
         return app
     }
 
-    /// Scrolls `element` into the window (the pairings sit in the capped scroll above the chat).
+    /// Scrolls `element` into the capped scroll view above the chat (where the pairings sit) until
+    /// at least half of it (or of the cap, for a row taller than the cap: AX5 on the closed Duo,
+    /// where the chat keeps all but about 150 pt) is in view.
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement) -> Bool {
-        let window = app.windows.firstMatch.frame
-        for _ in 0..<10 {
-            let f = element.frame
-            if element.exists, f.minY >= window.minY, f.maxY <= window.maxY, element.isHittable { return true }
-            let scroll = app.scrollViews.containing(.any, identifier: "pairings").firstMatch
-            guard scroll.exists else { return false }
-            let down = f.maxY > window.maxY || !element.isHittable
-            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.8 : 0.2))
-            let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.3 : 0.7))
-            start.press(forDuration: 0.05, thenDragTo: end)
+        let scroll = app.scrollViews.containing(.any, identifier: "pairings").firstMatch
+        func shown() -> Bool {
+            guard element.exists, scroll.exists else { return false }
+            let f = element.frame, v = scroll.frame
+            return f.intersection(v).height >= min(f.height, v.height) * 0.5
         }
-        return element.isHittable
+        for _ in 0..<40 where !shown() {
+            guard scroll.exists else { return false }
+            let down = element.frame.midY > scroll.frame.midY
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.9 : 0.1))
+            let end = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.1 : 0.9))
+            // slow and held, so no fling carries the row past the cap
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.3)
+        }
+        return shown()
     }
 
     private func assertInside(_ app: XCUIApplication, _ element: XCUIElement, _ what: String) {
@@ -70,7 +75,7 @@ final class TournamentPairingsUITests: XCTestCase {
                 let row = app.descendants(matching: .any)[id]
                 XCTAssertTrue(row.waitForExistence(timeout: 5), id)
                 XCTAssertEqual(row.label, spoken, id)
-                XCTAssertTrue(reveal(app, row), "\(id) never came into view \(extra)")
+                XCTAssertTrue(reveal(app, row), "\(id) never came into view \(extra): \(row.frame) in \(app.scrollViews.containing(.any, identifier: "pairings").firstMatch.frame)")
                 assertInside(app, row, id)
             }
             if extra.isEmpty { shoot("member") }
@@ -81,7 +86,7 @@ final class TournamentPairingsUITests: XCTestCase {
                 let p = app.descendants(matching: .any)["pairings.partner.\(n)"]
                 XCTAssertTrue(p.waitForExistence(timeout: 5), "round \(n)")
                 XCTAssertEqual(p.label, "Round \(n): \(partner)")
-                XCTAssertTrue(reveal(app, p), "round \(n) partner never came into view \(extra)")
+                XCTAssertTrue(reveal(app, p), "round \(n) partner never came into view \(extra): \(p.frame)")
                 assertInside(app, p, "round \(n) partner")
             }
             shoot(extra.isEmpty ? "member-partners" : "member-ax5")
