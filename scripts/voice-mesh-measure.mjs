@@ -35,6 +35,9 @@
  *   --db <name>         its database (default voicemesh_<pid>; dropped at the end unless --keep-db)
  *   --connect-timeout <s>  how long to wait for the mesh (default 30)
  *   --json <file>       also write the full report as JSON
+ *   --browsers <k>      Chromium instances the pages are spread over (default ceil(n/10)):
+ *                       one Chromium's audio service opens at most 50 output streams,
+ *                       and 20 pages in one instance pass that, so no page plays out
  *   --headed            show the browser windows (default headless)
  *   --verbose           print every page's console lines (the built client logs little)
  *
@@ -60,7 +63,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // ---------------------------------------------------------------- options
 function parseArgs(argv) {
-    const o = { n: 4, cap: null, speakers: 1, steady: 15, entry: 'staggered', staggerMs: 500, port: null, db: null, connectTimeout: 30, json: null, keepDb: false, headed: false };
+    const o = { n: 4, cap: null, speakers: 1, steady: 15, entry: 'staggered', staggerMs: 500, port: null, db: null, connectTimeout: 30, json: null, keepDb: false, headed: false, browsers: null };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         const v = () => argv[++i];
@@ -76,15 +79,18 @@ function parseArgs(argv) {
         else if (a === '--json') o.json = v();
         else if (a === '--keep-db') o.keepDb = true;
         else if (a === '--headed') o.headed = true;
+        else if (a === '--browsers') o.browsers = Number(v());
         else if (a === '--verbose') o.verbose = true;
         else if (a === '--help' || a === '-h') o.help = true;
         else throw new Error(`unknown option ${a}`);
     }
     if (o.cap === null) o.cap = Math.min(o.n, 20);
+    if (o.browsers === null) o.browsers = Math.ceil(o.n / 10);
     const bad = (m) => { throw new Error(m); };
     if (!Number.isInteger(o.n) || o.n < 2 || o.n > 30) bad('--n must be 2..30');
     if (!Number.isInteger(o.cap) || o.cap < 2 || o.cap > 20) bad('--cap must be 2..20 (the server clamps TOURNAMENT_VOICE_MAX to that)');
     if (!Number.isInteger(o.speakers) || o.speakers < 0 || o.speakers > Math.min(o.n, o.cap)) bad('--speakers must be 0..min(n, cap)');
+    if (!Number.isInteger(o.browsers) || o.browsers < 1 || o.browsers > o.n) bad('--browsers must be 1..n');
     if (!(o.steady >= 3)) bad('--steady must be at least 3 seconds');
     if (!['staggered', 'burst'].includes(o.entry)) bad('--entry must be staggered or burst');
     if (o.port !== null && (!Number.isInteger(o.port) || o.port < 1024 || o.port === 3000 || o.port === 27017)) bad('--port: never 3000 or 27017');
@@ -381,7 +387,7 @@ async function main() {
         voiceIceCandidate: rateLimiter.limits.voiceIceCandidate.max,
     };
 
-    console.log(`voice mesh: n=${opts.n} cap=${opts.cap} (admitted ${admittedCount}, ${expectedPairs} pairs) speakers=${opts.speakers} entry=${opts.entry} steady=${opts.steady}s server=${base} db=${db}`);
+    console.log(`voice mesh: n=${opts.n} cap=${opts.cap} (admitted ${admittedCount}, ${expectedPairs} pairs) speakers=${opts.speakers} entry=${opts.entry} browsers=${opts.browsers} steady=${opts.steady}s server=${base} db=${db}`);
 
     let server = null;
     let browser = null;
@@ -400,19 +406,28 @@ async function main() {
         await waitReady(base, server.child);
         const accounts = await seedUsers({ mongoUri, db, n: opts.n, runId });
 
-        browser = await chromium.launch({
-            headless: !opts.headed,
-            args: [
-                '--use-fake-device-for-media-stream',
-                '--use-fake-ui-for-media-stream',
-                '--autoplay-policy=no-user-gesture-required',
-                '--mute-audio',
-            ],
-        });
-        const cdp = await browser.newBrowserCDPSession();
+        // Pages spread over --browsers instances: one Chromium's audio
+        // service opens at most 50 output streams (audio_manager_base.cc), and
+        // 20 pages in one instance pass it, so none of them plays out (a real
+        // client is one page and never comes near it)
+        const browsers = [];
+        for (let b = 0; b < opts.browsers; b++) {
+            browsers.push(await chromium.launch({
+                headless: !opts.headed,
+                args: [
+                    '--use-fake-device-for-media-stream',
+                    '--use-fake-ui-for-media-stream',
+                    '--autoplay-policy=no-user-gesture-required',
+                    '--mute-audio',
+                ],
+            }));
+        }
+        browser = { close: async () => { await Promise.all(browsers.map((b) => b.close())); } };
+        const cdps = await Promise.all(browsers.map((b) => b.newBrowserCDPSession()));
+        const cdp = { send: async (m) => ({ processInfo: (await Promise.all(cdps.map((c) => c.send(m)))).flatMap((r) => r.processInfo) }) };
         let pages = [];
         for (const acct of accounts) {
-            const context = await browser.newContext({ permissions: ['microphone'] });
+            const context = await browsers[pages.length % browsers.length].newContext({ permissions: ['microphone'] });
             await context.addInitScript(instrument, acct);
             const page = await context.newPage();
             page.on('pageerror', (e) => console.warn(`[page ${acct.username}] ${e.message}`));
@@ -527,6 +542,7 @@ async function main() {
         const perPage = [];
         let worstLoss = 0;
         let worstConceal = 0;
+        let notPlayingOut = 0;
         for (let i = 0; i < admittedCount; i++) {
             const a = new Map(first[i].calls.filter((c) => c.lu).map((c) => [c.lu, c]));
             let up = 0; let down = 0; let heard = 0; let lost = 0; let recv = 0; let conceal = 0; let samplesIn = 0;
@@ -545,6 +561,8 @@ async function main() {
                     if (c.in.totalAudioEnergy - b.in.totalAudioEnergy > 1e-6) heard++;
                     const callLoss = dl + dr > 0 ? dl / (dl + dr) : 0;
                     const callConceal = ds > 0 ? dc / ds : 0;
+                    // packets in but no samples out: nothing plays it, and concealment would read 0
+                    if (dr > 0 && ds <= 0) notPlayingOut++;
                     worstLoss = Math.max(worstLoss, callLoss);
                     worstConceal = Math.max(worstConceal, callConceal);
                 }
@@ -553,7 +571,7 @@ async function main() {
         }
         const fmtp = last.flatMap((s) => s.calls.map((c) => c.out?.codec?.fmtp)).find(Boolean) || null;
         const cpu = cpuReport(cpu0, cpu1, secs);
-        report.steady = { seconds: secs, perPage, worstLoss, worstConceal, jitterMaxMs: jitterMax.length ? Math.max(...jitterMax) * 1000 : null, fmtp, cpu };
+        report.steady = { seconds: secs, perPage, worstLoss, worstConceal, notPlayingOut, jitterMaxMs: jitterMax.length ? Math.max(...jitterMax) * 1000 : null, fmtp, cpu };
         report.samples = { first: first.map((x) => ({ ...x, sig: undefined })), last: last.map((x) => ({ ...x, sig: undefined })) };
 
         console.log(`\nsteady ${secs.toFixed(1)}s, ${opts.speakers} speaking (Opus fmtp: ${fmtp ?? '-'})`);
@@ -563,6 +581,7 @@ async function main() {
         }
         console.log(`worst call: loss ${pct(worstLoss)}, concealment ${pct(worstConceal)}, max jitter ${report.steady.jitterMaxMs === null ? '-' : report.steady.jitterMaxMs.toFixed(1)} ms`);
         if (cpu) console.log(`CPU per renderer (% of one core): mean ${cpu.rendererMean?.toFixed(1)}, max ${cpu.rendererMax?.toFixed(1)} [${cpu.renderers.join(', ')}]; ${cpu.other.join(', ')}`);
+        check('every call with packets in plays them out (inbound totalSamplesReceived grows)', notPlayingOut === 0, notPlayingOut);
         check('inbound loss under 1% on every call', worstLoss < 0.01, pct(worstLoss));
         check('concealment under 2% on every call', worstConceal < 0.02, pct(worstConceal));
         check('jitter under 30 ms', report.steady.jitterMaxMs !== null && report.steady.jitterMaxMs < 30, report.steady.jitterMaxMs);
