@@ -104,8 +104,8 @@ When a build is uploaded to App Store Connect (TestFlight or review), from
 the commit it was archived from:
 
 ```bash
-npm run contract:baseline -- --build 39                  # HEAD must be build 39 (CURRENT_PROJECT_VERSION)
-npm run contract:baseline -- --build 39 --commit <sha>   # or the archive's commit
+npm run contract:baseline -- --build 40                  # HEAD must be build 40 (CURRENT_PROJECT_VERSION)
+npm run contract:baseline -- --build 40 --commit <sha>   # or the archive's commit
 ```
 
 It refuses a commit whose project is another build, and a build already
