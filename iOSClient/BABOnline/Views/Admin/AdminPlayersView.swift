@@ -73,7 +73,7 @@ struct AdminPlayersView: View {
                 .foregroundStyle(Theme.textDim)
                 .accessibilityHidden(true)
             TextField("Part of a name", text: $admin.playerFilter)
-                .textInputAutocapitalization(.never)
+                .noAutocapitalization()
                 .autocorrectionDisabled()
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityLabel("Filter by name")

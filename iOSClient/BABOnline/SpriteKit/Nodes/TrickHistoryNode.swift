@@ -60,7 +60,7 @@ class TrickHistoryNode: SKNode {
         return BidTotals.pileBorder(won: won, total: total)
     }
 
-    private func sync(prefix: String, count: Int, y: CGFloat, color: UIColor) {
+    private func sync(prefix: String, count: Int, y: CGFloat, color: PlatformColor) {
         let existing = children.filter { ($0.role?.hasPrefix(prefix) == true) && Int($0.role!.dropFirst(prefix.count)) != nil }
         for node in existing {
             guard let i = Int(node.role!.dropFirst(prefix.count)) else { continue }

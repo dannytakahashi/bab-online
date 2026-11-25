@@ -66,7 +66,7 @@ struct PlayerProfileView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(name)
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { SheetCloseButton(identifier: "profile.close") { dismiss() } }
             }

@@ -118,17 +118,17 @@ struct ProfileStatsGrid: View {
 /// margin, so the image is drawn larger by that margin and the picture fills this circle.
 struct ProfileAvatarView: View {
     let pictureKey: String?
-    var uploaded: UIImage?
+    var uploaded: PlatformImage?
     /// Shown until the picture loads (the name's initial, a stock number).
     let placeholder: String
-    @State private var image: UIImage?
+    @State private var image: PlatformImage?
 
     var body: some View {
         GeometryReader { g in
             ZStack {
                 Circle().fill(Theme.surfaceRaised)
                 if let shown = uploaded ?? image {
-                    Image(uiImage: shown).resizable().scaledToFill()
+                    Image(platformImage: shown).resizable().scaledToFill()
                         .frame(width: g.size.width, height: g.size.height)
                         .scaleEffect(1 / (1 - 2 * ProfilePicture.padding))
                 } else {

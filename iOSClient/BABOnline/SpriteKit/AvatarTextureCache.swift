@@ -1,5 +1,4 @@
 import SpriteKit
-import UIKit
 
 /// Seat avatars as ready-to-draw circular textures, shared by every seat and
 /// every table for the app's lifetime (main thread only, like the scene).
@@ -36,12 +35,12 @@ enum AvatarTextureCache {
         if let hit = cached(pic) { return completion(hit) }
         if pic.starts(with: "data:image"), let comma = pic.firstIndex(of: ",") {
             let tex = Data(base64Encoded: String(pic[pic.index(after: comma)...]))
-                .flatMap { UIImage(data: $0) }
+                .flatMap { PlatformImage(data: $0) }
                 .map(circular)
             if let tex { cache.setObject(tex, forKey: pic as NSString) }
             return completion(tex)
         }
-        let start: (@escaping (UIImage?) -> Void) -> Void
+        let start: (@escaping (PlatformImage?) -> Void) -> Void
         if let number = Int(pic) {
             start = { loader.load(number, completion: $0) }
         } else if pic.hasPrefix("/avatar/") {
@@ -69,20 +68,17 @@ enum AvatarTextureCache {
     /// `image` filled into a `diameter`-point circle (centered, aspect fill) at the screen scale
     /// times the device's largest table zoom (CardTextureGenerator.textureZoom: 1 on a phone),
     /// so a zoomed seat's avatar is not upscaled.
-    static func circular(_ image: UIImage) -> SKTexture {
-        let format = UIGraphicsImageRendererFormat.preferred()
-        format.scale *= CardTextureGenerator.textureZoom
-        format.opaque = false
-        format.preferredRange = .standard
+    static func circular(_ image: PlatformImage) -> SKTexture {
         let side = CGSize(width: diameter, height: diameter)
-        let out = UIGraphicsImageRenderer(size: side, format: format).image { _ in
-            UIBezierPath(ovalIn: CGRect(origin: .zero, size: side)).addClip()
+        let scale = Platform.displayScale * CardTextureGenerator.textureZoom
+        let out = BitmapRenderer.image(size: side, scale: scale) { _ in
+            PlatformBezierPath(ovalIn: CGRect(origin: .zero, size: side)).addClip()
             let s = image.size
             let k = s.width > 0 && s.height > 0 ? max(diameter / s.width, diameter / s.height) : 1
             let w = s.width * k, h = s.height * k
             image.draw(in: CGRect(x: (diameter - w) / 2, y: (diameter - h) / 2, width: w, height: h))
         }
-        let tex = SKTexture(image: out)
+        let tex = SKTexture.make(out)
         tex.filteringMode = .linear
         return tex
     }

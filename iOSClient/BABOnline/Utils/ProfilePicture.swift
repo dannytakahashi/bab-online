@@ -1,4 +1,5 @@
-import UIKit
+import Foundation
+import CoreGraphics
 import ImageIO
 
 /// Profile pictures: the stock range and the upload's image, made the way the web makes it
@@ -38,27 +39,23 @@ enum ProfilePicture {
     }
 
     /// A picked file's image, downsampled and turned upright (EXIF) while decoding.
-    static func decode(_ data: Data) -> UIImage? {
+    static func decode(_ data: Data) -> PlatformImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: decodePixels,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { UIImage(cgImage: $0) }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary).map { PlatformImage(cgImage: $0) }
     }
 
     /// `image`'s centre square in the padded circle, `side` pixels square, transparent outside.
-    static func render(_ image: UIImage) -> UIImage {
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = false
-        format.preferredRange = .standard
+    static func render(_ image: PlatformImage) -> PlatformImage {
         let full = CGFloat(side)
         let inset = full * padding
         let inner = CGRect(x: inset, y: inset, width: full - inset * 2, height: full - inset * 2)
-        return UIGraphicsImageRenderer(size: CGSize(width: full, height: full), format: format).image { _ in
-            UIBezierPath(ovalIn: inner).addClip()
+        return BitmapRenderer.image(pixelSize: CGSize(width: full, height: full)) { _ in
+            PlatformBezierPath(ovalIn: inner).addClip()
             let s = image.size
             guard s.width > 0, s.height > 0 else { return }
             // aspect fill, centred: the centre square lands exactly on `inner`
@@ -69,7 +66,7 @@ enum ProfilePicture {
     }
 
     /// The upload's `imageData`: `render(image)` as a PNG data URL within the server's limit.
-    static func dataURL(for image: UIImage) -> Result<(url: String, image: UIImage), Failure> {
+    static func dataURL(for image: PlatformImage) -> Result<(url: String, image: PlatformImage), Failure> {
         let rendered = render(image)
         guard let png = rendered.pngData() else { return .failure(.unreadable) }
         let url = "data:image/png;base64," + png.base64EncodedString()
@@ -78,14 +75,14 @@ enum ProfilePicture {
     }
 
     /// A picked file to the upload's payload.
-    static func upload(from data: Data) -> Result<(url: String, image: UIImage), Failure> {
+    static func upload(from data: Data) -> Result<(url: String, image: PlatformImage), Failure> {
         guard let image = decode(data) else { return .failure(.unreadable) }
         return dataURL(for: image)
     }
 
     /// An inline picture (`data:image/...;base64,...`: profilePicUploadResponse's stored copy).
-    static func image(fromDataURL url: String) -> UIImage? {
+    static func image(fromDataURL url: String) -> PlatformImage? {
         guard url.hasPrefix("data:image"), let comma = url.firstIndex(of: ",") else { return nil }
-        return Data(base64Encoded: String(url[url.index(after: comma)...])).flatMap { UIImage(data: $0) }
+        return Data(base64Encoded: String(url[url.index(after: comma)...])).flatMap { PlatformImage(data: $0) }
     }
 }

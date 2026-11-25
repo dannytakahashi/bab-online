@@ -1,3 +1,4 @@
+#if os(iOS)
 import UIKit
 
 /// The Leave confirmation as a UIKit alert, which LeaveAlertFlow closes and opens again.
@@ -70,3 +71,4 @@ final class LeaveAlertPresenter {
         return top
     }
 }
+#endif

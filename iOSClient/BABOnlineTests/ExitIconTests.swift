@@ -97,11 +97,11 @@ final class ExitIconTests: XCTestCase {
         let start = try XCTUnwrap(source.range(of: "private var leaveBarButton: some View {"))
         let end = try XCTUnwrap(source.range(of: "private var leaveLabel", range: start.upperBound..<source.endIndex))
         let body = source[start.upperBound..<end.lowerBound]
-        XCTAssertTrue(body.contains("Image(uiImage: ExitIcon.barImage("), "the bar's Exit draws the mirrored image")
+        XCTAssertTrue(body.contains("Image(platformImage: ExitIcon.barImage("), "the bar's Exit draws the mirrored image")
         XCTAssertFalse(body.contains("Image(systemName:"), "a symbol in the bar is drawn unmirrored")
         XCTAssertFalse(body.contains(".scaleEffect("), "the bar ignores SwiftUI transforms")
         let lines = body.components(separatedBy: "\n")
-        for i in lines.indices where lines[i].contains("Image(uiImage: ExitIcon.barImage(") {
+        for i in lines.indices where lines[i].contains("Image(platformImage: ExitIcon.barImage(") {
             XCTAssertTrue(lines[i + 1].contains(".accessibilityHidden(true)"), "the bar's Exit icon is decorative")
         }
     }

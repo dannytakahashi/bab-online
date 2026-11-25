@@ -1,3 +1,4 @@
+#if os(iOS)
 import UIKit
 
 /// Orientation policy (item 27-1). Info.plist allows Portrait and both
@@ -41,3 +42,4 @@ enum OrientationLock {
         }
     }
 }
+#endif

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The game server's origin (socket and HTTP: avatars, stock art): the
-/// simulator talks to localhost:3000, a device to production.
+/// simulator (and a Debug Mac build) talks to localhost:3000, a device to production.
 ///
 /// Debug builds only: `-serverURL http://localhost:<port>` (a launch
 /// argument, so it lands in the arguments domain of UserDefaults) points the
@@ -12,7 +12,8 @@ enum ServerConfig {
         #if DEBUG
         if let override = debugOverride { return override }
         #endif
-        #if targetEnvironment(simulator)
+        // a Debug Mac build is the simulator's peer: a local server, never production by accident
+        #if targetEnvironment(simulator) || (os(macOS) && DEBUG)
         return "http://localhost:3000"
         #else
         return "https://babonline.io"

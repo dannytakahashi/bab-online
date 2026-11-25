@@ -154,7 +154,7 @@ struct OwnProfileHost: ViewModifier {
                 profileState.requestOwn(username: authState.username, scope: leaderboardState.scope)
             }
             .onChange(of: profileState.pictureNotice) { _, notice in
-                if let notice { UIAccessibility.post(notification: .announcement, argument: notice.message) }
+                if let notice { A11y.announce(notice.message) }
             }
             .onChange(of: pickedPhoto) { _, item in
                 guard let item else { return }
@@ -202,7 +202,7 @@ struct AvatarPickerView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Select Profile Picture")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { SheetCloseButton(identifier: "avatarPicker.close") { dismiss() } }
             }

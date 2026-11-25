@@ -1,6 +1,5 @@
 import AVFoundation
 import Combine
-import UIKit
 
 /// Table sounds (owner 2026-11-15: tasteful, on by default at a quiet volume, easy to mute).
 /// The reducer says WHAT happened (`TableEffect.sound`, live delta events only); this says
@@ -54,16 +53,17 @@ protocol SoundOutput: AnyObject {
 /// The shared audio session as the player needs it (tests inject a fake).
 @MainActor
 protocol SoundSession: AnyObject {
-    var category: AVAudioSession.Category { get }
+    /// The session's category is `.ambient` already (iOS; macOS has no session: always).
+    var isAmbient: Bool { get }
     func useAmbient() throws
 }
 
 enum SoundSessionPolicy {
     enum Action: Equatable { case leave, setAmbient }
 
-    static func action(voiceActive: Bool, category: AVAudioSession.Category) -> Action {
+    static func action(voiceActive: Bool, isAmbient: Bool) -> Action {
         if voiceActive { return .leave }
-        return category == .ambient ? .leave : .setAmbient
+        return isAmbient ? .leave : .setAmbient
     }
 }
 
@@ -135,7 +135,7 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
         self.tune = tune ?? SilentTuneOutput()
         self.session = session
         self.defaults = defaults
-        self.isAppActive = isAppActive ?? { UIApplication.shared.applicationState == .active }
+        self.isAppActive = isAppActive ?? { AppPresence.shared.mayPlaySound }
         self.isVoiceActive = isVoiceActive ?? { VoiceChatManager.shared.ownsAudioSession }
         self.now = now
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
@@ -186,9 +186,9 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
         // synchronous call into the audio server, which is busy while WebRTC runs).
         if isVoiceActive() { return true }
         let started = ProcessInfo.processInfo.systemUptime
-        let category = session.category
+        let isAmbient = session.isAmbient
         SoundStall.check("category read", seconds: ProcessInfo.processInfo.systemUptime - started, voiceActive: false)
-        guard SoundSessionPolicy.action(voiceActive: false, category: category) == .setAmbient else { return true }
+        guard SoundSessionPolicy.action(voiceActive: false, isAmbient: isAmbient) == .setAmbient else { return true }
         do {
             try session.useAmbient()
             return true
@@ -366,14 +366,16 @@ final class SilentTuneOutput: TuneOutput {
     func stop(fade: TimeInterval) {}
 }
 
+#if os(iOS)
 @MainActor
 final class SystemSoundSession: SoundSession {
-    var category: AVAudioSession.Category { AVAudioSession.sharedInstance().category }
+    var isAmbient: Bool { AVAudioSession.sharedInstance().category == .ambient }
     func useAmbient() throws {
         // ambient mixes with other audio, so activating it never interrupts the user's music
         try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [])
     }
 }
+#endif
 
 @MainActor
 final class SilentSoundOutput: SoundOutput {
@@ -382,6 +384,6 @@ final class SilentSoundOutput: SoundOutput {
 
 @MainActor
 final class InertSoundSession: SoundSession {
-    var category: AVAudioSession.Category { .ambient }
+    var isAmbient: Bool { true }
     func useAmbient() throws {}
 }

@@ -101,12 +101,12 @@ private struct TournamentLobbyScreen: View {
             }
         }
         .onTapGesture {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            Keyboard.dismiss()
         }
         .verticalBarChrome(bar, showsBarControls: bar.usesVerticalBar)
         .toolbar {
             if bar.usesVerticalBar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .barLeading) {
                     Button(action: leaveTournament) {
                         Label("Leave", systemImage: "chevron.left")
                     }

@@ -1,5 +1,4 @@
 import Foundation
-import UIKit
 import SwiftUI
 import SocketIO
 import Combine
@@ -108,8 +107,9 @@ final class SocketService: ObservableObject {
         didSet { if let n = serverError, n.id != oldValue?.id { ServerErrorNotice.announce(n) } }
     }
 
-    private var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
-    private(set) var isBackgroundTaskActive = false
+    /// The background keep-alive (iOS: a background task).
+    private let keepAlive: KeepAlive = PlatformKeepAlive()
+    var isBackgroundTaskActive: Bool { keepAlive.isActive }
 
     private(set) var manager: SocketManager?
     private(set) var socket: SocketIOClient?
@@ -556,12 +556,7 @@ final class SocketService: ObservableObject {
         // a probe still waiting would time out at the next foreground and replace a
         // connection that foreground has its own check for
         cancelForegroundProbe()
-        guard backgroundTaskId == .invalid else { return }
-        isBackgroundTaskActive = true
-        backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "SocketKeepAlive") { [weak self] in
-            // Expiration handler — OS is about to kill the task
-            self?.endBackgroundKeepAlive()
-        }
+        guard keepAlive.begin(expired: { [weak self] in self?.endBackgroundKeepAlive() }) else { return }
         print("[Socket] Background keep-alive started")
         #if DEBUG
         // Live checks only (`-keepAliveLimit <s>`, LiveForegroundResumeTests): end the keep-alive
@@ -569,9 +564,9 @@ final class SocketService: ObservableObject {
         // a device's ~30 s (150 s seen under XCUITest), so the path after it is never reached.
         let limit = UserDefaults.standard.double(forKey: "keepAliveLimit")
         if limit > 0 {
-            let id = backgroundTaskId
+            let id = keepAlive.token
             DispatchQueue.main.asyncAfter(deadline: .now() + limit) { [weak self] in
-                guard let self, self.backgroundTaskId == id else { return }
+                guard let self, self.keepAlive.token == id else { return }
                 print("[Socket] Background keep-alive expired (-keepAliveLimit \(limit))")
                 self.endBackgroundKeepAlive()
             }
@@ -581,10 +576,7 @@ final class SocketService: ObservableObject {
 
     /// End the background task (called on return to foreground or expiration).
     func endBackgroundKeepAlive() {
-        guard backgroundTaskId != .invalid else { return }
-        isBackgroundTaskActive = false
-        UIApplication.shared.endBackgroundTask(backgroundTaskId)
-        backgroundTaskId = .invalid
+        guard keepAlive.end() else { return }
         print("[Socket] Background keep-alive ended")
     }
 

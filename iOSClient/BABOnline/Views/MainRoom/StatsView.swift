@@ -54,7 +54,7 @@ struct StatsView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Stats")
-            .navigationBarTitleDisplayMode(.inline)
+            .inlineNavigationTitle()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { CloseButton { dismiss() } }
             }

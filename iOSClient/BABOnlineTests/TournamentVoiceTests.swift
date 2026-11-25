@@ -456,7 +456,7 @@ final class TournamentVoiceTests: XCTestCase {
     /// and every card sound went through voice's session. Now the sounds keep `.ambient` until a
     /// call starts, and get it back after the last call.
     func testTableSoundsKeepTheAmbientSessionUntilACallStarts() async throws {
-        let session = FakeSession(category: .soloAmbient)
+        let session = FakeSession(isAmbient: false)  // the launch default soloAmbient
         let out = RecordingOutput()
         let clock = SoundClock()
         let voice = VoiceChatManager.silent()
@@ -466,12 +466,12 @@ final class TournamentVoiceTests: XCTestCase {
                                  isVoiceActive: { voice.ownsAudioSession }, now: { clock.t })
         try await voice.initialize()
         sounds.play(.card)
-        XCTAssertEqual(session.category, .ambient, "voice running with nobody: the sounds' own session")
+        XCTAssertTrue(session.isAmbient, "voice running with nobody: the sounds' own session")
         XCTAssertEqual(session.ambientCalls, 1)
         XCTAssertEqual(out.played.first?.volume ?? 0, SoundPlayer.defaultVolume, accuracy: 0.0001, "the base level, unchanged")
 
         voice.connectToPeer("AMY", username: "amy")
-        session.category = .playAndRecord  // what voice's session would set
+        session.isAmbient = false  // voice's session would set playAndRecord
         let reads = session.categoryReads
         clock.t = 1
         sounds.play(.card)
@@ -481,7 +481,7 @@ final class TournamentVoiceTests: XCTestCase {
         try await waitUntil("released") { !voice.ownsAudioSession }
         clock.t = 2
         sounds.play(.card)
-        XCTAssertEqual(session.category, .ambient, "the last call gone: ambient again")
+        XCTAssertTrue(session.isAmbient, "the last call gone: ambient again")
         XCTAssertEqual(out.played.count, 3)
     }
 }

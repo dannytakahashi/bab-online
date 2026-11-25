@@ -19,10 +19,12 @@ class CardSpriteNode: SKSpriteNode {
     var blockedReason: String?
     var onBlockedTap: ((Card, String) -> Void)?
 
+    #if os(iOS)
     override var accessibilityHint: String? {
         get { isUserInteractionEnabled && !isLegal ? blockedReason : nil }
         set { _ = newValue }
     }
+    #endif
 
     private static let cardSize = CGSize(
         width: LayoutConstants.cardWidth,
@@ -40,6 +42,7 @@ class CardSpriteNode: SKSpriteNode {
         speak(card.displayName)
     }
 
+    #if os(iOS)
     /// VoiceOver: a hand card is a button (dimmed while illegal, selected while lifted); once it
     /// is on the table (no taps) just the card.
     override var accessibilityTraits: UIAccessibilityTraits {
@@ -59,6 +62,7 @@ class CardSpriteNode: SKSpriteNode {
         handleTap()
         return true
     }
+    #endif
 
     /// Create a card-back sprite
     static func cardBack() -> SKSpriteNode {
@@ -116,11 +120,15 @@ class CardSpriteNode: SKSpriteNode {
         }
     }
 
+    #if os(iOS)
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         handleTap()
     }
+    #endif
 
-    private func handleTap() {
+    /// What a tap (a click on macOS, VoiceOver's activation) does: play or lift a legal card,
+    /// say why a dimmed one cannot be played.
+    func handleTap() {
         guard isLegal else {
             HapticManager.warning()
             if let why = blockedReason { onBlockedTap?(card, why) }

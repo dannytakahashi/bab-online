@@ -310,8 +310,7 @@ struct ScoreBarView: View {
 
     /// A string's width in the caption2 font of `typeSize` (the names' font, full size).
     static func captionWidth(_ typeSize: DynamicTypeSize) -> (String) -> CGFloat {
-        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
-        let font = UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traits)
+        let font = PlatformFont.preferred(.caption2, typeSize: typeSize)
         return { ($0 as NSString).size(withAttributes: [.font: font]).width }
     }
 
