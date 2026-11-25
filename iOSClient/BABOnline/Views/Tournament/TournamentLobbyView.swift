@@ -22,6 +22,16 @@ private struct TournamentLobbyScreen: View {
     @ObservedObject private var socketService = SocketService.shared
     @ObservedObject private var voiceManager = VoiceChatManager.shared
     @State private var showVoicePanel = false
+    /// Cut for a buck's screen state (iOS 1.2.7 (41)): one for both halves of a tabletop layout.
+    @StateObject private var cutModel = CutScreenModel()
+    /// The compact cut's chat drawer, and how many lines it had when last closed.
+    @State private var showsCutChat = false
+    @State private var cutChatSeen = 0
+
+    /// Cut for a buck is on and this app has its state (phase 'cut', the cap sent).
+    private var showsCut: Bool { tournamentState.isCutPhase && tournamentState.cut != nil }
+    /// The tournament is over: the final results in the lobby itself, with the chat and voice.
+    private var showsFinal: Bool { tournamentState.phase == "complete" }
 
     /// The header's mic: voice is on (iOS 1.2.6, the tournament room; fixture mode: `-uiVoice
     /// YES`), as the game lobby's header mic.
@@ -70,7 +80,9 @@ private struct TournamentLobbyScreen: View {
             // Compact ignores the keyboard (it lays the keyboard out itself).
             GeometryReader { geo in
                 let _ = hingeTick  // re-read the fold after a hinge change
-                if hSizeClass == .regular {
+                if showsCut, let fold = Self.tabletopFold(geo) {
+                    cutTabletop(fold: fold, height: geo.size.height)
+                } else if hSizeClass == .regular {
                     // Regular width (iPad, the open Duo): side by side, as the main room.
                     // The left column ignores the keyboard (only the chat column makes
                     // room for it), so typing never moves the players or the buttons.
@@ -94,11 +106,6 @@ private struct TournamentLobbyScreen: View {
             }
             .modifier(HingeTick(tick: $hingeTick))
             .ignoresSafeArea(.keyboard, edges: hSizeClass == .regular ? [] : .bottom)
-
-            // Results overlay
-            if tournamentState.phase == "complete" {
-                TournamentResultsView()
-            }
         }
         .onTapGesture {
             Keyboard.dismiss()
@@ -107,11 +114,9 @@ private struct TournamentLobbyScreen: View {
         .toolbar {
             if bar.usesVerticalBar {
                 ToolbarItem(placement: .barLeading) {
-                    Button(action: leaveTournament) {
-                        Label("Leave", systemImage: "chevron.left")
+                    Button(action: showsFinal ? returnToMainRoom : leaveTournament) {
+                        Label(showsFinal ? "Main Room" : "Leave", systemImage: "chevron.left")
                     }
-                    // the results overlay covers the header's Leave too; it has its own way out
-                    .disabled(tournamentState.phase == "complete")
                 }
             }
         }
@@ -133,6 +138,16 @@ private struct TournamentLobbyScreen: View {
             VoicePanelSheet()
                 .presentationDetents([.medium])
         }
+        .sheet(isPresented: $showsCutChat, onDismiss: { cutChatSeen = tournamentState.messages.count }) {
+            TournamentChatView(showsTitle: true)
+                .presentationDetents([.medium, .large])
+                .presentationBackground(Theme.background)
+        }
+        // Cut for a buck: the screen's own state follows the cut's (verdicts, sounds, the intro)
+        .onAppear(perform: attachCut)
+        .onChange(of: tournamentState.cut) { old, new in cutModel.update(old: old, new: new) }
+        .onChange(of: tournamentState.isSpectator) { _, _ in configureCut() }
+        .onChange(of: showsCut) { _, on in if !on { showsCutChat = false } }
         #if DEBUG
         .onAppear { if UIFixture.showsVoicePanel { showVoicePanel = true } }
         #endif
@@ -145,12 +160,24 @@ private struct TournamentLobbyScreen: View {
     private var leftPanel: some View {
         VStack(spacing: 0) {
             headerBar
-            ScrollView {
-                TournamentPlayerListView()
+            if showsCut {
+                CutForABuckView(model: cutModel)
+                    .frame(maxHeight: .infinity)
+            } else if showsFinal {
+                ScrollView {
+                    TournamentFinalView().padding(.vertical, Theme.Space.s3)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: .infinity, alignment: .top)
+                finalButtons
+            } else {
+                ScrollView {
+                    TournamentPlayerListView()
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .frame(maxHeight: .infinity, alignment: .top)
+                bottomButtons
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .frame(maxHeight: .infinity, alignment: .top)
-            bottomButtons
         }
     }
 
@@ -161,9 +188,10 @@ private struct TournamentLobbyScreen: View {
     /// The scoreboard (once there are scores), the pairings (once a round is planned) and the
     /// active tables (while a round is in play), else nothing: the chat then takes the whole column.
     private var hasStandings: Bool {
-        !tournamentState.scoreboard.isEmpty
+        // the cut and the final results show their own standings on the left
+        !showsCut && !showsFinal && (!tournamentState.scoreboard.isEmpty
             || TournamentPairingRules.hasPairings(tournamentState.pairings)
-            || (tournamentState.phase == "round_active" && tournamentState.activeGames.contains { $0.status == "active" })
+            || (tournamentState.phase == "round_active" && tournamentState.activeGames.contains { $0.status == "active" }))
     }
 
     /// The scoreboard and the active tables on top, sized to their content (they
@@ -209,7 +237,9 @@ private struct TournamentLobbyScreen: View {
         // pinned until measured, so the first frame does not move them
         let pinned = headerHeight == 0 || height - headerHeight - buttonsHeight >= Self.compactMinMiddle
         let keyboard = visibleHeight > 0 ? max(0, height - visibleHeight) : 0
-        return VStack(spacing: 0) {
+        if showsCut { return AnyView(compactCut) }
+        if showsFinal { return AnyView(compactFinal(keyboard: keyboard)) }
+        return AnyView(VStack(spacing: 0) {
             headerBar
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
                 .zIndex(1)  // the voice panel tip hangs over what follows
@@ -227,7 +257,130 @@ private struct TournamentLobbyScreen: View {
             }
             .padding(.bottom, max(0, keyboard - (pinned ? buttonsHeight : 0)))
             if pinned { measuredButtons }
+        })
+    }
+
+    // MARK: - Cut for a buck and the final results (iOS 1.2.7 (41))
+
+    /// A compact cut: the stage takes the screen; the chat is a drawer ("Chat (3)").
+    private var compactCut: some View {
+        VStack(spacing: 0) {
+            headerBar
+            CutForABuckView(model: cutModel)
+                .frame(maxHeight: .infinity)
+            chatDrawerButton
         }
+    }
+
+    private var chatDrawerButton: some View {
+        let unread = max(0, tournamentState.messages.count - cutChatSeen)
+        return Button {
+            showsCutChat = true
+        } label: {
+            HStack {
+                Image(systemName: "bubble.left.and.bubble.right.fill").accessibilityHidden(true)
+                Text(unread > 0 ? "Chat (\(unread))" : "Chat")
+            }
+            .font(.subheadline.bold())
+            .frame(maxWidth: .infinity, minHeight: Theme.hitTarget)
+            .background(Theme.surface)
+            .foregroundColor(Theme.textPrimary)
+            .cornerRadius(Theme.Radius.md)
+        }
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.vertical, Theme.Space.s2)
+        .accessibilityIdentifier("cut.chat")
+    }
+
+    /// The Duo laid flat (tabletop): the ring above the fold; the status, a full-width Draw a card
+    /// and the chat below it.
+    private func cutTabletop(fold: CGRect, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                headerBar
+                CutForABuckView(model: cutModel, part: .stage)
+                    .frame(maxHeight: .infinity)
+            }
+            .frame(height: fold.minY)
+            Color.clear.frame(height: fold.height)
+            VStack(spacing: 0) {
+                CutForABuckView(model: cutModel, part: .controls)
+                    .fixedSize(horizontal: false, vertical: true)
+                TournamentChatView()
+            }
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    /// A horizontal fold that leaves the ring at least 260 pt (the Duo in tabletop pose).
+    static func tabletopFold(_ geo: GeometryProxy) -> CGRect? {
+        guard let d = FoldReader.division(geo), d.width > d.height, d.minY >= 260, geo.size.height - d.maxY >= 160 else { return nil }
+        return d
+    }
+
+    /// Compact final results: the card above the chat, Return to Main Room pinned under them.
+    private func compactFinal(keyboard: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            headerBar
+            CappedAboveChat(chatMin: Self.compactChatMin) {
+                TournamentFinalView().padding(.vertical, Theme.Space.s3)
+            } chat: {
+                TournamentChatView()
+            }
+            .padding(.bottom, max(0, keyboard - buttonsHeight))
+            finalButtons
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { buttonsHeight = $0 }
+        }
+    }
+
+    private var finalButtons: some View {
+        VStack(spacing: Theme.Space.s1) {
+            Button(action: returnToMainRoom) {
+                Text("Return to Main Room")
+                    .font(.body.bold())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Theme.buttonBackground)
+                    .foregroundColor(Theme.buttonForeground)
+                    .cornerRadius(Theme.Radius.md)
+            }
+            .accessibilityIdentifier("results.return")
+            Text(CutCopy.lobbyOpenNote)
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.vertical, Theme.Space.s2)
+    }
+
+    private func configureCut() {
+        let spectator = tournamentState.isSpectator
+        cutModel.me = spectator ? nil : authState.username
+        cutModel.spectator = spectator
+        cutModel.send = { round, slot in TournamentEmitter.cutForABuckDraw(round: round, slot: slot) }
+        cutModel.play = { kind in SoundPlayer.shared.play(kind) }
+        cutModel.announce = { text, urgent in
+            if urgent { A11y.announceUrgent(text) } else { A11y.announce(text) }
+        }
+        cutModel.haptic = { kind in
+            #if os(iOS)
+            switch kind {
+            case .light: HapticManager.lightImpact()
+            case .warning: HapticManager.warning()
+            case .success: HapticManager.success()
+            }
+            #endif
+        }
+        #if DEBUG
+        UIFixture.configureCut(cutModel, tournament: tournamentState)
+        #endif
+    }
+
+    private func attachCut() {
+        configureCut()
+        cutChatSeen = tournamentState.messages.count
+        cutModel.attach(tournamentState.cut)
     }
 
     private var measuredButtons: some View {
@@ -284,11 +437,11 @@ private struct TournamentLobbyScreen: View {
     }
 
     private var leaveButton: some View {
-        Button(action: leaveTournament) {
+        Button(action: showsFinal ? returnToMainRoom : leaveTournament) {
             HStack(spacing: Theme.Space.s1) {
                 Image(systemName: "chevron.left")
                     .accessibilityHidden(true)
-                Text("Leave")
+                Text(showsFinal ? "Main Room" : "Leave")
             }
             .foregroundColor(Theme.textSecondary)
         }
@@ -332,6 +485,7 @@ private struct TournamentLobbyScreen: View {
         case "lobby": return "Waiting to start"
         case "round_active": return "Round \(tournamentState.currentRound) of \(tournamentState.totalRounds)"
         case "between_rounds": return "Round \(tournamentState.currentRound) complete"
+        case "cut": return CutCopy.title
         case "complete": return "Tournament complete"
         default: return ""
         }
@@ -388,8 +542,9 @@ private struct TournamentLobbyScreen: View {
                 }
             }
 
-            // Cancel Tournament button (creator only, visible in all phases)
-            if isCreator {
+            // Cancel Tournament button (creator only; not during Cut for a buck, whose cancel would
+            // end the cut early: the spec hides it there)
+            if isCreator && !tournamentState.isCutPhase && !showsFinal {
                 Button(action: cancelTournament) {
                     Text("Cancel Tournament")
                         .font(.subheadline.bold())
@@ -434,6 +589,12 @@ private struct TournamentLobbyScreen: View {
             return
         }
         TournamentEmitter.leaveTournament()
+    }
+
+    private func returnToMainRoom() {
+        tournamentState.reset()
+        appState.screen = .mainRoom
+        LobbyEmitter.joinMainRoom()
     }
 
     private func cancelTournament() {

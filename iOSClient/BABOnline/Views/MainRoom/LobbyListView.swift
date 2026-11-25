@@ -180,10 +180,13 @@ struct TournamentRowView: View {
     @EnvironmentObject var tournamentState: TournamentState
 
     private var phaseDescription: String {
+        // Cut for a buck (additive `cut: true`; the phase reads round_active for everyone)
+        if tournament.cut { return CutCopy.mainRoomCard }
         switch tournament.phase {
         case "lobby": return "Waiting to start"
         case "round_active": return "Round \(tournament.currentRound) of \(tournament.totalRounds)"
         case "between_rounds": return "Between rounds (\(tournament.currentRound)/\(tournament.totalRounds))"
+        case "cut": return CutCopy.mainRoomCard
         case "complete": return "Complete"
         default: return tournament.phase
         }

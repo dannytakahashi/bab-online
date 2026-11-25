@@ -456,7 +456,7 @@ enum CutCopy {
 }
 
 /// One player's look in the ring and the list.
-struct CutSeatView: Equatable {
+struct CutSeatLook: Equatable {
     enum Look: String { case idle, waiting, drawn, auto, out, left, winner }
 
     var look: Look
@@ -468,7 +468,7 @@ struct CutSeatView: Equatable {
     /// `verdictPending`: the reveal's cards are still turning over, so a player it put out still
     /// looks in (no dimming, no "Out" caption) until the verdict shows.
     static func of(_ s: CutState?, _ username: String, me: String?, connected: Bool = true, talking: Bool = false,
-                   verdictPending: Bool = false) -> CutSeatView {
+                   verdictPending: Bool = false) -> CutSeatLook {
         var look = Look.idle
         var caption = ""
         let out = s?.out[username]
@@ -502,7 +502,7 @@ struct CutSeatView: Equatable {
         if let newest = cards.last { parts.append(CutCopy.cardSpoken(newest)) }
         if !connected { parts.append("reconnecting") }
         if talking { parts.append("talking") }
-        return CutSeatView(look: look, caption: caption, label: parts.joined(separator: ", "), cards: cards, disconnected: !connected)
+        return CutSeatLook(look: look, caption: caption, label: parts.joined(separator: ", "), cards: cards, disconnected: !connected)
     }
 
     /// The lowest rank among `cards` (the losing cards' danger outline).
