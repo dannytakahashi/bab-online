@@ -167,6 +167,7 @@ extension TableReducer {
         case .drawing, .drawResolving, .teamsAnnounced:
             var d = DrawState(stage: snap.stage == .drawing ? .drawing : snap.stage == .drawResolving ? .resolving : .teamsAnnounced)
             d.results = (snap.draw?.drawn ?? []).map { DrawResult(username: $0.username ?? "", position: $0.drawOrder, cardIndex: 0, card: $0.card) }
+            d.plannedTeams = PlannedTeams.valid(snap.draw?.teams)  // a tournament table's (a spectator joining mid-draw)
             if let mine = snap.draw?.viewerDrawOrder {
                 d.hasDrawn = true
                 d.drawnCard = snap.draw?.drawn.first(where: { $0.drawOrder == mine })?.card

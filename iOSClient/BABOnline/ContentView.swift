@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var contentShown = false
     /// The one "the server restarted" message after a reconnect (RestartNotice).
     @ObservedObject private var restart = RestartNotices.shared
+    /// The server's update screen for a gated build (s2c updateRequired, build 41 on).
+    @ObservedObject private var updateRequired = UpdateRequiredState.shared
 
     /// Card faces render off the main thread from the game / tournament lobby on (or a
     /// rejoin straight into the game), so the first deal finds them cached (once per process).
@@ -94,6 +96,12 @@ struct ContentView: View {
                 .environment(\.bootSplashShowing, showSplash)
                 .zIndex(0)
                 .transition(.identity)
+            }
+            if let notice = updateRequired.notice, !showSplash {
+                // over every screen: this build is gated, so nothing else it sends is answered
+                UpdateRequiredView(notice: notice)
+                    .zIndex(2)
+                    .transition(.opacity)
             }
             if showSplash {
                 // over the next screen, which is drawn under it as it fades

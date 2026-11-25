@@ -208,6 +208,8 @@ final class TournamentSocketHandler {
                 if let total = dict["totalRounds"] as? Int {
                     self.tournamentState.totalRounds = total
                 }
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 print("[Tournament] Round \(self.tournamentState.currentRound) started")
             }
         }
@@ -228,6 +230,8 @@ final class TournamentSocketHandler {
                 if let gamesArr = dict["activeGames"] as? [[String: Any]] {
                     self.tournamentState.activeGames = gamesArr.compactMap { TournamentActiveGame.from($0) }
                 }
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
@@ -242,6 +246,8 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async {
                 self.tournamentState.phase = "between_rounds"
                 self.tournamentState.isReady = false
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 // a new between-rounds wait starts its own deadline (a rolled-back start
                 // sends tournamentReadyUpdate with the flag right after this)
                 self.tournamentState.readyDeadlinePassed = false
@@ -268,6 +274,8 @@ final class TournamentSocketHandler {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
                 self.tournamentState.winners = dict["winners"] as? [String] ?? []
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 print("[Tournament] Tournament complete")
             }
         }

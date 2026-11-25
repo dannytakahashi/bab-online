@@ -27,6 +27,10 @@ struct DrawState: Equatable {
     var drawnCard: Card?
     var hasDrawn = false
     var teams: TeamsAnnounced?
+    /// A tournament table's teams as the round's plan set them (startDraw.teams, snapshot
+    /// draw.teams; 2 x 2, plan order), shown before the draw: the draw is then for first deal
+    /// only (DrawCopy). nil at a casual table.
+    var plannedTeams: [[TableSnapshot.PlannedTeamPlayer]]?
 }
 
 struct TeamPair: Equatable {

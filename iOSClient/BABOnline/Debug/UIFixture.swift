@@ -98,7 +98,8 @@ enum UIFixture {
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "tournament-deadline", "tournament-results", "sign-in", "register"]
+                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings",
+                                              "update-required", "sign-in", "register"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
@@ -175,6 +176,7 @@ enum UIFixture {
                 (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
+            if drawTeams, drawStates.contains(name) || name == "draw-in-progress" { editDrawTeams(name, &snapDict) }
             editFaults(&snapDict)
             editSeatBadges(&snapDict)  // -uiSeatBadges (UIFixture+SeatBadges.swift)
             editAssistHand(&snapDict)
@@ -518,6 +520,19 @@ enum UIFixture {
                                 "game-end-tournament": "tournament-game"]
 
     static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator", "draw-deal"]
+    /// `-uiDrawTeams YES` on a draw state (and `draw-in-progress`): a tournament table's planned
+    /// teams (snapshot draw.teams), so the draw is for first deal with the teams under the title:
+    /// fay & gus vs 🤖 Mike & eve in plan order (draw-teams' teamsAnnounced; draw-long's long
+    /// names for eve and gus).
+    static let drawTeams: Bool = isActive && UserDefaults.standard.bool(forKey: "uiDrawTeams")
+
+    private static func editDrawTeams(_ name: String, _ snap: inout [String: Any]) {
+        guard var draw = snap["draw"] as? [String: Any] else { return }
+        let (third, fourth) = name == "draw-long" ? ("JoAnn Jameson", "Christopher Johnson1") : ("eve", "gus")
+        let p = { (u: String, bot: Bool) -> [String: Any] in ["username": u, "isBot": bot] }
+        draw["teams"] = [[p("fay", false), p(fourth, false)], [p("🤖 Mike", true), p(third, false)]]
+        snap["draw"] = draw
+    }
     static var holdsTeams: Bool { name == "draw-teams" }
 
     private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
@@ -697,6 +712,57 @@ enum UIFixture {
             }
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-pairings":
+            // round 3 in play (owner 2026-11-25: partners shown openly): ivy's partners so far are a
+            // bot (round 1), nobody (sat out round 2) and a 20-character name (round 3); a long name
+            // on the other team too. `-uiSpectator YES`: a tournament spectator (every round's tables).
+            let long1 = "Christopher Johnson1", long2 = "Alexandra Montgomery"
+            let names = ["kim", "ivy", "hal", "jon", "ora", "max", long1, long2]
+            tournament.tournamentId = "t1"
+            tournament.name = "Sunday Cup"
+            tournament.phase = "round_active"
+            tournament.currentRound = 3
+            tournament.creatorUsername = "kim"
+            tournament.isSpectator = UserDefaults.standard.bool(forKey: "uiSpectator")
+            if tournament.isSpectator { auth.username = "lou" }
+            tournament.players = names.map {
+                TournamentPlayer(id: "sid-\($0)", username: $0, pic: nil, isReady: false, isCreator: $0 == "kim", connected: true)
+            }
+            let rounds: [[Int]] = [[142, 88], [120, -20], [97, 64], [-40, 152], [76, 49], [55, 31], [31, 18], [-12, 7]]
+            tournament.scoreboard = zip(names, rounds)
+                .map { TournamentScoreEntry(id: $0, username: $0, totalScore: $1.reduce(0, +), roundScores: $1) }
+                .sorted { $0.totalScore > $1.totalScore }
+            tournament.pairings = TournamentRoundPairings.list([
+                ["roundNumber": 1, "tables": [
+                    ["gameId": "g1", "teams": [["ivy", NSNull()], ["kim", NSNull()]]],
+                    ["gameId": "g2", "teams": [["hal", "jon"], ["ora", "max"]]],
+                    ["gameId": "g3", "teams": [[long1, NSNull()], [long2, NSNull()]]],
+                ]],
+                ["roundNumber": 2, "tables": [
+                    ["gameId": "g4", "teams": [["kim", "hal"], ["jon", long1]]],
+                    ["gameId": "g5", "teams": [["ora", long2], ["max", NSNull()]]],
+                ]],
+                ["roundNumber": 3, "tables": [
+                    ["gameId": NSNull(), "teams": [[long2, "kim"], ["ivy", long1]]],
+                    ["gameId": NSNull(), "teams": [["hal", NSNull()], ["jon", "ora"]]],
+                    ["gameId": NSNull(), "teams": [["max", NSNull()], [NSNull(), NSNull()]]],
+                ]],
+            ] as [Any]) ?? []
+            tournament.activeGames = [
+                TournamentActiveGame(id: "g6", humanPlayers: ["ivy", long1, long2, "kim"], botCount: 0, status: "active"),
+                TournamentActiveGame(id: "g7", humanPlayers: ["hal", "jon", "ora"], botCount: 1, status: "active"),
+            ]
+            tournament.messages = chat + messages([("System", "Round 3 has begun")])
+            appState.screen = .tournamentLobby
+        case "update-required":
+            // the upgrade gate's update screen (s2c updateRequired) over the main room, signed in
+            auth.isAuthenticated = true
+            mainRoom.messages = chat
+            appState.screen = .mainRoom
+            UpdateRequiredState.shared.receive([
+                "message": "Update required. Please update BAB Online in the App Store. You'll stay signed in.",
+                "url": "https://apps.apple.com/app/id6759510890",
+            ])
         case "tournament-round", "tournament-between":
             // 8 players (ned reconnecting); mid-round two tables still play, ivy's has finished
             let between = name == "tournament-between"

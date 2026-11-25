@@ -107,14 +107,23 @@ struct DrawPhaseView: View {
 
     // MARK: - Header
 
+    /// A tournament table whose teams the round's plan set: the draw is for first deal only
+    /// (owner 2026-11-25), and the teams show under the title before anyone draws.
+    private var plannedTeams: [[TableSnapshot.PlannedTeamPlayer]]? { gameState.drawPlannedTeams }
+
     private var header: some View {
         VStack(spacing: Theme.Space.s2) {
-            Text("Draw for Deal")
+            Text(DrawCopy.title(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
                 .drawProbe("title")
-            Text("The two highest cards are partners; the highest deals.")
+            if let plannedTeams {
+                DrawTeamsLine(names: DrawCopy.teamsNames(plannedTeams, me: gameState.isSpectator ? nil : gameState.username),
+                              spoken: DrawCopy.teamsSpoken(plannedTeams, me: gameState.isSpectator ? nil : gameState.username))
+                    .drawProbe("plannedTeams")
+            }
+            Text(DrawCopy.rules(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.sm, relativeTo: .subheadline)
                 .foregroundStyle(Theme.textSecondary)
                 .drawProbe("rules")
@@ -342,6 +351,47 @@ struct DrawPhaseView: View {
     }
 }
 
+// MARK: - Planned teams
+
+/// A tournament table's teams under the draw's title, "You & Hannah vs Danny & Clara": one
+/// line in every case (a hidden "Ag" sets its height), shrunk up to `DrawMetrics.nameMinScale`,
+/// then each name cut on its own (`DrawCopy.fittedLine`) so "&" and "vs" always show. VoiceOver
+/// reads "Partners: you and Hannah versus Danny and Clara".
+struct DrawTeamsLine: View {
+    let names: [[String]]
+    let spoken: String
+    @ScaledMetric(relativeTo: .subheadline) private var fontSize: CGFloat = Theme.TypeScale.sm
+
+    var body: some View {
+        Text(verbatim: "Ag")
+            .font(.system(size: fontSize, weight: Theme.Weight.semibold))
+            .lineLimit(1)
+            .hidden()
+            .frame(maxWidth: .infinity)
+            .overlay {
+                GeometryReader { geo in
+                    Text(DrawCopy.fittedLine(names, width: geo.size.width, minScale: DrawMetrics.nameMinScale,
+                                             measure: Self.measure(fontSize)))
+                        .font(.system(size: fontSize, weight: Theme.Weight.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(DrawMetrics.nameMinScale)
+                        .truncationMode(.tail)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken)
+            .accessibilityIdentifier("draw.plannedTeams")
+    }
+
+    /// A string's width in the line's font at `size` (full size).
+    static func measure(_ size: CGFloat) -> (String) -> CGFloat {
+        let font = PlatformFont.systemFont(ofSize: size, weight: .semibold)
+        return { ($0 as NSString).size(withAttributes: [.font: font]).width }
+    }
+}
+
 // MARK: - Metrics
 
 /// The draw's geometry for a window width: four slots across, each card at most
@@ -451,7 +501,7 @@ private struct DrawAvatar: View {
 // MARK: - Layout probe (DEBUG)
 
 /// What the draw's layout tests read (DEBUG builds): the frames of the title,
-/// rules line, deck, prompt, every slot's avatar / name / card and the teams
+/// a tournament table's teams line (`plannedTeams`), rules line, deck, prompt, every slot's avatar / name / card and the teams
 /// panel in the overlay's space, and `check`: "ok", or what is wrong (a name
 /// closer than Theme.Space.s3 to its card, a short name cut off, the cards not on
 /// one line, anything outside the overlay's safe area, two parts overlapping).
@@ -488,7 +538,7 @@ enum DrawLayoutProbe {
                 bad.append("card.\(i) top \(card.minY) not level with card.\(first.0) \(first.1.minY)")
             }
         }
-        let blocks = ["title", "rules", "deck", "prompt"] + (0..<4).flatMap { ["avatar.\($0)", "name.\($0)", "card.\($0)"] }
+        let blocks = ["title", "plannedTeams", "rules", "deck", "prompt"] + (0..<4).flatMap { ["avatar.\($0)", "name.\($0)", "card.\($0)"] }
         let present = blocks.compactMap { k in frames[k].map { (k, $0.insetBy(dx: 0.5, dy: 0.5)) } }
         for (a, ra) in present.enumerated() {
             for rb in present[(a + 1)...] where ra.1.intersects(rb.1) {

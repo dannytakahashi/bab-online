@@ -158,10 +158,11 @@ private struct TournamentLobbyScreen: View {
     /// tables above it scroll inside the rest when they are taller.
     private static let chatMinHeight: CGFloat = 240
 
-    /// The scoreboard (once there are scores) and the active tables (while a
-    /// round is in play), else nothing: the chat then takes the whole column.
+    /// The scoreboard (once there are scores), the pairings (once a round is planned) and the
+    /// active tables (while a round is in play), else nothing: the chat then takes the whole column.
     private var hasStandings: Bool {
         !tournamentState.scoreboard.isEmpty
+            || TournamentPairingRules.hasPairings(tournamentState.pairings)
             || (tournamentState.phase == "round_active" && tournamentState.activeGames.contains { $0.status == "active" })
     }
 
@@ -172,6 +173,7 @@ private struct TournamentLobbyScreen: View {
         CappedAboveChat(showsTop: hasStandings, chatMin: { _ in Self.chatMinHeight }) {
             VStack(spacing: Theme.Space.s3) {
                 TournamentScoreboardView()
+                TournamentPairingsView()
                 TournamentActiveGamesView()
             }
             .padding(.vertical, Theme.Space.s3)
@@ -215,6 +217,7 @@ private struct TournamentLobbyScreen: View {
                 VStack(spacing: Theme.Space.s4) {
                     TournamentPlayerListView()
                     TournamentScoreboardView()
+                    TournamentPairingsView()
                     TournamentActiveGamesView()
                     if !pinned { measuredButtons }
                 }

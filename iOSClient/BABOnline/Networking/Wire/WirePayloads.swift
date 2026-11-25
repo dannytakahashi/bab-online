@@ -9,6 +9,23 @@ enum WirePayload {
 
     struct AllPlayersReady: Decodable, Equatable { var gameId: String? }
 
+    /// startDraw (2026-11-25): `teams` only at a tournament table whose teams the round's plan set
+    /// (contract $defs plannedTeamPlayer: 2 x 2 `{username, isBot}`, staged or honest alike); the
+    /// draw then decides only the seats and who deals first (DrawCopy). Lenient: a malformed or
+    /// partial `teams` is nil (the draw shows as a casual one), never a decode failure, so every
+    /// `{start: true}` recording replays as before.
+    struct StartDraw: Decodable, Equatable {
+        var teams: [[TableSnapshot.PlannedTeamPlayer]]?
+
+        init(teams: [[TableSnapshot.PlannedTeamPlayer]]?) { self.teams = PlannedTeams.valid(teams) }
+
+        private enum CodingKeys: String, CodingKey { case teams }
+        init(from decoder: Decoder) throws {
+            let c = try? decoder.container(keyedBy: CodingKeys.self)
+            teams = PlannedTeams.valid(c.flatMap { try? $0.decodeIfPresent([[TableSnapshot.PlannedTeamPlayer]].self, forKey: .teams) })
+        }
+    }
+
     struct YouDrew: Decodable, Equatable { var card: Card?; var drawOrder: Int?; var position: Int? }
 
     struct PlayerDrew: Decodable, Equatable {

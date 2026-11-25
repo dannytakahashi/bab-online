@@ -236,6 +236,8 @@ final class GameState: ObservableObject {
     var drawnCard: Card? { table.phase.draw?.drawnCard }
     var drawResults: [DrawResult] { table.phase.draw?.results ?? [] }
     var teamsAnnounced: TeamsAnnounced? { table.phase.draw?.teams }
+    /// A tournament table's planned teams (the draw for first deal), nil at a casual table.
+    var drawPlannedTeams: [[TableSnapshot.PlannedTeamPlayer]]? { table.phase.draw?.plannedTeams }
     var hsiValues: [Int: Double] { table.hsi }
     /// My seat's HSI (my seat's row, the bid panel); nil for a pure spectator (no seat) or
     /// before the deal's values arrive.

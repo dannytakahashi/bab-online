@@ -72,8 +72,13 @@ enum ClientHello {
     /// so the server announces it there (voicePeerList / voicePeerJoined / voicePeerLeft for the
     /// room `tournament:<id>`) and relays its offers; without it a tournament member has voice
     /// only at its table.
+    /// `tournamentPairings` (iOS 1.2.7, build 41; `TournamentPairingRules.cap`): this build shows
+    /// each round's pairings and "Partners so far" from the tournament events' `pairings`, and a
+    /// tournament table's `startDraw.teams` / snapshot `draw.teams` as a draw for first deal, so
+    /// the server draws such a table honestly (each player the card they picked) when every human
+    /// and spectator there has it; else it stages the draw as before.
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
-                       TournamentVoice.cap]
+                       TournamentVoice.cap, TournamentPairingRules.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

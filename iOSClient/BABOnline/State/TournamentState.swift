@@ -20,6 +20,10 @@ final class TournamentState: ObservableObject {
     /// sends it): the host's Begin starts the round with the ready members and the rest sit
     /// out (`TournamentBegin`). Each between-rounds wait starts its own deadline.
     @Published var readyDeadlinePassed: Bool = false
+    /// Each planned round's tables and teams (the events' additive `pairings`, owner 2026-11-25:
+    /// partners are shown openly; `TournamentPairingRules`). Empty: nothing to show (an older
+    /// server, the lobby phase, a 1-member tournament).
+    @Published var pairings: [TournamentRoundPairings] = []
     /// The unsent chat line (survives a recreated view; not @Published).
     var chatDraft = ""
     /// The joinTournament a restore sent for the tournament lobby on screen
@@ -57,6 +61,12 @@ final class TournamentState: ObservableObject {
         isSpectator = false
         isReady = false
         readyDeadlinePassed = false
+        pairings = []
+    }
+
+    /// An event's `pairings`, when it carries the key (absent: kept).
+    func applyPairings(_ any: Any?) {
+        if let list = TournamentRoundPairings.list(any) { pairings = list }
     }
 
     func loadFromServerState(_ dict: [String: Any]) {
@@ -87,6 +97,8 @@ final class TournamentState: ObservableObject {
         if let gamesArr = dict["activeGames"] as? [[String: Any]] {
             activeGames = gamesArr.compactMap { TournamentActiveGame.from($0) }
         }
+        // the whole state: no key, nothing to show
+        pairings = TournamentRoundPairings.list(dict["pairings"]) ?? []
     }
 }
 

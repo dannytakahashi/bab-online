@@ -7,9 +7,10 @@ extension TableReducer {
         // MARK: draw
         case .allPlayersReady(let p):
             if let gid = p.gameId { local(&s, .enterGameContext(gameId: gid, tournamentId: nil), &fx) }
-        case .startDraw:
+        case .startDraw(let p):
             if s.table.phase.kind == .ended { s = .fresh(keeping: s.table.me) }
-            s.table.phase = .draw(DrawState(stage: .drawing))  // drawResults start empty (stale-results fix)
+            // drawResults start empty (stale-results fix); a tournament table's planned teams
+            s.table.phase = .draw(DrawState(stage: .drawing, plannedTeams: PlannedTeams.valid(p.teams)))
         case .youDrew(let p):
             mutateDraw(&s) { d in
                 d.hasDrawn = true
