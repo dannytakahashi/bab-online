@@ -504,8 +504,7 @@ function determineDrawPosition(myCard, allCards) {
 }
 
 
-// =====================================================}
-
+// ============================================================
 // Get Your Bid (owner 2026-11-24): the 3-player, no-teams mode a lobby may
 // choose. Card play is the base game's (every other seat is an opponent of
 // a HI joker lead: isLegalMove's `solo`); bidding and scoring are these.
@@ -575,7 +574,8 @@ function gybDrawPosition(myCard, allCards) {
         else if (RANK_VALUES[myCard.rank] === RANK_VALUES[card.rank] && suitOrder[myCard.suit] > suitOrder[card.suit]) rank++;
     }
     return allCards.length - rank;
-=======
+}
+
 /**
  * Seats for a table whose teams are fixed before the draw (a tournament
  * round's plan, tournamentPartners): the team holding the highest of the
@@ -643,6 +643,7 @@ module.exports = {
     calculateMultiplier,
     drawBeats,
     determineDrawPosition,
+    seatPlannedTeams,
     calculateHSI,
     GYB_SEATS,
     GYB_FORBIDDEN_MIN_HAND,
@@ -650,6 +651,5 @@ module.exports = {
     isValidGybBid,
     gybSafeBid,
     gybHandScore,
-    gybDrawPosition,
-    seatPlannedTeams
+    gybDrawPosition
 };
