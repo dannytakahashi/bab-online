@@ -15,7 +15,6 @@ import { showGameLobby, removeGameLobby } from './screens/GameLobby.js';
 import { showTournamentLobby, removeTournamentLobby } from './screens/TournamentLobby.js';
 import { removePlayerQueue } from './components/PlayerQueue.js';
 import { removeFinalScoreOverlay } from './components/ScoreModal.js';
-import { removeTournamentResultsOverlay } from './components/TournamentScoreboard.js';
 import { getClientSession, SCREEN } from '../state/ClientSession.js';
 import { getGameState } from '../state/GameState.js';
 import { setTableChrome } from './tableHud.js';
@@ -292,7 +291,6 @@ class UIManager {
     removeTournamentLobby();
     removePlayerQueue();
     removeFinalScoreOverlay();
-    removeTournamentResultsOverlay();
 
     // Remove vignettes
     document.querySelectorAll('.vignette').forEach((el) => el.remove());
