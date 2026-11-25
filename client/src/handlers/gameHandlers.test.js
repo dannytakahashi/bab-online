@@ -192,3 +192,43 @@ describe('the avatar badges (gameLogEntry help / tutorial; state/seatBadges.js)'
     expect(state.helpAsked).toEqual({});
   });
 });
+
+describe('startDraw.teams (a tournament table\'s draw for first deal, 2026-11-25)', () => {
+  let socket;
+  let state;
+  let onStartDraw;
+  let seq;
+  const fire = (event, data) => socket._trigger(event, { ...data, seq: ++seq });
+  const TEAMS = [[{ username: 'ann', isBot: false }, { username: '🤖 Mary', isBot: true }], [{ username: 'bob', isBot: false }, { username: 'cat', isBot: false }]];
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    seq = 0;
+    state = resetGameState();
+    resetMyAction({ emit: () => {}, setTimer: () => 0, clearTimer: () => {} });
+    resetSeqGate({ requestSnapshot: vi.fn(), setTimer: () => 1, clearTimer: () => {} });
+    resetTableSounds({ sound: () => ({ play: () => true, start: () => null, duration: () => null }) });
+    socket = createMockSocket();
+    const manager = new SocketManager(socket);
+    onStartDraw = vi.fn();
+    registerGameHandlers(manager, { onStartDraw });
+  });
+
+  it('a good 2 x 2 is kept on GameState.draw (and in the render model)', () => {
+    fire(SERVER_EVENTS.START_DRAW, { start: true, teams: TEAMS });
+    expect(state.draw.teams).toEqual(TEAMS);
+    expect(state.renderModel().draw.teams).toEqual(TEAMS);
+    expect(onStartDraw).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['absent (a casual table)', undefined],
+    ['three teams', [...TEAMS, TEAMS[0]]],
+    ['a team of one', [[TEAMS[0][0]], TEAMS[1]]],
+    ['a name that is not a string', [[{ username: 7 }, TEAMS[0][1]], TEAMS[1]]],
+  ])('%s: null (the casual draw)', (_label, teams) => {
+    fire(SERVER_EVENTS.START_DRAW, { start: true, ...(teams !== undefined && { teams }) });
+    expect(state.draw.teams).toBeNull();
+    expect(onStartDraw).toHaveBeenCalledTimes(1);
+  });
+});

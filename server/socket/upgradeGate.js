@@ -83,6 +83,18 @@
  * not accepted (expired, evicted by MAX_SESSIONS, a merged account) gets the
  * signed-out message from then on. A database error changes nothing.
  *
+ * updateRequired {message, url} (2026-11-25, additive, private): pushed with
+ * the main push and then once a minute (it counts toward the same
+ * per-socket emit limit, and the timed pushes stay under it). The builds gated today and builds 39 / 40
+ * ignore it; from build 41 the app shows it as a full-screen update screen
+ * with an App Store button (keeping its session), so whatever build the gate
+ * passes next is told on every screen, not only on sign-in.
+ *
+ * BAB_MIN_IOS_BUILD (env, read at each connection) raises the gate without a
+ * deploy (release day: the new build is live, the old ones are gated from
+ * Railway's environment); it can never lower it below MIN_IOS_BUILD
+ * (minIosBuild). Logged at startup when set.
+ *
  * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled / no), read at each
  * connection. Telemetry: one info line per gated connection (build, the
  * username it sent if any; never a token or password), plus the parsed build
@@ -105,6 +117,21 @@ const { gateEnabled } = require('../utils/upgradeGateSwitch');
  * and later are not.
  */
 const MIN_IOS_BUILD = 3;
+
+/**
+ * The gate in force: MIN_IOS_BUILD, or BAB_MIN_IOS_BUILD when that is higher
+ * (an env override can only raise the gate: 1 or 2 never un-gates 1.0.0 or
+ * 1.1.0). Read per connection.
+ */
+function minIosBuild() {
+    return Math.max(MIN_IOS_BUILD, Number.parseInt(process.env.BAB_MIN_IOS_BUILD, 10) || 0);
+}
+if (process.env.BAB_MIN_IOS_BUILD) {
+    socketLogger.info('Upgrade gate: BAB_MIN_IOS_BUILD set', { env: String(process.env.BAB_MIN_IOS_BUILD).slice(0, 16), minIosBuild: minIosBuild() });
+}
+
+/** updateRequired.url: the App Store page (client/src/boot/deviceGate.js APP_STORE_URL). */
+const APP_STORE_URL = 'https://apps.apple.com/app/id6759510890';
 
 // Short: SignInView shows it as a caption that truncates once the keyboard
 // is up (measured: about 2 lines at 375 pt wide), and as one main-room chat line
@@ -129,6 +156,8 @@ const REPEAT_MS = 6000;
 const EMIT_LIMIT = 20;
 const REPLY_RESERVE = 6;
 const EMIT_WINDOW_MS = 60 * 1000;
+// updateRequired again with every UPDATE_EVERY-th repeat (once a minute)
+const UPDATE_EVERY = 10;
 
 const UA_MAX = 512;
 // "BAB%20Online/<digits> ... CFNetwork/<v> ... Darwin/<v>": the product token
@@ -163,7 +192,7 @@ function handshakeUserAgent(socket) {
 /** Is this the old iOS build? Positive identification only. */
 function isOutdatedIosApp(ua) {
     const app = parseIosUserAgent(ua);
-    return app !== null && app.build < MIN_IOS_BUILD;
+    return app !== null && app.build < minIosBuild();
 }
 
 const str = (v, max = 64) => (typeof v === 'string' ? v.slice(0, max) : null);
@@ -179,7 +208,7 @@ function gate(socket) {
     const app = parseIosUserAgent(ua);
     if (app && socket.data) socket.data.appBuild = app.build;
     if (app) socketLogger.info('iOS app connected', { socketId: socket.id, build: app.build });
-    if (!app || app.build >= MIN_IOS_BUILD) return false;
+    if (!app || app.build >= minIosBuild()) return false;
     if (!gateEnabled()) return false;
     if (typeof socket.on !== 'function' || typeof socket.emit !== 'function') return false;
     attach(socket, app);
@@ -219,6 +248,13 @@ function attach(socket, app) {
 
     function sendUpdateMessage(reserve = 0) {
         send('signInResponse', { success: false, message: message() }, reserve);
+    }
+    // Build 41 and later: the full-screen update screen (older builds ignore
+    // it). With the main push, then once a minute (every UPDATE_EVERY-th
+    // repeat), so the timed pushes stay within EMIT_LIMIT - REPLY_RESERVE in
+    // any window (13 signInResponse / mainRoomJoined + 1 in the first minute)
+    function sendUpdateRequired() {
+        send('updateRequired', { message: message(), url: APP_STORE_URL }, REPLY_RESERVE);
     }
     function replySignUp() {
         send('signUpResponse', { success: false, message: message() });
@@ -269,15 +305,20 @@ function attach(socket, app) {
     });
 
     const last = PUSH_DELAYS_MS.length - 1;
+    let repeats = 0;
     PUSH_DELAYS_MS.forEach((ms, i) => {
         const t = safeTimeout(() => {
             sendUpdateMessage(REPLY_RESERVE);
             if (i === MAIN_PUSH) {
                 sendMainRoom();
+                sendUpdateRequired();
                 logOnce();
             }
             if (i === last && st.connected) {
-                st.interval = safeInterval(() => sendUpdateMessage(REPLY_RESERVE), REPEAT_MS, 'upgradeGateRepeat');
+                st.interval = safeInterval(() => {
+                    sendUpdateMessage(REPLY_RESERVE);
+                    if (++repeats % UPDATE_EVERY === 0) sendUpdateRequired();
+                }, REPEAT_MS, 'upgradeGateRepeat');
                 if (typeof st.interval?.unref === 'function') st.interval.unref();
             }
         }, ms, 'upgradeGatePush');
@@ -321,6 +362,8 @@ async function refreshSession(data) {
 
 module.exports = {
     MIN_IOS_BUILD,
+    APP_STORE_URL,
+    minIosBuild,
     UPDATE_MESSAGE,
     UPDATE_MESSAGE_SIGNED_OUT,
     PUSH_DELAYS_MS,
@@ -328,6 +371,7 @@ module.exports = {
     EMIT_LIMIT,
     REPLY_RESERVE,
     EMIT_WINDOW_MS,
+    UPDATE_EVERY,
     parseIosUserAgent,
     isOutdatedIosApp,
     gateEnabled,

@@ -13,6 +13,14 @@
  *                        status line (role status) that says each draw
  *                        ("Mary drew the King of Hearts"); focus moves to
  *                        it when the focused button goes
+ *                        A tournament table (startDraw.teams, owner
+ *                        2026-11-25) says "Draw for First Deal" and "Partners
+ *                        are set for this round. The highest card deals
+ *                        first." with the teams on one line under the title
+ *                        (.hud-draw__teams: "You & Hannah vs Danny & Clara",
+ *                        my team first; it shrinks, then each name is cut,
+ *                        so "&" and "vs" always show; read out as "Partners:
+ *                        you and Hannah versus Danny and Clara")
  *   .hud-teams           the teams: a scrim over the whole table and a
  *                        surface panel (e3) with each team's avatars and
  *                        names, side by side where they fit, else stacked,
@@ -35,6 +43,7 @@ import { hudRoot } from './tableHud.js';
 import { applyAvatarImg, avatarSrc } from '../utils/avatar.js';
 import { getCardDisplayName } from '../utils/cards.js';
 import { DRAW_TEXT } from '../phaser/layout/computeTableLayout.js';
+import * as drawCopy from './drawCopy.js';
 
 /** What an empty slot says (iOS: "Waiting"). */
 export const WAITING = 'Waiting';
@@ -103,23 +112,82 @@ function avatarNode(cls, name, pic = null) {
 }
 
 /**
+ * The teams line of a tournament table's draw: each team's names (mine
+ * first, as "You"), "&" between partners and "vs" between the teams as
+ * their own spans, so a name can be cut while the words stay; the visible
+ * spans are hidden from screen readers, which get teamsSpoken.
+ */
+function teamsLineNode(teams, me) {
+  const { teams: ordered } = drawCopy.orderTeams(teams, me);
+  const line = el('p', 'hud-draw__teams');
+  const shown = el('span', 'hud-draw__teams-shown');
+  shown.setAttribute('aria-hidden', 'true');
+  ordered.forEach((team, ti) => {
+    if (ti > 0) shown.appendChild(el('span', 'hud-draw__vs', 'vs'));
+    const t = el('span', 'hud-draw__team');
+    t.classList.toggle('is-mine', team.some((p) => p.mine));
+    team.forEach((p, pi) => {
+      if (pi > 0) t.appendChild(el('span', 'hud-draw__amp', '&'));
+      const n = el('span', 'hud-draw__tname', p.mine ? 'You' : p.name);
+      n.title = p.name;
+      t.appendChild(n);
+    });
+    shown.appendChild(t);
+  });
+  line.appendChild(shown);
+  line.appendChild(el('span', 'hud-draw__teams-spoken', drawCopy.teamsSpoken(teams, me)));
+  return line;
+}
+
+/**
+ * The teams line's type shrinks until the whole line fits (to
+ * NAME_MIN_SCALE; past that each name is cut with an ellipsis while "&"
+ * and "vs" stay). Measured with the names at their full width.
+ */
+export function fitTeamsLine(node = drawHud()?.querySelector('.hud-draw__teams')) {
+  if (!node) return 1;
+  node.style.removeProperty('--name-fit');
+  node.classList.add('is-measuring');
+  const shown = node.querySelector('.hud-draw__teams-shown') || node;
+  const fits = () => !(shown.scrollWidth > node.clientWidth + 0.5);
+  let fit = 1;
+  const cw = node.clientWidth;
+  if (cw && !fits()) {
+    fit = Math.max(NAME_MIN_SCALE, Math.floor((cw / shown.scrollWidth) * 100) / 100);
+    node.style.setProperty('--name-fit', String(fit));
+    for (let i = 0; i < 12 && fit > NAME_MIN_SCALE && !fits(); i++) {
+      fit = Math.max(NAME_MIN_SCALE, Math.round((fit - 0.02) * 100) / 100);
+      node.style.setProperty('--name-fit', String(fit));
+    }
+  }
+  node.classList.remove('is-measuring');
+  return fit;
+}
+
+/**
  * Put the draw layer up (replacing any): title, rule, four waiting slots,
  * the prompt and the keyboard button.
  * @param {Object} opts
  * @param {boolean} [opts.spectator] - no prompt and no button (a spectator never draws)
  * @param {Function} [opts.onDraw] - the button's action (my draw)
+ * @param {Array|null} [opts.teams] - a tournament table's planned teams (startDraw.teams): the draw for first deal
+ * @param {string|null} [opts.me] - my username (my team first, as "You")
  * @returns {HTMLElement}
  */
-export function showDrawHud({ spectator = false, onDraw = null, slots = 4, rules = DRAW_TEXT.rules } = {}) {
+export function showDrawHud({ spectator = false, onDraw = null, slots = 4, rules = null, teams = null, me = null } = {}) {
   clearDrawHud();
+  const planned = drawCopy.validTeams(teams);
   const layer = el('div', 'hud-draw');
   layer.classList.toggle('is-spectator', !!spectator);
-  const title = el('h2', 'hud-draw__title', DRAW_TEXT.title);
+  layer.classList.toggle('is-planned', !!planned);
+  const title = el('h2', 'hud-draw__title', drawCopy.title(!!planned));
   title.id = 'hud-draw-title';
   layer.setAttribute('role', 'region');
   layer.setAttribute('aria-labelledby', title.id);
   layer.appendChild(title);
-  layer.appendChild(el('p', 'hud-draw__rules', rules));
+  if (planned) layer.appendChild(teamsLineNode(planned, spectator ? null : me));
+  // (a Get Your Bid table passes its own rule: no partners there)
+  layer.appendChild(el('p', 'hud-draw__rules', planned ? drawCopy.rules(true) : (rules ?? drawCopy.rules(false))));
 
   const row = el('ol', 'hud-draw__slots');
   // (three at a Get Your Bid table: the layout's draw has as many slots)
@@ -148,6 +216,7 @@ export function showDrawHud({ spectator = false, onDraw = null, slots = 4, rules
   }
   layer.appendChild(statusNode('hud-draw__status'));
   hudRoot().appendChild(layer);
+  if (planned) fitTeamsLine(layer.querySelector('.hud-draw__teams'));
   return layer;
 }
 
@@ -177,9 +246,10 @@ export function fitName(node) {
   return fit;
 }
 
-/** Fit every drawn slot's name (after a draw, and after a relayout changed the boxes). */
+/** Fit every drawn slot's name and the teams line (after a draw, and after a relayout changed the boxes). */
 export function fitDrawNames() {
   drawHud()?.querySelectorAll('.hud-draw__slot[data-state="drawn"] .hud-draw__name').forEach(fitName);
+  fitTeamsLine();
 }
 
 /**

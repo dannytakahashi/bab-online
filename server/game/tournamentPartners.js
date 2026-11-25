@@ -33,13 +33,22 @@
  * round is not known yet); tournamentPartners.test.js checks that for
  * small fields this is as good as the best whole-tournament plan.
  *
- * The teams are honoured at the draw: GameState.drawTeams (set by the
- * round start, socket/tournamentHandlers.createRoundTable) makes each
- * entrant draw a card chosen so that the draw seats the planned teams
- * (planDrawCards below; rules.determineDrawPosition: the two highest cards
- * sit 1 and 3). The draw stays a real draw on the wire (startDraw,
- * youDrew, playerDrew, teamsAnnounced, positionUpdate unchanged), so
- * shipped clients render it as before.
+ * The teams are shown openly (owner 2026-11-25): each round's plan goes out
+ * as `pairings` on the tournament events (TournamentState.pairingsWire) and
+ * as `teams` on the table's startDraw / snapshot draw. At the table
+ * (GameState.drawTeams, set by socket/tournamentHandlers.createRoundTable)
+ * the draw then decides only the seats and who deals first: where every
+ * human and spectator there sent the clientHello cap PAIRINGS_CAP
+ * (gameLifecycle.beginDraw sets drawHonest), each player gets the card
+ * they picked and rules.seatPlannedTeams seats the plan (the highest
+ * card's team at 1 & 3, that card at 1: it deals first). Anywhere else (a
+ * shipped iOS build or a cached web tab at the table, TOURNAMENT_HONEST_DRAW
+ * off) the draw is staged as before: each planned entrant draws a card
+ * chosen so the ordinary rule seats the plan (planDrawCards below;
+ * rules.determineDrawPosition: the two highest cards sit 1 and 3), so a
+ * legacy client's printed "the two highest cards are partners" stays true.
+ * The draw is a real draw on the wire either way (startDraw, youDrew,
+ * playerDrew, teamsAnnounced, positionUpdate unchanged).
  */
 
 'use strict';
@@ -49,6 +58,12 @@ const { determineDrawPosition } = require('./rules');
 // Lexicographic weight of a back-to-back partnership over repeats
 const CONSECUTIVE = 1e6;
 const NODE_BUDGET = 200000;
+/**
+ * The clientHello cap of a client that shows the round pairings and, at a
+ * tournament table, startDraw.teams / snapshot draw.teams as a draw for
+ * first deal (socket/clientInfo.js KNOWN_CAPS)
+ */
+const PAIRINGS_CAP = 'tournamentPairings';
 
 const pairKey = (a, b) => (a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`);
 
@@ -242,7 +257,18 @@ function planDrawCards(deckCards, teams, rng = Math.random) {
     return plan;
 }
 
+/**
+ * A table's planned teams in words, plan order, never a team number
+ * ("Hannah & Danny vs Clara & 🤖 Mary").
+ * @param {Array<Array<{username: string}>>} teams - plannedTeamsWire
+ */
+function teamsText(teams) {
+    return teams.map((t) => t.map((p) => p.username).join(' & ')).join(' vs ');
+}
+
 module.exports = {
+    PAIRINGS_CAP,
+    teamsText,
     CONSECUTIVE,
     NODE_BUDGET,
     pairKey,

@@ -221,6 +221,18 @@ const defs = {
     // system / type (additive 2026-11-15): a server notice
     // (tournamentHandlers systemLine), never on a player's line
     tournamentChatLine: obj({ username: str(), message: str(), isSpectator: bool(), timestamp: int(), system: konst(true), type: konst('system') }, { optional: ['system', 'type'] }),
+    // A round's pairings (2026-11-25; TournamentState.pairings): one team,
+    // two usernames, null for a bot
+    pairingTeam: arr(orNull(str()), { minItems: 2, maxItems: 2 }),
+    // One round: its tables (gameId null for the round just planned, whose
+    // tables do not exist yet), each with its two teams
+    roundPairings: obj({
+        roundNumber: int({ minimum: 1 }),
+        tables: arr(obj({ gameId: orNull(str()), teams: arr(ref('pairingTeam'), { minItems: 2, maxItems: 2 }) })),
+    }),
+    // A planned team's player (startDraw.teams, snapshot draw.teams):
+    // both keys always present (iOS build 41 decodes the snapshot strictly)
+    plannedTeamPlayer: obj({ username: str(), isBot: bool() }),
     tournamentClientState: obj({
         tournamentId: str(),
         name: str(),
@@ -237,7 +249,10 @@ const defs = {
         // additive 2026-11-15, between rounds only: Begin may start with the
         // ready members (tournamentReadyUpdate notes)
         readyDeadlinePassed: bool(),
-    }, { optional: ['winners', 'readyDeadlinePassed'] }),
+        // additive 2026-11-25: each round's pairings so far (absent while no
+        // table has two members: the lobby phase, a 1-member tournament)
+        pairings: arr(ref('roundPairings')),
+    }, { optional: ['winners', 'readyDeadlinePassed', 'pairings'] }),
     // DB projections: closed at the top, nested rows open
     profile: obj({
         username: str(),
@@ -383,6 +398,14 @@ const defs = {
         made: ref('gybBySeat'),
         hands: int({ minimum: 0, maximum: 13 }),
     }),
+    // A ninth, its own const for the same reason (2026-11-25, honest
+    // tournament draws): the client shows the round pairings and "Partners
+    // so far" (the tournament events' `pairings`) and, at a tournament
+    // table, startDraw.teams / snapshot draw.teams as a draw for first deal.
+    // A tournament table draws honestly only when every human there and
+    // every spectator present at its startDraw sent it (contract/README.md
+    // "Client capabilities")
+    clientCapTournamentPairings: konst('tournamentPairings'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)
@@ -583,7 +606,11 @@ const defs = {
             position: orNull(ref('position')),
         }), { maxItems: 4 }),
         viewerDrawOrder: orNull(int({ minimum: 1, maximum: 4 })),
-    }),
+        // additive 2026-11-25, optional: a tournament table's planned teams
+        // by name (startDraw.teams), present from its startDraw until the
+        // deal; always 2 x 2 complete entries
+        teams: arr(arr(ref('plannedTeamPlayer'), { minItems: 2, maxItems: 2 }), { minItems: 2, maxItems: 2 }),
+    }, { optional: ['teams'] }),
     tournamentV2: obj({
         tournamentId: str(),
         name: str(),

@@ -137,7 +137,8 @@
           "activeGameFound",
           "deleteAccountResponse",
           "changePasswordResponse",
-          "restoreSessionResponse"
+          "restoreSessionResponse",
+          "updateRequired"
         ]
       },
       {
@@ -453,7 +454,8 @@
           "forceLogout",
           "activeGameFound",
           "deleteAccountResponse",
-          "changePasswordResponse"
+          "changePasswordResponse",
+          "updateRequired"
         ]
       },
       {

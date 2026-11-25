@@ -24,6 +24,7 @@ import { getMyAction } from '../state/MyAction.js';
 import { getTableDirector } from '../phaser/TableDirector.js';
 import { getTableSounds } from '../audio/tableSounds.js';
 import { getShoulderWatch, isShoulder, isPureSpectator } from '../state/shoulder.js';
+import { validTeams } from '../state/drawTeams.js';
 
 /**
  * Register game event handlers.
@@ -152,7 +153,8 @@ export function registerGameHandlers(socketManager, callbacks = {}) {
     console.log('🎴 Start draw:', data);
     state.setPhase(PHASE.DRAW);
     state.stage = 'DRAWING';
-    state.beginDraw();
+    // a tournament table's planned teams (2026-11-25): the draw is for first deal
+    state.beginDraw(validTeams(data?.teams));
     onStartDraw?.(data);
   });
 

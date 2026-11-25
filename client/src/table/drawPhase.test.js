@@ -272,3 +272,72 @@ describe('the draw for deal (iOS DrawPhaseView\'s structure)', () => {
     expect(name.style.getPropertyValue('--name-fit')).toBe('0.83');
   });
 });
+
+// A tournament table (owner 2026-11-25): startDraw carries the planned
+// teams, so the draw says it is for first deal and names them, mine first
+describe('a tournament table\'s draw for first deal (startDraw.teams)', () => {
+  const TEAMS = [
+    [{ username: 'hannah', isBot: false }, { username: 'danny', isBot: false }],
+    [{ username: ME, isBot: false }, { username: '🤖 Mary', isBot: true }],
+  ];
+  const teamsLine = () => draw().querySelector('.hud-draw__teams');
+  const startPlanned = (teams = TEAMS) => {
+    page.socket.fire('startDraw', { start: true, teams });
+    replay.advance(50);
+  };
+
+  it('title and rule say first deal; the teams line (mine first, as You) sits under the title, read out with and / versus', () => {
+    startPlanned();
+    expect(draw().querySelector('.hud-draw__title').textContent).toBe('Draw for First Deal');
+    expect(draw().querySelector('.hud-draw__rules').textContent).toBe('Partners are set for this round. The highest card deals first.');
+    expect(draw().classList.contains('is-planned')).toBe(true);
+    const shown = teamsLine().querySelector('.hud-draw__teams-shown');
+    expect(shown.textContent).toBe('You&🤖 Maryvshannah&danny');
+    expect(shown.getAttribute('aria-hidden')).toBe('true');
+    expect([...teamsLine().querySelectorAll('.hud-draw__tname')].map((n) => n.textContent)).toEqual(['You', '🤖 Mary', 'hannah', 'danny']);
+    expect(teamsLine().querySelector('.hud-draw__team').classList.contains('is-mine')).toBe(true);
+    expect(teamsLine().querySelector('.hud-draw__teams-spoken').textContent).toBe('Partners: you and 🤖 Mary versus hannah and danny');
+    expect(teamsLine().textContent).not.toMatch(/Team [12]|Your Team|Opponents/);
+    // the layout has the line, between the title and the rule
+    const d = L().draw;
+    expect(d.teams).toBeTruthy();
+    expect(d.teams.y).toBeGreaterThan(d.title.y);
+    expect(d.rules.y).toBeGreaterThan(d.teams.y);
+    near(parseFloat(hud().style.getPropertyValue('--draw-teams-y')), d.teams.y, '--draw-teams-y');
+    // the same pickable deck and button as any draw
+    expect(draw().querySelector('.hud-draw__key')).toBeTruthy();
+  });
+
+  it('a long name shrinks the line, then each name is cut, while & and vs stay', () => {
+    startPlanned([
+      [{ username: 'Bartholomew_the_Great_Wanderer', isBot: false }, { username: 'Maximiliana_Quintessence', isBot: false }],
+      [{ username: ME, isBot: false }, { username: '🤖 Bartholomew', isBot: true }],
+    ]);
+    const node = teamsLine();
+    const shown = node.querySelector('.hud-draw__teams-shown');
+    const fit = () => parseFloat(node.style.getPropertyValue('--name-fit')) || 1;
+    Object.defineProperty(shown, 'scrollWidth', { configurable: true, get: () => Math.round(500 * fit()) });
+    Object.defineProperty(node, 'clientWidth', { configurable: true, get: () => 200 });
+    expect(hudMod.fitTeamsLine(node)).toBe(hudMod.NAME_MIN_SCALE);
+    expect(node.classList.contains('is-measuring')).toBe(false);
+    // the words are their own spans, never cut with a name
+    expect([...node.querySelectorAll('.hud-draw__amp')].map((n) => n.textContent)).toEqual(['&', '&']);
+    expect([...node.querySelectorAll('.hud-draw__vs')].map((n) => n.textContent)).toEqual(['vs']);
+    expect(node.querySelector('.hud-draw__tname').title).toBe(ME);
+  });
+
+  it('a malformed teams key is a casual draw', () => {
+    startPlanned([[{ username: 'a' }], [{ username: 'b' }, { username: 'c' }]]);
+    expect(draw().querySelector('.hud-draw__title').textContent).toBe('Draw for Deal');
+    expect(teamsLine()).toBeNull();
+    expect(L().draw.teams).toBeNull();
+  });
+
+  it('a casual table after a planned one goes back to the casual words', () => {
+    startPlanned();
+    startDraw();
+    expect(draw().querySelector('.hud-draw__title').textContent).toBe('Draw for Deal');
+    expect(draw().querySelector('.hud-draw__rules').textContent).toBe('The two highest cards are partners; the highest deals.');
+    expect(teamsLine()).toBeNull();
+  });
+});

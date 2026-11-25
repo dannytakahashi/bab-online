@@ -691,9 +691,13 @@ export class GameState {
     this._emit('hasDrawnChanged', value);
   }
 
-  /** The draw opens (startDraw): nobody has drawn. */
-  beginDraw() {
-    this.draw = { drawn: [], viewerDrawOrder: null };
+  /**
+   * The draw opens (startDraw): nobody has drawn. `teams`: a tournament
+   * table's planned teams (startDraw.teams, already checked: ui/drawCopy
+   * validTeams), so the draw is for first deal; null at a casual table.
+   */
+  beginDraw(teams = null) {
+    this.draw = { drawn: [], viewerDrawOrder: null, teams: teams || null };
     this.setHasDrawn(false);
   }
 
@@ -701,7 +705,7 @@ export class GameState {
   applyPlayerDrew(data) {
     const order = Number(data?.drawOrder);
     if (!data?.username || !(order >= 1 && order <= 4)) return false;
-    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null };
+    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null, teams: null };
     if (this.draw.drawn.some((d) => d.drawOrder === order)) return false;
     this.draw.drawn.push({ drawOrder: order, username: data.username, card: data.card ? { suit: data.card.suit, rank: data.card.rank } : null });
     this.draw.drawn.sort((a, b) => a.drawOrder - b.drawOrder);
@@ -710,7 +714,7 @@ export class GameState {
 
   /** My own draw (youDrew; the auto-draw sends it too). */
   applyYouDrew(data) {
-    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null };
+    if (!this.draw) this.draw = { drawn: [], viewerDrawOrder: null, teams: null };
     if (data?.drawOrder) this.draw.viewerDrawOrder = data.drawOrder;
     this.setHasDrawn(true);
   }
@@ -1401,6 +1405,8 @@ export class GameState {
           .map((d) => ({ drawOrder: d.drawOrder, username: d.username, card: d.card ? { suit: d.card.suit, rank: d.card.rank } : null }))
           .sort((a, b) => a.drawOrder - b.drawOrder),
         viewerDrawOrder: snap.draw.viewerDrawOrder ?? null,
+        // a tournament table's planned teams (the parser kept only a good 2 x 2)
+        teams: Array.isArray(snap.draw.teams) ? snap.draw.teams.map((t) => t.map((p) => ({ username: p.username, isBot: !!p.isBot }))) : null,
       };
       if (!this.isSpectator) this.hasDrawn = this.draw.viewerDrawOrder !== null;
     } else {
@@ -1707,7 +1713,12 @@ export class GameState {
       hsi: position ? this.hsiValues[position] : undefined,
       playerData: this.playerData,
       draw: this.draw && ['DRAWING', 'DRAW_RESOLVING'].includes(this.stage)
-        ? { drawn: this.draw.drawn.map((d) => ({ ...d, card: d.card ? { ...d.card } : null })), viewerDrawOrder: this.draw.viewerDrawOrder, hasDrawn: !!this.hasDrawn }
+        ? {
+          drawn: this.draw.drawn.map((d) => ({ ...d, card: d.card ? { ...d.card } : null })),
+          viewerDrawOrder: this.draw.viewerDrawOrder,
+          hasDrawn: !!this.hasDrawn,
+          teams: this.draw.teams ? this.draw.teams.map((t) => t.map((p) => ({ ...p }))) : null,
+        }
         : null,
       watching: { spectators: this.watching.spectators.map((w) => ({ ...w })), count: this.watching.count },
       bidClock: this.bidClock ? { ...this.bidClock } : null,

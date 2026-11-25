@@ -16,7 +16,8 @@
  */
 
 import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
-import { getGameState } from '../../state/GameState.js';
+import { getGameState, PHASE } from '../../state/GameState.js';
+import { teamsLine } from '../../ui/drawCopy.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
 import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
@@ -128,9 +129,12 @@ export class GameScene extends Phaser.Scene {
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
     // a three-seat table (Get Your Bid): no partner, the others in the upper corners
     const solo = !!state?.isSolo;
-    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}${solo ? '+solo' : ''}:${logW}:${dpr}`;
+    // a tournament table's draw for first deal: its teams line (my team first)
+    // (only while the draw is up: the rest of the game keeps the table's own layout)
+    const drawTeams = !solo && state?.phase === PHASE.DRAW && state?.draw?.teams ? teamsLine(state.draw.teams, spectator ? null : state.username) : '';
+    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}${solo ? '+solo' : ''}:${logW}:${dpr}${drawTeams ? `:teams=${drawTeams}` : ''}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }), ...(solo && { solo: true }) });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }), ...(solo && { solo: true }), ...(drawTeams && { drawTeams }) });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);

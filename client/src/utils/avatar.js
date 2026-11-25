@@ -223,8 +223,13 @@ export function foldAvatarPayload(event, data) {
  * And tournamentVoiceStatus (2026-11-25, main.js "Tournament voice"): this
  * page shows "Voice is full (N people)" on the tournament lobby while it
  * waits in line for a full tournament voice room (s2c tournamentVoiceStatus).
+ * And tournamentPairings (2026-11-25, ui/drawCopy.js,
+ * ui/screens/tournamentPairings.js): this page shows the round pairings and
+ * "Partners so far" and words a tournament table's draw as a draw for first
+ * deal with the teams (startDraw.teams), so the server may draw honestly
+ * there (each player the card picked).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentVoiceStatus'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus'];
 
 export function clientHello(version, build, capable = true) {
   return {

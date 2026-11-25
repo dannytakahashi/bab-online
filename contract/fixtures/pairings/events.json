@@ -1,0 +1,458 @@
+{
+  "description": "A 4-member tournament table's draw for first deal (2026-11-25, clientHello cap tournamentPairings), from real games: tournamentRoundStart with pairings (the planned round, gameId null), startDraw with teams, and a mid-draw stateSnapshot (two drawn) whose draw carries teams. honest: every member has the cap, so the room also gets the \"Partners this round\" system line and each player the card they picked; staged: one member is a shipped iOS build, so the cards are staged and there is no line (the wire is otherwise the same). Rewrite with npm run contract:fixtures.",
+  "honest": [
+    {
+      "event": "tournamentRoundStart",
+      "data": {
+        "roundNumber": 1,
+        "totalRounds": 4,
+        "assignments": [
+          {
+            "humanCount": 4,
+            "botCount": 0
+          }
+        ],
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": null,
+                "teams": [
+                  [
+                    "T3_u2",
+                    "T3_u1"
+                  ],
+                  [
+                    "T3_u4",
+                    "T3_u3"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "startDraw",
+      "data": {
+        "start": true,
+        "teams": [
+          [
+            {
+              "username": "T3_u2",
+              "isBot": false
+            },
+            {
+              "username": "T3_u1",
+              "isBot": false
+            }
+          ],
+          [
+            {
+              "username": "T3_u4",
+              "isBot": false
+            },
+            {
+              "username": "T3_u3",
+              "isBot": false
+            }
+          ]
+        ],
+        "seq": 1
+      }
+    },
+    {
+      "event": "gameLogEntry",
+      "data": {
+        "message": "Partners this round: T3_u2 & T3_u1 vs T3_u4 & T3_u3. The draw decides who deals first.",
+        "type": "system",
+        "seq": 2
+      }
+    },
+    {
+      "event": "stateSnapshot",
+      "data": {
+        "snapshot": {
+          "v": 2,
+          "gameId": "00000000-0000-4000-8000-000000000002",
+          "seq": 4,
+          "serverTime": 1767268803500,
+          "stage": "DRAWING",
+          "partial": [],
+          "viewer": {
+            "role": "entrant",
+            "position": null,
+            "ownerView": null,
+            "canAct": false
+          },
+          "hand": null,
+          "deal": null,
+          "trump": null,
+          "trumpBroken": false,
+          "turn": null,
+          "bids": {
+            "byPosition": [
+              null,
+              null,
+              null,
+              null
+            ],
+            "order": [
+              2,
+              3,
+              4,
+              1
+            ],
+            "teamBids": null,
+            "mults": {
+              "team1": 1,
+              "team2": 1
+            }
+          },
+          "trick": {
+            "number": null,
+            "leadPosition": null,
+            "cards": []
+          },
+          "tricks": {
+            "team1": 0,
+            "team2": 0
+          },
+          "tricksByPosition": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "trickHistory": [],
+          "score": {
+            "team1": 0,
+            "team2": 0
+          },
+          "rainbows": {
+            "team1": 0,
+            "team2": 0
+          },
+          "hsi": null,
+          "seats": [],
+          "entrants": [
+            {
+              "username": "T3_u2",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": true
+            },
+            {
+              "username": "T3_u1",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": true
+            },
+            {
+              "username": "T3_u4",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": false
+            },
+            {
+              "username": "T3_u3",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": false
+            }
+          ],
+          "draw": {
+            "deckRemaining": 52,
+            "drawn": [
+              {
+                "drawOrder": 1,
+                "username": "T3_u1",
+                "isBot": false,
+                "card": {
+                  "suit": "clubs",
+                  "rank": "6"
+                },
+                "position": null
+              },
+              {
+                "drawOrder": 2,
+                "username": "T3_u2",
+                "isBot": false,
+                "card": {
+                  "suit": "diamonds",
+                  "rank": "A"
+                },
+                "position": null
+              }
+            ],
+            "viewerDrawOrder": null,
+            "teams": [
+              [
+                {
+                  "username": "T3_u2",
+                  "isBot": false
+                },
+                {
+                  "username": "T3_u1",
+                  "isBot": false
+                }
+              ],
+              [
+                {
+                  "username": "T3_u4",
+                  "isBot": false
+                },
+                {
+                  "username": "T3_u3",
+                  "isBot": false
+                }
+              ]
+            ]
+          },
+          "spectatorCount": 0,
+          "watching": {
+            "spectators": [],
+            "count": 0
+          },
+          "tournament": {
+            "tournamentId": "00000000-0000-4000-8000-000000000001",
+            "name": "T3_u1's Tournament",
+            "roundNumber": 1,
+            "totalRounds": 4
+          },
+          "log": [
+            {
+              "message": "Partners this round: T3_u2 & T3_u1 vs T3_u4 & T3_u3. The draw decides who deals first.",
+              "type": "system",
+              "position": null,
+              "at": 1767268803500
+            }
+          ],
+          "resume": null
+        }
+      }
+    }
+  ],
+  "staged": [
+    {
+      "event": "tournamentRoundStart",
+      "data": {
+        "roundNumber": 1,
+        "totalRounds": 4,
+        "assignments": [
+          {
+            "humanCount": 4,
+            "botCount": 0
+          }
+        ],
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": null,
+                "teams": [
+                  [
+                    "T8_u3",
+                    "T8_u2"
+                  ],
+                  [
+                    "T8_u1",
+                    "T8_u4"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "startDraw",
+      "data": {
+        "start": true,
+        "teams": [
+          [
+            {
+              "username": "T8_u3",
+              "isBot": false
+            },
+            {
+              "username": "T8_u2",
+              "isBot": false
+            }
+          ],
+          [
+            {
+              "username": "T8_u1",
+              "isBot": false
+            },
+            {
+              "username": "T8_u4",
+              "isBot": false
+            }
+          ]
+        ],
+        "seq": 1
+      }
+    },
+    {
+      "event": "stateSnapshot",
+      "data": {
+        "snapshot": {
+          "v": 2,
+          "gameId": "00000000-0000-4000-8000-000000000004",
+          "seq": 3,
+          "serverTime": 1767268811500,
+          "stage": "DRAWING",
+          "partial": [],
+          "viewer": {
+            "role": "entrant",
+            "position": null,
+            "ownerView": null,
+            "canAct": false
+          },
+          "hand": null,
+          "deal": null,
+          "trump": null,
+          "trumpBroken": false,
+          "turn": null,
+          "bids": {
+            "byPosition": [
+              null,
+              null,
+              null,
+              null
+            ],
+            "order": [
+              2,
+              3,
+              4,
+              1
+            ],
+            "teamBids": null,
+            "mults": {
+              "team1": 1,
+              "team2": 1
+            }
+          },
+          "trick": {
+            "number": null,
+            "leadPosition": null,
+            "cards": []
+          },
+          "tricks": {
+            "team1": 0,
+            "team2": 0
+          },
+          "tricksByPosition": [
+            0,
+            0,
+            0,
+            0
+          ],
+          "trickHistory": [],
+          "score": {
+            "team1": 0,
+            "team2": 0
+          },
+          "rainbows": {
+            "team1": 0,
+            "team2": 0
+          },
+          "hsi": null,
+          "seats": [],
+          "entrants": [
+            {
+              "username": "T8_u3",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": false
+            },
+            {
+              "username": "T8_u2",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": true
+            },
+            {
+              "username": "T8_u1",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": true
+            },
+            {
+              "username": "T8_u4",
+              "isBot": false,
+              "presence": "connected",
+              "hasDrawn": false
+            }
+          ],
+          "draw": {
+            "deckRemaining": 52,
+            "drawn": [
+              {
+                "drawOrder": 1,
+                "username": "T8_u1",
+                "isBot": false,
+                "card": {
+                  "suit": "diamonds",
+                  "rank": "2"
+                },
+                "position": null
+              },
+              {
+                "drawOrder": 2,
+                "username": "T8_u2",
+                "isBot": false,
+                "card": {
+                  "suit": "hearts",
+                  "rank": "7"
+                },
+                "position": null
+              }
+            ],
+            "viewerDrawOrder": null,
+            "teams": [
+              [
+                {
+                  "username": "T8_u3",
+                  "isBot": false
+                },
+                {
+                  "username": "T8_u2",
+                  "isBot": false
+                }
+              ],
+              [
+                {
+                  "username": "T8_u1",
+                  "isBot": false
+                },
+                {
+                  "username": "T8_u4",
+                  "isBot": false
+                }
+              ]
+            ]
+          },
+          "spectatorCount": 0,
+          "watching": {
+            "spectators": [],
+            "count": 0
+          },
+          "tournament": {
+            "tournamentId": "00000000-0000-4000-8000-000000000003",
+            "name": "T8_u1's Tournament",
+            "roundNumber": 1,
+            "totalRounds": 4
+          },
+          "log": [],
+          "resume": null
+        }
+      }
+    }
+  ]
+}
