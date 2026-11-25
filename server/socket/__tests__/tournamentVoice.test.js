@@ -315,6 +315,22 @@ describe('the tournament room', () => {
         expect(relays(ctx, s[8], s[0])).toBe(true);
     });
 
+    test('a newer socket of the same user (the old one half-open) takes its place in a full room', async () => {
+        const ctx = await tournament(Array(9).fill('web'));
+        const s = ctx.sockets;
+        const back = newUser(ctx.io, ctx.log, s[2].username);
+        back.data.client = { client: 'web', version: '1', build: null, caps: WEB };
+        voice.rememberBlockList(back, []);
+        const mark = ctx.log.length;
+        await tournamentHandlers.joinTournament(back, ctx.io, { tournamentId: ctx.t.tournamentId });
+        expect(roomIds(ctx.t)).toEqual([0, 1].map((i) => s[i].id).concat(back.id, [3, 4, 5, 6, 7].map((i) => s[i].id)));
+        expect(leftTo(ctx, mark, s[0].id)).toEqual([s[2].id]);
+        expect(listsTo(ctx, mark, back.id)).toEqual([[0, 1, 3, 4, 5, 6, 7].map((i) => s[i].id)]);
+        // the one waiting still waits
+        expect(listsTo(ctx, mark, s[8].id)).toEqual([]);
+        expect(relays(ctx, s[2], s[0])).toBe(false);
+    });
+
     test('a blocked pair in the room is never listed (both ways) and a block ends their call', async () => {
         const ctx = await tournament(['web', 'web', 'web'], { blocks: { 2: [0] } });
         const [a, b, c] = ctx.sockets;

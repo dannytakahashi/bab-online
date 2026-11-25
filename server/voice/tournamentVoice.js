@@ -175,7 +175,8 @@ function onLobbyScreen(io, t, sid) {
  * listed again). Nothing for a socket without the cap, outside the lobby
  * screen, or in a complete tournament (its results window takes no new
  * voice: the clients show the results there, not a room). Any older entry
- * of the same user (a reattach on a new socket) goes first.
+ * of the same user (a reattach on a new socket while the old one is still
+ * half-open) goes, and the new socket takes its place in line.
  */
 function enter(io, t, sid) {
     if (!io || !registered(t) || t.phase === 'complete') return false;
@@ -190,10 +191,14 @@ function enter(io, t, sid) {
         return true;
     }
     change(io, t, (members) => {
+        // A newer socket of the same user keeps that entry's place in line
+        let order = null;
         for (const [other, e] of [...members]) {
-            if (e.username === username) members.delete(other);
+            if (e.username !== username) continue;
+            order = order === null ? e.order : Math.min(order, e.order);
+            members.delete(other);
         }
-        members.set(sid, { username, order: ++room.order });
+        members.set(sid, { username, order: order ?? ++room.order });
     });
     const inVoice = admitted(t).some((p) => p.socketId === sid);
     socketLogger.info('Voice: tournament room entered', { tournamentId: t.tournamentId, socketId: sid, admitted: inVoice, members: room.members.size });
