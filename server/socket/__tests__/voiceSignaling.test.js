@@ -228,6 +228,28 @@ describe('rate limits (per socket, dropped silently)', () => {
         expect(L.voiceIceCandidate.max).toBeGreaterThanOrEqual(3 * 30 * 3);
         expect(L.voiceOffer.max).toBeGreaterThanOrEqual(3 * 3);
     });
+
+    test('sized for the largest tournament voice room (the ceiling of TOURNAMENT_VOICE_MAX), so the cap and the limits cannot drift apart', () => {
+        const L = rateLimiter.limits;
+        const tournamentVoice = require('../../voice/tournamentVoice');
+        const saved = process.env.TOURNAMENT_VOICE_MAX;
+        try {
+            process.env.TOURNAMENT_VOICE_MAX = '1000';
+            const cap = tournamentVoice.maxRoom();
+            expect(cap).toBe(tournamentVoice.MAX_ROOM_MAX);
+            const calls = cap - 1;
+            // an entry burst to every peer plus a full ICE-restart round, ~30 candidates a call
+            expect(L.voiceIceCandidate.max).toBeGreaterThanOrEqual(calls * 30 * 2);
+            // one offer per peer on entry, a re-offer on the first unmute, a restart per call
+            expect(L.voiceOffer.max).toBeGreaterThanOrEqual(3 * calls);
+            expect(L.voiceAnswer.max).toBeGreaterThanOrEqual(3 * calls);
+            expect([L.voiceOffer.windowMs, L.voiceAnswer.windowMs, L.voiceIceCandidate.windowMs]).toEqual([10000, 10000, 10000]);
+            expect([L.voiceOffer.max, L.voiceAnswer.max, L.voiceIceCandidate.max]).toEqual([120, 120, 1200]);
+        } finally {
+            if (saved === undefined) delete process.env.TOURNAMENT_VOICE_MAX;
+            else process.env.TOURNAMENT_VOICE_MAX = saved;
+        }
+    });
 });
 
 describe('block lists on every path that signs a socket in (fail closed)', () => {

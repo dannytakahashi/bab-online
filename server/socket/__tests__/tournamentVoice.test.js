@@ -15,7 +15,9 @@
  *     with the cap tournamentVoice; join / leave / disconnect / reattach,
  *     seated at a round (out), back from a finished table (in), offers in
  *     the room and refused across tournaments, cancel / complete / the
- *     results window's end, at most 8, shipped iOS (casualSpectators
+ *     results window's end, at most maxRoom() (TOURNAMENT_VOICE_MAX,
+ *     default 8, 2..20) with the rest waiting in line (the over-cap notice
+ *     tournamentVoiceStatus to a socket with its cap), shipped iOS (casualSpectators
  *     without tournamentVoice) never listed, a socket whose membership a
  *     table rejoin on another tab took leaves the room
  */
@@ -55,6 +57,8 @@ const KINDS = {
     ios: { client: 'ios', caps: IOS_SHIPPED },
     iosLegacy: { client: 'ios', caps: IOS_LEGACY },
     iosNext: { client: 'ios', caps: [...IOS_SHIPPED, 'tournamentVoice'] },
+    // the web from 2026-11-25: renders the over-cap notice
+    webStatus: { client: 'web', caps: [...WEB, 'tournamentVoiceStatus'] },
     // the App Store's 1.2.2 (13): voice at every seat with the mic live
     ios13: { client: 'ios', build: '13', caps: IOS_LIVE_MIC },
     // TestFlight's "1.2.3 (17)" is build 16's code (mic live)
@@ -62,7 +66,7 @@ const KINDS = {
     // 1.2.3 (18): the first muted start, still without `assist`
     ios18: { client: 'ios', build: '18', caps: IOS_LIVE_MIC },
 };
-const VOICE = new Set(['voicePeerList', 'voicePeerJoined', 'voicePeerLeft', 'voiceSettings']);
+const VOICE = new Set(['voicePeerList', 'voicePeerJoined', 'voicePeerLeft', 'voiceSettings', 'tournamentVoiceStatus']);
 // SDP built from obviously fake parts (never secret-shaped)
 const OFFER = { type: 'offer', sdp: ['v=0', 'o=- 1 2 IN IP4 127.0.0.1', 's=-', 't=0 0', 'm=audio 9 UDP/TLS/RTP/SAVPF 111', 'a=sendrecv', ''].join('\r\n') };
 
@@ -114,6 +118,7 @@ const voiceSince = (ctx, mark) => ctx.log.slice(mark).filter((l) => VOICE.has(l.
     .map((l) => [l.event, typeof l.to === 'string' ? l.to.replace(/^self:/, '') : l.to, l.data]);
 const listsTo = (ctx, mark, sid) => voiceSince(ctx, mark).filter(([e, to]) => e === 'voicePeerList' && to === sid).map(([, , d]) => d.peers.map((p) => p.socketId));
 const joinedTo = (ctx, mark, sid) => voiceSince(ctx, mark).filter(([e, to]) => e === 'voicePeerJoined' && to === sid).map(([, , d]) => d.socketId);
+const statusTo = (ctx, mark, sid) => voiceSince(ctx, mark).filter(([e, to]) => e === 'tournamentVoiceStatus' && to === sid).map(([, , d]) => d);
 const leftTo = (ctx, mark, sid) => voiceSince(ctx, mark).filter(([e, to]) => e === 'voicePeerLeft' && to === sid).map(([, , d]) => d.socketId);
 
 /** Every pair announced after `mark`: "offerer>listed" from the lists, checked against voicePeerJoined. */
@@ -424,18 +429,102 @@ describe('the tournament room', () => {
         expect(relays(two, two.sockets[1], two.sockets[0])).toBe(true);
     });
 
-    test('at most 8 in the room: the 9th waits unlisted and is admitted when one leaves', async () => {
+    test('at most 8 in the room by default: the 9th waits unlisted and is admitted when one leaves', async () => {
+        expect(tournamentVoice.maxRoom()).toBe(8);
         const ctx = await tournament(Array(9).fill('web'));
         const s = ctx.sockets;
         expect(roomIds(ctx.t)).toEqual(s.slice(0, 8).map((x) => x.id));
         expect(listsTo(ctx, 0, s[8].id)).toEqual([]);
         expect(joinedTo(ctx, 0, s[0].id)).not.toContain(s[8].id);
         expect(relays(ctx, s[8], s[0])).toBe(false);
+        // no cap tournamentVoiceStatus: no notice (it waits silently, as before)
+        expect(statusTo(ctx, 0, s[8].id)).toEqual([]);
         const mark = ctx.log.length;
         await tournamentHandlers.leaveTournament(s[3], ctx.io);
         expect(leftTo(ctx, mark, s[0].id)).toEqual([s[3].id]);
         expect(listsTo(ctx, mark, s[8].id)).toEqual([[0, 1, 2, 4, 5, 6, 7].map((i) => s[i].id)]);
         expect(relays(ctx, s[8], s[0])).toBe(true);
+        expect(statusTo(ctx, mark, s[8].id)).toEqual([]);
+    });
+
+    describe('the room cap as a setting (env TOURNAMENT_VOICE_MAX)', () => {
+        const saved = process.env.TOURNAMENT_VOICE_MAX;
+        afterEach(() => {
+            if (saved === undefined) delete process.env.TOURNAMENT_VOICE_MAX;
+            else process.env.TOURNAMENT_VOICE_MAX = saved;
+        });
+
+        test('maxRoom: default 8, clamped to 2..20, anything but a whole number is the default', () => {
+            const m = (v) => tournamentVoice.maxRoom(v === undefined ? {} : { TOURNAMENT_VOICE_MAX: v });
+            expect(m(undefined)).toBe(8);
+            expect(tournamentVoice.MAX_ROOM_DEFAULT).toBe(8);
+            expect([tournamentVoice.MAX_ROOM_MIN, tournamentVoice.MAX_ROOM_MAX]).toEqual([2, 20]);
+            expect(m('12')).toBe(12);
+            expect(m(' 12 ')).toBe(12);
+            expect(m('20')).toBe(20);
+            expect(m('21')).toBe(20);
+            expect(m('500')).toBe(20);
+            expect(m('1')).toBe(2);
+            expect(m('0')).toBe(2);
+            for (const bad of ['', ' ', 'twelve', '12abc', '-3', '9.5', '1e3']) expect(m(bad)).toBe(8);
+            // read at call time
+            process.env.TOURNAMENT_VOICE_MAX = '12';
+            expect(tournamentVoice.maxRoom()).toBe(12);
+        });
+
+        test('at 12: the first 12 are one mesh (66 pairs, each once), the 13th waits unlisted with the notice and is let in when one leaves', async () => {
+            process.env.TOURNAMENT_VOICE_MAX = '12';
+            const ctx = await tournament(Array(14).fill('webStatus'));
+            const s = ctx.sockets;
+            expect(roomIds(ctx.t)).toEqual(s.slice(0, 12).map((x) => x.id));
+            // every admitted pair announced exactly once, from the later one
+            const pairs = pairsSince(ctx, 0);
+            expect(pairs).toHaveLength(66);
+            expect(new Set(pairs).size).toBe(66);
+            for (const w of [s[12], s[13]]) {
+                expect(listsTo(ctx, 0, w.id)).toEqual([]);
+                expect(statusTo(ctx, 0, w.id)).toEqual([{ admitted: false, cap: 12 }]);
+                expect(relays(ctx, w, s[0])).toBe(false);
+            }
+            // an admitted member is never told anything
+            for (const a of s.slice(0, 12)) expect(statusTo(ctx, 0, a.id)).toEqual([]);
+            const mark = ctx.log.length;
+            await tournamentHandlers.leaveTournament(s[5], ctx.io);
+            expect(statusTo(ctx, mark, s[12].id)).toEqual([{ admitted: true, cap: 12 }]);
+            expect(listsTo(ctx, mark, s[12].id)).toEqual([s.slice(0, 12).filter((_, i) => i !== 5).map((x) => x.id)]);
+            expect(relays(ctx, s[12], s[0])).toBe(true);
+            // the next in line still waits, and is not told again
+            expect(statusTo(ctx, mark, s[13].id)).toEqual([]);
+            expect(roomIds(ctx.t)).toHaveLength(12);
+        });
+
+        test('at 20 (the ceiling): 190 pairs; a member waiting in line whose lobby is drawn again is told again', async () => {
+            process.env.TOURNAMENT_VOICE_MAX = '99';
+            const ctx = await tournament(Array(21).fill('webStatus'));
+            const s = ctx.sockets;
+            expect(roomIds(ctx.t)).toEqual(s.slice(0, 20).map((x) => x.id));
+            expect(pairsSince(ctx, 0)).toHaveLength(190);
+            expect(statusTo(ctx, 0, s[20].id)).toEqual([{ admitted: false, cap: 20 }]);
+            const mark = ctx.log.length;
+            tournamentHandlers.returnToTournament(s[20], ctx.io, {});
+            expect(statusTo(ctx, mark, s[20].id)).toEqual([{ admitted: false, cap: 20 }]);
+            expect(listsTo(ctx, mark, s[20].id)).toEqual([]);
+        });
+
+        test('at the floor of 2, a waiting member without the cap gets no notice while one with it does', async () => {
+            process.env.TOURNAMENT_VOICE_MAX = '2';
+            const ctx = await tournament(['web', 'web', 'web', 'webStatus']);
+            const s = ctx.sockets;
+            expect(roomIds(ctx.t)).toEqual([s[0].id, s[1].id]);
+            expect(statusTo(ctx, 0, s[2].id)).toEqual([]);
+            expect(statusTo(ctx, 0, s[3].id)).toEqual([{ admitted: false, cap: 2 }]);
+            // s[2] is first in line: let in without a notice (no cap); s[3] still waits
+            const mark = ctx.log.length;
+            await tournamentHandlers.leaveTournament(s[0], ctx.io);
+            expect(roomIds(ctx.t)).toEqual([s[1].id, s[2].id]);
+            expect(statusTo(ctx, mark, s[2].id)).toEqual([]);
+            expect(statusTo(ctx, mark, s[3].id)).toEqual([]);
+        });
     });
 
     test('a newer socket of the same user (the old one half-open) takes its place in a full room', async () => {

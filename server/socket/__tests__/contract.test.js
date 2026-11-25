@@ -57,7 +57,7 @@ const { Phase } = require('../../game/GamePhase');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
 const { events, mulberry32 } = require('../../testUtils/gameDriver');
 const {
-    setupTournament, playTournament, liveTables, advanceUntil, newUser, creatorSocket,
+    setupTournament, playTournament, liveTables, advanceUntil, newUser, newIo, creatorSocket,
 } = require('../../testUtils/tournamentDriver');
 const {
     world, selfEvents, expectSilentAfterTerminal, playF1, watchSnapshots,
@@ -734,6 +734,31 @@ describe('(d) F3 tournament', () => {
         expect(snapWatch.stop().failures).toEqual([]);
         expect(errorLogs).toEqual([]);
     }, 120000);
+
+    test('a tournament voice room past its cap: tournamentVoiceStatus to the one waiting in line, then when it is let in', async () => {
+        const saved = process.env.TOURNAMENT_VOICE_MAX;
+        process.env.TOURNAMENT_VOICE_MAX = '2';
+        try {
+            const { io, log } = newIo();
+            const caps = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentVoiceStatus'];
+            const s = ['f3v_a', 'f3v_b', 'f3v_c'].map((name) => {
+                const x = newUser(io, log, name);
+                x.data.client = { client: 'web', version: '1', build: null, caps };
+                voiceHandlers.rememberBlockList(x, []);
+                return x;
+            });
+            tournamentHandlers.createTournament(s[0], io);
+            const t = gameManager.getPlayerTournament(s[0].id);
+            for (const x of s.slice(1)) await tournamentHandlers.joinTournament(x, io, { tournamentId: t.tournamentId });
+            await tournamentHandlers.leaveTournament(s[0], io);
+            const status = log.filter((l) => l.event === 'tournamentVoiceStatus').map((l) => [l.to, l.data]);
+            expect(status).toEqual([[s[2].id, { admitted: false, cap: 2 }], [s[2].id, { admitted: true, cap: 2 }]]);
+            expect(errorLogs).toEqual([]);
+        } finally {
+            if (saved === undefined) delete process.env.TOURNAMENT_VOICE_MAX;
+            else process.env.TOURNAMENT_VOICE_MAX = saved;
+        }
+    });
 
     test('spectating during the draw, then a cancel', async () => {
         Math.random = mulberry32(6);
