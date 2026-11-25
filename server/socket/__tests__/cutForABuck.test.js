@@ -529,6 +529,22 @@ describe('no cut: today\'s wire', () => {
     }, 120000);
 });
 
+describe('voice in the complete phase', () => {
+    test('a member with cutForABuck (and tournamentVoice) enters the room after the cut; one without cutForABuck does not', async () => {
+        const ctx = await setupCut(3, { capable: 2, extraCaps: ['tournamentVoice'] });
+        giveCap(ctx.sockets[2], ['tournamentVoice']);
+        await playToCut(ctx);
+        await advanceUntil(() => ctx.t.phase === 'cut' && ctx.t.cut.stage === 'drawing', 100, 30000);
+        await tournamentHandlers.cancelTournament(creatorSocket(ctx), ctx.io);
+        expect(ctx.t.phase).toBe('complete');
+        for (const s of ctx.sockets) tournamentHandlers.returnToTournament(s, ctx.io);
+        const room = ctx.t.voiceRoom.members;
+        expect(room.has(ctx.sockets[0].id)).toBe(true);
+        expect(room.has(ctx.sockets[1].id)).toBe(true);
+        expect(room.has(ctx.sockets[2].id)).toBe(false);
+    }, 120000);
+});
+
 describe('the draw: refusals, Joi, the rate limit', () => {
     test('stale, repeated, not a player still in, no tournament: dropped silently', async () => {
         const ctx = await setupCut(3);
