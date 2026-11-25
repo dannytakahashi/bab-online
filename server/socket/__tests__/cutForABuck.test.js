@@ -272,6 +272,45 @@ describe('the draw window, the away rule and presence', () => {
         expect(errorLogs).toEqual([]);
     }, 120000);
 
+    test('an away player who taps Draw (already drawn for at the open) is no longer away: the next round waits for them', async () => {
+        const ctx = await setupCut(3);
+        // every card a 7: every round a redraw, nobody ever out
+        const sevens = Array.from({ length: 54 }, () => card('7s'));
+        cutForABuck.setEngineOptionsForTests({ deck: sevens, shuffle: (cards) => cards.slice(), randomInt: () => 0 });
+        await playToCut(ctx);
+        const [a, b, c] = ctx.usernames;
+        const handDraw = (u, round = ctx.t.cut.engine.round) => cutForABuck.draw(socketOf(ctx, u), ctx.io, { round, slot: null });
+        const draws = (round) => events(ctx.log, 'cutForABuckDrew').filter((l) => l.data.round === round).map((l) => [l.data.username, l.data.auto]);
+        for (let r = 1; r <= 2; r++) {
+            await toStage(ctx, 'drawing');
+            handDraw(a); handDraw(b);
+            await jest.advanceTimersByTimeAsync(15000); // c times out
+        }
+        expect(ctx.t.cut.strikes[c]).toBe(2);
+        // round 3: away, drawn for at the open; c (still on the lobby) taps Draw
+        await toStage(ctx, 'drawing');
+        expect(ctx.t.cut.engine.round).toBe(3);
+        expect(draws(3)).toEqual([[c, true]]);
+        handDraw(c); // the draw itself is dropped (a repeat) ...
+        expect(draws(3)).toEqual([[c, true]]);
+        expect(ctx.t.cut.strikes[c]).toBeUndefined(); // ... but c is back
+        handDraw(a); handDraw(b);
+        // round 4 waits for c, who draws by hand
+        await toStage(ctx, 'drawing');
+        expect(ctx.t.cut.engine.round).toBe(4);
+        expect(draws(4)).toEqual([]);
+        handDraw(c); handDraw(a); handDraw(b);
+        expect(draws(4)).toEqual([[c, false], [a, false], [b, false]]);
+        // a tap that lands in the reveal (a stale round) counts too
+        ctx.t.cut.strikes[c] = 2;
+        expect(ctx.t.cut.stage).toBe('reveal');
+        handDraw(c, 4);
+        expect(ctx.t.cut.strikes[c]).toBeUndefined();
+        await toStage(ctx, 'drawing');
+        expect(draws(5)).toEqual([]);
+        expect(errorLogs).toEqual([]);
+    }, 120000);
+
     test('a disconnect mid-round draws for them at once; a reconnect lands in the cut', async () => {
         const ctx = await setupCut(3);
         cutForABuck.setEngineOptionsForTests({ deck: deckOf('7s', '7h', '7d', '8s', '8h', '8d') });
@@ -349,9 +388,27 @@ describe('leaving and cancelling', () => {
         await playToCut(ctx);
         await toStage(ctx, 'drawing');
         await tournamentHandlers.leaveTournament(ctx.sockets[0], ctx.io);
-        // one left alive: the winner
-        expect(events(ctx.log, 'cutForABuckWinner')).toHaveLength(1);
+        // one left alive: the winner, announced
+        const won = events(ctx.log, 'cutForABuckWinner').map((l) => l.data);
+        expect(won).toHaveLength(1);
+        // the last member (the winner) leaves in the hold: the announced result stands
         await tournamentHandlers.leaveTournament(ctx.sockets[1], ctx.io);
+        expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        expect(events(ctx.log, 'tournamentComplete')[0].data.cutForABuck).toEqual(won[0]);
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+        expect(recordSpy.mock.calls[0][1]).toEqual(won[0]);
+        expect(gameManager.getTournamentById(ctx.t.tournamentId)).toBeNull();
+        expect(errorLogs).toEqual([]);
+    }, 120000);
+
+    test('the last member leaving before a winner: no cut result (and a record)', async () => {
+        const ctx = await setupCut(2);
+        await playToCut(ctx);
+        // the gather: one leaves (not in the cut yet), then the other
+        await tournamentHandlers.leaveTournament(ctx.sockets[0], ctx.io);
+        expect(ctx.t.cut.stage).toBe('gather');
+        await tournamentHandlers.leaveTournament(ctx.sockets[1], ctx.io);
+        expect(events(ctx.log, 'cutForABuckWinner')).toHaveLength(0);
         expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
         expect(events(ctx.log, 'tournamentComplete')[0].data.cutForABuck).toBeUndefined();
         expect(recordSpy).toHaveBeenCalledTimes(1);
@@ -359,7 +416,26 @@ describe('leaving and cancelling', () => {
         expect(gameManager.getTournamentById(ctx.t.tournamentId)).toBeNull();
     }, 120000);
 
-    test.each(['gather', 'drawing', 'reveal', 'winner'])('the host cancels in the %s stage: the tournament completes with no cut result', async (stage) => {
+    test('the winner leaves in the hold: the tournament completes with that result', async () => {
+        const ctx = await setupCut(3);
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf('As', '2s', '2h') }); // the two 2s out together
+        await playToCut(ctx);
+        await toStage(ctx, 'drawing');
+        const [a] = ctx.usernames;
+        drawAll(ctx, Object.fromEntries(ctx.usernames.map((u, i) => [u, i])));
+        const won = events(ctx.log, 'cutForABuckWinner').map((l) => l.data);
+        expect(won).toEqual([{ winner: a, participants: ctx.usernames, rounds: 1 }]);
+        await tournamentHandlers.leaveTournament(socketOf(ctx, a), ctx.io);
+        expect(ctx.t.cut.engine.alive.size).toBe(0);
+        await jest.advanceTimersByTimeAsync(6000);
+        const complete = events(ctx.log, 'tournamentComplete');
+        expect(complete).toHaveLength(1);
+        expect(complete[0].data.cutForABuck).toEqual(won[0]);
+        expect(recordSpy.mock.calls[0][1]).toEqual(won[0]);
+        expect(errorLogs).toEqual([]);
+    }, 120000);
+
+    test.each(['gather', 'drawing', 'reveal', 'winner'])('the host cancels in the %s stage: the tournament completes (no cut result before a winner, the announced one after)', async (stage) => {
         const ctx = await setupCut(2);
         cutForABuck.setEngineOptionsForTests({ deck: deckOf('7s', '7h', '2s', '9s') });
         await playToCut(ctx);
@@ -374,14 +450,23 @@ describe('leaving and cancelling', () => {
         const host = creatorSocket(ctx);
         const hostName = gameManager.getUserBySocketId(host.id).username;
         await tournamentHandlers.cancelTournament(host, ctx.io);
-        expect(roomLines(ctx)).toContain(`${hostName} ended Cut for a buck.`);
         expect(events(ctx.log, 'tournamentCancelled')).toHaveLength(0);
         const complete = events(ctx.log, 'tournamentComplete');
         expect(complete).toHaveLength(1);
-        expect(complete[0].data.cutForABuck).toBeUndefined();
         expect(ctx.t.phase).toBe('complete');
         expect(recordSpy).toHaveBeenCalledTimes(1);
-        expect(recordSpy.mock.calls[0][1]).toBeNull();
+        if (stage === 'winner') {
+            // announced before the Cancel: it stands, and nothing reads as cut short
+            const won = events(ctx.log, 'cutForABuckWinner').map((l) => l.data);
+            expect(won).toHaveLength(1);
+            expect(roomLines(ctx)).not.toContain(`${hostName} ended Cut for a buck.`);
+            expect(complete[0].data.cutForABuck).toEqual(won[0]);
+            expect(recordSpy.mock.calls[0][1]).toEqual(won[0]);
+        } else {
+            expect(roomLines(ctx)).toContain(`${hostName} ended Cut for a buck.`);
+            expect(complete[0].data.cutForABuck).toBeUndefined();
+            expect(recordSpy.mock.calls[0][1]).toBeNull();
+        }
         await jest.advanceTimersByTimeAsync(30000);
         expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
         expect(cutLog(ctx).filter((l) => l.at > complete[0].at && l.event !== 'tournamentComplete')).toEqual([]);

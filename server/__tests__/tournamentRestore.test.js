@@ -802,6 +802,43 @@ describe('Cut for a buck (codec v2)', () => {
         expect(record.mock.calls[0][1]).toEqual(completes[0].data.cutForABuck);
     }, 120000);
 
+    test.each(['handoff', 'kill'])('the winner leaves in the winner stage, then a %s: the announced result completes the tournament', async (kind) => {
+        const record = jest.spyOn(tournamentHandlers, 'recordTournament');
+        const { A, ctx, tid } = await intoCut('winner');
+        const result = { ...ctx.t.cut.result };
+        const { winner } = result;
+        expect(events(A, 'cutForABuckWinner').map((e) => e.data)).toEqual([result]);
+        // the winner leaves in the hold (the others stay): nobody still in
+        await tournamentHandlers.leaveTournament(ctx.sockets[ctx.usernames.indexOf(winner)], A.io);
+        expect(ctx.t.phase).toBe('cut');
+        expect(ctx.t.cut.engine.alive.size).toBe(0);
+        await h.flushStore(A.store);
+        const B = await deploy.restart({ kind });
+        for (let i = 0; i < 120 && !T(tid); i++) await jest.advanceTimersByTimeAsync(500);
+        const t = T(tid);
+        expect(t).toBeTruthy();
+        expect(t.phase).toBe('cut');
+        expect(t.cut.stage).toBe('winner');
+        expect(t.cut.result).toEqual(result);
+        for (const u of ctx.usernames.filter((x) => x !== winner)) {
+            const s = back(B, u);
+            giveCap(s);
+            await tournamentHandlers.joinTournament(s, B.io, { tournamentId: tid });
+        }
+        expect(events(B, 'tournamentJoined').at(-1).data.cut).toMatchObject({ stage: 'winner', winner });
+        for (let i = 0; i < 120 && t.phase === 'cut'; i++) await jest.advanceTimersByTimeAsync(1000);
+        expect(t.phase).toBe('complete');
+        expect(t.hasTimer('cut')).toBe(false);
+        // the winner again after the lead-in, then the one tournamentComplete with it
+        expect(events(B, 'cutForABuckWinner').map((e) => e.data)).toEqual([result]);
+        expect(events(B, 'cutForABuckRound')).toHaveLength(0);
+        const completes = [...events(A, 'tournamentComplete'), ...events(B, 'tournamentComplete')];
+        expect(completes).toHaveLength(1);
+        expect(completes[0].data.cutForABuck).toEqual(result);
+        expect(record).toHaveBeenCalledTimes(1);
+        expect(record.mock.calls[0][1]).toEqual(result);
+    }, 120000);
+
     test('nobody comes back: the cut runs with ghosts (drawn for) and the tournament completes', async () => {
         const { tid } = await intoCut('drawing');
         const B = await deploy.restart({ kind: 'handoff' });
