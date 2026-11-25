@@ -60,10 +60,11 @@ import {
 import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
-import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
+import { isStaleScopeReply, getStatsScope, scopePayload } from './state/statsScope.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds } from './ui/screens/TournamentLobby.js';
-import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing } from './ui/screens/TournamentLobby.js';
+import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
+import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 
@@ -206,7 +207,7 @@ import { showGameLog } from './ui/components/GameLog.js';
 import { resetAssistUses, forgetAssistUses, noteAssistUses, assistHintRoute, assistLogLine } from './state/assistHint.js';
 import { resetTutorial, forgetTutorial, noteTutorialState, resetTutorialRows, tutorialFeedRow } from './state/tutorial.js';
 import { clearChatBubbles, showSpectatorChatBubble } from './ui/components/ChatBubble.js';
-import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay } from './ui/components/ScoreModal.js';
+import { getTeamNames, scoreHeaderNames, formatHandCompleteMessages, formatGameEndMessages, showFinalScoreOverlay, removeFinalScoreOverlay, setScoreModalCut } from './ui/components/ScoreModal.js';
 
 // Bridge for GameScene (phaser/scenes/GameScene.js), its only reader: it
 // registers itself through setGameScene and reads the rest from here
@@ -961,6 +962,10 @@ function initializeApp() {
     refreshSpectatingIndicator();
     // Register speaking indicator callback
     voiceManager.onSpeakingChange((id, isSpeaking) => {
+      // Cut for a buck's ring (the tournament lobby's voice room)
+      if (session.screen === SCREEN.TOURNAMENT_LOBBY) {
+        setTournamentCutTalking(id === 'self' ? gameState.username : voiceManager.peers.get(id)?.username || null, isSpeaking);
+      }
       if (id === 'self') {
         // a watcher has no seat of its own: my mic button rings (never the
         // spectator badge, which is the other watchers'; owner 2026-11-22).
@@ -1094,11 +1099,52 @@ function initializeApp() {
   const syncTableScreen = (screen) => {
     const atTable = screen === SCREEN.TABLE || screen === SCREEN.GAME_END;
     document.getElementById('game-container')?.classList.toggle('at-table', atTable);
-    // sound plays only at a table: elsewhere its context is suspended
-    getSoundManager().setActive(atTable);
+    // sound plays only at a table and during Cut for a buck (the
+    // tournament lobby's cut view): elsewhere its context is suspended
+    getSoundManager().setActive(atTable || (screen === SCREEN.TOURNAMENT_LOBBY && isTournamentCutShowing()));
   };
   session.onScreenChange((screen) => syncTableScreen(screen));
   syncTableScreen(session.screen);
+
+  // ---------- Cut for a buck around the lobby (2026-11-25) ----------
+  // The final lobby's Return to Main Room routes as the results modal's
+  // Return did (the tournament lingers ~10 min for the others); a ring
+  // avatar's View Profile asks for that profile
+  configureTournamentLobby({
+    onReturnToMainRoom: () => {
+      gameState.tournamentId = null;
+      clearCut();
+      session.transition(SCREEN.MAIN_ROOM);
+      session.requestMainRoom();
+    },
+    onViewProfile: (username) => socket.emit('getPlayerProfile', scopePayload({ username })),
+  });
+
+  // The last table's score screen (spec section 3.3): it stays as long as
+  // the player wants, with a strip saying the cut is on and its button
+  // reading "Join Cut for a buck" (the same returnToTournament)
+  let scoreCutTimer = null;
+  function syncScoreCutStrip() {
+    const tid = gameState.tournamentId;
+    const st = session.screen === SCREEN.GAME_END && tid && getCutTournamentId() === tid ? getCutState() : null;
+    const join = session.isSpectator ? 'Watch Cut for a buck' : 'Join Cut for a buck';
+    let info = null;
+    if (st?.stage === CUT_STAGE.GATHER) {
+      const secs = st.endsAt == null ? 0 : Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000));
+      info = { text: `Cut for a buck starts in ${secs}`, buttonLabel: join };
+    } else if (st?.stage === CUT_STAGE.WINNER && st.winner) {
+      info = { text: cutWinnerLine(st.winner, gameState.username) };
+    } else if (st) {
+      info = { text: session.isSpectator ? 'Cut for a buck has started.' : "Cut for a buck has started. We'll draw for you until you join.", buttonLabel: join };
+    }
+    setScoreModalCut(info);
+    const ticking = st?.stage === CUT_STAGE.GATHER;
+    if (ticking && !scoreCutTimer) scoreCutTimer = setInterval(syncScoreCutStrip, 500);
+    if (!ticking && scoreCutTimer) {
+      clearInterval(scoreCutTimer);
+      scoreCutTimer = null;
+    }
+  }
 
   // Screen enter/exit hooks (the session runs exit(from) then enter(to))
   session.setHooks({
@@ -1137,8 +1183,10 @@ function initializeApp() {
           tournamentVoicePeers = new Map();
           startVoice();
         },
-        exit: () => {
+        exit: (_data, ctx) => {
           removeTournamentLobby();
+          // Out of the tournament (not to one of its tables): its cut goes
+          if (ctx?.to === SCREEN.MAIN_ROOM || ctx?.to === SCREEN.SIGN_IN) clearCut();
           // The room's calls end here: a table's voice is its own (the
           // server announces the table at its seating), and so is a game watched
           tournamentVoicePeers = new Map();
@@ -2170,6 +2218,9 @@ function initializeApp() {
           session.exitTable(EXIT.GAME_END_RETURN);
         }
       });
+      // Cut for a buck may already be gathering (it starts a moment after
+      // the last table's result)
+      if (isTournamentGame) syncScoreCutStrip();
     },
     onRainbow: (data) => {
       withScene((scene) => {
@@ -2542,6 +2593,9 @@ function initializeApp() {
 
     onTournamentJoined: (data) => {
       gameState.tournamentId = data.tournamentId;
+      // Cut for a buck as it stands (phase 'cut'; the cap cutForABuck), for
+      // the lobby to draw; any other phase has none
+      restoreCut(data.tournamentId, data.phase === 'cut' ? data.cut : null);
       // A tab that only watches this tournament: the server's reply to
       // returnToTournament (after watching one of its tables) carries no
       // isSpectator flag, and a spectator gets no player controls
@@ -2557,33 +2611,10 @@ function initializeApp() {
         console.log('Tournament joined event ignored - at the table');
         return;
       }
+      // the complete phase shows its final results in the lobby itself
+      // (TournamentLobby.showTournamentFinal; no results modal)
       uiManager.showScreen(SCREENS.TOURNAMENT_LOBBY, data);
-
-      // Returning to a finished tournament (e.g. from the game-end screen):
-      // show the final results on top of the lobby
-      if (data.phase === 'complete') {
-        const pending = gameState.pendingTournamentResults;
-        const scoreboard = data.scoreboard || pending?.scoreboard || [];
-        // Fresh server data first (getClientState now includes winners for
-        // completed tournaments); pending is only a same-session fallback
-        let winners = data.winners;
-        if (!winners || winners.length === 0) winners = pending?.winners;
-        if (!winners || winners.length === 0) {
-          const top = scoreboard.length > 0 ? scoreboard[0].totalScore : null;
-          winners = top === null ? [] : scoreboard.filter(e => e.totalScore === top).map(e => e.username);
-        }
-        showTournamentResultsOverlay({
-          scoreboard,
-          winners,
-          totalRounds: data.totalRounds,
-          onReturn: () => {
-            gameState.tournamentId = null;
-            gameState.pendingTournamentResults = null;
-            session.transition(SCREEN.MAIN_ROOM);
-            session.requestMainRoom();
-          }
-        });
-      }
+      syncTableScreen(session.screen);
     },
 
     onTournamentPlayerJoined: (data) => {
@@ -2654,28 +2685,28 @@ function initializeApp() {
 
     onTournamentComplete: (data) => {
       if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
-      const winners = data.winners && data.winners.length > 0
-        ? data.winners
-        : (data.scoreboard && data.scoreboard.length > 0 ? [data.scoreboard[0].username] : []);
-
-      // If the player is still on the game-end screen, don't stack the results
-      // on top of the score modal — they'll see them after clicking 'Return to
-      // Tournament' (the server keeps the tournament alive for this)
-      if (document.getElementById('finalScoreOverlay')) {
-        gameState.pendingTournamentResults = { scoreboard: data.scoreboard, winners };
-        return;
+      // On the tournament lobby: the final results there, with the chat and
+      // voice (the cut's view gives way to them). At a table or on its score
+      // screen nothing changes: Return to Tournament lands on the same
+      // final lobby (tournamentJoined in the complete phase)
+      clearCut();
+      syncScoreCutStrip();
+      if (session.screen === SCREEN.TOURNAMENT_LOBBY) {
+        showTournamentFinal({ scoreboard: data.scoreboard, winners: data.winners, cut: data.cutForABuck ?? null });
       }
+      syncTableScreen(session.screen);
+    },
 
-      showTournamentResultsOverlay({
-        scoreboard: data.scoreboard,
-        winners,
-        onReturn: () => {
-          gameState.tournamentId = null;
-          gameState.pendingTournamentResults = null;
-          if (!session.hasTable) session.transition(SCREEN.MAIN_ROOM);
-          session.requestMainRoom();
-        }
-      });
+    // Cut for a buck (2026-11-25): every event through the one store; the
+    // lobby's view and the score screen's strip follow it
+    onCutForABuck: (type, data) => {
+      applyCutEvent(type, data, { tournament: gameState.tournamentId });
+      if (session.screen === SCREEN.TOURNAMENT_LOBBY) {
+        if (type === 'start') setTournamentPhase('cut');
+        syncTournamentCut(type);
+        syncTableScreen(session.screen);
+      }
+      syncScoreCutStrip();
     },
 
     onTournamentLeft: () => {
@@ -2683,7 +2714,7 @@ function initializeApp() {
       const lost = restartNotice.pending;
       if (lost === LOSS.TOURNAMENT || lost === LOSS.TOURNAMENT_SPECTATOR) explainRestartLoss();
       gameState.tournamentId = null;
-      gameState.pendingTournamentResults = null;
+      clearCut();
       // The server sends mainRoomJoined next
       if (session.screen === SCREEN.TOURNAMENT_LOBBY) session.transition(SCREEN.MAIN_ROOM);
       else removeTournamentLobby();
@@ -2691,7 +2722,7 @@ function initializeApp() {
 
     onTournamentCancelled: () => {
       gameState.tournamentId = null;
-      gameState.pendingTournamentResults = null;
+      clearCut();
       showInfo('Tournament has been cancelled by the host');
       // The server aborted every live table first (abortGame already sent
       // this player out, its returnToTournament lands in the main room):

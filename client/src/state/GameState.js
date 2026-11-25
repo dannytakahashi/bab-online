@@ -46,8 +46,6 @@ export class GameState {
     // Session identity: survives reset() (game end, abort, /leave)
     this.username = null;
     this.tournamentId = null;
-    // Final tournament results seen from the game-end screen
-    this.pendingTournamentResults = null;
     this.reset();
   }
 

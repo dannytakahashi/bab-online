@@ -1,9 +1,10 @@
 /**
  * Tournament Scoreboard Component
  *
- * Reusable scoreboard table and final results overlay.
+ * Reusable scoreboard table (the lobby's, and the final results card's:
+ * FinalResultsCard.js, which replaced the results modal with Cut for a buck).
  */
-import { el, createButton, openModal } from '../kit/index.js';
+import { el } from '../kit/index.js';
 
 /**
  * Create a tournament scoreboard table element.
@@ -62,64 +63,4 @@ export function createTournamentScoreboard(scoreboard, currentRound, totalRounds
 export function roundsOfScoreboard(scoreboard) {
   const most = Math.max(0, ...(scoreboard || []).map((e) => (Array.isArray(e?.roundScores) ? e.roundScores.length : 0)));
   return most > 0 ? most : 4;
-}
-
-/** The results modal on screen. */
-let resultsModal = null;
-
-/**
- * Show the tournament results: a kit modal (focus on Return to Lobby, a
- * primary action; not dismissible: Return is the way out).
- *
- * @param {Object} options
- * @param {Array} options.scoreboard - Final sorted scoreboard
- * @param {string} [options.winner] - Winner's username (single-winner fallback)
- * @param {string[]} [options.winners] - All winners (ties produce co-winners)
- * @param {number} [options.totalRounds] - The tournament's rounds (else read from the scoreboard)
- * @param {Function} options.onReturn - Called when user clicks return
- */
-export function showTournamentResultsOverlay({ scoreboard, winner, winners, totalRounds, onReturn }) {
-  removeTournamentResultsOverlay();
-
-  const body = [];
-  // Winner(s) — ties are announced as co-winners
-  const winnerList = (winners && winners.length > 0) ? winners : (winner ? [winner] : []);
-  if (winnerList.length > 0) {
-    body.push(el('div', {
-      className: 'result-winner',
-      text: winnerList.length > 1 ? `Winners (tie): ${winnerList.join(' & ')}` : `Winner: ${winnerList[0]}`,
-    }));
-  }
-  // The host picked 1 to 5 rounds (2026-11-25): never a fixed 4 columns
-  const rounds = Number.isInteger(totalRounds) && totalRounds > 0 ? totalRounds : roundsOfScoreboard(scoreboard);
-  body.push(createTournamentScoreboard(scoreboard, rounds, rounds));
-
-  const returnBtn = createButton({ label: 'Return to Lobby', variant: 'primary', size: 'lg' });
-  const modal = openModal({
-    id: 'tournamentResultsOverlay',
-    title: 'Tournament Complete!',
-    body,
-    actions: [returnBtn],
-    dismissible: false,
-    initialFocus: returnBtn,
-    className: 'result-modal is-tournament',
-  });
-  resultsModal = modal;
-  returnBtn.addEventListener('click', () => {
-    removeTournamentResultsOverlay();
-    onReturn?.();
-  });
-}
-
-/**
- * Remove tournament results overlay.
- */
-export function removeTournamentResultsOverlay() {
-  if (resultsModal) {
-    const m = resultsModal;
-    resultsModal = null;
-    m.close('api');
-  }
-  const overlay = document.getElementById('tournamentResultsOverlay');
-  if (overlay) overlay.remove();
 }

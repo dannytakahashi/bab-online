@@ -119,6 +119,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
+    onCutForABuck,
   } = callbacks;
 
   // Register auth handlers
@@ -238,6 +239,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
+    onCutForABuck,
   });
 }
 

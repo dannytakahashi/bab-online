@@ -225,8 +225,12 @@ export function foldAvatarPayload(event, data) {
  * "Partners so far" and words a tournament table's draw as a draw for first
  * deal with the teams (startDraw.teams), so the server may draw honestly
  * there (each player the card picked).
+ * And cutForABuck (2026-11-25, ui/cut/, state/cutForABuck.js): this page
+ * shows Cut for a buck, the tournament's finale (phase 'cut', the
+ * cutForABuck* events, tournamentJoined.cut) and the complete phase as the
+ * lobby's final results, so the server runs the cut when a member has it.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'cutForABuck'];
 
 export function clientHello(version, build, capable = true) {
   return {
