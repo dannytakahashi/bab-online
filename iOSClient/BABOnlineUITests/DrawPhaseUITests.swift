@@ -77,6 +77,41 @@ final class DrawPhaseUITests: XCTestCase {
         }
     }
 
+    /// A tournament table's draw for first deal (`-uiDrawTeams YES`: snapshot draw.teams, owner
+    /// 2026-11-25): the title and rule say the draw is for first deal, the teams line under the
+    /// title names my team first ("You & gus vs 🤖 Mike & eve"; a spectator's in plan order) and
+    /// is read as "Partners: ...", and the layout probe (with the line) is ok at the default and
+    /// the largest text size; the casual words are gone.
+    func testTheFirstDealDrawShowsTheTeamsBeforeTheDraw() {
+        let spoken = ["draw-spectator": "Partners: fay and gus versus 🤖 Mike and eve",
+                      "draw-long": "Partners: you and Christopher Johnson1 versus 🤖 Mike and JoAnn Jameson"]
+        for extra in [[], Self.ax5] {
+            for state in ["draw-start", "draw-in-progress", "draw-all", "draw-teams", "draw-long", "draw-spectator", "draw-deal"] {
+                let app = Fixture.launch(state, extra: ["-uiDrawTeams", "YES"] + extra)
+                XCTAssertTrue(app.staticTexts["Draw for First Deal"].waitForExistence(timeout: 20), "\(state) \(extra)")
+                XCTAssertFalse(app.staticTexts["Draw for Deal"].exists, state)
+                XCTAssertTrue(app.staticTexts["Partners are set for this round. The highest card deals first."].exists, state)
+                XCTAssertFalse(app.staticTexts["The two highest cards are partners; the highest deals."].exists, state)
+                let line = app.descendants(matching: .any)["draw.plannedTeams"]
+                XCTAssertTrue(line.waitForExistence(timeout: 5), state)
+                XCTAssertEqual(line.label, spoken[state] ?? "Partners: you and gus versus 🤖 Mike and eve", state)
+                sleep(state == "draw-teams" ? 5 : 2)
+                if state != "draw-deal" {
+                    XCTAssertEqual(Fixture.probe(app, "draw.layoutCheck"), "ok", "\(state) \(extra)")
+                }
+                shoot("firstdeal-\(state)\(extra.isEmpty ? "" : "-ax5")")
+                if UIDevice.current.userInterfaceIdiom == .pad, extra.isEmpty, state == "draw-long" {
+                    XCUIDevice.shared.orientation = .landscapeLeft
+                    sleep(2)
+                    XCTAssertEqual(Fixture.probe(app, "draw.layoutCheck"), "ok", "\(state) landscape")
+                    shoot("firstdeal-\(state)-landscape")
+                    XCUIDevice.shared.orientation = .portrait
+                }
+                app.terminate()
+            }
+        }
+    }
+
     /// VoiceOver reads each drawn card with its player, and the deck as a button.
     func testAccessibilityLabels() {
         var app = open("draw-start")
