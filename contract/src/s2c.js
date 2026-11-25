@@ -981,8 +981,15 @@ const s2c = {
         payload: ref('tournamentChatLine'),
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost', 'server/socket/tournamentLiveness.js:startForIdleHost'],
+        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:setTournamentRounds', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost', 'server/socket/tournamentLiveness.js:startForIdleHost'],
         notes: 'system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
+    },
+    tournamentSettingsUpdated: {
+        payload: obj({ totalRounds: int({ minimum: 1, maximum: 5 }), by: orNull(str()) }),
+        status: 'active', to: 'tournament',
+        clientReads: reads(W.tour, []),
+        emittedFrom: ['server/socket/tournamentHandlers.js:setTournamentRounds'],
+        notes: 'New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host\'s Rounds picker and the round line ("Waiting to start · 3 rounds"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41. Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1\'s tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds.',
     },
     tournamentRoundStart: {
         payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),

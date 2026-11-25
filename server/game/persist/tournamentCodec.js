@@ -102,6 +102,8 @@ const finite = (n) => typeof n === 'number' && Number.isFinite(n);
 function refusal(t) {
     if (!t) return 'no tournament';
     if (!PHASES.has(t.phase)) return 'phase';
+    // The host's pick, 1 to 5 (TournamentState.setTotalRounds, 2026-11-25)
+    if (!Number.isInteger(t.totalRounds) || t.totalRounds < TournamentState.MIN_ROUNDS || t.totalRounds > TournamentState.MAX_ROUNDS) return 'totalRounds';
     if (!Array.isArray(t.rounds) || t.rounds.length !== t.currentRound) return 'rounds';
     for (let i = 0; i < t.rounds.length; i++) {
         const r = t.rounds[i];
@@ -216,7 +218,8 @@ function hydrate(doc) {
     t.createdAt = s.createdAt;
     t.phase = s.phase;
     t.currentRound = s.currentRound;
-    t.totalRounds = s.totalRounds;
+    // Missing: a doc saved before the host picked the count (always 4 then)
+    t.totalRounds = s.totalRounds ?? TournamentState.DEFAULT_ROUNDS;
     members.forEach((p) => {
         const id = restoredMemberId(doc.tournamentId, p.username);
         t.players.set(id, { username: p.username, pic: p.pic ?? null, ready: false, connected: false });

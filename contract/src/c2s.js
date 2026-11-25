@@ -170,6 +170,13 @@ const c2s = {
     leaveTournament: { ...noPayload, status: 'active', joi: 'leaveTournament', rateLimit: 'leaveTournament', sentBy: both, examples: [{}] },
     tournamentReady: { ...noPayload, status: 'active', joi: 'tournamentReady', rateLimit: 'tournamentReady', sentBy: both, examples: [{}] },
     tournamentUnready: { ...noPayload, status: 'active', joi: 'tournamentUnready', rateLimit: 'tournamentUnready', sentBy: both, examples: [{}] },
+    setTournamentRounds: {
+        payload: open({ totalRounds: int({ minimum: 1, maximum: 5 }) }),
+        status: 'active', joi: 'setTournamentRounds', rateLimit: 'setTournamentRounds', sentBy: webOnly,
+        examples: [{ totalRounds: 1 }, { totalRounds: 4 }, { totalRounds: 5 }],
+        invalid: [{ totalRounds: 0 }, { totalRounds: 6 }, { totalRounds: 2.5 }, { totalRounds: '3' }, {}],
+        notes: 'New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage "<host> set the tournament to 3 rounds." to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: \'Not in a tournament\', \'Only the host can change the number of rounds\', \'Rounds can only change before the tournament begins\'. Web sends it from the lobby\'s Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41.',
+    },
     beginTournament: { ...noPayload, status: 'active', joi: 'beginTournament', rateLimit: 'beginTournament', sentBy: both, examples: [{}] },
     beginNextRound: { ...noPayload, status: 'active', joi: 'beginNextRound', rateLimit: 'beginNextRound', sentBy: both, examples: [{}] },
     tournamentChat: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'gl' }], invalid: [{ message: '' }] },

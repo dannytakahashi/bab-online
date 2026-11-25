@@ -742,6 +742,9 @@ describe('(d) F3 tournament', () => {
         tournamentHandlers.tournamentChat(ctx.sockets[1], ctx.io, { message: 'hi' });
         tournamentHandlers.tournamentUnready(ctx.sockets[1], ctx.io);
         tournamentHandlers.tournamentReady(ctx.sockets[1], ctx.io);
+        // The host's round count (2026-11-25): tournamentSettingsUpdated + a system line
+        tournamentHandlers.setTournamentRounds(creatorSocket(ctx), ctx.io, { totalRounds: 3 });
+        expect(events(ctx.log, 'tournamentSettingsUpdated').map((l) => l.data.totalRounds)).toEqual([3]);
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await advanceUntil(() => liveTables(ctx.t).some((g) => g.stage === Phase.DRAWING), 50, 30000);
         const table = liveTables(ctx.t).find((g) => g.stage === Phase.DRAWING);
