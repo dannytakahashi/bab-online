@@ -63,6 +63,19 @@
 
 .cut-bar__spacer { flex: 1 1 auto; }
 
+/* Ring | List: sized by its two options, like the rounds picker */
+.cut-view-toggle.scope-control {
+    container-type: normal;
+    width: auto;
+    max-width: none;
+    margin: 0;
+}
+
+.cut-view-toggle .scope-control__option {
+    flex: 0 0 auto;
+    min-width: 72px;
+}
+
 .cut-status {
     min-height: calc(var(--type-lg) * 1.3 + var(--type-sm) * 1.4);
 }
@@ -125,9 +138,9 @@
 .cut-seat__name {
     margin-top: 2px;
     max-width: 100%;
-    height: var(--name-h);
-    line-height: var(--name-h);
-    font-size: min(var(--type-sm), calc(var(--name-h) * 0.82));
+    height: calc(var(--name-h) * 0.55);
+    line-height: calc(var(--name-h) * 0.55);
+    font-size: min(var(--type-sm), calc(var(--name-h) * 0.45));
     font-weight: var(--weight-semibold);
     color: var(--text-primary);
     white-space: nowrap;
@@ -139,7 +152,12 @@
 .cut-seat.is-me .cut-seat__name { color: var(--gold); }
 
 .cut-seat__caption {
-    font-size: var(--type-xs);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    height: calc(var(--name-h) * 0.45);
+    line-height: calc(var(--name-h) * 0.45);
+    font-size: min(var(--type-xs), calc(var(--name-h) * 0.4));
     color: var(--text-secondary);
     white-space: nowrap;
     text-shadow: 0 1px 2px rgb(var(--scrim-rgb) / 0.8);
@@ -380,6 +398,7 @@
 .cut-winner__sub { margin: 0; font-size: var(--type-sm); color: var(--text-secondary); }
 
 .cut.has-winner .cut-deck { opacity: 0.25; }
+.cut.has-winner .cut-seat__cards { opacity: 0.35; }
 .cut.has-winner .cut-deck__caption { visibility: hidden; }
 
 /* a ring avatar's popover: the cards this deck, View Profile */

@@ -66,6 +66,10 @@ const FALLBACK = { w: 640, h: 420 };
 /** The fan's widest half-angle (degrees, a full deck). */
 const FAN_DEG = 50;
 const VIEW_KEY = 'bab.cutView';
+/** A seat's name line plus its caption line under the avatar (px). */
+const NAME_BOX_H = 30;
+/** The deck's caption line, inside the deck's box under the fan (px). */
+const DECK_CAPTION_H = 14;
 
 let current = null;
 
@@ -337,7 +341,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
       if (!canDraw() || !layout) return;
       const free = freeSlots(state);
       const { x, y } = fanPoint(e);
-      setPeek(fanIndexAt(x, y, fanGeometry(layout.deck.w, layout.deck.h, free.length, state.deckSize), free.length));
+      setPeek(fanIndexAt(x, y, fanGeometry(layout.deck.w, fanH(), free.length, state.deckSize), free.length));
     });
     deck.addEventListener('pointerleave', () => setPeek(-1));
     deck.addEventListener('click', (e) => {
@@ -346,7 +350,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
       let i = peek;
       if (e.detail > 0 && layout && e.clientX !== undefined && (e.clientX || e.clientY)) {
         const { x, y } = fanPoint(e);
-        i = fanIndexAt(x, y, fanGeometry(layout.deck.w, layout.deck.h, free.length, state.deckSize), free.length);
+        i = fanIndexAt(x, y, fanGeometry(layout.deck.w, fanH(), free.length, state.deckSize), free.length);
       }
       drawSlot(i >= 0 ? free[i] : null, i);
     });
@@ -378,7 +382,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   function fanOrigin(freeIndex) {
     if (!layout) return null;
     const free = freeSlots(state);
-    const geo = fanGeometry(layout.deck.w, layout.deck.h, free.length, state?.deckSize || 54);
+    const geo = fanGeometry(layout.deck.w, fanH(), free.length, state?.deckSize || 54);
     const i = freeIndex >= 0 ? freeIndex : Math.floor(free.length / 2);
     const a = fanAngle(i, free.length, geo.half);
     const lift = geo.ch * (0.5 + geo.lift);
@@ -395,7 +399,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     const names = ringPlayers(state);
     order = ringOrder(names, spectator ? null : me);
     const { w, h } = stageSize();
-    layout = ringLayout({ w, h, n: Math.max(order.length, 1) });
+    layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
     root.classList.toggle('is-dense', !!layout.dense);
     renderAll({ instant: true });
   }
@@ -566,6 +570,11 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     s.more.textContent = hiddenOlder > 0 ? `+${hiddenOlder}` : '';
   }
 
+  /** The fan's height: the deck's box less its caption line. */
+  function fanH() {
+    return Math.max(20, (layout?.deck.h || 0) - DECK_CAPTION_H);
+  }
+
   function deckCentre() {
     return layout ? { x: layout.deck.x + layout.deck.w / 2, y: layout.deck.y + layout.deck.h / 2, rot: 0 } : null;
   }
@@ -621,8 +630,8 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     deck.style.height = `${layout.deck.h}px`;
     deckCaption.style.left = `${layout.deck.x}px`;
     deckCaption.style.width = `${layout.deck.w}px`;
-    deckCaption.style.top = `${layout.deck.y + layout.deck.h + 2}px`;
-    paintFan(deckCanvas, layout.deck.w, layout.deck.h, count, state?.deckSize || 54, canDraw() ? peek : -1);
+    deckCaption.style.top = `${layout.deck.y + layout.deck.h - DECK_CAPTION_H}px`;
+    paintFan(deckCanvas, layout.deck.w, fanH(), count, state?.deckSize || 54, canDraw() ? peek : -1);
     deckCaption.textContent = state ? deckLine(state) : '';
     if (!spectator) {
       const can = canDraw();
@@ -756,7 +765,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
       const names = ringPlayers(state);
       order = ringOrder(names, spectator ? null : me);
       const { w, h } = stageSize();
-      layout = ringLayout({ w, h, n: Math.max(order.length, 1) });
+      layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
       root.classList.toggle('is-dense', !!layout.dense);
     }
     root.dataset.stage = state.stage;
@@ -827,7 +836,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     if (nextOrder.join('\u0000') !== order.join('\u0000')) {
       order = nextOrder;
       const { w, h } = stageSize();
-      layout = ringLayout({ w, h, n: Math.max(order.length, 1) });
+      layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
       root.classList.toggle('is-dense', !!layout.dense);
       if (!mode) setMode(readView() || (order.length >= 13 && (stage.clientWidth || FALLBACK.w) < 600 ? 'list' : 'ring'));
     }

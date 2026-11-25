@@ -24,7 +24,7 @@ describe('ringLayout', () => {
   for (const stage of STAGES) {
     for (let n = 2; n <= 20; n++) {
       it(`${n} players at ${stage.window} px: in bounds, nothing overlaps, the deck clear`, () => {
-        const L = ringLayout({ w: stage.w, h: stage.h, n });
+        const L = ringLayout({ w: stage.w, h: stage.h, n, nameH: 30 }); // the view's name + caption box
         expect(L.ok).toBe(true);
         expect(L.seats).toHaveLength(n);
         const boxes = all(L);

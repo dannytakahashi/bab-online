@@ -224,7 +224,6 @@ export function joinNames(names) {
 }
 
 const nameOf = (u, me) => (u === me ? 'you' : u);
-const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const secondsLeft = (endsAt, now) => (endsAt == null ? null : Math.max(0, Math.ceil((endsAt - now) / 1000)));
 
 export const RULES_LINE = "Lowest card is out. Suits don't count; aces are high and jokers higher.";
@@ -397,8 +396,9 @@ export function tournamentWinnerLine(winners, me) {
   const w = list(winners);
   if (w.length === 0) return 'Tournament complete';
   if (w.length === 1) return w[0] === me ? 'You win the tournament!' : `${w[0]} wins the tournament!`;
-  const names = w.map((u) => nameOf(u, me));
-  return `${cap(joinNames(names))} share the win!`;
+  // me first ("You and kim"); a username keeps its own case
+  const names = [...w.filter((u) => u === me).map(() => 'You'), ...w.filter((u) => u !== me)];
+  return `${joinNames(names)} share the win!`;
 }
 
 /** "dan won Cut for a buck" / "You won Cut for a buck" */

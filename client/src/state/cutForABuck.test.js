@@ -182,6 +182,9 @@ describe('the words', () => {
     expect(winnerLine('dan', 'me')).toBe('dan wins Cut for a buck!');
     expect(tournamentWinnerLine(['kim'], 'me')).toBe('kim wins the tournament!');
     expect(tournamentWinnerLine(['me', 'kim'], 'me')).toBe('You and kim share the win!');
+    expect(tournamentWinnerLine(['kim', 'me'], 'me')).toBe('You and kim share the win!');
+    // a username keeps its case (seen live: "Cd3 and cd4")
+    expect(tournamentWinnerLine(['cd3', 'cd4'], 'me')).toBe('cd3 and cd4 share the win!');
     expect(tournamentWinnerLine(['me'], 'me')).toBe('You win the tournament!');
     expect(cutWonLine({ winner: 'dan' }, 'me')).toBe('dan won Cut for a buck');
     expect(cutWonLine({ winner: 'me' }, 'me')).toBe('You won Cut for a buck');
