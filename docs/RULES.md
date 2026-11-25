@@ -23,6 +23,8 @@ Partners sit across from each other at the table (positions 1 & 3 vs positions 2
 
 **Tie-breaking**: If two cards have the same rank, suit order breaks the tie: clubs < diamonds < hearts < spades.
 
+**In a tournament**, partners are set by the round's plan and shown before the draw (partners rotate from round to round); the draw decides seats and who deals first. The player with the highest card deals first and sits with their partner at positions 1 & 3; of the other team, the player with the higher card sits at position 2 (and bids first), their partner at position 4.
+
 ---
 
 ## Hand Progression

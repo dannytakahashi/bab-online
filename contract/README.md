@@ -469,6 +469,30 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `score2`, `teamBids`, `mults`, `team1Tricks`, ...) keep their shape and
   carry nothing, `teamsAnnounced` is never sent, `gameStart.hsiValues` is
   `{}`, and no `rainbow`, `destroyHands` or `assistHint` is ever sent.
+- `tournamentPairings` (`$defs.clientCapTournamentPairings`, its own const
+  for the same reason; 2026-11-25, partners shown openly): the client shows
+  the tournament events' `pairings` (the round's tables and "Partners so
+  far") and, at a tournament table, `startDraw.teams` / snapshot v2
+  `draw.teams` as a draw for first deal ("Partners are set for this round.
+  The highest card deals first." with the teams on one line). Every planned
+  table (two or more members) sends the teams; the draw is honest (each
+  player the card they picked; the draw decides only seats and the first
+  deal) only when every human there and every spectator present at its
+  startDraw has the cap, otherwise it is staged as before (invisible on the
+  wire), so a client without it (iOS 1.2.6 (40) and older, cached web tabs)
+  keeps its "The two highest cards are partners" and it stays true. An
+  honest table also gets one stored system `gameLogEntry` "Partners this
+  round: A & B vs C & D. The draw decides who deals first." The web sends
+  it from 2026-11-25; iOS from build 41 (server/CLAUDE.md "Tournament
+  partners"). Additive keys: `startDraw.teams` and `draw.teams` (both 2 x 2
+  `$defs.plannedTeamPlayer {username, isBot}`, both keys always present:
+  build 41 decodes the generated `TableSnapshot` strictly, `Draw.teams:
+  [[PlannedTeamPlayer]]?`), `pairings` (`[$defs.roundPairings]`:
+  `{roundNumber, tables: [{gameId | null, teams: [$defs.pairingTeam] x 2]}]}`,
+  usernames or null for a bot) on tournamentRoundStart, tournamentGameComplete,
+  tournamentRoundComplete, tournamentComplete and tournamentClientState
+  (tournamentCreated / tournamentJoined), absent while no table has two
+  members.
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 
