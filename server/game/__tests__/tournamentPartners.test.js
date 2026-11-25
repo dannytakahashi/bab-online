@@ -408,3 +408,51 @@ describe('the draw seats the planned teams', () => {
         expect(P.planDrawCards(deck.cards.slice(0, 3), [['a', 'b'], ['c', 'd']])).toBeNull();
     });
 });
+
+describe('TournamentState pairings (shown openly, owner 2026-11-25)', () => {
+    const TournamentState = require('../TournamentState');
+    const make = () => {
+        const t = new TournamentState('t-pairings', 'P', 's0', 'ann');
+        for (const [i, u] of ['ann', 'bob', 'cat', 'dan', 'eve'].entries()) t.addPlayer(`s${i}`, u, 1);
+        return t;
+    };
+
+    test('one entry per round from the saved teams; the planned round replaces or adds its entry', () => {
+        const t = make();
+        expect(t.pairings()).toEqual([]);
+        t.startRound(1);
+        const planned = { roundNumber: 1, tables: [{ gameId: null, teams: [['ann', 'bob'], ['cat', 'dan']] }, { gameId: null, teams: [['eve', null], [null, null]] }] };
+        expect(t.pairings({ planned })).toEqual([planned]);
+        t.addGameToRound('g1', ['ann', 'bob', 'cat', 'dan'], 0, [['ann', 'bob'], ['cat', 'dan']]);
+        t.addGameToRound('g2', ['eve'], 3, [['eve', null], [null, null]]);
+        expect(t.pairings()).toEqual([{ roundNumber: 1, tables: [
+            { gameId: 'g1', teams: [['ann', 'bob'], ['cat', 'dan']] },
+            { gameId: 'g2', teams: [['eve', null], [null, null]] },
+        ] }]);
+        // a table that never seated drops out, as from partnerHistory
+        t.dropGameTeams('g1');
+        expect(t.pairings()[0].tables.map((x) => x.gameId)).toEqual(['g2']);
+        // only a 1-member table left: nothing to show
+        expect(t.pairingsWire()).toBeNull();
+        expect(t.pairingsField()).toEqual({});
+        expect('pairings' in t.getClientState()).toBe(false);
+        const p2 = { roundNumber: 2, tables: [{ gameId: null, teams: [['ann', 'cat'], ['bob', 'eve']] }] };
+        t.startRound(2);
+        expect(t.pairingsWire({ planned: p2 }).map((r) => r.roundNumber)).toEqual([1, 2]);
+        // a rollback pops the round
+        t.rounds.pop();
+        expect(t.pairings().map((r) => r.roundNumber)).toEqual([1]);
+    });
+
+    test('a member missing from a round (sat out) is simply absent; the wire copies, never shares, the saved teams', () => {
+        const t = make();
+        t.startRound(1);
+        const teams = [['ann', 'bob'], ['cat', null]];
+        t.addGameToRound('g1', ['ann', 'bob', 'cat'], 1, teams);
+        const wire = t.pairingsWire();
+        expect(wire[0].tables[0].teams).toEqual(teams);
+        wire[0].tables[0].teams[0][0] = 'x';
+        expect(t.roundOfGame('g1').games.get('g1').teams[0][0]).toBe('ann');
+        expect(JSON.stringify(wire)).not.toContain('dan');
+    });
+});

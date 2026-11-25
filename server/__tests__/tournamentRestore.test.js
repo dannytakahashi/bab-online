@@ -292,6 +292,9 @@ describe('a round start in flight at SIGTERM: the round rolls back, no frozen ta
         expect(t.phase).toBe('lobby');
         expect(t.currentRound).toBe(0);
         expect(t.rounds).toEqual([]);
+        // the rolled-back round's planned pairings are gone with it
+        expect(t.pairings()).toEqual([]);
+        expect(t.pairingsWire()).toBeNull();
         // No table of the rolled-back round anywhere, no pointer to one
         for (const id of tables) {
             expect(gameManager.games.has(id)).toBe(false);
@@ -564,9 +567,14 @@ describe('between rounds', () => {
     test('scoreboard, phase and round equal; a fresh ready deadline; the host grace keeps a ghost host 60 s, then hands on (tournamentPlayerLeft {newCreator}); round 2 starts on B', async () => {
         const { ctx, tid } = await betweenRounds(4);
         const before = shape(ctx.t);
+        const pairingsBefore = ctx.t.pairingsWire();
+        expect(pairingsBefore).toHaveLength(1);
         const B = await deploy.restart({ kind: 'handoff' });
         const t = T(tid);
         expect(shape(t)).toEqual(before);
+        // the round pairings (shown openly, owner 2026-11-25) survive with the saved teams
+        expect(t.pairingsWire()).toEqual(pairingsBefore);
+        expect(t.getClientState().pairings).toEqual(pairingsBefore);
         expect(t.readyDeadlineAt).toBeGreaterThanOrEqual(Date.now() + 60000);
         expect(t.hasTimer('readyDeadline')).toBe(true);
         const [host, ...rest] = ctx.usernames;
