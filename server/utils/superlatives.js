@@ -1,6 +1,6 @@
 /**
  * Records superlatives (owner-approved 2026-11-20): per period and stats
- * scope, seven titles, each won by the human player with the best value
+ * scope, eight titles (Lucky Buck, 2026-11-25, the last), each won by the human player with the best value
  * among the players eligible for it (below).
  * Pure: profileHandlers.fillRecords feeds it the same gameRecords
  * documents (same finds, scope filter and projection) as the team records,
@@ -99,6 +99,14 @@
  *                   so this is the share of their hands their team was set:
  *                   the leaderboard's Set % (All Time: from the accounts),
  *                   printed as it is (one decimal: "28.6% of hands set")
+ *   luckyBuck       (owner 2026-11-25) the most Cut for a buck wins in the
+ *                   period: fed by `addCut(record)`, one per tournamentRecords
+ *                   document with a cut (profileHandlers.fillRecords, routed
+ *                   to the periods by the tournament's completedAt, the same
+ *                   in every stats scope: a cut is not a game), wins++ for
+ *                   cut.winner, cuts++ for each participant; eligible with
+ *                   LUCKY_BUCK_MIN_WINS (2) wins (owner: "minimum 2 wins"),
+ *                   whatever the game counts; "3 wins in 7 cuts"
  * Count-like titles (bagBoy, botFriends, helpFromFriends, myQuantitative,
  * delusionsOfGrandeur) are left out when the best value SHOWS as 0 ("0.0
  * bags a game", "0.0% of hands set"); the per-seat titles need per-seat data
@@ -110,6 +118,8 @@
 'use strict';
 
 const SUPERLATIVE_MIN_GAMES = 5;
+/** Lucky Buck's own bar (owner 2026-11-25: at least 2 Cut for a buck wins). */
+const LUCKY_BUCK_MIN_WINS = 2;
 const MAX_NAMES = 3;
 const DELETED_NAME = '[deleted]';
 
@@ -129,6 +139,9 @@ const SUPERLATIVES_PROJECTION = Object.freeze({
     'statsDeltas.names': 1,
     'statsDeltas.assist': 1
 });
+
+/** The fields addCut() reads from a tournamentRecords document. */
+const CUT_PROJECTION = Object.freeze({ _id: 0, 'cut.winner': 1, 'cut.participants': 1, completedAt: 1 });
 
 /** The record's byPosition seats ('1'..'4' with an object), in seat order. */
 function seatPositions(record) {
@@ -284,6 +297,20 @@ const TITLES = Object.freeze([
         value: (p) => (p.hands > 0 ? p.sets / p.hands : null),
         shown: (v) => Number(pct1(v)),
         detail: (v) => `${pct1(v)}% of hands set`
+    },
+    {
+        id: 'luckyBuck', title: 'Lucky Buck', best: 'max', zeroOmits: false, basis: 'cut',
+        value: (p) => (p.cutWins > 0 ? p.cutWins : null),
+        // the winners' cuts behind the wins ("3 wins in 7 cuts"); players
+        // tied on wins with different cut counts read "2 wins each"
+        detail: (v, ps) => {
+            const cuts = new Set(ps.map((p) => p.cuts));
+            const wins = `${v} ${plural(v, 'win', 'wins')}`;
+            if (cuts.size !== 1) return `${wins} each`;
+            const [n] = cuts;
+            return `${wins} in ${n} ${plural(n, 'cut', 'cuts')}`;
+        },
+        detailWinners: true
     }
 ]);
 
@@ -310,7 +337,9 @@ function byName(a, b) {
 const ELIGIBLE = Object.freeze({
     game: (p, minGames) => p.games >= minGames,
     seat: (p, minGames) => p.statGames >= minGames,
-    spot: (p, minGames) => p.spotGames >= minGames
+    spot: (p, minGames) => p.spotGames >= minGames,
+    // Lucky Buck: its own bar, whatever the period's game counts
+    cut: (p) => p.cutWins >= LUCKY_BUCK_MIN_WINS
 });
 
 /** A name that can win: a non-empty string, never '[deleted]'. */
@@ -344,7 +373,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES, accounts = null 
     const player = (name) => {
         let p = players.get(name);
         if (!p) {
-            p = { name, games: 0, statGames: 0, spotGames: 0, seatGames: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0, spotOn: 0, spotHands: 0 };
+            p = { name, games: 0, statGames: 0, spotGames: 0, seatGames: 0, bags: 0, hsi: 0, hands: 0, sets: 0, solo: 0, help: 0, spotOn: 0, spotHands: 0, cutWins: 0, cuts: 0 };
             players.set(name, p);
         }
         return p;
@@ -398,6 +427,21 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES, accounts = null 
         for (const p of spotted) p.spotGames++;
     }
 
+    /**
+     * One tournamentRecords document's Cut for a buck (Lucky Buck): a cut
+     * for each participant (once per record), a win for its winner (a
+     * winnable name, never '[deleted]'; a winner missing from the
+     * participants still counts that cut).
+     */
+    function addCut(record) {
+        const cut = record && record.cut;
+        if (!isPlainObject(cut)) return;
+        const names = new Set((Array.isArray(cut.participants) ? cut.participants : []).filter(winnable));
+        if (winnable(cut.winner)) names.add(cut.winner);
+        for (const name of names) player(name).cuts++;
+        if (winnable(cut.winner)) player(cut.winner).cutWins++;
+    }
+
     function result() {
         const fromRecords = [...players.values()];
         let fromAccounts = null;
@@ -417,6 +461,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES, accounts = null 
                 : fromRecords.filter((p) => ELIGIBLE[t.basis](p, minGames));
             let bestValue = null;
             let winners = [];
+            const byWinner = new Map();
             for (const p of pool) {
                 const v = t.value(p);
                 if (v === null || !Number.isFinite(v)) continue;
@@ -426,6 +471,7 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES, accounts = null 
                 } else if (same(v, bestValue)) {
                     winners.push(p.name);
                 }
+                byWinner.set(p.name, p);
             }
             if (bestValue === null) continue;
             bests[t.id] = bestValue;
@@ -433,13 +479,14 @@ function createSuperlatives({ minGames = SUPERLATIVE_MIN_GAMES, accounts = null 
             if (t.notSameAs && bests[t.notSameAs] !== undefined && same(bests[t.notSameAs], bestValue)) continue;
             winners.sort(byName);
             const more = winners.length - MAX_NAMES;
-            const detail = t.detail(bestValue) + (more > 0 ? ` (+${more} more)` : '');
+            const base = t.detailWinners ? t.detail(bestValue, winners.map((n) => byWinner.get(n))) : t.detail(bestValue);
+            const detail = base + (more > 0 ? ` (+${more} more)` : '');
             out.push({ id: t.id, title: t.title, names: winners.slice(0, MAX_NAMES), detail });
         }
         return out;
     }
 
-    return { add, result };
+    return { add, addCut, result };
 }
 
 /** The superlatives of one period's records (the same as add() each, then result()). */
@@ -451,6 +498,8 @@ function computeSuperlatives(records, opts) {
 
 module.exports = {
     SUPERLATIVE_MIN_GAMES,
+    LUCKY_BUCK_MIN_WINS,
+    CUT_PROJECTION,
     SUPERLATIVES_PROJECTION,
     ACCOUNT_FIELDS,
     TITLE_IDS: TITLES.map((t) => t.id),

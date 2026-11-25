@@ -4,7 +4,8 @@
  */
 
 const {
-    computeSuperlatives, createSuperlatives, seatNames, isSolo, accountTotals, SUPERLATIVE_MIN_GAMES, TITLE_IDS, ACCOUNT_TITLE_IDS, ACCOUNT_FIELDS
+    computeSuperlatives, createSuperlatives, seatNames, isSolo, accountTotals, SUPERLATIVE_MIN_GAMES, TITLE_IDS, ACCOUNT_TITLE_IDS, ACCOUNT_FIELDS,
+    LUCKY_BUCK_MIN_WINS, CUT_PROJECTION
 } = require('../superlatives');
 
 /** One seat's counters (the 12 of seatStatsDelta; `totalBags` and `spotOn` are not among them). */
@@ -97,8 +98,9 @@ describe('the titles', () => {
             soloGame('Ann')
         ];
         const out = computeSuperlatives(games);
-        expect(out.map((s) => s.id)).toEqual(TITLE_IDS);
-        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'myQuantitative', 'delusionsOfGrandeur']);
+        // every title but Lucky Buck (no Cut for a buck in these records)
+        expect(out.map((s) => s.id)).toEqual(TITLE_IDS.filter((id) => id !== 'luckyBuck'));
+        expect(TITLE_IDS).toEqual(['bagBoy', 'luckyDuck', 'cursed', 'botFriends', 'helpFromFriends', 'myQuantitative', 'delusionsOfGrandeur', 'luckyBuck']);
         const s = byId(out);
         // Ann: 15 bags in 8 games (the two help games and her solo game: 0)
         expect(s.bagBoy).toEqual({ id: 'bagBoy', title: 'Bag Boy', names: ['Ann'], detail: '1.9 bags a game' });
@@ -579,5 +581,66 @@ describe('All Time account titles (accounts: the leaderboard\'s totals, 2026-11-
         // a legacy duplicate name: one entry (the first), never listed twice
         const dup = byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 9, 117, 30, 0), acct('Ann', 9, 117, 30, 0)] }));
         expect(dup.delusionsOfGrandeur.names).toEqual(['Ann']);
+    });
+});
+
+describe('Lucky Buck (Cut for a buck wins, owner 2026-11-25)', () => {
+    const cut = (winner, participants) => ({ cut: { winner, participants }, completedAt: new Date('2026-11-25T12:00:00Z') });
+    const lucky = (cuts, opts) => {
+        const acc = createSuperlatives(opts);
+        for (const c of cuts) acc.addCut(c);
+        return byId(acc.result()).luckyBuck;
+    };
+
+    test('the most wins, at least 2 (one win never qualifies), last in TITLES, detail "N wins in M cuts"', () => {
+        expect(LUCKY_BUCK_MIN_WINS).toBe(2);
+        expect(TITLE_IDS[TITLE_IDS.length - 1]).toBe('luckyBuck');
+        expect(lucky([cut('dan', ['dan', 'kim'])])).toBeUndefined();
+        expect(lucky([cut('dan', ['dan', 'kim']), cut('kim', ['dan', 'kim'])])).toBeUndefined();
+        expect(lucky([cut('dan', ['dan', 'kim']), cut('dan', ['dan', 'kim', 'bo']), cut('kim', ['dan', 'kim'])]))
+            .toEqual({ id: 'luckyBuck', title: 'Lucky Buck', names: ['dan'], detail: '2 wins in 3 cuts' });
+        const s = lucky([...[1, 2, 3].map(() => cut('kim', ['kim', 'bo'])), cut('bo', ['kim', 'bo']), cut('bo', ['kim', 'bo'])]);
+        expect(s).toMatchObject({ names: ['kim'], detail: '3 wins in 5 cuts' });
+    });
+
+    test('no game minimum: a player with no games of the period still qualifies; the game titles ignore cuts', () => {
+        const acc = createSuperlatives({ minGames: SUPERLATIVE_MIN_GAMES });
+        acc.addCut(cut('al', ['al', 'cy']));
+        acc.addCut(cut('al', ['al', 'cy']));
+        const out = acc.result();
+        expect(out.map((t) => t.id)).toEqual(['luckyBuck']);
+        expect(out[0]).toMatchObject({ names: ['al'], detail: '2 wins in 2 cuts' });
+    });
+
+    test('ties: every tied name (up to 3 + "(+N more)"), alphabetical; different cut counts read "each"', () => {
+        const both = lucky([cut('bo', ['bo', 'al']), cut('bo', ['bo', 'al']), cut('al', ['bo', 'al']), cut('al', ['bo', 'al'])]);
+        expect(both).toEqual({ id: 'luckyBuck', title: 'Lucky Buck', names: ['al', 'bo'], detail: '2 wins in 4 cuts' });
+        const uneven = lucky([cut('bo', ['bo', 'al']), cut('bo', ['bo', 'al']), cut('al', ['al', 'cy']), cut('al', ['al', 'cy']), cut('cy', ['cy', 'dee'])]);
+        expect(uneven).toMatchObject({ names: ['al', 'bo'], detail: '2 wins each' });
+        const many = ['e', 'd', 'c', 'b', 'a'].flatMap((n) => [cut(n, [n, 'z']), cut(n, [n, 'z'])]);
+        expect(lucky(many)).toMatchObject({ names: ['a', 'b', 'c'], detail: '2 wins in 2 cuts (+2 more)' });
+    });
+
+    test("'[deleted]' and unwinnable names never win or count; a malformed record is skipped", () => {
+        const s = lucky([
+            cut('[deleted]', ['[deleted]', 'kim']), cut('[deleted]', ['[deleted]', 'kim']), cut('[deleted]', ['[deleted]', 'kim']),
+            cut('', ['', 'kim']), cut(null, ['kim']), { cut: null }, { cut: 'x' }, {}, null,
+            cut('kim', ['[deleted]', 'kim']), cut('kim', ['[deleted]', 'kim'])
+        ]);
+        expect(s).toEqual({ id: 'luckyBuck', title: 'Lucky Buck', names: ['kim'], detail: '2 wins in 7 cuts' });
+    });
+
+    test('a winner missing from the participants still counts the cut; one participant listed twice counts once', () => {
+        expect(lucky([cut('kim', ['bo']), cut('kim', ['kim', 'kim', 'bo'])])).toMatchObject({ names: ['kim'], detail: '2 wins in 2 cuts' });
+    });
+
+    test('accounts (All Time) never change it', () => {
+        const cuts = [cut('dan', ['dan', 'kim']), cut('dan', ['dan', 'kim'])];
+        expect(lucky(cuts, { accounts: [] })).toMatchObject({ names: ['dan'] });
+        expect(lucky(cuts, { accounts: [accountTotals('kim', { gamesPlayed: 50, totalHands: 500, totalHSI: 65000 })] })).toMatchObject({ names: ['dan'] });
+    });
+
+    test('the projection reads only the cut and completedAt', () => {
+        expect(CUT_PROJECTION).toEqual({ _id: 0, 'cut.winner': 1, 'cut.participants': 1, completedAt: 1 });
     });
 });
