@@ -6,7 +6,7 @@
  *
  * - `import UIKit` and `UIApplication` only in a file whose first code line is `#if os(iOS)`
  *   (a whole-file iOS file, e.g. `Foo+iOS.swift`), or under `Platform/`;
- * - `import AppKit` and `NSApp` only in a file whose first code line is `#if os(macOS)`, or
+ * - `import AppKit`, `NSApp` and `NSApplication` only in a file whose first code line is `#if os(macOS)`, or
  *   under `Platform/`.
  *
  * Comments and string literals are not read. Run by CI (ci.yml) on Ubuntu, so the rule holds
@@ -22,10 +22,11 @@ const APP = path.join(ROOT, 'iOSClient', 'BABOnline');
 
 /** What may appear only in a file of one platform: the pattern and the platform. */
 const RULES = [
-    { what: 'import UIKit', re: /^\s*(@\w+\s+)*import\s+UIKit\b/, os: 'iOS' },
+    { what: 'import UIKit', re: /^\s*(@\w+\s+)*import\s+((class|struct|enum|protocol|typealias|func|var|let)\s+)?UIKit\b/, os: 'iOS' },
     { what: 'UIApplication', re: /\bUIApplication\b/, os: 'iOS' },
-    { what: 'import AppKit', re: /^\s*(@\w+\s+)*import\s+AppKit\b/, os: 'macOS' },
+    { what: 'import AppKit', re: /^\s*(@\w+\s+)*import\s+((class|struct|enum|protocol|typealias|func|var|let)\s+)?AppKit\b/, os: 'macOS' },
     { what: 'NSApp', re: /\bNSApp\b/, os: 'macOS' },
+    { what: 'NSApplication', re: /\bNSApplication\b/, os: 'macOS' },
 ];
 
 /**

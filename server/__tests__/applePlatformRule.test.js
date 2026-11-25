@@ -31,7 +31,19 @@ describe('Apple platform rule', () => {
             { line: 2, what: 'NSApp', os: 'macOS' },
         ]);
         expect(checkSource('App/Foo+macOS.swift', '#if os(macOS)\nimport AppKit\nlet w = NSApp.keyWindow\n#endif\n')).toEqual([]);
-        expect(checkSource('App/Foo.swift', 'let a = NSApplication.shared\n')).toEqual([]);
+        expect(checkSource('App/Foo.swift', 'let a = NSApplication.shared\n')).toEqual([
+            { line: 1, what: 'NSApplication', os: 'macOS' },
+        ]);
+        expect(checkSource('App/Foo.swift', 'let a = NSApplicationMain\n')).toEqual([]);
+    });
+
+    test('a scoped import is an import of the module', () => {
+        expect(checkSource('Views/Foo.swift', 'import class UIKit.UIImage\n')).toEqual([
+            { line: 1, what: 'import UIKit', os: 'iOS' },
+        ]);
+        expect(checkSource('Views/Foo.swift', '@preconcurrency import struct AppKit.NSEdgeInsets\n')).toEqual([
+            { line: 1, what: 'import AppKit', os: 'macOS' },
+        ]);
     });
 
     test('Platform/ may hold both halves', () => {

@@ -76,7 +76,7 @@ xcodebuild -project iOSClient/BABOnline.xcodeproj -scheme BABOnline \
 ```
 
 - Tests reach app code with `@testable import BAB_Online` (module name from the product name "BAB Online"). Only Debug sets `ENABLE_TESTABILITY = YES`, so tests run in Debug.
-- Hosted tests launch the whole app. `BABOnlineApp.setupSocket()` returns early when `XCTestConfigurationFilePath` is set, so a test run never connects or signs in. `xcodebuild test` replaces the installed `com.bab-online.BABOnline` on the chosen simulator.
+- Hosted tests launch the whole app. `AppGraph.setupSocket()` (`App/AppGraph.swift`, called from `BABOnlineApp`) returns early when `XCTestConfigurationFilePath` is set, so a test run never connects or signs in. `xcodebuild test` replaces the installed `com.bab-online.BABOnline` on the chosen simulator.
 - Fixtures: the contract snapshot fixtures are bundled through a **folder reference** to `contract/fixtures/v2` (it keeps the `v2/` subdirectory: `Bundle(for:).url(forResource:withExtension:subdirectory: "v2")`). Files under `iOSClient/BABOnlineTests/` (e.g. the recorded event logs in `Fixtures/events/`, `npm run ios:fixtures`) are flattened into the bundle root, so **every fixture basename must be unique**; a duplicate fails the build with "Multiple commands produce".
 - The UI-test bundle `BABOnlineUITests` was added the same way (a sibling synchronized folder, `TEST_TARGET_NAME = BABOnline`, a non-parallel Testable in the shared scheme). The scheme's Test action has two test plans (`iOSClient/BABOnline.xctestplan`, the default: unit tests only, so a plain `xcodebuild test` stays about 30 s; `iOSClient/BABOnlineUI.xctestplan`: the UI tests, run with `-testPlan BABOnlineUI`). A new test target goes into one of the plans.
 
