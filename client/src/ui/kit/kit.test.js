@@ -232,6 +232,31 @@ describe('Toast: one queue', () => {
 
   const shown = () => [...document.querySelectorAll('.kit-toast')].map((t) => t.textContent);
 
+  it('pictures take the icon\'s place (a badge just earned); a later toast of the type swaps them', () => {
+    const card = toast('Badge earned: X', { type: 'success', art: ['assets/badges/a.svg', 'assets/badges/b.svg'] });
+    const srcs = () => [...card.querySelectorAll('.kit-toast__art img')].map((i) => i.getAttribute('src'));
+    expect(srcs()).toEqual(['assets/badges/a.svg', 'assets/badges/b.svg']);
+    expect(card.querySelector('.kit-toast__icon')).toBeNull();
+    expect(card.querySelector('.kit-toast__art').getAttribute('aria-hidden')).toBe('true');
+    expect(card.textContent).toBe('Badge earned: X');
+    // a picture that does not load hides; the words stay
+    const img = card.querySelector('img');
+    img.dispatchEvent(new Event('error'));
+    expect(img.hidden).toBe(true);
+    // another badge toast replaces words and pictures in place
+    toast('Badge earned: Y', { type: 'success', art: 'assets/badges/c.svg' });
+    expect(srcs()).toEqual(['assets/badges/c.svg']);
+    expect(card.textContent).toBe('Badge earned: Y');
+    // a plain success toast puts the icon back
+    toast('Saved', { type: 'success' });
+    expect(card.querySelector('.kit-toast__art')).toBeNull();
+    expect(card.querySelector('.kit-toast__icon')).not.toBeNull();
+    // never more than four pictures
+    clearToasts();
+    const many = toast('Badges earned', { type: 'success', art: ['1', '2', '3', '4', '5', '6'].map((n) => `assets/badges/${n}.svg`) });
+    expect(many.querySelectorAll('img')).toHaveLength(4);
+  });
+
   it('shows one toast at a time, the others in order after it', () => {
     toast('Saved', { type: 'success', duration: 1000 });
     toast('Host started the round', { type: 'info', duration: 1000 });

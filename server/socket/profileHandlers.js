@@ -19,6 +19,9 @@ const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shu
 const { isAssistedSeat, helpUses, usedTutorial, isBotStatsGame, assistedSeatMoves } = require('../game/assistState');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../game/rules');
 const { DELETED_NAME } = require('../admin/nameHold');
+const badgeRules = require('../game/badges');
+const badgeAwards = require('./badgeAwards');
+const { hasCap } = require('./clientInfo');
 
 // Leaderboard and records pages: 60 s caches, one per stats scope
 // (server/utils/statsScope.js: human | bots | all), invalidated (every scope
@@ -35,7 +38,7 @@ let recordsCacheKey = null;
 const MAX_USERNAME_LENGTH = 50;
 
 /** Fields a profile reply is built from (plus mergedInto / renamedAt / targetRenamedAt for the redirect). */
-const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1 };
+const PROFILE_PROJECTION = { username: 1, profilePic: 1, customProfilePic: 1, stats: 1, mergedInto: 1, renamedAt: 1, targetRenamedAt: 1, badges: 1 };
 /** The same plus the bot-game bucket (scopes bots / all). */
 const PROFILE_PROJECTION_WITH_BOTS = { ...PROFILE_PROJECTION, botStats: 1 };
 const profileProjection = (scope) => (scope === 'human' ? PROFILE_PROJECTION : PROFILE_PROJECTION_WITH_BOTS);
@@ -530,6 +533,10 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
         for (const field of STAT_KEYS) {
             if (delta[field] !== undefined) $inc[`${bucket}.${field}`] = delta[field];
         }
+        // Badges (Child Labor): the times this seat was over-trumped, into
+        // the player's lifetime count under the same guard (human games only)
+        const overtrumped = bucket === 'stats' ? record.statsDeltas?.overtrumped?.[entry.position] : 0;
+        if (Number.isSafeInteger(overtrumped) && overtrumped > 0) $inc['badgeProgress.overtrumped'] = overtrumped;
         try {
             const res = await withRetry('stats', gameId, () => users.updateOne(
                 {
@@ -580,6 +587,10 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
             authLogger.error('Could not mark game stats applied', { gameId, error: error.message });
         }
     }
+    // Badges: what this record earned, plus the lifetime ones the stats just
+    // written may have reached (idempotent: socket/badgeAwards.js). Each
+    // player still online is told privately (badgesAwarded)
+    await badgeAwards.awardAndNotify(record, { users, gameRecords });
     return remaining.length;
 }
 
@@ -731,6 +742,23 @@ function buildGameEndRecord(game) {
         doc.statsDeltas.bucketByPosition = Object.fromEntries(assisted.map((pos) => [pos, 'botStats']));
     }
     if (Object.keys(assist).length > 0) doc.statsDeltas.assist = assist;
+    // Badges (game/badges.js; socket/badgeAwards.js awards them once the
+    // stats are in): what each seat earned in this game and how often it
+    // was over-trumped, only for a seat whose stats count as a human game
+    // (not a bot game, not a seat /help or the tutorial moved)
+    if (bucket !== 'botStats') {
+        const earned = badgeRules.gameBadges(game);
+        const overtrumpedByPos = badgeRules.overTrumpedByPos(game);
+        const seatBadges = {};
+        const overtrumped = {};
+        for (const { position } of players) {
+            if (assisted.includes(position)) continue;
+            if (earned[position]?.length > 0) seatBadges[position] = earned[position];
+            if (overtrumpedByPos[position] > 0) overtrumped[position] = overtrumpedByPos[position];
+        }
+        if (Object.keys(seatBadges).length > 0) doc.statsDeltas.badges = seatBadges;
+        if (Object.keys(overtrumped).length > 0) doc.statsDeltas.overtrumped = overtrumped;
+    }
     if (assisted.length > 0) doc.assistedTeams = [...new Set(assisted.map((pos) => (pos % 2 === 1 ? 1 : 2)))].sort();
     if (statsPending.length > 0) doc.statsPending = statsPending;
     return doc;
@@ -1089,8 +1117,9 @@ function profileStats(dbUser, scope) {
 /**
  * A profile reply (profileResponse / playerProfileResponse): today's keys,
  * customProfilePic always null (V1_REMOVALS #19 B), plus avatarUrl
- * (additive) for a custom picture whose rendition exists, and `scope` when
- * asked for one.
+ * (additive) for a custom picture whose rendition exists, `scope` when
+ * asked for one, and `badges` (the player's earned badges, whatever the
+ * scope) for a socket with the clientHello cap `badges`.
  */
 async function profileReply(socket, dbUser, scope = 'human', echo = false) {
     const raw = dbUser.customProfilePic || null;
@@ -1105,6 +1134,9 @@ async function profileReply(socket, dbUser, scope = 'human', echo = false) {
         }
     };
     if (r.url) out.avatarUrl = r.url;
+    // Badges (additive, 2026-11-25): the ones this player has earned, only
+    // to a client that shows them (cap `badges`). Never the unearned ones
+    if (hasCap(socket, badgeAwards.BADGES_CAP)) out.badges = badgeRules.publicBadges(dbUser.badges);
     return withScope(out, scope, echo);
 }
 

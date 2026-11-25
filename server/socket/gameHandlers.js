@@ -24,6 +24,8 @@ const {
     gybDrawPosition
 } = require('../game/rules');
 const { isGyb } = require('../game/gameMode');
+const badges = require('../game/badges');
+const badgeAwards = require('./badgeAwards');
 const { gameLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
 const { Phase, reportViolation } = require('../game/GamePhase');
@@ -126,6 +128,24 @@ function triggerBotIfNeeded(io, game, actionType) {
 }
 
 /**
+ * Badges: a hand the bids keep. Each seat's bid and the seat holding the HI
+ * joker go into game.badgeTrack (game/badges.js). Never throws into the
+ * turn: a failure only loses this hand's badge counts.
+ */
+function noteBadgeHandKept(game) {
+    try {
+        let hiJokerPosition = null;
+        for (const socketId of game.getSocketIds()) {
+            const hand = game.getHand(socketId) || [];
+            if (hand.some((c) => c && c.suit === 'joker' && c.rank === 'HI')) hiJokerPosition = game.getPositionBySocketId(socketId);
+        }
+        badges.noteHandKept(game.badgeTrack, { playerBids: game.playerBids, handSize: game.currentHand, hiJokerPosition });
+    } catch (error) {
+        gameLogger.warn('Badge tracking failed for a kept hand', { gameId: game.gameId, error: error.message });
+    }
+}
+
+/**
  * Handle logic after a bid is made (check if all bids done, trigger next bot)
  */
 async function handlePostBid(io, game) {
@@ -199,6 +219,8 @@ async function handlePostBid(io, game) {
         for (const [position, hsi] of Object.entries(game.hsiValues || {})) {
             game.addHSI(Number(position), hsi);
         }
+        // Badges: the kept hand's bids and who holds the HI joker
+        noteBadgeHandKept(game);
         // teamBids / mults: additive (read by neither shipped client; v2
         // and future clients use them instead of re-deriving the bores)
         game.broadcast(io, 'doneBidding', {
@@ -301,6 +323,9 @@ function resumeTrick(io, game) {
         const lead = game.leadPosition;
         const cards = Array.from({ length: N }, (_, k) => game.playedCards[((lead - 1 + k) % N)]);
         game.trickHistory.push({ winner, lead, cards: cards.map((c) => ({ suit: c.suit, rank: c.rank })) });
+        // Badges (Child Labor): who was over-trumped in this trick. Never
+        // at a Get Your Bid table (three seats, no teams, no badges)
+        if (!isGyb(game)) badges.noteTrick(game.badgeTrack, { lead, cards, trump: game.trump });
     }
 
     // Track tricks for player stats
@@ -1106,6 +1131,17 @@ function scoreClassicHand(game, io) {
         se.hands++;
     }
 
+    // Badges: the scores' lows and leads, the hand's points, a 4B made or
+    // set, a double rainbow (game/badges.js)
+    badges.noteHandScored(game.badgeTrack, {
+        score: game.score,
+        delta: { team1: game.score.team1 - team1OldScore, team2: game.score.team2 - team2OldScore },
+        playerBids: game.playerBids,
+        bids: game.bids,
+        tricks: game.tricks,
+        rainbows: game.rainbows
+    });
+
     gameLogger.debug('Score update', {
         team1: { score: game.score.team1, bids: [game.playerBids[0], game.playerBids[2]], tricks: game.tricks.team1 },
         team2: { score: game.score.team2, bids: [game.playerBids[1], game.playerBids[3]], tricks: game.tricks.team2 },
@@ -1206,6 +1242,8 @@ async function finishGame(game, io, { playerStatsWithNames, gybEnd }) {
     // A Get Your Bid game records nothing (owner 2026-11-24: no stats,
     // standings or game records for the mode yet)
     const store = liveStore();
+    // Badges: the stats chain tells each player what they earned on this io
+    badgeAwards.setIo(io);
     if (gyb) {
         // nothing to persist
     } else if (store.claimable(game)) {

@@ -69,6 +69,11 @@
  * shape) joined the same way, for the same reasons: still v3, optional both
  * ways (a doc without it restores null: that game's record has no spot-on
  * counts), pins re-taken.
+ * `state.badgeTrack` (2026-11-25, badges; GameState.badgeTrack,
+ * badges.normalizeTrack) joined the same way, for the same reasons: still
+ * v3, optional both ways (a doc without it restores null: that game earns
+ * only the badges its final state shows, and counts no over-trumps), pins
+ * re-taken.
  *
  * hydrate(doc) is `new GameState(gameId)` + GameState.restoreFrom (the
  * only restore writer; restoreSeats maps presence: every human seat in a
@@ -115,6 +120,7 @@ const { Phase } = require('../GamePhase');
 const { Controller, Presence } = require('../SeatState');
 const { isStockPic } = require('../../avatar/stockAvatars');
 const { ASSIST_SEAT_KEYS, normalizeAssist } = require('../assistState');
+const { normalizeTrack: normalizeBadgeTrack } = require('../badges');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../rules');
 
 /** Bump on any change to what is saved (SAVED) or how it is read back. */
@@ -153,6 +159,7 @@ const SAVED = deepFreeze({
         'handStats', 'playerStats', 'handTricks', 'hsiValues',
         'seatBags',                                   // the superlatives' bag counter (2026-11-20, still v3): below
         'seatExact',                                  // the superlatives' spot-on bid counter (2026-11-20, still v3): below
+        'badgeTrack',                                 // the badges' per-game tracker (2026-11-25, still v3): header
         'hands', 'seats', 'gameLog', 'logTotal',
         'players',                                    // only its key order, as state.seatOrder (the deal order)
         'casualVoice', 'lobbyOrigin',                 // a lobby-born casual game (null otherwise): below
@@ -383,6 +390,7 @@ function serialize(game, { tournamentId, getBot } = {}) {
         playerStats: json(game.playerStats),
         seatBags: normalizeSeatBags(game.seatBags),
         seatExact: normalizeSeatCounter(game.seatExact),
+        badgeTrack: normalizeBadgeTrack(game.badgeTrack),
         handTricks: json(game.handTricks),
         hsiValues: json(game.hsiValues) || {},
         hands,
@@ -510,6 +518,7 @@ function expectedAfterRestore(doc) {
     out.state.assist = normalizeAssist(out.state.assist);
     out.state.seatBags = normalizeSeatBags(out.state.seatBags);
     out.state.seatExact = normalizeSeatCounter(out.state.seatExact);
+    out.state.badgeTrack = normalizeBadgeTrack(out.state.badgeTrack);
     for (const ps of Object.values(out.state.playerStats || {})) if (ps && typeof ps === 'object') delete ps.totalBags;
     out.state.eventSeq += EVENT_SEQ_OFFSET;
     for (const s of Object.values(out.state.seats)) {

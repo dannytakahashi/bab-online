@@ -180,6 +180,9 @@ export function foldAvatarPayload(event, data) {
     case 'leaderboardResponse':
       foldRows(data.leaderboard, urls);
       break;
+    case 'searchPlayersResponse':
+      foldRows(data.players, urls);
+      break;
     case 'profileResponse':
     case 'playerProfileResponse':
       if (data.profile && typeof data.profile === 'object') {
@@ -220,8 +223,10 @@ export function foldAvatarPayload(event, data) {
  * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
  * lobby and its three-seat table; only such a client is listed, may create,
  * join, rejoin or watch one (server/game/gameMode.js).
+ * And badges (2026-11-25, ui/components/Badges.js): this page shows a
+ * player's earned badges on their profile and the badgesAwarded toast.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'badges'];
 
 export function clientHello(version, build, capable = true) {
   return {

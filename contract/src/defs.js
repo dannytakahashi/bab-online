@@ -335,6 +335,17 @@ const defs = {
     // key below reaches only clients that know the mode (the web; no iOS
     // build) (contract/README.md "Client capabilities")
     clientCapGetYourBid: konst('getYourBid'),
+    // A ninth, its own const for the same reason (2026-11-25, badges): the
+    // client shows badges, so its profile replies carry the player's earned
+    // ones (`badges`) and it gets the private s2c badgesAwarded after a
+    // game that earned one; without it neither is ever sent (the web; no
+    // iOS build) (contract/README.md "Client capabilities")
+    clientCapBadges: konst('badges'),
+    // One EARNED badge (server/game/badges.js publicBadge). The catalog is
+    // never on the wire: a badge nobody told this client about stays a
+    // surprise (owner 2026-11-25). id is also the art's file name
+    // (client/assets/badges/<id>.svg); at (ISO) only on a profile
+    earnedBadge: obj({ id: str({ minLength: 1, maxLength: 40 }), name: str(), description: str(), at: str() }, { optional: ['at'] }),
     // ---------- Get Your Bid (2026-11-24; server/game/gameMode.js) ----------
     // The one mode value on the wire (absent = the base game)
     gybMode: konst('gyb'),

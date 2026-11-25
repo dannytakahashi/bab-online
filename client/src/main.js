@@ -57,10 +57,12 @@ import {
   showProfilePage, updateProfilePicDisplay, updateCustomProfilePicDisplay, showPlayerProfilePage, showDeleteAccountError,
   updateProfileStats, updatePlayerProfileStats, profileStatsRequestFailed, showChangePasswordResult,
 } from './ui/screens/ProfilePage.js';
+import { badgesEarnedText, badgesEarnedArt } from './ui/components/Badges.js';
 import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
+import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
@@ -467,6 +469,8 @@ socket.on('changePasswordResponse', (data) => {
  * restoreSessionResponse passwordReset {by, at}, additive 2026-11-15): one
  * info line, a little longer than a plain toast.
  */
+// A badge is rare news: its toast stays longer than the usual 5 s
+const BADGE_TOAST_MS = 8000;
 const PASSWORD_RESET_TOAST_MS = 10000;
 function notePasswordReset(data) {
   const text = passwordResetNoticeText(data?.passwordReset);
@@ -2478,10 +2482,10 @@ function initializeApp() {
     // for (state/statsScope.js): one for an older choice (a fast switch) is
     // dropped; one for an open page updates it in place (focus stays on
     // the scope control)
-    onProfileReceived: (profile, scope) => {
+    onProfileReceived: (profile, scope, badges) => {
       if (isStaleScopeReply(scope)) return;
       if (updateProfileStats(profile, scope)) return;
-      showProfilePage(profile, socket, scope ?? getStatsScope());
+      showProfilePage(profile, socket, scope ?? getStatsScope(), badges);
     },
     onProfileError: (message) => {
       profileStatsRequestFailed();
@@ -2501,10 +2505,20 @@ function initializeApp() {
     onCustomProfilePicUploadError: (message) => {
       showError(message || 'Failed to upload profile picture');
     },
-    onPlayerProfileReceived: (profile, scope) => {
+    onSearchPlayersResult: (players, query) => {
+      updatePlayerSearchResults(players, query);
+    },
+    onPlayerProfileReceived: (profile, scope, badges) => {
       if (isStaleScopeReply(scope)) return;
       if (updatePlayerProfileStats(profile, scope)) return;
-      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username), scope: scope ?? getStatsScope() });
+      showPlayerProfilePage(profile, socket, { isBlocked: isUserBlocked(profile.username), scope: scope ?? getStatsScope(), badges });
+    },
+    // Badges just earned (after a game's stats are written, so over the
+    // score screen): one toast with their pictures and names; the profile
+    // lists them
+    onBadgesAwarded: (badges) => {
+      const text = badgesEarnedText(badges);
+      if (text) showToast(text, { type: 'success', duration: BADGE_TOAST_MS, art: badgesEarnedArt(badges) });
     },
     onPlayerProfileError: () => {
       profileStatsRequestFailed();

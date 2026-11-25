@@ -65,8 +65,14 @@ const { socketLogger } = require('../utils/logger');
  *                     teams; server/game/gameMode.js): only such a socket
  *                     is listed, may create, join, rejoin or watch one
  *                     (the web; no iOS build)
+ *   badges            shows badges (owner 2026-11-24): the player's earned
+ *                     ones as `badges` on profileResponse /
+ *                     playerProfileResponse, and the private s2c
+ *                     badgesAwarded after a game that earned one
+ *                     (server/socket/badgeAwards.js); a socket without it
+ *                     gets neither (the web; no iOS build)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'badges'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

@@ -469,6 +469,17 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   `score2`, `teamBids`, `mults`, `team1Tricks`, ...) keep their shape and
   carry nothing, `teamsAnnounced` is never sent, `gameStart.hsiValues` is
   `{}`, and no `rainbow`, `destroyHands` or `assistHint` is ever sent.
+- `badges` (`$defs.clientCapBadges`, its own const for the same reason;
+  2026-11-25, badges: `server/game/badges.js`, `server/socket/badgeAwards.js`,
+  `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it;
+  no iOS build does. With it `profileResponse` / `playerProfileResponse`
+  carry `badges` (`$defs.earnedBadge` {id, name, description, at}: the
+  badges that player has EARNED, oldest first, whatever the stats scope),
+  and after a game that newly earned one the player's live socket gets the
+  private, unsequenced s2c `badgesAwarded {gameId, badges}` (once the
+  game's stats are written, so shortly after gameEnd). Without it neither
+  is sent. The catalog is never on the wire: a badge is only ever named to
+  someone looking at a player who earned it.
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

@@ -157,6 +157,7 @@ const scoreboard = arr(ref('scoreboardRow'));
 // Stats scope echo (server/utils/statsScope.js, owner 2026-11-13)
 const statsScope = enm('human', 'bots', 'all');
 const SCOPE_ECHO_NOTE = 'scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).';
+const BADGES_NOTE = ' badges (additive 2026-11-25): the badges this player has earned (server/game/badges.js publicBadges: oldest first, each once, whatever the scope), ONLY for a socket with the clientHello cap badges ($defs.clientCapBadges); never an unearned one.';
 const seatNotice = obj({ position: ref('position'), username: str() });
 
 // The snapshot carriers (rejoinSuccess, restorePlayerState, the spectator
@@ -865,11 +866,18 @@ const s2c = {
     },
 
     // ==================== Profile ====================
+    badgesAwarded: {
+        payload: obj({ gameId: str(), badges: arr(ref('earnedBadge'), { minItems: 1 }) }),
+        status: 'active', to: 'socket', seq: false,
+        clientReads: reads(W.profile, []),
+        emittedFrom: ['server/socket/badgeAwards.js:notify'],
+        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
+    },
     profileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl', 'scope'],
-        notes: SCOPE_ECHO_NOTE,
+        added: ['avatarUrl', 'scope', 'badges'],
+        notes: SCOPE_ECHO_NOTE + BADGES_NOTE,
         clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getProfile'],
     },
@@ -900,10 +908,10 @@ const s2c = {
         emittedFrom: ['server/socket/profileHandlers.js:searchPlayers'],
     },
     playerProfileResponse: {
-        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope }, { optional: ['avatarUrl', 'scope'] }),
+        payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
         status: 'active', to: 'self',
-        added: ['avatarUrl', 'scope'],
-        notes: SCOPE_ECHO_NOTE,
+        added: ['avatarUrl', 'scope', 'badges'],
+        notes: SCOPE_ECHO_NOTE + BADGES_NOTE,
         clientReads: reads(W.profile, I.profile),
         emittedFrom: ['server/socket/profileHandlers.js:getPlayerProfile'],
     },
