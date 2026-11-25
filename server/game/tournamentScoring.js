@@ -62,8 +62,10 @@ function recordTableScores(tournament, game, { aborted = false } = {}) {
         return scored;
     }
 
-    // Aborted before seating: the humans are still entrants, nobody has a
-    // score yet (0), a leaver too (min(0, 0))
+    // Aborted before seating: nobody partnered anyone (partner rotation
+    // forgets the planned teams); the humans are still entrants, nobody has
+    // a score yet (0), a leaver too (min(0, 0))
+    tournament.dropGameTeams?.(game.gameId);
     if (!aborted || !game.entrants) return scored;
     for (const e of game.entrants.values()) {
         if (e.isBot || !e.username || !counts(e.username)) continue;

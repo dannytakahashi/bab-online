@@ -239,6 +239,27 @@ describe('sit-outs, returns and leaves', () => {
         }
     });
 
+    test('when every option repeats a last partner: never the pair who are each other\'s last partner', () => {
+        // Round 1: m1+m2. Round 2: m1+m3, m0+m4 (m2 sits out). Round 3:
+        // m1+m0 (m2, m3 sit out). Round 4: m0, m1, m2, m3. Every matching
+        // pairs someone with their last partner, but m0+m1 is in a row for
+        // BOTH (partners in round 3, both playing round 4); m1+m3 or m1+m2
+        // only for m3 or m2, who sat out while m1 played with someone else
+        const h = P.emptyHistory();
+        P.addRound(h, [['m1', 'm2'], ['m0', null], ['m3', null], ['m4', null]]);
+        P.addRound(h, [['m1', 'm3'], ['m0', 'm4']]);
+        P.addRound(h, [['m1', 'm0'], ['m4', null]]);
+        expect(P.pairCost(h, 'm0', 'm1')).toBeGreaterThan(P.pairCost(h, 'm1', 'm3'));
+        expect(P.planCost(h, [['m0', 'm1'], ['m2', 'm3']]).consecutive).toBe(2);
+        expect(P.planCost(h, [['m0', 'm2'], ['m1', 'm3']]).consecutive).toBe(1);
+        for (let seed = 1; seed <= 100; seed++) {
+            const plan = P.planRoundTables(['m0', 'm1', 'm2', 'm3'], h, mulberry32(seed));
+            const pairs = pairsOfPlan(plan).map((p) => [...p].sort().join('+'));
+            expect(pairs).not.toContain('m0+m1');
+            expect(P.planCost(h, pairsOfPlan(plan))).toEqual({ consecutive: 1, repeats: 1 });
+        }
+    });
+
     test('a bot partner leaves no last partner and never counts as a repeat', () => {
         const h = P.addRound(P.emptyHistory(), [['a', null], ['b', null]]);
         expect(h.last.get('a')).toBeNull();
@@ -287,6 +308,50 @@ describe('sit-outs, returns and leaves', () => {
         expect(h.last.has('e')).toBe(false);
         expect(h.counts.get(P.pairKey('a', 'b'))).toBe(1);
         expect(h.counts.get(P.pairKey('c', 'a'))).toBe(1);
+    });
+});
+
+describe('a table that never seated adds no partnership', () => {
+    const { recordTableScores } = require('../tournamentScoring');
+    const { scoreGoneTable } = require('../persist/restoreTournament');
+
+    function roundOne() {
+        const t = new TournamentState('tid', 'T', 's-a', 'a');
+        for (const [i, u] of ['b', 'c', 'd', 'e', 'f', 'g'].entries()) t.addPlayer(`s-${i}`, u);
+        t.startRound(1);
+        t.addGameToRound('g1', ['a', 'b', 'c', 'd'], 0, [['a', 'b'], ['c', 'd']]);
+        t.addGameToRound('g2', ['e', 'f', 'g'], 1, [['e', 'f'], ['g', null]]);
+        return t;
+    }
+    // A table aborted before its draw seated anyone (the countdown): the
+    // entrants only, as gameLifecycle leaves it
+    const unseated = (gameId, humans) => ({
+        gameId,
+        score: { team1: 0, team2: 0 },
+        seatList: () => [],
+        entrants: new Map(humans.map((u, i) => [`x${i}`, { isBot: false, username: u, presence: 'connected' }]))
+    });
+
+    test('aborted in the countdown: its planned teams are dropped; the other table\'s stay', () => {
+        const t = roundOne();
+        recordTableScores(t, unseated('g2', ['e', 'f', 'g']), { aborted: true });
+        expect(t.rounds[0].games.get('g2').teams).toBeUndefined();
+        const h = t.partnerHistory();
+        expect(h.counts.has(P.pairKey('e', 'f'))).toBe(false);
+        expect(h.last.has('e')).toBe(false);
+        expect(h.counts.get(P.pairKey('a', 'b'))).toBe(1);
+        // Scored as before: 0, aborted, no position
+        expect(t.scoreboard.e.roundDetails[0]).toMatchObject({ teamScore: 0, aborted: true, position: null });
+    });
+
+    test('restored with the round in play: a pre-deal table scored as an abort adds no partnership', () => {
+        const t = roundOne();
+        expect(scoreGoneTable(t, 'g2')).toBe(true);
+        expect(t.partnerHistory().counts.has(P.pairKey('e', 'f'))).toBe(false);
+        // A table that was seated (its saved seats) keeps its teams
+        const seats = [['a', 1], ['c', 2], ['b', 3], ['d', 4]].map(([username, position]) => ({ username, position }));
+        expect(scoreGoneTable(t, 'g1', { tableScore: { score: { team1: 40, team2: -20 }, seats } })).toBe(true);
+        expect(t.partnerHistory().counts.get(P.pairKey('a', 'b'))).toBe(1);
     });
 });
 

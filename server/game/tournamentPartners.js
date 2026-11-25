@@ -16,9 +16,12 @@
  * So a round is a choice of which members are paired with a bot (the
  * "singles", a number fixed by the shapes) and a matching of the rest,
  * at the least cost, lexicographically:
- *   1. pairs who were partners in the last round either of them played
+ *   1. members partnered with the partner of the last round they played
  *      (a member who sat a round out still has the partner of the round
- *      before it as their last one; a bot partner leaves none);
+ *      before it as their last one; a bot partner leaves none), counted
+ *      per member: a pair who are each other's last partner (in a row for
+ *      both) costs two, a reunion after one of them sat out (in a row for
+ *      that one only) one;
  *   2. then the number of times each pair was partners before (a third
  *      partnership costs more than a second).
  * Ties are broken at random. Exact by branch and bound, which stops at the
@@ -73,18 +76,29 @@ function addRound(history, teams) {
     return history;
 }
 
-/** The cost of pairing a with b given `history` (0: never partners). */
-function pairCost(history, a, b) {
-    const back = history.last.get(a) === b || history.last.get(b) === a;
-    return (back ? CONSECUTIVE : 0) + (history.counts.get(pairKey(a, b)) || 0);
+/**
+ * How many of a and b would partner the other in a row: 0, 1 (one of them
+ * sat out since, while the other played with someone else) or 2 (each
+ * other's last partner, so in a row for both).
+ */
+function inARow(history, a, b) {
+    return (history.last.get(a) === b ? 1 : 0) + (history.last.get(b) === a ? 1 : 0);
 }
 
-/** Cost split of a set of pairs: {consecutive, repeats}. */
+/** The cost of pairing a with b given `history` (0: never partners). */
+function pairCost(history, a, b) {
+    return inARow(history, a, b) * CONSECUTIVE + (history.counts.get(pairKey(a, b)) || 0);
+}
+
+/**
+ * Cost split of a set of pairs: {consecutive (members who partner their
+ * last partner again, inARow summed), repeats}.
+ */
 function planCost(history, pairs) {
     let consecutive = 0;
     let repeats = 0;
     for (const [a, b] of pairs) {
-        if (history.last.get(a) === b || history.last.get(b) === a) consecutive++;
+        consecutive += inARow(history, a, b);
         repeats += history.counts.get(pairKey(a, b)) || 0;
     }
     return { consecutive, repeats };
@@ -234,6 +248,7 @@ module.exports = {
     pairKey,
     emptyHistory,
     addRound,
+    inARow,
     pairCost,
     planCost,
     tableShapes,

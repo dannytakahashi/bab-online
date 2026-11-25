@@ -21,8 +21,10 @@ jest.mock('../../database', () => ({
 const gameManager = require('../../game/GameManager');
 const tournamentHandlers = require('../tournamentHandlers');
 const chatHandlers = require('../chatHandlers');
+const gameLifecycle = require('../gameLifecycle');
+const pacing = require('../../game/pacing');
 const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/logger');
-const { setupTournament, playTournament, kill, newUser } = require('../../testUtils/tournamentDriver');
+const { setupTournament, playTournament, kill, newUser, liveTables } = require('../../testUtils/tournamentDriver');
 const { mulberry32 } = require('../../testUtils/gameDriver');
 
 const NOW = 1_800_000_000_000;
@@ -157,4 +159,28 @@ describe('a member who drops sits a round out and comes back with their history'
         const r1 = rounds[0].get(dropperName);
         if (r1) expect(rounds[2].get(dropperName)).not.toBe(r1);
     }, 180000);
+});
+
+describe('a table aborted before its draw adds no partnership', () => {
+    // A test that acts inside the countdown needs it (BAB_PACING=zero has none)
+    const inWindow = (ms) => (ms > 0 ? test : test.skip);
+    inWindow(pacing().TABLE_COUNTDOWN_MS)('7 members: the 3-member table aborts in the countdown; its pair stays unpartnered', async () => {
+        Math.random = mulberry32(11);
+        const ctx = await setupTournament(7);
+        ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+        await jest.advanceTimersByTimeAsync(2000);
+        const tables = liveTables(ctx.t);
+        expect(tables).toHaveLength(2);
+        const three = tables.find((g) => ctx.t.roundOfGame(g.gameId).games.get(g.gameId).humanPlayers.length === 3);
+        const [pair] = plannedTeams(ctx.t, three).filter((team) => team.length === 2);
+        expect(three.seatList()).toHaveLength(0);
+        await gameLifecycle.abortGame(ctx.io, three, 'test');
+        await jest.advanceTimersByTimeAsync(10000);
+        await ctx.starting;
+        const h = ctx.t.partnerHistory();
+        expect(h.counts.has(require('../../game/tournamentPartners').pairKey(...pair))).toBe(false);
+        expect(h.last.has(pair[0])).toBe(false);
+        // The 4-member table's two pairs count
+        expect(h.counts.size).toBe(2);
+    }, 60000);
 });
