@@ -24,6 +24,10 @@ Loads automatically when Claude reads a file under `contract/`; the full rules a
 
 - Get Your Bid (2026-11-24; `server/CLAUDE.md` "Get Your Bid", `contract/README.md` "Client capabilities"): cap `getYourBid` (`$defs.clientCapGetYourBid`; web only), c2s `createLobby.mode`, and optional keys only: `mode` on lobby events / list entries / allPlayersReady, `gyb` on gameStart, doneBidding, handComplete, gameEnd, lobbyReturn.lastGame and, beside the snapshot, on every snapshot carrier (`$defs.gybSnapshot`). `$defs.snapshotV2` is NOT changed (so the generated `TableSnapshot.swift` and `SocketEvents.swift` are byte-identical): a three-seat table pads its four-seat arrays and leaves `trickHistory` empty, and the carrier's `gyb` holds the real state. Never add a `gyb` key inside `$defs.snapshotV2` while iOS has no such table: that regenerates Swift. No new event, so `layout.json` is unchanged
 
+## Badges
+
+- Badges (2026-11-25; `server/CLAUDE.md` "Badges", `contract/README.md` "Client capabilities"): cap `badges` (`$defs.clientCapBadges`; the web, and iOS from 1.2.7 (41): `iOSClient/CLAUDE.md` "iOS badges"), the new private unsequenced s2c `badgesAwarded {gameId, badges}` (`layout.json`: listed for the web and, since iOS 1.2.7, for Swift in the Profile section, read by `ProfileSocketHandler`) and the optional `badges` (`$defs.earnedBadge` [{id, name, description, at}]) on `profileResponse` / `playerProfileResponse`. All three only for a socket with the cap, so the wire of every iOS build before 1.2.7 is unchanged. Never add the catalog (unearned badges) to any payload: the owner wants them to be a surprise
+
 ## seq
 
 - `seq`: `game.eventSeq` +1 per room broadcast (`GameState.broadcast` stamps `{...data, seq}`) and +1 per deal (every gameStart of a deal carries the same value); private emits carry none, and neither do the three UNSEQUENCED room events, `spectatorsUpdated`, `bidClock` and `seatLeft` (schema `seq: false`, `GameState.emitUnsequenced`; the contract guard checks both rules; contract/README.md "Bid clock"). Consumer rules R1–R5 in `contract/README.md`; `server/testUtils/seqCheck.js` checks them per receiver in chaos and contract tests

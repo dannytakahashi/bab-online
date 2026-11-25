@@ -48,11 +48,11 @@ final class AdminPanelUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
     }
 
-    /// The Admin entry sits under the profile and its statistics (iOS 1.2.2), so it starts off
-    /// screen on a phone: scroll the Account sheet until it (or, for a check that it is absent,
-    /// the Password section right under it) is on screen.
+    /// The Admin entry sits under the profile, its statistics and its badges (iOS 1.2.2, 1.2.7),
+    /// so it starts off screen on a phone: scroll the Account sheet until it (or, for a check
+    /// that it is absent, the Password section right under it) is on screen.
     private func reveal(_ app: XCUIApplication, _ target: XCUIElement) {
-        for _ in 0..<8 where !(target.exists && target.isHittable) { app.swipeUp(velocity: .slow) }
+        for _ in 0..<12 where !(target.exists && target.isHittable) { app.swipeUp(velocity: .slow) }
     }
 
     /// Main room -> Account -> Admin.

@@ -184,6 +184,7 @@ export const SERVER_EVENTS = {
   PROFILE_RESPONSE: 'profileResponse',
   PROFILE_PIC_UPDATE_RESPONSE: 'profilePicUpdateResponse',
   PROFILE_PIC_UPLOAD_RESPONSE: 'profilePicUploadResponse',
+  BADGES_AWARDED: 'badgesAwarded',
 
   // Player Search & Profile Lookup
   SEARCH_PLAYERS_RESPONSE: 'searchPlayersResponse',

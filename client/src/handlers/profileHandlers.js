@@ -1,7 +1,7 @@
 /**
  * Profile-related socket event handlers.
  *
- * Handles: profileResponse, profilePicUpdateResponse
+ * Handles: profileResponse, profilePicUpdateResponse, badgesAwarded
  */
 
 /**
@@ -15,7 +15,9 @@
  * @param {Function} callbacks.onProfilePicUpdateError - Called on profile pic update error
  * @param {Function} callbacks.onCustomProfilePicUploaded - Called when custom pic is uploaded
  * @param {Function} callbacks.onCustomProfilePicUploadError - Called on custom pic upload error
- * @param {Function} callbacks.onPlayerProfileReceived - Called with (profile, scope) of another player
+ * @param {Function} callbacks.onSearchPlayersResult - Called with search results
+ * @param {Function} callbacks.onPlayerProfileReceived - Called with (profile, scope, badges) of another player
+ * @param {Function} callbacks.onBadgesAwarded - Called with the badges this player just earned ([{id, name, description}])
  * @param {Function} callbacks.onPlayerProfileError - Called when another player's profile fails (no toast today)
  */
 export function registerProfileHandlers(socketManager, callbacks = {}) {
@@ -26,8 +28,10 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     onProfilePicUpdateError,
     onCustomProfilePicUploaded,
     onCustomProfilePicUploadError,
+    onSearchPlayersResult,
     onPlayerProfileReceived,
     onPlayerProfileError,
+    onBadgesAwarded,
   } = callbacks;
 
   // Profile response
@@ -35,7 +39,8 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     if (data.success) {
       console.log('Profile received:', data.profile);
       // scope: the stats scope echoed when the request named one (undefined = human)
-      onProfileReceived?.(data.profile, data.scope);
+      // badges: the player's earned badges (only with the cap `badges`)
+      onProfileReceived?.(data.profile, data.scope, data.badges);
     } else {
       console.warn('Profile fetch failed:', data.message);
       onProfileError?.(data.message || 'Failed to fetch profile');
@@ -64,13 +69,30 @@ export function registerProfileHandlers(socketManager, callbacks = {}) {
     }
   });
 
+  // Player search response
+  socketManager.on('searchPlayersResponse', (data) => {
+    console.log('searchPlayersResponse received:', data);
+    if (data.success) {
+      // query: the echo of the request (stale replies are dropped there)
+      onSearchPlayersResult?.(data.players, data.query);
+    } else {
+      console.warn('Player search failed:', data.message);
+      onSearchPlayersResult?.([], data.query);
+    }
+  });
+
   // Player profile response (viewing another player)
   socketManager.on('playerProfileResponse', (data) => {
     if (data.success) {
-      onPlayerProfileReceived?.(data.profile, data.scope);
+      onPlayerProfileReceived?.(data.profile, data.scope, data.badges);
     } else {
       console.warn('Player profile fetch failed:', data.message);
       onPlayerProfileError?.(data.message);
     }
+  });
+
+  // Badges this player just earned (private; after a game's stats are written)
+  socketManager.on('badgesAwarded', (data) => {
+    if (Array.isArray(data?.badges) && data.badges.length > 0) onBadgesAwarded?.(data.badges, data.gameId);
   });
 }

@@ -180,6 +180,9 @@ export function foldAvatarPayload(event, data) {
     case 'leaderboardResponse':
       foldRows(data.leaderboard, urls);
       break;
+    case 'searchPlayersResponse':
+      foldRows(data.players, urls);
+      break;
     case 'profileResponse':
     case 'playerProfileResponse':
       if (data.profile && typeof data.profile === 'object') {
@@ -232,8 +235,10 @@ export function foldAvatarPayload(event, data) {
  * shows Cut for a buck, the tournament's finale (phase 'cut', the
  * cutForABuck* events, tournamentJoined.cut) and the complete phase as the
  * lobby's final results, so the server runs the cut when a member has it.
+ * And badges (2026-11-25, ui/components/Badges.js): this page shows a
+ * player's earned badges on their profile and the badgesAwarded toast.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck', 'badges'];
 
 export function clientHello(version, build, capable = true) {
   return {

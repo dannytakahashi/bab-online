@@ -91,8 +91,14 @@ const { socketLogger } = require('../utils/logger');
  *                     'round_active' during a cut, is drawn for every round
  *                     and gets the rounds as private chat lines
  *                     (server/socket/cutForABuck.js)
+ *   badges            shows badges (owner 2026-11-24): the player's earned
+ *                     ones as `badges` on profileResponse /
+ *                     playerProfileResponse, and the private s2c
+ *                     badgesAwarded after a game that earned one
+ *                     (server/socket/badgeAwards.js); a socket without it
+ *                     gets neither (the web and iOS 1.2.7 (41))
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck', 'badges'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

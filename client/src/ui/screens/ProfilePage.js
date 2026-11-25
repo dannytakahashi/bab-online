@@ -16,6 +16,7 @@ import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { showError } from '../components/Toast.js';
 import { createStatsScopeControl } from '../components/StatsScopeControl.js';
 import { createTournamentHistorySection } from '../components/TournamentHistory.js';
+import { createBadgesSection } from '../components/Badges.js';
 import {
   getStatsScope, setStatsScope, isStatsScope, createScopeRequester, scopePayload, BOT_STATS_EMPTY_NOTE,
 } from '../../state/statsScope.js';
@@ -304,8 +305,9 @@ function removePictureSelector() {
  * @param {Object} profile - Profile data (username, profilePic, stats)
  * @param {Object} socket - Socket instance
  * @param {string} [scope] - the stats scope `profile.stats` is for (default: the device's choice)
+ * @param {Array} [badges] - the badges this player has earned (below the statistics)
  */
-export function showProfilePage(profile, socket, scope = getStatsScope()) {
+export function showProfilePage(profile, socket, scope = getStatsScope(), badges = []) {
   console.log('Showing profile page...', profile);
 
   // Remove any existing profile page
@@ -341,6 +343,7 @@ export function showProfilePage(profile, socket, scope = getStatsScope()) {
   const hero = createPanel({ elevation: 1, className: 'profile-hero screen-section', children: [createAvatar(profile, 'profilePicImage'), picInfo] });
   const section = createStatsSection(profile.stats, scope, (next) => socket?.emit('getProfile', { scope: next }), 'profileStatsRegion');
   ownStats = section;
+  const badgeSection = createBadgesSection(badges, 'profileBadgesRegion');
 
   profileModal = openModal({
     title: profile.username,
@@ -349,7 +352,7 @@ export function showProfilePage(profile, socket, scope = getStatsScope()) {
     id: 'profilePageOverlay',
     dialogId: 'profilePageModal',
     className: 'page-modal',
-    body: [hero, ...section.nodes, ...createTournamentHistorySection(profile, 'profileTournaments').nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
+    body: [hero, ...section.nodes, ...createTournamentHistorySection(profile, 'profileTournaments').nodes, ...badgeSection.nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
     onClose: () => {
       profileModal = null;
       removePictureSelector();
@@ -759,7 +762,8 @@ export function openBlockDialog(username, onConfirm) {
  * @param {Object} profile - Profile data (username, profilePic, stats)
  * @param {Object} [socket] - Socket instance (enables report/block actions)
  * @param {Object} [options] - { isBlocked } current block state for the toggle,
- *   { scope } the stats scope `profile.stats` is for (default: the device's choice)
+ *   { scope } the stats scope `profile.stats` is for (default: the device's choice),
+ *   { badges } the badges that player has earned (below the statistics)
  */
 export function showPlayerProfilePage(profile, socket, options = {}) {
   socket = socket || currentSocket;
@@ -818,6 +822,7 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
   body.push(...section.nodes);
   // The tournament history (every scope the same: a scope switch leaves it)
   body.push(...createTournamentHistorySection(profile, 'playerProfileTournaments').nodes);
+  body.push(...createBadgesSection(options.badges, 'playerProfileBadgesRegion').nodes);
 
   playerProfileModal = openModal({
     title: profile.username,

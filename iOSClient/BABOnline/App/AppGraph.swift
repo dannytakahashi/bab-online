@@ -32,6 +32,7 @@ final class AppGraph: ObservableObject {
         UIFixture.seed(store, app, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
         UIFixture.seedStats(leaderboard: leaderboard, records: records)
         UIFixture.seedProfile(profile, safety: safety)
+        UIFixture.seedBadgeAwards(auth: auth)
         UIFixture.seedAdmin(AdminState.shared, auth: auth)
         #endif
         leaderboardState = leaderboard
