@@ -405,3 +405,46 @@ describe('the optional per-viewer and per-line extras (2026-11-19)', () => {
     expect(r.snapshot.log.at(-1).fault).toEqual(fault);
   });
 });
+
+// A tournament table's planned teams (2026-11-25; contract/fixtures/pairings)
+describe('draw.teams (a tournament table\'s draw for first deal)', () => {
+  const PDIR = fileURLToPath(new URL('../../../contract/fixtures/pairings/', import.meta.url));
+  const pairings = JSON.parse(fs.readFileSync(path.join(PDIR, 'events.json'), 'utf8'));
+  const snapOf = (mode) => pairings[mode].find((e) => e.event === 'stateSnapshot').data.snapshot;
+
+  it.each(['honest', 'staged'])('%s: the server\'s mid-draw snapshot keeps its 2 x 2 teams', (mode) => {
+    const r = parseSnapshotV2(snapOf(mode), { strict: true });
+    expect(r.ok).toBe(true);
+    expect(r.warnings).toEqual([]);
+    const { teams } = r.snapshot.draw;
+    expect(teams).toHaveLength(2);
+    for (const t of teams) {
+      expect(t).toHaveLength(2);
+      for (const p of t) expect(Object.keys(p).sort()).toEqual(['isBot', 'username']);
+    }
+    // and startDraw named the same teams
+    const start = pairings[mode].find((e) => e.event === 'startDraw').data.teams;
+    expect(teams).toEqual(start);
+    expect(Object.isFrozen(teams[0][0])).toBe(true);
+  });
+
+  it('absent (a casual table, an older server): no key', () => {
+    const r = parseSnapshotV2(load('draw-in-progress').snapshot, { strict: true });
+    expect(r.ok).toBe(true);
+    expect('teams' in r.snapshot.draw).toBe(false);
+  });
+
+  it.each([
+    ['one team', (t) => [t[0]]],
+    ['a team of one', (t) => [[t[0][0]], t[1]]],
+    ['no username', (t) => [[t[0][0], { isBot: false }], t[1]]],
+    ['not an array', () => 'teams'],
+  ])('malformed (%s): dropped with a warning, the snapshot still applies', (_label, mangle) => {
+    const raw = JSON.parse(JSON.stringify(snapOf('honest')));
+    raw.draw.teams = mangle(raw.draw.teams);
+    const r = parseSnapshotV2(raw);
+    expect(r.ok).toBe(true);
+    expect('teams' in r.snapshot.draw).toBe(false);
+    expect(r.warnings).toEqual(['$.draw.teams: malformed, dropped']);
+  });
+});

@@ -62,7 +62,7 @@ import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } 
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope } from './state/statsScope.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings } from './ui/screens/TournamentLobby.js';
 import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
@@ -2616,6 +2616,8 @@ function initializeApp() {
     onTournamentRoundStart: (data) => {
       updateTournamentRoundIndicator(data.roundNumber, data.totalRounds);
       setTournamentPhase('round_active');
+      // the round's pairings, shown before its draw (servers since 2026-11-25)
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentGameAssignment: (data) => {
@@ -2632,6 +2634,7 @@ function initializeApp() {
       if (data.scoreboard) {
         updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
       }
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentRoundComplete: (data) => {
@@ -2640,9 +2643,11 @@ function initializeApp() {
         updateTournamentScoreboardUI(data.scoreboard, data.currentRound, data.totalRounds);
       }
       updateTournamentRoundIndicator(data.currentRound, data.totalRounds);
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
     },
 
     onTournamentComplete: (data) => {
+      if (Array.isArray(data.pairings)) updateTournamentPairings(data.pairings);
       const winners = data.winners && data.winners.length > 0
         ? data.winners
         : (data.scoreboard && data.scoreboard.length > 0 ? [data.scoreboard[0].username] : []);

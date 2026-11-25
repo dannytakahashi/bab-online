@@ -4,7 +4,7 @@
  * begin or cancel, so without them the tournament was stuck until a reload).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed } from './TournamentLobby.js';
+import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed, updateTournamentPairings } from './TournamentLobby.js';
 
 function fakeSocket() {
   const sent = [];
@@ -223,5 +223,36 @@ describe('between rounds: the ready deadline and the idle-host hand-off (2026-11
     showTournamentLobby(hosting(), fakeSocket(), 'me');
     updateTournamentPlayers(hosting({ cat: true }).players, 'me');
     expect(cancel()).not.toBeNull();
+  });
+});
+
+describe('the round pairings and Partners so far (2026-11-25)', () => {
+  const PAIRINGS = [
+    { roundNumber: 1, tables: [{ gameId: 'g1', teams: [['me', 'cat'], ['bob', null]] }] },
+  ];
+  const section = () => document.getElementById('tournamentPairings');
+
+  it('hidden in the lobby phase (no pairings key), shown from tournamentJoined and updated by the events', () => {
+    const socket = fakeSocket();
+    showTournamentLobby(lobby(), socket, 'me');
+    expect(section().hidden).toBe(true);
+    updateTournamentPairings([{ roundNumber: 1, tables: [{ gameId: null, teams: [['me', 'cat'], ['bob', null]] }] }]);
+    expect(section().hidden).toBe(false);
+    expect(section().querySelector('h3').textContent).toBe('Round 1 pairings');
+    expect(section().querySelector('.tournament-pairings__row').textContent).toBe('You & cat vs bob & a bot');
+    // a payload without pairings changes nothing
+    updateTournamentPairings(undefined);
+    expect(section().hidden).toBe(false);
+  });
+
+  it('a returning member: the state\'s pairings with Partners so far', () => {
+    showTournamentLobby({ ...lobby({ phase: 'between_rounds', currentRound: 1 }), pairings: PAIRINGS }, fakeSocket(), 'me');
+    expect([...section().querySelectorAll('.tournament-pairings__partner')].map((r) => r.textContent)).toEqual(['Round 1 · cat']);
+  });
+
+  it('a spectator: the tables, no Partners so far', () => {
+    showTournamentLobby({ ...lobby({ phase: 'round_active', currentRound: 1, isSpectator: true }), pairings: PAIRINGS }, fakeSocket(), 'zed');
+    expect(section().querySelector('.tournament-pairings__row').textContent).toBe('me & cat vs bob & a bot');
+    expect(section().querySelector('.tournament-pairings__partners')).toBeNull();
   });
 });

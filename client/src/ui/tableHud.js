@@ -264,6 +264,12 @@ function applyRootVars(hud, L) {
     set('--draw-rules-y', d.rules.y);
     set('--draw-rules-w', d.rules.rect.w);
     set('--draw-rules-font', d.rules.font);
+    // a tournament table's teams line (absent: the casual draw)
+    if (d.teams) {
+      set('--draw-teams-y', d.teams.y);
+      set('--draw-teams-w', d.teams.maxW);
+      set('--draw-teams-font', d.teams.font);
+    }
     set('--draw-av', d.avatar.size);
     set('--draw-av-y', d.avatar.y);
     set('--draw-name-y', d.name.y);
