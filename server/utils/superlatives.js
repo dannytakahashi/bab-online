@@ -97,10 +97,11 @@
  *                   based (seatStatsDelta: handStats.teamNSets, the hands
  *                   the player's own team took fewer tricks than its bid),
  *                   so this is the share of their hands their team was set:
- *                   the leaderboard's Set % (All Time: from the accounts)
+ *                   the leaderboard's Set % (All Time: from the accounts),
+ *                   printed as it is (one decimal: "28.6% of hands set")
  * Count-like titles (bagBoy, botFriends, helpFromFriends, myQuantitative,
  * delusionsOfGrandeur) are left out when the best value SHOWS as 0 ("0.0
- * bags a game", "0% of hands set"); the per-seat titles need per-seat data
+ * bags a game", "0.0% of hands set"); the per-seat titles need per-seat data
  * (seat-games / hands > 0), the account titles totalHands > 0.
  * Ties: up to MAX_NAMES names, alphabetical (case-insensitive); more tied
  * players add " (+N more)" to the detail. The same for an account title.
@@ -229,6 +230,10 @@ function seatBags(sd, posKey) {
 const round1 = (v) => Math.round(v * 10) / 10;
 const fmt1 = (v) => round1(v).toFixed(1);
 const pct = (v) => Math.round(v * 100);
+// A share as the leaderboard and profiles print Set % (one decimal,
+// `(sets / hands * 100).toFixed(1)`: LeaderboardPage formatStatValue,
+// ProfilePage, PlayerProfile.swift), so the two screens read the same.
+const pct1 = (v) => (v * 100).toFixed(1);
 
 /**
  * The titles, in wire order. `value(p)` is the player's value or null (no
@@ -277,8 +282,8 @@ const TITLES = Object.freeze([
     {
         id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', best: 'max', zeroOmits: true, basis: 'seat', account: true,
         value: (p) => (p.hands > 0 ? p.sets / p.hands : null),
-        shown: pct,
-        detail: (v) => `${pct(v)}% of hands set`
+        shown: (v) => Number(pct1(v)),
+        detail: (v) => `${pct1(v)}% of hands set`
     }
 ]);
 

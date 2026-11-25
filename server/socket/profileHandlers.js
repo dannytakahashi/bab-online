@@ -976,7 +976,7 @@ const SUPERLATIVE_ACCOUNT_QUERIES = {
 async function superlativeAccounts(scope) {
     try {
         const usersCollection = getUsersCollection();
-        if (!usersCollection) return null;
+        if (!usersCollection) throw new Error('no users collection');
         const query = SUPERLATIVE_ACCOUNT_QUERIES[scope] || SUPERLATIVE_ACCOUNT_QUERIES.human;
         const bucket = (LEADERBOARD_QUERIES[scope] || LEADERBOARD_QUERIES.human).bucket;
         const users = await usersCollection.find(query.filter, { projection: query.projection }).toArray();

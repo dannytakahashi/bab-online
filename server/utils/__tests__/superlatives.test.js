@@ -112,7 +112,7 @@ describe('the titles', () => {
         // help and solo games carry no counter: neither counted nor diluting)
         expect(s.myQuantitative).toEqual({ id: 'myQuantitative', title: 'My Quantitative', names: ['Cat'], detail: '62% of bids spot on' });
         // Ann: 20 sets / 104 hands = 19%
-        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '19.2% of hands set' });
     });
 
     test('a count title whose best value is 0 is left out; the HSI titles still show', () => {
@@ -417,18 +417,29 @@ describe('review fixes (2026-11-20)', () => {
         expect(two.cursed).toMatchObject({ names: ['Fay'], detail: '100.0 avg HSI' });
     });
 
-    test('a count title whose best value only shows as 0 ("0.0 bags a game", "0% of hands set") is left out', () => {
-        // one bag and one set in 30 games of 13 hands: 0.03 a game, 0.26% of hands
-        const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1, totalSets: 1 })];
-        const s = byId(computeSuperlatives(games));
-        expect(s.bagBoy).toBeUndefined();
-        expect(s.delusionsOfGrandeur).toBeUndefined();
+    test('a count title whose best value only shows as 0 ("0.0 bags a game", "0.0% of hands set") is left out', () => {
+        // one bag in 30 games: 0.03 a game; one set in 5 games of 500 hands: 0.04% of hands
+        const games = [...times(29, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
+        expect(byId(computeSuperlatives(games)).bagBoy).toBeUndefined();
+        const few = times(5, (i) => soloGame('Ann', { totalHands: 500, totalSets: i === 0 ? 1 : 0 }));
+        expect(byId(computeSuperlatives(few)).delusionsOfGrandeur).toBeUndefined();
         // 0.05 a game shows as 0.1 (rounded half up): shown
         const half = [...times(19, () => soloGame('Ann')), soloGame('Ann', { totalBags: 1 })];
         expect(byId(computeSuperlatives(half)).bagBoy).toMatchObject({ names: ['Ann'], detail: '0.1 bags a game' });
-        // 1 set in 100 hands shows as 1%
+        // 1 set in 2000 hands shows as 0.1% (the leaderboard's toFixed(1)): shown
+        const tenth = times(5, (i) => soloGame('Ann', { totalHands: 400, totalSets: i === 0 ? 1 : 0 }));
+        expect(byId(computeSuperlatives(tenth)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '0.1% of hands set' });
+        // 1 set in 100 hands shows as 1.0%
         const sets = times(5, (i) => soloGame('Ann', { totalHands: 20, totalSets: i === 0 ? 1 : 0 }));
-        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1% of hands set' });
+        expect(byId(computeSuperlatives(sets)).delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1.0% of hands set' });
+    });
+
+    test('Delusions of Grandeur prints Set % as the leaderboard and profiles do (one decimal, toFixed(1))', () => {
+        // 2 sets in 7 hands = 28.571...%: the leaderboard shows 28.6%, not 29%
+        const games = times(5, (i) => soloGame('Ann', { totalHands: i < 2 ? 2 : 1, totalSets: i === 0 ? 2 : 0 }));
+        const leaderboardText = ((2 / 7) * 100).toFixed(1) + '%';
+        expect(leaderboardText).toBe('28.6%');
+        expect(byId(computeSuperlatives(games)).delusionsOfGrandeur.detail).toBe(`${leaderboardText} of hands set`);
     });
 
     test('bags come from statsDeltas.bags only; a byPosition totalBags (never written) is ignored for the net', () => {
@@ -475,10 +486,10 @@ describe('eligibility by the data a title reads (2026-11-24)', () => {
             expect(s[id]?.names || []).not.toContain('Hannah');
         }
         // Ben, Cat and Dan have 5 such games: 3 sets in 65 hands = 5%
-        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben', 'Cat', 'Dan'], detail: '5% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben', 'Cat', 'Dan'], detail: '4.6% of hands set' });
         // three more and she qualifies (5 games with counters)
         const more = byId(computeSuperlatives([...games, ...times(3, () => humanGame({ 1: ['Hannah'], 2: ['Ben'], 3: ['Cat'], 4: ['Dan'] }))]));
-        expect(more.delusionsOfGrandeur).toMatchObject({ names: ['Hannah'], detail: '15% of hands set' });
+        expect(more.delusionsOfGrandeur).toMatchObject({ names: ['Hannah'], detail: '15.4% of hands set' });
         expect(more.bagBoy).toMatchObject({ names: ['Hannah'], detail: '1.6 bags a game' });
         expect(more.helpFromFriends).toMatchObject({ names: ['Hannah'], detail: '18 /help uses' });
     });
@@ -529,7 +540,7 @@ describe('All Time account titles (accounts: the leaderboard\'s totals, 2026-11-
         const ben = acct('Ben', 32, 416, 40, 416 * 110);
         const cat = acct('Cat', 32, 416, 30, 416 * 100);
         const s = byId(computeSuperlatives(games, { accounts: [hannah, ben, cat] }));
-        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: '12% of hands set' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: '12.0% of hands set' });
         expect(Math.round((50 / 416) * 100)).toBe(12);
         expect(s.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ben'], detail: '110.0 avg HSI' });
         expect(s.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Hannah'], detail: '90.0 avg HSI' });
@@ -542,7 +553,7 @@ describe('All Time account titles (accounts: the leaderboard\'s totals, 2026-11-
         const accounts = [acct('Ann', 5, 65, 1, 6500), acct('Zed', 4, 52, 52, 52 * 300), null];
         const s = byId(computeSuperlatives(games, { accounts }));
         // Zed (4 games) is not a candidate; Ann's records (13 sets a game) are not read for it
-        expect(s.delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '2% of hands set' });
+        expect(s.delusionsOfGrandeur).toMatchObject({ names: ['Ann'], detail: '1.5% of hands set' });
         expect(s.luckyDuck).toMatchObject({ names: ['Ann'], detail: '100.0 avg HSI' });
         expect(s.cursed).toBeUndefined(); // one candidate: the same value as Lucky Duck
         // Bag Boy from the records
@@ -555,11 +566,11 @@ describe('All Time account titles (accounts: the leaderboard\'s totals, 2026-11-
         const names = ['dora', 'Bob', 'alice', 'Carl', 'Eve'];
         const accounts = names.map((n) => acct(n, 10, 130, 13, 130 * 100));
         const s = byId(computeSuperlatives(regulars(5), { accounts }));
-        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10% of hands set (+2 more)' });
+        expect(s.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10.0% of hands set (+2 more)' });
         expect(s.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['alice', 'Bob', 'Carl'], detail: '100.0 avg HSI (+2 more)' });
         expect(s.cursed).toBeUndefined();
-        // nobody set (or only 0.3%): left out; HSI titles still show
-        const none = byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 30, 390, 1, 39000), acct('Ben', 30, 390, 0, 30000)] }));
+        // nobody set (or only 0.04%, shown as 0.0%): left out; HSI titles still show
+        const none = byId(computeSuperlatives(regulars(5), { accounts: [acct('Ann', 30, 2500, 1, 250000), acct('Ben', 30, 390, 0, 30000)] }));
         expect(none.delusionsOfGrandeur).toBeUndefined();
         expect(none.luckyDuck.names).toEqual(['Ann']);
         expect(none.cursed).toMatchObject({ names: ['Ben'], detail: '76.9 avg HSI' });

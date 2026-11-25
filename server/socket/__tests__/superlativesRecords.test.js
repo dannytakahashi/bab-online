@@ -145,7 +145,7 @@ describe('per period', () => {
         expect(month.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Cat'], detail: '153.8 avg HSI' });
         expect(month.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Ann', 'Ben', 'Dan'], detail: '100.0 avg HSI' });
         expect(month.helpFromFriends).toEqual({ id: 'helpFromFriends', title: 'A little help from my friends', names: ['Ben'], detail: '15 /help uses' });
-        expect(month.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '38% of hands set' });
+        expect(month.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ann'], detail: '38.5% of hands set' });
         // no bot game in the human scope: nobody is solo
         expect(month.botFriends).toBeUndefined();
         // never a bot persona, never a player of the legacy (name-less) records
@@ -361,9 +361,9 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
         }
         const all = byId(res.records.allTime.superlatives);
         // Ben: 60 sets in 546 hands = 10.99%
-        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben'], detail: '11% of hands set' });
+        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Ben'], detail: '11.0% of hands set' });
         const rows = Object.fromEntries((await board()).map((r) => [r.username, r]));
-        expect(all.delusionsOfGrandeur.detail).toBe(`${Math.round(rows.Ben.setRate)}% of hands set`);
+        expect(all.delusionsOfGrandeur.detail).toBe(`${rows.Ben.setRate.toFixed(1)}% of hands set`);
         expect(all.luckyDuck).toEqual({ id: 'luckyDuck', title: 'Lucky Duck', names: ['Ben'], detail: `${rows.Ben.avgHSI.toFixed(1)} avg HSI` });
         expect(all.cursed).toEqual({ id: 'cursed', title: 'Cursed', names: ['Hannah'], detail: `${rows.Hannah.avgHSI.toFixed(1)} avg HSI` });
 
@@ -374,8 +374,8 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
         profile.invalidateLeaderboard();
         const hers = byId((await records()).records.allTime.superlatives).delusionsOfGrandeur;
         const row = (await board()).find((r) => r.username === 'Hannah');
-        expect(hers).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: `${Math.round(row.setRate)}% of hands set` });
-        expect(hers.detail).toBe('9% of hands set');
+        expect(hers).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['Hannah'], detail: `${row.setRate.toFixed(1)}% of hands set` });
+        expect(hers.detail).toBe('9.0% of hands set');
     });
 
     test('per scope, as the leaderboard: human = stats, bots = botStats, all = both summed; eligibility = gamesPlayed in that scope', async () => {
@@ -394,7 +394,7 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
             const best = (key) => ranked.reduce((a, r) => (r[key] > a[key] ? r : a));
             const worst = (key) => ranked.reduce((a, r) => (r[key] < a[key] ? r : a));
             const all = byId(res.records.allTime.superlatives);
-            expect(all.delusionsOfGrandeur).toMatchObject({ names: [best('setRate').username], detail: `${Math.round(best('setRate').setRate)}% of hands set` });
+            expect(all.delusionsOfGrandeur).toMatchObject({ names: [best('setRate').username], detail: `${best('setRate').setRate.toFixed(1)}% of hands set` });
             expect(all.luckyDuck).toMatchObject({ names: [best('avgHSI').username], detail: `${best('avgHSI').avgHSI.toFixed(1)} avg HSI` });
             if (ranked.length > 1) expect(all.cursed).toMatchObject({ names: [worst('avgHSI').username] });
             // the candidates are exactly the ranked leaderboard players
@@ -403,11 +403,11 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
             }[scope]);
         }
         // Mia's 60 sets in 78 hands: all only
-        expect(byId((await records({ scope: 'all' })).records.allTime.superlatives).delusionsOfGrandeur).toMatchObject({ names: ['Mia'], detail: '77% of hands set' });
+        expect(byId((await records({ scope: 'all' })).records.allTime.superlatives).delusionsOfGrandeur).toMatchObject({ names: ['Mia'], detail: '76.9% of hands set' });
         expect(byId((await records({ scope: 'human' })).records.allTime.superlatives).delusionsOfGrandeur.names).toEqual(['Ben']);
         // bots: Bo alone, Cursed left out (the same value as Lucky Duck)
         const bots = byId((await records({ scope: 'bots' })).records.allTime.superlatives);
-        expect(bots.delusionsOfGrandeur).toMatchObject({ names: ['Bo'], detail: '50% of hands set' });
+        expect(bots.delusionsOfGrandeur).toMatchObject({ names: ['Bo'], detail: '50.0% of hands set' });
         expect(bots.luckyDuck).toMatchObject({ names: ['Bo'], detail: '120.0 avg HSI' });
         expect(bots.cursed).toBeUndefined();
     });
@@ -432,7 +432,7 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
             gameRecords: [humanGame(['Bob', 'Carl', 'dora', 'Eve'], LAST_YEAR())]
         });
         const all = byId((await records()).records.allTime.superlatives);
-        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10% of hands set (+2 more)' });
+        expect(all.delusionsOfGrandeur).toEqual({ id: 'delusionsOfGrandeur', title: 'Delusions of Grandeur', names: ['alice', 'Bob', 'Carl'], detail: '10.0% of hands set (+2 more)' });
         expect(all.luckyDuck.detail).toBe('100.0 avg HSI (+2 more)');
         expect(all.cursed).toBeUndefined();
     });
@@ -464,6 +464,21 @@ describe('All Time account titles from the leaderboard totals (2026-11-24)', () 
         expect(error).toHaveBeenCalledWith('Could not read the accounts for the All Time superlatives', expect.objectContaining({ scope: 'human', error: 'boom' }));
         // nobody has 5 games with per-seat counters
         expect(res.records.allTime.superlatives).toEqual([]);
+
+        // no users collection at all: logged the same way, same fallback
+        profile.invalidateRecords();
+        error.mockClear();
+        const saved = mockDb.current;
+        mockDb.current = { ...saved, users: null };
+        try {
+            const none = await records();
+            expect(none.success).toBe(true);
+            expect(none.records.allTime.superlatives).toEqual([]);
+        } finally {
+            mockDb.current = saved;
+        }
+        expect(error).toHaveBeenCalledWith('Could not read the accounts for the All Time superlatives', expect.objectContaining({ scope: 'human', error: 'no users collection' }));
+        error.mockRestore();
         expect(require('../../testUtils/contractCheck').takeViolations()).toEqual([]);
     });
 });
