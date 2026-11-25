@@ -76,6 +76,11 @@ struct ContentView: View {
                             // comes in with the sign-in's card at the hand-off, never in one frame
                             .opacity(showSplash ? 0 : 1)
                             .animation(.easeOut(duration: SplashTimeline.handOff), value: showSplash)
+                        // a badge just earned (s2c badgesAwarded, after gameEnd: over the score
+                        // screen), in the same spot; it waits while those toasts are up
+                        BadgeToast()
+                            .opacity(showSplash ? 0 : 1)
+                            .onDisappear { BadgeAwards.shared.reset() }
                     } else {
                         // signed out (the sign-in, register): the toasts alone, no connection pill
                         // (those screens say "Connecting to server..." themselves), so a
