@@ -51,6 +51,7 @@ struct TournamentRoundsPicker: View {
                 .accessibilityLabel("Rounds")
                 .accessibilityValue(TournamentRounds.label(tournamentState.totalRounds))
                 .accessibilityHint("Choose how many rounds the tournament plays")
+                .accessibilityIdentifier("tournament.rounds")
             } else {
                 HStack(spacing: Theme.Space.s3) {
                     Text("Rounds")
@@ -66,11 +67,11 @@ struct TournamentRoundsPicker: View {
                     }
                     .pickerStyle(.segmented)
                     .accessibilityLabel("Rounds")
+                    .accessibilityIdentifier("tournament.rounds")
                 }
             }
         }
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.5)
-        .accessibilityIdentifier("tournament.rounds")
     }
 }

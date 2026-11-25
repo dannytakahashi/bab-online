@@ -211,6 +211,9 @@ private struct TournamentLobbyScreen: View {
         let keyboard = visibleHeight > 0 ? max(0, height - visibleHeight) : 0
         return VStack(spacing: 0) {
             headerBar
+                // never squeezed under its content (a wrapped round line and the voice-full
+                // notice at AX5 ran over the divider): the players and chat give the room
+                .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
                 .zIndex(1)  // the voice panel tip hangs over what follows
             CappedAboveChat(chatMin: Self.compactChatMin) {
@@ -307,6 +310,9 @@ private struct TournamentLobbyScreen: View {
             Text(roundIndicator)
                 .font(.caption)
                 .foregroundColor(Theme.textSecondary)
+                // wraps rather than cutting the host's count ("Waiting to start · 4…" at AX5)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("tournament.roundLine")
             voiceFullNote
         }
