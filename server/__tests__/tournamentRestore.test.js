@@ -700,6 +700,11 @@ describe('Cut for a buck (codec v2)', () => {
     const cutForABuck = require('../socket/cutForABuck');
     const { giveCap, deckOf } = require('../testUtils/cutDriver');
 
+    // The cut's holds at their standard values in every run (test:race's
+    // BAB_PACING=zero makes them 0, and these tests stop in each stage)
+    beforeEach(() => {
+        if (ZERO_PACING) require('../game/pacing').setPacingForTests({ CUT_GATHER_MS: 15000, CUT_REVEAL_MS: 4000, CUT_WINNER_MS: 6000 });
+    });
     afterEach(() => cutForABuck.setEngineOptionsForTests({}));
 
     /** A 3-member, 1-round tournament with the cap, played on A into its cut, at `stage`. */
