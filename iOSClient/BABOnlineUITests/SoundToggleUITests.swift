@@ -51,10 +51,11 @@ final class SoundToggleUITests: XCTestCase {
         app.terminate()
     }
 
-    /// The Sound section sits under the profile (iOS 1.2.2): scroll the Account sheet to it.
+    /// The Sound section sits under the profile and its badges (iOS 1.2.2, 1.2.7): scroll the
+    /// Account sheet to it.
     private func revealSound(_ app: XCUIApplication, _ toggle: XCUIElement) {
         XCTAssertTrue(app.navigationBars["Account"].waitForExistence(timeout: 5))
-        for _ in 0..<6 where !(toggle.exists && toggle.isHittable) { app.swipeUp(velocity: .slow) }
+        for _ in 0..<9 where !(toggle.exists && toggle.isHittable) { app.swipeUp(velocity: .slow) }
     }
 
     /// Players 2026-11-21 (iOS 1.2.4 (33)): "you can't turn the sound all the way off", the
