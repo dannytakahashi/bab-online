@@ -263,14 +263,19 @@ function onLobbyScreen(io, t, sid) {
  * The member `sid` was just sent tournamentCreated / tournamentJoined (it
  * shows the tournament lobby): it enters the room (or, already in it, is
  * listed again). Nothing for a socket without the cap, outside the lobby
- * screen, or in a complete tournament (its results window takes no new
- * voice: the clients show the results there, not a room). Any older entry
+ * screen, or in a complete tournament for a socket without the cap
+ * cutForABuck (its results window takes no new voice there: those clients
+ * show a results overlay, not a room). Any older entry
  * of the same user (a reattach on a new socket while the old one is still
  * half-open) goes, and the new socket takes its place in line.
  */
 function enter(io, t, sid) {
-    if (!io || !registered(t) || t.phase === 'complete') return false;
+    if (!io || !registered(t)) return false;
     if (!clientInfo.socketHasCap(io, sid, CAP) || !onLobbyScreen(io, t, sid)) return false;
+    // The complete phase (Cut for a buck, 2026-11-25): a client with the cap
+    // cutForABuck shows the final results in the lobby, with its mic; one
+    // without it shows its results overlay, never a room
+    if (t.phase === 'complete' && !clientInfo.socketHasCap(io, sid, 'cutForABuck')) return false;
     const username = t.players.get(sid)?.username ?? gameManager.getUserBySocketId(sid)?.username ?? null;
     if (!username) return false;
     // Another room this socket was in (a finished tournament's) goes first

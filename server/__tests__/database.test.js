@@ -205,7 +205,7 @@ describe('deploy survival collections (liveGames, liveTournaments, serverInstanc
         // Every other collection connectDB opens is backed up: a new live-state
         // collection must be added to LIVE_COLLECTIONS (and the privacy policy)
         expect(Object.keys(collections).filter((n) => !LIVE_COLLECTIONS.includes(n)).sort())
-            .toEqual(['adminAudit', 'gameRecords', 'passwordResets', 'reports', 'users']);
+            .toEqual(['adminAudit', 'gameRecords', 'passwordResets', 'reports', 'tournamentRecords', 'users']);
     });
 
     test('a caller that passes no live collection (restore-db.js) builds none of them, with no warning', async () => {

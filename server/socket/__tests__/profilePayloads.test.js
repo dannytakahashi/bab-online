@@ -177,7 +177,8 @@ test('getProfile and getPlayerProfile: customProfilePic null + avatarUrl for eve
         expect(r.profile.customProfilePic).toBeNull();
         expect(r.avatarUrl).toMatch(URL_RE);
         expect(Object.keys(r)).toEqual(['success', 'profile', 'avatarUrl']);
-        expect(Object.keys(r.profile)).toEqual(['username', 'profilePic', 'customProfilePic', 'stats']);
+        // + the tournament history (additive 2026-11-25)
+        expect(Object.keys(r.profile)).toEqual(['username', 'profilePic', 'customProfilePic', 'stats', 'tournaments', 'cutForABuck']);
     }
 
     await profile.getPlayerProfile(leg, io, { username: 'player00' });

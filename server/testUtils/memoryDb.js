@@ -595,14 +595,16 @@ const SERVER_UNIQUE_INDEXES = Object.freeze({
     gameRecords: [{ keys: { gameId: 1 }, partialFilterExpression: { gameId: { $exists: true } } }],
 });
 
-function createMemoryDb({ users = [], gameRecords = [], reports = [], passwordResets = [], adminAudit = [] } = {}) {
+function createMemoryDb({ users = [], gameRecords = [], reports = [], passwordResets = [], adminAudit = [], tournamentRecords = [] } = {}) {
     return {
         users: new MemoryCollection(users, { unique: SERVER_UNIQUE_INDEXES.users }),
         gameRecords: new MemoryCollection(gameRecords, { unique: SERVER_UNIQUE_INDEXES.gameRecords }),
         reports: new MemoryCollection(reports),
         // the admin panel's (server/admin/)
         passwordResets: new MemoryCollection(passwordResets),
-        adminAudit: new MemoryCollection(adminAudit)
+        adminAudit: new MemoryCollection(adminAudit),
+        // the tournament history (_id = the tournamentId: a second insert is E11000)
+        tournamentRecords: new MemoryCollection(tournamentRecords)
     };
 }
 

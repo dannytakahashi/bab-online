@@ -207,7 +207,10 @@ const defs = {
         currentRound: int({ minimum: 0 }),
         totalRounds: int(),
         creatorUsername: orNull(str()),
-    }),
+        // additive 2026-11-25: Cut for a buck is on (phase reads
+        // 'round_active' then: one copy for every socket)
+        cut: bool(),
+    }, { optional: ['cut'] }),
     tournamentPlayer: obj({
         socketId: str(),
         username: str(),
@@ -252,7 +255,12 @@ const defs = {
         // additive 2026-11-25: each round's pairings so far (absent while no
         // table has two members: the lobby phase, a 1-member tournament)
         pairings: arr(ref('roundPairings')),
-    }, { optional: ['winners', 'readyDeadlinePassed', 'pairings'] }),
+        // additive 2026-11-25, sockets with the cap cutForABuck only: the cut
+        // as it stands (phase 'cut'), and the complete phase's cut result
+        // (null when no cut ran)
+        cut: ref('cutState'),
+        cutForABuck: orNull(ref('cutResult')),
+    }, { optional: ['winners', 'readyDeadlinePassed', 'pairings', 'cut', 'cutForABuck'] }),
     // DB projections: closed at the top, nested rows open
     profile: obj({
         username: str(),
@@ -260,6 +268,36 @@ const defs = {
         // always null since V1_REMOVALS #19 B: the custom picture is the reply's avatarUrl
         customProfilePic: nul(),
         stats: obj({}, { open: true }),
+        // additive 2026-11-25, the tournament history (tournamentRecords; the
+        // same in every stats scope): tournaments finished / won (a score
+        // winner, ties included) and the last 5, newest first; cutForABuck
+        // = Cut for a buck wins and cuts taken part in. Zeros when the
+        // history cannot be read. Clients show them only when played > 0
+        tournaments: ref('profileTournaments'),
+        cutForABuck: obj({ wins: int({ minimum: 0 }), played: int({ minimum: 0 }) }),
+    }, { optional: ['tournaments', 'cutForABuck'] }),
+    profileTournaments: obj({
+        played: int({ minimum: 0 }),
+        won: int({ minimum: 0 }),
+        recent: arr(ref('tournamentResult'), { maxItems: 5 }),
+    }),
+    // One finished tournament on a profile (server/game/tournamentRecord.js
+    // recentResult): id (the tournamentId), its name, when it ended (ISO),
+    // the rounds, how many players finished it, the profile's player's
+    // place by total score (1 = a winner; ties share a place; null when not
+    // in the standings), whether they won (a score winner), the score
+    // winners, and who won Cut for a buck (null when no cut ran). Names may
+    // be '[deleted]'
+    tournamentResult: obj({
+        id: str(),
+        name: str(),
+        completedAt: orNull(str()),
+        totalRounds: int({ minimum: 0 }),
+        players: int({ minimum: 0 }),
+        place: orNull(int({ minimum: 1 })),
+        won: bool(),
+        winners: arr(str()),
+        cutWinner: orNull(str()),
     }),
     leaderboardRow: obj({ username: str(), gamesPlayed: num(), winRate: num() }, { open: true }),
     // getRecords: per period (allTime / thisYear / thisMonth) null when no
@@ -281,7 +319,8 @@ const defs = {
         superlatives: arr(ref('recordsSuperlative')),
     }, { open: true, optional: ['superlatives'] })),
     // One Records title: id (bagBoy, luckyDuck, cursed, botFriends,
-    // helpFromFriends, myQuantitative, delusionsOfGrandeur today; anchor
+    // helpFromFriends, myQuantitative, delusionsOfGrandeur, luckyBuck (the
+    // most Cut for a buck wins, at least 2; 2026-11-25) today; anchor
     // until 2026-11-20, renamed delusionsOfGrandeur; more may come, render
     // unknown ids the same way), the title shown, the winner(s) (human usernames, up to 3
     // tied, alphabetical) and the value line ("2.4 bags a game"; " (+N
@@ -406,6 +445,32 @@ const defs = {
     // every spectator present at its startDraw sent it (contract/README.md
     // "Client capabilities")
     clientCapTournamentPairings: konst('tournamentPairings'),
+    // A tenth, its own const (2026-11-25, Cut for a buck): the client shows
+    // the tournament's finale (the cutForABuck* events, phase 'cut' and
+    // tournamentJoined.cut, the complete phase's cutForABuck). The cut runs
+    // only when a connected member has it; without it a socket sees phase
+    // 'round_active' during a cut and is drawn for every round
+    // (contract/README.md "Cut for a buck")
+    clientCapCutForABuck: konst('cutForABuck'),
+    // Cut for a buck's pieces (server/socket/cutForABuck.js)
+    cutDraw: obj({ username: str(), slot: int({ minimum: 0 }), card: ref('card') }),
+    cutResult: obj({ winner: str(), participants: arr(str()), rounds: int({ minimum: 1 }) }),
+    // tournamentJoined.cut: the cut as it stands, to a socket with the cap
+    // (never a card drawn and not yet revealed: drawn holds slots only)
+    cutState: obj({
+        stage: enm('gather', 'drawing', 'reveal', 'winner'),
+        inMs: int({ minimum: 0 }),
+        round: int({ minimum: 0 }),
+        candidates: arr(str()),
+        participants: arr(str()),
+        alive: arr(str()),
+        out: arr(obj({ username: str(), round: int({ minimum: 0 }), left: konst(true) }, { optional: ['left'] })),
+        table: arr(obj({ username: str(), cards: arr(ref('card')) })),
+        drawn: arr(obj({ username: str(), slot: int({ minimum: 0 }) })),
+        deckCount: int({ minimum: 0 }),
+        lastReveal: obj({ round: int({ minimum: 1 }), draws: arr(ref('cutDraw')), eliminated: arr(str()), redraw: bool() }),
+        winner: str(),
+    }, { optional: ['candidates', 'participants', 'lastReveal', 'winner'] }),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

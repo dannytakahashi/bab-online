@@ -99,6 +99,10 @@ let shoulderEvents = null;
 // A tournament table's draw for first deal (contract/fixtures/pairings/events.json)
 const PAIRINGS_DIR = path.join(__dirname, '..', '..', '..', 'contract', 'fixtures', 'pairings');
 let pairingsEvents = null;
+// Cut for a buck (contract/fixtures/cut/events.json; kept out of fixtures/v2,
+// whose count iOS TableSnapshotDecodingTests pins)
+const CUT_DIR = path.join(__dirname, '..', '..', '..', 'contract', 'fixtures', 'cut');
+let cutEvents = null;
 function captureEvents(wire) {
     const out = [];
     for (const [event, entry] of Object.entries(wire)) {
@@ -475,6 +479,79 @@ describe('snapshot v2 fixtures from real games', () => {
         };
     }, 60000);
 
+    test('Cut for a buck (contract/fixtures/cut/events.json)', async () => {
+        const cutForABuck = require('../cutForABuck');
+        const { deckOf, drawAll, socketOf } = require('../../testUtils/cutDriver');
+        const { playTournament, creatorSocket } = require('../../testUtils/tournamentDriver');
+        const CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentPairings', 'cutForABuck'];
+        Math.random = mulberry32(131);
+        const ctx = await setupTournament(4);
+        // the 4th member is iOS 1.2.6 (40): no cutForABuck
+        ctx.sockets.forEach((sk, i) => {
+            sk.data.client = { client: i === 3 ? 'ios' : 'web', version: '1', build: null, caps: i === 3 ? CAPS.slice(0, 7) : CAPS };
+        });
+        tournamentHandlers.setTournamentRounds(creatorSocket(ctx), ctx.io, { totalRounds: 2 });
+        // 13 redraws (four of a kind, rank by rank; the legacy member is drawn
+        // for first, at the lowest free slot), then 2 cards left for 4
+        // players: a reshuffle into a deck whose first cards make a tie of
+        // two (both out), then the winner
+        const quads = [];
+        for (const r of ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A']) quads.push(`${r}s`, `${r}h`, `${r}d`, `${r}c`);
+        const after = deckOf('4s', '4h', 'Ks', 'Js', 'Ah', 'Qd');
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf(...quads), shuffle: () => after.map((x) => ({ ...x })), randomInt: () => 0 });
+        const from = ctx.log.length;
+        await playTournament(ctx);
+        expect(ctx.t.phase).toBe('cut');
+        const legacy = ctx.sockets[3];
+        let joinedMid = null;
+        let legacyMid = null;
+        for (let i = 0; i < 400 && ctx.t.phase === 'cut'; i++) {
+            const e = ctx.t.cut?.engine;
+            if (ctx.t.cut?.stage === 'drawing' && e?.open && e.waitingFor().length) {
+                // slots in participant order after the legacy member's
+                const slots = {};
+                e.aliveList().filter((u) => !e.pending.has(u)).forEach((u, k) => { slots[u] = k + 1; });
+                const firstWaiting = e.waitingFor()[0];
+                cutForABuck.draw(socketOf(ctx, firstWaiting), ctx.io, { round: e.round, slot: slots[firstWaiting] });
+                if (e.round === 14 && !joinedMid) {
+                    tournamentHandlers.returnToTournament(ctx.sockets[0], ctx.io);
+                    joinedMid = ctx.log.filter((l) => l.to === `self:${ctx.sockets[0].id}` && l.event === 'tournamentJoined').at(-1);
+                    tournamentHandlers.returnToTournament(legacy, ctx.io);
+                    legacyMid = ctx.log.filter((l) => l.to === `self:${legacy.id}` && l.event === 'tournamentJoined').at(-1);
+                }
+                drawAll(ctx, slots);
+            }
+            await jest.advanceTimersByTimeAsync(500);
+        }
+        expect(ctx.t.phase).toBe('complete');
+        tournamentHandlers.returnToTournament(ctx.sockets[0], ctx.io);
+        const joinedEnd = ctx.log.filter((l) => l.to === `self:${ctx.sockets[0].id}` && l.event === 'tournamentJoined').at(-1);
+        const wire = ctx.log.slice(from).filter((l) => (l.event.startsWith('cutForABuck') || l.event === 'tournamentComplete') && l.to === ctx.t.roomName);
+        const reveals = wire.filter((l) => l.event === 'cutForABuckReveal').map((l) => l.data);
+        expect(reveals.filter((r) => r.redraw)).toHaveLength(13);
+        expect(reveals.filter((r) => r.eliminated.length === 2)).toHaveLength(1);
+        expect(wire.filter((l) => l.event === 'cutForABuckRound').some((l) => l.data.reshuffled)).toBe(true);
+        const summary = ctx.log.slice(from).find((l) => l.event === 'lobbiesUpdated' && (l.data.tournaments || []).some((x) => x.cut));
+        const pick = (e, to) => ({ event: e.event, to, data: JSON.parse(JSON.stringify(e.data)) });
+        const events = [
+            ...wire.map((e) => pick(e, 'tournament')),
+            pick(joinedMid, 'self'),
+            pick(legacyMid, 'self'),
+            pick(joinedEnd, 'self'),
+            ...ctx.log.filter((l) => l.to === legacy.id && l.event === 'tournamentMessage').map((e) => pick(e, 'socket')),
+            { event: 'lobbiesUpdated', to: 'mainRoom', data: { tournaments: JSON.parse(JSON.stringify(summary.data.tournaments.filter((x) => x.cut))) } },
+        ];
+        for (const e of events.filter((x) => x.event !== 'lobbiesUpdated')) expect({ event: e.event, errors: contract.validateS2C(e.event, e.data).errors }).toEqual({ event: e.event, errors: [] });
+        expect(joinedMid.data.cut.stage).toBe('drawing');
+        expect(legacyMid.data.phase).toBe('round_active');
+        expect(joinedEnd.data.cutForABuck.winner).toBeTruthy();
+        cutEvents = {
+            description: 'Cut for a buck on the wire (2026-11-25, clientHello cap cutForABuck), from a seeded 4-member, 2-round tournament (one member is iOS 1.2.6 without the cap: drawn for at every open, its view round_active, the rounds as private system lines): cutForABuckStart, then 13 redraws (four of a kind), a reshuffle (2 cards left for 4 players), a tie of two lowest (both out), the winner and tournamentComplete with cutForABuck; a cap member\'s tournamentJoined mid-round (cut: drawn slots only), the legacy member\'s (phase round_active, no cut) and the complete phase\'s (cutForABuck); the legacy member\'s private lines; the main room summary (phase round_active, cut true). Rewrite with npm run contract:fixtures.',
+            events,
+        };
+        cutForABuck.setEngineOptionsForTests({});
+    }, 120000);
+
     test('the committed fixtures are what the server produces (run npm run contract:fixtures)', () => {
         const names = [...captured.keys()].sort();
         expect(names).toEqual(['action-rejected', 'between-tricks', 'bid-clock-running', 'bidding-mid', 'created-countdown', 'draw-in-progress',
@@ -527,6 +604,20 @@ describe('snapshot v2 fixtures from real games', () => {
         }
         if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) {
             throw new Error('contract/fixtures/shoulder/events.json is out of date: run npm run contract:fixtures');
+        }
+    });
+
+    test('contract/fixtures/cut/events.json is what the server produces (run npm run contract:fixtures)', () => {
+        expect(cutEvents).not.toBeNull();
+        const file = path.join(CUT_DIR, 'events.json');
+        const content = JSON.stringify(cutEvents, null, 2) + '\n';
+        if (UPDATE) {
+            fs.mkdirSync(CUT_DIR, { recursive: true });
+            fs.writeFileSync(file, content);
+            return;
+        }
+        if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) {
+            throw new Error('contract/fixtures/cut/events.json is out of date: run npm run contract:fixtures');
         }
     });
 });

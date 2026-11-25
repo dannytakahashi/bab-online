@@ -308,6 +308,19 @@ describe('the panel', () => {
     expect(items.every((i) => i.tabIndex === -1)).toBe(true);
   });
 
+  it('delete account: the tournament records changed are in the result line when there are any', async () => {
+    api = fakeApi({
+      listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
+      deleteAccount: (a) => ({ ok: true, username: a.username, kind: 'account', mergedInto: null, gameRecords: 4, tournamentRecords: 2, reports: 1, blockLists: 1, resetLinks: 0, tombstones: 1, signedOut: 2 }),
+    });
+    await openPlayers();
+    await menuPick('Bea', 'Delete account…');
+    typeInto($('#adminDialogConfirm'), 'Bea');
+    $('#adminConfirmDialog [data-confirm="yes"]').click();
+    await flush();
+    expect($('#adminStatus').textContent).toBe('Bea is deleted: 4 game record update(s) to [deleted], 2 tournament record(s), 1 report(s) marked, 2 live connection(s) closed.');
+  });
+
   it('delete account: a dialog that says what happens, the name typed exactly, then the request; the table reloads and focus lands on the filter', async () => {
     api = fakeApi({
       listPlayers: { ok: true, players: PLAYERS, total: 3, limit: 500 },
@@ -319,7 +332,7 @@ describe('the panel', () => {
     expect(dialog.getAttribute('role')).toBe('dialog');
     expect(dialog.textContent).toMatch(/Delete Bea\?/);
     expect(dialog.textContent).toMatch(/cannot be undone/);
-    expect(dialog.textContent).toMatch(/\[deleted\] in past games/);
+    expect(dialog.textContent).toMatch(/\[deleted\] in past games and tournaments/);
     expect(dialog.textContent).toMatch(/keeps reports by or about them, marked deleted/);
     expect(dialog.textContent).toMatch(/holds the name Bea for 30 days/);
     const typed = $('#adminDialogConfirm');

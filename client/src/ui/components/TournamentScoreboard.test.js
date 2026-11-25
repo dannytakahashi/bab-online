@@ -1,9 +1,10 @@
 /**
- * The tournament scoreboard and results modal follow the host's round count
- * (1 to 5, 2026-11-25): never a fixed 4 columns.
+ * The tournament scoreboard and the final results card follow the host's
+ * round count (1 to 5, 2026-11-25): never a fixed 4 columns.
  */
 import { describe, it, expect, afterEach } from 'vitest';
-import { createTournamentScoreboard, showTournamentResultsOverlay, removeTournamentResultsOverlay, roundsOfScoreboard } from './TournamentScoreboard.js';
+import { createTournamentScoreboard, roundsOfScoreboard } from './TournamentScoreboard.js';
+import { createFinalResultsCard } from './FinalResultsCard.js';
 
 const headers = (root) => [...root.querySelectorAll('th')].map((th) => th.textContent);
 const board = (rounds) => [
@@ -12,7 +13,6 @@ const board = (rounds) => [
 ];
 
 afterEach(() => {
-  removeTournamentResultsOverlay();
   document.body.replaceChildren();
 });
 
@@ -32,11 +32,8 @@ describe('tournament scoreboard columns', () => {
     expect(roundsOfScoreboard([{ username: 'a' }])).toBe(4);
   });
 
-  it('the results modal: the tournament\'s rounds, given or read from the scoreboard', () => {
-    showTournamentResultsOverlay({ scoreboard: board([1, 2]), winners: ['ann'] });
-    expect(headers(document.getElementById('tournamentResultsOverlay'))).toEqual(['#', 'Player', 'R1', 'R2', 'Total']);
-    removeTournamentResultsOverlay();
-    showTournamentResultsOverlay({ scoreboard: board([1]), winners: ['ann'], totalRounds: 3 });
-    expect(headers(document.getElementById('tournamentResultsOverlay'))).toEqual(['#', 'Player', 'R1', 'R2', 'R3', 'Total']);
+  it('the final results card: the tournament\'s rounds, given or read from the scoreboard', () => {
+    expect(headers(createFinalResultsCard({ scoreboard: board([1, 2]), winners: ['ann'] }))).toEqual(['#', 'Player', 'R1', 'R2', 'Total']);
+    expect(headers(createFinalResultsCard({ scoreboard: board([1]), winners: ['ann'], totalRounds: 3 }))).toEqual(['#', 'Player', 'R1', 'R2', 'R3', 'Total']);
   });
 });

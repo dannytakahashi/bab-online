@@ -311,7 +311,7 @@ function createAdopter(ctx) {
         normalizeRound = (io, t, opts) => require('./restoreTournament').normalizeRound(io, t, opts),
         scoreLateTable = (io, t, gameId, ended) => require('./restoreTournament').scoreLateTable(io, t, gameId, ended),
         clearTournamentPointer = (username, tid) => require('../GameManager').clearActiveTournament(username, tid),
-        tournamentReadVersions = [require('./tournamentCodec').TOURNAMENT_CODEC_V],
+        tournamentReadVersions = require('./tournamentCodec').READ_VERSIONS,
         tournamentAbandonMs = TOURNAMENT_RESTORE_ABANDON_MS,
         isOn = () => true,
         isClosed = () => false,

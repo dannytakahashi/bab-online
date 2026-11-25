@@ -1190,7 +1190,8 @@ async function eraseOwnAccount(io, usersCollection, user, current, username) {
         users: usersCollection,
         gameRecords: getGameRecordsCollection(),
         reports: database.getReportsCollection?.(),
-        passwordResets: database.getPasswordResetsCollection?.()
+        passwordResets: database.getPasswordResetsCollection?.(),
+        tournamentRecords: database.getTournamentRecordsCollection?.()
     };
     const erased = await eraseAccount(db, { _id: user._id, username }, { pullBlocks: false });
     await forgetAccount(io, db, username, erased);

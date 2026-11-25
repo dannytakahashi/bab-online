@@ -43,9 +43,16 @@
  *                             marked `targetRenamedAt` (the new name stays
  *                             private on them too)
  *   users.adminSetBy          who made someone an admin
+ *   tournamentRecords         the tournament history (players, winners,
+ *                             scoreboard usernames, the Cut for a buck
+ *                             participants and winner, the host:
+ *                             tournamentRecordNames.js)
  * Not renamed: adminAudit (a log of what happened, by the names of the
  * time; the rename's own entry links old -> new) and passwordResets'
- * createdBy (history). Tournament history is in memory only. The live
+ * createdBy (history). A tournament still running keeps the name in
+memory until it ends (a member is refused a rename; one who left may
+still be on its scoreboard: the record it writes at the end looks the
+name up and takes the new one, profileHandlers.recordRenamer). The live
  * docs saved for deploy survival (liveGames / liveTournaments, LIVE_PERSIST
  * write) are not renamed here: adminHandlers re-points the live chat
  * senders in memory (GameManager.renameChatSender, which has each changed
@@ -76,6 +83,7 @@
 const { REVOKE_ALL_SESSIONS } = require('../utils/sessionTokens');
 const { revokeOpenResetLinks } = require('./setPassword');
 const { renameSeatNames } = require('./seatNames');
+const { renameInTournamentRecords } = require('./tournamentRecordNames');
 
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -152,10 +160,10 @@ async function leaveRedirect(db, from, to, { now, by }) {
 
 /**
  * Step 3: every shared document that names the old name. Safe to repeat.
- * @returns {Promise<{gameRecords: number, reports: number, otherUsersBlocks: number, blockers: string[], chainedTombstones: number, adminSetBy: number}>}
+ * @returns {Promise<{gameRecords: number, reports: number, otherUsersBlocks: number, blockers: string[], chainedTombstones: number, adminSetBy: number, tournamentRecords: number}>}
  */
 async function renameEverywhere(db, from, to, { selfId, now = new Date() }) {
-    const out = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, blockers: [], chainedTombstones: 0, adminSetBy: 0 };
+    const out = { gameRecords: 0, reports: 0, otherUsersBlocks: 0, blockers: [], chainedTombstones: 0, adminSetBy: 0, tournamentRecords: 0 };
     if (db.gameRecords) {
         for (const team of ['team1Players', 'team2Players']) {
             const res = await db.gameRecords.updateMany(
@@ -168,6 +176,8 @@ async function renameEverywhere(db, from, to, { selfId, now = new Date() }) {
         // The superlatives' seat names (the same records: not counted again)
         await renameSeatNames(db.gameRecords, from, to);
     }
+    // The tournament history (the records that named it)
+    out.tournamentRecords = await renameInTournamentRecords(db.tournamentRecords, from, to);
     if (db.reports) {
         for (const [field, deletedMark] of [['reporter', 'reporterDeletedAt'], ['reported', 'reportedDeletedAt'], ['resolvedBy', null]]) {
             const filter = deletedMark ? { [field]: from, [deletedMark]: { $exists: false } } : { [field]: from };

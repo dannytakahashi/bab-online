@@ -94,7 +94,7 @@ async function main() {
             console.log('  This merge is only partly applied. Run it again once they are free.');
             process.exitCode = 1;
         }
-        console.log(`  game records: ${result.gameRecords}, reports: ${result.reports}, other block lists: ${result.otherUsersBlocks}`);
+        console.log(`  game records: ${result.gameRecords}, tournament records: ${result.tournamentRecords || 0}, reports: ${result.reports}, other block lists: ${result.otherUsersBlocks}`);
         console.log('\nIf any of these players were online, they keep their current connection until they leave; after that only the kept account can sign in.');
     } finally {
         await client.close();

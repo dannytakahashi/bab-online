@@ -1,0 +1,2745 @@
+{
+  "description": "Cut for a buck on the wire (2026-11-25, clientHello cap cutForABuck), from a seeded 4-member, 2-round tournament (one member is iOS 1.2.6 without the cap: drawn for at every open, its view round_active, the rounds as private system lines): cutForABuckStart, then 13 redraws (four of a kind), a reshuffle (2 cards left for 4 players), a tie of two lowest (both out), the winner and tournamentComplete with cutForABuck; a cap member's tournamentJoined mid-round (cut: drawn slots only), the legacy member's (phase round_active, no cut) and the complete phase's (cutForABuck); the legacy member's private lines; the main room summary (phase round_active, cut true). Rewrite with npm run contract:fixtures.",
+  "events": [
+    {
+      "event": "cutForABuckStart",
+      "to": "tournament",
+      "data": {
+        "candidates": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "startsInMs": 15000,
+        "deckCount": 54
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 54,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 1,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "2"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "2"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "2"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "2"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 50,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 2,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "3"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "3"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "3"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "3"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 46,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 3,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "4"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "4"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "4"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "4"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 42,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 4,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "5"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "5"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "5"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "5"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 38,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 5,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "6"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "6"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "6"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "6"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 34,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 6,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "7"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "7"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "7"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "7"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 30,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 7,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "8"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "8"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "8"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "8"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 26,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 8,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "9"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "9"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "9"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "9"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 22,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 9,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "10"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "10"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "10"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "10"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 18,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 10,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "J"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "J"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "J"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "J"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 14,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 11,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "Q"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "Q"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "Q"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "Q"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 10,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 12,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "K"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "K"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "K"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "K"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 6,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 13,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "A"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "diamonds",
+              "rank": "A"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "clubs",
+              "rank": "A"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "A"
+            }
+          }
+        ],
+        "eliminated": [],
+        "redraw": true,
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "deckCount": 54,
+        "reshuffled": true,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "username": "T13_u4",
+        "slot": 0,
+        "auto": true
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "username": "T13_u1",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "username": "T13_u2",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "username": "T13_u3",
+        "slot": 3,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 14,
+        "draws": [
+          {
+            "username": "T13_u1",
+            "slot": 1,
+            "card": {
+              "suit": "hearts",
+              "rank": "4"
+            }
+          },
+          {
+            "username": "T13_u2",
+            "slot": 2,
+            "card": {
+              "suit": "spades",
+              "rank": "K"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 3,
+            "card": {
+              "suit": "spades",
+              "rank": "J"
+            }
+          },
+          {
+            "username": "T13_u4",
+            "slot": 0,
+            "card": {
+              "suit": "spades",
+              "rank": "4"
+            }
+          }
+        ],
+        "eliminated": [
+          "T13_u1",
+          "T13_u4"
+        ],
+        "redraw": false,
+        "alive": [
+          "T13_u2",
+          "T13_u3"
+        ],
+        "nextInMs": 4000
+      }
+    },
+    {
+      "event": "cutForABuckRound",
+      "to": "tournament",
+      "data": {
+        "round": 15,
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "alive": [
+          "T13_u2",
+          "T13_u3"
+        ],
+        "deckCount": 50,
+        "reshuffled": false,
+        "closesInMs": 15000
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 15,
+        "username": "T13_u2",
+        "slot": 1,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckDrew",
+      "to": "tournament",
+      "data": {
+        "round": 15,
+        "username": "T13_u3",
+        "slot": 2,
+        "auto": false
+      }
+    },
+    {
+      "event": "cutForABuckReveal",
+      "to": "tournament",
+      "data": {
+        "round": 15,
+        "draws": [
+          {
+            "username": "T13_u2",
+            "slot": 1,
+            "card": {
+              "suit": "diamonds",
+              "rank": "Q"
+            }
+          },
+          {
+            "username": "T13_u3",
+            "slot": 2,
+            "card": {
+              "suit": "spades",
+              "rank": "2"
+            }
+          }
+        ],
+        "eliminated": [
+          "T13_u3"
+        ],
+        "redraw": false,
+        "alive": [
+          "T13_u2"
+        ],
+        "nextInMs": 6000
+      }
+    },
+    {
+      "event": "cutForABuckWinner",
+      "to": "tournament",
+      "data": {
+        "winner": "T13_u2",
+        "participants": [
+          "T13_u1",
+          "T13_u2",
+          "T13_u3",
+          "T13_u4"
+        ],
+        "rounds": 15
+      }
+    },
+    {
+      "event": "tournamentComplete",
+      "to": "tournament",
+      "data": {
+        "scoreboard": [
+          {
+            "username": "T13_u3",
+            "totalScore": 784,
+            "roundScores": [
+              364,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u4"
+              }
+            ]
+          },
+          {
+            "username": "T13_u4",
+            "totalScore": 710,
+            "roundScores": [
+              290,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u1"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u3"
+              }
+            ]
+          },
+          {
+            "username": "T13_u2",
+            "totalScore": 684,
+            "roundScores": [
+              364,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u1"
+              }
+            ]
+          },
+          {
+            "username": "T13_u1",
+            "totalScore": 610,
+            "roundScores": [
+              290,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 3,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 2,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u2"
+              }
+            ]
+          }
+        ],
+        "winners": [
+          "T13_u3"
+        ],
+        "cutForABuck": {
+          "winner": "T13_u2",
+          "participants": [
+            "T13_u1",
+            "T13_u2",
+            "T13_u3",
+            "T13_u4"
+          ],
+          "rounds": 15
+        },
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u3"
+                  ],
+                  [
+                    "T13_u1",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "roundNumber": 2,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u1"
+                  ],
+                  [
+                    "T13_u3",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "tournamentJoined",
+      "to": "self",
+      "data": {
+        "tournamentId": "00000000-0000-4000-8000-000000000001",
+        "name": "T13_u1's Tournament",
+        "phase": "cut",
+        "currentRound": 2,
+        "totalRounds": 2,
+        "players": [
+          {
+            "socketId": "sock14",
+            "username": "T13_u1",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": true
+          },
+          {
+            "socketId": "sock15",
+            "username": "T13_u2",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock16",
+            "username": "T13_u3",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock17",
+            "username": "T13_u4",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          }
+        ],
+        "messages": [],
+        "scoreboard": [
+          {
+            "username": "T13_u3",
+            "totalScore": 784,
+            "roundScores": [
+              364,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u4"
+              }
+            ]
+          },
+          {
+            "username": "T13_u4",
+            "totalScore": 710,
+            "roundScores": [
+              290,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u1"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u3"
+              }
+            ]
+          },
+          {
+            "username": "T13_u2",
+            "totalScore": 684,
+            "roundScores": [
+              364,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u1"
+              }
+            ]
+          },
+          {
+            "username": "T13_u1",
+            "totalScore": 610,
+            "roundScores": [
+              290,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 3,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 2,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u2"
+              }
+            ]
+          }
+        ],
+        "activeGames": [
+          {
+            "gameId": "00000000-0000-4000-8000-000000000007",
+            "humanPlayers": [
+              "T13_u2",
+              "T13_u1",
+              "T13_u3",
+              "T13_u4"
+            ],
+            "botCount": 0,
+            "status": "complete"
+          }
+        ],
+        "creatorUsername": "T13_u1",
+        "creatorSocketId": "sock14",
+        "cut": {
+          "stage": "drawing",
+          "inMs": 15000,
+          "round": 14,
+          "participants": [
+            "T13_u1",
+            "T13_u2",
+            "T13_u3",
+            "T13_u4"
+          ],
+          "alive": [
+            "T13_u1",
+            "T13_u2",
+            "T13_u3",
+            "T13_u4"
+          ],
+          "out": [],
+          "table": [],
+          "drawn": [
+            {
+              "username": "T13_u1",
+              "slot": 1
+            },
+            {
+              "username": "T13_u4",
+              "slot": 0
+            }
+          ],
+          "deckCount": 54,
+          "lastReveal": {
+            "round": 13,
+            "draws": [
+              {
+                "username": "T13_u1",
+                "slot": 1,
+                "card": {
+                  "suit": "hearts",
+                  "rank": "A"
+                }
+              },
+              {
+                "username": "T13_u2",
+                "slot": 2,
+                "card": {
+                  "suit": "diamonds",
+                  "rank": "A"
+                }
+              },
+              {
+                "username": "T13_u3",
+                "slot": 3,
+                "card": {
+                  "suit": "clubs",
+                  "rank": "A"
+                }
+              },
+              {
+                "username": "T13_u4",
+                "slot": 0,
+                "card": {
+                  "suit": "spades",
+                  "rank": "A"
+                }
+              }
+            ],
+            "eliminated": [],
+            "redraw": true
+          }
+        },
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u3"
+                  ],
+                  [
+                    "T13_u1",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "roundNumber": 2,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u1"
+                  ],
+                  [
+                    "T13_u3",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "tournamentJoined",
+      "to": "self",
+      "data": {
+        "tournamentId": "00000000-0000-4000-8000-000000000001",
+        "name": "T13_u1's Tournament",
+        "phase": "round_active",
+        "currentRound": 2,
+        "totalRounds": 2,
+        "players": [
+          {
+            "socketId": "sock14",
+            "username": "T13_u1",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": true
+          },
+          {
+            "socketId": "sock15",
+            "username": "T13_u2",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock16",
+            "username": "T13_u3",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock17",
+            "username": "T13_u4",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          }
+        ],
+        "messages": [],
+        "scoreboard": [
+          {
+            "username": "T13_u3",
+            "totalScore": 784,
+            "roundScores": [
+              364,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u4"
+              }
+            ]
+          },
+          {
+            "username": "T13_u4",
+            "totalScore": 710,
+            "roundScores": [
+              290,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u1"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u3"
+              }
+            ]
+          },
+          {
+            "username": "T13_u2",
+            "totalScore": 684,
+            "roundScores": [
+              364,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u1"
+              }
+            ]
+          },
+          {
+            "username": "T13_u1",
+            "totalScore": 610,
+            "roundScores": [
+              290,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 3,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 2,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u2"
+              }
+            ]
+          }
+        ],
+        "activeGames": [
+          {
+            "gameId": "00000000-0000-4000-8000-000000000007",
+            "humanPlayers": [
+              "T13_u2",
+              "T13_u1",
+              "T13_u3",
+              "T13_u4"
+            ],
+            "botCount": 0,
+            "status": "complete"
+          }
+        ],
+        "creatorUsername": "T13_u1",
+        "creatorSocketId": "sock14",
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u3"
+                  ],
+                  [
+                    "T13_u1",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "roundNumber": 2,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u1"
+                  ],
+                  [
+                    "T13_u3",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "tournamentJoined",
+      "to": "self",
+      "data": {
+        "tournamentId": "00000000-0000-4000-8000-000000000001",
+        "name": "T13_u1's Tournament",
+        "phase": "complete",
+        "currentRound": 2,
+        "totalRounds": 2,
+        "players": [
+          {
+            "socketId": "sock14",
+            "username": "T13_u1",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": true
+          },
+          {
+            "socketId": "sock15",
+            "username": "T13_u2",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock16",
+            "username": "T13_u3",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          },
+          {
+            "socketId": "sock17",
+            "username": "T13_u4",
+            "pic": null,
+            "ready": true,
+            "connected": true,
+            "isCreator": false
+          }
+        ],
+        "messages": [],
+        "scoreboard": [
+          {
+            "username": "T13_u3",
+            "totalScore": 784,
+            "roundScores": [
+              364,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 2,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u2"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 3,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u4"
+              }
+            ]
+          },
+          {
+            "username": "T13_u4",
+            "totalScore": 710,
+            "roundScores": [
+              290,
+              420
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 1,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u1"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 1,
+                "teamScore": 420,
+                "oppScore": 320,
+                "partner": "T13_u3"
+              }
+            ]
+          },
+          {
+            "username": "T13_u2",
+            "totalScore": 684,
+            "roundScores": [
+              364,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 4,
+                "teamScore": 364,
+                "oppScore": 290,
+                "partner": "T13_u3"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 4,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u1"
+              }
+            ]
+          },
+          {
+            "username": "T13_u1",
+            "totalScore": 610,
+            "roundScores": [
+              290,
+              320
+            ],
+            "roundDetails": [
+              {
+                "roundNumber": 1,
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "position": 3,
+                "teamScore": 290,
+                "oppScore": 364,
+                "partner": "T13_u4"
+              },
+              {
+                "roundNumber": 2,
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "position": 2,
+                "teamScore": 320,
+                "oppScore": 420,
+                "partner": "T13_u2"
+              }
+            ]
+          }
+        ],
+        "activeGames": [
+          {
+            "gameId": "00000000-0000-4000-8000-000000000007",
+            "humanPlayers": [
+              "T13_u2",
+              "T13_u1",
+              "T13_u3",
+              "T13_u4"
+            ],
+            "botCount": 0,
+            "status": "complete"
+          }
+        ],
+        "creatorUsername": "T13_u1",
+        "creatorSocketId": "sock14",
+        "winners": [
+          "T13_u3"
+        ],
+        "cutForABuck": {
+          "winner": "T13_u2",
+          "participants": [
+            "T13_u1",
+            "T13_u2",
+            "T13_u3",
+            "T13_u4"
+          ],
+          "rounds": 15
+        },
+        "pairings": [
+          {
+            "roundNumber": 1,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000002",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u3"
+                  ],
+                  [
+                    "T13_u1",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "roundNumber": 2,
+            "tables": [
+              {
+                "gameId": "00000000-0000-4000-8000-000000000007",
+                "teams": [
+                  [
+                    "T13_u2",
+                    "T13_u1"
+                  ],
+                  [
+                    "T13_u3",
+                    "T13_u4"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 1: everyone tied on 2s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269640000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 2: everyone tied on 3s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269644000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 3: everyone tied on 4s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269648000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 4: everyone tied on 5s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269652000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 5: everyone tied on 6s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269656000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 6: everyone tied on 7s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269660000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 7: everyone tied on 8s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269664000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 8: everyone tied on 9s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269668000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 9: everyone tied on 10s, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269672000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 10: everyone tied on jacks, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269676000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 11: everyone tied on queens, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269680000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 12: everyone tied on kings, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269684000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 13: everyone tied on aces, so draw again.",
+        "isSpectator": false,
+        "timestamp": 1767269688000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Reshuffling: the deck ran out.",
+        "isSpectator": false,
+        "timestamp": 1767269692000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 14: T13_u1 4♥, T13_u2 K♠, T13_u3 J♠, T13_u4 4♠. T13_u1 and T13_u4 are out.",
+        "isSpectator": false,
+        "timestamp": 1767269692000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "tournamentMessage",
+      "to": "socket",
+      "data": {
+        "username": "System",
+        "message": "Round 15: T13_u2 Q♦, T13_u3 2♠. T13_u3 is out.",
+        "isSpectator": false,
+        "timestamp": 1767269696000,
+        "system": true,
+        "type": "system"
+      }
+    },
+    {
+      "event": "lobbiesUpdated",
+      "to": "mainRoom",
+      "data": {
+        "tournaments": [
+          {
+            "id": "00000000-0000-4000-8000-000000000001",
+            "name": "T13_u1's Tournament",
+            "playerCount": 4,
+            "phase": "round_active",
+            "currentRound": 2,
+            "totalRounds": 2,
+            "creatorUsername": "T13_u1",
+            "cut": true
+          }
+        ]
+      }
+    }
+  ]
+}

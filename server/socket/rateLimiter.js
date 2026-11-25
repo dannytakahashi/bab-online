@@ -75,6 +75,8 @@ class RateLimiter {
             beginTournament: { max: 5, windowMs: 60000 },
             // The host's round picker (2026-11-25): a few taps in the lobby
             setTournamentRounds: { max: 20, windowMs: 60000 },
+            // Cut for a buck: one draw a round (a round lasts 5 s at the least)
+            cutForABuckDraw: { max: 10, windowMs: 10000 },
             beginNextRound: { max: 5, windowMs: 60000 },
             returnToTournament: { max: 10, windowMs: 30000 },
             // "Don't wait for <name>" in a play-again lobby (host): one per tap

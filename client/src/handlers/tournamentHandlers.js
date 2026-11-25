@@ -5,7 +5,9 @@
  *          tournamentPlayerLeft, tournamentReadyUpdate, tournamentSettingsUpdated,
  *          tournamentMessage,
  *          tournamentRoundStart, tournamentGameAssignment, tournamentGameComplete,
- *          tournamentRoundComplete, tournamentComplete, tournamentLeft
+ *          tournamentRoundComplete, tournamentComplete, tournamentLeft,
+ *          and Cut for a buck's cutForABuckStart / Round / Drew / Left / Reveal /
+ *          Winner (2026-11-25; state/cutForABuck.js, ui/cut/)
  *
  * No activeTournamentFound listener: the server never sends it
  * (signInResponse.activeTournamentId replaced it; V1_REMOVALS #3).
@@ -35,6 +37,7 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
     onTournamentComplete,
     onTournamentLeft,
     onTournamentCancelled,
+    onCutForABuck,
   } = callbacks;
 
   socketManager.on(SERVER_EVENTS.TOURNAMENT_CREATED, (data) => {
@@ -106,4 +109,21 @@ export function registerTournamentHandlers(socketManager, callbacks = {}) {
     console.log('Tournament cancelled:', data);
     onTournamentCancelled?.(data);
   });
+
+  // Cut for a buck (the cap cutForABuck): one callback, the event's kind
+  // as the store names it (ui/cut/cutStore.js applyCutEvent)
+  const cut = [
+    [SERVER_EVENTS.CUT_FOR_ABUCK_START, 'start'],
+    [SERVER_EVENTS.CUT_FOR_ABUCK_ROUND, 'round'],
+    [SERVER_EVENTS.CUT_FOR_ABUCK_DREW, 'drew'],
+    [SERVER_EVENTS.CUT_FOR_ABUCK_LEFT, 'left'],
+    [SERVER_EVENTS.CUT_FOR_ABUCK_REVEAL, 'reveal'],
+    [SERVER_EVENTS.CUT_FOR_ABUCK_WINNER, 'winner'],
+  ];
+  for (const [event, type] of cut) {
+    socketManager.on(event, (data) => {
+      console.log(`Cut for a buck ${type}:`, data);
+      onCutForABuck?.(type, data);
+    });
+  }
 }

@@ -13,6 +13,10 @@ import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, 
 import { LOBBY_VOICE_SLOT_ID } from './GameLobby.js';
 import { renderPairings } from './tournamentPairings.js';
 import { createRoundsPicker, isRoundCount, roundsLabel, DEFAULT_ROUNDS } from '../components/RoundsPicker.js';
+import { createCutView } from '../cut/CutForABuck.js';
+import { getCutState } from '../cut/cutStore.js';
+import { STAGE as CUT_STAGE } from '../../state/cutForABuck.js';
+import { createFinalResultsCard } from '../components/FinalResultsCard.js';
 
 /**
  * Module state
@@ -38,12 +42,29 @@ let lobbySpectator = false;
 let lobbyScoreboard = [];
 /** The host's Rounds picker while it is shown (lobby phase only). */
 let roundsPicker = null;
+/** Cut for a buck's view while the cut runs (phase 'cut'; ui/cut/CutForABuck.js). */
+let cutView = null;
+/** The page's hooks (main.js configureTournamentLobby). */
+const hooks = { onReturnToMainRoom: null, onViewProfile: null };
+/** The intro plays only when at least this much of the gather is left (ms). */
+const INTRO_MIN_LEFT_MS = 3000;
+
+/**
+ * The page's hooks: Return to Main Room in the final lobby (main.js routes
+ * it as the results modal's Return did) and a player's profile.
+ */
+export function configureTournamentLobby({ onReturnToMainRoom = null, onViewProfile = null } = {}) {
+  hooks.onReturnToMainRoom = onReturnToMainRoom;
+  hooks.onViewProfile = onViewProfile;
+}
 
 /**
  * The header's round line: "Round 2 of 3" once begun, else "Waiting to
  * start · 3 rounds" (the host's pick, 2026-11-25).
  */
 function roundLine(currentRound, totalRounds) {
+  if (currentPhase === 'cut') return 'Cut for a buck';
+  if (currentPhase === 'complete') return 'Final results';
   return currentRound > 0 ? `Round ${currentRound} of ${totalRounds}` : `Waiting to start · ${roundsLabel(totalRounds)}`;
 }
 
@@ -355,6 +376,98 @@ export function showTournamentLobby(data, socket, username) {
 
   // Store phase for begin button logic
   container.dataset.phase = data.phase;
+
+  // Cut for a buck (2026-11-25): the cut in place of the standings, and the
+  // complete phase's final results (no results modal on this client)
+  if (currentPhase === 'cut' && getCutState()) {
+    const st = getCutState();
+    enterCut({ intro: st.stage === CUT_STAGE.GATHER && st.endsAt != null && st.endsAt - Date.now() > INTRO_MIN_LEFT_MS });
+  } else if (currentPhase === 'complete') {
+    showTournamentFinal({ scoreboard: lobbyScoreboard, winners: data.winners, cut: data.cutForABuck ?? null, totalRounds: rounds.totalRounds });
+  }
+}
+
+/** The lobby's main column. */
+function mainColumnOf() {
+  return document.querySelector('#tournamentLobbyContainer > .screen-main');
+}
+
+/**
+ * Cut for a buck starts (or is under way) on this screen: its view takes
+ * the main column (the header with voice and the chat stay); the controls
+ * go (no Ready, Begin or Cancel during the gather and the cut).
+ */
+function enterCut({ intro = false } = {}) {
+  const main = mainColumnOf();
+  const state = getCutState();
+  if (!main || !state) return;
+  currentPhase = 'cut';
+  const container = document.getElementById('tournamentLobbyContainer');
+  if (container) container.dataset.phase = 'cut';
+  removeRoundsPicker();
+  if (!cutView) {
+    cutView = createCutView({
+      me: lobbyUsername,
+      spectator: lobbySpectator,
+      socket: lobbySocket,
+      players: lobbyPlayers,
+      onViewProfile: hooks.onViewProfile,
+    });
+    main.replaceChildren(cutView.element);
+    main.classList.add('has-cut');
+  }
+  updateTournamentRoundIndicator(rounds.currentRound, rounds.totalRounds);
+  cutView.update(state, { intro });
+}
+
+/**
+ * A cut event came in (main.js, after cutStore took it): the view follows;
+ * the cut's start on this screen brings the view in with its intro.
+ * @param {string} type - the store's change ('start', 'round', ...)
+ */
+export function syncTournamentCut(type) {
+  if (!document.getElementById('tournamentLobbyContainer')) return;
+  const state = getCutState();
+  if (!state) return;
+  if (!cutView) enterCut({ intro: type === 'start' });
+  else cutView.update(state);
+}
+
+/** A voice peer talking (by username): the ring's speaking ring. */
+export function setTournamentCutTalking(username, on) {
+  cutView?.setTalking(username, on);
+}
+
+/** Is the cut's view up (sound plays there: main.js). */
+export function isTournamentCutShowing() {
+  return !!cutView && cutView.element.isConnected;
+}
+
+/**
+ * The tournament is over (tournamentComplete, or tournamentJoined in the
+ * complete phase): the lobby shows the final results in place of the
+ * standings: the score winners, the Cut for a buck winner, the players with
+ * their chips and the final scoreboard; Ready, Begin and Cancel are gone and
+ * Leave reads "Return to Main Room". The chat and voice stay.
+ */
+export function showTournamentFinal({ scoreboard = lobbyScoreboard, winners = [], cut = null, totalRounds = rounds.totalRounds } = {}) {
+  const main = mainColumnOf();
+  if (!main) return;
+  currentPhase = 'complete';
+  const container = document.getElementById('tournamentLobbyContainer');
+  if (container) container.dataset.phase = 'complete';
+  if (Array.isArray(scoreboard)) lobbyScoreboard = scoreboard;
+  cutView?.destroy();
+  cutView = null;
+  removeRoundsPicker();
+  main.classList.remove('has-cut');
+  const card = createFinalResultsCard({ scoreboard: lobbyScoreboard, winners, cut, totalRounds, me: lobbyUsername });
+  const back = createButton({ label: 'Return to Main Room', variant: 'primary', onClick: () => hooks.onReturnToMainRoom?.() });
+  back.id = 'tournamentReturnBtn';
+  const actions = el('div', { className: 'screen-actions', attrs: { id: 'tournamentButtonRow' }, children: [back] });
+  const note = el('p', { className: 'muted-note final-results__note', text: 'This lobby stays open for about 10 minutes' });
+  main.replaceChildren(card, actions, note);
+  updateTournamentRoundIndicator(rounds.currentRound, totalRounds);
 }
 
 // Track current phase at module level for begin button handler
@@ -488,6 +601,7 @@ export function updateTournamentPlayers(players, currentUsername, newCreator = n
   }
   updateTournamentPlayersList(container, players, currentUsername, isCreator);
   updateBeginButton(players);
+  if (players) cutView?.setPlayers(players);
 }
 
 /** The server named another host (newCreator, or another isCreator entry). */
@@ -609,6 +723,8 @@ export function setTournamentPhase(phase) {
  * Remove the tournament lobby screen.
  */
 export function removeTournamentLobby() {
+  cutView?.destroy();
+  cutView = null;
   const lobby = document.getElementById('tournamentLobbyContainer');
   if (lobby) lobby.remove();
   currentTournamentId = null;

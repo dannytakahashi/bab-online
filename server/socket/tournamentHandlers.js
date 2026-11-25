@@ -18,7 +18,14 @@ const { recordTableScores } = require('../game/tournamentScoring');
 const { planRoundTables } = require('../game/tournamentPartners');
 const pointerResolve = require('./pointerResolve');
 const tournamentVoice = require('../voice/tournamentVoice');
+const clientInfo = require('./clientInfo');
 const { PERSONALITY_LIST, getDisplayName } = personalities;
+
+// Cut for a buck (2026-11-25): its orchestration requires this module
+const cutForABuck = () => require('./cutForABuck');
+
+/** getClientState's options for the receiving socket (the cap cutForABuck). */
+const stateOpts = (socket) => ({ cutCap: clientInfo.hasCap(socket, 'cutForABuck') });
 
 /**
  * Create a new tournament from main room
@@ -48,7 +55,7 @@ function createTournament(socket, io) {
     tournament.joinToRoom(io, socket.id);
 
     // Send tournament state to creator
-    socket.emit('tournamentCreated', tournament.getClientState());
+    socket.emit('tournamentCreated', tournament.getClientState(stateOpts(socket)));
     // Its voice room (alone for now: nobody to list)
     tournamentVoice.enter(io, tournament, socket.id);
 
@@ -167,7 +174,9 @@ async function joinTournament(socket, io, data, { resolved = false } = {}) {
     tournament.joinToRoom(io, socket.id);
 
     // Send full state to joining player
-    socket.emit('tournamentJoined', tournament.getClientState());
+    socket.emit('tournamentJoined', tournament.getClientState(stateOpts(socket)));
+    // Back in a Cut for a buck (a reattach): no longer away
+    cutForABuck().noteBack(io, tournament, user.username);
     // The tournament's voice room (a reattach on a new socket replaces the
     // old entry; already in it: listed again)
     tournamentVoice.enter(io, tournament, socket.id);
@@ -265,6 +274,12 @@ async function leaveTournament(socket, io) {
         }
     }
 
+    // Cut for a buck: the last member leaving completes the tournament
+    // first (tournamentComplete, the record), so nothing is lost
+    if (tournament.phase === 'cut' && tournament.players.size === 1 && tournament.players.has(socket.id)) {
+        await cutForABuck().cancel(io, tournament, null, { line: false });
+    }
+
     // Leave tournament room
     tournament.leaveRoom(io, socket.id);
 
@@ -310,6 +325,8 @@ async function leaveTournament(socket, io) {
         newCreator: result.newCreator ? result.newCreator.username : null
     });
     liveness.refreshHostIdle(io, tournament);
+    // Out of Cut for a buck too (then the winner or the reveal, as it falls)
+    cutForABuck().memberLeft(io, tournament, user?.username);
 
     // Notify main room
     emitLobbiesUpdated(io);
@@ -863,7 +880,7 @@ function spectateTournament(socket, io, data, { resolved = false } = {}) {
 
     // Send tournament state
     socket.emit('tournamentJoined', {
-        ...tournament.getClientState(),
+        ...tournament.getClientState(stateOpts(socket)),
         isSpectator: true
     });
 
@@ -953,6 +970,13 @@ async function cancelTournament(socket, io) {
 
     if (tournament.createdBy !== socket.id) {
         emitError(socket, { message: 'Only the creator can cancel the tournament' }, 'cancelTournament');
+        return;
+    }
+
+    // Cut for a buck (2026-11-25): Cancel (iOS 1.2.6 shows it there) ends
+    // the cut early and completes the tournament; the rounds' results stand
+    if (tournament.phase === 'cut') {
+        await cutForABuck().cancel(io, tournament, tournament.players.get(socket.id)?.username ?? null);
         return;
     }
 
@@ -1053,7 +1077,9 @@ function returnToTournament(socket, io, data, { resolved = false } = {}) {
     tournament.joinToRoom(io, socket.id);
 
     // Send current tournament state
-    socket.emit('tournamentJoined', tournament.getClientState());
+    socket.emit('tournamentJoined', tournament.getClientState(stateOpts(socket)));
+    // Back on the lobby screen during Cut for a buck: no longer away
+    cutForABuck().noteBack(io, tournament, tournament.players.get(socket.id)?.username ?? null);
     // Back on the tournament lobby screen: its voice room (a member back from
     // a finished table, a reattach; a spectator never enters)
     tournamentVoice.enter(io, tournament, socket.id);
@@ -1107,18 +1133,61 @@ function _resetCleanupTimersForTests() {
 }
 
 /**
+ * The tournament's record (tournamentRecords, the tournament history),
+ * once per completed tournament: profileHandlers.recordTournament (fire and
+ * forget, never throws, idempotent by the tournamentId). Called through
+ * module.exports by finishTournament and by the adoption of a 'complete'
+ * doc after a restore (a crash between the finish and the insert), so
+ * tests can see each call.
+ * @param {TournamentState} tournament
+ * @param {{winner, participants, rounds}|null} cut
+ */
+function recordTournament(tournament, cut) {
+    return require('./profileHandlers').recordTournament(tournament, cut);
+}
+
+/**
+ * Complete the tournament, in order: phase 'complete' (completedAt now),
+ * tournamentComplete {scoreboard, winners (the snapshot taken when the last
+ * round completed), cutForABuck (only when a cut ran), pairings}, the
+ * members' pointers cleared, the results-window cleanup, the record, and
+ * (after a cut: a no-cut finish is broadcastRoundOutcome's tail, whose
+ * callers send it) lobbiesUpdated. The no-cut path is exactly the events of
+ * before Cut for a buck.
+ * @param {{cut?: Object|null, fromCut?: boolean}} [opts]
+ */
+async function finishTournament(io, tournament, { cut = null, fromCut = false } = {}) {
+    tournament.clearTimer('cut');
+    tournament.phase = 'complete';
+    tournament.completedAt = Date.now();
+    tournament.cut = null;
+    tournament.cutResult = cut ? { winner: cut.winner, participants: [...cut.participants], rounds: cut.rounds } : null;
+    tournament._changed();
+    tournament.broadcast(io, 'tournamentComplete', {
+        scoreboard: tournament.getScoreboard(),
+        winners: tournament.winnersFinal(),
+        ...(cut ? { cutForABuck: { winner: cut.winner, participants: [...cut.participants], rounds: cut.rounds } } : {}),
+        ...tournament.pairingsField()
+    });
+    await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
+    scheduleTournamentCleanup(io, tournament.tournamentId);
+    // Through the exports, so the records PR (and tests) can see each call
+    module.exports.recordTournament(tournament, cut).catch((err) =>
+        socketLogger.error('recordTournament failed', { tournamentId: tournament.tournamentId, error: err.message }));
+    if (fromCut) emitLobbiesUpdated(io);
+}
+
+/**
  * Broadcast the outcome of a finished round: either the between-rounds prompt
  * or the final standings. Shared by the normal game-end and abort paths.
+ * After the last round, Cut for a buck may start first (cutForABuck
+ * maybeStart: synchronous, before any emit); it completes the tournament
+ * itself when it ends.
  */
 async function broadcastRoundOutcome(io, tournament) {
     if (tournament.isTournamentComplete()) {
-        tournament.broadcast(io, 'tournamentComplete', {
-            scoreboard: tournament.getScoreboard(),
-            winners: tournament.getWinners(),
-            ...tournament.pairingsField()
-        });
-        await gameManager.clearActiveTournamentForAll(tournament.tournamentId);
-        scheduleTournamentCleanup(io, tournament.tournamentId);
+        if (cutForABuck().maybeStart(io, tournament)) return;
+        await finishTournament(io, tournament, { cut: null });
     } else {
         tournament.broadcast(io, 'tournamentRoundComplete', {
             scoreboard: tournament.getScoreboard(),
@@ -1191,6 +1260,8 @@ module.exports = {
     spectateTournamentGame: pointerResolve.tracked(spectateTournamentGame),
     returnToTournament,
     broadcastRoundOutcome,
+    finishTournament,
+    recordTournament,
     rollbackRound,
     cancelTournamentCleanup,
     handleAbortedTournamentGame,

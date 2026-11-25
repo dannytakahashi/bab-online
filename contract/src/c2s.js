@@ -177,6 +177,13 @@ const c2s = {
         invalid: [{ totalRounds: 0 }, { totalRounds: 6 }, { totalRounds: 2.5 }, { totalRounds: '3' }, {}],
         notes: 'New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage "<host> set the tournament to 3 rounds." to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: \'Not in a tournament\', \'Only the host can change the number of rounds\', \'Rounds can only change before the tournament begins\'. Web sends it from the lobby\'s Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41.',
     },
+    cutForABuckDraw: {
+        payload: open({ round: int({ minimum: 1, maximum: 10000 }), slot: { type: ['integer', 'null'], minimum: 0, maximum: 107 } }, { optional: ['slot'] }),
+        status: 'active', joi: 'cutForABuckDraw', rateLimit: 'cutForABuckDraw', sentBy: webOnly,
+        examples: [{ round: 1, slot: 7 }, { round: 3, slot: null }, { round: 2 }],
+        invalid: [{ round: 0, slot: 1 }, { round: 1, slot: -1 }, { round: 1, slot: 108 }, { round: 1, slot: 2.5 }, { round: '1', slot: 1 }, { slot: 1 }],
+        notes: 'New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room\'s cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper\'s serverError {code: \'validation\'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (sentBy says what shipped clients send).',
+    },
     beginTournament: { ...noPayload, status: 'active', joi: 'beginTournament', rateLimit: 'beginTournament', sentBy: both, examples: [{}] },
     beginNextRound: { ...noPayload, status: 'active', joi: 'beginNextRound', rateLimit: 'beginNextRound', sentBy: both, examples: [{}] },
     tournamentChat: { payload: open({ message: message() }), status: 'active', joi: 'chatMessage', rateLimit: 'chatMessage', sentBy: both, examples: [{ message: 'gl' }], invalid: [{ message: '' }] },

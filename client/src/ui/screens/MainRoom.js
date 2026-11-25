@@ -228,7 +228,10 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
       card.appendChild(cardHead(tournament.name || 'Tournament', el('span', { className: 'room-card__count', text: `${tournament.playerCount} players` })));
 
       let detail;
-      if (tournament.phase === 'lobby') {
+      if (tournament.cut === true) {
+        // Cut for a buck (2026-11-25: the summary's phase reads round_active)
+        detail = 'Cut for a buck!';
+      } else if (tournament.phase === 'lobby') {
         // the host's pick, 1 to 5 (2026-11-25)
         const n = tournament.totalRounds;
         detail = Number.isInteger(n) ? `Waiting for players · ${n} round${n === 1 ? '' : 's'}` : 'Waiting for players';
