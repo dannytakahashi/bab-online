@@ -69,7 +69,10 @@ const DERIVED = deepFreeze({
         'maxMessages', '_debugMode',
         // Deploy survival PR 6 (LIVE_PERSIST=on): set on the old instance by
         // the handoff (frozen, handedOff) and on an adopted one (restored)
-        'frozen', 'handedOff', 'restored'
+        'frozen', 'handedOff', 'restored',
+        // Tournament voice room (server/voice/tournamentVoice.js): socket-keyed,
+        // members enter again with their next tournamentJoined
+        'voiceRoom'
     ],
     player: ['ready', 'connected'],                             // false after a restore
     round: [],

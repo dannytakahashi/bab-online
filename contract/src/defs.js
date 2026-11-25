@@ -311,6 +311,14 @@ const defs = {
     // is ever sent (contract/README.md "Client capabilities",
     // docs/claude/spectators.md "Over-the-shoulder view")
     clientCapShoulderView: konst('shoulderView'),
+    // A seventh, its own const for the same reason (2026-11-24, tournament
+    // voice): the client starts voice on its tournament lobby screen and at
+    // a tournament table, so it may be a peer of the tournament's voice room
+    // (voicePeerList / voicePeerJoined / voicePeerLeft for tournament:<id>)
+    // and is announced at its table's seating; without it a socket is never
+    // listed in the tournament room (contract/README.md "Client
+    // capabilities", docs/claude/voice.md "Tournament voice")
+    clientCapTournamentVoice: konst('tournamentVoice'),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

@@ -1302,6 +1302,9 @@
     "clientCapShoulderView": {
       "const": "shoulderView"
     },
+    "clientCapTournamentVoice": {
+      "const": "tournamentVoice"
+    },
     "avatarUrl": {
       "type": "string",
       "minLength": 1,
@@ -2485,7 +2488,7 @@
           "caps": []
         }
       ],
-      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial), and shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket's watch; $defs.clientCapShoulderView)."
+      "notes": "Sent on every connect by clients that read avatarUrl / avatarUrls ($defs.clientCap). No reply. Absent = legacy shape (iOS 1.1.0, cached old web bundles); iOS sends it from 1.2.0 (SocketService, on every connect before restoreSession). Unknown caps are ignored; the last hello wins (one without avatarUrl downgrades the socket). Over the rate limit it is dropped silently. Logged with the client version (telemetry for V1_REMOVALS). Caps the server acts on: avatarUrl, casualSpectators, playAgain, assist, tutorial (2026-11-19: the client renders the tutorial's tips and assistState, and only such a socket gets the tutorial's auto-start; $defs.clientCapTutorial), shoulderView (2026-11-21: the over-the-shoulder view, watchHand and every shoulder key; without it none is sent, and a hello that drops it ends the socket's watch; $defs.clientCapShoulderView), and tournamentVoice (2026-11-24: the client starts voice on its tournament lobby screen and at a tournament table, so it is a peer of the tournament's voice room and announced at its table's seating; without it a socket is never listed in the tournament room; $defs.clientCapTournamentVoice)."
     },
     "changePassword": {
       "payload": {
@@ -11239,9 +11242,12 @@
         "server/socket/mainRoomHandlers.js:joinLobby",
         "server/socket/seatLifecycle.js:announceOwnerVoice",
         "server/voice/gameVoice.js:announceSpectator",
-        "server/socket/playAgain.js:voiceAtReturn"
+        "server/socket/playAgain.js:voiceAtReturn",
+        "server/voice/tournamentVoice.js:announceTable",
+        "server/voice/tournamentVoice.js:change",
+        "server/voice/tournamentVoice.js:relist"
       ],
-      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out."
+      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table's seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating's reveal hold); in a tournament's voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most 8) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again."
     },
     "voicePeerJoined": {
       "payload": {
@@ -11262,7 +11268,10 @@
         "server/socket/lobbyHandlers.js:lobbySeatResumed",
         "server/socket/seatLifecycle.js:announceOwnerVoice",
         "server/voice/gameVoice.js:announceSpectator",
-        "server/socket/playAgain.js:voiceAtReturn"
+        "server/socket/playAgain.js:voiceAtReturn",
+        "server/voice/tournamentVoice.js:announceTable",
+        "server/voice/tournamentVoice.js:change",
+        "server/voice/tournamentVoice.js:relist"
       ]
     },
     "voicePeerLeft": {
@@ -11327,7 +11336,8 @@
         "server/voice/gameVoice.js:endBlockedCall",
         "server/socket/playAgain.js:voiceAtReturn",
         "server/socket/playAgain.js:endLingeringEntry",
-        "server/socket/playAgain.js:leftOnResults"
+        "server/socket/playAgain.js:leftOnResults",
+        "server/voice/tournamentVoice.js:change"
       ],
       "notes": "room: a game seat owner dropped (game.broadcast); private: lobby peers (io.to(socketId)) and, since 2026-11-16, a game's voice peers: a voice spectator leaving (to the members, never the room), an entrant dropping or leaving during the draw, a demoted owner socket (watchSeat, both ways), a blocked pair (both ways), the spectator talk switch and its backstop (server/voice/gameVoice.js). Play again (2026-11-16, server/socket/playAgain.js), private, both ways: at a lobby-born game's end between the members moved back to the lobby and every other socket of the game's voice room (main-room spectators, owners not moved) except an older-app owner still on the score screen, whose calls with them linger until it leaves that screen (joinMainRoom, another entry point, a disconnect) or the lobby starts or goes. Every shipped iOS build only drops the peer on a private one.",
       "added": [

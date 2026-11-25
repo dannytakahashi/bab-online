@@ -771,9 +771,37 @@ function initializeApp() {
     voiceGate.update();
   }
 
+  // ---------- Tournament voice (owner 2026-11-24; docs/claude/voice.md) ----------
+  // The tournament lobby screen (the lobby phase, between rounds, sitting a
+  // round out, back from a finished table) is a voice room on the server
+  // (tournament:<id>, server/voice/tournamentVoice.js): the members on it
+  // whose page can talk there, at most 8, a blocked pair never listed. Its
+  // company is exactly who the server announced to this socket there
+  // (voicePeerList / voicePeerJoined, gone again on voicePeerLeft): a member
+  // on another screen (at a table, watching one), an app that cannot talk
+  // there (shipped iOS) or a blocked one is no company, so voice never runs
+  // with nobody to answer. Every tournamentJoined starts the list afresh (the
+  // server lists this socket again right after it)
+  let tournamentVoicePeers = new Map();
+
+  /** voicePeerList / voicePeerJoined / voicePeerLeft, after the voice manager handled it. */
+  function onVoicePeers(kind, data) {
+    if (kind === 'left') {
+      if (data?.socketId && tournamentVoicePeers.delete(data.socketId)) voiceGate.update();
+      return;
+    }
+    if (session.screen !== SCREEN.TOURNAMENT_LOBBY) return;
+    const peers = kind === 'list' ? (Array.isArray(data?.peers) ? data.peers : []) : [data];
+    for (const p of peers) {
+      if (p && typeof p.socketId === 'string') tournamentVoicePeers.set(p.socketId, p.username ?? null);
+    }
+    voiceGate.update();
+  }
+
   function hasVoiceCompany() {
     const screen = session.screen;
     if (screen === SCREEN.LOBBY) return lobbyOthers.size > 0;
+    if (screen === SCREEN.TOURNAMENT_LOBBY) return tournamentVoicePeers.size > 0;
     // the score modal of a lobby-born game: the server moved me into the
     // reopened lobby, whose members are my voice room now (play again)
     if (screen === SCREEN.GAME_END && session.lobbyReturn) return lobbyOthers.size > 0;
@@ -1090,11 +1118,23 @@ function initializeApp() {
         },
       },
       [SCREEN.TOURNAMENT_LOBBY]: {
-        enter: (data) => {
+        enter: (data, ctx) => {
           removeMainRoom();
           if (data && data.tournamentId) uiManager.renderScreen(SCREENS.TOURNAMENT_LOBBY, data);
+          // Tournament voice: this screen is the tournament's voice room. Each
+          // entry (a tournamentJoined, the way back from a table) waits for
+          // the server's list of who is here; a lobby's people are not
+          if (!ctx?.reenter) lobbyOthers = new Set();
+          tournamentVoicePeers = new Map();
+          startVoice();
         },
-        exit: () => removeTournamentLobby(),
+        exit: () => {
+          removeTournamentLobby();
+          // The room's calls end here: a table's voice is its own (the
+          // server announces the table at its seating), and so is a game watched
+          tournamentVoicePeers = new Map();
+          stopVoice();
+        },
       },
       [SCREEN.TABLE]: {
         enter: (_data, ctx) => {
@@ -1886,6 +1926,10 @@ function initializeApp() {
       // A watcher (a family lobby's extra, at the table since CREATED) or a
       // spectate on its way never becomes a player from the room's startDraw
       if (!session.isAtTable && !session.pendingSpectate) session.enterTable(ROLE.PLAYER, null);
+      // A tournament seat has voice at its table (owner 2026-11-24): wanted
+      // now, started (muted) once positionUpdate shows another human, with
+      // the peers the server lists right after it (no voice alone with bots)
+      if (gameState.tournamentId && session.role === ROLE.PLAYER) startVoice();
       // Remove waiting screen and tournament lobby (its clearUI also takes
       // down a watcher's log from the CREATED join: the draw has none, as a
       // seat's; createUI brings it back)
@@ -2303,6 +2347,7 @@ function initializeApp() {
     },
     // A casual game's voice settings (spectator voice)
     onVoiceSettings: (data) => onVoiceSettings(data),
+    onVoicePeers: (kind, data) => onVoicePeers(kind, data),
     // The reply to requestSnapshot: a seq gap, an ack timeout, the liveness
     // ping. Any snapshot of this table is applied (R3); not_in_game applies
     // what the gap buffer holds (no snapshot is coming)

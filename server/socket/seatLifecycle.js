@@ -130,6 +130,9 @@ function reattachTournament(io, socket, gameId, username) {
     const tournament = gameManager.reattachTournamentPlayer(socket.id, username, tournamentId);
     if (tournament) {
         socket.join(tournament.roomName);
+        // The membership left another socket of this user (another tab on the
+        // tournament lobby): that one is out of the tournament's voice room
+        require('../voice/tournamentVoice').leaveUser(io, tournament, username, socket.id);
         // Let lobby viewers see the reconnect (and any creator handoff)
         const state = tournament.getClientState();
         tournament.broadcast(io, 'tournamentPlayerJoined', {
@@ -439,16 +442,28 @@ function dropSpectatorVoice(io, sid) {
  * Voice for an owner back at its seat (`socket`, seat `pos`): the other
  * connected owners at their seats and, in a casual game, the voice
  * spectators (who always hear the players; a loaded block list leaves a
- * pair out) get voicePeerJoined, and the owner gets them all in
- * voicePeerList (it offers). Then every capable socket of the room gets
+ * pair out, among the owners too) get voicePeerJoined, and the owner gets
+ * them all in voicePeerList (it offers). At a tournament table only
+ * table-capable sockets (tournamentVoice.tableCapable) and not during the
+ * seating's reveal hold. Then every capable socket of the room gets
  * voiceSettings (the controller of spectator talk may have changed).
  */
 function announceOwnerVoice(io, game, pos, socket, username) {
     const peers = [];
-    for (const s of game.seatList()) {
+    const tournamentVoice = require('../voice/tournamentVoice');
+    // A tournament table (server/voice/tournamentVoice.js): only table-capable
+    // sockets on both ends, as at its seating, and nobody during the reveal
+    // hold (announceTable lists every connected owner right after it)
+    const tournament = !!game.tournamentId;
+    const listOwners = !tournament || (tournamentVoice.tableCapable(io, socket.id) && !tournamentVoice.seatingHeld(game));
+    for (const s of listOwners ? game.seatList() : []) {
         if (s.position === pos || s.presence !== Presence.CONNECTED) continue;
         if (s.controller !== Controller.HUMAN && s.ownerView !== 'seat') continue;
-        peers.push({ socketId: s.ownerSocketId, username: game.getPlayerByPosition(s.position).username });
+        if (tournament && !tournamentVoice.tableCapable(io, s.ownerSocketId)) continue;
+        const ownerName = game.getPlayerByPosition(s.position).username;
+        // a loaded block list leaves a pair out (the relay refuses it anyway)
+        if (gameVoice.blockedPair(io, socket.id, username, s.ownerSocketId, ownerName)) continue;
+        peers.push({ socketId: s.ownerSocketId, username: ownerName });
         io.to(s.ownerSocketId).emit('voicePeerJoined', { socketId: socket.id, username });
     }
     for (const [sid, e] of game.voiceSpectators || []) {

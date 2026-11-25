@@ -89,6 +89,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
     onChatMessage,
     // Voice callbacks
     onVoiceSettings,
+    onVoicePeers,
     // Profile callbacks
     onProfileReceived,
     onProfileError,
@@ -218,7 +219,7 @@ export function registerAllHandlers(socketManager, callbacks = {}) {
 
   // Register voice handlers (signaling is self-contained; voiceSettings
   // goes to the page: the spectator talk mode, the switch, the pill)
-  registerVoiceHandlers(socketManager, { onVoiceSettings });
+  registerVoiceHandlers(socketManager, { onVoiceSettings, onVoicePeers });
 
   // Register tournament handlers
   registerTournamentHandlers(socketManager, {
