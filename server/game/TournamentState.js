@@ -398,6 +398,49 @@ class TournamentState {
         return history;
     }
 
+    /**
+     * Each round's tables and teams so far, for the clients' round pairings
+     * and "Partners so far" (owner 2026-11-25): one entry per round in
+     * `rounds`, {roundNumber, tables: [{gameId, teams}]} with the tables
+     * that kept their planned `teams` (usernames, null for a bot; a table
+     * that never seated dropped them: dropGameTeams). `planned` (the round
+     * just planned: {roundNumber, tables: [{gameId: null, teams}]}) replaces
+     * or adds that round's entry. Derived from the saved round entries, so
+     * it survives a deploy handoff unchanged.
+     */
+    pairings({ planned = null } = {}) {
+        const list = this.rounds.map((round) => {
+            const tables = [];
+            for (const [gameId, game] of round.games) {
+                if (!Array.isArray(game.teams)) continue;
+                tables.push({ gameId, teams: game.teams.map((t) => [t[0] ?? null, t[1] ?? null]) });
+            }
+            return { roundNumber: round.roundNumber, tables };
+        });
+        if (planned) {
+            const i = list.findIndex((r) => r.roundNumber === planned.roundNumber);
+            if (i >= 0) list[i] = planned; else list.push(planned);
+        }
+        return list;
+    }
+
+    /**
+     * pairings() for the wire, or null when no table anywhere has two
+     * members (the lobby phase, a 1-member tournament: their payloads stay
+     * as they were).
+     */
+    pairingsWire(opts) {
+        const list = this.pairings(opts);
+        const shown = list.some((r) => r.tables.some((t) => t.teams.flat().filter(Boolean).length >= 2));
+        return shown ? list : null;
+    }
+
+    /** `{pairings}` to spread into a tournament event's payload, or {} (pairingsWire is null). */
+    pairingsField(opts) {
+        const pairings = this.pairingsWire(opts);
+        return pairings ? { pairings } : {};
+    }
+
     getCurrentRound() {
         if (this.rounds.length === 0) return null;
         return this.rounds[this.rounds.length - 1];
@@ -730,6 +773,9 @@ class TournamentState {
         if (this.phase === 'complete') {
             state.winners = this.getWinners();
         }
+
+        // Additive (2026-11-25): each round's pairings so far
+        Object.assign(state, this.pairingsField());
 
         return state;
     }

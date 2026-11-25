@@ -99,6 +99,7 @@ export const SERVER_EVENTS = {
   DELETE_ACCOUNT_RESPONSE: 'deleteAccountResponse',
   CHANGE_PASSWORD_RESPONSE: 'changePasswordResponse',
   RESTORE_SESSION_RESPONSE: 'restoreSessionResponse',
+  UPDATE_REQUIRED: 'updateRequired',
 
   // Safety / moderation
   REPORT_USER_RESPONSE: 'reportUserResponse',

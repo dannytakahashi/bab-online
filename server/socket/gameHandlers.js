@@ -12,7 +12,6 @@ const {
     determineWinner,
     findHighestBidder,
     calculateMultiplier,
-    determineDrawPosition,
     calculateHSI,
     calculateScore,
     handFaults,
@@ -20,8 +19,7 @@ const {
     seatSpotOn,
     nextHandSize: handSizeAfter,
     BID_RANKS,
-    gybHandScore,
-    gybDrawPosition
+    gybHandScore
 } = require('../game/rules');
 const { isGyb } = require('../game/gameMode');
 const { gameLogger } = require('../utils/logger');
@@ -464,12 +462,13 @@ async function handleDrawComplete(io, game) {
     // draw-phase leaver straight to a bot (as if resigned, owner gone).
     const absentAtSeating = [];
     const takeovers = [];
+    // (a tournament table's planned teams: GameState.drawPositions)
+    const positions = game.drawPositions();
     for (let i = 0; i < game.drawIDs.length; i++) {
         const playerId = game.drawIDs[i];
-        // (Get Your Bid: three seats in draw order, no partner swap)
-        const position = isGyb(game)
-            ? gybDrawPosition(game.drawCards[i], game.drawCards)
-            : determineDrawPosition(game.drawCards[i], game.drawCards);
+        // (GameState.drawPositions: Get Your Bid's three seats in draw
+        // order; a tournament table's planned teams)
+        const position = positions[i];
         const entrant = entrants?.get(playerId) ||
             { socketId: playerId, isBot: gameManager.isBot(playerId), username: null, presence: 'connected' };
 
@@ -652,6 +651,10 @@ async function handleDrawComplete(io, game) {
     game.drawIDs = [];
     game.drawNames = [];
     game.deck = null;
+    game.drawTeams = null;
+    game.drawPlan = null;
+    game.drawHonest = false;
+    game.drawTeamsWire = null;
 
     // Notify main room that a new in-progress game is available to spectate
     emitLobbiesUpdated(io);
@@ -1260,7 +1263,9 @@ async function finishGame(game, io, { playerStatsWithNames, gybEnd }) {
                 activeGames: tournament.getActiveGames(),
                 scoreboard: tournament.getScoreboard(),
                 currentRound: tournament.currentRound,
-                totalRounds: tournament.totalRounds
+                totalRounds: tournament.totalRounds,
+                // additive 2026-11-25: the rounds' pairings so far
+                ...tournament.pairingsField()
             });
 
             if (result && result.roundComplete) {

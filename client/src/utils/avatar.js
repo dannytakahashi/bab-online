@@ -220,8 +220,13 @@ export function foldAvatarPayload(event, data) {
  * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
  * lobby and its three-seat table; only such a client is listed, may create,
  * join, rejoin or watch one (server/game/gameMode.js).
+ * And tournamentPairings (2026-11-25, ui/drawCopy.js,
+ * ui/screens/tournamentPairings.js): this page shows the round pairings and
+ * "Partners so far" and words a tournament table's draw as a draw for first
+ * deal with the teams (startDraw.teams), so the server may draw honestly
+ * there (each player the card picked).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings'];
 
 export function clientHello(version, build, capable = true) {
   return {

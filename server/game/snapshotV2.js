@@ -185,6 +185,11 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
         const complete = game.drawCards.length === N;
         const drawPosition = solo ? gybDrawPosition : determineDrawPosition;
         const names = game.drawNames || [];
+        // the seats (GameState.drawPositions: Get Your Bid's draw order, a
+        // tournament table's planned teams), computed once
+        const positions = !complete ? null
+            : (typeof game.drawPositions === 'function' ? game.drawPositions()
+                : game.drawCards.map((c) => drawPosition(c, game.drawCards)));
         draw = {
             deckRemaining: game.deck ? game.deck.cards.length : null,
             drawn: game.drawCards.map((c, i) => ({
@@ -192,10 +197,16 @@ function buildSnapshotV2(game, viewerSid, { tournament = null, now = Date.now(),
                 username: names[i] ?? null,
                 isBot: isBotSocket(game.drawIDs[i]),
                 card: card(c),
-                position: complete ? drawPosition(c, game.drawCards) : null,
+                position: positions ? positions[i] : null,
             })),
             viewerDrawOrder: viewerSid != null && game.drawIDs.includes(viewerSid) ? game.drawIDs.indexOf(viewerSid) + 1 : null,
         };
+        // A tournament table's planned teams by name (additive 2026-11-25,
+        // optional: only where startDraw.teams went out; always 2 x 2
+        // complete entries, which build 41's strict decode needs)
+        if (Array.isArray(game.drawTeamsWire)) {
+            draw.teams = game.drawTeamsWire.map((t) => t.map((p) => ({ username: p.username, isBot: p.isBot })));
+        }
     }
 
     // ---- deal: null before the first deal ----

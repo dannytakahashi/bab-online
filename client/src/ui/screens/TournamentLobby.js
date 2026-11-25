@@ -11,6 +11,7 @@ import { el, createButton, createPanel } from '../kit/index.js';
 import { createTournamentScoreboard } from '../components/TournamentScoreboard.js';
 import { chatLine, chatForm, setButtonVariant, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 import { LOBBY_VOICE_SLOT_ID } from './GameLobby.js';
+import { renderPairings } from './tournamentPairings.js';
 
 /**
  * Module state
@@ -29,6 +30,9 @@ let lobbyPlayers = [];
  * Begin starts with the ready members and the others sit the round out.
  */
 let readyDeadlinePassed = false;
+/** The rounds' pairings as the server last sent them (2026-11-25), and whether I only watch. */
+let lobbyPairings = [];
+let lobbySpectator = false;
 
 /** Ready / Ready! on the tournament's Ready button. */
 function renderReady(readyBtn) {
@@ -157,6 +161,8 @@ export function showTournamentLobby(data, socket, username) {
 
   const isSpectator = data.isSpectator || false;
   const isCreator = isHost(data.players, username, data.creatorUsername);
+  lobbySpectator = isSpectator;
+  lobbyPairings = Array.isArray(data.pairings) ? data.pairings : [];
 
   const container = createPanel({ elevation: 3, className: 'screen screen--full screen--tournament' });
   container.id = 'tournamentLobbyContainer';
@@ -191,6 +197,12 @@ export function showTournamentLobby(data, socket, username) {
   const scoreboardContainer = el('div', { className: 'tournament-scoreboard-wrap', attrs: { id: 'tournamentScoreboardContainer' } });
   scoreboardContainer.appendChild(createTournamentScoreboard(data.scoreboard || [], data.currentRound, data.totalRounds));
   mainColumn.appendChild(scoreboardContainer);
+
+  // The round's pairings and "Partners so far" (shown openly, owner
+  // 2026-11-25; hidden until a table has two members)
+  const pairingsContainer = el('section', { className: 'screen-section tournament-pairings', attrs: { id: 'tournamentPairings', 'aria-label': 'Pairings' } });
+  renderPairings(pairingsContainer, { pairings: lobbyPairings, me: username, spectator: isSpectator });
+  mainColumn.appendChild(pairingsContainer);
 
   // The round's tables (visible during round_active) beside the players
   const roster = el('div', { className: 'tournament-roster' });
@@ -437,6 +449,16 @@ export function updateTournamentScoreboardUI(scoreboard, currentRound = rounds.c
 }
 
 /**
+ * The rounds' pairings from a tournament event (tournamentRoundStart /
+ * GameComplete / RoundComplete / Complete `pairings`).
+ */
+export function updateTournamentPairings(pairings) {
+  if (!Array.isArray(pairings)) return;
+  lobbyPairings = pairings;
+  renderPairings(document.getElementById('tournamentPairings'), { pairings, me: lobbyUsername, spectator: lobbySpectator });
+}
+
+/**
  * Update round indicator.
  */
 export function updateTournamentRoundIndicator(currentRound, totalRounds) {
@@ -507,6 +529,8 @@ export function removeTournamentLobby() {
   lobbyUsername = null;
   lobbyPlayers = [];
   readyDeadlinePassed = false;
+  lobbyPairings = [];
+  lobbySpectator = false;
   tournamentUserColors = {};
   currentPhase = 'lobby';
 }

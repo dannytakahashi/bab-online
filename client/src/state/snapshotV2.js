@@ -15,6 +15,7 @@
 import { STOCK_MIN, STOCK_MAX } from '../constants/avatars.js';
 import { validBidClock } from './bidClock.js';
 import { validShoulder } from './shoulder.js';
+import { validTeams } from './drawTeams.js';
 
 export const SNAPSHOT_VERSION = 2;
 export const STAGES = Object.freeze(['CREATED', 'DRAWING', 'DRAW_RESOLVING', 'TEAMS_ANNOUNCED', 'DEALING', 'BIDDING',
@@ -231,6 +232,17 @@ export function parseSnapshotV2(raw, { strict = false } = {}) {
       copy.bidClock = { position, inMs, durationMs };
     } else {
       c.warnings.push(`$.bidClock: malformed ${JSON.stringify(raw.bidClock)}, dropped`);
+    }
+  }
+  // draw.teams (2026-11-25): a tournament table's planned teams, exactly
+  // 2 x 2 {username, isBot}; malformed: dropped with a warning (the draw
+  // then shows as a casual one), the snapshot still applies
+  if (copy.draw && copy.draw.teams !== undefined) {
+    const t = validTeams(copy.draw.teams);
+    if (t) copy.draw.teams = t;
+    else {
+      c.warnings.push('$.draw.teams: malformed, dropped');
+      delete copy.draw.teams;
     }
   }
   // viewer.assist (2026-11-19): the viewer's own /help count {uses,

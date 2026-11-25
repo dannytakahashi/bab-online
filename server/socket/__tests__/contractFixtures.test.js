@@ -96,6 +96,9 @@ function keep(w, name, description, sid, from, event = 'stateSnapshot') {
 // "Over-the-shoulder view"): one of each, schema-checked
 const SHOULDER_DIR = path.join(__dirname, '..', '..', '..', 'contract', 'fixtures', 'shoulder');
 let shoulderEvents = null;
+// A tournament table's draw for first deal (contract/fixtures/pairings/events.json)
+const PAIRINGS_DIR = path.join(__dirname, '..', '..', '..', 'contract', 'fixtures', 'pairings');
+let pairingsEvents = null;
 function captureEvents(wire) {
     const out = [];
     for (const [event, entry] of Object.entries(wire)) {
@@ -430,6 +433,48 @@ describe('snapshot v2 fixtures from real games', () => {
         await Promise.all([...t.draws, ...t.starting]);
     }, 30000);
 
+    test('a tournament table\'s draw for first deal (contract/fixtures/pairings/events.json)', async () => {
+        const gameHandlers = require('../gameHandlers');
+        const CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentPairings'];
+        const out = {};
+        for (const [mode, seed] of [['honest', 111], ['staged', 112]]) {
+            Math.random = mulberry32(seed);
+            const ctx = await setupTournament(4);
+            // staged: the 4th member is a shipped iOS build (no tournamentPairings)
+            ctx.sockets.forEach((sk, i) => {
+                sk.data.client = { client: mode === 'staged' && i === 3 ? 'ios' : 'web', version: '1', build: null, caps: mode === 'staged' && i === 3 ? CAPS.slice(0, 7) : CAPS };
+            });
+            ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
+            await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t)[0].stage === Phase.DRAWING, 10, 20000);
+            const [g] = liveTables(ctx.t);
+            expect(g.drawHonest).toBe(mode === 'honest');
+            const pick = (e) => ({ event: e.event, data: JSON.parse(JSON.stringify(e.data)) });
+            const roundStart = ctx.log.find((e) => e.event === 'tournamentRoundStart');
+            const startDraw = ctx.log.find((e) => e.event === 'startDraw' && e.to === g.roomName);
+            const line = ctx.log.find((e) => e.event === 'gameLogEntry' && e.to === g.roomName);
+            gameHandlers.draw(ctx.sockets[0], ctx.io, { num: 3 });
+            gameHandlers.draw(ctx.sockets[1], ctx.io, { num: 20 });
+            const from = ctx.log.length;
+            snapshotHandlers.requestSnapshot(ctx.sockets[2], ctx.io, {});
+            const snap = ctx.log.slice(from).find((e) => e.event === 'stateSnapshot').data.snapshot;
+            expect(validate(JSON.parse(JSON.stringify(snap)))).toEqual([]);
+            expect(snap.draw.teams).toHaveLength(2);
+            const events = [pick(roundStart), pick(startDraw), ...(line ? [pick(line)] : []), { event: 'stateSnapshot', data: { snapshot: JSON.parse(JSON.stringify(snap)) } }];
+            for (const e of events) expect({ event: e.event, errors: contract.validateS2C(e.event, e.data).errors }).toEqual({ event: e.event, errors: [] });
+            out[mode] = events;
+            gameHandlers.draw(ctx.sockets[2], ctx.io, { num: 0 });
+            gameHandlers.draw(ctx.sockets[3], ctx.io, { num: 0 });
+            await advanceUntil(() => g.stage === Phase.BIDDING, 100, 20000);
+            await ctx.starting;
+            for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
+        }
+        pairingsEvents = {
+            description: 'A 4-member tournament table\'s draw for first deal (2026-11-25, clientHello cap tournamentPairings), from real games: tournamentRoundStart with pairings (the planned round, gameId null), startDraw with teams, and a mid-draw stateSnapshot (two drawn) whose draw carries teams. honest: every member has the cap, so the room also gets the "Partners this round" system line and each player the card they picked; staged: one member is a shipped iOS build, so the cards are staged and there is no line (the wire is otherwise the same). Rewrite with npm run contract:fixtures.',
+            honest: out.honest,
+            staged: out.staged,
+        };
+    }, 60000);
+
     test('the committed fixtures are what the server produces (run npm run contract:fixtures)', () => {
         const names = [...captured.keys()].sort();
         expect(names).toEqual(['action-rejected', 'between-tricks', 'bid-clock-running', 'bidding-mid', 'created-countdown', 'draw-in-progress',
@@ -454,6 +499,20 @@ describe('snapshot v2 fixtures from real games', () => {
         const extra = fs.existsSync(DIR) ? fs.readdirSync(DIR).filter((f) => !files[f]) : [];
         if (stale.length || extra.length) {
             throw new Error(`contract/fixtures/v2 is out of date (${[...stale, ...extra].join(', ')}): run npm run contract:fixtures`);
+        }
+    });
+
+    test('contract/fixtures/pairings/events.json is what the server produces (run npm run contract:fixtures)', () => {
+        expect(pairingsEvents).not.toBeNull();
+        const file = path.join(PAIRINGS_DIR, 'events.json');
+        const content = JSON.stringify(pairingsEvents, null, 2) + '\n';
+        if (UPDATE) {
+            fs.mkdirSync(PAIRINGS_DIR, { recursive: true });
+            fs.writeFileSync(file, content);
+            return;
+        }
+        if (!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== content) {
+            throw new Error('contract/fixtures/pairings/events.json is out of date: run npm run contract:fixtures');
         }
     });
 

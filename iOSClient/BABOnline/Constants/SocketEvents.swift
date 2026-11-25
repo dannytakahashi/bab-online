@@ -100,6 +100,7 @@ enum SocketEvents {
         static let activeGameFound = "activeGameFound"
         static let deleteAccountResponse = "deleteAccountResponse"
         static let changePasswordResponse = "changePasswordResponse"
+        static let updateRequired = "updateRequired"
 
         // Safety / moderation
         static let reportUserResponse = "reportUserResponse"

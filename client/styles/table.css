@@ -1160,6 +1160,65 @@ body > .voice-btn {
     text-shadow: 0 1px 2px rgb(var(--scrim-rgb) / 0.5);
 }
 
+/* a tournament table's teams (owner 2026-11-25): one line under the title,
+   the type shrinks first (drawHud fitTeamsLine: --name-fit, down to 0.6),
+   then each name is cut while "&" and "vs" stay */
+.hud-draw__teams {
+    position: absolute;
+    left: 50%;
+    top: var(--draw-teams-y);
+    max-width: var(--draw-teams-w);
+    margin: 0;
+    transform: translate(-50%, -50%);
+    font-size: calc(var(--draw-teams-font) * var(--name-fit, 1));
+    font-weight: var(--weight-semibold);
+    line-height: 1.3;
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgb(var(--scrim-rgb) / 0.5);
+}
+
+.hud-draw__teams-shown {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 0.4em;
+    min-width: 0;
+}
+
+.hud-draw__team {
+    display: flex;
+    align-items: baseline;
+    gap: 0.3em;
+    min-width: 0;
+}
+
+.hud-draw__team.is-mine { color: var(--primary-base); }
+
+.hud-draw__tname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.hud-draw__teams.is-measuring .hud-draw__tname,
+.hud-draw__teams.is-measuring .hud-draw__team { flex: none; }
+
+.hud-draw__amp,
+.hud-draw__vs {
+    flex: none;
+    color: var(--text-secondary);
+    font-weight: var(--weight-regular);
+}
+
+.hud-draw__teams-spoken {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
 .hud-draw__rules {
     top: var(--draw-rules-y);
     width: var(--draw-rules-w);

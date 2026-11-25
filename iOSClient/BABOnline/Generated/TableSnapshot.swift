@@ -477,6 +477,7 @@ struct TableSnapshot: Codable, Equatable {
         var deckRemaining: Int?
         var drawn: [DrawnCard]
         var viewerDrawOrder: Int?
+        var teams: [[PlannedTeamPlayer]]?
     }
 
     struct DrawnCard: Codable, Equatable {
@@ -485,6 +486,11 @@ struct TableSnapshot: Codable, Equatable {
         var isBot: Bool
         var card: Card
         var position: Int?
+    }
+
+    struct PlannedTeamPlayer: Codable, Equatable {
+        var username: String
+        var isBot: Bool
     }
 
     struct SpectatorList: Codable, Equatable {
