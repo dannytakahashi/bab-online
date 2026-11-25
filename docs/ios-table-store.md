@@ -1131,6 +1131,32 @@ after a made / set at a hand end (`TableSoundCues.afterHandEnd`) while the
 cards start at 0.2 s; the fans' backs fly from their small fan texture, so
 they are soft for the first frames of their flight. Not seen on a device.
 
+## The draw for first deal (iOS 1.2.7, build 41)
+
+Owner 2026-11-25: tournament partners are planned per round and shown openly, and the draw at
+a planned table decides only the seats and who deals first (server and web: PR #405,
+`server/CLAUDE.md` "Tournament partners").
+
+- Wire into the store: `startDraw.teams` (`WirePayload.StartDraw`, lenient) and snapshot v2
+  `draw.teams` (the generated `TableSnapshot.Draw.teams`, `[[PlannedTeamPlayer]]?`) become
+  `DrawState.plannedTeams` (`PlannedTeams.valid`: exactly 2 x 2 with non-empty names, else
+  nil). The reducer sets it at startDraw (a casual one leaves nil) and from a DRAWING /
+  DRAW_RESOLVING / TEAMS_ANNOUNCED snapshot; `mutateDraw` keeps it through the draw's stages.
+  `GameState.drawPlannedTeams` is the view's read.
+- View: `DrawPhaseView.header` takes the title and rule from `DrawCopy` (the web's
+  `ui/drawCopy.js`) and, with planned teams, the teams line `DrawTeamsLine` between them (my
+  team first, "You & ..."; a spectator's in plan order). The line is one line at the rules'
+  size (semibold), shrunk to `DrawMetrics.nameMinScale`, then `DrawCopy.fittedLine` cuts each
+  name on its own (the score bar's `fittedNames` rule over four names); VoiceOver reads
+  `DrawCopy.teamsSpoken`. `DrawLayoutProbe.check` counts it (`plannedTeams`) among the parts
+  that must not overlap or leave the overlay.
+- Nothing else at the table changes: the cards are the server's (`playerDrew`), seating and
+  the teams panel come from `positionUpdate` / `teamsAnnounced`, and seat 1 deals first as
+  before. A shipped build (1.2.6 (40) and older) never sends the cap, so its table is always
+  staged and its "The two highest cards are partners" stays true there.
+- Fixtures: `-uiDrawTeams YES` on any draw state; tests `DrawFirstDealTests`,
+  `DrawPhaseUITests.testTheFirstDealDrawShowsTheTeamsBeforeTheDraw`.
+
 ## iOS 1.2.2: table parity with the web (build 10)
 
 Seven table items the web has (parity audit 2026-11-15). No server change and
