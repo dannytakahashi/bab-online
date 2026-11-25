@@ -193,6 +193,13 @@ const s2c = {
         clientReads: reads(W.auth, I.auth),
         emittedFrom: ['server/socket/authHandlers.js:signIn', 'server/socket/upgradeGate.js:sendUpdateMessage'],
     },
+    updateRequired: {
+        payload: obj({ message: str(), url: str({ pattern: '^https://apps\\.apple\\.com/' }) }),
+        status: 'active', to: 'self',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/upgradeGate.js:sendUpdateRequired'],
+        notes: 'New (2026-11-25, private, unsequenced): only an upgrade-gated iOS socket (User-Agent build below the gate: MIN_IOS_BUILD, raised and never lowered by the env BAB_MIN_IOS_BUILD) gets it, with the gate\'s main push (2 s after connect, beside mainRoomJoined) and then once a minute (every 10th REPEAT_MS repeat), so the timed pushes stay within the gate\'s 20 emits per minute. message is the gate\'s update text, url the App Store page. The builds gated today (1.0.0, 1.1.0) and builds 39 / 40 ignore it (no handler); iOS from build 41 shows it as a full-screen update screen with an App Store button and keeps the saved session, so the next gate past 41 is seen on every screen.',
+    },
     signUpResponse: {
         payload: anyOf(
             variant('success', obj({ success: konst(true), username: str(), sessionToken: str(), autoLoggedIn: konst(true) })),
@@ -399,11 +406,13 @@ const s2c = {
 
     // ==================== Draw ====================
     startDraw: {
-        payload: obj({ start: konst(true) }),
+        payload: obj({ start: konst(true), teams: arr(arr(ref('plannedTeamPlayer'), { minItems: 2, maxItems: 2 }), { minItems: 2, maxItems: 2 }) }, { optional: ['teams'] }),
         status: 'active', to: 'room', seq: false,
+        added: ['teams'],
         reserved: [{ key: 'numCards', why: 'iOS sets drawCardCount from it (GameSocketHandler.registerSetupPhase)' }],
         clientReads: reads(W.game, I.game('registerSetupPhase')),
         emittedFrom: ['server/socket/gameLifecycle.js:beginDraw'],
+        notes: 'teams (additive 2026-11-25, optional): a tournament table with planned teams (two or more members; gameLifecycle.beginDraw), the two teams in plan order by name, bots by their persona name with isBot true; always 2 x 2. Sent at every planned table, staged or honest, so a client with the clientHello cap tournamentPairings always shows the draw for first deal there ("Partners are set for this round. The highest card deals first.") with the teams under the title; the draw decides only seats and who deals first (the highest card\'s team at 1 & 3, that card at 1). Where every human and spectator has the cap the draw is honest (each player the card they picked) and one stored system gameLogEntry "Partners this round: A & B vs C & D. The draw decides who deals first." follows; else staged (cards chosen so the ordinary rule seats the plan), which is invisible on the wire. Clients without the cap (iOS 1.2.6 (40) and older, cached web) ignore the key and keep "The two highest cards are partners", true at their (always staged) table. Read by web from 2026-11-25 (handlers/gameHandlers.js startDraw, ui/drawCopy.js), iOS from build 41.',
     },
     youDrew: {
         payload: obj({ card: ref('card'), drawOrder: int({ minimum: 1, maximum: 4 }) }),
@@ -939,7 +948,7 @@ const s2c = {
     tournamentJoined: {
         payload: anyOf(
             variant('member', ref('tournamentClientState')),
-            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners', 'readyDeadlinePassed'] })),
+            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners', 'readyDeadlinePassed', 'pairings'] })),
         ),
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
@@ -976,10 +985,12 @@ const s2c = {
         notes: 'system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
     },
     tournamentRoundStart: {
-        payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })) }),
+        payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
         status: 'active', to: 'tournament',
+        added: ['pairings'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:startTournamentRound'],
+        notes: 'pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it. Here the round just planned is included with gameId null (its tables are created after the announce); a member who leaves during the announce is still shown in it until the next tournament event.',
     },
     tournamentGameAssignment: {
         payload: obj({ gameId: str(), tournamentId: str(), roundNumber: int({ minimum: 1 }) }),
@@ -991,23 +1002,29 @@ const s2c = {
         payload: obj({
             gameId: str(), score: ref('teamPair'), aborted: konst(true),
             activeGames: arr(ref('tournamentActiveGame')), scoreboard, currentRound: int({ minimum: 0 }), totalRounds: int(),
-        }, { optional: ['aborted'] }),
+            pairings: arr(ref('roundPairings')),
+        }, { optional: ['aborted', 'pairings'] }),
         status: 'active', to: 'tournament',
+        added: ['pairings'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/gameHandlers.js:handleHandComplete', 'server/socket/tournamentHandlers.js:handleAbortedTournamentGame'],
+        notes: 'pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
     },
     tournamentRoundComplete: {
-        payload: obj({ scoreboard, currentRound: int({ minimum: 0 }), totalRounds: int() }),
+        payload: obj({ scoreboard, currentRound: int({ minimum: 0 }), totalRounds: int(), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
         status: 'active', to: 'tournament',
+        added: ['pairings'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:broadcastRoundOutcome', 'server/socket/tournamentHandlers.js:rollbackRound'],
-        notes: 'rollbackRound (2026-11-15) sends it again, unchanged in shape, when a start past the ready deadline got no table: the members who sat out had gone to the round screen on tournamentRoundStart, and this puts both clients (web setTournamentPhase, iOS 1.2.0 phase / isReady) back between rounds, ready cleared as on the server.',
+        notes: 'rollbackRound (2026-11-15) sends it again, unchanged in shape, when a start past the ready deadline got no table: the members who sat out had gone to the round screen on tournamentRoundStart, and this puts both clients (web setTournamentPhase, iOS 1.2.0 phase / isReady) back between rounds, ready cleared as on the server. pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it. After a rollback the rolled-back round is gone from it.',
     },
     tournamentComplete: {
-        payload: obj({ scoreboard, winners: arr(str()) }),
+        payload: obj({ scoreboard, winners: arr(str()), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
         status: 'active', to: 'tournament',
+        added: ['pairings'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:broadcastRoundOutcome'],
+        notes: 'pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
     },
     tournamentLeft: {
         payload: empty,

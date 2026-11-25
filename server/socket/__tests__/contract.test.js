@@ -1086,6 +1086,32 @@ describe('(e2) admin panel', () => {
     });
 });
 
+// ==================== upgrade gate ====================
+
+describe('upgrade gate', () => {
+    test('a gated iOS socket gets updateRequired with the main push (BAB_MIN_IOS_BUILD 41 gates build 40)', () => {
+        const gate = require('../upgradeGate');
+        const { makeSocket } = require('../../testUtils/gameDriver');
+        const log = [];
+        const socket = makeSocket('gated-40', log);
+        socket.handshake = { headers: { 'user-agent': 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0' } };
+        const handlers = new Map();
+        socket.on = (ev, fn) => handlers.set(ev, fn);
+        const prev = process.env.BAB_MIN_IOS_BUILD;
+        process.env.BAB_MIN_IOS_BUILD = '41';
+        try {
+            expect(gate.gate(socket)).toBe(true);
+        } finally {
+            if (prev === undefined) delete process.env.BAB_MIN_IOS_BUILD; else process.env.BAB_MIN_IOS_BUILD = prev;
+        }
+        jest.advanceTimersByTime(2100);
+        const update = events(log, 'updateRequired');
+        expect(update).toHaveLength(1);
+        expect(update[0].data).toEqual({ message: gate.UPDATE_MESSAGE_SIGNED_OUT, url: gate.APP_STORE_URL });
+        handlers.get('disconnect')();
+    });
+});
+
 // ==================== coverage ====================
 
 describe('coverage', () => {

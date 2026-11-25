@@ -100,6 +100,49 @@ describe('parseIosUserAgent', () => {
         expect([0, 1, 2, 3, 4, 5, 100].map(at)).toEqual([true, true, true, false, false, false, false]);
     });
 
+    test('iOS 1.2.5 (39) and 1.2.6 (40) parse, and are not gated at MIN_IOS_BUILD 3', () => {
+        for (const b of [39, 40, 41]) {
+            const ua = `BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`;
+            expect(gate.parseIosUserAgent(ua)).toEqual({ client: 'ios', build: b });
+            expect(gate.isOutdatedIosApp(ua)).toBe(false);
+        }
+    });
+
+    describe('BAB_MIN_IOS_BUILD raises the gate, never lowers it', () => {
+        const prev = process.env.BAB_MIN_IOS_BUILD;
+        afterEach(() => {
+            if (prev === undefined) delete process.env.BAB_MIN_IOS_BUILD; else process.env.BAB_MIN_IOS_BUILD = prev;
+        });
+        const at = (b) => gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`);
+
+        test('41 gates 39 and 40, not 41 or later', () => {
+            process.env.BAB_MIN_IOS_BUILD = '41';
+            expect(gate.minIosBuild()).toBe(41);
+            expect([1, 2, 3, 39, 40, 41, 42].map(at)).toEqual([true, true, true, true, true, false, false]);
+        });
+
+        test.each(['1', '2', '0', '-5', 'abc', '', ' '])('%j cannot un-gate builds 1 and 2', (v) => {
+            process.env.BAB_MIN_IOS_BUILD = v;
+            expect(gate.minIosBuild()).toBe(gate.MIN_IOS_BUILD);
+            expect([1, 2, 3].map(at)).toEqual([true, true, false]);
+        });
+
+        test('read per connection: a gated socket under the override gets the update screen', () => {
+            jest.useFakeTimers();
+            process.env.BAB_MIN_IOS_BUILD = '41';
+            const w = wired('BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0');
+            expect(w.handlers.has('playCard')).toBe(false);
+            expect(w.socket.data.appBuild).toBe(40);
+            jest.advanceTimersByTime(2000);
+            expect(w.emits('updateRequired').map((l) => l.data)).toEqual([{ message: MSG_OUT, url: gate.APP_STORE_URL }]);
+            w.handlers.get('disconnect')();
+            delete process.env.BAB_MIN_IOS_BUILD;
+            const ok = wired('BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0');
+            expect(ok.handlers.has('playCard')).toBe(true);
+            gameManager.removeUserSocket(ok.socket.id);
+        });
+    });
+
     test.each(BROWSERS)('browser: %s', (ua) => {
         expect(gate.parseIosUserAgent(ua)).toBeNull();
         expect(gate.isOutdatedIosApp(ua)).toBe(false);
@@ -338,8 +381,10 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         // the app restores its session on connect: later pushes keep "stay signed in"
         w.handlers.get('restoreSession')({ username: 'Alan', sessionToken: ALAN_TOKEN });
         jest.advanceTimersByTime(1700);
-        expect(at()).toEqual(['signInResponse', 'signInResponse', 'signInResponse', 'mainRoomJoined']);
+        expect(at()).toEqual(['signInResponse', 'signInResponse', 'signInResponse', 'mainRoomJoined', 'updateRequired']);
         expect(w.emits('mainRoomJoined')[0].data.recentMessages[0].message).toBe(MSG);
+        // build 41's full-screen update screen (older builds ignore it)
+        expect(w.emits('updateRequired')[0].data).toEqual({ message: MSG, url: gate.APP_STORE_URL });
         const gated = socketLogger.info.mock.calls.filter(([m]) => m === 'Upgrade gate: outdated iOS app');
         expect(gated).toEqual([['Upgrade gate: outdated iOS app', { socketId: w.socket.id, build: BUILD, username: 'Alan', savedSession: true }]]);
         expect(JSON.stringify(gated)).not.toContain(ALAN_TOKEN);
@@ -383,6 +428,24 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         jest.advanceTimersByTime(gate.REPEAT_MS * 10);
         expect(pushes()).toBe(9);
         expect(jest.getTimerCount()).toBe(0);
+    });
+
+    test('updateRequired: with the main push, then once a minute; no signInResponse push is lost to it', () => {
+        jest.useFakeTimers();
+        const w = wired(UA_OLD);
+        const inWindow = () => w.log.filter((l) => Date.now() - l.at < gate.EMIT_WINDOW_MS).length;
+        const minutes = 10;
+        for (let s = 0; s < minutes * 60; s++) {
+            jest.advanceTimersByTime(1000);
+            expect(inWindow()).toBeLessThanOrEqual(gate.EMIT_LIMIT - gate.REPLY_RESERVE);
+        }
+        const t = minutes * 60000;
+        const last = gate.PUSH_DELAYS_MS[gate.PUSH_DELAYS_MS.length - 1];
+        const repeats = Math.floor((t - last) / gate.REPEAT_MS);
+        expect(w.emits('signInResponse')).toHaveLength(gate.PUSH_DELAYS_MS.length + repeats);
+        expect(w.emits('updateRequired')).toHaveLength(1 + Math.floor(repeats / gate.UPDATE_EVERY));
+        expect(w.emits('updateRequired')[0].at).toBe(w.emits('mainRoomJoined')[0].at);
+        w.handlers.get('disconnect')();
     });
 
     test('rate limit: at most EMIT_LIMIT emits per socket per window; the timed pushes leave REPLY_RESERVE for replies', () => {

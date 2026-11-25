@@ -65,8 +65,18 @@ const { socketLogger } = require('../utils/logger');
  *                     teams; server/game/gameMode.js): only such a socket
  *                     is listed, may create, join, rejoin or watch one
  *                     (the web; no iOS build)
+ *   tournamentPairings the round pairings and "Partners so far" (the
+ *                     tournament events' `pairings`), and at a tournament
+ *                     table startDraw.teams / snapshot draw.teams shown as a
+ *                     draw for first deal (2026-11-25). A tournament table
+ *                     draws honestly (each player the card they picked; the
+ *                     draw decides only seats and the first deal) only when
+ *                     every human there and every spectator present at the
+ *                     draw's start has it; otherwise the draw is staged as
+ *                     before (gameLifecycle.beginDraw, PAIRINGS_CAP in
+ *                     game/tournamentPartners.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {
