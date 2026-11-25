@@ -7,8 +7,9 @@ import UIKit
 /// whether and how it plays: muted, the app not active, the same sound within `throttle`.
 ///
 /// Audio session (docs/claude/voice.md, "iOS sounds and voice"): voice chat (`VoiceChatManager`) owns the
-/// session while it runs (playAndRecord / voiceChat, set before `isActive`), so a sound then
-/// just plays through it and the session is never touched. Otherwise, right before a sound,
+/// session while it has a call (playAndRecord / voiceChat, claimed at its first peer connection:
+/// `ownsAudioSession`, iOS 1.2.6; before, from every voice start), so a sound then just plays
+/// through it and the session is never touched. Otherwise, right before a sound,
 /// the category is made `.ambient` (the silent switch silences it, the user's music keeps
 /// playing) if it is anything else: the launch default soloAmbient (would stop their music)
 /// or the playAndRecord voice left behind when it shut down. Nothing touches the session
@@ -135,7 +136,7 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
         self.session = session
         self.defaults = defaults
         self.isAppActive = isAppActive ?? { UIApplication.shared.applicationState == .active }
-        self.isVoiceActive = isVoiceActive ?? { VoiceChatManager.shared.isActive }
+        self.isVoiceActive = isVoiceActive ?? { VoiceChatManager.shared.ownsAudioSession }
         self.now = now
         isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? true
         volume = (defaults.object(forKey: Self.volumeKey) as? NSNumber).map { min(max($0.floatValue, 0), 1) } ?? Self.defaultVolume
@@ -180,7 +181,7 @@ final class SoundPlayer: ObservableObject, SoundPlaying, TunePlaying {
     /// (soloAmbient) would stop the user's music, so it is skipped.
     @discardableResult
     func prepareSession() -> Bool {
-        // Voice owns the session: no AVAudioSession read at all (owner 2026-11-18, build 15 on an
+        // Voice's call owns the session: no AVAudioSession read at all (owner 2026-11-18, build 15 on an
         // iPhone Air: every sound froze the table ~1 s with voice on; a session getter is a
         // synchronous call into the audio server, which is busy while WebRTC runs).
         if isVoiceActive() { return true }
@@ -237,7 +238,7 @@ final class AudioPlayerPool: SoundOutput {
     private let engine = PoolEngine()
 
     func play(file: String, volume: Float) {
-        let voiceActive = VoiceChatManager.shared.isActive
+        let voiceActive = VoiceChatManager.shared.ownsAudioSession
         let engine = self.engine
         SoundQueue.queue.async { engine.play(file: file, volume: volume, voiceActive: voiceActive) }
     }
@@ -313,7 +314,7 @@ final class AudioTuneOutput: TuneOutput {
         // on the sound queue, as the pool's players (a start can block while voice holds the
         // hardware); the clock reads timeLeft from the player afterwards
         let box = PlayerBox(p)
-        let voiceActive = VoiceChatManager.shared.isActive
+        let voiceActive = VoiceChatManager.shared.ownsAudioSession
         endsAt = nowUptime + min(remaining, p.duration)
         SoundQueue.queue.async {
             let started = ProcessInfo.processInfo.systemUptime

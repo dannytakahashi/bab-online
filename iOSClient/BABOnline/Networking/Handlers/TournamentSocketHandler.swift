@@ -7,6 +7,8 @@ final class TournamentSocketHandler {
     private let gameState: GameState
     private let appState: AppState
     private let safetyState: SafetyState
+    /// Voice's room changes (iOS 1.2.6, TournamentVoice); the tests pass a silent manager.
+    private let voice: @MainActor () -> VoiceChatManager
 
     /// The table part of tournamentGameAssignment (also driven by the replay
     /// tests): the tournament context goes on the table so game end knows to return here.
@@ -17,7 +19,9 @@ final class TournamentSocketHandler {
         }
     }
 
-    init(socket: SocketService, tournamentState: TournamentState, gameState: GameState, appState: AppState, safetyState: SafetyState) {
+    init(socket: SocketService, tournamentState: TournamentState, gameState: GameState, appState: AppState, safetyState: SafetyState,
+         voice: @escaping @MainActor () -> VoiceChatManager = { .shared }) {
+        self.voice = voice
         self.socket = socket
         self.tournamentState = tournamentState
         self.gameState = gameState
@@ -67,6 +71,9 @@ final class TournamentSocketHandler {
         tournamentState.rejoiningTournamentId = nil
         tournamentState.loadFromServerState(dict)
         tournamentState.messages.removeAll { safetyState.isBlocked($0.username) }
+        // the server put this socket in the tournament voice room: the old room's calls end
+        // before its announcements (which follow this event) arrive
+        voice().changeRoom()
         if rejoined {
             // joined again as a new member (not ready), or reattached: the server's flag
             let me = socket.authState?.username
@@ -149,6 +156,7 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async {
                 self.tournamentState.loadFromServerState(dict)
                 self.tournamentState.messages.removeAll { self.safetyState.isBlocked($0.username) }
+                self.voice().changeRoom()  // the tournament voice room (TournamentVoice)
                 self.appState.screen = .tournamentLobby
                 print("[Tournament] Created tournament: \(self.tournamentState.tournamentId)")
             }
@@ -207,6 +215,8 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentGameAssignment) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
+                // off the tournament voice room to this round's table (TournamentVoice)
+                self.voice().changeRoom()
                 Self.routeGameAssignment(dict, to: self.gameState)
                 print("[Tournament] Game assigned: \(dict["gameId"] as? String ?? "")")
             }

@@ -65,6 +65,8 @@ private struct GameScreen: View {
     @EnvironmentObject var appState: AppState
     /// Read only in onDisappear, so not observed (LobbyStateLink).
     @Environment(\.lobbyStateLink) private var lobbyLink
+    /// Read only in onDisappear (back in the tournament room), so not observed.
+    @Environment(\.tournamentStateLink) private var tournamentLink
     @EnvironmentObject var actions: ActionCoordinator
 
     @State private var scene: GameSKScene = {
@@ -357,7 +359,11 @@ private struct GameScreen: View {
             scene.cleanupAll()
             // play again (1.2.2 (12)): off to the lobby this game's end returned me to, voice
             // carries on (the server kept those calls); any other way off the table ends it
-            LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
+            // back in the tournament lobby (iOS 1.2.6): that room's voice, its room change done
+            // at tournamentJoined (TournamentVoice), so nothing is torn down here
+            if !TournamentVoice.tableGone(screen: appState.screen, tournament: tournamentLink.state, voice: .shared) {
+                LobbyReturn.tableGone(lobbyState: lobbyLink.state, appState: appState, voice: .shared)
+            }
         }
         // no voice alone (owner 2026-11-19): who is here, for the voice gate (a child of its own,
         // so the lobby kept behind the results is observed without rebuilding the table)

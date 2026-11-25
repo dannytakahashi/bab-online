@@ -57,6 +57,7 @@ struct BABOnlineApp: App {
                 .environmentObject(gameState)
                 .environmentObject(actions)
                 .environmentObject(tournamentState)
+                .environment(\.tournamentStateLink, TournamentStateLink(state: tournamentState))
                 .environmentObject(leaderboardState)
                 .environmentObject(recordsState)
                 .environmentObject(safetyState)

@@ -86,6 +86,17 @@ enum VoiceCompany {
         return gameId == casualVoiceGameId
     }
 
+    /// The tournament room (iOS 1.2.6; the server's `tournament:<id>` voice room, clientHello cap
+    /// `tournamentVoice`, server/voice/tournamentVoice.js): exactly who the server announced to
+    /// this socket there (`VoiceChatManager.tournamentPeers`: voicePeerList / voicePeerJoined
+    /// since this socket entered the room, less voicePeerLeft), never my own name, as the web's
+    /// tournament lobby. The server knows the room (members on the tournament lobby screen with
+    /// the cap, at most 8, never a blocked pair); the payloads alone do not (a member on a
+    /// finished table's score screen, an older app without the cap).
+    static func tournament(announced: [String], me: String?) -> Bool {
+        hasCompany(announced.map { VoicePerson(username: $0) }, me: me)
+    }
+
     /// The table screen: the table's people, except on the score screen of a game whose end
     /// returned me to a lobby (play again: `lobbyReturn` moved me into that lobby's voice room,
     /// `returnFromGameId` is this game), where the lobby's members count.
@@ -110,7 +121,7 @@ enum VoiceCompany {
 final class VoiceGate {
     /// Who says who is here: the screen on show. The latest to say counts; a screen going away
     /// clears only its own word (the next screen may have spoken first).
-    enum Source: Hashable { case lobby, table }
+    enum Source: Hashable { case lobby, table, tournament }
 
     private(set) var wanted = false
     private var said: [Source: Bool?] = [:]
@@ -169,6 +180,27 @@ final class VoiceGate {
         said[source] = nil
         if current == source { current = nil }
         update()
+    }
+
+    /// A room change (iOS 1.2.6, TournamentVoice): every screen's word was about the old room,
+    /// so none counts until the new room's screen speaks (a grace in flight ends: the session it
+    /// would stop is gone). Still wanted.
+    func forgetCompany() {
+        said = [:]
+        current = nil
+        cancelGrace()
+    }
+
+    /// A peer's offer reached me while who is here is not known yet (nil: a table before its
+    /// positionUpdate, e.g. a tournament table's draw, up to ~35 s with the 30 s auto-draw).
+    /// The offerer runs voice in my voice room, so that is company: voice starts now and the
+    /// buffered offer is answered at the start, inside the offerer's 20 s connect timer
+    /// (`IcePolicy.connectTimeout`), instead of at the seating. A known "alone" (false) or a
+    /// screen that does not want voice never starts this way; the seating's word then counts
+    /// as usual (alone: the grace, then a suspend).
+    func peerOffered() {
+        guard wanted, company == nil, !isRunning() else { return }
+        start()
     }
 
     func update() {
