@@ -166,24 +166,30 @@ export function solve({ w, h, n, nameH, maxCardW, f }) {
     };
   });
 
-  // the deck: the biggest box around the centre that touches no card and
-  // no seat (a fan is wider than tall: 1.7 : 1, down to square when that
-  // gives more room)
+  // the deck: the biggest box near the centre that touches no card and no
+  // seat (a fan is wider than tall: 2 : 1, down to square when that gives
+  // more room), centred across and moved up or down to where there is room
   const blockers = seats.flatMap((s) => [s.stack, s.avatar, s.name]);
   const fits = (box) => !blockers.some((b) => rectsOverlap(box, b));
   const cap = Math.max(DECK_MIN, ch * 2.1);
   let deck = { x: cx, y: cy, w: 0, h: 0 };
-  for (const aspect of [1.7, 1.35, 1]) {
-    const boxAt = (k) => ({ x: cx - (aspect * k) / 2, y: cy - k / 2, w: aspect * k, h: k });
-    let lo = 0;
-    let hi = Math.min(rx, ry) * 2;
-    for (let i = 0; i < 24; i++) {
-      const mid = (lo + hi) / 2;
-      if (fits(boxAt(mid))) lo = mid; else hi = mid;
+  const shifts = [0];
+  for (let k = 1; k <= 8; k++) shifts.push((k / 8) * ry * 0.45, -(k / 8) * ry * 0.45);
+  for (const dy of shifts) {
+    for (const aspect of [2, 1.7, 1.35, 1]) {
+      const boxAt = (k) => ({ x: cx - (aspect * k) / 2, y: cy + dy - k / 2, w: aspect * k, h: k });
+      let lo = 0;
+      let hi = Math.min(rx, ry) * 2;
+      for (let i = 0; i < 22; i++) {
+        const mid = (lo + hi) / 2;
+        if (fits(boxAt(mid))) lo = mid; else hi = mid;
+      }
+      // at most about twice a card's height: a big stage keeps a modest deck
+      const box = boxAt(Math.min(lo, cap));
+      // the centre wins a tie; a shifted box must be clearly bigger
+      const better = box.w * box.h > deck.w * deck.h * (dy === 0 ? 1 : 1.15) + 0.5;
+      if (box.h >= DECK_MIN - 0.01 && better) deck = box;
     }
-    // at most about twice a card's height: a big stage keeps a modest deck
-    const box = boxAt(Math.min(lo, cap));
-    if (box.h >= DECK_MIN - 0.01 && box.w * box.h > deck.w * deck.h + 0.5) deck = box;
     if (deck.h >= cap - 0.01) break;
   }
   if (deck.w === 0) deck = { x: cx - DECK_MIN / 2, y: cy - DECK_MIN / 2, w: 0, h: 0 };
