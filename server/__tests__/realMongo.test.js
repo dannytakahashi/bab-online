@@ -18,7 +18,7 @@ const REQUIRED = process.env.REQUIRE_REAL_MONGO === '1';
 const { MongoClient } = require('mongodb');
 const bcrypt = require('bcryptjs');
 
-const mockHolder = { users: null, gameRecords: null, reports: null, passwordResets: null, adminAudit: null };
+const mockHolder = { users: null, gameRecords: null, reports: null, passwordResets: null, adminAudit: null, tournamentRecords: null };
 jest.mock('../database', () => {
     const actual = jest.requireActual('../database');
     return {
@@ -29,6 +29,7 @@ jest.mock('../database', () => {
         getReportsCollection: () => mockHolder.reports,
         getPasswordResetsCollection: () => mockHolder.passwordResets,
         getAdminAuditCollection: () => mockHolder.adminAudit,
+        getTournamentRecordsCollection: () => mockHolder.tournamentRecords,
         whenReady: async () => true
     };
 });
@@ -89,9 +90,10 @@ afterAll(async () => {
 
 const now = Date.now();
 async function seed() {
-    for (const name of ['users', 'gameRecords', 'reports']) {
+    for (const name of ['users', 'gameRecords', 'reports', 'tournamentRecords']) {
         await db.collection(name).drop().catch(() => {});
     }
+    mockHolder.tournamentRecords = db.collection('tournamentRecords');
     mockHolder.users = db.collection('users');
     mockHolder.gameRecords = db.collection('gameRecords');
     mockHolder.reports = db.collection('reports');
@@ -1052,6 +1054,65 @@ describe('real mongod', () => {
         const names = (await dups.indexes()).map(i => i.name);
         expect(names).toContain('gameId_1');
         expect(names).not.toContain(fallback);
+    });
+
+    test('(r) the tournament history on the real driver: its indexes (used by the profile reads), one record per tournament (E11000), the profile fields, Lucky Buck, rename / merge / delete (arrayFilters)', async () => {
+        if (!client) return;
+        const coll = mockHolder.tournamentRecords;
+        const names = (await coll.indexes()).map((i) => i.name);
+        for (const n of ['completedAt_-1', 'players_1_completedAt_-1', 'winners_1', 'cut.winner_1', 'cut.participants_1']) expect(names).toContain(n);
+        await database.ensureIndexes(mockHolder); // idempotent
+        const t = (id, over) => ({
+            tournamentId: id, phase: 'complete', name: `Cup ${id}`, creatorUsername: 'Alan',
+            createdAt: now - 7200000, completedAt: now - 3600000 + Number(id.slice(1)), totalRounds: 2, currentRound: 2,
+            finalMembers: ['Alan', 'Bea', 'Cy'], winnersFinal: () => ['Bea'], players: new Map(),
+            getScoreboard: () => [{ username: 'Bea', totalScore: 400, roundScores: [200, 200] }, { username: 'Alan', totalScore: 300, roundScores: [100, 200] }, { username: 'Cy', totalScore: 10, roundScores: [5, 5] }],
+            ...over
+        });
+        const cut = (winner) => ({ winner, participants: ['Alan', 'Bea', 'Cy'], rounds: 2 });
+        expect(await profile.recordTournament(t('t1'), cut('Alan'))).toBe('recorded');
+        expect(await profile.recordTournament(t('t1'), cut('Alan'))).toBe('duplicate');
+        expect(await profile.recordTournament(t('t2'), cut('Alan'))).toBe('recorded');
+        expect(await profile.recordTournament(t('t3'), null)).toBe('recorded');
+        expect(await coll.countDocuments({})).toBe(3);
+        // the profile reads use their indexes
+        for (const [filter, index] of [[{ players: 'Alan' }, 'players_1_completedAt_-1'], [{ winners: 'Bea' }, 'winners_1'], [{ 'cut.winner': 'Alan' }, 'cut.winner_1'], [{ 'cut.participants': 'Alan' }, 'cut.participants_1']]) {
+            expect(usesIndex(planOf(await coll.find(filter).explain()), index)).toBe(true);
+        }
+        expect(usesIndex(planOf(await coll.find({ players: 'Alan' }).sort({ completedAt: -1 }).limit(5).explain()), 'players_1_completedAt_-1')).toBe(true);
+        const s = sock();
+        await profile.getPlayerProfile(s, io, { username: 'Alan' });
+        const p = last('playerProfileResponse').profile;
+        expect(p.tournaments.played).toBe(3);
+        expect(p.tournaments.won).toBe(0);
+        expect(p.tournaments.recent.map((r) => r.id)).toEqual(['t3', 't2', 't1']);
+        expect(p.tournaments.recent[1]).toMatchObject({ place: 2, won: false, winners: ['Bea'], cutWinner: 'Alan', players: 3 });
+        expect(p.cutForABuck).toEqual({ wins: 2, played: 2 });
+        // Lucky Buck from the dotted projection
+        mockHolder.gameRecords.insertOne({ gameId: 'gl', team1Score: 1, team2Score: 0, team1Players: ['Alan'], team2Players: ['Bea'], completedAt: new Date(now) });
+        profile.invalidateRecords();
+        await profile.getRecords(s, io);
+        expect(last('recordsResponse').records.thisMonth.superlatives.find((x) => x.id === 'luckyBuck'))
+            .toEqual({ id: 'luckyBuck', title: 'Lucky Buck', names: ['Alan'], detail: '2 wins in 2 cuts' });
+        // rename, merge, delete through arrayFilters on the real driver
+        const { renameEverywhere } = require('../admin/accountRename');
+        const { eraseAccount } = require('../admin/accountDelete');
+        const { planMerge, applyMerge } = require('../admin/accountMerge');
+        const user = (username) => mockHolder.users.findOne({ username });
+        const r1 = () => coll.findOne({ _id: 't1' });
+        expect((await renameEverywhere(mockHolder, 'Alan', 'Al', { selfId: (await user('Alan'))._id })).tournamentRecords).toBe(3);
+        expect(await r1()).toMatchObject({
+            players: ['Al', 'Bea', 'Cy'], creatorUsername: 'Al', cut: { winner: 'Al', participants: ['Al', 'Bea', 'Cy'] }
+        });
+        expect((await r1()).scoreboard.map((r) => r.username)).toEqual(['Bea', 'Al', 'Cy']);
+        await mockHolder.users.updateOne({ username: 'Alan' }, { $set: { username: 'Al' } });
+        const plan = await planMerge(mockHolder, { target: 'Bea', sources: ['Cy'] });
+        expect(plan.tournamentRecords).toHaveLength(3);
+        expect((await applyMerge(mockHolder, plan)).tournamentRecords).toBe(3);
+        expect((await r1()).players).toEqual(['Al', 'Bea', 'Bea']);
+        expect(await eraseAccount(mockHolder, await user('Bea'))).toMatchObject({ tournamentRecords: 3 });
+        expect(await r1()).toMatchObject({ players: ['Al', '[deleted]', '[deleted]'], winners: ['[deleted]'], cut: { winner: 'Al', participants: ['Al', '[deleted]', '[deleted]'] } });
+        expect((await r1()).scoreboard.map((r) => r.username)).toEqual(['[deleted]', 'Al', '[deleted]']);
     });
 
     test('(p) the one-off legacy session migration and the guarded block-list write on the real driver', async () => {
