@@ -381,20 +381,44 @@ class TournamentState {
         return roundData;
     }
 
+    /**
+     * Who partnered whom in the rounds so far (tournamentPartners.addRound
+     * over every table's `teams`, in round order): {counts, last}. A table
+     * saved without teams (before partner rotation) or that never seated
+     * (dropGameTeams) adds nothing.
+     */
+    partnerHistory() {
+        const { emptyHistory, addRound } = require('./tournamentPartners');
+        const history = emptyHistory();
+        for (const round of this.rounds) {
+            for (const game of round.games.values()) {
+                if (Array.isArray(game.teams)) addRound(history, game.teams);
+            }
+        }
+        return history;
+    }
+
     getCurrentRound() {
         if (this.rounds.length === 0) return null;
         return this.rounds[this.rounds.length - 1];
     }
 
-    addGameToRound(gameId, humanPlayers, botCount) {
+    /**
+     * @param {Array<[string|null, string|null]>} [teams] - the table's two
+     *   teams by username (null: a bot), as planned (tournamentPartners);
+     *   read back by partnerHistory
+     */
+    addGameToRound(gameId, humanPlayers, botCount, teams = null) {
         const round = this.getCurrentRound();
         if (!round) return;
 
-        round.games.set(gameId, {
+        const entry = {
             humanPlayers,
             botCount,
             status: 'active'
-        });
+        };
+        if (teams) entry.teams = teams;
+        round.games.set(gameId, entry);
         this.logAction('addGameToRound', { gameId, humanCount: humanPlayers.length, botCount });
         this._changed();
     }
@@ -442,6 +466,19 @@ class TournamentState {
             if (this.rounds[i].games.has(gameId)) return this.rounds[i];
         }
         return null;
+    }
+
+    /**
+     * A table that never seated (aborted before its draw finished: the
+     * countdown, or a pre-deal table scored after a restore) partnered
+     * nobody: its planned teams leave the round entry, so partnerHistory
+     * skips it (and the saved doc has none).
+     */
+    dropGameTeams(gameId) {
+        const entry = this.roundOfGame(gameId)?.games.get(gameId);
+        if (!entry || !entry.teams) return;
+        delete entry.teams;
+        this._changed();
     }
 
     markGameComplete(gameId) {

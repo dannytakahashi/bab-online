@@ -168,7 +168,7 @@ describe('round trips', () => {
         playRound(t, 1, 'g-1', { alice: 10, bob: 20, cy: 30, dee: 40, eve: 50, fay: 60, gus: 70, hal: 80 });
         t.startRound(2);
         t.addGameToRound('g-2a', ['alice', 'bob', 'cy', 'dee'], 0);
-        t.addGameToRound('g-2b', ['eve', 'fay', 'gus', 'hal'], 0);
+        t.addGameToRound('g-2b', ['eve', 'fay', 'gus', 'hal'], 0, [['eve', 'gus'], ['fay', 'hal']]);
         for (const u of ['alice', 'bob', 'cy', 'dee']) {
             t.recordPlayerRoundScore(u, { roundNumber: 2, gameId: 'g-2a', position: 1, teamScore: 55, oppScore: 10, partner: 'x' });
         }
@@ -180,11 +180,17 @@ describe('round trips', () => {
         expect(doc.state.rounds[1]).toEqual({
             roundNumber: 2,
             games: [
-                ['g-2a', { humanPlayers: ['alice', 'bob', 'cy', 'dee'], botCount: 0, status: 'complete' }],
-                ['g-2b', { humanPlayers: ['eve', 'fay', 'gus', 'hal'], botCount: 0, status: 'active' }],
+                // A table without teams (saved before partner rotation) writes null
+                ['g-2a', { humanPlayers: ['alice', 'bob', 'cy', 'dee'], botCount: 0, status: 'complete', teams: null }],
+                ['g-2b', { humanPlayers: ['eve', 'fay', 'gus', 'hal'], botCount: 0, status: 'active', teams: [['eve', 'gus'], ['fay', 'hal']] }],
             ],
             completedGames: ['g-2a'],
         });
+        // The partner history survives the restore; an older doc without
+        // teams restores without them
+        expect(restored.partnerHistory()).toEqual(t.partnerHistory());
+        expect(restored.partnerHistory().last.get('eve')).toBe('gus');
+        expect(restored.rounds[1].games.get('g-2a')).not.toHaveProperty('teams');
         expect(tableScores).toEqual({
             'g-2b': {
                 score: { team1: 230, team2: -60 },

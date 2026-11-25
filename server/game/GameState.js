@@ -173,6 +173,12 @@ class GameState {
         this.drawIndex = 0;
         // The name playerDrew showed for each draw, in draw order (snapshot v2)
         this.drawNames = [];
+        // A tournament table's planned teams (two pairs of entrant socket
+        // ids; set by tournamentHandlers.createRoundTable) and the card each
+        // of them draws, chosen at the first draw so the draw seats those
+        // teams (tournamentPartners.planDrawCards); null elsewhere
+        this.drawTeams = null;
+        this.drawPlan = null;
 
         // Seat records (SeatState.js): position -> who controls the seat and
         // whether its owner is present. `players` / `positions` above are the
@@ -808,15 +814,47 @@ class GameState {
         if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
         if (this.drawIDs.includes(socketId) || this.drawIDs.length >= 4) return null;
         const n = this.deck.cards.length;
-        let i = index == null ? Math.floor(Math.random() * n) : Math.floor(Number(index));
-        if (!Number.isFinite(i)) i = 0;
-        i = Math.max(0, Math.min(n - 1, i));
+        let i = this._plannedDrawIndex(socketId);
+        if (i < 0) {
+            i = index == null ? Math.floor(Math.random() * n) : Math.floor(Number(index));
+            if (!Number.isFinite(i)) i = 0;
+            i = Math.max(0, Math.min(n - 1, i));
+            i = this._unplannedDrawIndex(i);
+        }
         const [card] = this.deck.cards.splice(i, 1);
         this.drawCards.push(card);
         this.drawIDs.push(socketId);
         this.drawNames.push(username);
         this.drawIndex++;
         return { card, drawOrder: this.drawIndex };
+    }
+
+    /**
+     * A tournament table's draw (drawTeams): the deck index of the card
+     * planned for `socketId`, or -1 (no plan, or not one of the planned).
+     * The draw stays a real draw on the wire; only who gets which of four
+     * cards off the shuffled deck is chosen.
+     */
+    _plannedDrawIndex(socketId) {
+        if (!this.drawTeams) return -1;
+        if (!this.drawPlan) {
+            this.drawPlan = require('./tournamentPartners').planDrawCards(this.deck.cards, this.drawTeams) || new Map();
+        }
+        const card = this.drawPlan.get(socketId);
+        return card ? this.deck.cards.indexOf(card) : -1;
+    }
+
+    /** `i`, or the nearest index whose card is not planned for another drawer. */
+    _unplannedDrawIndex(i) {
+        if (!this.drawPlan || this.drawPlan.size === 0) return i;
+        const planned = new Set(this.drawPlan.values());
+        const cards = this.deck.cards;
+        for (let d = 0; d < cards.length; d++) {
+            for (const j of [i + d, i - d]) {
+                if (j >= 0 && j < cards.length && !planned.has(cards[j])) return j;
+            }
+        }
+        return i;
     }
 
     // ========================================
