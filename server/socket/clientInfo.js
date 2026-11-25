@@ -75,8 +75,17 @@ const { socketLogger } = require('../utils/logger');
  *                     draw's start has it; otherwise the draw is staged as
  *                     before (gameLifecycle.beginDraw, PAIRINGS_CAP in
  *                     game/tournamentPartners.js)
+ *   cutForABuck       Cut for a buck (2026-11-25): the client shows the
+ *                     tournament's finale (the cutForABuck* events, phase
+ *                     'cut' and tournamentJoined.cut, the complete phase's
+ *                     cutForABuck) and its voice room stays open in the
+ *                     complete phase. The cut runs only when a connected
+ *                     member has it; a socket without it sees phase
+ *                     'round_active' during a cut, is drawn for every round
+ *                     and gets the rounds as private chat lines
+ *                     (server/socket/cutForABuck.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'cutForABuck'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

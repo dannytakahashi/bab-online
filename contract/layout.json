@@ -71,7 +71,8 @@
           "spectateTournament",
           "spectateTournamentGame",
           "returnToTournament",
-          "cancelTournament"
+          "cancelTournament",
+          "cutForABuckDraw"
         ]
       },
       {
@@ -288,6 +289,12 @@
           "tournamentGameComplete",
           "tournamentRoundComplete",
           "tournamentComplete",
+          "cutForABuckStart",
+          "cutForABuckRound",
+          "cutForABuckDrew",
+          "cutForABuckLeft",
+          "cutForABuckReveal",
+          "cutForABuckWinner",
           "tournamentLeft",
           "tournamentCancelled"
         ]
@@ -421,7 +428,8 @@
           "spectateTournament",
           "spectateTournamentGame",
           "returnToTournament",
-          "cancelTournament"
+          "cancelTournament",
+          "cutForABuckDraw"
         ]
       },
       {
@@ -567,6 +575,12 @@
           "tournamentGameComplete",
           "tournamentRoundComplete",
           "tournamentComplete",
+          "cutForABuckStart",
+          "cutForABuckRound",
+          "cutForABuckDrew",
+          "cutForABuckLeft",
+          "cutForABuckReveal",
+          "cutForABuckWinner",
           "tournamentLeft",
           "tournamentCancelled"
         ]

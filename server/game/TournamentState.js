@@ -1,7 +1,10 @@
 /**
  * Encapsulates all state for a single tournament instance.
- * Manages tournament lifecycle: lobby → round_active → between_rounds → complete,
- * over totalRounds rounds (1 to 5, the host's pick in the lobby; default 4).
+ * Manages tournament lifecycle: lobby → round_active → between_rounds →
+ * [cut →] complete, over totalRounds rounds (1 to 5, the host's pick in the
+ * lobby; default 4). 'cut' is Cut for a buck after the last round
+ * (server/socket/cutForABuck.js; only with a member who has the clientHello
+ * cap cutForABuck).
  */
 
 const { v4: uuidv4 } = require('uuid');
@@ -19,7 +22,8 @@ class TournamentState {
         this.createdAt = Date.now();
 
         // Phase: 'lobby' | 'starting' (a round start is in flight) |
-        // 'round_active' | 'between_rounds' | 'complete'
+        // 'round_active' | 'between_rounds' | 'cut' (Cut for a buck, after
+        // the last round) | 'complete'
         this.phase = 'lobby';
         // Lifecycle generation, like GameState.epoch: bumped by every round
         // start (beginStart) and once more when the tournament is deleted
@@ -60,6 +64,18 @@ class TournamentState {
         // When the last round completed (phase 'complete'; null before): the
         // start of the results window (deploy survival saves it)
         this.completedAt = null;
+        // Set when the last round completes (completeRound): the winners and
+        // the members then, so a top scorer who leaves during Cut for a buck
+        // still wins (tournamentComplete, the complete phase's state)
+        this.finalWinners = null;
+        this.finalMembers = null;
+        // Cut for a buck in progress (phase 'cut'; server/socket/cutForABuck.js):
+        // {stage, candidates, engine (game/cutForABuck.js CutEngine), strikes,
+        // lastReveal, result, endsAt, restoreLine}, else null
+        this.cut = null;
+        // Its result once the tournament completed: {winner, participants,
+        // rounds}, null when no cut ran
+        this.cutResult = null;
         // key → handle ('readyDeadline', 'hostIdle'); all cleared on every
         // round start and on retire, so none outlives its phase
         this.timers = new Map();
@@ -569,6 +585,8 @@ class TournamentState {
         if (this.currentRound >= this.totalRounds) {
             this.phase = 'complete';
             this.completedAt = Date.now();
+            this.finalWinners = this.getWinners();
+            this.finalMembers = Array.from(this.players.values(), (p) => p.username).filter(Boolean);
         } else {
             this.phase = 'between_rounds';
             this.resetAllReady();
@@ -636,6 +654,15 @@ class TournamentState {
 
         const top = pool[0].totalScore;
         return pool.filter(e => e.totalScore === top).map(e => e.username);
+    }
+
+    /**
+     * The winners announced at the end: the snapshot taken when the last
+     * round completed (finalWinners), else (a doc saved before it existed)
+     * getWinners().
+     */
+    winnersFinal() {
+        return Array.isArray(this.finalWinners) ? [...this.finalWinners] : this.getWinners();
     }
 
     // ========================================
@@ -746,7 +773,13 @@ class TournamentState {
     // Client State (for reconnection/joining)
     // ========================================
 
-    getClientState() {
+    /**
+     * @param {Object} [opts]
+     * @param {boolean} [opts.cutCap] - the receiving socket has the clientHello
+     *   cap cutForABuck: it sees phase 'cut' and `cut`; without it a cut is
+     *   phase 'round_active' ("Round N of N" on iOS 1.2.6) and no `cut` key
+     */
+    getClientState({ cutCap = false } = {}) {
         const players = [];
         // A restored member's synthetic id (restored:<tid>:<username>, deploy
         // survival PR 6) never goes on the wire: away:<username> until it
@@ -768,7 +801,7 @@ class TournamentState {
         const state = {
             tournamentId: this.tournamentId,
             name: this.name,
-            phase: this.phase,
+            phase: this.phase === 'cut' && !cutCap ? 'round_active' : this.phase,
             currentRound: this.currentRound,
             totalRounds: this.totalRounds,
             players,
@@ -787,7 +820,14 @@ class TournamentState {
         // Returning to a finished tournament must show the same (co-)winners
         // the tournamentComplete broadcast announced
         if (this.phase === 'complete') {
-            state.winners = this.getWinners();
+            state.winners = this.winnersFinal();
+            // Additive (2026-11-25): the cut's result, null when none ran
+            if (cutCap) state.cutForABuck = this.cutResult ? { ...this.cutResult, participants: [...this.cutResult.participants] } : null;
+        }
+
+        // Additive (2026-11-25): Cut for a buck as it stands, cap sockets only
+        if (this.phase === 'cut' && cutCap && this.cut) {
+            state.cut = require('./cutForABuck').cutStateWire(this.cut);
         }
 
         // Additive (2026-11-25): each round's pairings so far

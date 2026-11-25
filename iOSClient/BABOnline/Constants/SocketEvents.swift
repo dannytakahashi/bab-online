@@ -76,6 +76,7 @@ enum SocketEvents {
         static let spectateTournamentGame = "spectateTournamentGame"
         static let returnToTournament = "returnToTournament"
         static let cancelTournament = "cancelTournament"
+        static let cutForABuckDraw = "cutForABuckDraw"
 
         // Voice
         static let voiceOffer = "voiceOffer"
@@ -184,6 +185,12 @@ enum SocketEvents {
         static let tournamentGameComplete = "tournamentGameComplete"
         static let tournamentRoundComplete = "tournamentRoundComplete"
         static let tournamentComplete = "tournamentComplete"
+        static let cutForABuckStart = "cutForABuckStart"
+        static let cutForABuckRound = "cutForABuckRound"
+        static let cutForABuckDrew = "cutForABuckDrew"
+        static let cutForABuckLeft = "cutForABuckLeft"
+        static let cutForABuckReveal = "cutForABuckReveal"
+        static let cutForABuckWinner = "cutForABuckWinner"
         static let tournamentLeft = "tournamentLeft"
         static let tournamentCancelled = "tournamentCancelled"
 

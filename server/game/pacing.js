@@ -93,6 +93,13 @@ const LEGACY = {
     BOT_CHAT: [500, 500],
     ROUND_ANNOUNCE_MS: 1500,
     TABLE_COUNTDOWN_MS: 2000,
+    // Cut for a buck (2026-11-25, server/socket/cutForABuck.js): the gather
+    // after the last table's result (people come back from their score
+    // screens), each reveal on screen before the next round opens, and the
+    // winner before tournamentComplete. Every profile but zero (0, 0, 0)
+    CUT_GATHER_MS: 15000,
+    CUT_REVEAL_MS: 4000,
+    CUT_WINNER_MS: 6000,
     AMBIENT_CHECK_MS: 15000,
     AMBIENT_RESTART_MS: 30000,
     // Ambient games run on demand (owner, 2026-11-11): once nobody signed in

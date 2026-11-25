@@ -220,6 +220,13 @@ const schemas = {
         totalRounds: Joi.number().integer().strict().min(1).max(5).required()
     }),
 
+    // Cut for a buck (2026-11-25): a draw for the open round; slot null
+    // (or absent) draws a random free slot
+    cutForABuckDraw: Joi.object({
+        round: Joi.number().integer().strict().min(1).max(10000).required(),
+        slot: Joi.number().integer().strict().min(0).max(107).allow(null).optional()
+    }),
+
     // No-payload tournament events (schemas exist so rate limiting applies)
     createTournament: Joi.object({}).unknown(true),
     leaveTournament: Joi.object({}).unknown(true),

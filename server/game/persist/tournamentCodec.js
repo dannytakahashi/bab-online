@@ -17,6 +17,12 @@
  *   readyDeadlineAt, handedOffThisWait, completedAt, and tableScores
  *   {gameId: {score, seats: [{username, position, gone}]}}: the running
  *   score of every seated table still in play.
+ *   v2 (2026-11-25, Cut for a buck): finalWinners / finalMembers (the
+ *   winners and members when the last round completed, or null), cut (phase
+ *   'cut' only: {stage, candidates, strikes, lastReveal, result, engine:
+ *   CutEngine.toSaved() or null in the gather}; the open round's draws are
+ *   never saved) and cutResult (the complete phase: the cut's result, or
+ *   null). READ_VERSIONS [1, 2]: a v1 doc hydrates with all four null.
  * It is null (the store keeps the last good doc) when the tournament fails
  * a check: completedGames within games, currentRound matching rounds,
  * finite scores, the creator a member (or no members), a known phase.
@@ -40,10 +46,16 @@
 
 const TournamentState = require('../TournamentState');
 const { Presence } = require('../SeatState');
+const { CutEngine } = require('../cutForABuck');
 
-const TOURNAMENT_CODEC_V = 1;
+// v2 (2026-11-25): Cut for a buck (cut, cutResult) and the final winners /
+// members. hydrate still reads v1 (READ_VERSIONS): the deploy that ships v2
+// adopts every v1 doc the old instance handed off
+const TOURNAMENT_CODEC_V = 2;
+const READ_VERSIONS = Object.freeze([1, 2]);
 
-const PHASES = new Set(['lobby', 'starting', 'round_active', 'between_rounds', 'complete']);
+const PHASES = new Set(['lobby', 'starting', 'round_active', 'between_rounds', 'cut', 'complete']);
+const CUT_STAGES = new Set(['gather', 'drawing', 'reveal', 'winner']);
 
 const deepFreeze = (o) => {
     for (const v of Object.values(o)) if (v && typeof v === 'object') deepFreeze(v);
@@ -54,7 +66,9 @@ const SAVED = deepFreeze({
     tournament: [
         'tournamentId', 'name', 'creatorUsername', 'createdAt', 'phase',
         'currentRound', 'totalRounds', 'players', 'scoreboard', 'rounds', 'messages',
-        'readyDeadlineAt', 'handedOffThisWait', 'completedAt'
+        'readyDeadlineAt', 'handedOffThisWait', 'completedAt',
+        // v2: Cut for a buck
+        'finalWinners', 'finalMembers', 'cut', 'cutResult'
     ],
     player: ['username', 'pic'],
     round: ['roundNumber', 'games', 'completedGames'],
@@ -62,7 +76,10 @@ const SAVED = deepFreeze({
     // null when the entry has none; an older doc without it restores
     // without (that round adds nothing to partnerHistory)
     roundGame: ['humanPlayers', 'botCount', 'status', 'teams'],
-    message: ['username', 'message', 'isSpectator', 'timestamp']
+    message: ['username', 'message', 'isSpectator', 'timestamp'],
+    // v2: t.cut (phase 'cut') and its engine (game/cutForABuck.js)
+    cut: ['stage', 'candidates', 'strikes', 'lastReveal', 'result', 'engine'],
+    cutEngine: ['participants', 'alive', 'out', 'round', 'open', 'deck', 'openDeck', 'table', 'reshuffles', 'decks']
 });
 
 const DERIVED = deepFreeze({
@@ -80,7 +97,12 @@ const DERIVED = deepFreeze({
     player: ['ready', 'connected'],                             // false after a restore
     round: [],
     roundGame: [],
-    message: []
+    message: [],
+    // the open timer's end (re-armed: the restore lead-in) and the restore's
+    // one "continues" line
+    cut: ['endsAt', 'restoreLine'],
+    // the open round's draws (redrawn after a restore) and the RNG hooks
+    cutEngine: ['pending', 'shuffleFn', 'randomInt']
 });
 
 class TournamentCodecError extends Error {
@@ -115,7 +137,45 @@ function refusal(t) {
         if (!Array.isArray(entry.roundScores) || entry.roundScores.some((s) => !finite(s))) return 'scores';
     }
     if (t.players.size > 0 && !t.getPlayerByUsername(t.creatorUsername)) return 'creator';
+    // Cut for a buck (v2)
+    if (t.phase === 'cut') {
+        const cut = t.cut;
+        if (!cut || !CUT_STAGES.has(cut.stage)) return 'cut';
+        if (cut.stage !== 'gather' && !cut.engine) return 'cut';
+        if (cut.engine && cut.engine.invalid()) return 'cut';
+        if (!Array.isArray(t.finalWinners) || !Array.isArray(t.finalMembers)) return 'finalWinners';
+    } else if (t.cut) {
+        return 'cut';
+    }
     return null;
+}
+
+/** t.cut as JSON (SAVED.cut; the open round's draws are dropped). */
+function encodeCut(cut) {
+    if (!cut) return null;
+    return {
+        stage: cut.stage,
+        candidates: json(cut.candidates) || [],
+        strikes: json(cut.strikes) || {},
+        lastReveal: json(cut.lastReveal),
+        result: json(cut.result),
+        engine: cut.engine ? cut.engine.toSaved() : null
+    };
+}
+
+/** encodeCut's JSON back to t.cut (the engine's remaining cards reshuffled). */
+function decodeCut(saved) {
+    if (!saved) return null;
+    return {
+        stage: saved.stage,
+        candidates: json(saved.candidates) || [],
+        strikes: json(saved.strikes) || {},
+        lastReveal: json(saved.lastReveal),
+        result: json(saved.result),
+        engine: saved.engine ? CutEngine.fromSaved(saved.engine) : null,
+        endsAt: null,
+        restoreLine: false
+    };
 }
 
 /** The phase a restore resumes in: a round start in flight rolls back. */
@@ -185,6 +245,10 @@ function serialize(t, { getGame = defaultGetGame } = {}) {
         readyDeadlineAt: t.readyDeadlineAt ?? null,
         handedOffThisWait: !!t.handedOffThisWait,
         completedAt: t.completedAt ?? null,
+        finalWinners: json(t.finalWinners),
+        finalMembers: json(t.finalMembers),
+        cut: encodeCut(t.cut),
+        cutResult: json(t.cutResult),
         tableScores: tableScoresOf(t, getGame)
     };
     return { v: TOURNAMENT_CODEC_V, tournamentId: t.tournamentId, phase, state };
@@ -199,7 +263,7 @@ const restoredMemberId = (tournamentId, username) => `restored:${tournamentId}:$
  */
 function hydrate(doc) {
     if (!doc || typeof doc !== 'object') throw new TournamentCodecError('no doc');
-    if (doc.v !== TOURNAMENT_CODEC_V) throw new TournamentCodecError('version', { v: doc.v, expected: TOURNAMENT_CODEC_V });
+    if (!READ_VERSIONS.includes(doc.v)) throw new TournamentCodecError('version', { v: doc.v, expected: READ_VERSIONS });
     const s = doc.state;
     if (typeof doc.tournamentId !== 'string' || !s || !PHASES.has(s.phase) || s.phase === 'starting') {
         throw new TournamentCodecError('malformed', { tournamentId: doc.tournamentId });
@@ -240,6 +304,15 @@ function hydrate(doc) {
     t.readyDeadlineAt = s.readyDeadlineAt ?? null;
     t.handedOffThisWait = !!s.handedOffThisWait;
     t.completedAt = s.completedAt ?? null;
+    // v2 (a v1 doc has none of them: null)
+    t.finalWinners = Array.isArray(s.finalWinners) ? [...s.finalWinners] : null;
+    t.finalMembers = Array.isArray(s.finalMembers) ? [...s.finalMembers] : null;
+    try {
+        t.cut = decodeCut(s.cut ?? null);
+    } catch (err) {
+        throw new TournamentCodecError('malformed', { tournamentId: doc.tournamentId, cut: err.message });
+    }
+    t.cutResult = json(s.cutResult);
     const why = refusal(t);
     if (why) throw new TournamentCodecError('invalid', { tournamentId: doc.tournamentId, why });
     return { tournament: t, tableScores: json(s.tableScores) || {} };
@@ -247,6 +320,7 @@ function hydrate(doc) {
 
 module.exports = {
     TOURNAMENT_CODEC_V,
+    READ_VERSIONS,
     SAVED,
     DERIVED,
     TournamentCodecError,
@@ -254,5 +328,7 @@ module.exports = {
     savedPhase,
     serialize,
     hydrate,
+    encodeCut,
+    decodeCut,
     restoredMemberId
 };

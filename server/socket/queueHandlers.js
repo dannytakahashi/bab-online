@@ -62,6 +62,8 @@ async function handleDisconnect(socket, io, { lobbyGrace = true, closed = true }
         });
         // A dropped member no longer holds up an idle host's hand-off
         require('./tournamentLiveness').refreshHostIdle(io, tournament);
+        // Cut for a buck: an open draw is drawn for them now
+        require('./cutForABuck').memberDisconnected(io, tournament, user?.username);
     }
 
     // Emit voicePeerLeft for lobby disconnect

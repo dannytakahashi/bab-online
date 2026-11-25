@@ -2065,6 +2065,10 @@ class GameManager {
      * @returns {boolean} - true if deleted
      */
     deleteTournamentIfAbandoned(tournament) {
+        // Cut for a buck ends by itself (absent players are drawn for) and
+        // completes the tournament; the last member leaving completes it
+        // first (tournamentHandlers.leaveTournament)
+        if (tournament.phase === 'cut' && tournament.players.size > 0) return false;
         const round = tournament.getCurrentRound();
         const hasRunningGames = round && round.completedGames.size < round.games.size;
         // A restored tournament's ghosts count as present while its restored
@@ -2223,15 +2227,19 @@ class GameManager {
     getAllTournaments() {
         const result = [];
         for (const [tournamentId, t] of this.tournaments) {
-            result.push({
+            const entry = {
                 id: tournamentId,
                 name: t.name,
                 playerCount: t.players.size,
-                phase: t.phase,
+                // Cut for a buck (2026-11-25): one copy for every socket, so
+                // the phase shipped iOS builds know, plus the additive `cut`
+                phase: t.phase === 'cut' ? 'round_active' : t.phase,
                 currentRound: t.currentRound,
                 totalRounds: t.totalRounds,
                 creatorUsername: t.creatorUsername
-            });
+            };
+            if (t.phase === 'cut') entry.cut = true;
+            result.push(entry);
         }
         return result;
     }
