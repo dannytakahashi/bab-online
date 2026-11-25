@@ -1047,8 +1047,7 @@ body > .voice-btn {
 
 .result-modal.is-victory .kit-modal__title { color: var(--success); }
 .result-modal.is-defeat .kit-modal__title { color: var(--danger-text); }
-.result-modal.is-tie .kit-modal__title,
-.result-modal.is-tournament .kit-modal__title { color: var(--gold); }
+.result-modal.is-tie .kit-modal__title { color: var(--gold); }
 .result-modal.is-neutral .kit-modal__title { color: var(--text-secondary); }
 
 .result-modal .kit-modal__body { width: 100%; }

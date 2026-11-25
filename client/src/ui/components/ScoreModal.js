@@ -265,6 +265,8 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
 
   // Return button: the primary action (never red: ui-d2)
   const returnBtn = createButton({ label: buttonText || 'Return to Lobby', variant: 'primary', size: 'lg' });
+  // Cut for a buck's strip at a tournament's last table (setScoreModalCut)
+  body.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
 
   const modal = openModal({
     id: 'finalScoreOverlay',
@@ -317,6 +319,7 @@ function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator }) {
   body.push(table);
 
   const returnBtn = createButton({ label: buttonText || 'Return to Lobby', variant: 'primary', size: 'lg' });
+  body.push(cutStrip(returnBtn, buttonText || 'Return to Lobby'));
   const modal = openModal({
     id: 'finalScoreOverlay',
     title,
@@ -338,10 +341,43 @@ function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator }) {
   return { overlay: modal.backdrop, destroy };
 }
 
+/** The open score modal's Cut for a buck strip and its Return button. */
+let cutStripRefs = null;
+
+function cutStrip(returnBtn, label) {
+  const strip = el('div', { className: 'cut-strip', attrs: { id: 'cutStrip', role: 'status', hidden: '' } });
+  cutStripRefs = { strip, returnBtn, label };
+  return strip;
+}
+
+/**
+ * Cut for a buck at a tournament's last table (spec section 3.3): the score
+ * screen stays as long as the player wants, with a strip ("Cut for a buck
+ * starts in 12" / "Cut for a buck has started. We'll draw for you until you
+ * join.") and its Return button reading "Join Cut for a buck" (main.js
+ * syncScoreCutStrip). null: no strip, the button's own label.
+ * @param {{text: string, buttonLabel?: string}|null} info
+ */
+export function setScoreModalCut(info) {
+  const refs = cutStripRefs;
+  if (!refs || !refs.strip.isConnected) return false;
+  if (!info) {
+    refs.strip.hidden = true;
+    refs.strip.textContent = '';
+    refs.returnBtn.textContent = refs.label;
+    return true;
+  }
+  refs.strip.hidden = false;
+  if (refs.strip.textContent !== info.text) refs.strip.textContent = info.text;
+  refs.returnBtn.textContent = info.buttonLabel || refs.label;
+  return true;
+}
+
 /**
  * Remove final score overlay if it exists.
  */
 export function removeFinalScoreOverlay() {
+  cutStripRefs = null;
   if (scoreModal) {
     const m = scoreModal;
     scoreModal = null;

@@ -179,10 +179,10 @@ const c2s = {
     },
     cutForABuckDraw: {
         payload: open({ round: int({ minimum: 1, maximum: 10000 }), slot: { type: ['integer', 'null'], minimum: 0, maximum: 107 } }, { optional: ['slot'] }),
-        status: 'active', joi: 'cutForABuckDraw', rateLimit: 'cutForABuckDraw', sentBy: { web: false, ios: false },
+        status: 'active', joi: 'cutForABuckDraw', rateLimit: 'cutForABuckDraw', sentBy: webOnly,
         examples: [{ round: 1, slot: 7 }, { round: 3, slot: null }, { round: 2 }],
         invalid: [{ round: 0, slot: 1 }, { round: 1, slot: -1 }, { round: 1, slot: 108 }, { round: 1, slot: 2.5 }, { round: '1', slot: 1 }, { slot: 1 }],
-        notes: 'New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room\'s cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper\'s serverError {code: \'validation\'}. Rate limit 10 / 10 s. Sent by the web from the Cut for a buck PR and iOS from build 41 (sentBy says what shipped clients send).',
+        notes: 'New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room\'s cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper\'s serverError {code: \'validation\'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (sentBy says what shipped clients send).',
     },
     beginTournament: { ...noPayload, status: 'active', joi: 'beginTournament', rateLimit: 'beginTournament', sentBy: both, examples: [{}] },
     beginNextRound: { ...noPayload, status: 'active', joi: 'beginNextRound', rateLimit: 'beginNextRound', sentBy: both, examples: [{}] },

@@ -383,6 +383,12 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
   reshuffle, a tie of two, the winner (`npm run contract:fixtures`).
 - Once `MIN_IOS_BUILD` reaches 41 the no-cap branch (the projection and the
   chat lines) is dead code: removed in a cleanup PR, `V1_REMOVALS.md`.
+- Clients: the web sends the cap (`client/src/utils/avatar.js`, 2026-11-25)
+  and reads every cut event and `tournamentJoined.cut` / `cutForABuck`
+  (`client/src/state/cutForABuck.js`, `client/src/ui/cut/`;
+  `docs/claude/web-client.md` "Cut for a buck, web"), so merging the web PR
+  turns the cut on for every tournament with a connected web member. iOS
+  from build 41.
 
 ## Tournament history (profiles, Lucky Buck)
 

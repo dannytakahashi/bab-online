@@ -22,7 +22,7 @@ const SCREEN_FILES = [
   'src/ui/screens/AdminPanel.js', 'src/ui/screens/adminPlayers.js', 'src/admin/adminApi.js',
   'src/ui/components/StatsScopeControl.js',
 ];
-const PAGE_CSS = ['styles/screens.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html',
+const PAGE_CSS = ['styles/screens.css', 'styles/cut.css', 'styles.css', 'styles/kit.css', 'styles/components.css', 'styles/gate.css', 'index.html',
   'styles/reset.css', 'reset.html'];
 
 const HEX = /#[0-9a-fA-F]{3,8}\b/g;
