@@ -1133,16 +1133,17 @@ function _resetCleanupTimersForTests() {
 }
 
 /**
- * The tournament's record (tournamentRecords, the tournament history): the
- * records PR writes it here, once per completed tournament (fire and
- * forget, never throws). Until then nothing is stored.
+ * The tournament's record (tournamentRecords, the tournament history),
+ * once per completed tournament: profileHandlers.recordTournament (fire and
+ * forget, never throws, idempotent by the tournamentId). Called through
+ * module.exports by finishTournament and by the adoption of a 'complete'
+ * doc after a restore (a crash between the finish and the insert), so
+ * tests can see each call.
  * @param {TournamentState} tournament
  * @param {{winner, participants, rounds}|null} cut
  */
 function recordTournament(tournament, cut) {
-    void tournament;
-    void cut;
-    return Promise.resolve(null);
+    return require('./profileHandlers').recordTournament(tournament, cut);
 }
 
 /**

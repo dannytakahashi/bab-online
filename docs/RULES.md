@@ -217,6 +217,10 @@ Right after the last round, everyone still in the tournament lobby plays **Cut f
 - You have 15 seconds to draw; after that a card is drawn for you. Players who are away, disconnected or on an older app are drawn for automatically
 - The last player left wins Cut for a buck. Leaving the tournament takes you out of it; the host can end it early, which just finishes the tournament
 
+### Tournament history
+
+Every finished tournament is kept: your profile shows how many tournaments you finished and won (a tie for the top score counts as a win for everyone tied), your Cut for a buck wins out of the cuts you played, and your last 5 results. The Records page's **Lucky Buck** title goes to the player with the most Cut for a buck wins in the period, from 2 wins up; tied players share it.
+
 ## Get Your Bid
 
 A second way to play, chosen when a game is created (**+ Create Game → Get Your Bid**). On the website only, in casual lobbies (not tournaments). These games are not counted in statistics, standings or records.

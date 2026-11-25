@@ -134,12 +134,14 @@ const mergePlanView = obj({
     profilePicFrom: orNull(str()),
     targetBlockedUsers: anyOf(obj({ before: arr(str()), after: arr(str()) }), nul()),
     gameRecords: arr(obj({ gameId: str(), completedAt: isoOrNull(), before: teams, after: teams })),
+    // additive 2026-11-25: the tournament records naming a source (re-pointed to the kept account)
+    tournamentRecords: arr(obj({ id: str(), name: str(), completedAt: isoOrNull() })),
     reports: arr(obj({ id: str(), reporter: str(), reported: str(), newReporter: orNull(str()), newReported: orNull(str()) })),
     otherUsersBlocks: arr(obj({ username: str(), before: arr(str()), after: arr(str()) })),
     chainedTombstones: arr(obj({ username: str(), before: str() })),
     retire: arr(str()),
     changeCount: int({ minimum: 0 }),
-});
+}, { optional: ['tournamentRecords'] });
 const adminReportRow = obj({
     id: str(), reporter: str(), reported: str(), reason: str(), context: str(), createdAt: isoOrNull(),
     status: enm('open', 'resolved', 'dismissed'), resolvedBy: orNull(str()), resolvedAt: isoOrNull(), note: orNull(str()),
@@ -150,7 +152,7 @@ const adminAuditRow = obj({
     result: enm('ok', 'failed', 'forbidden'), detail: orNull(str()),
 });
 /** One ok variant per action: {requestId, action: <const>, ok: true, ...fields}. */
-const adminOk = (action, props) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }));
+const adminOk = (action, props, optional = []) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }, { optional }));
 
 const scoreboard = arr(ref('scoreboardRow'));
 
@@ -1031,7 +1033,7 @@ const s2c = {
         added: ['pairings', 'cutForABuck'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:finishTournament'],
-        notes: 'Sent exactly once per tournament (tournamentHandlers.finishTournament). winners: the top scorers among the members when the last round completed (TournamentState.finalWinners, so a top scorer who leaves during Cut for a buck still wins). cutForABuck (additive 2026-11-25, optional): the result of Cut for a buck {winner, participants, rounds}, present only when a cut ran to a winner (absent when none ran, it was ended by the host\'s Cancel or the last member left, so a tournament with no cut sends exactly the payload of before); shipped clients ignore it and show their results overlay. pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
+        notes: 'Sent exactly once per tournament (tournamentHandlers.finishTournament). winners: the top scorers among the members when the last round completed (TournamentState.finalWinners, so a top scorer who leaves during Cut for a buck still wins). cutForABuck (additive 2026-11-25, optional): the result of Cut for a buck {winner, participants, rounds}, present only when a cut ran to a winner (absent when none ran, or the host\'s Cancel or the last member leaving ended it before a winner, so a tournament with no cut sends exactly the payload of before; once cutForABuckWinner is out, a Cancel, a leave or a deploy in the hold completes with that result); shipped clients ignore it and show their results overlay. pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
     },
     // ==================== Cut for a buck (2026-11-25) ====================
     cutForABuckStart: {
@@ -1046,7 +1048,7 @@ const s2c = {
         status: 'active', to: 'tournament',
         clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:openRound'],
-        notes: 'A round opens: everyone in alive draws one card from the deckCount face-down slots (0..deckCount-1, c2s cutForABuckDraw) within closesInMs (CUT_DRAW_MS, 15 s); then the server draws for whoever has not (cutForABuckDrew auto). A player still in who is disconnected, on a socket without the cap, or away (2 timeouts in a row, until a draw of their own or a return to the lobby) is drawn for at once. reshuffled: fewer cards were left than players, so the full deck(s) were shuffled back (the table cleared). participants is the same list every round.',
+        notes: 'A round opens: everyone in alive draws one card from the deckCount face-down slots (0..deckCount-1, c2s cutForABuckDraw) within closesInMs (CUT_DRAW_MS, 15 s); then the server draws for whoever has not (cutForABuckDrew auto). A player still in who is disconnected, on a socket without the cap, or away (2 timeouts in a row, until a draw of their own (any cutForABuckDraw from them, one dropped as a repeat included) or a return to the lobby) is drawn for at once. reshuffled: fewer cards were left than players, so the full deck(s) were shuffled back (the table cleared). participants is the same list every round.',
     },
     cutForABuckDrew: {
         payload: obj({ round: int({ minimum: 1 }), username: str(), slot: int({ minimum: 0 }), auto: bool() }),
@@ -1108,7 +1110,9 @@ const s2c = {
                     target: str(), statsMerged: arr(str()), retired: arr(str()), gameRecords: int({ minimum: 0 }),
                     reports: int({ minimum: 0 }), otherUsersBlocks: int({ minimum: 0 }), chainedTombstones: int({ minimum: 0 }),
                     profilePic: bool(), signedOut: int({ minimum: 0 }),
-                }),
+                    // additive 2026-11-25: the tournament records re-pointed
+                    tournamentRecords: int({ minimum: 0 }),
+                }, { optional: ['tournamentRecords'] }),
             }),
             adminOk('listReports', { reports: arr(adminReportRow) }),
             adminOk('resolveReport', { report: adminReportRow }),
@@ -1121,12 +1125,14 @@ const s2c = {
                 gameRecords: int({ minimum: 0 }), reports: int({ minimum: 0 }), otherUsersBlocks: int({ minimum: 0 }),
                 chainedTombstones: int({ minimum: 0 }), adminSetBy: int({ minimum: 0 }), resetLinks: int({ minimum: 0 }),
                 revokedSessions: int({ minimum: 0 }), signedOut: int({ minimum: 0 }),
-            }),
+                tournamentRecords: int({ minimum: 0 }),
+            }, ['tournamentRecords']),
             adminOk('deleteAccount', {
                 username: str(), kind: enm('account', 'tombstone'), mergedInto: orNull(str()),
                 gameRecords: int({ minimum: 0 }), reports: int({ minimum: 0 }), blockLists: int({ minimum: 0 }),
                 resetLinks: int({ minimum: 0 }), tombstones: int({ minimum: 0 }), signedOut: int({ minimum: 0 }),
-            }),
+                tournamentRecords: int({ minimum: 0 }),
+            }, ['tournamentRecords']),
         ),
         status: 'active', to: 'self',
         clientReads: reads('client/src/admin/adminApi.js:createAdminApi', 'iOSClient/BABOnline/Networking/Handlers/AdminSocketHandler.swift:register'),

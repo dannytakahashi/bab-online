@@ -38,7 +38,13 @@
  *   reports.reporter / reports.reported
  *   passwordResets.username (open links of a source are revoked, see below)
  * Not moved: adminAudit (a log of what happened, by the names of the time).
- * Tournament history is in-memory only (TournamentState), so nothing to move.
+ *   tournamentRecords (the tournament history, 2026-11-25): players,
+ *   winners, scoreboard usernames, the Cut for a buck participants and
+ *   winner, the host (tournamentRecordNames.js; planned as the list of
+ *   records naming a source, applied per source as exact renames)
+ * A tournament still running keeps a source's name in memory (a member is
+ * refused as a source); the record it writes at the end looks names up
+ * (profileHandlers.recordRenamer) and takes the kept account's.
  * Live games and tournaments saved for deploy survival (liveGames /
  * liveTournaments, LIVE_PERSIST write) are not touched either: the panel's
  * merge re-points the live chat senders in memory
@@ -55,6 +61,7 @@
 
 const { STAT_KEYS, pickStats } = require('../utils/statsScope');
 const { isNameHold, heldNameRefusal } = require('./nameHold');
+const { findTournamentRecordsNaming, renameInTournamentRecords } = require('./tournamentRecordNames');
 
 // Fields removed from a source when it becomes a tombstone
 const TOMBSTONE_UNSET = [
@@ -112,6 +119,8 @@ async function planMerge(db, { target, sources }) {
         // {before, after}: the target's users.tutorial changes (see the header)
         tutorial: null,
         gameRecords: [],
+        // the tournament history's records naming a source [{id, name, completedAt}]
+        tournamentRecords: [],
         reports: [],
         otherUsersBlocks: [],
         chainedTombstones: [],
@@ -282,6 +291,9 @@ async function planMerge(db, { target, sources }) {
         });
     }
 
+    // Tournament records (the tournament history)
+    plan.tournamentRecords = await findTournamentRecordsNaming(db.tournamentRecords, plan.sources);
+
     // Reports (filed by or against a source)
     const reports = await db.reports.find({
         $or: [{ reporter: { $in: plan.sources } }, { reported: { $in: plan.sources } }]
@@ -307,6 +319,7 @@ function countChanges(plan) {
         + plan.otherUsersBlocks.length
         + plan.chainedTombstones.length
         + plan.gameRecords.length
+        + (plan.tournamentRecords || []).length
         + plan.reports.length
         + plan.retire.length;
 }
@@ -323,7 +336,7 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     }
     const { target, sources } = plan;
     const result = {
-        gameRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0,
+        gameRecords: 0, tournamentRecords: 0, reports: 0, otherUsersBlocks: 0, chainedTombstones: 0,
         statsMerged: [], profilePic: false, targetBlockedUsers: false, tutorial: false, retired: [],
         // sources whose retire was refused (see step 3): a partial merge
         notRetired: []
@@ -334,6 +347,12 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     for (const rec of plan.gameRecords) {
         await db.gameRecords.updateOne({ _id: rec.id }, { $set: rec.after });
         result.gameRecords++;
+    }
+    if (db.tournamentRecords && (plan.tournamentRecords || []).length) {
+        // Each source to the target, exact renames (safe to repeat); the
+        // count is the planned records (a record naming two sources once)
+        for (const name of sources) await renameInTournamentRecords(db.tournamentRecords, name, target);
+        result.tournamentRecords = plan.tournamentRecords.length;
     }
     for (const rep of plan.reports) {
         await db.reports.updateOne({ _id: rep.id }, { $set: rep.set });
@@ -477,6 +496,10 @@ function formatPlan(plan) {
     for (const r of plan.gameRecords) {
         lines.push(`  ${fmtDate(r.completedAt)} ${r.gameId || r.id}: [${r.before.team1Players.join(', ')}] vs [${r.before.team2Players.join(', ')}] → [${r.after.team1Players.join(', ')}] vs [${r.after.team2Players.join(', ')}]`);
     }
+
+    const tournaments = plan.tournamentRecords || [];
+    lines.push('', `Tournament records to re-point: ${tournaments.length}`);
+    for (const t of tournaments) lines.push(`  ${fmtDate(t.completedAt)} ${t.id}: ${t.name}`);
 
     lines.push('', `Reports to re-point: ${plan.reports.length}`);
     for (const r of plan.reports) {

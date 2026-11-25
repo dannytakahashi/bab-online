@@ -221,7 +221,8 @@ async function main() {
             gameRecords: db.collection('gameRecords'),
             reports: db.collection('reports'),
             passwordResets: db.collection('passwordResets'),
-            adminAudit: db.collection('adminAudit')
+            adminAudit: db.collection('adminAudit'),
+            tournamentRecords: db.collection('tournamentRecords')
         });
         const after = await indexNames(db);
 

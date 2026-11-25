@@ -15,6 +15,9 @@ let passwordResetsCollection, adminAuditCollection;
 // Deploy survival (server/game/persist/liveStore.js; LIVE_PERSIST): live
 // games and tournaments, and one document per server process
 let liveGamesCollection, liveTournamentsCollection, serverInstancesCollection;
+// The tournament history (2026-11-25): one document per completed
+// tournament (profileHandlers.recordTournament, server/game/tournamentRecord.js)
+let tournamentRecordsCollection;
 // Whether gameRecords has its UNIQUE gameId index (ensureGameIdIndex may
 // have fallen back to a non-unique one): null until probed. /health
 // persist.uniqueGameIdIndex; a precondition for LIVE_PERSIST=on
@@ -96,6 +99,7 @@ async function connectDB() {
     liveGamesCollection = db.collection("liveGames");
     liveTournamentsCollection = db.collection("liveTournaments");
     serverInstancesCollection = db.collection("serverInstances");
+    tournamentRecordsCollection = db.collection("tournamentRecords");
     resolveReady();
 
     try {
@@ -146,7 +150,8 @@ async function ensureIndexes({
     adminAudit = adminAuditCollection,
     liveGames = liveGamesCollection,
     liveTournaments = liveTournamentsCollection,
-    serverInstances = serverInstancesCollection
+    serverInstances = serverInstancesCollection,
+    tournamentRecords = tournamentRecordsCollection
 } = {}) {
     return Promise.allSettled([
         safeIndex(gameRecords, { completedAt: -1 }, {}, 'gameRecords.completedAt_-1'),
@@ -162,8 +167,28 @@ async function ensureIndexes({
         // goes when its nameHeldUntil passes; only holds carry the field
         safeIndex(users, { nameHeldUntil: 1 }, { expireAfterSeconds: 0 }, 'users.nameHeldUntil_1 (TTL)'),
         ...adminIndexes({ users, passwordResets, adminAudit }),
-        ...liveIndexes({ liveGames, liveTournaments, serverInstances })
+        ...liveIndexes({ liveGames, liveTournaments, serverInstances }),
+        ...tournamentRecordIndexes(tournamentRecords)
     ]);
+}
+
+/**
+ * The tournament history (tournamentRecords, `_id` = the tournamentId, so
+ * a second insert of one tournament is E11000): newest first (the
+ * profile's recent results by player, the Records page's Lucky Buck by
+ * completedAt), and the profile's counts (played, won, Cut for a buck
+ * wins and cuts played) each on its own index. A caller that did not pass
+ * the collection (tests) is skipped.
+ */
+function tournamentRecordIndexes(tournamentRecords) {
+    if (!tournamentRecords) return [];
+    return [
+        safeIndex(tournamentRecords, { completedAt: -1 }, {}, 'tournamentRecords.completedAt_-1'),
+        safeIndex(tournamentRecords, { players: 1, completedAt: -1 }, {}, 'tournamentRecords.players_1_completedAt_-1'),
+        safeIndex(tournamentRecords, { winners: 1 }, {}, 'tournamentRecords.winners_1'),
+        safeIndex(tournamentRecords, { 'cut.winner': 1 }, {}, 'tournamentRecords.cut.winner_1'),
+        safeIndex(tournamentRecords, { 'cut.participants': 1 }, {}, 'tournamentRecords.cut.participants_1')
+    ];
 }
 
 /**
@@ -342,6 +367,7 @@ module.exports = {
     getLiveGamesCollection: () => liveGamesCollection,
     getLiveTournamentsCollection: () => liveTournamentsCollection,
     getServerInstancesCollection: () => serverInstancesCollection,
+    getTournamentRecordsCollection: () => tournamentRecordsCollection,
     getGameIdIndexUnique: () => gameIdIndexUnique,
     probeGameIdIndex,
     LIVE_INSTANCE_TTL_SEC

@@ -358,8 +358,10 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
   on a leave, `cutForABuckReveal {round, draws: [$defs.cutDraw], eliminated,
   redraw, alive, nextInMs}` -> `cutForABuckWinner $defs.cutResult` -> 6 s ->
   `tournamentComplete` with the additive `cutForABuck $defs.cutResult`
-  (absent when no cut ran to a winner). `tournamentComplete` goes out
-  exactly once.
+  (absent when no cut ran to a winner). Once `cutForABuckWinner` is out the
+  result stands: the host's Cancel, the winner or the last member leaving,
+  or a deploy in the 6 s hold all complete with it. `tournamentComplete`
+  goes out exactly once.
 - c2s `cutForABuckDraw {round, slot | null}` (Joi: round 1..10000, slot
   0..107 or null; rate limit 10 / 10 s): out-of-turn draws are dropped
   silently.
@@ -387,6 +389,30 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
   `docs/claude/web-client.md` "Cut for a buck, web"), so merging the web PR
   turns the cut on for every tournament with a connected web member. iOS
   from build 41.
+
+## Tournament history (profiles, Lucky Buck)
+
+Additive only, no cap (2026-11-25; `docs/claude/server-infra.md`,
+Tournament history). Every completed tournament is stored as a
+`tournamentRecords` document; the wire shows it in three places:
+
+- `profileResponse` / `playerProfileResponse` `profile` gains the optional
+  `tournaments` ($defs.profileTournaments: `played`, `won`, `recent` = the
+  last 5, newest first, each a $defs.tournamentResult: id, name,
+  completedAt ISO or null, totalRounds, players (how many finished it),
+  place (1 = a winner, ties share a place, null when not in the
+  standings), won, winners, cutWinner (null when no cut ran)) and
+  `cutForABuck {wins, played}`. The same in every stats scope; zeros when
+  the history cannot be read. Shipped iOS builds decode `profile` as a
+  dictionary / Codable struct and ignore both keys.
+- `recordsResponse` superlatives gain the id `luckyBuck` ("Lucky Buck":
+  the most Cut for a buck wins in the period, at least 2; "3 wins in 7
+  cuts"), last in the list, the same in every scope. Clients render titles
+  generically, so no client needed a change.
+- `adminResponse`: `applyMerge.result`, `renameAccount` and
+  `deleteAccount` gain the optional `tournamentRecords` (records changed),
+  and the merge preview (`planMerge.plan`) the optional
+  `tournamentRecords [{id, name, completedAt}]`.
 
 ## Client capabilities (clientHello) and avatar fields
 
