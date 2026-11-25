@@ -260,6 +260,8 @@
     font-size: var(--type-xs);
     color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
+    /* readable over the fan's lower edge */
+    text-shadow: 0 0 3px var(--surface-0), 0 0 6px var(--surface-0);
     pointer-events: none;
 }
 

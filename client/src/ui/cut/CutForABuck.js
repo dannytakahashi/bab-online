@@ -662,6 +662,13 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     roundEl.textContent = roundLine(state);
   }
 
+  /** A player's look now: an out player looks in until the verdict (the cards are still turning). */
+  function lookOf(username, v) {
+    const out = state?.out?.[username];
+    if (v.state === 'out' && out && !out.left && out.round === state.lastReveal?.round && verdictRound !== state.lastReveal.round) return 'idle';
+    return v.state;
+  }
+
   function renderList() {
     listRows.replaceChildren();
     listDraw.disabled = !canDraw();
@@ -669,18 +676,21 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     for (const username of order) {
       const p = people.get(username) || {};
       const v = seatView(state, username, { me, connected: p.connected !== false, talking: talking.has(username) });
+      const look = lookOf(username, v);
+      const caption = look === v.state ? v.caption : '';
+      const label = look === v.state ? v.label : v.label.replace(/, out in round \d+/, '');
       const img = el('img', { className: 'cut-list__img', attrs: { alt: '' } });
       applyAvatarImg(img, avatarSrc(p.pic));
       img.setAttribute('src', avatarSrc(p.pic));
       const drawnNow = state?.stage === STAGE.DRAWING && state.drawn?.[username];
       const row = el('div', {
-        className: `cut-list__row is-${v.state}${v.disconnected ? ' is-disconnected' : ''}${talking.has(username) ? ' is-talking' : ''}`,
-        attrs: { role: 'listitem', 'aria-label': v.label },
+        className: `cut-list__row is-${look}${v.disconnected ? ' is-disconnected' : ''}${talking.has(username) ? ' is-talking' : ''}`,
+        attrs: { role: 'listitem', 'aria-label': label },
         dataset: { username },
         children: [
           img,
           el('span', { className: 'cut-list__name', text: username === me ? 'you' : username }),
-          el('span', { className: 'cut-list__status', text: v.caption || (v.state === 'waiting' ? 'To draw' : drawnNow ? 'Drew' : '') }),
+          el('span', { className: 'cut-list__status', text: caption || (v.state === 'waiting' ? 'To draw' : drawnNow ? 'Drew' : '') }),
           el('span', { className: 'cut-list__cards', text: v.cards.map(cardShort).join(' ') }),
         ],
       });
@@ -712,9 +722,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
         s.img.setAttribute('src', src);
       }
       const v = seatView(state, username, { me, connected: p.connected !== false, talking: talking.has(username) });
-      // the verdict waits for the flip: until then nobody looks out
-      let look = v.state;
-      if (look === 'out' && state?.out?.[username]?.round === state?.lastReveal?.round && verdictRound !== state.lastReveal.round && !state.out[username].left) look = 'idle';
+      const look = lookOf(username, v);
       s.root.className = `cut-seat is-${look}${v.disconnected ? ' is-disconnected' : ''}${talking.has(username) ? ' is-talking' : ''}${username === me ? ' is-me' : ''}${s.root.classList.contains('is-entering') ? ' is-entering' : ''}${opts.instant ? ' no-anim' : ''}`;
       s.root.setAttribute('aria-label', look === v.state ? v.label : v.label.replace(/, out in round \d+/, ''));
       s.caption.textContent = look === v.state ? v.caption : '';

@@ -181,7 +181,15 @@ describe('the reveal', () => {
     // before the verdict nobody looks out
     expect(seatEl('bo').classList.contains('is-out')).toBe(false);
     expect(view.element.querySelector('#cutStatus').textContent).toBe('Turning the cards over');
+    // the list view waits for the verdict too
+    view.element.querySelector('[data-view="list"]').click();
+    const row = (u) => view.element.querySelector(`.cut-list__row[data-username="${u}"]`);
+    expect(row('bo').classList.contains('is-out')).toBe(false);
+    expect(row('bo').querySelector('.cut-list__status').textContent).toBe('');
     vi.advanceTimersByTime(TIMING.verdict);
+    expect(row('bo').classList.contains('is-out')).toBe(true);
+    expect(row('bo').querySelector('.cut-list__status').textContent).toBe('Out · round 1');
+    view.element.querySelector('[data-view="ring"]').click();
     expect(seatEl('bo').classList.contains('is-out')).toBe(true);
     expect(seatEl('cy').classList.contains('is-out')).toBe(true);
     expect(seatEl('bo').querySelector('.cut-seat__caption').textContent).toBe('Out · round 1');
