@@ -153,6 +153,10 @@ function adoptTournament(io, doc, { now = Date.now(), removed = [], scrubFrom = 
     if (t.phase === 'complete') {
         const at = Number.isFinite(t.completedAt) ? t.completedAt : now;
         handlers.scheduleTournamentCleanup(io, tid, Math.max(at + COMPLETED_TTL_MS - now, MIN_CLEANUP_MS));
+        // The record again (idempotent by _id: E11000 when the old process
+        // wrote it), for a crash between the finish and the insert
+        handlers.recordTournament(t, t.cutResult || null).catch((err) =>
+            socketLogger.error('recordTournament failed', { tournamentId: tid, error: err.message }));
     } else {
         t.setTimer(ABANDON_KEY, RESTORE_ABANDON_MS, () => onRestoreAbandon(io, t));
         t.restored.hostGraceUntil = now + HOST_GRACE_MS;

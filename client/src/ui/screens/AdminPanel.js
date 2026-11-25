@@ -48,6 +48,8 @@ let current = null; // {modal, api}
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString() : '—');
 const fmtDay = (iso) => (iso ? new Date(iso).toLocaleDateString() : '—');
+/** ", 2 tournament record(s)" for a rename / delete reply that moved some (the tournament history, 2026-11-25). */
+const tournamentsMoved = (res) => (res?.tournamentRecords > 0 ? `${res.tournamentRecords} tournament record(s), ` : '');
 
 function chip(text, tone = 'neutral') {
   return el('span', { className: `kit-chip kit-chip--${tone} admin-chip`, text });
@@ -477,7 +479,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     if (!yes) return;
     const res = await call('renameAccount', { username: from, newName: p.username, confirm: p.username });
     if (!res?.ok) return;
-    say(`The rename of ${from} to ${p.username} is finished: ${res.gameRecords} game record update(s), ${res.reports} report field(s), ${res.otherUsersBlocks} block list(s) moved.`, 'success');
+    say(`The rename of ${from} to ${p.username} is finished: ${res.gameRecords} game record update(s), ${tournamentsMoved(res)}${res.reports} report field(s), ${res.otherUsersBlocks} block list(s) moved.`, 'success');
     await refreshPlayersAt(`more:${p.username}`)();
   }
 
@@ -538,7 +540,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
       lines: [
         `signs ${p.username} out everywhere; they can never sign in to it again;`,
         'deletes their stats (and leaderboard row), pictures and saved sessions;',
-        'shows their name as [deleted] in past games (the other players keep those games);',
+        'shows their name as [deleted] in past games and tournaments (the other players keep those games);',
         'keeps reports by or about them, marked deleted;',
         "removes them from other players' block lists and cancels any open reset link;",
         `deletes the old names merged into it, and holds the name ${p.username} for 30 days so nobody signs up with it at once (Free name… on its row frees it sooner).`,
@@ -549,7 +551,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     });
     if (!res?.ok) return;
     dropLinkOf(res.username);
-    say(`${res.username} is deleted: ${res.gameRecords} game record update(s) to [deleted], ${res.reports} report(s) marked, ${res.signedOut} live connection(s) closed.`, 'success');
+    say(`${res.username} is deleted: ${res.gameRecords} game record update(s) to [deleted], ${tournamentsMoved(res)}${res.reports} report(s) marked, ${res.signedOut} live connection(s) closed.`, 'success');
     await afterDelete();
   }
 
@@ -712,6 +714,8 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
     if (plan.profilePicFrom) lines.push(`Profile photo: copy the custom photo from ${plan.profilePicFrom} (${plan.target} has none).`);
     if (plan.targetBlockedUsers) lines.push(`${plan.target}'s block list: [${plan.targetBlockedUsers.before.join(', ')}] → [${plan.targetBlockedUsers.after.join(', ')}]`);
     lines.push(`Game records to re-point: ${plan.gameRecords.length}`);
+    // the tournament history (additive 2026-11-25; only when one names a source)
+    if (plan.tournamentRecords?.length) lines.push(`Tournament records to re-point: ${plan.tournamentRecords.length}`);
     lines.push(`Reports to re-point: ${plan.reports.length}`);
     lines.push(`Other players' block lists to update: ${plan.otherUsersBlocks.length}`);
     if (plan.chainedTombstones.length) lines.push(`Older merged accounts to re-point: ${plan.chainedTombstones.map((t) => `${t.username} (was → ${t.before})`).join(', ')}`);
@@ -787,7 +791,7 @@ export function showAdminPanel(socket, { username = null, api = null } = {}) {
             `Kept: ${r.target}`,
             `Stats merged from: ${r.statsMerged.join(', ') || '(none)'}`,
             `Retired: ${r.retired.join(', ') || '(none)'}`,
-            `Game records: ${r.gameRecords}, reports: ${r.reports}, other block lists: ${r.otherUsersBlocks}`,
+            `Game records: ${r.gameRecords}, ${r.tournamentRecords > 0 ? `tournament records: ${r.tournamentRecords}, ` : ''}reports: ${r.reports}, other block lists: ${r.otherUsersBlocks}`,
             `Signed out: ${r.signedOut} live connection(s)`,
           ].map((t) => el('li', { text: t })),
         }));

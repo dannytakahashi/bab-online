@@ -57,6 +57,11 @@ function canonical(plan) {
         // the tutorial flag (only when it changes, so other plans hash as before)
         ...(plan.tutorial ? { tutorial: plan.tutorial } : {}),
         gameRecords: [...plan.gameRecords].sort(byId).map(r => ({ ...r, id: String(r.id), completedAt: iso(r.completedAt) })),
+        // the tournament history (only when a record names a source, so
+        // other plans hash as before)
+        ...((plan.tournamentRecords || []).length
+            ? { tournamentRecords: [...plan.tournamentRecords].sort(byId).map(t => ({ ...t, completedAt: iso(t.completedAt) })) }
+            : {}),
         reports: [...plan.reports].sort(byId).map(r => ({ ...r, id: String(r.id) })),
         otherUsersBlocks: [...plan.otherUsersBlocks].sort(byId).map(u => ({ ...u, id: String(u.id) })),
         chainedTombstones: [...plan.chainedTombstones].sort(byId).map(t => ({ ...t, id: String(t.id) })),
@@ -81,6 +86,7 @@ function planView(plan) {
         profilePicFrom: null,
         targetBlockedUsers: null,
         gameRecords: [],
+        tournamentRecords: [],
         reports: [],
         otherUsersBlocks: [],
         chainedTombstones: [],
@@ -114,6 +120,7 @@ function planView(plan) {
         before: { team1: [...(r.before.team1Players || [])], team2: [...(r.before.team2Players || [])] },
         after: { team1: [...(r.after.team1Players || [])], team2: [...(r.after.team2Players || [])] }
     }));
+    view.tournamentRecords = (plan.tournamentRecords || []).map(t => ({ id: t.id, name: t.name, completedAt: iso(t.completedAt) }));
     view.reports = plan.reports.map(r => ({
         id: String(r.id),
         reporter: String(r.before.reporter ?? ''),

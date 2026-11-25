@@ -1,8 +1,9 @@
 /**
  * Profile Page Screen
  *
- * The player's own profile (stats, picture: upload or choose an avatar,
- * sign out, delete account) and another player's (stats, report, block),
+ * The player's own profile (stats, the tournament history, picture: upload
+ * or choose an avatar, sign out, delete account) and another player's
+ * (stats, the tournament history, report, block),
  * each a kit Modal (item 18b: focus trap, Escape, focus restore); the
  * avatar picker, the report form and the block confirmation are kit
  * Modals stacked on top. Classes from styles/screens.css; user text
@@ -15,6 +16,7 @@ import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { showError } from '../components/Toast.js';
 import { createStatsScopeControl } from '../components/StatsScopeControl.js';
 import { createBadgesSection } from '../components/Badges.js';
+import { createTournamentHistorySection } from '../components/TournamentHistory.js';
 import {
   getStatsScope, setStatsScope, isStatsScope, createScopeRequester, scopePayload, BOT_STATS_EMPTY_NOTE,
 } from '../../state/statsScope.js';
@@ -350,7 +352,7 @@ export function showProfilePage(profile, socket, scope = getStatsScope(), badges
     id: 'profilePageOverlay',
     dialogId: 'profilePageModal',
     className: 'page-modal',
-    body: [hero, ...section.nodes, ...badgeSection.nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
+    body: [hero, ...section.nodes, ...badgeSection.nodes, ...createTournamentHistorySection(profile, 'profileTournaments').nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
     onClose: () => {
       profileModal = null;
       removePictureSelector();
@@ -819,6 +821,8 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
   playerStats = section;
   body.push(...section.nodes);
   body.push(...createBadgesSection(options.badges, 'playerProfileBadgesRegion').nodes);
+  // The tournament history (every scope the same: a scope switch leaves it)
+  body.push(...createTournamentHistorySection(profile, 'playerProfileTournaments').nodes);
 
   playerProfileModal = openModal({
     title: profile.username,

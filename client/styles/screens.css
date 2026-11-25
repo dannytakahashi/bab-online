@@ -895,6 +895,72 @@
     font-size: var(--type-xs);
 }
 
+
+
+/* profile: the Tournaments section (components/TournamentHistory.js) */
+.tournament-history {
+    margin-top: var(--space-6);
+}
+
+.tournament-history__stats {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+}
+
+.tournament-history__subtitle {
+    margin: var(--space-4) 0 var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+}
+
+.tournament-history__list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.tournament-history__item {
+    padding: var(--space-3);
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+}
+
+.tournament-history__row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+}
+
+.tournament-history__name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: var(--text-primary);
+    font-weight: var(--weight-bold);
+}
+
+.tournament-history__result {
+    flex: none;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+}
+
+.tournament-history__result.is-win,
+.tournament-history__cut.is-win {
+    color: var(--primary-base);
+    font-weight: var(--weight-bold);
+}
+
+.tournament-history__meta,
+.tournament-history__cut {
+    margin-top: var(--space-1);
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+}
+
 .profile-signout {
     margin-top: var(--space-6);
 }

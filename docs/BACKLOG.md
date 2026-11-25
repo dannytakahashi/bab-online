@@ -85,6 +85,18 @@ cap for latency; an SFU only lifts the size limit.
 
 ## Server
 
+- **Tournament history: only the last 5 on a profile** (2026-11-25). The
+  profile shows played / won / Cut for a buck wins and the last 5 results;
+  a full history page (every tournament, its final standings, filters)
+  would read the same `tournamentRecords` with paging. A record's
+  standings are stored, but no screen shows a past tournament's whole
+  table yet. iOS shows none of it until its profile row lands (1.2.7).
+- **Lucky Buck in a period with no game of the scope** (2026-11-25): the
+  Records page shows a period as "No games yet" (null) when the scope has
+  no game there, so a cut in that period is not shown there (human scope
+  with only filler-bot tournament tables). Rare; changing it means a
+  non-null period with no game records, which both clients would read.
+
 - **An entrant whose socket is rebuilt during a game's DRAWING stage is not
   rejoined:** `restoreSession` (and sign-in) read the user's `activeGameId`, which
   `setActiveGame` writes only at seating (`gameHandlers.js`, after the draw;

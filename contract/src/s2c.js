@@ -134,12 +134,14 @@ const mergePlanView = obj({
     profilePicFrom: orNull(str()),
     targetBlockedUsers: anyOf(obj({ before: arr(str()), after: arr(str()) }), nul()),
     gameRecords: arr(obj({ gameId: str(), completedAt: isoOrNull(), before: teams, after: teams })),
+    // additive 2026-11-25: the tournament records naming a source (re-pointed to the kept account)
+    tournamentRecords: arr(obj({ id: str(), name: str(), completedAt: isoOrNull() })),
     reports: arr(obj({ id: str(), reporter: str(), reported: str(), newReporter: orNull(str()), newReported: orNull(str()) })),
     otherUsersBlocks: arr(obj({ username: str(), before: arr(str()), after: arr(str()) })),
     chainedTombstones: arr(obj({ username: str(), before: str() })),
     retire: arr(str()),
     changeCount: int({ minimum: 0 }),
-});
+}, { optional: ['tournamentRecords'] });
 const adminReportRow = obj({
     id: str(), reporter: str(), reported: str(), reason: str(), context: str(), createdAt: isoOrNull(),
     status: enm('open', 'resolved', 'dismissed'), resolvedBy: orNull(str()), resolvedAt: isoOrNull(), note: orNull(str()),
@@ -150,7 +152,7 @@ const adminAuditRow = obj({
     result: enm('ok', 'failed', 'forbidden'), detail: orNull(str()),
 });
 /** One ok variant per action: {requestId, action: <const>, ok: true, ...fields}. */
-const adminOk = (action, props) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }));
+const adminOk = (action, props, optional = []) => variant(action, obj({ requestId: str(), action: konst(action), ok: konst(true), ...props }, { optional }));
 
 const scoreboard = arr(ref('scoreboardRow'));
 
@@ -1116,7 +1118,9 @@ const s2c = {
                     target: str(), statsMerged: arr(str()), retired: arr(str()), gameRecords: int({ minimum: 0 }),
                     reports: int({ minimum: 0 }), otherUsersBlocks: int({ minimum: 0 }), chainedTombstones: int({ minimum: 0 }),
                     profilePic: bool(), signedOut: int({ minimum: 0 }),
-                }),
+                    // additive 2026-11-25: the tournament records re-pointed
+                    tournamentRecords: int({ minimum: 0 }),
+                }, { optional: ['tournamentRecords'] }),
             }),
             adminOk('listReports', { reports: arr(adminReportRow) }),
             adminOk('resolveReport', { report: adminReportRow }),
@@ -1129,12 +1133,14 @@ const s2c = {
                 gameRecords: int({ minimum: 0 }), reports: int({ minimum: 0 }), otherUsersBlocks: int({ minimum: 0 }),
                 chainedTombstones: int({ minimum: 0 }), adminSetBy: int({ minimum: 0 }), resetLinks: int({ minimum: 0 }),
                 revokedSessions: int({ minimum: 0 }), signedOut: int({ minimum: 0 }),
-            }),
+                tournamentRecords: int({ minimum: 0 }),
+            }, ['tournamentRecords']),
             adminOk('deleteAccount', {
                 username: str(), kind: enm('account', 'tombstone'), mergedInto: orNull(str()),
                 gameRecords: int({ minimum: 0 }), reports: int({ minimum: 0 }), blockLists: int({ minimum: 0 }),
                 resetLinks: int({ minimum: 0 }), tombstones: int({ minimum: 0 }), signedOut: int({ minimum: 0 }),
-            }),
+                tournamentRecords: int({ minimum: 0 }),
+            }, ['tournamentRecords']),
         ),
         status: 'active', to: 'self',
         clientReads: reads('client/src/admin/adminApi.js:createAdminApi', 'iOSClient/BABOnline/Networking/Handlers/AdminSocketHandler.swift:register'),

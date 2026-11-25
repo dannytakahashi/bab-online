@@ -3,7 +3,8 @@
  * Handles fetching and updating user profiles
  */
 
-const { getUsersCollection, getGameRecordsCollection } = require('../database');
+const database = require('../database');
+const { getUsersCollection, getGameRecordsCollection } = database;
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { createCache } = require('../utils/ttlCache');
@@ -14,7 +15,8 @@ const avatarWire = require('../avatar/avatarWire');
 const image = require('../avatar/image');
 const { STOCK_AVATAR_COUNT, randomStockPic } = require('../avatar/stockAvatars');
 const { SCOPES, STAT_KEYS, emptyStats, pickStats, sumBuckets, normalizeScope } = require('../utils/statsScope');
-const { createSuperlatives, accountTotals, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION, ACCOUNT_FIELDS } = require('../utils/superlatives');
+const { createSuperlatives, accountTotals, SUPERLATIVE_MIN_GAMES, SUPERLATIVES_PROJECTION, ACCOUNT_FIELDS, CUT_PROJECTION } = require('../utils/superlatives');
+const { buildTournamentRecord, recordNames, recentResult, RECENT_RESULTS } = require('../game/tournamentRecord');
 const { trackInFlight, retryDelay, shutdownAllowsRetry } = require('../utils/shutdown');
 const { isAssistedSeat, helpUses, usedTutorial, isBotStatsGame, assistedSeatMoves } = require('../game/assistState');
 const { normalizeSeatBags, normalizeSeatCounter } = require('../game/rules');
@@ -1130,7 +1132,9 @@ async function profileReply(socket, dbUser, scope = 'human', echo = false) {
             username: dbUser.username,
             profilePic: dbUser.profilePic || 1,
             customProfilePic: null,
-            stats: profileStats(dbUser, scope)
+            stats: profileStats(dbUser, scope),
+            // The tournament history (additive 2026-11-25; every scope the same)
+            ...(await tournamentProfile(dbUser.username))
         }
     };
     if (r.url) out.avatarUrl = r.url;
@@ -1138,6 +1142,117 @@ async function profileReply(socket, dbUser, scope = 'human', echo = false) {
     // to a client that shows them (cap `badges`). Never the unearned ones
     if (hasCap(socket, badgeAwards.BADGES_CAP)) out.badges = badgeRules.publicBadges(dbUser.badges);
     return withScope(out, scope, echo);
+}
+
+/** A profile with no tournament history (also what a failed read gives). */
+const NO_TOURNAMENTS = Object.freeze({ played: 0, won: 0, recent: [] });
+
+/**
+ * The profile's tournament history (owner 2026-11-25, additive, the same in
+ * every stats scope: a tournament is not a game): `tournaments {played,
+ * won, recent}` (finished: the player was a member when its last round
+ * completed; won: one of its score winners, ties included; recent: the
+ * last RECENT_RESULTS, newest first, server/game/tournamentRecord.js
+ * recentResult) and `cutForABuck {wins, played}` (cuts won, cuts taken
+ * part in). Five indexed reads in parallel on tournamentRecords; a failure
+ * (or no collection yet) gives zeros and a warning, never a failed profile.
+ * Clients show the section only when played > 0.
+ */
+async function tournamentProfile(username) {
+    const coll = database.getTournamentRecordsCollection?.();
+    const empty = () => ({ tournaments: { ...NO_TOURNAMENTS, recent: [] }, cutForABuck: { wins: 0, played: 0 } });
+    if (!coll || typeof username !== 'string') return empty();
+    try {
+        const [played, won, cutWins, cutPlayed, recent] = await Promise.all([
+            coll.countDocuments({ players: username }),
+            coll.countDocuments({ winners: username }),
+            coll.countDocuments({ 'cut.winner': username }),
+            coll.countDocuments({ 'cut.participants': username }),
+            coll.find({ players: username }, { projection: { name: 1, completedAt: 1, totalRounds: 1, players: 1, scoreboard: 1, winners: 1, cut: 1 } })
+                .sort({ completedAt: -1 })
+                .limit(RECENT_RESULTS)
+                .toArray()
+        ]);
+        return {
+            tournaments: { played, won, recent: recent.map((doc) => recentResult(doc, username)) },
+            cutForABuck: { wins: cutWins, played: cutPlayed }
+        };
+    } catch (error) {
+        authLogger.warn('Tournament history read failed; the profile shows none', { username, error: error.message });
+        return empty();
+    }
+}
+
+/**
+ * How a name goes into a NEW tournament record: '[deleted]' for an account
+ * deleted meanwhile (this process's deletedUsernames, or its name hold in
+ * users), an account renamed or merged meanwhile by the name it has now
+ * (one hop: renames and merges re-point older tombstones), else as is.
+ * The admin rename / merge / delete rewrite stored records the same way
+ * (server/admin/tournamentRecordNames.js), so a record written after one
+ * of them agrees with the records written before it.
+ */
+async function recordRenamer(names) {
+    const map = new Map();
+    const users = getUsersCollection();
+    if (users && names.length > 0) {
+        const docs = await users.find(
+            { username: { $in: names }, mergedInto: { $exists: true } },
+            { projection: { username: 1, mergedInto: 1 } }
+        ).toArray();
+        for (const d of docs) if (typeof d.mergedInto === 'string' && d.mergedInto) map.set(d.username, d.mergedInto);
+    }
+    return (name) => {
+        if (gameManager.deletedUsernames?.has(name)) return DELETED_NAME;
+        return map.get(name) ?? name;
+    };
+}
+
+/**
+ * Write the tournament's record (tournamentRecords, the tournament
+ * history), once per tournament: `_id` is the tournamentId, so a second
+ * call (the adoption of a 'complete' doc after a restore, a replay) is
+ * E11000, logged as already recorded. Transient failures retry
+ * (withRetry, as the end-of-game writes); the last failure is logged.
+ * Never throws. On a new record every scope of the records cache is
+ * invalidated (Lucky Buck). Tracked for the shutdown drain.
+ * Not called for a tournament cancelled before its last round or one
+ * everyone left before it ended (deleted, never 'complete').
+ * @param {import('../game/TournamentState')} tournament
+ * @param {{winner, participants, rounds}|null} cut
+ * @returns {Promise<'recorded'|'duplicate'|null>}
+ */
+function recordTournament(tournament, cut) {
+    const tid = tournament?.tournamentId;
+    const run = (async () => {
+        const coll = database.getTournamentRecordsCollection?.();
+        if (!coll) {
+            authLogger.warn('Tournament not recorded: no database', { tournamentId: tid });
+            return null;
+        }
+        if (!tournament || tournament.phase !== 'complete') return null;
+        try {
+            return await withRetry('tournamentRecord', tid, async () => {
+                const rename = await recordRenamer(recordNames(tournament, cut));
+                const doc = buildTournamentRecord(tournament, cut, { rename });
+                if (!doc) return null;
+                try {
+                    await coll.insertOne(doc);
+                } catch (error) {
+                    if (!isDuplicateKey(error)) throw error;
+                    authLogger.info('Tournament already recorded', { tournamentId: tid });
+                    return 'duplicate';
+                }
+                invalidateRecords();
+                authLogger.info('Tournament recorded', { tournamentId: tid, players: doc.players.length, cut: Boolean(doc.cut) });
+                return 'recorded';
+            });
+        } catch (error) {
+            authLogger.error('Tournament record failed', { tournamentId: tid, error: error.message });
+            return null;
+        }
+    })();
+    return trackInFlight(run);
 }
 
 /**
@@ -1363,9 +1478,10 @@ async function fillRecords(now, scope = 'human') {
     };
 
     const periods = Object.keys(filters);
-    const [totalGames, accounts, ...results] = await Promise.all([
+    const [totalGames, accounts, cuts, ...results] = await Promise.all([
         gameRecordsCollection.countDocuments({ ...base }),
         superlativeAccounts(scope),
+        cutRecords(),
         ...periods.map(period => gameRecordsCollection.find(filters[period], { projection }).toArray())
     ]);
 
@@ -1383,6 +1499,15 @@ async function fillRecords(now, scope = 'human') {
         if (!(at instanceof Date)) continue;
         if (at >= startOfYear) superlatives.thisYear.add(game);
         if (at >= startOfMonth) superlatives.thisMonth.add(game);
+    }
+    // Lucky Buck: the Cut for a buck results, by the tournament's completedAt
+    // (the same periods; a cut is not a game, so every scope reads them all)
+    for (const record of cuts) {
+        superlatives.allTime.addCut(record);
+        const at = record.completedAt;
+        if (!(at instanceof Date)) continue;
+        if (at >= startOfYear) superlatives.thisYear.addCut(record);
+        if (at >= startOfMonth) superlatives.thisMonth.addCut(record);
     }
 
     for (let p = 0; p < periods.length; p++) {
@@ -1457,6 +1582,22 @@ async function fillRecords(now, scope = 'human') {
     }
 
     return { records, totalGames, periodGames };
+}
+
+/**
+ * Every tournament record with a Cut for a buck result (Lucky Buck), only
+ * the fields it reads. A failed read (or no collection) leaves Lucky Buck
+ * out with a warning; the rest of the records page is unaffected.
+ */
+async function cutRecords() {
+    const coll = database.getTournamentRecordsCollection?.();
+    if (!coll) return [];
+    try {
+        return await coll.find({ cut: { $ne: null } }, { projection: CUT_PROJECTION }).toArray();
+    } catch (error) {
+        authLogger.warn('Cut for a buck results read failed; Records shows no Lucky Buck', { error: error.message });
+        return [];
+    }
 }
 
 /**
@@ -1588,5 +1729,7 @@ module.exports = {
     getLeaderboard,
     searchPlayers,
     getPlayerProfile,
-    getRecords
+    getRecords,
+    recordTournament,
+    tournamentProfile
 };

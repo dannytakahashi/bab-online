@@ -384,6 +384,30 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
 - Once `MIN_IOS_BUILD` reaches 41 the no-cap branch (the projection and the
   chat lines) is dead code: removed in a cleanup PR, `V1_REMOVALS.md`.
 
+## Tournament history (profiles, Lucky Buck)
+
+Additive only, no cap (2026-11-25; `docs/claude/server-infra.md`,
+Tournament history). Every completed tournament is stored as a
+`tournamentRecords` document; the wire shows it in three places:
+
+- `profileResponse` / `playerProfileResponse` `profile` gains the optional
+  `tournaments` ($defs.profileTournaments: `played`, `won`, `recent` = the
+  last 5, newest first, each a $defs.tournamentResult: id, name,
+  completedAt ISO or null, totalRounds, players (how many finished it),
+  place (1 = a winner, ties share a place, null when not in the
+  standings), won, winners, cutWinner (null when no cut ran)) and
+  `cutForABuck {wins, played}`. The same in every stats scope; zeros when
+  the history cannot be read. Shipped iOS builds decode `profile` as a
+  dictionary / Codable struct and ignore both keys.
+- `recordsResponse` superlatives gain the id `luckyBuck` ("Lucky Buck":
+  the most Cut for a buck wins in the period, at least 2; "3 wins in 7
+  cuts"), last in the list, the same in every scope. Clients render titles
+  generically, so no client needed a change.
+- `adminResponse`: `applyMerge.result`, `renameAccount` and
+  `deleteAccount` gain the optional `tournamentRecords` (records changed),
+  and the merge preview (`planMerge.plan`) the optional
+  `tournamentRecords [{id, name, completedAt}]`.
+
 ## Client capabilities (clientHello) and avatar fields
 
 `clientHello {client, version, build?, caps}` (c2s, no reply) tells the

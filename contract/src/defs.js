@@ -268,6 +268,36 @@ const defs = {
         // always null since V1_REMOVALS #19 B: the custom picture is the reply's avatarUrl
         customProfilePic: nul(),
         stats: obj({}, { open: true }),
+        // additive 2026-11-25, the tournament history (tournamentRecords; the
+        // same in every stats scope): tournaments finished / won (a score
+        // winner, ties included) and the last 5, newest first; cutForABuck
+        // = Cut for a buck wins and cuts taken part in. Zeros when the
+        // history cannot be read. Clients show them only when played > 0
+        tournaments: ref('profileTournaments'),
+        cutForABuck: obj({ wins: int({ minimum: 0 }), played: int({ minimum: 0 }) }),
+    }, { optional: ['tournaments', 'cutForABuck'] }),
+    profileTournaments: obj({
+        played: int({ minimum: 0 }),
+        won: int({ minimum: 0 }),
+        recent: arr(ref('tournamentResult'), { maxItems: 5 }),
+    }),
+    // One finished tournament on a profile (server/game/tournamentRecord.js
+    // recentResult): id (the tournamentId), its name, when it ended (ISO),
+    // the rounds, how many players finished it, the profile's player's
+    // place by total score (1 = a winner; ties share a place; null when not
+    // in the standings), whether they won (a score winner), the score
+    // winners, and who won Cut for a buck (null when no cut ran). Names may
+    // be '[deleted]'
+    tournamentResult: obj({
+        id: str(),
+        name: str(),
+        completedAt: orNull(str()),
+        totalRounds: int({ minimum: 0 }),
+        players: int({ minimum: 0 }),
+        place: orNull(int({ minimum: 1 })),
+        won: bool(),
+        winners: arr(str()),
+        cutWinner: orNull(str()),
     }),
     leaderboardRow: obj({ username: str(), gamesPlayed: num(), winRate: num() }, { open: true }),
     // getRecords: per period (allTime / thisYear / thisMonth) null when no
@@ -289,7 +319,8 @@ const defs = {
         superlatives: arr(ref('recordsSuperlative')),
     }, { open: true, optional: ['superlatives'] })),
     // One Records title: id (bagBoy, luckyDuck, cursed, botFriends,
-    // helpFromFriends, myQuantitative, delusionsOfGrandeur today; anchor
+    // helpFromFriends, myQuantitative, delusionsOfGrandeur, luckyBuck (the
+    // most Cut for a buck wins, at least 2; 2026-11-25) today; anchor
     // until 2026-11-20, renamed delusionsOfGrandeur; more may come, render
     // unknown ids the same way), the title shown, the winner(s) (human usernames, up to 3
     // tied, alphabetical) and the value line ("2.4 bags a game"; " (+N

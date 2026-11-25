@@ -876,6 +876,27 @@
           "type": "object",
           "properties": {},
           "additionalProperties": true
+        },
+        "tournaments": {
+          "$ref": "#/$defs/profileTournaments"
+        },
+        "cutForABuck": {
+          "type": "object",
+          "properties": {
+            "wins": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "played": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "wins",
+            "played"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -883,6 +904,91 @@
         "profilePic",
         "customProfilePic",
         "stats"
+      ],
+      "additionalProperties": false
+    },
+    "profileTournaments": {
+      "type": "object",
+      "properties": {
+        "played": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "won": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recent": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/tournamentResult"
+          },
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "played",
+        "won",
+        "recent"
+      ],
+      "additionalProperties": false
+    },
+    "tournamentResult": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "totalRounds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "players": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "place": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "won": {
+          "type": "boolean"
+        },
+        "winners": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cutWinner": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "completedAt",
+        "totalRounds",
+        "players",
+        "place",
+        "won",
+        "winners",
+        "cutWinner"
       ],
       "additionalProperties": false
     },
@@ -11521,6 +11627,32 @@
                       "additionalProperties": false
                     }
                   },
+                  "tournamentRecords": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "completedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "completedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
                   "reports": {
                     "type": "array",
                     "items": {
@@ -11701,6 +11833,10 @@
                     "type": "boolean"
                   },
                   "signedOut": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tournamentRecords": {
                     "type": "integer",
                     "minimum": 0
                   }
@@ -12232,6 +12368,10 @@
               "signedOut": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "tournamentRecords": {
+                "type": "integer",
+                "minimum": 0
               }
             },
             "required": [
@@ -12302,6 +12442,10 @@
                 "minimum": 0
               },
               "signedOut": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "tournamentRecords": {
                 "type": "integer",
                 "minimum": 0
               }
