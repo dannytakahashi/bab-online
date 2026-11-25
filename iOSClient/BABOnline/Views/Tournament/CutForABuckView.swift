@@ -135,6 +135,8 @@ struct CutForABuckView: View {
         }
         .padding(.horizontal, Theme.Space.s3)
         .padding(.top, Theme.Space.s2)
+        // the bar stays a bar at the largest sizes (the stage and the list get the room)
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 
     private var titleBlock: some View {
@@ -182,6 +184,7 @@ struct CutForABuckView: View {
             .padding(.horizontal, Theme.Space.s3)
             .padding(.vertical, Theme.Space.s2)
         }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility3)
     }
 
     // MARK: - Draw button (the tabletop's lower half)

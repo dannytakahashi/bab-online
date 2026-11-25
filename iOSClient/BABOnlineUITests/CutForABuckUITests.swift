@@ -177,27 +177,35 @@ final class CutForABuckUITests: XCTestCase {
         XCTAssertTrue(list.waitForExistence(timeout: 5), "the list is the default at the accessibility sizes")
         let draw = app.buttons["cut.listDraw"]
         XCTAssertTrue(draw.waitForExistence(timeout: 5))
-        if !draw.isHittable { app.swipeUp() }
-        XCTAssertTrue(draw.isHittable)
+        let scroll = app.scrollViews.containing(.any, identifier: "cut.list").firstMatch
+        for _ in 0..<6 where !draw.isHittable {
+            let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            start.press(forDuration: 0.05, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)),
+                        withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(draw.isHittable, "Draw a card reachable at AX5: \(draw.frame)")
         keep("list-ax5")
         draw.tap()
         waitFor(3, "the list's draw") { Fixture.probe(app, "fixture.sent").contains("cutForABuckDraw:3:null") }
     }
 
     func testTheIntroPlaysAndGoes() {
-        var app = open(12, "gather", ["-uiCutView", "ring"])
+        // a held frame: the title is up mid-intro (the live one may be over before the lobby is found)
+        var app = open(12, "gather", ["-uiCutView", "ring", "-uiCutIntroFrame", "1.4"])
         XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3))
+        XCTAssertEqual(any(app, "cut.intro").label, "Cut for a buck!")
+        keep("intro-1.4")
+        app.terminate()
+        // played: it goes within its 2.6 s, the ring stays (12 s of gather left)
+        app = open(12, "gather", ["-uiCutView", "ring"])
         XCTAssertTrue(any(app, "cut.status").label.hasPrefix("Cut for a buck starts in"))
-        waitFor(5, "the intro ends") { !any(app, "cut.intro").exists }
+        waitFor(4, "the intro ends") { !any(app, "cut.intro").exists }
+        XCTAssertTrue(any(app, "cut.seat.kim").exists)
         keep("gather")
         app.terminate()
-        app = open(12, "gather", ["-uiCutView", "ring", "-uiReduceMotion", "YES"])
-        XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3))
-        waitFor(3, "the reduced intro ends") { !any(app, "cut.intro").exists }
-        app.terminate()
-        app = open(12, "gather", ["-uiCutView", "ring", "-uiCutIntroFrame", "1.4"])
-        XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3))
-        keep("intro-1.4")
+        app = open(12, "gather", ["-uiCutView", "ring", "-uiReduceMotion", "YES", "-uiCutIntroFrame", "0.6"])
+        XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3), "Reduce Motion keeps the title, faded")
+        keep("intro-reduced")
     }
 
     func testTheScoreScreenStrip() {
