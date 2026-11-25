@@ -1026,6 +1026,9 @@
 }
 
 .rounds-picker__group.scope-control {
+    /* sized by its options (the stats scope control is a size container,
+       which would collapse an auto-width group to nothing) */
+    container-type: normal;
     width: auto;
     max-width: none;
     margin: 0;
