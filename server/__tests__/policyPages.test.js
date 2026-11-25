@@ -37,7 +37,7 @@ describe('/privacy', () => {
     beforeAll(async () => { html = await page('/privacy'); });
 
     test('shows the effective date', () => {
-        expect(html).toContain('<strong>Last updated:</strong> November 18, 2026');
+        expect(html).toContain('<strong>Last updated:</strong> November 25, 2026');
     });
 
     test('says the /help counts are kept with the game and in its record (server/socket/assistHandlers.js, buildGameEndRecord)', () => {
@@ -100,15 +100,25 @@ describe('/privacy', () => {
         // stays until the tournament is deleted). "saved
         // state": the scrub runs only with LIVE_PERSIST write/on (liveStore.scrubChat),
         // so off (nothing saved) keeps today's in-memory chat as it was
-        expect(html).toContain('replaces your username with "[deleted]" in game records, and removes your chat messages from the saved state of any game or tournament still in progress.');
+        expect(html).toContain('replaces your username with "[deleted]" in game records and tournament records, and removes your chat messages from the saved state of any game or tournament still in progress.');
         expect(html).not.toContain('A tournament that has just finished');
-        expect(html).toContain('<strong>A tournament you played in</strong> keeps your username in its standings while it is running (also if you left it) and for about 10 minutes after it ends, then it is deleted.');
+        // the live copy goes ~10 minutes after the end; the record stays as
+        // history with "[deleted]" (profileHandlers.recordTournament's
+        // renamer, accountDelete's tournamentRecords step)
+        expect(html).toContain('<strong>A tournament you played in</strong> that is still running or has only just ended (also one you left) keeps your username in its saved state while it runs and for about 10 minutes after it ends, while its final standings are shown, then that copy is deleted. Its tournament record shows "[deleted]" instead of your username.');
+        expect(html).not.toContain('for about 10 minutes after it ends, then it is deleted.');
         // A lobby member who sat out a casual game (an 'extra', watching) can
         // delete their account mid-game (findLiveActivity: entrants, players,
         // seat owners only); gameCodec saves lobbyOrigin (order, casualUsers,
         // extras, ...) and casualVoice.lobbyExtras by username, which the
         // chat scrub leaves
         expect(html).toContain('<strong>A casual game whose lobby you were in</strong> but did not play in (for example, one you sat out and watched) keeps your username in its saved state, as one of the lobby\'s members, until the game ends, then it is deleted.');
+    });
+
+    test('says what the tournament history keeps, who sees it, and that a deletion makes it "[deleted]" (tournamentRecords, 2026-11-25)', () => {
+        expect(html).toContain('<li><strong>Tournaments:</strong> a record of each finished tournament: its name, its host\'s username, the usernames of the players who finished it, the final standings (each player\'s score in every round and in total, including players who left before the end), the winners, the Cut for a buck result if one was played (who took part, how many rounds it took, and who won), and when it started and ended.</li>');
+        expect(html).toContain('tournament records (the tournament\'s name and date, how many players finished it, the winners, where the player placed, and who won Cut for a buck) on the profiles of the players who finished them; Cut for a buck wins also count toward a title on the Records page.');
+        expect(html).toContain('<li><strong>Tournament records:</strong> kept as the tournament\'s history. If you delete your account, your username in them is replaced with "[deleted]".</li>');
     });
 
     test('keeps the contact address and the in-app deletion path', () => {
@@ -126,7 +136,9 @@ describe('/support', () => {
     test('the data answers match the policy', async () => {
         const html = await page('/support');
         expect(html).toContain('Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection.');
-        expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username, and so do a tournament you played in (in its standings, until about 10 minutes after it ends) and a casual game whose lobby you were in but did not play in (until it ends); your chat messages are removed from the saved state of any game or tournament still in progress. The <a href="/privacy">Privacy Policy</a> explains why.');
+        expect(html).toContain('your username is replaced with "[deleted]" in game records and tournament records.');
+        expect(html).toContain('the record of each tournament you finished (its final standings, winners and Cut for a buck result, shown on your profile)');
+        expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username, and so do a tournament still running or only just ended that you played in (in its saved standings, until about 10 minutes after it ends) and a casual game whose lobby you were in but did not play in (until it ends); your chat messages are removed from the saved state of any game or tournament still in progress. The <a href="/privacy">Privacy Policy</a> explains why.');
         expect(html).not.toMatch(/We only collect your username, a hashed password, and game statistics/);
         // Harmonized with the policy's "Games in progress"
         expect(html).toContain('While a game or tournament is in progress, its state and chat are saved so it can continue after a server update, and deleted when it ends (about 10 minutes after, for a tournament\'s final standings; within a day at most). Main room and game lobby chat is not saved (a tournament\'s chat is, from when it is created), and voice chat goes directly');
