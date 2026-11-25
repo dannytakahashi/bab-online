@@ -41,6 +41,22 @@ describe('the catalog', () => {
         for (const id of files) expect(fs.readFileSync(path.join(dir, `${id}.svg`), 'utf8')).toMatch(/^<svg xmlns="http:\/\/www.w3.org\/2000\/svg" viewBox="0 0 96 96"/);
     });
 
+    test('the iOS app has the same art, vector data kept (Misc.xcassets/Badges; scripts/build-badges.py)', () => {
+        const web = path.join(__dirname, '../../../client/assets/badges');
+        const ios = path.join(__dirname, '../../../iOSClient/BABOnline/Resources/Misc.xcassets/Badges');
+        expect(JSON.parse(fs.readFileSync(path.join(ios, 'Contents.json'), 'utf8')).properties).toEqual({ 'provides-namespace': true });
+        const sets = fs.readdirSync(ios).filter((f) => f.endsWith('.imageset')).map((f) => f.replace(/\.imageset$/, '')).sort();
+        expect(sets).toEqual([...badges.BADGE_IDS].sort());
+        for (const id of sets) {
+            const dir = path.join(ios, `${id}.imageset`);
+            expect(fs.readdirSync(dir).sort()).toEqual(['Contents.json', `${id}.svg`]);
+            expect(fs.readFileSync(path.join(dir, `${id}.svg`), 'utf8')).toBe(fs.readFileSync(path.join(web, `${id}.svg`), 'utf8'));
+            const contents = JSON.parse(fs.readFileSync(path.join(dir, 'Contents.json'), 'utf8'));
+            expect(contents.images).toEqual([{ filename: `${id}.svg`, idiom: 'universal' }]);
+            expect(contents.properties).toEqual({ 'preserves-vector-representation': true });
+        }
+    });
+
     test('publicBadges: earned only, oldest first, each once, unknown ids dropped', () => {
         const out = badges.publicBadges([
             { id: 'felted', at: new Date('2026-11-20T10:00:00Z') },
