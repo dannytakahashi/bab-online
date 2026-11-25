@@ -30,7 +30,8 @@ const {
 } = SeatState;
 const { buildSnapshotV2 } = require('./snapshotV2');
 const pacing = require('./pacing');
-const { isValidBid, isLegalPlay, firstLegalCard, normalizeSeatBags, normalizeSeatCounter } = require('./rules');
+const { isValidBid, isValidGybBid, gybForbiddenBid, isLegalPlay, firstLegalCard, normalizeSeatBags, normalizeSeatCounter } = require('./rules');
+const { MODE, normalizeMode, GYB_SEATS, CLASSIC_SEATS } = require('./gameMode');
 // The persist store's change hooks (persist/hooks.js): passive, one null
 // check while LIVE_PERSIST is off
 const persistHooks = require('./persist/hooks');
@@ -74,8 +75,23 @@ const IN_HAND_STAGES = new Set([
 ]);
 
 class GameState {
-    constructor(gameId) {
+    /**
+     * @param {string} gameId
+     * @param {{mode?: string}} [opts] - mode 'gyb': a Get Your Bid table
+     *   (3 seats, no teams; gameMode.js). Fixed for the game's life
+     */
+    constructor(gameId, { mode } = {}) {
         this.gameId = gameId;
+        // The game mode (gameMode.js) and, at a Get Your Bid table, its own
+        // state: each seat's score and how many hands it got its bid
+        // exactly (this deal's Forbidden Bid is derived: gybForbidden). The team
+        // fields below (score, tricks, bids, rainbows, mults) stay in their
+        // classic shape there and carry no meaning. DERIVED: a Get Your
+        // Bid game is never saved (gameCodec.unsafeReason 'mode')
+        this.mode = normalizeMode(mode);
+        this.gyb = this.mode === MODE.GYB
+            ? { scores: { 1: 0, 2: 0, 3: 0 }, made: { 1: 0, 2: 0, 3: 0 } }
+            : null;
         this.roomName = `game:${gameId}`;  // Socket.IO room name
         this.createdAt = Date.now();
         this._debugMode = process.env.NODE_ENV !== 'production';
@@ -239,6 +255,16 @@ class GameState {
     // ========================================
     // Lifecycle (phase FSM)
     // ========================================
+
+    /** Seats at this table: 4, or 3 at a Get Your Bid table. */
+    get seatCount() {
+        return this.mode === MODE.GYB ? GYB_SEATS : CLASSIC_SEATS;
+    }
+
+    /** No teams (Get Your Bid): every other seat is an opponent. */
+    get isSolo() {
+        return this.mode === MODE.GYB;
+    }
 
     /** Authoritative stage (GamePhase.Phase). Internal only — never on the wire. */
     get stage() {
@@ -462,7 +488,7 @@ class GameState {
         // read. The old `trump` Bool and `playerId` (a socket id no client
         // read) are gone (V1_REMOVALS #10)
         const payload = { card, position, trumpBroken: this.isTrumpBroken };
-        if (this.playedCardsIndex === 4) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
+        if (this.playedCardsIndex === this.seatCount) payload.resumeInMs = pacing(this).TRICK_VIEW_MS;
         return payload;
     }
 
@@ -812,7 +838,7 @@ class GameState {
      */
     recordDraw(socketId, index, username = null) {
         if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
-        if (this.drawIDs.includes(socketId) || this.drawIDs.length >= 4) return null;
+        if (this.drawIDs.includes(socketId) || this.drawIDs.length >= this.seatCount) return null;
         const n = this.deck.cards.length;
         let i = this._plannedDrawIndex(socketId);
         if (i < 0) {
@@ -1112,7 +1138,7 @@ class GameState {
         this.seats[pos] = seat;
         if (presence === Presence.GRACE) this.setTimer('grace:' + pos, RECONNECT_GRACE_MS, init.onGraceExpire || (() => {}));
         this._indexSeat(pos);
-        if (this.seatList().length === 4) this.entrants = null;
+        if (this.seatList().length === this.seatCount) this.entrants = null;
         this._afterSeat(pos, 'create');
         return true;
     }
@@ -1326,7 +1352,7 @@ class GameState {
             this.clearTimer('grace:' + pos);
         }
         this._indexSeat(pos);
-        if (this.seatList().length === 4) this.entrants = null;
+        if (this.seatList().length === this.seatCount) this.entrants = null;
         this._afterSeat(pos, 'force');
         return seat;
     }
@@ -1631,6 +1657,31 @@ class GameState {
         return buildSnapshotV2(this, socketId, opts);
     }
 
+    /**
+     * What a Get Your Bid table adds to a snapshot, as the carrier's `gyb`
+     * key (snapshotHandlers.gybExtra; the v2 snapshot's schema is frozen at
+     * four seats): each seat's score and exact bids so far (by position -
+     * 1), this deal's Forbidden Bid, and this deal's won tricks (three
+     * cards each, in play order from the lead). Null at any other table.
+     */
+    gybWire() {
+        if (this.mode !== MODE.GYB) return null;
+        const N = this.seatCount;
+        const bySeat = (o) => Array.from({ length: N }, (_, i) => o[i + 1] || 0);
+        const inHand = IN_HAND_STAGES.has(this._stage);
+        return {
+            scores: bySeat(this.gyb.scores),
+            made: bySeat(this.gyb.made),
+            hands: this.handStats.totalHands,
+            forbidden: inHand ? this.gybForbidden() : null,
+            trickHistory: (this.trickHistory || []).map((t) => ({
+                winner: t.winner,
+                lead: t.lead,
+                cards: t.cards.map((c) => ({ suit: c.suit, rank: c.rank }))
+            }))
+        };
+    }
+
     setHand(socketId, cards) {
         this.hands[socketId] = [...cards];
     }
@@ -1682,14 +1733,14 @@ class GameState {
     }
 
     allBidsIn() {
-        return this.getBidCount() === 4;
+        return this.getBidCount() === this.seatCount;
     }
 
     resetForNewHand(newDealer, newHandSize) {
         this.hands = {};
         this.currentHand = newHandSize;
         this.dealer = newDealer;
-        this.bidder = (newDealer % 4) + 1;
+        this.bidder = (newDealer % this.seatCount) + 1;
         this.currentTurn = this.bidder;
 
         this.bids = {};
@@ -2133,7 +2184,7 @@ class GameState {
         }
 
         // Check trick not already complete
-        if (this.playedCardsIndex >= 4) {
+        if (this.playedCardsIndex >= this.seatCount) {
             return { valid: false, error: 'Trick already complete' };
         }
 
@@ -2159,7 +2210,7 @@ class GameState {
         // Check the bid fits this hand (rules.isValidBid: numbers up to the
         // hand size, so '13' only on the 13-card hand; bore levels in order)
         const bidStr = String(bid).toUpperCase();
-        if (!isValidBid(bidStr, this.playerBids, this.currentHand)) {
+        if (!this.isBidLegal(bidStr)) {
             return { valid: false, error: `Invalid bid value: ${bid}` };
         }
 
@@ -2177,6 +2228,33 @@ class GameState {
     // ========================================
 
     /**
+     * Is the (uppercased) bid legal for the seat bidding now? The base
+     * game's rules.isValidBid; at a Get Your Bid table rules.isValidGybBid
+     * (numbers only, never the last bidder's Forbidden Bid).
+     */
+    isBidLegal(bidStr) {
+        return this.mode === MODE.GYB
+            ? isValidGybBid(bidStr, this.playerBids, this.currentHand, this.seatCount)
+            : isValidBid(bidStr, this.playerBids, this.currentHand);
+    }
+
+    /**
+     * This deal's Forbidden Bid at a Get Your Bid table: `{position, bid}`
+     * for the last bidder (the dealer) once every other seat has bid, on a
+     * hand the rule applies to (rules.gybForbiddenBid); else null. Derived
+     * from the bids, so it reads the same during the last bidder's turn and
+     * for the rest of the hand.
+     * @returns {{position: number, bid: number}|null}
+     */
+    gybForbidden() {
+        if (this.mode !== MODE.GYB) return null;
+        const others = [];
+        for (let i = 0; i < this.seatCount; i++) others[i] = i === this.dealer - 1 ? null : (this.playerBids[i] ?? null);
+        const bid = gybForbiddenBid(others, this.currentHand, this.seatCount);
+        return bid === null ? null : { position: this.dealer, bid };
+    }
+
+    /**
      * Validate and record a bid for the seat at `position`. The human
      * playerBid handler and BotController.processBotBid both bid through
      * here, so their checks cannot drift. The caller logs, broadcasts and
@@ -2189,7 +2267,7 @@ class GameState {
         if (this._stage !== Phase.BIDDING || position !== this.currentTurn || this._suspended) return { ok: false, reason: 'not_your_turn' };
         if (this.playerBids[position - 1] != null) return { ok: false, reason: 'already_bid' };
         const bidStr = String(bid).toUpperCase();
-        if (!isValidBid(bidStr, this.playerBids, this.currentHand)) return { ok: false, reason: 'invalid_bid', bid: bidStr };
+        if (!this.isBidLegal(bidStr)) return { ok: false, reason: 'invalid_bid', bid: bidStr };
         this.recordBid(position, bidStr);
         return { ok: true, bid: bidStr };
     }
@@ -2202,7 +2280,8 @@ class GameState {
             trump: this.trump,
             trumpBroken: this.isTrumpBroken,
             position,
-            leadPosition: this.leadPosition
+            leadPosition: this.leadPosition,
+            solo: this.isSolo
         };
     }
 
@@ -2281,6 +2360,7 @@ class GameState {
     _stageErrors() {
         const errors = [];
         const stage = this._stage;
+        const N = this.seatCount;
         const tt = this.tricks.team1 + this.tricks.team2;
         const seatHand = (pos) => this.hands[this.positions[pos]] || [];
         const teamShaped = (b) => !!b && typeof b.team1 === 'number' && typeof b.team2 === 'number';
@@ -2301,22 +2381,22 @@ class GameState {
             if (this.drawIDs.length !== this.drawCards.length || this.drawCards.length !== this.drawIndex) {
                 errors.push(`Draw state mismatch: ids=${this.drawIDs.length} cards=${this.drawCards.length} index=${this.drawIndex}`);
             }
-            if (this.drawIndex > 4) errors.push(`drawIndex ${this.drawIndex} > 4`);
-            if (stage === Phase.DRAW_RESOLVING && this.drawIndex !== 4) {
+            if (this.drawIndex > N) errors.push(`drawIndex ${this.drawIndex} > ${N}`);
+            if (stage === Phase.DRAW_RESOLVING && this.drawIndex !== N) {
                 errors.push(`DRAW_RESOLVING with drawIndex ${this.drawIndex}`);
             }
             return errors;
         }
 
-        // TEAMS_ANNOUNCED onward: four seats
-        if (this.players.size !== 4) errors.push(`Expected 4 players, have ${this.players.size}`);
-        for (let pos = 1; pos <= 4; pos++) {
+        // TEAMS_ANNOUNCED onward: every seat (four; three in Get Your Bid)
+        if (this.players.size !== N) errors.push(`Expected ${N} players, have ${this.players.size}`);
+        for (let pos = 1; pos <= N; pos++) {
             if (!this.positions[pos]) errors.push(`Position ${pos} not assigned`);
         }
 
         if (IN_HAND_STAGES.has(stage)) {
             if (tt > this.currentHand) errors.push(`Total tricks (${tt}) exceeds hand size (${this.currentHand})`);
-            if (!(this.currentTurn >= 1 && this.currentTurn <= 4)) errors.push(`Invalid currentTurn: ${this.currentTurn}`);
+            if (!(this.currentTurn >= 1 && this.currentTurn <= N)) errors.push(`Invalid currentTurn: ${this.currentTurn}`);
             // The first deal enters DEALING before trump exists
             if (stage !== Phase.DEALING && !this.trump) errors.push(`No trump in ${stage}`);
         }
@@ -2325,10 +2405,10 @@ class GameState {
             case Phase.BIDDING: {
                 const n = this.playerBids.filter(b => b != null).length;
                 if (n !== Object.keys(this.bids).length) errors.push(`playerBids (${n}) != bids (${Object.keys(this.bids).length})`);
-                if (n >= 4) errors.push(`BIDDING with ${n} bids`);
-                const expectedTurn = ((this.bidder - 1 + n) % 4) + 1;
+                if (n >= N) errors.push(`BIDDING with ${n} bids`);
+                const expectedTurn = ((this.bidder - 1 + n) % N) + 1;
                 if (this.currentTurn !== expectedTurn) errors.push(`Bid turn ${this.currentTurn}, expected ${expectedTurn}`);
-                for (let pos = 1; pos <= 4; pos++) {
+                for (let pos = 1; pos <= N; pos++) {
                     if (seatHand(pos).length !== this.currentHand) {
                         errors.push(`Seat ${pos} holds ${seatHand(pos).length} cards, expected ${this.currentHand}`);
                     }
@@ -2344,29 +2424,29 @@ class GameState {
             case Phase.PLAYING: {
                 if (!teamShaped(this.bids)) errors.push(`PLAYING with bids ${JSON.stringify(this.bids)}`);
                 const pci = this.playedCardsIndex;
-                if (!(pci >= 0 && pci <= 3)) errors.push(`playedCardsIndex ${pci} while PLAYING`);
+                if (!(pci >= 0 && pci <= N - 1)) errors.push(`playedCardsIndex ${pci} while PLAYING`);
                 const played = this.playedCards.filter(c => c != null).length;
                 if (played !== pci) errors.push(`${played} cards on the table, playedCardsIndex ${pci}`);
-                if (this.cardIndex !== tt * 4 + pci) errors.push(`cardIndex ${this.cardIndex}, expected ${tt * 4 + pci}`);
-                for (let pos = 1; pos <= 4; pos++) {
+                if (this.cardIndex !== tt * N + pci) errors.push(`cardIndex ${this.cardIndex}, expected ${tt * N + pci}`);
+                for (let pos = 1; pos <= N; pos++) {
                     const expected = this.currentHand - tt - (this.playedCards[pos - 1] ? 1 : 0);
                     if (seatHand(pos).length !== expected) {
                         errors.push(`Seat ${pos} holds ${seatHand(pos).length} cards, expected ${expected}`);
                     }
                 }
                 if (pci > 0) {
-                    const expectedTurn = ((this.leadPosition - 1 + pci) % 4) + 1;
+                    const expectedTurn = ((this.leadPosition - 1 + pci) % N) + 1;
                     if (this.currentTurn !== expectedTurn) errors.push(`Play turn ${this.currentTurn}, expected ${expectedTurn}`);
                 }
                 break;
             }
             case Phase.TRICK_RESOLVING:
-                if (this.playedCardsIndex !== 4 || [0, 1, 2, 3].some(i => !this.playedCards[i])) {
+                if (this.playedCardsIndex !== N || Array.from({ length: N }, (_, i) => i).some(i => !this.playedCards[i])) {
                     errors.push(`TRICK_RESOLVING with ${this.playedCardsIndex} cards`);
                 }
                 break;
             case Phase.HAND_RESOLVING:
-                for (let pos = 1; pos <= 4; pos++) {
+                for (let pos = 1; pos <= N; pos++) {
                     if (seatHand(pos).length !== 0) errors.push(`Seat ${pos} still holds ${seatHand(pos).length} cards`);
                 }
                 if (tt !== this.currentHand) errors.push(`Hand resolved with ${tt} of ${this.currentHand} tricks`);

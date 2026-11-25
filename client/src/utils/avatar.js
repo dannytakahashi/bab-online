@@ -217,8 +217,11 @@ export function foldAvatarPayload(event, data) {
  * starts voice on the tournament lobby screen and at a tournament table, so
  * the server puts it in the tournament's voice room and announces it at its
  * table's seating.
+ * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
+ * lobby and its three-seat table; only such a client is listed, may create,
+ * join, rejoin or watch one (server/game/gameMode.js).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
 
 export function clientHello(version, build, capable = true) {
   return {

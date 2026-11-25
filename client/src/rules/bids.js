@@ -58,11 +58,49 @@ export function teamBidTotal(bidA, bidB, handSize) {
  * @param {Object|Array} bids - by position ({1: '3', ...}), or doneBidding's array (index = position - 1)
  * @param {number} position - the viewer's seat (a spectator views from 1)
  * @param {number} [handSize]
+ * @param {number} [seats=4] - 3: a Get Your Bid table (no teams): `team`
+ *   is the viewer's own bid and `opp` the other two seats' together
  */
-export function bidTotalsFor(bids, position, handSize) {
+export function bidTotalsFor(bids, position, handSize, seats = 4) {
   const at = (p) => (Array.isArray(bids) ? bids[p - 1] : bids?.[p]);
+  if (seats === 3) {
+    // (opp1: the next seat in turn, opp2: the one after; each has its own trick pile)
+    const me = position || 1;
+    const next = (me % 3) + 1;
+    const opp1 = bidTricks(at(next), handSize) ?? 0;
+    const opp2 = bidTricks(at((next % 3) + 1), handSize) ?? 0;
+    return { team: bidTricks(at(me), handSize) ?? 0, opp: opp1 + opp2, opp1, opp2 };
+  }
   const team1 = teamBidTotal(at(1), at(3), handSize);
   const team2 = teamBidTotal(at(2), at(4), handSize);
   const mineIsOne = (position || 1) % 2 === 1;
   return mineIsOne ? { team: team1, opp: team2 } : { team: team2, opp: team1 };
+}
+
+/** The Forbidden Bid applies only to hands of at least this many cards (server rules.GYB_FORBIDDEN_MIN_HAND). */
+export const GYB_FORBIDDEN_MIN_HAND = 5;
+
+/**
+ * Get Your Bid's Forbidden Bid (server/game/rules.js gybForbiddenBid): on a
+ * hand of 5 or more cards the three bids may not add up to the hand, so the
+ * last bidder (the dealer) may not bid what the other two leave. Null while
+ * it does not apply: a smaller hand, a seat still to bid before the dealer,
+ * or bids that already exceed the hand.
+ * @param {Object|Array} bids - by position ({1: '3', ...}), or an array (index = position - 1)
+ * @param {number} dealer - the dealer's position (the last to bid)
+ * @param {number} handSize
+ * @returns {{position: number, bid: number}|null}
+ */
+export function gybForbidden(bids, dealer, handSize) {
+  if (!dealer || !(handSize >= GYB_FORBIDDEN_MIN_HAND)) return null;
+  const at = (p) => (Array.isArray(bids) ? bids[p - 1] : bids?.[p]);
+  let sum = 0;
+  for (let p = 1; p <= 3; p++) {
+    if (p === dealer) continue;
+    const b = norm(at(p));
+    if (b === null || !/^\d+$/.test(b)) return null;
+    sum += Number(b);
+  }
+  const left = handSize - sum;
+  return left >= 0 ? { position: dealer, bid: left } : null;
 }

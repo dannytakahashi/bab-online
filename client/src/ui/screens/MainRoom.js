@@ -7,7 +7,8 @@
  */
 
 import { generateDistinctColor } from '../../utils/colors.js';
-import { el, createButton, createPanel } from '../kit/index.js';
+import { el, createButton, createPanel, createChip, openModal } from '../kit/index.js';
+import { GYB_MODE, GYB_NAME, GYB_BLURB } from '../../state/gyb.js';
 import { chatLine, chatForm, appendChatLine, scrollChatToEnd, followChatOnResize } from './common.js';
 import { showAdminPanel, removeAdminPanel } from './AdminPanel.js';
 import { isAdmin, onAdminChange } from '../../admin/adminApi.js';
@@ -88,6 +89,50 @@ export function lobbyActionButton(lobby, socket, username = currentUsername) {
   });
 }
 
+/** The create dialog on screen (closed with the main room). */
+let createDialog = null;
+
+/**
+ * "+ Create Game": choose the game (owner 2026-11-24: Get Your Bid "should
+ * be an option when creating a new lobby"). One click on a choice creates
+ * the lobby: the base game (createLobby {}, as the button always sent) or
+ * Get Your Bid (createLobby {mode: 'gyb'}). Escape, the backdrop or Cancel
+ * creates nothing.
+ * @param {Object} socket
+ * @returns {Object} the modal
+ */
+export function showCreateGameDialog(socket) {
+  createDialog?.close('api');
+  let modal = null;
+  const choice = (id, title, blurb, payload) => {
+    const btn = el('button', {
+      className: 'mode-pick__option',
+      attrs: { type: 'button', id },
+      children: [el('span', { className: 'mode-pick__name', text: title }), el('span', { className: 'mode-pick__blurb', text: blurb })],
+    });
+    btn.addEventListener('click', () => {
+      modal.close('action');
+      socket.emit('createLobby', payload);
+    });
+    return btn;
+  };
+  const classic = choice('createGameClassic', 'Back Alley Bridge', '4 players, two teams. The classic game.', {});
+  const gyb = choice('createGameGyb', GYB_NAME, GYB_BLURB, { mode: GYB_MODE });
+  const cancel = createButton({ label: 'Cancel', variant: 'secondary' });
+  modal = openModal({
+    id: 'createGameDialog',
+    title: 'Create Game',
+    body: [el('div', { className: 'mode-pick', attrs: { role: 'group', 'aria-label': 'Game mode' }, children: [classic, gyb] })],
+    actions: [cancel],
+    initialFocus: classic,
+    className: 'mode-pick-modal',
+    onClose: () => { if (createDialog === modal) createDialog = null; },
+  });
+  cancel.addEventListener('click', () => modal.close('button'));
+  createDialog = modal;
+  return modal;
+}
+
 /**
  * Update lobby list content in container.
  *
@@ -114,6 +159,11 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
       const { count: n, capacity, names, full } = lobbyCounts(lobby);
       const count = el('span', { className: `room-card__count ${full ? 'is-full' : 'is-open'}`, text: `${n}/${capacity}` });
       card.appendChild(cardHead(lobby.name || `Lobby ${lobby.id.slice(0, 6)}`, count));
+      // a Get Your Bid lobby says so (3 players, no teams)
+      if (lobby.mode === GYB_MODE) {
+        card.dataset.mode = GYB_MODE;
+        card.appendChild(el('div', { className: 'room-card__mode', children: [createChip({ label: GYB_NAME, tone: 'gold' })] }));
+      }
       card.appendChild(el('div', { className: 'room-card__meta', text: names.join(', ') }));
       card.appendChild(lobbyActionButton(lobby, socket));
       container.appendChild(card);
@@ -126,20 +176,35 @@ function updateLobbyListContent(container, lobbies, socket, inProgressGames = []
 
     inProgressGames.forEach((game) => {
       const card = roomCard();
-      const name = game.players.map((p) => p.username).slice(0, 2).join(' vs ');
+      const solo = game.mode === GYB_MODE;
+      const name = game.players.map((p) => p.username).slice(0, solo ? 3 : 2).join(' vs ');
       card.appendChild(cardHead(name, el('span', { className: 'room-card__count', text: `Hand: ${game.currentHand}` })));
 
-      // Score + player names, in the team colors (positions 1 & 3 vs 2 & 4)
-      const t1Players = game.players.filter((p) => p.position === 1 || p.position === 3).map((p) => p.username).join('/');
-      const t2Players = game.players.filter((p) => p.position === 2 || p.position === 4).map((p) => p.username).join('/');
-      const detail = el('div', {
-        className: 'room-card__meta',
-        children: [
-          el('span', { className: 'team-a', text: `${t1Players}: ${game.score.team1}` }),
-          document.createTextNode(' | '),
-          el('span', { className: 'team-b', text: `${t2Players}: ${game.score.team2}` }),
-        ],
-      });
+      let detail;
+      if (solo) {
+        // Get Your Bid: three players, each their own score and colour
+        card.dataset.mode = GYB_MODE;
+        card.appendChild(el('div', { className: 'room-card__mode', children: [createChip({ label: GYB_NAME, tone: 'gold' })] }));
+        const seats = [...game.players].sort((a, b) => a.position - b.position);
+        const parts = [];
+        seats.forEach((p, i) => {
+          if (i > 0) parts.push(document.createTextNode(' | '));
+          parts.push(el('span', { className: `team-${['a', 'b', 'c'][p.position - 1] || 'a'}`, text: `${p.username}: ${game.scores?.[p.position - 1] ?? 0}` }));
+        });
+        detail = el('div', { className: 'room-card__meta', children: parts });
+      } else {
+        // Score + player names, in the team colors (positions 1 & 3 vs 2 & 4)
+        const t1Players = game.players.filter((p) => p.position === 1 || p.position === 3).map((p) => p.username).join('/');
+        const t2Players = game.players.filter((p) => p.position === 2 || p.position === 4).map((p) => p.username).join('/');
+        detail = el('div', {
+          className: 'room-card__meta',
+          children: [
+            el('span', { className: 'team-a', text: `${t1Players}: ${game.score.team1}` }),
+            document.createTextNode(' | '),
+            el('span', { className: 'team-b', text: `${t2Players}: ${game.score.team2}` }),
+          ],
+        });
+      }
       if (game.spectatorCount > 0) detail.appendChild(document.createTextNode(` | ${game.spectatorCount} watching`));
       card.appendChild(detail);
 
@@ -279,7 +344,8 @@ export function showMainRoom(data, socket, username = null) {
   lobbyPanel.appendChild(el('div', {
     className: 'room-create',
     children: [
-      createButton({ label: '+ Create Game', variant: 'primary', className: 'is-block', onClick: () => socket.emit('createLobby', {}) }),
+      // (the game is chosen in a dialog: Back Alley Bridge or Get Your Bid)
+      createButton({ label: '+ Create Game', variant: 'primary', className: 'is-block', attrs: { id: 'createGameBtn' }, onClick: () => showCreateGameDialog(socket) }),
       createButton({ label: '+ Create Tournament', variant: 'secondary', className: 'is-block', onClick: () => socket.emit('createTournament') }),
     ],
   }));
@@ -393,6 +459,9 @@ onAdminChange((on) => {
 });
 
 export function removeMainRoom({ keepAdmin = false } = {}) {
+  // the create dialog belongs to this screen
+  createDialog?.close('api');
+  createDialog = null;
   if (!keepAdmin) removeAdminPanel();
   const mainRoom = document.getElementById('mainRoomContainer');
   if (mainRoom) mainRoom.remove();

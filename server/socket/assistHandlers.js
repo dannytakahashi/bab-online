@@ -294,6 +294,21 @@ function isTutorialCommand(command) {
     return command === '/tutorial' || command.startsWith('/tutorial ');
 }
 
+const { isGyb } = require('../game/gameMode');
+const GYB_NO_HELP = '/help is not available in Get Your Bid.';
+const GYB_NO_TUTORIAL = 'The tutorial is not available in Get Your Bid.';
+
+/**
+ * /help or /tutorial at a Get Your Bid table: one private log line (for
+ * every client: no hint card in this mode), nothing counted.
+ * @returns {boolean} true when it was refused
+ */
+function gybRefused(socket, io, game, tutorial) {
+    if (!isGyb(game)) return false;
+    sendLine(io, game, socket.id, tutorial ? GYB_NO_TUTORIAL : GYB_NO_HELP);
+    return true;
+}
+
 /**
  * /help or ?help (or, with `tutorial`, a /tutorial command) from any game
  * socket (chatHandlers.resolveSender's role): a seat owner is answered, a
@@ -302,6 +317,9 @@ function isTutorialCommand(command) {
  * (chatHandlers.helpRequest).
  */
 function request(socket, io, { game, role, pos }, { spectatorLine = null, tutorial = null } = {}) {
+    // Get Your Bid (gameMode.js; owner 2026-11-24): no /help, no tutorial.
+    // The advice engine knows only the base game's team contract
+    if (gybRefused(socket, io, game, !!tutorial)) return;
     if (tutorial) {
         if (role === 'owner') tutorialCommand(socket, io, game, pos, tutorial);
         else if (role === 'entrant') sendStatus(io, game, socket.id, null, TEXT.tutorialEntrant, 'tutorial');
@@ -362,6 +380,7 @@ function ownRecord(game, pos) {
  *   'forced' | 'again' | 'tutorial' | 'counted'
  */
 function help(socket, io, game, pos) {
+    if (gybRefused(socket, io, game, false)) return;
     const sid = socket.id;
     const seat = game.seat(pos);
     if (!seat || seat.controller !== Controller.HUMAN) {
@@ -734,6 +753,7 @@ function turnOff(io, game, pos, sid) {
  * @returns {string} 'botSeat' | 'rateLimited' | 'usage' | 'already' | 'on' | 'off' | 'keep' | 'close'
  */
 function tutorialCommand(socket, io, game, pos, command) {
+    if (gybRefused(socket, io, game, true)) return;
     const sid = socket.id;
     const seat = game.seat(pos);
     if (!seat || seat.controller !== Controller.HUMAN) {
@@ -773,7 +793,7 @@ function tutorialCommand(socket, io, game, pos, command) {
  * tutorial on (a.auto), never at a tournament table.
  */
 function autoStart(io, game) {
-    if (isTournament(game)) return;
+    if (isTournament(game) || isGyb(game)) return;
     for (let pos = 1; pos <= 4; pos++) {
         const seat = game.seat(pos);
         if (!seat || seat.controller !== Controller.HUMAN || !seat.ownerSocketId) continue;

@@ -506,6 +506,38 @@
 
 .team-a { color: var(--team-a); }
 .team-b { color: var(--team-b); }
+/* (a three-seat table, Get Your Bid: the third seat's own colour) */
+.team-c { color: var(--gold); }
+
+/* a Get Your Bid lobby or table in the list: its mode chip */
+.room-card__mode { margin-bottom: var(--space-2); }
+
+/* "+ Create Game": the two games to choose from (MainRoom.showCreateGameDialog) */
+.mode-pick { display: grid; gap: var(--space-3); min-width: min(360px, 80vw); }
+.mode-pick__option {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    box-sizing: border-box;
+    min-height: var(--hit-target);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-md);
+    background: var(--surface-3);
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) var(--ease-standard), border-color var(--dur-fast) var(--ease-standard);
+}
+.mode-pick__option:hover { border-color: var(--primary-base); background: rgb(var(--primary-base-rgb) / 0.12); }
+.mode-pick__option:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.mode-pick__name { font-size: var(--type-lg); font-weight: var(--weight-bold); }
+.mode-pick__blurb { color: var(--text-secondary); font-size: var(--type-sm); }
+
+/* a Get Your Bid lobby: the mode above its seats (GameLobby) */
+.lobby-mode { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.lobby-mode__blurb { color: var(--text-secondary); font-size: var(--type-sm); }
 
 /* ---------- Game lobby: the four seats ---------- */
 

@@ -17,6 +17,7 @@ const gameVoice = require('../voice/gameVoice');
 const playAgain = require('./playAgain');
 const tournamentVoice = require('../voice/tournamentVoice');
 const pointerResolve = require('./pointerResolve');
+const { MODE, GYB_CAP, GYB_UNSUPPORTED, isGyb } = require('../game/gameMode');
 
 /** Did `socket` announce casualSpectators (a lobby of up to 8, spectator voice)? */
 const isCapable = (socket) => clientInfo.hasCap(socket, gameVoice.CAP);
@@ -51,7 +52,8 @@ function joinMainRoom(socket, io) {
     // away hold (they chose the main room) or a legacy socket
     if (autoClaimHold(socket, io)) return;
 
-    const result = gameManager.joinMainRoom(socket.id, { wide: isCapable(socket) });
+    const lists = clientInfo.listOpts(socket);
+    const result = gameManager.joinMainRoom(socket.id, lists);
 
     if (!result.success) {
         emitError(socket, { message: result.error || 'Failed to join main room' }, 'joinMainRoom');
@@ -73,7 +75,7 @@ function joinMainRoom(socket, io) {
         lobbies: result.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(result.username),
+        inProgressGames: gameManager.getInProgressGames(result.username, { gyb: lists.gyb }),
         tournaments: gameManager.getAllTournaments()
     });
 
@@ -149,13 +151,18 @@ function mainRoomChat(socket, io, data) {
  * Handle player creating a new game lobby
  */
 function createLobby(socket, io, data) {
-    const { name } = data || {};
+    const { name, mode } = data || {};
+    // Get Your Bid (gameMode.js) only from a client that can show it
+    if (mode === MODE.GYB && !clientInfo.hasCap(socket, GYB_CAP)) {
+        emitError(socket, { message: GYB_UNSUPPORTED }, 'createLobby');
+        return;
+    }
     playAgain.endLingering(io, socket.id, 'createLobby');
     // Off the tournament lobby screen: out of its voice room
     tournamentVoice.leaveSocket(io, socket.id);
 
     const { filterProfanity } = require('../utils/profanityFilter');
-    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name, { capable: isCapable(socket), io });
+    const result = gameManager.createNamedLobby(socket.id, name ? filterProfanity(name) : name, { capable: isCapable(socket), io, mode });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'createLobby');
@@ -215,7 +222,9 @@ function joinLobby(socket, io, data) {
         }
     }
 
-    const result = gameManager.joinSpecificLobby(socket.id, lobbyId, { capable: isCapable(socket), io });
+    const result = gameManager.joinSpecificLobby(socket.id, lobbyId, {
+        capable: isCapable(socket), io, gyb: clientInfo.hasCap(socket, GYB_CAP)
+    });
 
     if (!result.success) {
         emitError(socket, { message: result.error }, 'joinLobby');
@@ -324,6 +333,12 @@ function joinAsSpectator(socket, io, data, { fromLobby = false, resolved = false
 
     if (!user) {
         emitError(socket, { message: 'User not found' }, 'joinAsSpectator');
+        return;
+    }
+    // A Get Your Bid table: only a client that can show one (its own
+    // seat's owner too: an app without the mode cannot draw the table)
+    if (isGyb(game) && !clientInfo.hasCap(socket, GYB_CAP)) {
+        emitError(socket, { message: GYB_UNSUPPORTED }, 'joinAsSpectator');
         return;
     }
 

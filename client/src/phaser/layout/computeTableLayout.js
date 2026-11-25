@@ -33,6 +33,12 @@
  * Seats: self, partner, opp1 (left, next in turn), opp2 (right). A pure
  * spectator has no hand: its 'self' seat is the bottom seat, drawn like the
  * partner's (OpponentManager's 'bottom' slot).
+ *
+ * `solo` (Get Your Bid, owner 2026-11-24: three players, no teams) is the
+ * same table with three seats spaced evenly round the felt: no partner, the
+ * two others (opp1 next in turn, opp2 after it) raised to the upper left and
+ * upper right, and the trick a triangle that points at them (SOLO below).
+ * Every layout without it is exactly as before.
  */
 
 import { CARD_CONFIG } from '../config.js';
@@ -116,6 +122,14 @@ export const FELT = { wFrac: 0.3125, hFrac: 0.42, border: 4 };
  * chip right, level with the avatar's top.
  */
 export const SEAT_BADGE = Object.freeze({ size: 24, min: 20, room: 27, floorFrom: 0.7, right: 18, bottom: 20, eye: Object.freeze({ out: 6, up: 2 }) });
+
+/**
+ * The three-seat table (`solo`): the side seats sit `rise` x s above the
+ * trick's line where the top band (the trick history, the trump) leaves
+ * room, and the trick's slots are a triangle, mine below the centre
+ * (`selfDy`), the others `sideDx` out and `sideDy` above it.
+ */
+export const SOLO = Object.freeze({ rise: 160, sideDx: 78, sideDy: 50, selfDy: 80 });
 
 /** The felt's width wishes (times the 0.3125 x canvas target), tried in order; 0 is the fallback felt. */
 const FELT_WISHES = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0];
@@ -261,6 +275,8 @@ export const DRAW_TEXT = Object.freeze({
   rules: 'The two highest cards are partners; the highest deals.',
   prompt: 'Click a card to draw',
 });
+/** The same for a three-seat table (Get Your Bid: no partners). */
+export const DRAW_TEXT_SOLO = Object.freeze({ ...DRAW_TEXT, rules: 'Highest card deals. Everyone plays for themselves.' });
 
 /**
  * Text widths are estimated in em per character (the UI font's bold title,
@@ -292,7 +308,8 @@ const EM = { title: 0.62, rules: 0.52, prompt: 0.56 };
  */
 export const DRAW_GROW = Object.freeze({ max: 2, share: 0.6 });
 
-function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
+function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard, n = 4, text = DRAW_TEXT }) {
+  const DRAW_TEXT = text; // (the words this draw shows: the three-seat table's rule differs)
   const cx = cw / 2;
   const avail = Math.max(1, cw - 2 * M);
   const baseFont = {
@@ -310,7 +327,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
     baseAvatar + Math.max(4, SPACE.s2 * s) + baseFont.name * 1.3 + Math.max(4, SPACE.s3 * s) +
     handCard.h + deckCard.h + Math.max(4, SPACE.s4 * s) + baseFont.prompt * 1.3;
   const room = ch - 2 * M - baseFixed - Math.max(G, SPACE.s8 * s) - Math.max(G, SPACE.s10 * s) - 2;
-  const gMax = Math.max(1, Math.min(DRAW_GROW.max, (avail / 4 - G) / handCard.w));
+  const gMax = Math.max(1, Math.min(DRAW_GROW.max, (avail / n - G) / handCard.w));
   const g = clamp(1 + (DRAW_GROW.share * Math.max(0, room)) / (handCard.h + baseAvatar / 2), 1, gMax);
   const half = 1 + (g - 1) / 2;
   const drawn = slotCardSize(handCard.design * g, dpr);
@@ -321,7 +338,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
   const deckW = 53 * ov + deckCard.w;
   // the slots: one pitch apart, the card plus room for a name (the names
   // keep a gap between them)
-  const pitch = Math.max(drawn.w + G, Math.min(drawn.w + 72 * s, avail / 4));
+  const pitch = Math.max(drawn.w + G, Math.min(drawn.w + 72 * s, avail / n));
   const nameW = Math.max(drawn.w, pitch - Math.max(G, SPACE.s3 * s));
   // the boxes (the rule wraps where it must, at most 3 lines)
   const ruleEst = EM.rules * font.rules * DRAW_TEXT.rules.length;
@@ -373,7 +390,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
   y += gap.deckPrompt;
   const promptY = take(box.prompt.h);
 
-  const slots = [0, 1, 2, 3].map((i) => ({ x: q(cx + (i - 1.5) * pitch), y: slotY }));
+  const slots = Array.from({ length: n }, (_, i) => ({ x: q(cx + (i - (n - 1) / 2) * pitch), y: slotY }));
   const deckX0 = cx - deckW / 2 + deckCard.w / 2;
   // (the words and avatars are DOM: no device-pixel snap in y)
   const line = (cy, b, f, extra = {}) => ({ x: q(cx), y: cy, font: f, rect: around(q(cx), cy, b.w, b.h), ...extra });
@@ -396,7 +413,7 @@ function placeDraw({ cw, ch, s, M, G, q, dpr, deckCard, drawn: handCard }) {
  * Place everything at size scale s. Returns the layout; whether it is clean
  * is for findIntersections / findOutside to say.
  */
-function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false }) {
+function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k = 1, felt = 0, histInset = false, tutorial = false, solo = false }) {
   const q = (v) => Math.round(v * dpr) / dpr;
   const M = MARGIN;
   const G = Math.max(4, 8 * s);
@@ -501,11 +518,15 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     return rect(bx - bw / 2, by - bh, bw, bh + tail);
   };
 
-  const pAy = M + statusH + G + D / 2;
-  seats.partner = seatAt(cx, pAy, { frogSide: -1 });
-  const pCardsY = seats.partner.plate.y + plateH + G + back.h / 2;
-  seats.partner.cards = { x: q(cx), y: q(pCardsY), axis: 'h', rotation: 0, spacing: backSp, rect: around(q(cx), q(pCardsY), fanLong, back.h) };
-  const top = pCardsY + back.h / 2 + G;
+  // (a three-seat table has no partner: the trick may reach the status band)
+  let top = M + statusH + G;
+  if (!solo) {
+    const pAy = M + statusH + G + D / 2;
+    seats.partner = seatAt(cx, pAy, { frogSide: -1 });
+    const pCardsY = seats.partner.plate.y + plateH + G + back.h / 2;
+    seats.partner.cards = { x: q(cx), y: q(pCardsY), axis: 'h', rotation: 0, spacing: backSp, rect: around(q(cx), q(pCardsY), fanLong, back.h) };
+    top = pCardsY + back.h / 2 + G;
+  }
 
   // ---------- trick history: opponents top-left (below the status band), my team bottom-left ----------
   // (its own scale s * k, as iOS's trick scale: k = 1, 0.85, 0.7 before s shrinks)
@@ -517,17 +538,19 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   const histRow = 86 * hs;
   const histW = (HISTORY_COLS - 1) * histSpacing + slotW + 2 * histPad;
   const histH = histRow + slotH + 2 * histPad;
-  const historyBlock = (rawX, rawY) => {
+  // (mirror: the block fills from its right edge, for a pile on the right of the table)
+  const historyBlock = (rawX, rawY, { mirror = false } = {}) => {
     // the block snaps first and its slots hang off the snapped corner
     const bx = q(rawX);
     const by = q(rawY);
-    const x0 = bx + histPad + slotW / 2;
+    const x0 = mirror ? bx + histW - histPad - slotW / 2 : bx + histPad + slotW / 2;
+    const dir = mirror ? -1 : 1;
     const y0 = by + histPad + slotH / 2;
     const slots = [];
     for (let n = 1; n <= MAX_CARDS; n++) {
       const row = n <= HISTORY_COLS ? 0 : 1;
       const col = row === 0 ? n - 1 : n - HISTORY_COLS - 1;
-      slots.push({ x: q(x0 + col * histSpacing + (row === 1 ? histSpacing / 2 : 0)), y: q(y0 + row * histRow) });
+      slots.push({ x: q(x0 + dir * (col * histSpacing + (row === 1 ? histSpacing / 2 : 0))), y: q(y0 + row * histRow) });
     }
     return { rect: rect(bx, by, histW, histH), slots, slotW, slotH, pad: histPad, spacing: histSpacing, rowSpacing: histRow, fanDx: 30 * hs, fanDy: 8 * hs, scale: k };
   };
@@ -539,6 +562,10 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     opp: historyBlock(M, M + statusH + G),
     team: historyBlock(M, ch - teamBottom - histH),
   };
+  // three seats: each opponent's own pile on its side of the table (opp1's
+  // top left, as the opponents' always is; opp2's top right, filling from
+  // the right edge), and the trump between them, where the partner sat
+  if (solo) history.opp2 = historyBlock(cw - M - histW, M + statusH + G, { mirror: true });
 
   // ---------- bottom: my hand and box, or the spectator's bottom seat ----------
   const handCard = card.hand;
@@ -632,7 +659,12 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   const hy = offY + tc.h / 2;
   const cyT = top + hy <= bottom - hy ? clamp(ch / 2, top + hy, bottom - hy) : (top + bottom) / 2;
   const slotRect = (x, y) => around(x, y, tc.w, tc.h);
-  const tSlots = {
+  // (three seats: a triangle inside the same box, each card toward its seat)
+  const tSlots = solo ? {
+    self: { x: q(cx), y: q(cyT + SOLO.selfDy * s) },
+    opponent1: { x: q(cx - SOLO.sideDx * s), y: q(cyT - SOLO.sideDy * s) },
+    opponent2: { x: q(cx + SOLO.sideDx * s), y: q(cyT - SOLO.sideDy * s) },
+  } : {
     self: { x: q(cx), y: q(cyT + offY) },
     partner: { x: q(cx), y: q(cyT - offY) },
     opponent1: { x: q(cx - offX), y: q(cyT) },
@@ -640,9 +672,23 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   };
   for (const k of Object.keys(tSlots)) tSlots[k].rect = slotRect(tSlots[k].x, tSlots[k].y);
 
+  // ---------- trump: top right, today's spot where it fits ----------
+  const tCard = card.trump;
+  const trumpBox = tCard.box + 20 * s;
+  const labelFont = Math.max(9, 14 * s);
+  const labelAbove = trumpBox / 2 + 15 * s;
+  const trumpTopReach = labelAbove + labelFont * 0.6;
+  const trumpY = Math.max(0.185 * ch, M + trumpTopReach);
+
   // ---------- the side opponents (avatar outside, backs between it and the trick) ----------
-  const sideY = cyT - (plateGap + plateH) / 2; // the avatar+plate block centred on the trick line, as today
   const sideFan = { long: fanLong, short: back.h };
+  // three seats: the side seats rise toward the upper corners, as far as
+  // the top band (the trick history on the left, the trump on the right)
+  // leaves their fans room, the same on both sides
+  const soloTop = M + statusH + G + histH + G;
+  const rise = solo ? clamp(cyT - (soloTop + sideFan.long / 2), 0, SOLO.rise * s) : 0;
+  const sideCy = cyT - rise;
+  const sideY = sideCy - (plateGap + plateH) / 2; // the avatar+plate block centred on the trick line, as today
   // the felt this pass wishes for (0: none; see FELT_WISHES), and the bid
   // sheet at full size inside it: the side seats make room where they can
   const feltInset = FELT.border + 8 * s;
@@ -664,11 +710,11 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     const seat = seatAt(ax, sideY, { frogSide: dir });
     seat.cards = {
       x: q(cxCards),
-      y: q(cyT),
+      y: q(sideCy),
       axis: 'v',
       rotation: dir < 0 ? -Math.PI / 2 : Math.PI / 2,
       spacing: backSp,
-      rect: around(q(cxCards), q(cyT), sideFan.short, sideFan.long),
+      rect: around(q(cxCards), q(sideCy), sideFan.short, sideFan.long),
     };
     sides[key] = seat;
   }
@@ -697,17 +743,17 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     zone = around(q(cx), q(cyT), zoneW, zoneH);
   }
 
-  // ---------- trump: top right, today's spot where it fits ----------
-  const tCard = card.trump;
-  const trumpBox = tCard.box + 20 * s;
-  const labelFont = Math.max(9, 14 * s);
-  const labelAbove = trumpBox / 2 + 15 * s;
-  const trumpTopReach = labelAbove + labelFont * 0.6;
+  // ---------- trump (sized above): top right, today's spot where it fits ----------
   // (and clear of the partner's bubble at its first choice: right of the avatar, full width)
-  const partnerBubble = bubbleRect(seats.partner, BUBBLE_DIRS.partner[0], bubbleBox.w);
-  const partnerRight = Math.max(seats.partner.cards.rect.x + seats.partner.cards.rect.w, seats.partner.plate.x + plateW, partnerBubble.x + partnerBubble.w);
-  const tx = clamp(cx + 0.26 * cw, Math.min(partnerRight + G + trumpBox / 2, cw - M - trumpBox / 2), cw - M - trumpBox / 2);
-  const ty = Math.max(0.185 * ch, M + trumpTopReach);
+  let trumpMinX = M + trumpBox / 2;
+  if (seats.partner) {
+    const partnerBubble = bubbleRect(seats.partner, BUBBLE_DIRS.partner[0], bubbleBox.w);
+    const partnerRight = Math.max(seats.partner.cards.rect.x + seats.partner.cards.rect.w, seats.partner.plate.x + plateW, partnerBubble.x + partnerBubble.w);
+    trumpMinX = partnerRight + G + trumpBox / 2;
+  }
+  // (three seats: top centre, between the two opponents' piles)
+  const tx = solo ? cx : clamp(cx + 0.26 * cw, Math.min(trumpMinX, cw - M - trumpBox / 2), cw - M - trumpBox / 2);
+  const ty = trumpY;
   const trump = {
     x: q(tx),
     y: q(ty),
@@ -753,7 +799,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
       badgeAt(voice.rect.x - voiceGap - badgeW, voice.rect.y),
       ...upTheEdge(ch - M - badgeH),
     ];
-  const badgeAvoid = [trump.rect, zone, bidSheet.rect, status.rect, history.team.rect, history.opp.rect,
+  const badgeAvoid = [trump.rect, zone, bidSheet.rect, status.rect, ...Object.values(history).map((h) => h.rect),
     ...Object.values(tSlots).map((t) => t.rect), voice.rect];
   if (hand) badgeAvoid.push(hand.rect);
   for (const seat of Object.values(seats)) {
@@ -765,7 +811,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   const badgeClean = badgeCandidates.filter((r) => onCanvas(r) && !badgeAvoid.some((o) => intersects(o, r)));
 
   // ---------- bubbles: each seat's direction and width, clear of the game's information ----------
-  const keepBase = [trump.rect, ...Object.values(tSlots).map((t) => t.rect), history.team.rect, history.opp.rect];
+  const keepBase = [trump.rect, ...Object.values(tSlots).map((t) => t.rect), ...Object.values(history).map((h) => h.rect)];
   if (hand) keepBase.push(hand.rect);
   // every seat's pick with `badge` kept clear too; `rank` counts the seats
   // that got their best kind of spot (a pick at all, beside its own backs)
@@ -776,6 +822,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     let rank = 0;
     for (const key of ['partner', 'opp1', 'opp2', 'self']) {
       const seat = seats[key];
+      if (!seat) continue; // (no partner at a three-seat table)
       const dirs = bubbleDirsFor(key, isSpectator);
       // the spectator's bottom seat: its bubble leaves its own backs visible
       // too where any direction and width can (a wish: a phone smaller than
@@ -928,7 +975,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
   const bubbles = { ...bubbleBox };
 
   // ---------- draw phase (no hand, no seats yet) ----------
-  const draw = placeDraw({ cw, ch, s, M, G, q, dpr, deckCard: card.deck, drawn: card.drawn });
+  const draw = placeDraw({ cw, ch, s, M, G, q, dpr, deckCard: card.deck, drawn: card.drawn, ...(solo && { n: 3, text: DRAW_TEXT_SOLO }) });
 
   // teams panel (DrawManager, the HUD's .hud-teams): centred on the canvas,
   // at most the canvas less its margins wide (a long name wraps inside it)
@@ -948,7 +995,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     overTrump: { x: q(cx - 180 * s), y: q(cyT - 150 * s), scale: 0.9 * s },
     rainbow: {
       self: { x: seats.self.avatar.x + (isSpectator ? 112 * s : 33 * s), y: seats.self.avatar.y - (isSpectator ? 0 : 147 * s) },
-      partner: { x: seats.partner.avatar.x + 112 * s, y: seats.partner.avatar.y },
+      ...(seats.partner && { partner: { x: seats.partner.avatar.x + 112 * s, y: seats.partner.avatar.y } }),
       opp1: { x: seats.opp1.avatar.x - 95 * s, y: seats.opp1.avatar.y },
       opp2: { x: seats.opp2.avatar.x + 66 * s, y: seats.opp2.avatar.y },
     },
@@ -967,6 +1014,8 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
     isSpectator: !!isSpectator,
     // (a watcher's layout says so; every other is as it was)
     ...(watcher && { watcher: true }),
+    // (a three-seat table says so too)
+    ...(solo && { solo: true }),
     compact: !!compact,
     historyScale: k,
     degraded: false,
@@ -998,7 +1047,7 @@ function place(cw, ch, s, { isSpectator, watcher = false, compact, logW, dpr, k 
 
 /** The groups a bubble must leave visible (the game's information, the spectator badge, and the other bubbles, the badge's included). */
 export const BUBBLE_KEEPS = ['trump', 'hand', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2',
-  'history:team', 'history:opp', 'spectators', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2', 'bubble:spectators'];
+  'history:team', 'history:opp', 'history:opp2', 'spectators', 'bubble:self', 'bubble:partner', 'bubble:opp1', 'bubble:opp2', 'bubble:spectators'];
 /**
  * What the badge's bubble must leave visible besides BUBBLE_KEEPS: the
  * status pill, the bid sheet and the voice buttons, and for a player my box
@@ -1036,6 +1085,7 @@ export function layoutRects(L) {
   add('trick.zone', 'zone', L.trick.zone, ['trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2', 'bidSheet']);
   add('history.team', 'history:team', L.history.team.rect);
   add('history.opp', 'history:opp', L.history.opp.rect);
+  if (L.history.opp2) add('history.opp2', 'history:opp2', L.history.opp2.rect);
   if (L.hand) add('hand', 'hand', L.hand.rect);
   add('trump', 'trump', L.trump.rect);
   add('bidSheet', 'bidSheet', L.bidSheet.rect, ['zone', 'trick:self', 'trick:partner', 'trick:opponent1', 'trick:opponent2']);
@@ -1102,13 +1152,16 @@ export function findOutside(L, rects = null) {
  *   over-the-shoulder view): the seated layout of the watched seat, but my
  *   voice row in the corner above the spectator badge, never under the
  *   watched player's box (owner 2026-11-21; every other layout as without it)
+ * @param {boolean} [opts.solo=false] - a three-seat table (Get Your Bid):
+ *   no partner seat, the other two raised to the upper corners, a triangular
+ *   trick, three draw slots (every other layout as without it)
  */
-export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false, watcher = false } = {}) {
+export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 0, tutorial = false, watcher = false, solo = false } = {}) {
   const cw = Math.max(1, Number(w) || 1);
   const ch = Math.max(1, Number(h) || 1);
   const d = dpr > 0 ? dpr : 1;
   const watch = !!watcher && !isSpectator;
-  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator && !watch, ...(watch && { watcher: true }) };
+  const opts = { isSpectator: !!isSpectator, logW: logW || 0, dpr: d, tutorial: !!tutorial && !isSpectator && !watch, ...(watch && { watcher: true }), ...(solo && { solo: true }) };
   // first pass: a hand box that shows a 13-card hand at 2/3 of its spacing;
   // second pass: any hand box that fits
   const clean = (L) => findIntersections(L).length === 0 && findOutside(L).length === 0;
@@ -1137,16 +1190,16 @@ export function computeTableLayout({ w, h, dpr = 1, isSpectator = false, logW = 
   }
   // the Tutorial button's slot never costs a clean table (the narrowest
   // phones, 360 px, which the phone gate sends to the app): without it there
-  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW });
+  if (opts.tutorial) return computeTableLayout({ w, h, dpr, isSpectator, logW, solo });
   const L = place(cw, ch, S_MIN, { ...opts, compact: true, k: HISTORY_SCALES[HISTORY_SCALES.length - 1] });
   L.degraded = true;
   return L;
 }
 
 /** The layout of a whole viewport: the log column (logWidthFor) comes off the right. */
-export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false, watcher = false } = {}) {
+export function layoutForViewport({ vw, vh, dpr = 1, isSpectator = false, withLog = true, tutorial = false, watcher = false, solo = false } = {}) {
   const logW = withLog ? logWidthFor(vw) : 0;
-  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial, watcher });
+  return computeTableLayout({ w: vw - logW, h: vh, dpr, isSpectator, logW, tutorial, watcher, solo });
 }
 
 /** Hand card centres for n cards (left to right), spaced to fit the hand box. */

@@ -88,6 +88,7 @@
 
 .hud-avatar-ring[data-team="a"] .hud-avatar-img { border-color: var(--team-a); }
 .hud-avatar-ring[data-team="b"] .hud-avatar-img { border-color: var(--team-b); }
+.hud-avatar-ring[data-team="c"] .hud-avatar-img { border-color: var(--gold); }
 
 /* the turn ring sits on the avatar, not on the whole seat (avatar + plate) */
 .opponent-avatar-container.turn-glow::after,
@@ -187,7 +188,13 @@
 .hud-pip.is-won { background: var(--text-primary); border-color: var(--text-primary); }
 .hud-pips[data-team="a"] .hud-pip.is-won { background: var(--team-a); border-color: var(--team-a); }
 .hud-pips[data-team="b"] .hud-pip.is-won { background: var(--team-b); border-color: var(--team-b); }
+.hud-pips[data-team="c"] .hud-pip.is-won { background: var(--gold); border-color: var(--gold); }
 .hud-pip.is-over { background: var(--gold); border-color: var(--gold); }
+/* (the third seat's own colour is the gold: its tricks past the bid show in the danger colour) */
+.hud-pips[data-team="c"] .hud-pip.is-over { background: var(--danger-text); border-color: var(--danger-text); }
+
+/* (no HSI at a Get Your Bid table: GameScene hides the box) */
+.hud-hsi[hidden] { display: none; }
 
 .hud-plate,
 .hud-hsi {
@@ -354,6 +361,8 @@ body > .bid-sheet {
 /* by absolute team (the seat rings' colors), whichever side is mine */
 .bid-chip.is-team-a { background: var(--team-a); }
 .bid-chip.is-team-b { background: var(--team-b); }
+/* (a three-seat table, Get Your Bid: the third seat's own colour) */
+.bid-chip.is-team-c { background: var(--gold); }
 
 .bid-numbers {
     display: grid;
@@ -443,6 +452,35 @@ body > .bid-sheet {
 .bid-sheet--readonly .bid-button.is-disabled {
     opacity: 0.4;
     background: var(--surface-2);
+}
+
+/* Get Your Bid (BidManager.updateForbidden): the last bidder's Forbidden
+   Bid, the number that would make the bids add up to the hand. Its line
+   under the title keeps its height while empty, so the sheet never jumps;
+   its button stays on the sheet, struck through and crossed out in the
+   danger colour, at full strength (not the faded look of a closed choice) */
+.bid-sheet__forbidden {
+    align-self: stretch;
+    min-height: 1.3em;
+    margin-bottom: var(--space-1);
+    color: var(--danger-text);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+    letter-spacing: 0.02em;
+    text-align: center;
+}
+.bid-button.is-forbidden,
+.bid-button.is-forbidden:disabled,
+.bid-sheet--readonly .bid-button.is-forbidden.is-disabled {
+    opacity: 1;
+    cursor: not-allowed;
+    border-color: var(--danger-text);
+    background-color: rgb(var(--danger-solid-rgb) / 0.22);
+    background-image: linear-gradient(to top right,
+        transparent calc(50% - 1.5px), var(--danger-text) calc(50% - 1.5px),
+        var(--danger-text) calc(50% + 1.5px), transparent calc(50% + 1.5px));
+    color: var(--danger-text);
+    text-decoration: line-through;
 }
 
 /* the /help suggestion (ui/components/AssistCard.js): a gold ring, the
@@ -853,6 +891,18 @@ body > .voice-btn {
 .log-score__team { color: var(--text-primary); }
 .log-score__team.is-team-a { color: var(--team-a); }
 .log-score__team.is-team-b { color: var(--team-b); }
+.log-score__team.is-team-c { color: var(--gold); }
+/* a three-seat table (Get Your Bid): one cell per player, the hand
+   indicator on its own row under them (GameLog.updateSoloScore) */
+.log-score.is-solo {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2) var(--space-1);
+}
+.log-score.is-solo .log-hand { grid-column: 1 / -1; flex-direction: row; gap: var(--space-2); }
+.log-score.is-solo .log-hand__label { margin-bottom: 0; }
+.log-score.is-solo .log-hand__value { width: 28px; height: 28px; font-size: var(--type-md); }
+.log-score__team[hidden] { display: none; }
 .log-score__names {
     color: var(--text-secondary);
     font-size: var(--type-xs);
@@ -862,6 +912,8 @@ body > .voice-btn {
     min-height: 1.2em; /* (no lh unit) */
     min-height: 1lh;
 }
+/* (a three-seat table: my own cell's name stands out) */
+.log-score__team.is-me > .log-score__names { color: var(--text-primary); font-weight: var(--weight-bold); }
 .log-score__value { font-size: var(--type-lg); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
 .log-score__detail { color: var(--text-secondary); font-size: 11px; font-variant-numeric: tabular-nums; }
 
@@ -887,6 +939,7 @@ body > .voice-btn {
 .log-chip { width: 14px; height: 20px; border-radius: 3px; box-sizing: border-box; background: var(--surface-3); transition: background-color var(--dur-fast) var(--ease-standard); }
 .log-chip.is-team-a { background: var(--team-a); }
 .log-chip.is-team-b { background: var(--team-b); }
+.log-chip.is-team-c { background: var(--gold); }
 
 #gameFeed .chat-messages { color: var(--text-secondary); text-align: left; }
 .log-row { margin-bottom: var(--space-2); overflow-wrap: anywhere; }
@@ -894,6 +947,7 @@ body > .voice-btn {
 .log-row__time { margin-right: var(--space-1); color: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
 .log-row__text.is-team-a { color: var(--team-a); }
 .log-row__text.is-team-b { color: var(--team-b); }
+.log-row__text.is-team-c { color: var(--gold); }
 .log-row__text.is-spectator { color: var(--success); }
 .log-row__text.is-system { color: var(--text-dim); }
 /* a /help reply only this page shows: dim, in the suggestion's gold */
@@ -1027,7 +1081,12 @@ body > .voice-btn {
 .result-stats__name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
 .result-stats__name.is-team-a { color: var(--team-a); }
 .result-stats__name.is-team-b { color: var(--team-b); }
+.result-stats__name.is-team-c { color: var(--gold); }
 .result-stats .is-fault { color: var(--danger-text); }
+/* a Get Your Bid game's result (ScoreModal.showSoloResult): three players,
+   best first, the winner's row in bold */
+.result-stats--solo .result-stats__row { grid-template-columns: 2fr 1fr 1fr; }
+.result-stats--solo .result-stats__row.is-winner { font-weight: var(--weight-bold); }
 
 /* the tournament scoreboard (TournamentScoreboard: the results modal and the tournament lobby) */
 .tournament-scoreboard { box-sizing: border-box; padding: 15px; overflow-x: auto; border-radius: var(--radius-sm); background: rgb(0 0 0 / 0.4); font-family: var(--font-ui); }

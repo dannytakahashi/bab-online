@@ -110,7 +110,7 @@ function avatarNode(cls, name, pic = null) {
  * @param {Function} [opts.onDraw] - the button's action (my draw)
  * @returns {HTMLElement}
  */
-export function showDrawHud({ spectator = false, onDraw = null } = {}) {
+export function showDrawHud({ spectator = false, onDraw = null, slots = 4, rules = DRAW_TEXT.rules } = {}) {
   clearDrawHud();
   const layer = el('div', 'hud-draw');
   layer.classList.toggle('is-spectator', !!spectator);
@@ -119,10 +119,11 @@ export function showDrawHud({ spectator = false, onDraw = null } = {}) {
   layer.setAttribute('role', 'region');
   layer.setAttribute('aria-labelledby', title.id);
   layer.appendChild(title);
-  layer.appendChild(el('p', 'hud-draw__rules', DRAW_TEXT.rules));
+  layer.appendChild(el('p', 'hud-draw__rules', rules));
 
   const row = el('ol', 'hud-draw__slots');
-  for (let i = 0; i < 4; i++) {
+  // (three at a Get Your Bid table: the layout's draw has as many slots)
+  for (let i = 0; i < slots; i++) {
     const slot = el('li', 'hud-draw__slot');
     slot.dataset.slot = String(i);
     slot.dataset.state = 'waiting';

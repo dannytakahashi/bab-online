@@ -20,7 +20,8 @@ import { getGameState } from '../../state/GameState.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
 import { scoreHeaderNames, scoreHeaderPairs } from '../../ui/components/ScoreModal.js';
-import { team, rotate } from '../../utils/positions.js';
+import { team, rotate, slotOf } from '../../utils/positions.js';
+import { soloHeaderRows, formatSoloHandMessages, soloTally } from '../../state/gyb.js';
 import { isLegalMove } from '../../rules/legality.js';
 import { isOverTrump } from '../../rules/overTrump.js';
 import { bidTotalsFor } from '../../rules/bids.js';
@@ -125,9 +126,11 @@ export class GameScene extends Phaser.Scene {
     const watcher = !spectator && isShoulder(state);
     const vw = typeof window !== 'undefined' ? window.innerWidth : w;
     const logW = typeof document !== 'undefined' ? logColumnWidth({ fallback: () => logWidthFor(vw) }) : 0;
-    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}:${logW}:${dpr}`;
+    // a three-seat table (Get Your Bid): no partner, the others in the upper corners
+    const solo = !!state?.isSolo;
+    const key = `${w}x${h}:${spectator ? 'spec' : (watcher ? 'watch' : 'seat')}${tutorial ? '+tut' : ''}${solo ? '+solo' : ''}:${logW}:${dpr}`;
     if (!this._layout || this._layout.key !== key) {
-      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }) });
+      const layout = computeTableLayout({ w, h, dpr, isSpectator: spectator, logW, tutorial, ...(watcher && { watcher: true }), ...(solo && { solo: true }) });
       this._layout = { key, layout };
       // the atlas always matches the layout its sprite scales are for
       this.ensureCardTextures(layout);
@@ -139,7 +142,8 @@ export class GameScene extends Phaser.Scene {
   _tutorialSlot() {
     const state = this.state;
     const spectator = this._spectatorView ?? isPureSpectator(state);
-    return !spectator && !state?.isLazy && !isShoulder(state);
+    // (no tutorial at a Get Your Bid table: no button, no slot)
+    return !spectator && !state?.isLazy && !isShoulder(state) && !state?.isSolo;
   }
 
   /** A sprite scale of the current layout ('hand', 'trick', 'back', 'trump', ...). */
@@ -688,6 +692,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const pos = state.position || 1;
+    if (state.isSolo) {
+      // Get Your Bid: three players, each their own score, bid and tricks
+      window.updateGameLogSoloScore?.(soloHeaderRows(state, { spectator: isPureSpectator(state) }));
+      this.updateSeatPlates?.();
+      return;
+    }
     // Player names only, '' until they are known (never a placeholder)
     const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: isPureSpectator(state) });
     const bid = (p) => state.bids?.[p] ?? '-';
@@ -756,6 +766,16 @@ export class GameScene extends Phaser.Scene {
     this.renderScoreHeader();
   }
 
+  /**
+   * A Get Your Bid table's trick pile for a seat (TrickManager's piles):
+   * 'team' my own, 'opp' the next seat's in turn (drawn on my left, its
+   * pile top left), 'opp2' the other's (on my right, its pile top right).
+   */
+  _soloPile(position) {
+    const slot = slotOf(position, this.state.position || 1, 3);
+    return slot === 'self' ? 'team' : (slot === 'opp2' ? 'opp2' : 'opp');
+  }
+
   /** Legality of a card in my hand for the trick in play (GameState). */
   legalityChecker() {
     const gameState = this.state;
@@ -770,7 +790,8 @@ export class GameScene extends Phaser.Scene {
           gameState.trump,
           gameState.trumpBroken,
           myPosition,
-          gameState.leadPosition
+          gameState.leadPosition,
+          gameState.isSolo
         );
         return result.legal;
       }
@@ -867,11 +888,8 @@ export class GameScene extends Phaser.Scene {
       if (isPureSpectator(this.state)) return 'bottom';
       return 'me';
     }
-    if (gamePosition === team(myPosition)) return 'partner';
-    if (gamePosition === rotate(myPosition)) return 'opp1';
-    if (gamePosition === rotate(rotate(rotate(myPosition)))) return 'opp2';
-
-    return null;
+    // (the seats round the viewer: three at a Get Your Bid table)
+    return slotOf(gamePosition, myPosition, this.state.seatCount);
   }
 
   // ============================================
@@ -1053,7 +1071,7 @@ export class GameScene extends Phaser.Scene {
    */
   detectOverTrump() {
     // currentTrick entries are { card, position } in play order (GameState.applyCardPlayed)
-    if (!isOverTrump(this.state.currentTrick, this.state.trump)) return;
+    if (!isOverTrump(this.state.currentTrick, this.state.trump, { solo: this.state.isSolo })) return;
     this.effectsManager?.showImpactEvent('ot');
   }
 
@@ -1115,16 +1133,19 @@ export class GameScene extends Phaser.Scene {
       window.addToGameFeedFromLegacy(`Trick won by ${winnerName}.`);
     }
 
-    // Determine if winner is on my team (same parity = same team)
-    const isMyTeam = winner % 2 === myPosition % 2;
+    // Determine if winner is on my team (same parity = same team; at a
+    // Get Your Bid table only my own seat's tricks are "mine")
+    const isMyTeam = this.state.isSolo ? winner === myPosition : winner % 2 === myPosition % 2;
 
     // the announcer: who took it, and (for a seat) the hand's tricks so far
-    const tally = isPureSpectator(this.state) ? '' : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
+    const tally = isPureSpectator(this.state) ? ''
+      : this.state.isSolo ? soloTally(' Tricks:', this.state, this.state.tricksByPosition || {})
+        : this._teamsSaid(' Tricks:', this.state.teamTricks || 0, this.state.oppTricks || 0);
     announce(`${this._seatName(winner)} won the trick.${tally}`);
 
     // Animate cards to winner's stack via TrickManager
     if (this.trickManager) {
-      this.trickManager.completeTrick(winner, isMyTeam, data.resumeInMs);
+      this.trickManager.completeTrick(winner, this.state.isSolo ? this._soloPile(winner) : isMyTeam, data.resumeInMs);
     }
 
     // Update game log with current trick counts
@@ -1154,6 +1175,17 @@ export class GameScene extends Phaser.Scene {
 
     const state = this.state;
     const myPosition = state.position || 1;
+
+    if (data.gyb) {
+      // Get Your Bid: one line per player (the server's own words), the
+      // three-player header, the scores said by name
+      for (const msg of formatSoloHandMessages(data.gyb, state.playerData)) window.addToGameFeedFromLegacy?.(msg);
+      this.renderScoreHeader();
+      const scores = Object.fromEntries((data.gyb.scores || []).map((v, i) => [i + 1, v]));
+      announce(`Hand over.${soloTally(' Score:', state, scores, { spectator: isPureSpectator(state) })}`);
+      if (this.cardManager) this.cardManager.clearHand();
+      return;
+    }
 
     // Calculate team/opp scores based on position parity
     let teamScore, oppScore, teamTricksWon, oppTricksWon, teamOldScore, oppOldScore;
@@ -1490,7 +1522,8 @@ export class GameScene extends Phaser.Scene {
         gameState.trump,
         gameState.trumpBroken,
         gameState.position,
-        gameState.leadPosition
+        gameState.leadPosition,
+        gameState.isSolo
       );
       return result.legal;
     };
@@ -1512,7 +1545,7 @@ export class GameScene extends Phaser.Scene {
     if (s.isBidding) return NOTICE.BID_FIRST;
     if (s.currentTurn !== s.position) return NOTICE.NOT_YOUR_TURN;
     if (s.hasPlayedCard || getMyAction().isPending()) return NOTICE.CARD_ON_ITS_WAY;
-    const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition);
+    const r = isLegalMove(card, s.myCards, s.leadCard, s.playedCardIndex === 0, s.trump, s.trumpBroken, s.position, s.leadPosition, s.isSolo);
     if (!r.legal && r.reason) return `${r.reason}.`;
     return NOTICE.TRICK_CLEARING;
   }
@@ -1734,7 +1767,8 @@ export class GameScene extends Phaser.Scene {
    */
   canAskHelp() {
     const s = this.state;
-    if (!s || !s.position || s.isSpectator || s.isLazy) return false;
+    // (no /help at a Get Your Bid table: owner 2026-11-24)
+    if (!s || !s.position || s.isSpectator || s.isLazy || s.isSolo) return false;
     if (s.currentTurn !== s.position || !s.myCards?.length || getMyAction().isPending()) return false;
     if (s.isBidding) return s.phase === 'bidding' && s.bids?.[s.position] === undefined;
     return s.phase === 'playing' && !s.hasPlayedCard && s.stage === 'PLAYING';
@@ -2155,12 +2189,18 @@ export class GameScene extends Phaser.Scene {
 
     if (!m.isBidding && this.trickManager) {
       // a bore counts as the whole hand, each total capped at the hand size
-      const totals = bidTotalsFor(m.bids, pos, m.handSize);
-      this.trickManager.setBidTotals(totals.team, totals.opp);
+      const totals = bidTotalsFor(m.bids, pos, m.handSize, m.seatCount);
+      // (a Get Your Bid table: my own pile and one per opponent)
+      if (m.seatCount === 3) this.trickManager.setBidTotals(totals.team, totals.opp1, totals.opp2);
+      else this.trickManager.setBidTotals(totals.team, totals.opp);
       this.trickManager.createTrickBackgrounds(false);
-      if (m.history) {
-        // team 1 holds the odd seats, team 2 the even ones
-        this.trickManager.restoreTrickHistory(m.history, (t) => t.team % 2 === pos % 2);
+      if (m.history && m.seatCount === 3 && m.history.some((t) => !t.winner)) {
+        // (Get Your Bid with a trick whose winner is unknown: counts only)
+        this.trickManager.restoreTrickPlaceholders(m.tricks.team, m.tricks.opp);
+      } else if (m.history) {
+        // team 1 holds the odd seats, team 2 the even ones; at a Get Your
+        // Bid table each seat's tricks go to its own pile
+        this.trickManager.restoreTrickHistory(m.history, m.seatCount === 3 ? (t) => this._soloPile(t.winner) : (t) => t.team % 2 === pos % 2);
       } else {
         this.trickManager.restoreTrickPlaceholders(m.tricks.team, m.tricks.opp);
       }
@@ -2273,6 +2313,8 @@ export class GameScene extends Phaser.Scene {
     hsiBox.id = 'player-hsi-box';
     hsiBox.className = 'hud-hsi';
     hsiBox.textContent = 'HSI: --';
+    // (no HSI at a Get Your Bid table: owner 2026-11-24)
+    hsiBox.hidden = !!this.state?.isSolo;
     avatarContainer.appendChild(hsiBox);
 
     // Into the self seat (the frog and my bubbles are its siblings there)
@@ -2332,6 +2374,7 @@ export class GameScene extends Phaser.Scene {
    * yellow (an average deal, ~132) to green (strong).
    */
   updatePlayerHsi(hsi) {
+    if (this._playerInfo?.hsiBox) this._playerInfo.hsiBox.hidden = !!this.state?.isSolo;
     if (this._playerInfo?.hsiBox && hsi !== undefined) {
       this._playerInfo.hsiBox.textContent = `HSI: ${hsi.toFixed(1)}`;
       const hue = 120 * Math.min(1, Math.max(0, (hsi - 70) / 125));

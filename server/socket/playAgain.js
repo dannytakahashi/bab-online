@@ -46,6 +46,7 @@
 
 const { v4: uuidv4 } = require('uuid');
 const gameManager = require('../game/GameManager');
+const { seatsOf } = require('../game/gameMode');
 const clientInfo = require('./clientInfo');
 const { Presence } = require('../game/SeatState');
 const { botController } = require('../game/bot');
@@ -131,6 +132,8 @@ function originOf(lobby, io, extras = [], onTable = null) {
         playAgainUsers: new Set(humans.filter((p) => hasCap(io, p.socketId)).map((p) => p.username)),
         casualUsers: new Set(humans.filter((p) => caps.has(p.socketId)).map((p) => p.username)),
         extras: new Set(extras),
+        // A Get Your Bid lobby reopens as one (gameMode.js; absent otherwise)
+        ...(lobby.mode ? { mode: lobby.mode } : {}),
     };
 }
 
@@ -143,7 +146,7 @@ function originOf(lobby, io, extras = [], onTable = null) {
  * it every owner is still mapped to this game.
  * @returns {Object|null} null when the game cannot open a lobby
  */
-function plan(game, io, { score = null, playerStats = null } = {}) {
+function plan(game, io, { score = null, playerStats = null, gyb = null } = {}) {
     return guarded('plan', () => {
         const origin = game?.lobbyOrigin;
         if (!origin || !enabled()) return null;
@@ -178,6 +181,8 @@ function plan(game, io, { score = null, playerStats = null } = {}) {
                 gameId: game.gameId,
                 score: score ? { team1: score.team1, team2: score.team2 } : { ...game.score },
                 playerStats: playerStats || {},
+                // a Get Your Bid game's result (gameEnd.gyb), else absent
+                ...(gyb ? { gyb } : {}),
             },
         };
     });
@@ -336,6 +341,7 @@ function openLobby(io, p) {
         },
     };
     if (lobby.createdBy === undefined) delete lobby.createdBy;
+    if (origin.mode) lobby.mode = origin.mode;
 
     // One claim per username: an older reservation elsewhere goes
     for (const U of people.keys()) dropReservations(U, { notify: true });
@@ -646,7 +652,7 @@ function reservedIn(lobby) {
 function reservationBlocks(lobby, username = null) {
     const reserved = reservedIn(lobby);
     if (reserved.size === 0 || (username && reserved.has(username))) return false;
-    return lobby.players.length + reserved.size >= 4;
+    return lobby.players.length + reserved.size >= seatsOf(lobby);
 }
 
 // ==================== lingering voice ====================

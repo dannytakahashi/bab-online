@@ -199,7 +199,8 @@ async function joinTournament(socket, io, data, { resolved = false } = {}) {
  * when a tournament they reference no longer exists).
  */
 function sendToMainRoom(socket) {
-    const mainRoomResult = gameManager.joinMainRoom(socket.id, { wide: require('./clientInfo').hasCap(socket, 'casualSpectators') });
+    const lists = require('./clientInfo').listOpts(socket);
+    const mainRoomResult = gameManager.joinMainRoom(socket.id, lists);
     socket.join('mainRoom');
     const onlineUsers = gameManager.getOnlineUsernames();
     socket.emit('mainRoomJoined', {
@@ -207,7 +208,7 @@ function sendToMainRoom(socket) {
         lobbies: mainRoomResult.lobbies,
         onlineCount: onlineUsers.length,
         onlineUsers,
-        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username),
+        inProgressGames: gameManager.getInProgressGames(mainRoomResult.username, { gyb: lists.gyb }),
         tournaments: gameManager.getAllTournaments()
     });
 }

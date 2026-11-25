@@ -61,8 +61,12 @@ const { socketLogger } = require('../utils/logger');
  *                     screen); at a table casualSpectators from iOS that
  *                     starts voice muted also counts (with assist, or
  *                     build 18 and later; server/voice/tournamentVoice.js)
+ *   getYourBid        can show a Get Your Bid lobby and table (3 seats, no
+ *                     teams; server/game/gameMode.js): only such a socket
+ *                     is listed, may create, join, rejoin or watch one
+ *                     (the web; no iOS build)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {
@@ -86,4 +90,13 @@ function socketHasCap(io, socketId, cap) {
     return hasCap(io?.sockets?.sockets?.get(socketId), cap);
 }
 
-module.exports = { KNOWN_CAPS, handle, hasCap, socketHasCap };
+/**
+ * What the main room's lists hold for `socket` (GameManager.getAllLobbies /
+ * getInProgressGames / joinMainRoom): `wide` lobby entries with the cap
+ * casualSpectators, Get Your Bid lobbies and tables with getYourBid.
+ */
+function listOpts(socket) {
+    return { wide: hasCap(socket, 'casualSpectators'), gyb: hasCap(socket, 'getYourBid') };
+}
+
+module.exports = { KNOWN_CAPS, handle, hasCap, socketHasCap, listOpts };

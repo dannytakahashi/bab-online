@@ -3,6 +3,28 @@
 Small, known, non-blocking items the owner chose to defer. Add new ones here and
 remove an item in the PR that fixes it.
 
+## Get Your Bid (web, 2026-11-24)
+
+First version; each of these was left out on purpose (`server/CLAUDE.md` "Get Your Bid").
+
+- **Rainbow bonus: none.** The owner's scoring lists no rainbow, so the mode has
+  none. If the 4-card hand's +10 should apply per player, it is a rule change in
+  `gameHandlers.handlePostBid` / `scoreGybHand` and one line in docs/RULES.md.
+- **No statistics, standings or game records.** A finished game writes nothing.
+  Counting them needs a record shape for three solo players first (the
+  `gameRecords` doc and the 12 stats are all per team).
+- **Not saved across a deploy.** `gameCodec` refuses the mode, so a table in
+  progress ends with the usual "interrupted by a server update" notice even
+  with `LIVE_PERSIST=on`.
+- **The bots are simple.** `gybStrategy.js` bids the hand's expected tricks and
+  then takes or ducks trick by trick; it keeps no card memory and never plays
+  to make an opponent miss.
+- **No iOS.** An app is refused with "Get Your Bid is not available in this app
+  yet"; such lobbies and tables are not listed for it.
+- **Not checked by eye:** three humans in three browsers, a spectator's and the
+  over-the-shoulder view of such a table, voice, Safari / Firefox, window sizes
+  other than 1600 x 900.
+
 ## iOS: iPad (since 1.2.0 build 5, PR #241)
 
 - **Draw for Deal cards don't grow on iPad** (the owner's top pick of the three).

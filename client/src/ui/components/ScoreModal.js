@@ -4,6 +4,7 @@
 
 import { team, rotate } from '../../utils/positions.js';
 import { el, createButton, openModal } from '../kit/index.js';
+import { soloOutcome, soloResultRows, soloWinnerLine } from '../../state/gyb.js';
 
 /** A seat's username in playerData, or null (not seated / not known yet). */
 function seatUsername(playerData, pos) {
@@ -201,10 +202,14 @@ let scoreModal = null;
  * @param {Function} options.onReturnToLobby - Called when user clicks return button
  * @param {string} [options.teamName] - my side's names (getTeamNames; '' while not known)
  * @param {string} [options.oppName] - the other side's
+ * @param {Object} [options.solo] - a Get Your Bid game (three players, no
+ *   teams): {end: gameEnd.gyb, playerData, myPosition (null: a spectator)};
+ *   the modal then lists the three players by score (showSoloResult)
  * @returns {Object} { overlay, destroy }
  */
-export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName }) {
+export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onReturnToLobby, buttonText, isSpectator, teamName, oppName, solo = null }) {
   removeFinalScoreOverlay();
+  if (solo) return showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator });
 
   // Determine winner message (the title's color is its class: table.css .result-modal)
   let resultMsg;
@@ -281,6 +286,55 @@ export function showFinalScoreOverlay({ teamScore, oppScore, playerStats, onRetu
     onReturnToLobby?.();
   });
 
+  return { overlay: modal.backdrop, destroy };
+}
+
+/**
+ * The score modal of a Get Your Bid game: the title is my result (VICTORY,
+ * DEFEAT, TIE GAME when I share the top score; GAME OVER for a spectator),
+ * the winner by name under it, then the three players best first with their
+ * score and how many of the hands they got their bid exactly.
+ */
+function showSoloResult({ solo, onReturnToLobby, buttonText, isSpectator }) {
+  const { end, playerData, myPosition = null } = solo;
+  const outcome = soloOutcome(end, isSpectator ? null : myPosition);
+  const title = { victory: 'VICTORY', defeat: 'DEFEAT', tie: 'TIE GAME', neutral: 'GAME OVER' }[outcome];
+  const tone = { victory: 'is-victory', defeat: 'is-defeat', tie: 'is-tie', neutral: 'is-neutral' }[outcome];
+
+  const body = [el('div', { className: 'result-score', text: soloWinnerLine(end, playerData) })];
+  const table = el('div', { className: 'result-stats result-stats--solo' });
+  const head = el('div', { className: 'result-stats__row result-stats__head' });
+  for (const h of ['Player', 'Score', 'Bids made']) head.appendChild(el('div', { text: h }));
+  table.appendChild(head);
+  for (const r of soloResultRows(end, playerData, { myPosition: isSpectator ? null : myPosition })) {
+    const row = el('div', { className: `result-stats__row${r.winner ? ' is-winner' : ''}${r.mine ? ' is-mine' : ''}` });
+    // Username via textContent: it is user-controlled
+    row.appendChild(el('div', { className: `result-stats__name is-team-${r.letter}`, text: r.name }));
+    row.appendChild(el('div', { text: r.score }));
+    row.appendChild(el('div', { text: `${r.made} of ${r.hands}` }));
+    table.appendChild(row);
+  }
+  body.push(table);
+
+  const returnBtn = createButton({ label: buttonText || 'Return to Lobby', variant: 'primary', size: 'lg' });
+  const modal = openModal({
+    id: 'finalScoreOverlay',
+    title,
+    body,
+    actions: [returnBtn],
+    dismissible: false,
+    initialFocus: returnBtn,
+    className: `result-modal ${tone}`,
+  });
+  scoreModal = modal;
+  const destroy = () => {
+    if (scoreModal === modal) scoreModal = null;
+    modal.close('api');
+  };
+  returnBtn.addEventListener('click', () => {
+    destroy();
+    onReturnToLobby?.();
+  });
   return { overlay: modal.backdrop, destroy };
 }
 

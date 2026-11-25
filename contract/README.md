@@ -438,6 +438,37 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   starts voice there. No new event or field: only the existing voice
   events. The web sends it from 2026-11-24; iOS from its next build
   (server/voice/tournamentVoice.js, docs/claude/voice.md "Tournament voice").
+- `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
+  reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
+  `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid
+  lobby and its three-seat, no-teams table. The web sends it; no iOS build
+  does. Without it a socket is never listed such a lobby or table (the
+  main room's lists are built per socket while one exists), and its
+  `createLobby {mode: 'gyb'}`, `joinLobby`, `joinAsSpectator` and
+  `rejoinGame` for one are refused (serverError / `rejoinFailed` with "Get
+  Your Bid is not available in this app yet. Play it at the website.");
+  sign-in then names no active game and leaves the pointer for the web. So
+  every key below reaches only clients that know the mode. Additive keys,
+  all optional: c2s `createLobby.mode` (`classic` | `gyb`); `mode: 'gyb'`
+  on every lobby event of such a lobby (lobbyCreated, lobbyPlayerJoined,
+  lobbyPlayerLeft, playerReadyUpdate, lobbyReturn), on its list entry
+  (`$defs.lobby` `mode`, `seats: 3`; `maxPlayers` stays the frozen 4) and
+  on `allPlayersReady`; `$defs.inProgressGame` `mode` + `scores`; and
+  `gyb` on gameStart `{scores}`, doneBidding `{forbidden}`, handComplete
+  (`$defs.gybHand`: each seat's bid / took / points, the scores before and
+  after, the Forbidden Bid), gameEnd and lobbyReturn.lastGame
+  (`$defs.gybEnd`: scores, winners, exact bids, hands) and beside every
+  snapshot, as the CARRIER's own key (`$defs.gybSnapshot` on rejoinSuccess,
+  restorePlayerState, the spectator full state, actionRejected and
+  stateSnapshot). `$defs.snapshotV2` itself is unchanged (its generated
+  Swift is not touched): a three-seat table fills its four-seat shape
+  (`bids.byPosition` / `bids.order` / `tricksByPosition` padded with null /
+  4 / 0, three `seats`, `hsi` null, `trickHistory` [] since its items must
+  hold four cards) and the real tricks are `gyb.trickHistory` (three cards
+  each). At such a table the team keys of every event (`score`, `score1` /
+  `score2`, `teamBids`, `mults`, `team1Tricks`, ...) keep their shape and
+  carry nothing, `teamsAnnounced` is never sent, `gameStart.hsiValues` is
+  `{}`, and no `rainbow`, `destroyHands` or `assistHint` is ever sent.
 
 Avatar field rules (docs/avatars.md has the invariants I1-I6):
 

@@ -33,8 +33,12 @@ import { tableBackFrame } from '../cards/tableBack.js';
 import { MOTION } from '../../ui/tokens.js';
 import { motionMs, EASE_EMPHASIZED } from '../../ui/motion.js';
 import { applyHudLayout } from '../../ui/tableHud.js';
+import { DRAW_TEXT, DRAW_TEXT_SOLO } from '../layout/computeTableLayout.js';
 import { showDrawHud, fillDrawSlot, landDrawSlot, fitDrawNames, endMyDraw, showTeamsHud, clearDrawHud, drawHud } from '../../ui/drawHud.js';
 import { DRAW_SLOTS_KEY, ensureDrawSlotFace } from '../cards/drawSlotFaces.js';
+
+/** The draw HUD's slots and rule for a layout (three slots and no partners at a Get Your Bid table). */
+const drawHudOpts = (L) => ({ slots: L.draw.slots.length, rules: L.solo ? DRAW_TEXT_SOLO.rules : DRAW_TEXT.rules });
 
 /** A deck card under the pointer peeks up by this share of its height. */
 export const DECK_PEEK = 0.12;
@@ -86,7 +90,7 @@ export class DrawManager {
 
     const L = this.layout();
     applyHudLayout(L);
-    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey() });
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L) });
     const flyIn = this.isVisible();
     for (let i = 0; i < 54; i++) this._addDeckCard(L, i, { flyIn, pickable: !this._spectator });
   }
@@ -106,7 +110,7 @@ export class DrawManager {
     const L = this.layout();
     const done = this._spectator || !!draw.hasDrawn || draw.viewerDrawOrder !== null;
     applyHudLayout(L);
-    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey() });
+    showDrawHud({ spectator: this._spectator, onDraw: () => this.drawByKey(), ...drawHudOpts(L) });
     if (done && !this._spectator) endMyDraw();
     const left = Math.max(0, 54 - draw.drawn.length);
     for (let i = 0; i < left; i++) this._addDeckCard(L, i, { flyIn: false, pickable: !done });
@@ -302,7 +306,7 @@ export class DrawManager {
     // its words and slots, as a spectator's (no deck to pick from)
     if (!drawHud()) {
       applyHudLayout(L);
-      showDrawHud({ spectator: true });
+      showDrawHud({ spectator: true, ...drawHudOpts(L) });
     }
     const order = Math.max(1, Math.min(4, data.drawOrder || 1));
     const slot = draw.slots[order - 1];

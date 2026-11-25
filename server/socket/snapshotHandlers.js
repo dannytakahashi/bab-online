@@ -62,6 +62,16 @@ function snapshotFor(game, sid, opts = {}) {
     });
 }
 
+/**
+ * The `gyb` key a Get Your Bid table adds beside every snapshot it sends
+ * (GameState.gybWire: the mode marker, scores, the Forbidden Bid, this
+ * deal's tricks), to spread into the carrier; {} at any other table.
+ */
+function gybExtra(game) {
+    const gyb = game && typeof game.gybWire === 'function' ? game.gybWire() : null;
+    return gyb ? { gyb } : {};
+}
+
 /** players[] of a snapshot carrier: {position, username, pic} per seat (no socket ids: V1_REMOVALS #14). */
 function carrierPlayers(game) {
     const players = [];
@@ -106,6 +116,7 @@ function carrierFor(game, socket, extra = {}) {
     return {
         ...base,
         ...extra,
+        ...gybExtra(game),
         snapshot: snapshotFor(game, socket.id, { hideChatFrom: hideChatFrom(socket), socket })
     };
 }
@@ -200,6 +211,7 @@ function answerSnapshot(socket, req, game) {
             ? snapshotFor(game, socket.id, { log: req.log !== false, hideChatFrom: hideChatFrom(socket), socket })
             : null,
     };
+    if (reply.snapshot) Object.assign(reply, gybExtra(game));
     if (req.requestId !== undefined) reply.requestId = req.requestId;
     if (!reply.snapshot) reply.reason = 'not_in_game';
     socket.emit('stateSnapshot', reply);
@@ -209,6 +221,7 @@ module.exports = {
     tournamentInfo,
     botNameFor,
     snapshotFor,
+    gybExtra,
     carrierFor,
     hideChatFrom,
     wireIsLazy,

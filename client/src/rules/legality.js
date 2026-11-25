@@ -104,6 +104,8 @@ export function isHighestTrump(rank, hand, trump) {
  * @param {boolean} trumpBroken - Whether trump has been broken
  * @param {number} myPosition - Player's position
  * @param {number} leadPosition - Lead player's position (for HI joker rule)
+ * @param {boolean} [solo=false] - no partners (a Get Your Bid table): every
+ *   other seat is an opponent of the HI joker's lead (server rules.isLegalMove)
  * @returns {Object} { legal: boolean, reason?: string }
  */
 export function isLegalMove(
@@ -114,7 +116,8 @@ export function isLegalMove(
   trump,
   trumpBroken,
   myPosition,
-  leadPosition
+  leadPosition,
+  solo = false
 ) {
   // Leading a trick
   if (isLeading) {
@@ -150,7 +153,7 @@ export function isLegalMove(
 
   // HI joker special rule: opponents must play their highest trump
   if (lead.rank === 'HI') {
-    const isOpponent = myPosition % 2 !== leadPosition % 2;
+    const isOpponent = solo ? myPosition !== leadPosition : myPosition % 2 !== leadPosition % 2;
 
     if (isOpponent && !isHighestTrump(card.rank, hand, trump)) {
       return {
@@ -195,7 +198,8 @@ export function getLegalCards(
   trump,
   trumpBroken,
   myPosition,
-  leadPosition
+  leadPosition,
+  solo = false
 ) {
   return hand.filter((card) => {
     const result = isLegalMove(
@@ -206,7 +210,8 @@ export function getLegalCards(
       trump,
       trumpBroken,
       myPosition,
-      leadPosition
+      leadPosition,
+      solo
     );
     return result.legal;
   });

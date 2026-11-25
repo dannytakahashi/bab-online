@@ -157,7 +157,11 @@ const defs = {
         memberCount: int({ minimum: 0, maximum: 8 }),
         capacity: int({ minimum: 4, maximum: 8 }),
         memberUsernames: arr(str(), { maxItems: 8 }),
-    }, { optional: ['memberCount', 'capacity', 'memberUsernames'] }),
+        // additive (2026-11-24): a Get Your Bid lobby and its table size
+        // (3); such an entry is only in the list of a getYourBid client
+        mode: ref('gybMode'),
+        seats: int({ minimum: 3, maximum: 4 }),
+    }, { optional: ['memberCount', 'capacity', 'memberUsernames', 'mode', 'seats'] }),
     lobbyPlayer: obj({ username: str(), ready: bool() }),
     lobbyMember,
     // Every member of a lobby of up to 8 (additive `members`, 2026-11-16):
@@ -190,7 +194,11 @@ const defs = {
         currentHand: int({ minimum: 1, maximum: 13 }),
         score: ref('teamPair'),
         spectatorCount: int({ minimum: 0 }),
-    }),
+        // additive (2026-11-24): a Get Your Bid table (only in the list of
+        // a getYourBid client) and each seat's score
+        mode: ref('gybMode'),
+        scores: ref('gybBySeat'),
+    }, { optional: ['mode', 'scores'] }),
     tournamentSummary: obj({
         id: str(),
         name: str(),
@@ -320,6 +328,55 @@ const defs = {
     // listed in the tournament room (contract/README.md "Client
     // capabilities", docs/claude/voice.md "Tournament voice")
     clientCapTournamentVoice: konst('tournamentVoice'),
+    // An eighth, its own const for the same reason (2026-11-24, Get Your
+    // Bid): the client can show a Get Your Bid lobby and table (3 seats,
+    // no teams; server/game/gameMode.js). Only such a socket is listed
+    // one, may create, join, rejoin or watch one, so every `gyb` / `mode`
+    // key below reaches only clients that know the mode (the web; no iOS
+    // build) (contract/README.md "Client capabilities")
+    clientCapGetYourBid: konst('getYourBid'),
+    // ---------- Get Your Bid (2026-11-24; server/game/gameMode.js) ----------
+    // The one mode value on the wire (absent = the base game)
+    gybMode: konst('gyb'),
+    // One value per seat, by position - 1
+    gybBySeat: arr(int(), { minItems: 3, maxItems: 3 }),
+    // The last bidder's Forbidden Bid of this deal (rules.gybForbiddenBid)
+    gybForbidden: obj({ position: int({ minimum: 1, maximum: 3 }), bid: int({ minimum: 0, maximum: 13 }) }),
+    // Beside every snapshot of a Get Your Bid table (the carrier's own
+    // `gyb`: $defs.snapshotV2 is frozen at four seats and its generated
+    // Swift is not touched): scores and exact bids so far, the hands
+    // counted, this deal's Forbidden Bid and won tricks (3 cards each)
+    gybSnapshot: obj({
+        scores: ref('gybBySeat'),
+        made: ref('gybBySeat'),
+        hands: int({ minimum: 0, maximum: 13 }),
+        forbidden: orNull(ref('gybForbidden')),
+        trickHistory: arr(obj({
+            winner: int({ minimum: 1, maximum: 3 }),
+            lead: int({ minimum: 1, maximum: 3 }),
+            cards: arr(ref('card'), { minItems: 3, maxItems: 3 }),
+        }), { maxItems: 13 }),
+    }),
+    // handComplete.gyb: the hand, seat by seat
+    gybHand: obj({
+        scores: ref('gybBySeat'),
+        oldScores: ref('gybBySeat'),
+        seats: arr(obj({
+            position: int({ minimum: 1, maximum: 3 }),
+            bid: int({ minimum: 0, maximum: 13 }),
+            took: int({ minimum: 0, maximum: 13 }),
+            points: int({ minimum: 0 }),
+            forbiddenHit: bool(),
+        }), { minItems: 3, maxItems: 3 }),
+        forbidden: orNull(ref('gybForbidden')),
+    }),
+    // gameEnd.gyb (and lobbyReturn.lastGame.gyb): the result
+    gybEnd: obj({
+        scores: ref('gybBySeat'),
+        winners: arr(int({ minimum: 1, maximum: 3 }), { minItems: 1, maxItems: 3 }),
+        made: ref('gybBySeat'),
+        hands: int({ minimum: 0, maximum: 13 }),
+    }),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

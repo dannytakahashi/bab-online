@@ -318,6 +318,14 @@
             "type": "string"
           },
           "maxItems": 8
+        },
+        "mode": {
+          "$ref": "#/$defs/gybMode"
+        },
+        "seats": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 4
         }
       },
       "required": [
@@ -502,6 +510,12 @@
         "spectatorCount": {
           "type": "integer",
           "minimum": 0
+        },
+        "mode": {
+          "$ref": "#/$defs/gybMode"
+        },
+        "scores": {
+          "$ref": "#/$defs/gybBySeat"
         }
       },
       "required": [
@@ -1304,6 +1318,208 @@
     },
     "clientCapTournamentVoice": {
       "const": "tournamentVoice"
+    },
+    "clientCapGetYourBid": {
+      "const": "getYourBid"
+    },
+    "gybMode": {
+      "const": "gyb"
+    },
+    "gybBySeat": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "gybForbidden": {
+      "type": "object",
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "bid": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 13
+        }
+      },
+      "required": [
+        "position",
+        "bid"
+      ],
+      "additionalProperties": false
+    },
+    "gybSnapshot": {
+      "type": "object",
+      "properties": {
+        "scores": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "made": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "hands": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 13
+        },
+        "forbidden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/gybForbidden"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trickHistory": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "winner": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "lead": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "cards": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/card"
+                },
+                "minItems": 3,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "winner",
+              "lead",
+              "cards"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 13
+        }
+      },
+      "required": [
+        "scores",
+        "made",
+        "hands",
+        "forbidden",
+        "trickHistory"
+      ],
+      "additionalProperties": false
+    },
+    "gybHand": {
+      "type": "object",
+      "properties": {
+        "scores": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "oldScores": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "seats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "position": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3
+              },
+              "bid": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 13
+              },
+              "took": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 13
+              },
+              "points": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "forbiddenHit": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "position",
+              "bid",
+              "took",
+              "points",
+              "forbiddenHit"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "forbidden": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/gybForbidden"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "scores",
+        "oldScores",
+        "seats",
+        "forbidden"
+      ],
+      "additionalProperties": false
+    },
+    "gybEnd": {
+      "type": "object",
+      "properties": {
+        "scores": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "winners": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3
+          },
+          "minItems": 1,
+          "maxItems": 3
+        },
+        "made": {
+          "$ref": "#/$defs/gybBySeat"
+        },
+        "hands": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 13
+        }
+      },
+      "required": [
+        "scores",
+        "winners",
+        "made",
+        "hands"
+      ],
+      "additionalProperties": false
     },
     "avatarUrl": {
       "type": "string",
@@ -2747,6 +2963,12 @@
               "null"
             ],
             "maxLength": 50
+          },
+          "mode": {
+            "enum": [
+              "classic",
+              "gyb"
+            ]
           }
         },
         "additionalProperties": true
@@ -2759,11 +2981,16 @@
         "web": true,
         "ios": true
       },
+      "notes": "mode (additive 2026-11-24; the web sends it, no iOS build): gyb opens a Get Your Bid lobby (3 seats, no teams; server/game/gameMode.js), only from a socket that sent the clientHello cap getYourBid (else serverError); absent or classic is the base game.",
       "examples": [
         {
           "name": "Family night"
         },
-        {}
+        {},
+        {
+          "name": "Three of us",
+          "mode": "gyb"
+        }
       ],
       "invalid": [
         {
@@ -5536,6 +5763,9 @@
                 },
                 "minItems": 1,
                 "maxItems": 4
+              },
+              "mode": {
+                "$ref": "#/$defs/gybMode"
               }
             },
             "required": [
@@ -5556,7 +5786,8 @@
         "host",
         "settings",
         "capacity",
-        "expected"
+        "expected",
+        "mode"
       ],
       "reserved": [
         {
@@ -5635,6 +5866,9 @@
             "minItems": 1,
             "maxItems": 4
           },
+          "mode": {
+            "$ref": "#/$defs/gybMode"
+          },
           "lastGame": {
             "type": "object",
             "properties": {
@@ -5691,6 +5925,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "gyb": {
+                "$ref": "#/$defs/gybEnd"
               }
             },
             "required": [
@@ -5788,6 +6025,9 @@
             },
             "minItems": 1,
             "maxItems": 4
+          },
+          "mode": {
+            "$ref": "#/$defs/gybMode"
           }
         },
         "required": [
@@ -5804,7 +6044,8 @@
         "host",
         "settings",
         "capacity",
-        "expected"
+        "expected",
+        "mode"
       ],
       "notes": "members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets \"Spectators can talk\" (passes to the first connected member when it leaves); settings {spectatorsCanTalk} (always true since 2026-11-18: spectators always may talk); capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game's older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4). members[].onResults (additive 2026-11-16) marks a member moved back at the last game's end whose app still shows that game's results (lobby.afterGame.unsettled: no lobbyReturnSeen nor any act in the lobby yet), present and connected (never on a held row: a drop makes it returning or reconnecting instead); every moved member's row carries it in lobbyReturn. When one settles (lobbyReturnSeen, a joinLobby re-entry, an act whose own reply sends no list: chat, a refused Ready / Unready / Add Bot / Remove Bot / talk setting / Don't wait) the other capable members get a playerReadyUpdate (neither) without it; a leave or drop takes it off with that event's list. Web and iOS 1.2.2 (12) and later show \"Still on the results\" on the row (never on one's own) where it would say Waiting..., in the \"Not back yet\" style, with no \"Don't wait\" (they are present).",
       "clientReads": {
@@ -5864,6 +6105,9 @@
             },
             "minItems": 1,
             "maxItems": 4
+          },
+          "mode": {
+            "$ref": "#/$defs/gybMode"
           }
         },
         "required": [
@@ -5881,7 +6125,8 @@
         "host",
         "settings",
         "capacity",
-        "expected"
+        "expected",
+        "mode"
       ],
       "notes": "members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets \"Spectators can talk\" (passes to the first connected member when it leaves); settings {spectatorsCanTalk} (always true since 2026-11-18: spectators always may talk); capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game's older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4). members[].onResults (additive 2026-11-16) marks a member moved back at the last game's end whose app still shows that game's results (lobby.afterGame.unsettled: no lobbyReturnSeen nor any act in the lobby yet), present and connected (never on a held row: a drop makes it returning or reconnecting instead); every moved member's row carries it in lobbyReturn. When one settles (lobbyReturnSeen, a joinLobby re-entry, an act whose own reply sends no list: chat, a refused Ready / Unready / Add Bot / Remove Bot / talk setting / Don't wait) the other capable members get a playerReadyUpdate (neither) without it; a leave or drop takes it off with that event's list. Web and iOS 1.2.2 (12) and later show \"Still on the results\" on the row (never on one's own) where it would say Waiting..., in the \"Not back yet\" style, with no \"Don't wait\" (they are present). needsMorePlayers stays \"fewer than 4 members\".",
       "clientReads": {
@@ -5973,6 +6218,9 @@
                 },
                 "minItems": 1,
                 "maxItems": 4
+              },
+              "mode": {
+                "$ref": "#/$defs/gybMode"
               }
             },
             "required": [
@@ -6032,6 +6280,9 @@
                 },
                 "minItems": 1,
                 "maxItems": 4
+              },
+              "mode": {
+                "$ref": "#/$defs/gybMode"
               }
             },
             "required": [
@@ -6088,6 +6339,9 @@
                 },
                 "minItems": 1,
                 "maxItems": 4
+              },
+              "mode": {
+                "$ref": "#/$defs/gybMode"
               }
             },
             "required": [
@@ -6106,7 +6360,8 @@
         "host",
         "settings",
         "capacity",
-        "expected"
+        "expected",
+        "mode"
       ],
       "notes": "members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets \"Spectators can talk\" (passes to the first connected member when it leaves); settings {spectatorsCanTalk} (always true since 2026-11-18: spectators always may talk); capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game's older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4). members[].onResults (additive 2026-11-16) marks a member moved back at the last game's end whose app still shows that game's results (lobby.afterGame.unsettled: no lobbyReturnSeen nor any act in the lobby yet), present and connected (never on a held row: a drop makes it returning or reconnecting instead); every moved member's row carries it in lobbyReturn. When one settles (lobbyReturnSeen, a joinLobby re-entry, an act whose own reply sends no list: chat, a refused Ready / Unready / Add Bot / Remove Bot / talk setting / Don't wait) the other capable members get a playerReadyUpdate (neither) without it; a leave or drop takes it off with that event's list. Web and iOS 1.2.2 (12) and later show \"Still on the results\" on the row (never on one's own) where it would say Waiting..., in the \"Not back yet\" style, with no \"Don't wait\" (they are present). The neither variant also answers a setSpectatorsCanTalk (to its sender only, settings unchanged: always on since 2026-11-18) and goes back to a member whose Ready was refused because the table filled first (\"The table is full — you'll watch this game\"). reconnecting (additive, 2026-11-11; present only while a seat is held): the usernames whose lobby seat waits for its player to come back (GameManager.suspendLobbySeat, LOBBY_SEAT_GRACE_MS 30 s after a disconnect or a newer tab taking over). Every playerReadyUpdate carries it while one is held, lobbyCreated from joinLobby too; web shows \"Reconnecting…\" on those seats, iOS from 1.2.2 (build 10) too (LobbyState.applyPlayers: the list replaces the kept set, absent means none; lobbyPlayerJoined.newPlayer and a name no longer in players drop out). iOS up to 1.2.1 reads the reply as a dictionary and ignores it.",
       "clientReads": {
@@ -6135,6 +6390,9 @@
         "properties": {
           "gameId": {
             "type": "string"
+          },
+          "mode": {
+            "$ref": "#/$defs/gybMode"
           }
         },
         "required": [
@@ -6144,6 +6402,9 @@
       },
       "status": "active",
       "to": "socket",
+      "added": [
+        "mode"
+      ],
       "notes": "To the table's humans only. A family lobby's extras (members who did not get a seat) never get it (every client would open the draw as an entrant): they get spectatorJoined (fullState at CREATED, no room notice) in the same tick, then voiceSettings when capable (lobbyHandlers.startExtras).",
       "clientReads": {
         "web": [
@@ -6575,6 +6836,18 @@
               "avatarUrls": {
                 "$ref": "#/$defs/avatarUrlsByPosition"
               },
+              "gyb": {
+                "type": "object",
+                "properties": {
+                  "scores": {
+                    "$ref": "#/$defs/gybBySeat"
+                  }
+                },
+                "required": [
+                  "scores"
+                ],
+                "additionalProperties": false
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -6638,6 +6911,18 @@
               "shoulder": {
                 "$ref": "#/$defs/shoulderHand"
               },
+              "gyb": {
+                "type": "object",
+                "properties": {
+                  "scores": {
+                    "$ref": "#/$defs/gybBySeat"
+                  }
+                },
+                "required": [
+                  "scores"
+                ],
+                "additionalProperties": false
+              },
               "seq": {
                 "$ref": "#/$defs/seq"
               }
@@ -6663,6 +6948,7 @@
       "added": [
         "avatarUrls",
         "shoulder",
+        "gyb",
         "seq"
       ],
       "clientReads": {
@@ -6765,6 +7051,25 @@
             ],
             "additionalProperties": false
           },
+          "gyb": {
+            "type": "object",
+            "properties": {
+              "forbidden": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/gybForbidden"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "forbidden"
+            ],
+            "additionalProperties": false
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -6784,6 +7089,7 @@
       "added": [
         "teamBids",
         "mults",
+        "gyb",
         "seq"
       ],
       "clientReads": {
@@ -7013,6 +7319,9 @@
           },
           "snapshot": {
             "$ref": "#/$defs/snapshotV2"
+          },
+          "gyb": {
+            "$ref": "#/$defs/gybSnapshot"
           }
         },
         "required": [
@@ -7025,7 +7334,8 @@
       "status": "active",
       "to": "self",
       "added": [
-        "snapshot"
+        "snapshot",
+        "gyb"
       ],
       "clientReads": {
         "web": [
@@ -7105,6 +7415,9 @@
           "team2OldScore": {
             "type": "integer"
           },
+          "gyb": {
+            "$ref": "#/$defs/gybHand"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -7122,6 +7435,11 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "gyb",
+        "seq"
+      ],
+      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web; no iOS build).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -7132,9 +7450,6 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleHandComplete"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "gameEnd": {
@@ -7188,6 +7503,9 @@
               "null"
             ]
           },
+          "gyb": {
+            "$ref": "#/$defs/gybEnd"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -7203,6 +7521,10 @@
       "status": "active",
       "to": "room",
       "seq": true,
+      "added": [
+        "gyb",
+        "seq"
+      ],
       "reserved": [
         {
           "key": "winner",
@@ -7240,9 +7562,6 @@
       },
       "emittedFrom": [
         "server/socket/gameHandlers.js:handleHandComplete (via GameState.terminate)"
-      ],
-      "added": [
-        "seq"
       ]
     },
     "abortGame": {
@@ -7487,6 +7806,9 @@
                   "null"
                 ]
               },
+              "gyb": {
+                "$ref": "#/$defs/gybSnapshot"
+              },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
               }
@@ -7520,6 +7842,9 @@
               "isLazy": {
                 "type": "boolean"
               },
+              "gyb": {
+                "$ref": "#/$defs/gybSnapshot"
+              },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
               }
@@ -7538,7 +7863,8 @@
       "to": "self",
       "added": [
         "snapshot",
-        "avatarUrls"
+        "avatarUrls",
+        "gyb"
       ],
       "reserved": [
         {
@@ -7609,6 +7935,9 @@
           "avatarUrls": {
             "$ref": "#/$defs/avatarUrlsByPosition"
           },
+          "gyb": {
+            "$ref": "#/$defs/gybSnapshot"
+          },
           "snapshot": {
             "$ref": "#/$defs/snapshotV2"
           }
@@ -7624,7 +7953,8 @@
       "to": "self",
       "added": [
         "snapshot",
-        "avatarUrls"
+        "avatarUrls",
+        "gyb"
       ],
       "reserved": [
         {
@@ -7704,6 +8034,9 @@
               },
               "reason": {
                 "const": "watchHand"
+              },
+              "gyb": {
+                "$ref": "#/$defs/gybSnapshot"
               }
             },
             "required": [
@@ -8163,6 +8496,9 @@
                   }
                 ]
               },
+              "gyb": {
+                "$ref": "#/$defs/gybSnapshot"
+              },
               "snapshot": {
                 "$ref": "#/$defs/snapshotV2"
               }
@@ -8208,6 +8544,7 @@
       "added": [
         "snapshot",
         "avatarUrls",
+        "gyb",
         "seq"
       ],
       "reserved": [

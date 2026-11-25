@@ -19,8 +19,11 @@ const {
     seatBags,
     seatSpotOn,
     nextHandSize: handSizeAfter,
-    BID_RANKS
+    BID_RANKS,
+    gybHandScore,
+    gybDrawPosition
 } = require('../game/rules');
+const { isGyb } = require('../game/gameMode');
 const { gameLogger } = require('../utils/logger');
 const { emitError } = require('./serverError');
 const { Phase, reportViolation } = require('../game/GamePhase');
@@ -34,7 +37,7 @@ const restoreGame = require('../game/persist/restoreGame');
 const { emitLobbiesUpdated } = require('./gameLifecycle');
 const playAgain = require('./playAgain');
 const assistHandlers = require('./assistHandlers');
-const { snapshotFor, carrierFor } = require('./snapshotHandlers');
+const { snapshotFor, gybExtra, carrierFor } = require('./snapshotHandlers');
 const shoulderView = require('./shoulderView');
 const pacing = require('../game/pacing');
 /** The live persist store (deploy survival), lazily: a no-op with LIVE_PERSIST off. */
@@ -63,6 +66,7 @@ function rejectAction(socket, game, action, reason, extra = {}) {
     socket.emit('actionRejected', {
         action,
         reason,
+        ...gybExtra(game),
         snapshot: snapshotFor(game, socket.id, { log: false, socket })
     });
 }
@@ -109,13 +113,13 @@ function triggerBotIfNeeded(io, game, actionType) {
             // Only advance the turn if the bid actually happened — advancing
             // after a stale-state bail wedges the game on a phantom turn
             if (!botController.processBotBid(io, game, bot)) return;
-            game.currentTurn = rotatePosition(game.currentTurn);
+            game.currentTurn = rotatePosition(game.currentTurn, game.seatCount);
             handlePostBid(io, game).catch(turnContinuationError('handlePostBid', game));
         });
     } else if (actionType === 'play') {
         botController.scheduleBotAction(io, game, 'play', (io, game, bot) => {
             if (!botController.processBotPlay(io, game, bot)) return;
-            game.currentTurn = rotatePosition(game.currentTurn);
+            game.currentTurn = rotatePosition(game.currentTurn, game.seatCount);
             handlePostPlay(io, game).catch(turnContinuationError('handlePostPlay', game));
         });
     }
@@ -128,7 +132,29 @@ async function handlePostBid(io, game) {
     if (game.stage !== Phase.BIDDING) return;
 
     // Check if all bids are in
-    if (game.getBidCount() === 4) {
+    if (game.getBidCount() === game.seatCount && isGyb(game)) {
+        // Get Your Bid: no team bids, no bores, no rainbows, and all zeros
+        // is played, never redealt. The highest bidder leads, the first of
+        // equals in bidding order: on all zeros that is the first bidder
+        // ("the first player to bid zero must lead", owner 2026-11-24)
+        const bids = game.playerBids;
+        const sum = bids.reduce((n, b) => n + (parseInt(b, 10) || 0), 0);
+        // The team fields keep their shape and carry nothing (GameState.gyb)
+        game.bids = { team1: sum, team2: 0 };
+        game.team1Mult = 1;
+        game.team2Mult = 1;
+        const lead = findHighestBidder(game.bidder, bids, game.seatCount) + 1;
+        if (!game.transition(Phase.BIDDING, Phase.PLAYING)) return;
+        game.broadcast(io, 'doneBidding', {
+            bids,
+            lead,
+            teamBids: { team1: 0, team2: 0 },
+            mults: { team1: 1, team2: 1 },
+            gyb: { forbidden: game.gybForbidden() }
+        });
+        game.currentTurn = lead;
+        game.leadPosition = lead;
+    } else if (game.getBidCount() === 4) {
         // Calculate team bids
         const bids = game.playerBids;
         game.bids = {
@@ -224,7 +250,7 @@ async function handlePostBid(io, game) {
 async function handlePostPlay(io, game) {
     if (game.stage !== Phase.PLAYING) return;
 
-    if (game.playedCardsIndex === 4) {
+    if (game.playedCardsIndex === game.seatCount) {
         // TRICK_RESOLVING rejects plays and makes a second resolution a no-op
         if (!game.transition(Phase.PLAYING, Phase.TRICK_RESOLVING)) return;
         game.scheduleResume('trick', pacing(game).TRICK_VIEW_MS, () => resumeTrick(io, game), 'trickView');
@@ -250,8 +276,9 @@ function resumeTrick(io, game) {
 
     // Re-validate after the hold: if the trick array was corrupted by a
     // stale action, log loudly instead of crashing the whole game loop
-    const trickCards = game.playedCards.slice(0, 4);
-    if (game.playedCardsIndex !== 4 || trickCards.length < 4 || trickCards.some(c => !c)) {
+    const N = game.seatCount;
+    const trickCards = game.playedCards.slice(0, N);
+    if (game.playedCardsIndex !== N || trickCards.length < N || trickCards.some(c => !c)) {
         gameLogger.error('Trick state invalid after resolution delay, skipping', {
             gameId: game.gameId,
             playedCardsIndex: game.playedCardsIndex,
@@ -260,8 +287,10 @@ function resumeTrick(io, game) {
         return;
     }
 
-    const winner = determineWinner(game.playedCards, game.leadPosition, game.trump);
+    const winner = determineWinner(game.playedCards, game.leadPosition, game.trump, N);
 
+    // (At a Get Your Bid table the team counts only keep the hand's total:
+    // each seat's own tricks are game.handTricks)
     if (winner === 1 || winner === 3) {
         game.tricks.team1++;
     } else {
@@ -270,7 +299,7 @@ function resumeTrick(io, game) {
     // The won trick's cards (snapshot v2 trickHistory: a rejoin shows them)
     if (Array.isArray(game.trickHistory)) {
         const lead = game.leadPosition;
-        const cards = [0, 1, 2, 3].map((k) => game.playedCards[((lead - 1 + k) % 4)]);
+        const cards = Array.from({ length: N }, (_, k) => game.playedCards[((lead - 1 + k) % N)]);
         game.trickHistory.push({ winner, lead, cards: cards.map((c) => ({ suit: c.suit, rank: c.rank })) });
     }
 
@@ -291,7 +320,7 @@ function resumeTrick(io, game) {
 
     game.currentTurn = winner;
 
-    const lastTrick = game.cardIndex === game.currentHand * 4;
+    const lastTrick = game.cardIndex === game.currentHand * N;
     const lastHand = game.currentHand === 13;
     const handMs = lastHand ? pacing(game).GAME_END_MS : pacing(game).HAND_END_MS;
 
@@ -339,7 +368,7 @@ async function draw(socket, io, data) {
     game.broadcast(io, 'playerDrew', { username, card, drawOrder });
 
     // Check if all players have drawn
-    if (game.drawIndex === 4) {
+    if (game.drawIndex === game.seatCount) {
         await handleDrawComplete(io, game);
     }
 }
@@ -365,7 +394,7 @@ function autoDraw(io, game, socketId, username) {
  * call it; the DRAWING -> DRAW_RESOLVING latch makes it run exactly once.
  */
 async function handleDrawComplete(io, game) {
-    if (game.drawIDs.length !== 4) return;
+    if (game.drawIDs.length !== game.seatCount) return;
     game.clearTimer('draw:watchdog');
     if (!game.tryTransition(Phase.DRAWING, Phase.DRAW_RESOLVING)) return;
     // The profile lookups below wait on the DB
@@ -437,7 +466,10 @@ async function handleDrawComplete(io, game) {
     const takeovers = [];
     for (let i = 0; i < game.drawIDs.length; i++) {
         const playerId = game.drawIDs[i];
-        const position = determineDrawPosition(game.drawCards[i], game.drawCards);
+        // (Get Your Bid: three seats in draw order, no partner swap)
+        const position = isGyb(game)
+            ? gybDrawPosition(game.drawCards[i], game.drawCards)
+            : determineDrawPosition(game.drawCards[i], game.drawCards);
         const entrant = entrants?.get(playerId) ||
             { socketId: playerId, isBot: gameManager.isBot(playerId), username: null, presence: 'connected' };
 
@@ -599,15 +631,18 @@ async function handleDrawComplete(io, game) {
     if (seatingMs > 0 && !(await game.hold('seating', seatingMs, 'seatingToTeams'))) return;
 
     if (!game.transition(Phase.DRAW_RESOLVING, Phase.TEAMS_ANNOUNCED)) return;
-    const teamsMs = pacing(game).TEAMS_MS;
-    game.broadcast(io, 'teamsAnnounced', {
-        team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
-        team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4'],
-        resumeInMs: teamsMs // additive: time until createUI/gameStart
-    });
+    // Get Your Bid has no teams: nothing to announce, no hold
+    if (!isGyb(game)) {
+        const teamsMs = pacing(game).TEAMS_MS;
+        game.broadcast(io, 'teamsAnnounced', {
+            team1: [team1Player1?.username || 'Player 1', team1Player2?.username || 'Player 3'],
+            team2: [team2Player1?.username || 'Player 2', team2Player2?.username || 'Player 4'],
+            resumeInMs: teamsMs // additive: time until createUI/gameStart
+        });
 
-    // Wait for the team announcement to be seen
-    if (!(await game.hold('teams', teamsMs))) return;
+        // Wait for the team announcement to be seen
+        if (!(await game.hold('teams', teamsMs))) return;
+    }
 
     if (!game.transition(Phase.TEAMS_ANNOUNCED, Phase.DEALING)) return;
 
@@ -646,6 +681,11 @@ async function handleDrawComplete(io, game) {
  * @param {number} opts.handSize - cards per player
  * @param {boolean} [opts.firstHand=false] - pause 1s before the first updateTurn
  */
+/** Each seat's score at a Get Your Bid table, by position - 1. */
+function gybScores(game) {
+    return Array.from({ length: game.seatCount }, (_, i) => game.gyb.scores[i + 1] || 0);
+}
+
 async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     if (game.stage !== Phase.DEALING) {
         reportViolation('deal-wrong-stage', { gameId: game.gameId, stage: game.stage });
@@ -680,12 +720,15 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
     // Added to the stats only once the bids keep the hand (handlePostBid):
     // an all-zero redeal's hand is never counted in totalHands, so its HSI
     // must not be
+    // (Get Your Bid shows no HSI and keeps none: owner 2026-11-24)
     const hsiValues = {};
-    for (const socketId of socketIds) {
+    for (const socketId of isGyb(game) ? [] : socketIds) {
         const hand = game.getHand(socketId);
         const position = game.getPositionBySocketId(socketId);
         hsiValues[position] = calculateHSI(hand, game.trump);
     }
+    // Get Your Bid: each seat's score, by position - 1 (additive `gyb`)
+    const gybStart = isGyb(game) ? { gyb: { scores: gybScores(game) } } : null;
 
     // Store HSI values on game state for reconnection
     game.hsiValues = hsiValues;
@@ -729,10 +772,11 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             currentHand: game.currentHand,  // Hand index for hand indicator
             // Only the receiver's own seat (2026-11-21: all four leaked the
             // others' hand strength); every shipped client reads only its own
-            hsiValues: { [playerPosition]: hsiValues[playerPosition] },
+            hsiValues: isGyb(game) ? {} : { [playerPosition]: hsiValues[playerPosition] },
             playerInfo: info.players,  // Current player info for avatar updates
             seq: handSeq,  // additive: the deal's broadcast sequence number
-            ...(info.avatarUrls && { avatarUrls: info.avatarUrls })  // additive: custom pictures' URLs
+            ...(info.avatarUrls && { avatarUrls: info.avatarUrls }),  // additive: custom pictures' URLs
+            ...gybStart
         });
     }
 
@@ -754,7 +798,8 @@ async function dealHand(game, io, { dealer, handSize, firstHand = false }) {
             playerInfo: info.players,
             seq: handSeq,
             ...(info.avatarUrls && { avatarUrls: info.avatarUrls }),
-            ...(watched && { shoulder: shoulderView.shoulderPayload(game, watched) })
+            ...(watched && { shoulder: shoulderView.shoulderPayload(game, watched) }),
+            ...gybStart
         });
     }
 
@@ -839,7 +884,7 @@ async function bidAccepted(io, game, position, bid, timedOut) {
     });
 
     // Advance turn
-    game.currentTurn = rotatePosition(game.currentTurn);
+    game.currentTurn = rotatePosition(game.currentTurn, game.seatCount);
 
     // Timeouts in a row count as idle (bidClock strike rule): before the
     // next turn opens, so its trigger already sees the bot
@@ -892,16 +937,113 @@ async function playCard(socket, io, data) {
     botController.handleCardPlayedChat(io, game, card, position);
 
     // Advance turn
-    game.currentTurn = rotatePosition(game.currentTurn);
+    game.currentTurn = rotatePosition(game.currentTurn, game.seatCount);
 
     // Handle post-play logic (check for trick complete, trigger next bot, etc.)
     await handlePostPlay(io, game);
 }
 
+/**
+ * Score a finished hand of Get Your Bid (rules.gybHandScore): each seat for
+ * itself, exactly its bid or nothing, 1 point for the last bidder who took
+ * exactly their Forbidden Bid. Writes the hand's log lines and broadcasts
+ * handComplete (the team keys keep their shape and carry nothing; `gyb` is
+ * the hand).
+ * @returns {string[]} the game-over score lines
+ */
+function scoreGybHand(game, io) {
+    const N = game.seatCount;
+    const forbidden = game.gybForbidden();
+    const oldScores = gybScores(game);
+    const seats = [];
+    game.handStats.totalHands++;
+    game.addLogEntry('--- HAND COMPLETE ---', null, 'score');
+    for (let pos = 1; pos <= N; pos++) {
+        const bid = parseInt(game.playerBids[pos - 1], 10) || 0;
+        const took = game.handTricks[pos] || 0;
+        const mine = forbidden && forbidden.position === pos ? forbidden.bid : null;
+        const points = gybHandScore(bid, took, mine);
+        const forbiddenHit = mine !== null && took !== bid && took === mine;
+        game.gyb.scores[pos] += points;
+        if (took === bid) game.gyb.made[pos]++;
+        seats.push({ position: pos, bid, took, points, forbiddenHit });
+        const name = game.getPlayerByPosition(pos)?.username || `P${pos}`;
+        game.addLogEntry(`${name}: Bid ${bid}, Won ${took}${forbiddenHit ? ' (Forbidden Bid)' : ''}, +${points} → ${game.gyb.scores[pos]}`, null, 'score');
+    }
+    gameLogger.debug('Score update', { gyb: seats, scores: game.gyb.scores, gameId: game.gameId });
+
+    game.broadcast(io, 'handComplete', {
+        score: game.score,
+        team1Tricks: game.tricks.team1,
+        team2Tricks: game.tricks.team2,
+        team1OldScore: game.score.team1,
+        team2OldScore: game.score.team2,
+        gyb: { scores: gybScores(game), oldScores, seats, forbidden }
+    });
+
+    return Array.from({ length: N }, (_, i) =>
+        `${game.getPlayerByPosition(i + 1)?.username || `P${i + 1}`}: ${game.gyb.scores[i + 1]}`);
+}
+
+/** The seats with the highest score at the end of a Get Your Bid game (a tie shares the win). */
+function gybWinners(game) {
+    const scores = gybScores(game);
+    const top = Math.max(...scores);
+    return scores.map((s, i) => (s === top ? i + 1 : null)).filter(Boolean);
+}
+
 async function handleHandComplete(game, io) {
     if (game.stage !== Phase.HAND_RESOLVING) return;
     gameLogger.info('Hand complete', { gameId: game.gameId, handSize: game.currentHand });
+    const gyb = isGyb(game);
+    const finalLines = gyb ? scoreGybHand(game, io) : scoreClassicHand(game, io);
 
+    // Determine next hand (0: the 13-card hand was the last)
+    const nextDealer = rotatePosition(game.dealer, game.seatCount);
+    const nextHandSize = handSizeAfter(game.currentHand);
+
+    if (nextHandSize === 0) {
+        // Game over - add final score to log
+        game.addLogEntry('=== GAME OVER ===', null, 'score');
+        for (const line of finalLines) game.addLogEntry(line, null, 'score');
+
+        gameLogger.info('Game ended', { gameId: game.gameId, finalScore: gyb ? game.gyb.scores : game.score });
+
+        // Build player stats with usernames for final score screen
+        const playerStatsWithNames = {};
+        const totalHands = game.handStats.totalHands;
+        for (let pos = 1; pos <= game.seatCount; pos++) {
+            const player = game.getPlayerByPosition(pos);
+            playerStatsWithNames[pos] = {
+                username: player?.username || `P${pos}`,
+                ...game.playerStats[pos],
+                avgHSI: totalHands > 0 ? Math.round(game.playerStats[pos].totalHSI / totalHands) : 0
+            };
+        }
+        // Get Your Bid: the final scores, who won (a tie shares it) and
+        // how many hands each seat got its bid, by position - 1
+        const gybEnd = gyb ? {
+            gyb: {
+                scores: gybScores(game),
+                winners: gybWinners(game),
+                made: Array.from({ length: game.seatCount }, (_, i) => game.gyb.made[i + 1] || 0),
+                hands: totalHands
+            }
+        } : null;
+        await finishGame(game, io, { playerStatsWithNames, gybEnd });
+    } else {
+        gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
+        if (!game.transition(Phase.HAND_RESOLVING, Phase.DEALING)) return;
+        await dealHand(game, io, { dealer: nextDealer, handSize: nextHandSize });
+    }
+}
+
+/**
+ * Score a finished hand of the base game: the two teams' points, the stats,
+ * the hand's log lines, handComplete and the fault lines.
+ * @returns {string[]} the game-over score lines
+ */
+function scoreClassicHand(game, io) {
     const team1OldScore = game.score.team1;
     const team2OldScore = game.score.team2;
 
@@ -1014,139 +1156,125 @@ async function handleHandComplete(game, io) {
     botController.updatePartnerHistory(game);
     botController.handleHandCompleteChat(io, game);
 
-    // Determine next hand (0: the 13-card hand was the last)
-    const nextDealer = rotatePosition(game.dealer);
-    const nextHandSize = handSizeAfter(game.currentHand);
+    return [`${team1Name}: ${game.score.team1}`, `${team2Name}: ${game.score.team2}`];
+}
 
-    if (nextHandSize === 0) {
-        // Game over - add final score to log
-        game.addLogEntry('=== GAME OVER ===', null, 'score');
-        game.addLogEntry(`${team1Name}: ${game.score.team1}`, null, 'score');
-        game.addLogEntry(`${team2Name}: ${game.score.team2}`, null, 'score');
+/**
+ * The end of the game (after the last hand's scoring and the game-over log
+ * lines): gameEnd, retire, play again, the stats and the tournament.
+ */
+async function finishGame(game, io, { playerStatsWithNames, gybEnd }) {
+    const gyb = isGyb(game);
+    // Check for tournament context
+    const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
 
-        gameLogger.info('Game ended', { gameId: game.gameId, finalScore: game.score });
+    // /help and the tutorial: a private line to each player this game
+    // counted as bot-assisted for, and the tutorial's last tip (before
+    // gameEnd: nothing is sent after it)
+    assistHandlers.gameEndLines(io, game);
 
-        // Build player stats with usernames for final score screen
-        const playerStatsWithNames = {};
-        const totalHands = game.handStats.totalHands;
-        for (let pos = 1; pos <= 4; pos++) {
-            const player = game.getPlayerByPosition(pos);
-            playerStatsWithNames[pos] = {
-                username: player?.username || `P${pos}`,
-                ...game.playerStats[pos],
-                avgHSI: totalHands > 0 ? Math.round(game.playerStats[pos].totalHSI / totalHands) : 0
-            };
-        }
+    // gameEnd goes out first, then ENDED + epoch bump + timer
+    // cancellation (synchronously). False: the game was aborted
+    // meanwhile, so the tournament must not be resolved a second time.
+    if (!game.terminate(io, Phase.ENDED, 'gameEnd', {
+        score: game.score,
+        playerStats: playerStatsWithNames,
+        tournamentId,
+        ...gybEnd
+    })) return;
 
-        // Check for tournament context
-        const tournamentId = gameManager.tournamentGames.get(game.gameId) || null;
+    // A finished game: every new account that played it to the end is
+    // no longer new (users.tutorial 'pending' -> 'done'; fire-and-forget).
+    // Not a Get Your Bid game: the tutorial is the base game's
+    if (!gyb) assistHandlers.gameFinished(io, game);
 
-        // /help and the tutorial: a private line to each player this game
-        // counted as bot-assisted for, and the tutorial's last tip (before
-        // gameEnd: nothing is sent after it)
-        assistHandlers.gameEndLines(io, game);
+    // Play again (a lobby-born casual game): who is where, read before
+    // _retire clears the spectators and the voice room
+    const playAgainPlan = playAgain.plan(game, io, { score: game.score, playerStats: playerStatsWithNames, ...gybEnd });
 
-        // gameEnd goes out first, then ENDED + epoch bump + timer
-        // cancellation (synchronously). False: the game was aborted
-        // meanwhile, so the tournament must not be resolved a second time.
-        if (!game.terminate(io, Phase.ENDED, 'gameEnd', {
-            score: game.score,
-            playerStats: playerStatsWithNames,
-            tournamentId
-        })) return;
+    // Retire: bots, room, every playerGames entry (players can create
+    // new lobbies / return to the tournament right away)
+    gameManager.endGame(game.gameId, io);
 
-        // A finished game: every new account that played it to the end is
-        // no longer new (users.tutorial 'pending' -> 'done'; fire-and-forget)
-        assistHandlers.gameFinished(io, game);
+    // ...then, before the first await, the lobby reopens with everyone
+    // capable still at the table (lobbyReturn after their gameEnd)
+    playAgain.open(io, playAgainPlan);
 
-        // Play again (a lobby-born casual game): who is where, read before
-        // _retire clears the spectators and the voice room
-        const playAgainPlan = playAgain.plan(game, io, { score: game.score, playerStats: playerStatsWithNames });
+    // Persist stats in the background: a slow DB must not hold up the
+    // end of the game for the players. Retried, replay-safe and waited
+    // for by a graceful shutdown (profileHandlers, End-of-game writes)
+    // A Get Your Bid game records nothing (owner 2026-11-24: no stats,
+    // standings or game records for the mode yet)
+    const store = liveStore();
+    if (gyb) {
+        // nothing to persist
+    } else if (store.claimable(game)) {
+        // Deploy survival (LIVE_PERSIST write; persist/liveStore.js):
+        // the record is built once, and the game's saved doc becomes
+        // the ENDED tombstone holding it BEFORE the stats start, so a
+        // kill between the two can still record it exactly once. The
+        // tombstone goes once the record's insert is acknowledged. The
+        // one await in game code; bounded, and in write mode it never
+        // fences (the end goes on as below whatever it answers). The
+        // claim and the stats it holds up are ONE in-flight write, so a
+        // SIGTERM during a slow claim still waits for the stats (and
+        // the store's close ends the claim's wait at once)
+        const record = buildGameEndRecord(game);
+        const claim = store.claimEnded(game, { record, tournamentId });
+        trackInFlight(Promise.resolve(claim).then((outcome) => {
+            if (outcome === 'fenced') return null;
+            return recordGameStats(game, { record, onRecorded: () => store.recordAcked(game.gameId) })
+                .finally(() => store.recordSettled(game.gameId));
+        }).catch(logContinuationError('recordGameStats', game)));
+        if ((await claim) === 'fenced') return;
+    } else {
+        recordGameStats(game).catch(logContinuationError('recordGameStats', game));
+    }
 
-        // Retire: bots, room, every playerGames entry (players can create
-        // new lobbies / return to the tournament right away)
-        gameManager.endGame(game.gameId, io);
+    // Clear active game for all players
+    try {
+        await gameManager.clearActiveGameForAll(game.gameId, game);
+    } catch (err) {
+        logContinuationError('clearActiveGameForAll', game)(err);
+    }
 
-        // ...then, before the first await, the lobby reopens with everyone
-        // capable still at the table (lobbyReturn after their gameEnd)
-        playAgain.open(io, playAgainPlan);
+    // Tournament-specific: record scores and check round completion
+    if (tournamentId) {
+        // Re-resolved after the await: a cancel meanwhile deleted the
+        // tournament and this game's mapping, and nothing is recorded
+        const tournament = gameManager.tournamentGames.get(game.gameId) === tournamentId
+            ? gameManager.getTournamentById(tournamentId)
+            : null;
+        if (tournament) {
+            // Each member at the table: their team's final score, into
+            // the round this game was created in (not filler bots)
+            recordTableScores(tournament, game);
 
-        // Persist stats in the background: a slow DB must not hold up the
-        // end of the game for the players. Retried, replay-safe and waited
-        // for by a graceful shutdown (profileHandlers, End-of-game writes)
-        const store = liveStore();
-        if (store.claimable(game)) {
-            // Deploy survival (LIVE_PERSIST write; persist/liveStore.js):
-            // the record is built once, and the game's saved doc becomes
-            // the ENDED tombstone holding it BEFORE the stats start, so a
-            // kill between the two can still record it exactly once. The
-            // tombstone goes once the record's insert is acknowledged. The
-            // one await in game code; bounded, and in write mode it never
-            // fences (the end goes on as below whatever it answers). The
-            // claim and the stats it holds up are ONE in-flight write, so a
-            // SIGTERM during a slow claim still waits for the stats (and
-            // the store's close ends the claim's wait at once)
-            const record = buildGameEndRecord(game);
-            const claim = store.claimEnded(game, { record, tournamentId });
-            trackInFlight(Promise.resolve(claim).then((outcome) => {
-                if (outcome === 'fenced') return null;
-                return recordGameStats(game, { record, onRecorded: () => store.recordAcked(game.gameId) })
-                    .finally(() => store.recordSettled(game.gameId));
-            }).catch(logContinuationError('recordGameStats', game)));
-            if ((await claim) === 'fenced') return;
-        } else {
-            recordGameStats(game).catch(logContinuationError('recordGameStats', game));
-        }
+            // Handle tournament game end (mark complete, check round)
+            const result = gameManager.handleTournamentGameEnd(game.gameId);
 
-        // Clear active game for all players
-        try {
-            await gameManager.clearActiveGameForAll(game.gameId, game);
-        } catch (err) {
-            logContinuationError('clearActiveGameForAll', game)(err);
-        }
+            // Broadcast game complete to tournament room
+            tournament.broadcast(io, 'tournamentGameComplete', {
+                gameId: game.gameId,
+                score: game.score,
+                activeGames: tournament.getActiveGames(),
+                scoreboard: tournament.getScoreboard(),
+                currentRound: tournament.currentRound,
+                totalRounds: tournament.totalRounds
+            });
 
-        // Tournament-specific: record scores and check round completion
-        if (tournamentId) {
-            // Re-resolved after the await: a cancel meanwhile deleted the
-            // tournament and this game's mapping, and nothing is recorded
-            const tournament = gameManager.tournamentGames.get(game.gameId) === tournamentId
-                ? gameManager.getTournamentById(tournamentId)
-                : null;
-            if (tournament) {
-                // Each member at the table: their team's final score, into
-                // the round this game was created in (not filler bots)
-                recordTableScores(tournament, game);
-
-                // Handle tournament game end (mark complete, check round)
-                const result = gameManager.handleTournamentGameEnd(game.gameId);
-
-                // Broadcast game complete to tournament room
-                tournament.broadcast(io, 'tournamentGameComplete', {
-                    gameId: game.gameId,
-                    score: game.score,
-                    activeGames: tournament.getActiveGames(),
-                    scoreboard: tournament.getScoreboard(),
-                    currentRound: tournament.currentRound,
-                    totalRounds: tournament.totalRounds
-                });
-
-                if (result && result.roundComplete) {
-                    // Broadcasts tournamentRoundComplete, or tournamentComplete
-                    // with the tournament kept alive briefly so players can
-                    // return from the game-end screen and see final standings
-                    const { broadcastRoundOutcome } = require('./tournamentHandlers');
-                    await broadcastRoundOutcome(io, tournament);
-                }
+            if (result && result.roundComplete) {
+                // Broadcasts tournamentRoundComplete, or tournamentComplete
+                // with the tournament kept alive briefly so players can
+                // return from the game-end screen and see final standings
+                const { broadcastRoundOutcome } = require('./tournamentHandlers');
+                await broadcastRoundOutcome(io, tournament);
             }
         }
-
-        // Notify main room that an in-progress game has ended
-        emitLobbiesUpdated(io);
-    } else {
-        gameLogger.debug('Starting next hand', { dealer: nextDealer, handSize: nextHandSize, gameId: game.gameId });
-        if (!game.transition(Phase.HAND_RESOLVING, Phase.DEALING)) return;
-        await dealHand(game, io, { dealer: nextDealer, handSize: nextHandSize });
     }
+
+    // Notify main room that an in-progress game has ended
+    emitLobbiesUpdated(io);
 }
 
 /**

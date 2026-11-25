@@ -64,6 +64,7 @@ describe('the emit gate', () => {
     socket.clearEmits();
     sendChat('while down');
     document.querySelector('#mainRoomContainer .room-create button').click(); // + Create Game
+    document.getElementById('createGameClassic').click(); // ...the base game (the dialog's first choice)
     expect(socket.emitted('mainRoomChat')).toEqual([]);
     expect(socket.emitted('createLobby')).toEqual([]);
     expect(page.socketManager.heldEvents).toEqual(['mainRoomChat', 'createLobby']);
@@ -147,6 +148,7 @@ describe('the emit gate', () => {
     comeBack();
     socket.clearEmits();
     document.querySelector('#mainRoomContainer .room-create button')?.click();
+    document.getElementById('createGameClassic')?.click(); // the dialog's first choice: the base game
     expect(page.socketManager.heldEvents).toEqual(['createLobby']);
     socket.fire('restoreSessionResponse', { success: false, message: 'Invalid session token' });
     expect(page.session.screen).toBe(SCREEN.SIGN_IN);

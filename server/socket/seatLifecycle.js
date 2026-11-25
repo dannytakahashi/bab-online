@@ -95,7 +95,7 @@ function createSeatBot(game, pos, preferred = null) {
     bot.pic = randomStockPic();
     botController.registerBot(game.gameId, bot);
     bot.resetCardMemory(game.currentHand, game.trump);
-    bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game));
+    bot.replayCardMemory(game.trump, game.trickHistory, openTrick(game, game.seatCount));
     gameManager.playerGames.set(bot.socketId, game.gameId);
     return bot;
 }
@@ -305,7 +305,7 @@ function reofferAfter(io, game, pos, why) {
  * @returns {boolean} true if it aborted the game now
  */
 function maybeAbort(io, game) {
-    if (game.isTerminal() || game.seatList().length < 4) return false;
+    if (game.isTerminal() || game.seatList().length < game.seatCount) return false;
     const owned = game.seatList().filter(s => s.ownerUsername);
     if (owned.length === 0) return false;
     if (game.hasPresentHuman()) {
@@ -1026,7 +1026,7 @@ function startDrawWatchdog(io, game) {
             }
             socketLogger.info('Draw watchdog auto-drew', { gameId: game.gameId, socketId: e.socketId, presence: e.presence });
         }
-        if (game.drawIndex === 4) {
+        if (game.drawIndex === game.seatCount) {
             return handleDrawComplete(io, game);
         }
     });

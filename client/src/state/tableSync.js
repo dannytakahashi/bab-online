@@ -61,7 +61,12 @@ export function tableSnapshotOf(payload, { role } = {}) {
 export function applyTableSnapshot(payload, { source = 'other', role, render } = {}) {
   const snap = tableSnapshotOf(payload, { role });
   if (!snap) return null;
-  getGameState().applySnapshot(snap, { players: Array.isArray(payload.players) ? payload.players : null });
+  getGameState().applySnapshot(snap, {
+    players: Array.isArray(payload.players) ? payload.players : null,
+    // a Get Your Bid table's own state rides beside its snapshot (the
+    // carrier's `gyb`: scores, the Forbidden Bid, this deal's tricks)
+    gyb: payload.gyb && typeof payload.gyb === 'object' ? payload.gyb : null,
+  });
   if (snap.viewer?.assist) noteAssistUses(snap.viewer.assist, snap.gameId);
   // the tutorial: viewer.assist.tutorial / .auto, there only while it is on
   // (a spectator's snapshot has no viewer.assist: off)

@@ -8,15 +8,21 @@
 
 import { getUsernameColor } from '../../utils/colors.js';
 import { getGameState } from '../../state/GameState.js';
-import { bidTotalsFor } from '../../rules/bids.js';
+import { bidTotalsFor, bidTricks } from '../../rules/bids.js';
+import { seatLetter } from '../../utils/positions.js';
+import { soloHeaderRows } from '../../state/gyb.js';
 import { isChatAtEnd, scrollChatToEnd } from '../screens/common.js';
 import { scoreHeaderNames } from './ScoreModal.js';
 import { isPureSpectator } from '../../state/shoulder.js';
 import { helpDescription, helpIsUnlimited, HELP_COMMAND } from '../../state/assistHint.js';
 import { tutorialDescription, tutorialIsOn, TUTORIAL_COMMAND } from '../../state/tutorial.js';
 
-/** A team's class by game position (team A: seats 1 and 3, team B: 2 and 4). */
-const teamOf = (pos) => (Number(pos) % 2 === 1 ? 'a' : 'b');
+/**
+ * A seat's colour class by game position (team A: seats 1 and 3, team B: 2
+ * and 4; at a three-seat table, Get Your Bid, each seat its own: a / b / c).
+ */
+const teamOf = (pos) => seatLetter(pos, getGameState().seatCount);
+const TEAM_CLASSES = ['is-team-a', 'is-team-b', 'is-team-c'];
 
 /**
  * The seat the log is read from: a seat's (a lazy watcher's too) own; a
@@ -86,6 +92,12 @@ export function createGameLog({ onChatSubmit } = {}) {
   handIndicator.className = 'log-hand';
   handIndicator.append(line('log-hand__label', 'Hand'), line('log-hand__value', '-', 'hand-indicator-value'));
 
+  // A three-seat table's third player (Get Your Bid: updateSoloScore): in
+  // the header only at such a table, so every other table's is as it was
+  const opp2ScoreDiv = document.createElement('div');
+  opp2ScoreDiv.id = 'opp2ScoreDisplay';
+  opp2ScoreDiv.className = 'log-score__team is-opp';
+
   scoreSection.appendChild(teamScoreDiv);
   scoreSection.appendChild(handIndicator);
   scoreSection.appendChild(oppScoreDiv);
@@ -153,6 +165,29 @@ export function createGameLog({ onChatSubmit } = {}) {
     const state = getGameState();
     const bids = state.bids || {};
     const seat = viewerSeat(state);
+    if (state.isSolo) {
+      // each seat's bid in its own colour: the viewer's, then the next in turn
+      const runs = soloHeaderRows(state, { spectator: isPureSpectator(state) })
+        .map((r) => ({ letter: r.letter, mine: r.mine, n: bidTricks(bids[r.position], trickHandSize) ?? 0 }));
+      const total = runs.reduce((n, r) => n + r.n, 0);
+      const needed = Math.min(Math.max(total, trickHandSize), 16);
+      while (trickRects.length < needed) {
+        const rect = createTrickRect();
+        trickRects.push(rect);
+        trickIndicatorRow.appendChild(rect);
+      }
+      while (trickRects.length > needed) trickRects.pop().remove();
+      const owner = [];
+      for (const r of runs) for (let k = 0; k < r.n; k++) owner.push(r);
+      trickRects.forEach((rect, i) => {
+        const r = owner[i] || null;
+        rect.classList.toggle('is-team', !!r && r.mine);
+        rect.classList.toggle('is-opp', !!r && !r.mine);
+        for (const c of TEAM_CLASSES) rect.classList.toggle(c, !!r && c === `is-team-${r.letter}`);
+        rect.classList.toggle('is-overbid', i >= trickHandSize);
+      });
+      return;
+    }
     const isTeam1 = seat % 2 === 1;
     // team totals ({team1, team2}) as given; bids by position through
     // rules/bids.js: a bore counts as the whole hand, each team capped at
@@ -241,6 +276,8 @@ export function createGameLog({ onChatSubmit } = {}) {
     if (gameState.isSpectator && !gameState.isLazy) {
       return SPECTATOR_SLASH_COMMANDS;
     }
+    // (no /help and no tutorial at a Get Your Bid table)
+    if (gameState.isSolo) return ALL_SLASH_COMMANDS.filter((c) => c.command !== HELP_COMMAND && c.command !== TUTORIAL_COMMAND);
     return ALL_SLASH_COMMANDS;
   };
 
@@ -551,6 +588,10 @@ export function createGameLog({ onChatSubmit } = {}) {
   const updateFullScore = (teamNames, oppNames, teamScore, oppScore, teamBids = '-/-', oppBids = '-/-', teamTricks = 0, oppTricks = 0) => {
     const teamDiv = container.querySelector('#teamScoreDisplay');
     const oppDiv = container.querySelector('#oppScoreDisplay');
+    // (two sides: a three-seat table's third cell and grid go)
+    scoreSection.classList.remove('is-solo');
+    opp2ScoreDiv.remove();
+    teamDiv?.classList.remove('is-me');
 
     // Names are usernames, so build with textContent rather than innerHTML
     const fillScore = (div, names, score, bids, tricks) => {
@@ -565,9 +606,9 @@ export function createGameLog({ onChatSubmit } = {}) {
     if (gs.position || gs.isSpectator) {
       const mine = teamOf(viewerSeat(gs));
       const theirs = mine === 'a' ? 'b' : 'a';
-      teamDiv?.classList.remove('is-team-a', 'is-team-b');
+      teamDiv?.classList.remove(...TEAM_CLASSES);
       teamDiv?.classList.add(`is-team-${mine}`);
-      oppDiv?.classList.remove('is-team-a', 'is-team-b');
+      oppDiv?.classList.remove(...TEAM_CLASSES);
       oppDiv?.classList.add(`is-team-${theirs}`);
     }
 
@@ -578,6 +619,35 @@ export function createGameLog({ onChatSubmit } = {}) {
     if (oppDiv) {
       fillScore(oppDiv, oppNames, oppScore, oppBids, oppTricks);
     }
+  };
+
+  /**
+   * The score header of a three-seat table (Get Your Bid, owner
+   * 2026-11-24: "the game log header ... now needs to show 3 scores"): one
+   * cell per player, the viewer's first (state/gyb.js soloHeaderRows), each
+   * the name, the score and "Bid n | Won m" in the seat's own colour; the
+   * hand indicator moves to its own row under them (table.css
+   * .log-score.is-solo).
+   * @param {Array<{name, score, bid, tricks, letter, mine}>} rows - three
+   */
+  const updateSoloScore = (rows = []) => {
+    const cells = [teamScoreDiv, oppScoreDiv, opp2ScoreDiv];
+    scoreSection.classList.add('is-solo');
+    // the three players, then the hand indicator on its own row
+    if (!opp2ScoreDiv.isConnected) scoreSection.append(teamScoreDiv, oppScoreDiv, opp2ScoreDiv, handIndicator);
+    cells.forEach((cell, i) => {
+      const r = rows[i];
+      cell.hidden = !r;
+      if (!r) return;
+      cell.classList.remove(...TEAM_CLASSES);
+      cell.classList.add(`is-team-${r.letter}`);
+      cell.classList.toggle('is-me', !!r.mine);
+      cell.replaceChildren(
+        line('log-score__names', r.name ?? ''),
+        line('log-score__value', r.score ?? 0),
+        line('log-score__detail', `Bid ${r.bid ?? '-'} | Won ${r.tricks ?? 0}`),
+      );
+    });
   };
 
   /**
@@ -603,6 +673,7 @@ export function createGameLog({ onChatSubmit } = {}) {
     addFaultMessage,
     addHelpMessage,
     addTutorialMessage,
+    updateSoloScore,
     addGameMessage,
     addTrickResult,
     updateScores,
