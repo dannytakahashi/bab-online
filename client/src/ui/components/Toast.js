@@ -15,10 +15,11 @@ export { TOAST_DURATION, TOAST_SHORT };
  * @param {Object} options - Toast options
  * @param {string} options.type - 'info' | 'success' | 'error' | 'warning'
  * @param {number} options.duration - Display duration in ms
+ * @param {string|string[]} [options.art] - picture(s) in place of the type's icon
  * @returns {HTMLElement}
  */
-export function showToast(message, { type = 'info', duration = TOAST_DURATION } = {}) {
-  return toast(message, { type, duration });
+export function showToast(message, { type = 'info', duration = TOAST_DURATION, art = null } = {}) {
+  return toast(message, { type, duration, art });
 }
 
 /** Show an error toast. */

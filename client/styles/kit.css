@@ -482,6 +482,19 @@ body.has-connection-banner .kit-toast-region {
     height: 20px;
 }
 
+/* Pictures in place of the icon (a badge just earned: ui/components/Badges.js) */
+.kit-toast__art {
+    flex: none;
+    display: inline-flex;
+    gap: var(--space-1);
+}
+
+.kit-toast__art img {
+    display: block;
+    width: 40px;
+    height: 40px;
+}
+
 .kit-toast__disc { fill: currentColor; }
 
 .kit-toast__glyph {

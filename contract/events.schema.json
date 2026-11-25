@@ -1415,6 +1415,34 @@
     "clientCapTournamentVoiceStatus": {
       "const": "tournamentVoiceStatus"
     },
+    "clientCapBadges": {
+      "const": "badges"
+    },
+    "earnedBadge": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description"
+      ],
+      "additionalProperties": false
+    },
     "gybMode": {
       "const": "gyb"
     },
@@ -9492,6 +9520,41 @@
       ],
       "notes": "New (2026-11-19, the tutorial; private, unsequenced): the seat owner's /help and tutorial state, sent ONLY to a socket with the clientHello cap tutorial ($defs.clientCapTutorial): on every change (/tutorial on / off, the auto-start, the first own decision of an auto-started tutorial making the game bot-assisted, a counted /help) and after rejoinSuccess / restorePlayerState (and a lazy owner's watch). A client shows the 'Tutorial on' chip with its off switch while tutorial is true (the off switch sends chatMessage '/tutorial off'); after a reload snapshot v2's viewer.assist carries tutorial / auto too. Shipped iOS builds never send the cap, so never get it. Owner wording rule in a game with a native bot seat (unlimited): no count, free, limit or bot-assisted words."
     },
+    "badgesAwarded": {
+      "payload": {
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string"
+          },
+          "badges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/earnedBadge"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "gameId",
+          "badges"
+        ],
+        "additionalProperties": false
+      },
+      "status": "active",
+      "to": "socket",
+      "seq": false,
+      "clientReads": {
+        "web": [
+          "client/src/handlers/profileHandlers.js:registerProfileHandlers"
+        ],
+        "ios": []
+      },
+      "emittedFrom": [
+        "server/socket/badgeAwards.js:notify"
+      ],
+      "notes": "New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game's stats are written, so shortly after gameEnd, ONLY to the player's live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile."
+    },
     "profileResponse": {
       "payload": {
         "anyOf": [
@@ -9514,6 +9577,12 @@
                   "bots",
                   "all"
                 ]
+              },
+              "badges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/earnedBadge"
+                }
               }
             },
             "required": [
@@ -9545,9 +9614,10 @@
       "to": "self",
       "added": [
         "avatarUrl",
-        "scope"
+        "scope",
+        "badges"
       ],
-      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
+      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch). badges (additive 2026-11-25): the badges this player has earned (server/game/badges.js publicBadges: oldest first, each once, whatever the scope), ONLY for a socket with the clientHello cap badges ($defs.clientCapBadges); never an unearned one.",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"
@@ -9764,6 +9834,12 @@
                   "bots",
                   "all"
                 ]
+              },
+              "badges": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/earnedBadge"
+                }
               }
             },
             "required": [
@@ -9795,9 +9871,10 @@
       "to": "self",
       "added": [
         "avatarUrl",
-        "scope"
+        "scope",
+        "badges"
       ],
-      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch).",
+      "notes": "scope (additive 2026-11-13): the stats scope the request asked for (human | bots | all; an unknown value is human), echoed ONLY when the request carried a scope key, so a payload-less request (iOS, every shipped build) gets exactly the earlier reply. leaderboardResponse and recordsResponse failures echo it too (iOS 1.2.1 build 8 keeps a request in flight per scope and files a failure under the scope that asked); profile failures do not. The web client drops a reply whose scope is not its current choice (a stale reply after a fast switch). badges (additive 2026-11-25): the badges this player has earned (server/game/badges.js publicBadges: oldest first, each once, whatever the scope), ONLY for a socket with the clientHello cap badges ($defs.clientCapBadges); never an unearned one.",
       "clientReads": {
         "web": [
           "client/src/handlers/profileHandlers.js:registerProfileHandlers"

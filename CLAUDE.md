@@ -49,6 +49,7 @@ bab-online/
 │   │   ├── pacing.js          # EVERY presentation delay + bot think range (profiles, solo overlay, shipped-iOS floors)
 │   │   ├── TournamentState.js # Per-tournament state (1-5 rounds, the host's pick; scoreboard; the cut)
 │   │   ├── cutForABuck.js     # Cut for a buck's pure engine (the tournament finale; socket/cutForABuck.js runs it)
+│   │   ├── badges.js          # Badges: catalog, per-game tracker, which seat earned what (human games only)
 │   │   └── bot/               # AI player system (strategy, personalities, sim/ harness)
 │   ├── socket/                # Socket.IO handlers by domain
 │   │   ├── gameHandlers.js    # Core gameplay (draw, bid, play)
@@ -58,6 +59,7 @@ bab-online/
 │   │   ├── authHandlers.js    # Sign-in/up, account deletion, signOutUser (forceLogout flow)
 │   │   ├── adminHandlers.js   # Admin panel API (adminRequest/adminResponse), DB-checked per request
 │   │   ├── upgradeGate.js     # Update screen for old iOS apps (User-Agent build < 3, or BAB_MIN_IOS_BUILD if higher; updateRequired; UPGRADE_GATE=off)
+│   │   ├── badgeAwards.js     # Badges: award once per player after a game's stats, lifetime badges, badgesAwarded
 │   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
 │   ├── admin/                 # Account admin logic: scripts/ CLIs + the web admin panel (role, reset links, audit, merge view)
@@ -74,7 +76,7 @@ bab-online/
 │   │   └── ttlCache.js        # Leaderboard/records caches
 │   └── __tests__/             # Jest tests
 │
-├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only), backup-db.js / restore-db.js (logical DB backup and restore); build-avatars.js, build-tokens.js (npm run tokens), build-sounds.py (npm run build:sounds); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
+├── scripts/                    # Owner-run CLIs: merge-accounts.js, set-password.js, set-admin.js, avatar-report.js (read-only), backup-db.js / restore-db.js (logical DB backup and restore), backfill-badges.js (badges the records prove; read-only without --apply); build-avatars.js, build-badges.py (the 20 badge SVGs), build-tokens.js (npm run tokens), build-sounds.py (npm run build:sounds); ios-live-resume-harness.sh (+ preload: local server for the iOS live resume tests); ci-boot-check.sh (CI: poll /health etc., fail if the server died)
 │
 ├── contract/                   # Socket contract: schema source, generator, v1 + per-iOS-build baselines, v2 fixtures (dev/test only)
 │
@@ -104,6 +106,8 @@ bab-online/
 **/help** (2026-11-18): a seat owner's `chatMessage '/help'` (or the exact line `?help`, for shipped iOS) on their turn → the bid or card a Mary bot would choose, privately (`assistHint` with the clientHello cap `assist`, else private unstored `gameLogEntry` lines); a counted use posts the room line "<name> used /help." (with `help {position}`: both clients draw it gold, 2026-11-23); 3 free per game, the 4th makes the game bot-assisted for that player (owner 2026-11-21: only a win goes to their `botStats`, a loss or tie stays in their human `stats`, so /help cannot carry a losing game off the leaderboard; the tutorial alike; `docs/claude/assist.md`). In a game with a native bot seat (lobby Add Bot, tournament filler, solo; never a lazy or resign bot: `assistState.isFreeHelpGame`) /help is unlimited and players see no count, limit or warning (`assistHint` / `viewer.assist` carry `unlimited: true`), the room notice stays and the record still marks more than 3 uses (owner 2026-11-19). Clients label the ask "Ask a bot for advice". **/tutorial** (2026-11-19, the lean scope with the fade-out): `/tutorial` toggles, `/tutorial on|off` sets (chatMessage; no `?tutorial`); while on, each own non-forced decision gets the same /help answer pushed (`assistHint source 'tutorial'`, never counted or announced) plus rule tips (`server/game/assist/curriculum.js`: one per own decision, one between, each once per game), fading out after the 2-card hand to tricky choices only; a new account's first game starts with it on for a client with the clientHello cap `tutorial` (`users.tutorial` 'pending', never at tournament tables); turning it on makes the game bot-assisted for that player (not an auto-start turned off before their first decision); s2c `assistState` (cap `tutorial`) and snapshot `viewer.assist.tutorial` carry the state (`docs/claude/assist.md`, The tutorial).
 
 **Get Your Bid** (2026-11-24): a second game mode, a lobby option on the web only (`createLobby {mode: 'gyb'}`, the clientHello cap `getYourBid`; never a tournament table, no iOS build, no stats). Three seats, no teams: exactly your bid scores 10 + the bid (an exact 0 scores 5), anything else nothing; no bores; on hands of 5 or more cards the last bidder may not make the bids add up to the hand (the Forbidden Bid, worth 1 point if taken anyway); all zeros is played, led by the first bidder. Same events, with additive `gyb` / `mode` keys (`server/CLAUDE.md`, Get Your Bid; `docs/claude/web-table.md`, Get Your Bid on the web).
+
+**Badges** (2026-11-25; web only, no iOS change): 20 achievements a player earns in HUMAN games only (the leaderboard's rule: a seat whose stats go to `users.stats`; never a bot game, a /help-assisted win or a Get Your Bid game). Earned badges show on the web profile pages below the statistics (the own profile and any player's), and a game that newly earns one sends the private s2c `badgesAwarded {gameId, badges}` after its stats are written (a toast over the score screen); `profileResponse` / `playerProfileResponse` carry `badges` (earned only), all three only for the clientHello cap `badges`. A badge nobody earned is never shown or named: the catalog stays on the server (owner: "they should be a surprise"). Rules and catalog `server/game/badges.js`, awards `server/socket/badgeAwards.js`, art `client/assets/badges/<id>.svg` (`scripts/build-badges.py`), the owner-run backfill `scripts/backfill-badges.js` (`server/CLAUDE.md`, Badges; `docs/claude/web-client.md`, Badges and the Players page).
 
 **Safety**: `reportUser` → `reportUserResponse` (stored in `reports` collection); `blockUser`/`unblockUser` → `blockListUpdated`. Chat is profanity-filtered server-side; clients hide blocked users' messages.
 
@@ -161,6 +165,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Pacing | `server/CLAUDE.md`, Pacing | `pacing.js` profiles, SOLO overlay, iOS floors, resume holds, rate limits, the manual pacing check |
 | Bots | `server/CLAUDE.md`, Bots | bot socket ids, strategy + personalities, `npm run sim` benchmark, lazy-bot timers |
 | /help and /tutorial (assist) | `docs/claude/assist.md` | `server/game/assist`: `curriculum` (the tutorial's tips, budget and fade-out), `seatView` (the only game reader), `advise` (Mary's bid or card), `explain` (words from the decision trace), copy rules, owner-review fixtures, coverage and threshold sims; `server/socket/assistHandlers.js`: /help and ?help, guards, cache, budget, counting (3 free, the 4th makes the game bot-assisted; unlimited with a native bot seat), the room notice, assistHint (cap `assist`) or private lines, the stats marker |
+| Badges | `server/CLAUDE.md`, Badges; `docs/claude/web-client.md`, Badges and the Players page | `game/badges.js` (catalog, `game.badgeTrack`, `gameBadges`), `statsDeltas.badges` / `overtrumped` on the record, `socket/badgeAwards.js` (guarded `$push` into `users.badges`, lifetime badges, `badgesAwarded`), the cap `badges`, merge carry-over, the backfill script |
 | Socket rooms, draw watchdog | `server/CLAUDE.md`, Socket rooms and draw watchdog | `game:` / `tournament:` rooms; the 30 s auto-draw |
 | Seats and presence | `server/CLAUDE.md`, Seats and presence | SeatState records, `playerGames`, /leave /lazy /active (incl. the iOS Leave alert: `LeaveAlertPresenter` UIAlertController, `LeaveOutcome`), grace / resign / abort, AFK, lazy rejoin |
 | Lobby seats | `server/CLAUDE.md`, Lobby seats | one lobby seat per username, takeover, 30 s reload grace, `reconnecting` |

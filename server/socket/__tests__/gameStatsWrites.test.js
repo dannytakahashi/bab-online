@@ -218,7 +218,9 @@ describe('failing writes are retried, never double counted', () => {
     test('a stats $inc whose reply is lost is retried and still counts once (the guard)', async () => {
         const update = loseReplies(users(), 'updateOne', 2);
         await profile.recordGameStats(finishedGame());
-        expect(update).toHaveBeenCalledTimes(6);
+        // 4 stats writes + the 2 retried, then the game's 4 badge awards
+        // (socket/badgeAwards.js: Ann's and Cat's 400, Backpack, Ball and Chain)
+        expect(update).toHaveBeenCalledTimes(10);
         for (const name of ['Ann', 'Ben', 'Cat', 'Dan']) expect(statsOf(name).gamesPlayed).toBe(1);
         expect(records().docs[0].statsPending).toBeUndefined();
     });
@@ -522,7 +524,9 @@ describe('per-seat buckets (statsDeltas.bucketByPosition)', () => {
     test('nothing writes it yet: a finished game\'s record carries only bucket, byPosition, the seat names and bags', async () => {
         await profile.recordGameStats(finishedGame());
         await profile.recordGameStats(finishedGame({ gameId: 'g-2', bots: [2, 4] }));
-        for (const rec of records().docs) expect(Object.keys(rec.statsDeltas).sort()).toEqual(['bags', 'bucket', 'byPosition', 'names']);
+        // (plus, since badges, what a HUMAN game's seats earned: statsDeltas.badges)
+        for (const rec of records().docs) expect(Object.keys(rec.statsDeltas).filter((k) => k !== 'badges').sort()).toEqual(['bags', 'bucket', 'byPosition', 'names']);
+        expect(records().docs.map((rec) => 'badges' in rec.statsDeltas)).toEqual([true, false]);
     });
 
     test('the boot sweep routes a mixed-bucket record per seat: the marked seat to its bucket, every other seat to the whole game\'s; once', async () => {

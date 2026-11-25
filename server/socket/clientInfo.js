@@ -82,6 +82,12 @@ const { socketLogger } = require('../utils/logger');
  *                     draw's start has it; otherwise the draw is staged as
  *                     before (gameLifecycle.beginDraw, PAIRINGS_CAP in
  *                     game/tournamentPartners.js)
+ *   badges            shows badges (owner 2026-11-24): the player's earned
+ *                     ones as `badges` on profileResponse /
+ *                     playerProfileResponse, and the private s2c
+ *                     badgesAwarded after a game that earned one
+ *                     (server/socket/badgeAwards.js); a socket without it
+ *                     gets neither (the web; no iOS build)
  *   cutForABuck       Cut for a buck (2026-11-25): the client shows the
  *                     tournament's finale (the cutForABuck* events, phase
  *                     'cut' and tournamentJoined.cut, the complete phase's
@@ -92,7 +98,7 @@ const { socketLogger } = require('../utils/logger');
  *                     and gets the rounds as private chat lines
  *                     (server/socket/cutForABuck.js)
  */
-const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck'];
+const KNOWN_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck'];
 
 /** clientHello (Joi-validated by syncHandler('clientHello')). */
 function handle(socket, io, data) {

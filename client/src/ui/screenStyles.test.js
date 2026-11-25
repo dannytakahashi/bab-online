@@ -14,7 +14,7 @@ import { contrastRatio, parseColor, resolveColor } from '../../tokens/generate.m
 const SCREEN_FILES = [
   'src/ui/screens/MainRoom.js', 'src/ui/screens/ProfilePage.js', 'src/ui/screens/GameLobby.js',
   'src/ui/screens/TournamentLobby.js', 'src/ui/screens/RecordsPage.js', 'src/ui/screens/LeaderboardPage.js',
-  'src/ui/screens/SignIn.js', 'src/ui/screens/Register.js',
+  'src/ui/screens/PlayerSearchPage.js', 'src/ui/screens/SignIn.js', 'src/ui/screens/Register.js',
   'src/ui/screens/common.js', 'src/ui/components/PlayerQueue.js', 'src/ui/components/ResignationDialog.js',
   'src/ui/kit/modal.js', 'src/ui/kit/elements.js', 'src/ui/UIManager.js', 'src/main.js',
   'src/boot/gateScreen.js', 'src/boot/boot.js', 'src/entry.js',
@@ -134,12 +134,28 @@ describe('HIG on the screens', () => {
     return css.slice(i, css.indexOf('}', i));
   };
 
-  it('targets that are not kit buttons are at least 44 px (sort headers, seat rows)', () => {
+  it('targets that are not kit buttons are at least 44 px (sort headers, seat rows, search results)', () => {
     expect(rule('.lb-sort')).toContain('min-height: var(--hit-target)');
     expect(rule('.seat-row')).toContain('min-height: var(--hit-target)');
+    expect(rule('.search-result')).toMatch(/min-height: (5[6-9]|[6-9]\d)px/);
     expect(rule('.avatar-option')).toMatch(/width: 80px/);
     // the remove-bot button is drawn at 32 px; the kit keeps its 44 px target
     expect(rule('.seat-remove')).toContain('--icon-btn-size: 32px');
+  });
+
+  it('a player-search result keeps a visible focus ring: its scroll container has room for the outline', () => {
+    const tokens = JSON.parse(readFileSync(resolve(REPO_ROOT, 'client/tokens/tokens.json'), 'utf8'));
+    const focus = css.slice(css.indexOf('.kit-modal :is(button, a, input, textarea, [tabindex]):focus-visible'));
+    const ring = focus.slice(0, focus.indexOf('}'));
+    const width = Number(ring.match(/outline: (\d+)px solid/)[1]);
+    const offset = Number(ring.match(/outline-offset: (\d+)px/)[1]);
+    const box = rule('.search-results');
+    expect(box).toMatch(/overflow-y: auto/); // a scroll container: clips at its padding box
+    const pad = box.match(/\n\s*padding: var\(--space-(\d)\)/);
+    expect(pad, '.search-results padding').not.toBeNull();
+    expect(tokens.space[`s${pad[1]}`]).toBeGreaterThanOrEqual(width + offset);
+    // and the row itself changes on focus, not only through the outline
+    expect(css).toMatch(/\.search-result:hover,\s*\.search-result:focus-visible \{\s*background: var\(--surface-3\)/);
   });
 
   it('screens.css does not restyle the 18a tournament board (one frame in the lobby)', () => {

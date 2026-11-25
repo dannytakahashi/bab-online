@@ -59,6 +59,8 @@ const { isNameHold, heldNameRefusal } = require('./nameHold');
 // Fields removed from a source when it becomes a tombstone
 const TOMBSTONE_UNSET = [
     'password', 'sessionToken', 'sessionTokens', 'socketId', 'stats', 'botStats',
+    // badges move to the kept account with the stats (step 2)
+    'badges', 'badgeProgress',
     // the end-of-game guard (profileHandlers): a tombstone is never credited
     'statsGames',
     'profilePic', 'customProfilePic', 'blockedUsers', 'activeGameId',
@@ -68,6 +70,26 @@ const TOMBSTONE_UNSET = [
     // the tutorial's account flag (assistHandlers.autoStart)
     'tutorial'
 ];
+
+/** A user's stored badges as plain entries, each id once (users.badges). */
+function earnedBadges(stored) {
+    const seen = new Set();
+    const out = [];
+    for (const b of Array.isArray(stored) ? stored : []) {
+        if (!b || typeof b.id !== 'string' || !b.id || seen.has(b.id)) continue;
+        seen.add(b.id);
+        const entry = { id: b.id, at: b.at instanceof Date ? b.at : new Date() };
+        if (typeof b.gameId === 'string') entry.gameId = b.gameId;
+        out.push(entry);
+    }
+    return out;
+}
+
+/** A user's lifetime over-trumped count (users.badgeProgress.overtrumped). */
+function overtrumpedCount(doc) {
+    const n = doc?.badgeProgress?.overtrumped;
+    return Number.isSafeInteger(n) && n > 0 ? n : 0;
+}
 
 function addStats(a, b) {
     const out = {};
@@ -196,12 +218,17 @@ async function planMerge(db, { target, sources }) {
             action,
             stats,
             botStats,
+            // Badges (server/game/badges.js) travel with the stats: the
+            // source's earned badges and its over-trumped count
+            badges: action === 'add-stats' ? earnedBadges(doc.badges) : [],
+            overtrumped: action === 'add-stats' ? overtrumpedCount(doc) : 0,
             createdAt: typeof doc._id?.getTimestamp === 'function' ? doc._id.getTimestamp() : null
         });
         if (!isTombstoneComplete(doc)) plan.retire.push({ username: doc.username, id: doc._id });
     }
     plan.statsAfter = statsAfter;
     plan.botStatsAfter = botStatsAfter;
+    plan.targetBadgeIds = earnedBadges(targetDoc.badges).map((b) => b.id);
 
     // Profile picture: keep the target's custom photo; otherwise inherit the
     // first source's custom photo so the player doesn't lose their picture
@@ -352,6 +379,8 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
     //    stats addition happen at most once, even across concurrent runs:
     //    both buckets (stats and botStats) and the audit entry go in ONE
     //    guarded write, so an interrupted merge can never count one twice.
+    // Badges the kept account has or has been given so far in this run
+    const badgeIds = new Set(plan.targetBadgeIds || []);
     for (const src of plan.sourceAccounts) {
         if (src.action === 'already-merged') continue;
         const botStats = src.botStats || pickStats(null);
@@ -362,6 +391,12 @@ async function applyMerge(db, plan, { now = new Date() } = {}) {
             const inc = {};
             for (const key of STAT_KEYS) if (src.stats[key]) inc[`stats.${key}`] = src.stats[key];
             for (const key of STAT_KEYS) if (botStats[key]) inc[`botStats.${key}`] = botStats[key];
+            // Badges: the source's lifetime over-trumped count, and each
+            // badge the kept account does not have yet (as the source earned it)
+            if (src.overtrumped > 0) inc['badgeProgress.overtrumped'] = src.overtrumped;
+            const fresh = (src.badges || []).filter((b) => !badgeIds.has(b.id));
+            for (const b of fresh) badgeIds.add(b.id);
+            if (fresh.length) update.$push.badges = { $each: fresh };
             if (Object.keys(inc).length) update.$inc = inc;
         }
         const res = await db.users.updateOne(
