@@ -416,7 +416,8 @@ async function main() {
             await context.addInitScript(instrument, acct);
             const page = await context.newPage();
             page.on('pageerror', (e) => console.warn(`[page ${acct.username}] ${e.message}`));
-            if (opts.verbose) page.on('console', (m) => { console.log(`[page ${pages.length + 1} ${m.type()}] ${m.text().slice(0, 300)}`); });
+            const pageNo = pages.length + 1;
+            if (opts.verbose) page.on('console', (m) => { console.log(`[page ${pageNo} ${m.type()}] ${m.text().slice(0, 300)}`); });
             pages.push(page);
         }
         await Promise.all(pages.map((p) => p.goto(base, { waitUntil: 'domcontentloaded' })));
