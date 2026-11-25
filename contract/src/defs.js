@@ -207,7 +207,10 @@ const defs = {
         currentRound: int({ minimum: 0 }),
         totalRounds: int(),
         creatorUsername: orNull(str()),
-    }),
+        // additive 2026-11-25: Cut for a buck is on (phase reads
+        // 'round_active' then: one copy for every socket)
+        cut: bool(),
+    }, { optional: ['cut'] }),
     tournamentPlayer: obj({
         socketId: str(),
         username: str(),
@@ -252,7 +255,12 @@ const defs = {
         // additive 2026-11-25: each round's pairings so far (absent while no
         // table has two members: the lobby phase, a 1-member tournament)
         pairings: arr(ref('roundPairings')),
-    }, { optional: ['winners', 'readyDeadlinePassed', 'pairings'] }),
+        // additive 2026-11-25, sockets with the cap cutForABuck only: the cut
+        // as it stands (phase 'cut'), and the complete phase's cut result
+        // (null when no cut ran)
+        cut: ref('cutState'),
+        cutForABuck: orNull(ref('cutResult')),
+    }, { optional: ['winners', 'readyDeadlinePassed', 'pairings', 'cut', 'cutForABuck'] }),
     // DB projections: closed at the top, nested rows open
     profile: obj({
         username: str(),
@@ -417,6 +425,32 @@ const defs = {
     // every spectator present at its startDraw sent it (contract/README.md
     // "Client capabilities")
     clientCapTournamentPairings: konst('tournamentPairings'),
+    // A tenth, its own const (2026-11-25, Cut for a buck): the client shows
+    // the tournament's finale (the cutForABuck* events, phase 'cut' and
+    // tournamentJoined.cut, the complete phase's cutForABuck). The cut runs
+    // only when a connected member has it; without it a socket sees phase
+    // 'round_active' during a cut and is drawn for every round
+    // (contract/README.md "Cut for a buck")
+    clientCapCutForABuck: konst('cutForABuck'),
+    // Cut for a buck's pieces (server/socket/cutForABuck.js)
+    cutDraw: obj({ username: str(), slot: int({ minimum: 0 }), card: ref('card') }),
+    cutResult: obj({ winner: str(), participants: arr(str()), rounds: int({ minimum: 1 }) }),
+    // tournamentJoined.cut: the cut as it stands, to a socket with the cap
+    // (never a card drawn and not yet revealed: drawn holds slots only)
+    cutState: obj({
+        stage: enm('gather', 'drawing', 'reveal', 'winner'),
+        inMs: int({ minimum: 0 }),
+        round: int({ minimum: 0 }),
+        candidates: arr(str()),
+        participants: arr(str()),
+        alive: arr(str()),
+        out: arr(obj({ username: str(), round: int({ minimum: 0 }), left: konst(true) }, { optional: ['left'] })),
+        table: arr(obj({ username: str(), cards: arr(ref('card')) })),
+        drawn: arr(obj({ username: str(), slot: int({ minimum: 0 }) })),
+        deckCount: int({ minimum: 0 }),
+        lastReveal: obj({ round: int({ minimum: 1 }), draws: arr(ref('cutDraw')), eliminated: arr(str()), redraw: bool() }),
+        winner: str(),
+    }, { optional: ['candidates', 'participants', 'lastReveal', 'winner'] }),
     // Avatars over HTTP (server/routes/avatar.js; contract/README.md "Client
     // capabilities"): a same-origin path, versioned. Additive fields only;
     // a pic slot never carries one (it stays number | data URL | null)

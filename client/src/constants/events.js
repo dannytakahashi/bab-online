@@ -56,6 +56,7 @@ export const CLIENT_EVENTS = {
   SPECTATE_TOURNAMENT_GAME: 'spectateTournamentGame',
   RETURN_TO_TOURNAMENT: 'returnToTournament',
   CANCEL_TOURNAMENT: 'cancelTournament',
+  CUT_FOR_ABUCK_DRAW: 'cutForABuckDraw',
 
   // Profile
   GET_PROFILE: 'getProfile',
@@ -208,6 +209,12 @@ export const SERVER_EVENTS = {
   TOURNAMENT_GAME_COMPLETE: 'tournamentGameComplete',
   TOURNAMENT_ROUND_COMPLETE: 'tournamentRoundComplete',
   TOURNAMENT_COMPLETE: 'tournamentComplete',
+  CUT_FOR_ABUCK_START: 'cutForABuckStart',
+  CUT_FOR_ABUCK_ROUND: 'cutForABuckRound',
+  CUT_FOR_ABUCK_DREW: 'cutForABuckDrew',
+  CUT_FOR_ABUCK_LEFT: 'cutForABuckLeft',
+  CUT_FOR_ABUCK_REVEAL: 'cutForABuckReveal',
+  CUT_FOR_ABUCK_WINNER: 'cutForABuckWinner',
   TOURNAMENT_LEFT: 'tournamentLeft',
   TOURNAMENT_CANCELLED: 'tournamentCancelled',
 

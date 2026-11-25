@@ -320,6 +320,7 @@ Create a tournament from the main room to compete across 1 to 5 rounds (the host
 5. Play a normal game — when it ends, click **Return to Tournament** to see the scoreboard
 6. Ready up again for the next round
 7. After the last round, the player with the highest cumulative score wins (ties produce co-winners)
+8. Then **Cut for a buck**: everyone still connected draws a card each round, the lowest is out (suits don't count, ties all go out, a full tie redraws) until one player is left (docs/RULES.md). Events: `cutForABuckStart`, `cutForABuckRound`, `cutForABuckDraw` (c2s), `cutForABuckDrew`, `cutForABuckLeft`, `cutForABuckReveal`, `cutForABuckWinner`, then `tournamentComplete {cutForABuck}`; only with a member whose client sends the clientHello cap `cutForABuck` (older apps are drawn for and see the rounds as chat lines)
 
 Each player's round score is their team's final score from that round's game. Spectators can watch tournament games in progress from the tournament lobby. Disconnecting mid-tournament doesn't forfeit your seat — your scores are kept and you're re-attached when you reconnect; disconnected players just sit out rounds until they return. Final standings stay viewable for ~10 minutes after the tournament completes.
 

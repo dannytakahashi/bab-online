@@ -956,7 +956,7 @@ const s2c = {
     tournamentJoined: {
         payload: anyOf(
             variant('member', ref('tournamentClientState')),
-            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners', 'readyDeadlinePassed', 'pairings'] })),
+            variant('spectator', obj({ ...tournamentStateProps(), isSpectator: konst(true) }, { optional: ['winners', 'readyDeadlinePassed', 'pairings', 'cut', 'cutForABuck'] })),
         ),
         status: 'active', to: 'self',
         clientReads: reads(W.tour, I.tour),
@@ -987,10 +987,10 @@ const s2c = {
     },
     tournamentMessage: {
         payload: ref('tournamentChatLine'),
-        status: 'active', to: 'tournament',
+        status: 'active', to: ['tournament', 'socket'],
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:setTournamentRounds', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost', 'server/socket/tournamentLiveness.js:startForIdleHost'],
-        notes: 'system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
+        emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:setTournamentRounds', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost', 'server/socket/tournamentLiveness.js:startForIdleHost', 'server/socket/cutForABuck.js:roomLine', 'server/socket/cutForABuck.js:legacyLines'],
+        notes: 'Cut for a buck (2026-11-25; server/socket/cutForABuck.js): room system lines at the start ("Cut for a buck! Everyone still here draws a card. ..."), the begin ("Cut for a buck: 9 players." plus "al and cy were not back in time."), "Not enough players for Cut for a buck.", "<host> ended Cut for a buck.", "<winner> won Cut for a buck." and, after a deploy, "Cut for a buck continues in 30 s after a server update."; and private (to: socket, unstored) lines to each member and spectator WITHOUT the clientHello cap cutForABuck, which shows the round in chat: "Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.", "Round 4: everyone tied on 7s, so draw again.", "Reshuffling: the deck ran out." (names only, never team words; jokers "HI joker" / "LO joker"). system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
     },
     tournamentSettingsUpdated: {
         payload: obj({ totalRounds: int({ minimum: 1, maximum: 5 }), by: orNull(str()) }),
@@ -1034,12 +1034,55 @@ const s2c = {
         notes: 'rollbackRound (2026-11-15) sends it again, unchanged in shape, when a start past the ready deadline got no table: the members who sat out had gone to the round screen on tournamentRoundStart, and this puts both clients (web setTournamentPhase, iOS 1.2.0 phase / isReady) back between rounds, ready cleared as on the server. pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it. After a rollback the rolled-back round is gone from it.',
     },
     tournamentComplete: {
-        payload: obj({ scoreboard, winners: arr(str()), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
+        payload: obj({ scoreboard, winners: arr(str()), cutForABuck: ref('cutResult'), pairings: arr(ref('roundPairings')) }, { optional: ['pairings', 'cutForABuck'] }),
         status: 'active', to: 'tournament',
-        added: ['pairings'],
+        added: ['pairings', 'cutForABuck'],
         clientReads: reads(W.tour, I.tour),
-        emittedFrom: ['server/socket/tournamentHandlers.js:broadcastRoundOutcome'],
-        notes: 'pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
+        emittedFrom: ['server/socket/tournamentHandlers.js:finishTournament'],
+        notes: 'Sent exactly once per tournament (tournamentHandlers.finishTournament). winners: the top scorers among the members when the last round completed (TournamentState.finalWinners, so a top scorer who leaves during Cut for a buck still wins). cutForABuck (additive 2026-11-25, optional): the result of Cut for a buck {winner, participants, rounds}, present only when a cut ran to a winner (absent when none ran, or the host\'s Cancel or the last member leaving ended it before a winner, so a tournament with no cut sends exactly the payload of before; once cutForABuckWinner is out, a Cancel, a leave or a deploy in the hold completes with that result); shipped clients ignore it and show their results overlay. pairings (additive 2026-11-25, optional; TournamentState.pairingsWire): every round so far, {roundNumber, tables: [{gameId, teams: [[username | null, username | null] x 2]}]} (null: a bot; a table that never seated is left out); absent while no table anywhere has two members (the lobby phase, a 1-member tournament). Web shows the round\'s pairings and "Partners so far" from it (ui/screens/tournamentPairings.js); iOS from build 41; shipped clients ignore it.',
+    },
+    // ==================== Cut for a buck (2026-11-25) ====================
+    cutForABuckStart: {
+        payload: obj({ candidates: arr(str()), startsInMs: int({ minimum: 0 }), deckCount: int({ minimum: 1 }) }),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:startGather'],
+        notes: 'New (2026-11-25; contract/README.md "Cut for a buck"): the last table\'s result came in and Cut for a buck starts in startsInMs (the gather, CUT_GATHER_MS 15 s: people come back from their score screens). Only when CUT_FOR_A_BUCK is not off, 2 or more members are connected and one of them has the clientHello cap cutForABuck; then the tournament is in phase \'cut\' (sockets without the cap see \'round_active\'). candidates: the members connected now; the participants are fixed at the gather\'s end (cutForABuckRound). deckCount: the full deck(s), 54 per 54 players. Followed by a room system line and lobbiesUpdated (the summary\'s cut: true). Read by the web and iOS from build 41; shipped clients ignore it.',
+    },
+    cutForABuckRound: {
+        payload: obj({ round: int({ minimum: 1 }), participants: arr(str()), alive: arr(str()), deckCount: int({ minimum: 1 }), reshuffled: bool(), closesInMs: int({ minimum: 0 }) }),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:openRound'],
+        notes: 'A round opens: everyone in alive draws one card from the deckCount face-down slots (0..deckCount-1, c2s cutForABuckDraw) within closesInMs (CUT_DRAW_MS, 15 s); then the server draws for whoever has not (cutForABuckDrew auto). A player still in who is disconnected, on a socket without the cap, or away (2 timeouts in a row, until a draw of their own (any cutForABuckDraw from them, one dropped as a repeat included) or a return to the lobby) is drawn for at once. reshuffled: fewer cards were left than players, so the full deck(s) were shuffled back (the table cleared). participants is the same list every round.',
+    },
+    cutForABuckDrew: {
+        payload: obj({ round: int({ minimum: 1 }), username: str(), slot: int({ minimum: 0 }), auto: bool() }),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:draw', 'server/socket/cutForABuck.js:autoDraw'],
+        notes: 'A player drew the card in slot (a taken slot went to the nearest free one; a null slot drew a random one). Never the card: every card stays secret until cutForABuckReveal. auto: the server drew for them (disconnected, no cap, away, or the window closed).',
+    },
+    cutForABuckLeft: {
+        payload: obj({ round: int({ minimum: 0 }), username: str(), alive: arr(str()), freedSlot: int({ minimum: 0 }) }, { optional: ['freedSlot'] }),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:memberLeft'],
+        notes: 'A player still in left the tournament: out (as left). freedSlot: the slot of their unrevealed draw this round, free again. Then, as it falls, cutForABuckWinner (one player left) or cutForABuckReveal (everyone left has drawn).',
+    },
+    cutForABuckReveal: {
+        payload: obj({ round: int({ minimum: 1 }), draws: arr(ref('cutDraw')), eliminated: arr(str()), redraw: bool(), alive: arr(str()), nextInMs: int({ minimum: 0 }) }),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:reveal'],
+        notes: 'Every card of the round, flipped together (draws in participant order). The lowest rank is out (suits never count; 2..A, then LO, then HI): eliminated, everyone tied on it. redraw: every player still in tied, nobody is out. Drawn cards never go back in the deck until a reshuffle. nextInMs: the next cutForABuckRound (CUT_REVEAL_MS, 4 s), or with one player left the time until tournamentComplete (CUT_WINNER_MS, 6 s; cutForABuckWinner follows at once). Members and spectators without the cap get the round as a private system tournamentMessage.',
+    },
+    cutForABuckWinner: {
+        payload: ref('cutResult'),
+        status: 'active', to: 'tournament',
+        clientReads: reads([], []),
+        emittedFrom: ['server/socket/cutForABuck.js:declareWinner'],
+        notes: 'One player is left: the winner of Cut for a buck ("Just for bragging rights"), with every participant and the rounds drawn. A room system line "<winner> won Cut for a buck." follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later.',
     },
     tournamentLeft: {
         payload: empty,

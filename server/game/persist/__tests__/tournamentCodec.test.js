@@ -373,3 +373,148 @@ describe('a real tournament, every phase', () => {
         expect(doc.state.completedAt).not.toBeNull();
     }, 120000);
 });
+
+describe('v2: Cut for a buck and the final winners (READ_VERSIONS [1, 2])', () => {
+    const { CutEngine, cardKey, fullDecks } = require('../../cutForABuck');
+
+    /** The lobby tournament played to its last round, then into a cut at `stage`. */
+    function inCut(stage) {
+        const t = lobby();
+        t.totalRounds = 1;
+        playRound(t, 1, 'g-1', { alice: 100, bob: 50, cy: 100 });
+        expect(t.phase).toBe('complete');
+        expect(t.finalWinners).toEqual(['alice', 'cy']);
+        expect(t.finalMembers).toEqual(['alice', 'bob', 'cy']);
+        t.phase = 'cut';
+        t.completedAt = null;
+        t.cut = { stage: 'gather', candidates: ['alice', 'bob', 'cy'], engine: null, strikes: {}, lastReveal: null, result: null, endsAt: null, restoreLine: false };
+        if (stage === 'gather') return t;
+        // slots 3, 4, 5: alice, bob, cy (A, then K or 2, then 2): a winner or one out
+        const order = fullDecks(1);
+        const take = (suit, rank) => order.splice(order.findIndex((x) => x.suit === suit && x.rank === rank), 1)[0];
+        const front = [take('spades', 'A'), stage === 'winner' ? take('spades', '2') : take('spades', 'K'), take('hearts', '2')];
+        order.splice(3, 0, ...front);
+        const e = new CutEngine(['alice', 'bob', 'cy'], { deck: order });
+        t.cut.engine = e;
+        t.cut.strikes = { cy: 1 };
+        e.openRound();
+        t.cut.stage = 'drawing';
+        e.draw('alice', 3);
+        if (stage === 'drawing') return t;
+        e.draw('bob', 4);
+        e.draw('cy', 5);
+        const res = e.resolve();
+        t.cut.lastReveal = { round: res.round, draws: res.draws, eliminated: res.eliminated, redraw: res.redraw };
+        t.cut.stage = res.winner ? 'winner' : 'reveal';
+        if (res.winner) t.cut.result = { winner: res.winner, participants: [...e.participants], rounds: e.round };
+        return t;
+    }
+
+    test('a v1 doc hydrates: no cut, no final snapshot (the winners fall back to getWinners)', () => {
+        const t = lobby();
+        t.totalRounds = 1;
+        playRound(t, 1, 'g-1', { alice: 100, bob: 50, cy: 100 });
+        const doc = json(codec.serialize(t));
+        expect(doc.v).toBe(2);
+        expect(codec.READ_VERSIONS).toEqual([1, 2]);
+        // a v1 doc: none of the v2 keys
+        const v1 = { ...doc, v: 1, state: { ...doc.state } };
+        for (const k of ['finalWinners', 'finalMembers', 'cut', 'cutResult']) delete v1.state[k];
+        const { tournament } = codec.hydrate(v1);
+        expect(tournament.phase).toBe('complete');
+        expect(tournament.finalWinners).toBeNull();
+        expect(tournament.finalMembers).toBeNull();
+        expect(tournament.cut).toBeNull();
+        expect(tournament.cutResult).toBeNull();
+        expect(tournament.winnersFinal()).toEqual(['alice', 'cy']);
+        expect(tournament.getClientState().winners).toEqual(['alice', 'cy']);
+        expect(() => codec.hydrate({ ...doc, v: 3 })).toThrow(expect.objectContaining({ reason: 'version' }));
+    });
+
+    test.each(['gather', 'drawing', 'reveal', 'winner'])('the %s stage round-trips (no pending card saved; an open round redrawn)', (stage) => {
+        const t = inCut(stage);
+        expect(codec.refusal(t)).toBeNull();
+        const doc = json(codec.serialize(t));
+        expect(doc.phase).toBe('cut');
+        expect(Object.keys(doc.state.cut).sort()).toEqual([...codec.SAVED.cut].sort());
+        if (doc.state.cut.engine) expect(Object.keys(doc.state.cut.engine).sort()).toEqual([...codec.SAVED.cutEngine].sort());
+        expect(JSON.stringify(doc)).not.toContain('pending');
+        expect(doc.state.finalWinners).toEqual(['alice', 'cy']);
+        const { tournament: r } = codec.hydrate(doc);
+        expect(r.phase).toBe('cut');
+        expect(r.cut.stage).toBe(stage);
+        expect(r.cut.candidates).toEqual(t.cut.candidates);
+        expect(r.cut.strikes).toEqual(t.cut.strikes);
+        expect(r.cut.lastReveal).toEqual(json(t.cut.lastReveal));
+        expect(r.cut.result).toEqual(t.cut.result);
+        expect(r.finalWinners).toEqual(t.finalWinners);
+        expect(r.finalMembers).toEqual(t.finalMembers);
+        if (stage === 'gather') {
+            expect(r.cut.engine).toBeNull();
+        } else {
+            const e = t.cut.engine;
+            r.cut.engine.assertValid();
+            expect(r.cut.engine.aliveList()).toEqual(e.aliveList());
+            expect([...r.cut.engine.table.entries()]).toEqual([...e.table.entries()]);
+            expect(r.cut.engine.pending.size).toBe(0);
+            const sorted = (cards) => cards.map(cardKey).sort();
+            expect(sorted(r.cut.engine.deck)).toEqual(sorted(e.open ? e.openDeck : e.deck));
+            expect(r.cut.engine.round).toBe(e.open ? e.round - 1 : e.round);
+        }
+        // its wire view never names a socket or a pending card
+        expect(r.getClientState({ cutCap: true }).cut.stage).toBe(stage);
+        expect(r.getClientState().phase).toBe('round_active');
+        expect(r.getClientState().cut).toBeUndefined();
+    });
+
+    test('field guard: every key of t.cut and of its engine is in SAVED or DERIVED (cut / cutEngine), none in both', () => {
+        for (const stage of ['gather', 'drawing', 'reveal', 'winner']) {
+            const t = inCut(stage);
+            const known = (kind) => new Set([...codec.SAVED[kind], ...codec.DERIVED[kind]]);
+            expect(Object.keys(t.cut).filter((k) => !known('cut').has(k))).toEqual([]);
+            if (t.cut.engine) expect(Object.keys(t.cut.engine).filter((k) => !known('cutEngine').has(k))).toEqual([]);
+        }
+        for (const kind of ['cut', 'cutEngine']) expect(codec.SAVED[kind].filter((k) => codec.DERIVED[kind].includes(k))).toEqual([]);
+        // and every this.<x> = in the engine is classified
+        const src = require('fs').readFileSync(require('path').join(__dirname, '../../cutForABuck.js'), 'utf8');
+        const writes = new Set([...src.matchAll(/\bthis\.([A-Za-z_$][\w$]*)\s*=(?!=)/g)].map((m) => m[1]));
+        const known = new Set([...codec.SAVED.cutEngine, ...codec.DERIVED.cutEngine]);
+        expect([...writes].filter((k) => !known.has(k))).toEqual([]);
+        expect(writes.size).toBeGreaterThan(8);
+    });
+
+    test('the complete phase keeps the cut result', () => {
+        const t = inCut('winner');
+        const result = t.cut.result;
+        t.phase = 'complete';
+        t.cut = null;
+        t.cutResult = result;
+        const { doc, restored } = roundTrip(t);
+        expect(doc.state.cutResult).toEqual(result);
+        expect(restored.cutResult).toEqual(result);
+        expect(restored.getClientState({ cutCap: true }).cutForABuck).toEqual(result);
+        expect('cutForABuck' in restored.getClientState()).toBe(false);
+    });
+
+    test('refusals: a cut outside phase cut, a cut with no engine past the gather, a broken engine, no final snapshot', () => {
+        const t = inCut('drawing');
+        expect(codec.refusal(t)).toBeNull();
+        const save = { ...t.cut };
+        t.cut.stage = 'nope';
+        expect(codec.refusal(t)).toBe('cut');
+        t.cut = { ...save, engine: null };
+        expect(codec.refusal(t)).toBe('cut');
+        t.cut = save;
+        t.cut.engine.deck.pop();
+        expect(codec.refusal(t)).toBe('cut');
+        expect(codec.serialize(t)).toBeNull();
+        const u = inCut('gather');
+        u.finalWinners = null;
+        expect(codec.refusal(u)).toBe('finalWinners');
+        const w = lobby();
+        w.cut = { stage: 'gather' };
+        expect(codec.refusal(w)).toBe('cut');
+        t.cut = null;
+        expect(codec.refusal(t)).toBe('cut');
+    });
+});

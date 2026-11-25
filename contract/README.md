@@ -334,6 +334,56 @@ lobby (2026-11-25; `server/CLAUDE.md`, Tournament lifecycle).
 - Web reads it in the lobby (`TournamentLobby.setTournamentTotalRounds`) and
   sends it from the host's Rounds picker; iOS from build 41.
 
+## Cut for a buck
+
+The tournament's finale (2026-11-25; `server/CLAUDE.md`, Tournament
+lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
+`server/game/cutForABuck.js`). Additive only; the clientHello cap
+`cutForABuck` (`$defs.clientCapCutForABuck`).
+
+- When: after the last table's result, only if `CUT_FOR_A_BUCK` is not off,
+  2 or more members are connected and at least one of them has the cap.
+  Otherwise the tournament completes exactly as before (no new key, no new
+  event: `wireGolden`, the iOS recordings and every all-legacy tournament
+  are unchanged).
+- Phase `'cut'` (`tournamentClientState.phase`) only for a socket with the
+  cap; every other socket gets `'round_active'` ("Round N of N" on iOS
+  1.2.6, no Ready or Begin, no overlay), and the main-room summary (one copy
+  for everyone) says `'round_active'` plus the additive `cut: true`.
+- Events, all to `tournament:<id>`, unsequenced: `cutForABuckStart
+  {candidates, startsInMs, deckCount}` (the 15 s gather) -> per round
+  `cutForABuckRound {round, participants, alive, deckCount, reshuffled,
+  closesInMs}`, `cutForABuckDrew {round, username, slot, auto}` per draw
+  (never the card), `cutForABuckLeft {round, username, alive, freedSlot?}`
+  on a leave, `cutForABuckReveal {round, draws: [$defs.cutDraw], eliminated,
+  redraw, alive, nextInMs}` -> `cutForABuckWinner $defs.cutResult` -> 6 s ->
+  `tournamentComplete` with the additive `cutForABuck $defs.cutResult`
+  (absent when no cut ran to a winner). Once `cutForABuckWinner` is out the
+  result stands: the host's Cancel, the winner or the last member leaving,
+  or a deploy in the 6 s hold all complete with it. `tournamentComplete`
+  goes out exactly once.
+- c2s `cutForABuckDraw {round, slot | null}` (Joi: round 1..10000, slot
+  0..107 or null; rate limit 10 / 10 s): out-of-turn draws are dropped
+  silently.
+- `tournamentJoined` / `tournamentCreated` to a socket with the cap: `cut`
+  ($defs.cutState: stage, inMs, round, candidates, participants, alive, out,
+  table, drawn (slots only, never a card), deckCount, lastReveal, winner)
+  during the cut; in the complete phase `cutForABuck` (the result, or null
+  when none ran).
+- Members and spectators without the cap: drawn for at every round's open,
+  and the rounds as private, unstored system `tournamentMessage` lines
+  ("Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.", "Round 4:
+  everyone tied on 7s, so draw again.", "Reshuffling: the deck ran out.").
+- Secrecy: no card drawn and not yet revealed is ever on the wire;
+  `server/testUtils/cutGuard.js` (setupFilesAfterEnv) fails a Jest test in
+  which one is.
+- Fixture: `contract/fixtures/cut/events.json` (kept out of
+  `fixtures/v2`, whose count iOS `TableSnapshotDecodingTests` pins), from a
+  seeded 4-member, 2-round tournament with one legacy member: 13 redraws, a
+  reshuffle, a tie of two, the winner (`npm run contract:fixtures`).
+- Once `MIN_IOS_BUILD` reaches 41 the no-cap branch (the projection and the
+  chat lines) is dead code: removed in a cleanup PR, `V1_REMOVALS.md`.
+
 ## Client capabilities (clientHello) and avatar fields
 
 `clientHello {client, version, build?, caps}` (c2s, no reply) tells the

@@ -35,6 +35,12 @@
  *           handedOffThisWait is kept
  *         - complete: the results-window cleanup at max(completedAt + 10
  *           min - now, 30 s)
+ *         - cut (Cut for a buck, codec v2): after RESTORE_CUT_LEAD_IN_MS
+ *           (30 s) the gather's begin (participants: the members back by
+ *           then), the winner again, or the interrupted round redrawn with
+ *           the remaining cards reshuffled; "Cut for a buck continues in
+ *           30 s after a server update." at the first member back
+ *           (socket/cutForABuck.js afterRestore / noteBack)
  *       While the restored abandon is armed, GameManager
  *       deleteTournamentIfAbandoned counts the ghosts as present
  *       (restoreHolds), so a table aborting, or the last member back
@@ -77,6 +83,12 @@ const { Presence } = require('../SeatState');
 const RESTORE_ABANDON_MS = 10 * 60000;
 /** A ghost host keeps the role this long after the restore. */
 const HOST_GRACE_MS = 60000;
+/**
+ * A restored Cut for a buck waits this long for its members to come back,
+ * then goes on: the gather's begin, the winner, or the interrupted round
+ * redrawn (its cards were never revealed).
+ */
+const RESTORE_CUT_LEAD_IN_MS = 30000;
 /** The results window after a restore lasts at least this long. */
 const MIN_CLEANUP_MS = 30000;
 const COMPLETED_TTL_MS = 10 * 60000;
@@ -145,6 +157,9 @@ function adoptTournament(io, doc, { now = Date.now(), removed = [], scrubFrom = 
         t.setTimer(ABANDON_KEY, RESTORE_ABANDON_MS, () => onRestoreAbandon(io, t));
         t.restored.hostGraceUntil = now + HOST_GRACE_MS;
         t.setTimer(HOST_GRACE_KEY, HOST_GRACE_MS, () => onHostGraceEnd(io, t));
+        // Cut for a buck (codec v2): it goes on after the lead-in, a line at
+        // the first member back; ghosts are disconnected, so drawn for
+        if (t.phase === 'cut') require('../../socket/cutForABuck').afterRestore(io, t, RESTORE_CUT_LEAD_IN_MS);
         if (t.phase === 'between_rounds' && t.readyDeadlineAt != null) {
             const ms = liveness.readyDeadlineMs();
             t.readyDeadlineAt = ms > 0 ? now + ms : null;
@@ -354,6 +369,7 @@ async function normalizeRound(io, t, { tableScores = {}, kept = new Set(), pendi
 
 module.exports = {
     RESTORE_ABANDON_MS,
+    RESTORE_CUT_LEAD_IN_MS,
     HOST_GRACE_MS,
     MIN_CLEANUP_MS,
     ABANDON_KEY,

@@ -196,6 +196,9 @@ function setupSocketHandlers(io) {
         socket.on('setTournamentRounds', (data) =>
             asyncHandler('setTournamentRounds', tournamentHandlers.setTournamentRounds)(socket, io, data)
         );
+        socket.on('cutForABuckDraw', (data) =>
+            asyncHandler('cutForABuckDraw', require('./cutForABuck').draw)(socket, io, data)
+        );
         socket.on('beginTournament', () =>
             asyncHandler('beginTournament', tournamentHandlers.beginTournament)(socket, io, {})
         );

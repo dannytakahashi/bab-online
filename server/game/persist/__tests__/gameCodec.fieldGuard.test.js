@@ -88,16 +88,19 @@ const SERVER = path.join(__dirname, '../../..');
 // release before drops the extra state key, and a v3 doc without it
 // restores here as no tracker (that game earns only what its final state
 // shows).
+// Tournament v2 (2026-11-25, Cut for a buck): state.finalWinners,
+// finalMembers, cut (its SAVED.cut / SAVED.cutEngine lists) and cutResult;
+// hydrate still reads v1 (READ_VERSIONS [1, 2], tournamentCodec.test.js).
 const PINNED = {
     game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: 'd5400bb5ea9e97a6' },
-    tournament: { 1: 'a116c48a7c168758' },
+    tournament: { 1: 'a116c48a7c168758', 2: '91f0f59cc99be667' },
 };
 
 // sha256 of the encoding shape (docShape / tournamentDocShape below,
 // collected over every doc of the coverage runs), per codec version
 const PINNED_SHAPE = {
     game: { 1: '26ba3747585567ba', 2: '8ff2c04e4dd526ac', 3: 'eec17d182bc0cc1d' },
-    tournament: { 1: '7429f2b6873ce9b9' },
+    tournament: { 1: '7429f2b6873ce9b9', 2: 'e8f6d08863c394b3' },
 };
 
 const hash = (o) => crypto.createHash('sha256').update(JSON.stringify(o)).digest('hex').slice(0, 16);
@@ -500,6 +503,13 @@ function tournamentView(t, key) {
         }));
         case 'messages': return t.messages.slice(-t.maxMessages).map((m) => ({ ...plain(m), isSpectator: !!m.isSpectator }));
         case 'handedOffThisWait': return !!t.handedOffThisWait;
+        // Cut for a buck (v2): as the codec encodes it (a restored engine's
+        // remaining cards are in a new order: compared as a multiset)
+        case 'cut': {
+            const enc = plain(tournamentCodec.encodeCut(t.cut));
+            if (enc?.engine) for (const k of ['deck', 'openDeck']) if (enc.engine[k]) enc.engine[k] = enc.engine[k].map((c) => `${c.suit}:${c.rank}`).sort();
+            return enc;
+        }
         default: return plain(t[key] ?? null);
     }
 }

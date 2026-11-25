@@ -794,6 +794,40 @@ describe('(d) F3 tournament', () => {
     }, 60000);
 });
 
+// ==================== (d2) Cut for a buck ====================
+
+describe('(d2) Cut for a buck', () => {
+    test('a 1-round tournament of 3 with the cap, a legacy spectator: start, rounds, draws, a leave, reveals, the winner, tournamentComplete', async () => {
+        const cutForABuck = require('../cutForABuck');
+        const { giveCap, deckOf, drawAll } = require('../../testUtils/cutDriver');
+        Math.random = mulberry32(77);
+        const ctx = await setupTournament(3);
+        ctx.sockets.forEach((s) => giveCap(s));
+        tournamentHandlers.setTournamentRounds(creatorSocket(ctx), ctx.io, { totalRounds: 1 });
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf('7s', '7h', '7d', '2s', 'Kh') });
+        const watcher = newUser(ctx.io, ctx.log, 'd2_watcher');
+        await playTournament(ctx);
+        expect(ctx.t.phase).toBe('cut');
+        tournamentHandlers.spectateTournament(watcher, ctx.io, { tournamentId: ctx.t.tournamentId });
+        await advanceUntil(() => ctx.t.cut.stage === 'drawing', 100, 30000);
+        tournamentHandlers.returnToTournament(ctx.sockets[0], ctx.io);
+        drawAll(ctx, Object.fromEntries(ctx.usernames.map((u, i) => [u, i])));
+        await advanceUntil(() => ctx.t.cut.stage === 'drawing', 100, 30000);
+        cutForABuck.draw(ctx.sockets[2], ctx.io, { round: 2, slot: 0 });
+        await tournamentHandlers.leaveTournament(ctx.sockets[2], ctx.io);
+        drawAll(ctx, { [ctx.usernames[0]]: 0, [ctx.usernames[1]]: 1 });
+        await advanceUntil(() => ctx.t.phase === 'complete', 100, 30000);
+        tournamentHandlers.returnToTournament(ctx.sockets[0], ctx.io);
+        for (const e of ['cutForABuckStart', 'cutForABuckRound', 'cutForABuckDrew', 'cutForABuckLeft', 'cutForABuckReveal', 'cutForABuckWinner']) {
+            expect({ e, n: events(ctx.log, e).length > 0 }).toEqual({ e, n: true });
+        }
+        expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        expect(events(ctx.log, 'tournamentComplete')[0].data.cutForABuck).toBeDefined();
+        cutForABuck.setEngineOptionsForTests({});
+        expect(errorLogs).toEqual([]);
+    }, 120000);
+});
+
 // ==================== (e) non-game handlers ====================
 
 describe('(e) non-game handlers', () => {

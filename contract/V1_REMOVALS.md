@@ -1234,3 +1234,15 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
   gameStart's `playerInfo` loop puts the bot's picture back (it is also
   1.2.0's only reader of gameStart `avatarUrls`). Keep it until an iOS
   build clears `avatarUrl` on a takeover (#5).
+
+## Pending: Cut for a buck's legacy branch (2026-11-25)
+
+Once `MIN_IOS_BUILD` reaches 41 (the build that sends the clientHello cap
+`cutForABuck`), every tournament member has the cap: remove the projection
+of phase `'cut'` to `'round_active'` for sockets without it
+(`TournamentState.getClientState({cutCap})`, `GameManager.getAllTournaments`
+keeps `cut: true` but may report `'cut'` only after the summary's readers
+handle it), the auto-draw of sockets without the cap at each round's open
+and the private round lines (`server/socket/cutForABuck.js` `legacyLines`,
+`revealLines`), and the cap check in `maybeStart` / `beginCut`. Cached web
+tabs are then the only sockets without it.
