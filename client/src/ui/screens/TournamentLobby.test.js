@@ -4,7 +4,7 @@
  * begin or cancel, so without them the tournament was stuck until a reload).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed } from './TournamentLobby.js';
+import { showTournamentLobby, updateTournamentPlayers, setTournamentPhase, removeTournamentLobby, addTournamentChatMessage, setReadyDeadlinePassed, setTournamentVoiceFull } from './TournamentLobby.js';
 
 function fakeSocket() {
   const sent = [];
@@ -223,5 +223,42 @@ describe('between rounds: the ready deadline and the idle-host hand-off (2026-11
     showTournamentLobby(hosting(), fakeSocket(), 'me');
     updateTournamentPlayers(hosting({ cat: true }).players, 'me');
     expect(cancel()).not.toBeNull();
+  });
+});
+
+describe('tournament voice: the over-cap notice (2026-11-25, s2c tournamentVoiceStatus)', () => {
+  const note = () => document.getElementById('tournamentVoiceFull');
+
+  it('"Voice is full (N people)" beside the voice slot while waiting in line, cleared when let in', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    expect(note()).toBeNull();
+    setTournamentVoiceFull(12);
+    expect(note().textContent).toBe('Voice is full (12 people)');
+    expect(note().getAttribute('role')).toBe('status');
+    // in the header, just before the voice slot
+    expect(note().nextElementSibling.id).toBe('lobbyVoiceSlot');
+    setTournamentVoiceFull(20);
+    expect(document.querySelectorAll('#tournamentVoiceFull')).toHaveLength(1);
+    expect(note().textContent).toBe('Voice is full (20 people)');
+    setTournamentVoiceFull(null);
+    expect(note()).toBeNull();
+  });
+
+  it('kept across a redraw of the lobby (every tournamentJoined), gone with the screen', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    setTournamentVoiceFull(8);
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    expect(note().textContent).toBe('Voice is full (8 people)');
+    removeTournamentLobby();
+    expect(note()).toBeNull();
+    // no lobby on screen: nothing drawn
+    setTournamentVoiceFull(8);
+    expect(note()).toBeNull();
+  });
+
+  it('a cap that is not a whole number still says the room is full', () => {
+    showTournamentLobby(lobby(), fakeSocket(), 'me');
+    setTournamentVoiceFull('x');
+    expect(note().textContent).toBe('Voice is full');
   });
 });

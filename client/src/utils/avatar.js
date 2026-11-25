@@ -220,8 +220,11 @@ export function foldAvatarPayload(event, data) {
  * And getYourBid (2026-11-24, state/gyb.js): this page shows a Get Your Bid
  * lobby and its three-seat table; only such a client is listed, may create,
  * join, rejoin or watch one (server/game/gameMode.js).
+ * And tournamentVoiceStatus (2026-11-25, main.js "Tournament voice"): this
+ * page shows "Voice is full (N people)" on the tournament lobby while it
+ * waits in line for a full tournament voice room (s2c tournamentVoiceStatus).
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentVoiceStatus'];
 
 export function clientHello(version, build, capable = true) {
   return {

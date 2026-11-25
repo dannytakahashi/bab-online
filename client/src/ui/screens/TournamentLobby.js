@@ -126,6 +126,30 @@ function removeCreatorControls() {
   document.getElementById('tournamentCancelBtn')?.remove();
 }
 
+const VOICE_FULL_ID = 'tournamentVoiceFull';
+
+/**
+ * The over-cap notice (2026-11-25; s2c tournamentVoiceStatus): this member
+ * waits in line for the tournament's full voice room (`cap` people, the
+ * server's TOURNAMENT_VOICE_MAX), shown beside the voice slot; null clears
+ * it (let in, or the screen left). A redraw of the lobby keeps it.
+ * @param {number|null} cap
+ */
+export function setTournamentVoiceFull(cap) {
+  const end = document.querySelector('#tournamentLobbyContainer .tournament-header-end');
+  let note = document.getElementById(VOICE_FULL_ID);
+  if (cap === null || cap === undefined || !end) {
+    note?.remove();
+    return;
+  }
+  if (!note) {
+    note = el('div', { className: 'screen-subtitle tournament-voice-full', attrs: { id: VOICE_FULL_ID, role: 'status' } });
+    end.insertBefore(note, end.querySelector(`#${LOBBY_VOICE_SLOT_ID}`));
+  }
+  note.textContent = Number.isInteger(cap) && cap > 0 ? `Voice is full (${cap} people)` : 'Voice is full';
+  note.title = "You'll join voice when someone leaves it.";
+}
+
 /**
  * Show the tournament lobby screen.
  *
@@ -140,6 +164,8 @@ export function showTournamentLobby(data, socket, username) {
   // tournamentJoined draws the lobby again): its buttons move to the new header
   const oldLobby = document.getElementById('tournamentLobbyContainer');
   const voiceButtons = oldLobby ? [...(oldLobby.querySelector(`#${LOBBY_VOICE_SLOT_ID}`)?.children || [])] : [];
+  // and so does the over-cap notice (still waiting in line)
+  const voiceFullNote = oldLobby?.querySelector(`#${VOICE_FULL_ID}`) || null;
 
   // Remove any existing tournament lobby (this resets module state, so the
   // server-provided phase must be applied afterwards — otherwise the Begin
@@ -177,7 +203,7 @@ export function showTournamentLobby(data, socket, username) {
     className: 'screen-header',
     children: [
       el('h1', { className: 'screen-title screen-title--md', text: data.name || 'Tournament' }),
-      el('div', { className: 'tournament-header-end', children: [roundIndicator, voiceSlot] }),
+      el('div', { className: 'tournament-header-end', children: [roundIndicator, ...(voiceFullNote ? [voiceFullNote] : []), voiceSlot] }),
     ],
   }));
 
