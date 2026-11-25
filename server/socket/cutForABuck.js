@@ -34,13 +34,18 @@
  *   winner   one player left: cutForABuckWinner {winner, participants,
  *            rounds} and "<winner> won Cut for a buck."; CUT_WINNER_MS, then
  *            finishTournament with the result (tournamentComplete gains
- *            cutForABuck)
+ *            cutForABuck). Once announced the result stands: the winner
+ *            leaving, a Cancel, the last member leaving or a deploy handoff
+ *            in this stage all complete with it
  *
  * Presence: a disconnect auto-draws an open draw (memberDisconnected); a
  * leave takes the player out (memberLeft: cutForABuckLeft, then a reveal or
  * the winner as it falls); the host's Cancel ends the cut early and
- * completes the tournament (cancel); the last member leaving completes it
- * first (tournamentHandlers.leaveTournament). deleteTournamentIfAbandoned
+ * completes the tournament (cancel: no cut result before a winner, the
+ * announced result after one); the last member leaving completes it first
+ * (tournamentHandlers.leaveTournament). Any cutForABuckDraw from a player
+ * still in (one dropped as a repeat or a stale round included) ends their
+ * away strikes, so the next round waits for them. deleteTournamentIfAbandoned
  * holds while phase is 'cut'. tournamentComplete goes out exactly once.
  *
  * Every timer is the tournament's 'cut' timer (t.setTimer: cleared by
@@ -239,6 +244,14 @@ function autoAtOpen(io, t, username) {
 
 function openRound(io, t) {
     const e = t.cut.engine;
+    if (e.alive.size < 2) {
+        // never a round with fewer than 2 still in (e.openRound throws):
+        // the winner, or the announced result (its winner left since)
+        socketLogger.error('Cut for a buck: a round with fewer than 2 still in', { tournamentId: t.tournamentId, alive: e.alive.size, result: !!t.cut.result });
+        if (t.cut.result) return declareWinner(io, t, t.cut.result);
+        if (e.winner) return declareWinner(io, t);
+        return finish(io, t, null);
+    }
     if (e.round >= maxRounds()) {
         socketLogger.error('Cut for a buck: round cap reached, a random winner', { tournamentId: t.tournamentId, rounds: e.round, alive: e.alive.size });
         e.forceWinner();
@@ -321,9 +334,12 @@ function reveal(io, t) {
     }
 }
 
-function declareWinner(io, t) {
+/** The winner (the engine's, or `saved`: the result announced before a handoff). */
+function declareWinner(io, t, saved = null) {
     const e = t.cut.engine;
-    const result = { winner: e.winner, participants: [...e.participants], rounds: e.round };
+    const result = saved
+        ? { winner: saved.winner, participants: [...saved.participants], rounds: saved.rounds }
+        : { winner: e.winner, participants: [...e.participants], rounds: e.round };
     t.cut.stage = 'winner';
     t.cut.result = result;
     t._changed();
@@ -355,14 +371,19 @@ function draw(socket, io, data) {
     const t = gameManager.getPlayerTournament(socket.id);
     if (!t) return drop('not a member');
     if (t.phase !== 'cut' || !t.cut) return drop('phase');
-    if (t.cut.stage !== 'drawing') return drop('stage');
     const e = t.cut.engine;
-    if (!e || !e.open || data?.round !== e.round) return drop('round');
     const username = t.players.get(socket.id)?.username;
+    // a draw of their own, even one dropped below (already drawn for at the
+    // open, a stale round): no longer away, so the next round waits for them
+    if (username && e?.alive.has(username) && t.cut.strikes[username]) {
+        delete t.cut.strikes[username];
+        t._changed();
+    }
+    if (t.cut.stage !== 'drawing') return drop('stage');
+    if (!e || !e.open || data?.round !== e.round) return drop('round');
     if (!username || !e.alive.has(username)) return drop('not alive');
     const d = e.draw(username, data.slot ?? null);
     if (!d) return drop('repeat');
-    delete t.cut.strikes[username];
     t.broadcast(io, 'cutForABuckDrew', { round: e.round, username, slot: d.slot, auto: false });
     require('./tournamentLiveness').noteActivity(io, t, socket.id);
     if (d.allDrawn) reveal(io, t);
@@ -407,15 +428,18 @@ function memberLeft(io, t, username) {
 
 /**
  * The host's cancelTournament during the cut (any stage): the cut ends and
- * the tournament completes with no cut result ("<host> ended Cut for a
- * buck." first). Also the last member leaving ({line: false}).
+ * the tournament completes ("<host> ended Cut for a buck." first). Before a
+ * winner there is no cut result; in the winner stage the announced result
+ * stands (no line: nothing was cut short, the hold just ends early). Also
+ * the last member leaving ({line: false}).
  */
 function cancel(io, t, hostName, { line = true } = {}) {
     if (!t || t.phase !== 'cut') return Promise.resolve(false);
     t.clearTimer(TIMER);
-    if (line) roomLine(io, t, `${hostName || 'The host'} ended Cut for a buck.`);
-    socketLogger.info(line ? 'Cut for a buck: ended by the host' : 'Cut for a buck: the last member left', { tournamentId: t.tournamentId, stage: t.cut?.stage });
-    return finish(io, t, null);
+    const result = t.cut?.stage === 'winner' ? t.cut.result || null : null;
+    if (line && !result) roomLine(io, t, `${hostName || 'The host'} ended Cut for a buck.`);
+    socketLogger.info(line ? 'Cut for a buck: ended by the host' : 'Cut for a buck: the last member left', { tournamentId: t.tournamentId, stage: t.cut?.stage, result: !!result });
+    return finish(io, t, result);
 }
 
 /**
@@ -437,14 +461,18 @@ function noteBack(io, t, username) {
 /**
  * A restored tournament in phase 'cut' (persist/restoreTournament
  * adoptTournament): after `leadInMs` the gather's begin (participants: the
- * members back by then), the winner again, or the interrupted round redrawn.
+ * members back by then), the winner again (the saved result first: its
+ * winner may have left in the winner stage, leaving nobody still in), or
+ * the interrupted round redrawn. openRound never sees fewer than 2 still in.
  */
 function afterRestore(io, t, leadInMs) {
     if (!t || t.phase !== 'cut' || !t.cut) return;
     t.cut.restoreLine = true;
-    if (t.cut.stage !== 'gather') t.cut.stage = t.cut.engine?.winner ? 'winner' : 'reveal';
+    const e = t.cut.engine;
+    if (t.cut.stage !== 'gather') t.cut.stage = t.cut.result || e?.winner || (e && e.alive.size < 2) ? 'winner' : 'reveal';
     arm(io, t, leadInMs, () => {
         if (t.cut.stage === 'gather') return beginCut(io, t);
+        if (t.cut.result) return declareWinner(io, t, t.cut.result);
         if (t.cut.engine.winner) return declareWinner(io, t);
         return openRound(io, t);
     });

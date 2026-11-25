@@ -358,8 +358,10 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
   on a leave, `cutForABuckReveal {round, draws: [$defs.cutDraw], eliminated,
   redraw, alive, nextInMs}` -> `cutForABuckWinner $defs.cutResult` -> 6 s ->
   `tournamentComplete` with the additive `cutForABuck $defs.cutResult`
-  (absent when no cut ran to a winner). `tournamentComplete` goes out
-  exactly once.
+  (absent when no cut ran to a winner). Once `cutForABuckWinner` is out the
+  result stands: the host's Cancel, the winner or the last member leaving,
+  or a deploy in the 6 s hold all complete with it. `tournamentComplete`
+  goes out exactly once.
 - c2s `cutForABuckDraw {round, slot | null}` (Joi: round 1..10000, slot
   0..107 or null; rate limit 10 / 10 s): out-of-turn draws are dropped
   silently.
