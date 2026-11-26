@@ -174,7 +174,10 @@ final class CutForABuckUITests: XCTestCase {
     func testTheListAtTheLargestTextSize() {
         let app = open(12, "drawing", Self.ax5)
         let list = any(app, "cut.list")
-        XCTAssertTrue(list.waitForExistence(timeout: 5), "the list is the default at the accessibility sizes")
+        // the default on a compact width; a regular one (the iPad, the open Duo) keeps the ring
+        let compact = (Fixture.windowSize(Fixture.probe(app, "ui.pose"))?.width ?? 0) < 600
+        if !compact, !list.waitForExistence(timeout: 3) { app.buttons["List"].firstMatch.tap() }
+        XCTAssertTrue(list.waitForExistence(timeout: 5), "the list at the accessibility sizes")
         let draw = app.buttons["cut.listDraw"]
         XCTAssertTrue(draw.waitForExistence(timeout: 5))
         let scroll = app.scrollViews.containing(.any, identifier: "cut.list").firstMatch
