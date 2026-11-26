@@ -1408,7 +1408,7 @@ function initializeApp() {
     if (kind === 'spectator' && isShoulder(gameState)) kind = 'watching';
     else if (kind === 'watching' && !isShoulder(gameState)) kind = 'spectator';
     const text = kind === 'watching'
-      ? watchingPillText(gameState.getPlayerNameByPosition(gameState.shoulder.position), { paused: !!gameState.shoulder.paused }) + spectatorVoiceNote('spectator')
+      ? watchingPillText(gameState.getSeatOwnerName(gameState.shoulder.position), { paused: !!gameState.shoulder.paused }) + spectatorVoiceNote('spectator')
       : (kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit') + spectatorVoiceNote(kind);
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
@@ -1442,7 +1442,7 @@ function initializeApp() {
 
   /** Who is watching (the badge), each watcher's row naming the hand it watches. */
   function renderSpectatorBadge(watching) {
-    return drawSpectatorBadge(watching, { me: gameState.username, seatName: (p) => gameState.getPlayerNameByPosition(p) });
+    return drawSpectatorBadge(watching, { me: gameState.username, seatName: (p) => gameState.getSeatOwnerName(p) });
   }
 
   /** A watcher's voice state on the pill: "(listening only)" (a refused microphone) or "Voice is full (8 people)". */

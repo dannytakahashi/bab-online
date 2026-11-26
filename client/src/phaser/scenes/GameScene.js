@@ -1661,7 +1661,7 @@ export class GameScene extends Phaser.Scene {
       onClose: () => this.clearAssist(),
       unlimited,
       tutorial: !watched && tutorialIsOn(st.gameId || null),
-      owner: watched ? st.getPlayerNameByPosition?.(hint.watched) || null : null,
+      owner: watched ? st.getSeatOwnerName?.(hint.watched) || null : null,
     });
     this.cardManager?.setSuggestedCard?.(suggestedCard(hint));
     this.bidManager?.setSuggestedBid?.(suggestedBid(hint));
@@ -1890,7 +1890,7 @@ export class GameScene extends Phaser.Scene {
       place: this._tipPlaceDrawn,
       onClose: (h) => this.closeTip(h),
       onAction: (h, a) => this.tipAction(h, a),
-      owner: shown && isWatchedHint(shown) ? this.state?.getPlayerNameByPosition?.(shown.watched) || null : null,
+      owner: shown && isWatchedHint(shown) ? this.state?.getSeatOwnerName?.(shown.watched) || null : null,
     });
   }
 
@@ -2239,7 +2239,7 @@ export class GameScene extends Phaser.Scene {
   showWatchedBidSheet(handSize) {
     const s = this.state;
     if (!this.bidManager || !isShoulder(s) || s.shoulder.paused) return;
-    this.bidManager.showBidUI(handSize, null, { readOnly: true, owner: s.getPlayerNameByPosition(s.position) });
+    this.bidManager.showBidUI(handSize, null, { readOnly: true, owner: s.getSeatOwnerName(s.position) });
   }
 
   /** What is on the table (render checks and tests). */
