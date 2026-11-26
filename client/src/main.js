@@ -62,11 +62,12 @@ import { passwordResetNoticeText } from './utils/accountNotices.js';
 import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } from './ui/screens/LeaderboardPage.js';
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope, scopePayload } from './state/statsScope.js';
-import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
 import { setIsAdmin } from './admin/adminApi.js';
 import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
 import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
 import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
+import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
+import { showTournamentResultsOverlay } from './ui/components/TournamentScoreboard.js';
 import { showResignationDialog, dismissResignationDialog } from './ui/components/ResignationDialog.js';
 import { SCREENS, initializeUIManager } from './ui/UIManager.js';
 

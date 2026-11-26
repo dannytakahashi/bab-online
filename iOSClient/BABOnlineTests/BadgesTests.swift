@@ -17,7 +17,7 @@ final class BadgesTests: XCTestCase {
     func testTheBadgesCapIsSent() {
         XCTAssertEqual(Badges.cap, "badges")
         XCTAssertTrue(ClientHello.caps.contains("badges"), "only a socket with the cap gets badges and badgesAwarded")
-        XCTAssertTrue((ClientHello.payload()["caps"] as? [String])?.contains("badges") == true)
+        XCTAssertTrue((ClientHello.payload()["caps"] as? [String] ?? []).contains("badges"))
     }
 
     func testBadgeIdsAreTheWebsFileNames() {

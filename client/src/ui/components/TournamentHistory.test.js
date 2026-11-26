@@ -105,7 +105,9 @@ describe('on the profiles', () => {
     const section = modal.querySelector('#profileTournaments');
     expect(section).not.toBeNull();
     const titles = [...modal.querySelectorAll('h3.section-title')].map((h) => h.textContent);
-    expect(titles.indexOf('Tournaments')).toBe(titles.indexOf('Statistics') + 1);
+    // after the statistics (and after Badges, #408, when that section is there)
+    expect(titles.indexOf('Tournaments')).toBeGreaterThan(titles.indexOf('Statistics'));
+    if (titles.includes('Badges')) expect(titles.indexOf('Tournaments')).toBe(titles.indexOf('Badges') + 1);
   });
 
   it("another player's profile shows it; a stats scope reply leaves it in place", () => {

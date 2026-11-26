@@ -614,7 +614,8 @@
           "voicePeerJoined",
           "voicePeerLeft",
           "voiceIceServers",
-          "voiceSettings"
+          "voiceSettings",
+          "tournamentVoiceStatus"
         ]
       },
       {
@@ -645,7 +646,6 @@
     "swift": {
       "searchPlayers": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
       "searchPlayersResponse": "player search is web only (the owner declined it for iOS, 2026-11-15); iOS 1.2.2 has the profile events",
-      "tournamentVoiceStatus": "the over-cap notice (2026-11-25): the web reads it now; iOS from 1.2.7, which lists it here in its own PR",
       "sessionSuperseded": "web only: iOS 1.1.0 never shares a saved session between live sockets (a different session gets forceLogout); the server never needs it to read this"
     }
   }

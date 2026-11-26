@@ -98,14 +98,16 @@ enum UIFixture {
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings",
-                                              "update-required", "sign-in", "register"]
+                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings", "tournament-cut",
+                                              "tournament-rounds", "update-required", "sign-in", "register"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
                      tournament: TournamentState, auth: AuthState) {
         guard let name else { return }
         seed(fixture: name, store, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+        // `game-end-tournament -uiCut "<n> <stage>"`: the score screen's Cut for a buck strip (UIFixture+Cut)
+        seedCutOnScoreScreen(store, tournament: tournament)
     }
 
     /// Seeds the stores from the fixture `name` (also used by the #Preview blocks).
@@ -156,6 +158,8 @@ enum UIFixture {
         }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+            // iOS 1.2.7's tournament extras: the over-cap notice, the rounds' answers (UIFixture+Tournament)
+            seedTournamentExtras(tournament)
             // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
             // fit at a real lobby's name)
             if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
@@ -470,6 +474,13 @@ enum UIFixture {
             let username = data["username"] as? String ?? "-"
             message = "releaseLobbyHold:\(username)"
             emulateRelease(username)
+        case SocketEvents.Client.cutForABuckDraw:
+            // answered as the server does (UIFixture+Cut)
+            message = "cutForABuckDraw:\(data["round"] as? Int ?? 0):\((data["slot"] as? Int).map(String.init) ?? "null")"
+            emulateCutDraw(data)
+        case SocketEvents.Client.setTournamentRounds:
+            // answered as the server does (UIFixture+Tournament)
+            message = tournamentRoundsSent(data)
         case SocketEvents.Client.setSpectatorsCanTalk:
             // this build has no switch (2026-11-18); a send would show here
             message = "setSpectatorsCanTalk"
@@ -720,6 +731,9 @@ enum UIFixture {
             }
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-rounds":
+            // the host's Rounds picker before Begin (UIFixture+Tournament)
+            seedTournamentRounds(appState, tournament: tournament, auth: auth)
         case "tournament-pairings":
             // round 3 in play (owner 2026-11-25: partners shown openly): ivy's partners so far are a
             // bot (round 1), nobody (sat out round 2) and a 20-character name (round 3); a long name
@@ -839,6 +853,9 @@ enum UIFixture {
             tournament.winners = ["kim", "ivy"]
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-cut":
+            // Cut for a buck (`-uiCut "<n> <stage>"`, UIFixture+Cut)
+            seedCut(appState, tournament: tournament, auth: auth)
         case "register":
             SocketService.shared.isConnected = !UserDefaults.standard.bool(forKey: "uiOffline")
             appState.screen = .register

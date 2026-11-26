@@ -37,6 +37,9 @@ final class ProfileState: ObservableObject {
     @Published private(set) var ownLoads: [StatsScope: ProfileStatsLoad] = [:]
     /// My earned badges, from the latest successful profileResponse (nil before one).
     @Published private(set) var ownBadges: [EarnedBadge]?
+    /// My tournament history from the latest successful profileResponse (nil before one, or from
+    /// a server without it; TournamentHistory).
+    @Published private(set) var ownTournaments: TournamentHistory?
     /// A picture change is waiting for its answer.
     @Published private(set) var pictureBusy = false
     @Published var pictureNotice: PictureNotice?
@@ -55,6 +58,8 @@ final class ProfileState: ObservableObject {
         var loads: [StatsScope: ProfileStatsLoad] = [:]
         /// Their earned badges, from the latest successful reply (nil before one).
         var badges: [EarnedBadge]?
+        /// Their tournament history from the latest successful reply (nil before one).
+        var tournaments: TournamentHistory?
         fileprivate let token: Int
 
         var displayName: String { username ?? requested }
@@ -126,6 +131,8 @@ final class ProfileState: ObservableObject {
             ownLoads[scope, default: ProfileStatsLoad()].stats = profile.stats
             // the same badges whatever the scope: every success says them
             if ownBadges != profile.badges { ownBadges = profile.badges }
+            // the same history whatever the scope (a tournament is not a game)
+            if ownTournaments != profile.tournaments { ownTournaments = profile.tournaments }
             finishOwn(scope, failure: nil)
         } else if !ownWaiting.isEmpty {
             let head = ownWaiting.removeFirst()
@@ -145,6 +152,7 @@ final class ProfileState: ObservableObject {
         ownUploaded = nil
         ownLoads = [:]
         ownBadges = nil
+        ownTournaments = nil
         ownWaiting = []
         pictureBusy = false
         pictureNotice = nil
@@ -286,6 +294,7 @@ final class ProfileState: ObservableObject {
             v.pictureKey = profile.pictureKey
             v.loads[scope, default: ProfileStatsLoad()].stats = profile.stats
             v.badges = profile.badges
+            v.tournaments = profile.tournaments
             viewed = v
             finishViewed(token, scope, failure: nil)
         } else if !playerWaiting.isEmpty {

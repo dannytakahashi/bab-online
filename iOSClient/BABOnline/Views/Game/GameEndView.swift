@@ -91,16 +91,23 @@ struct GameEndView: View {
                 }
             }
 
-            Button(action: returnAction) {
-                Text(gameState.tournamentId != nil ? "Return to Tournament" : "Return to Lobby")
-                    .font(.body.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(gameState.tournamentId != nil ? Theme.warning : Theme.buttonBackground)
-                    .foregroundColor(gameState.tournamentId != nil ? Theme.warningForeground : Theme.buttonForeground)
-                    .cornerRadius(Theme.Radius.md)
+            if gameState.tournamentId != nil {
+                // the last table's Cut for a buck strip and "Join cut for a buck" (iOS 1.2.7 (41))
+                CutScoreStrip(tournamentId: gameState.tournamentId, spectator: gameState.isSpectator, me: gameState.username,
+                              action: returnAction)
+                    .padding(.horizontal, Theme.Space.s10)
+            } else {
+                Button(action: returnAction) {
+                    Text("Return to Lobby")
+                        .font(.body.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Theme.buttonBackground)
+                        .foregroundColor(Theme.buttonForeground)
+                        .cornerRadius(Theme.Radius.md)
+                }
+                .padding(.horizontal, Theme.Space.s10)
             }
-            .padding(.horizontal, Theme.Space.s10)
         }
         .padding(.vertical, Theme.Space.s8)
         .padding(.horizontal, compact ? Theme.Space.s5 : Theme.Space.s8)
@@ -182,6 +189,55 @@ struct GameEndView: View {
         } else {
             appState.screen = .mainRoom
             LobbyEmitter.joinMainRoom()
+        }
+    }
+}
+
+/// A tournament table's Return button, and at the tournament's last table while Cut for a buck is
+/// on (spec section 3.3: the score screen stays as long as the player wants) a strip over it: "Cut
+/// for a buck starts in 12" / "Cut for a buck has started. We'll draw for you until you join.", the
+/// button reading "Join cut for a buck" (the same returnToTournament); the winner's line once it is
+/// decided. Its own view, so the cut's events re-render only this.
+struct CutScoreStrip: View {
+    let tournamentId: String?
+    let spectator: Bool
+    let me: String?
+    let action: () -> Void
+    @EnvironmentObject var tournamentState: TournamentState
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            let cut = tournamentState.tournamentId == tournamentId ? tournamentState.cut : nil
+            let strip = CutCopy.scoreStrip(cut, me: me, spectator: spectator)
+            VStack(spacing: Theme.Space.s2) {
+                if let strip {
+                    HStack(spacing: Theme.Space.s2) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundStyle(Theme.gold)
+                            .accessibilityHidden(true)
+                        Text(strip.text)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(Theme.Space.s2)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.gold.opacity(0.14)))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("gameEnd.cutStrip")
+                }
+                Button(action: action) {
+                    Text(strip?.button ?? "Return to Tournament")
+                        .font(.body.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Theme.warning)
+                        .foregroundColor(Theme.warningForeground)
+                        .cornerRadius(Theme.Radius.md)
+                }
+            }
         }
     }
 }

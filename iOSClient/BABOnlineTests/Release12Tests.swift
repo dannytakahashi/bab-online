@@ -282,7 +282,7 @@ final class ClientHelloTests: XCTestCase {
         // 1.2.7 (41): tournamentPairings (round pairings, the draw for first deal),
         // badges (earned badges on profiles, the Badge earned toast); 1.2.7 (42): getYourBid
         // (Get Your Bid lobbies and tables)
-        XCTAssertEqual(p["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", "shoulderView", "tournamentVoice", "tournamentPairings", "badges", "getYourBid"])
+        XCTAssertEqual(p["caps"] as? [String], ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", "shoulderView", "tournamentVoice", "tournamentPairings", "tournamentVoiceStatus", "badges", "cutForABuck", "getYourBid"])
         // contract/src/c2s.js clientHello: client ^[a-z0-9-]+$ (1-16), version 1-32, build <= 64, caps <= 16
         XCTAssertNotNil((p["client"] as? String)?.range(of: #"^[a-z0-9-]{1,16}$"#, options: .regularExpression))
         XCTAssertLessThanOrEqual((ClientHello.payload(version: String(repeating: "9", count: 50), build: "1")["version"] as? String)?.count ?? 99, 32)

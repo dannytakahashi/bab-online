@@ -853,6 +853,50 @@
     text-transform: uppercase;
 }
 
+/* Badges (ui/components/Badges.js): the earned ones, below the statistics */
+.badges-title {
+    margin-top: var(--space-6);
+}
+
+.badges-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.badge-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
+    padding: var(--space-4) var(--space-2);
+    background: var(--surface-2);
+    border-radius: var(--radius-md);
+    text-align: center;
+}
+
+.badge-item__art {
+    width: 64px;
+    height: 64px;
+}
+
+.badge-item__name {
+    color: var(--text-primary);
+    font-size: var(--type-sm);
+    font-weight: var(--weight-bold);
+}
+
+.badge-item__desc {
+    color: var(--text-secondary);
+    font-size: var(--type-xs);
+}
+
+
+
 /* profile: the Tournaments section (components/TournamentHistory.js) */
 .tournament-history {
     margin-top: var(--space-6);
@@ -913,48 +957,6 @@
 .tournament-history__meta,
 .tournament-history__cut {
     margin-top: var(--space-1);
-    color: var(--text-secondary);
-    font-size: var(--type-xs);
-}
-
-/* Badges (ui/components/Badges.js): the earned ones, below the statistics */
-.badges-title {
-    margin-top: var(--space-6);
-}
-
-.badges-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: var(--space-2);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.badge-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-    padding: var(--space-4) var(--space-2);
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
-    text-align: center;
-}
-
-.badge-item__art {
-    width: 64px;
-    height: 64px;
-}
-
-.badge-item__name {
-    color: var(--text-primary);
-    font-size: var(--type-sm);
-    font-weight: var(--weight-bold);
-}
-
-.badge-item__desc {
     color: var(--text-secondary);
     font-size: var(--type-xs);
 }

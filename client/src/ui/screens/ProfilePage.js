@@ -15,8 +15,8 @@ import { avatarSrc, profileAvatarSrc, applyAvatarImg, STOCK_MAX } from '../../ut
 import { el, createButton, createPanel, openModal } from '../kit/index.js';
 import { showError } from '../components/Toast.js';
 import { createStatsScopeControl } from '../components/StatsScopeControl.js';
-import { createTournamentHistorySection } from '../components/TournamentHistory.js';
 import { createBadgesSection } from '../components/Badges.js';
+import { createTournamentHistorySection } from '../components/TournamentHistory.js';
 import {
   getStatsScope, setStatsScope, isStatsScope, createScopeRequester, scopePayload, BOT_STATS_EMPTY_NOTE,
 } from '../../state/statsScope.js';
@@ -352,7 +352,7 @@ export function showProfilePage(profile, socket, scope = getStatsScope(), badges
     id: 'profilePageOverlay',
     dialogId: 'profilePageModal',
     className: 'page-modal',
-    body: [hero, ...section.nodes, ...createTournamentHistorySection(profile, 'profileTournaments').nodes, ...badgeSection.nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
+    body: [hero, ...section.nodes, ...badgeSection.nodes, ...createTournamentHistorySection(profile, 'profileTournaments').nodes, createSignOutButton(), createPasswordChange(socket), createDangerZone(socket)],
     onClose: () => {
       profileModal = null;
       removePictureSelector();
@@ -820,9 +820,9 @@ export function showPlayerProfilePage(profile, socket, options = {}) {
   section.username = profile.username;
   playerStats = section;
   body.push(...section.nodes);
+  body.push(...createBadgesSection(options.badges, 'playerProfileBadgesRegion').nodes);
   // The tournament history (every scope the same: a scope switch leaves it)
   body.push(...createTournamentHistorySection(profile, 'playerProfileTournaments').nodes);
-  body.push(...createBadgesSection(options.badges, 'playerProfileBadgesRegion').nodes);
 
   playerProfileModal = openModal({
     title: profile.username,
