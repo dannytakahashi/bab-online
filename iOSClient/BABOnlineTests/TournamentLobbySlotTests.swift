@@ -170,9 +170,9 @@ final class TournamentLobbySlotTests: XCTestCase {
         func msg(_ item: M.Item, _ phase: String, host: Bool = false, others: Int = 2) -> String {
             M.confirmMessage(item, phase: phase, isCreator: host, othersConnected: others)
         }
-        XCTAssertEqual(M.confirmTitle(.cancel), "Cancel the tournament?")
         XCTAssertEqual(M.confirmButton(.cancel), "Cancel Tournament")
-        XCTAssertEqual(M.keepButton(.cancel), "Keep Tournament", "never a second 'Cancel'")
+        XCTAssertEqual(M.confirmButton(.leave), "Leave Tournament")
+        XCTAssertEqual(M.confirmButton(.stopWatching), "Stop Watching")
         XCTAssertTrue(msg(.cancel, "lobby", host: true).contains("everyone"))
         XCTAssertTrue(msg(.cancel, "round_active", host: true).contains("games still in play"))
         XCTAssertEqual(msg(.leave, "lobby"), "You can join again while it's waiting to start.")
@@ -180,7 +180,7 @@ final class TournamentLobbySlotTests: XCTestCase {
                        "You can join again while it's waiting to start. Another player becomes the host.")
         XCTAssertFalse(msg(.leave, "lobby").contains("host"))
         for item in [M.Item.cancel, .leave, .stopWatching] {
-            for words in [M.title(item), M.confirmTitle(item), msg(item, "lobby", host: true)] {
+            for words in [M.title(item), msg(item, "lobby", host: true)] {
                 XCTAssertFalse(words.contains("Team"), words)
             }
         }
@@ -224,5 +224,17 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertEqual(M.confirmMessage(.leave, phase: "lobby", isCreator: false, othersConnected: 0), alone)
         // once begun, a host alone has no one to hand the role to
         XCTAssertFalse(M.confirmMessage(.leave, phase: "between_rounds", isCreator: true, othersConnected: 0).contains("host"))
+    }
+
+    /// The dropped-choice rule: a confirm opened before a host hand-off, the cut or the results
+    /// does nothing once the menu no longer offers that choice.
+    func testAConfirmForAChoiceNoLongerOfferedIsDropped() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertTrue(M.stillOffers(.cancel, phase: "lobby", isCreator: true, isSpectator: false))
+        XCTAssertFalse(M.stillOffers(.cancel, phase: "lobby", isCreator: false, isSpectator: false), "the host role passed on")
+        XCTAssertFalse(M.stillOffers(.cancel, phase: CutForABuck.phase, isCreator: true, isSpectator: false), "the cut began")
+        XCTAssertFalse(M.stillOffers(.leave, phase: "complete", isCreator: false, isSpectator: false), "the results")
+        XCTAssertFalse(M.stillOffers(.stopWatching, phase: "between_rounds", isCreator: false, isSpectator: false))
+        XCTAssertTrue(M.stillOffers(.leave, phase: "round_active", isCreator: false, isSpectator: false))
     }
 }

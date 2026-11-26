@@ -53,25 +53,13 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(e.frame), "\(what) \(e.frame) outside the window \(window)")
     }
 
-    /// The confirmation's words (TournamentLobbyMenu.Copy; the UI tests do not link the app).
+    /// The confirmations' words (TournamentLobbyMenu.Copy and confirmMessage; the UI tests do not
+    /// link the app).
     private enum TournamentCopy {
+        static let cancelInTheLobby = "The tournament ends for everyone before it starts."
+        static let cancelOnceBegun = "The tournament ends for everyone, and any games still in play stop now."
+        static let hostLeavesTheLobby = "You can join again while it's waiting to start. Another player becomes the host."
         static let noWayBack = "You can't come back to this tournament, and you won't be among the winners."
-    }
-
-    /// The confirmation opens from "…" (review of PR #430: attached to the screen it floated
-    /// mid-screen, its arrow into the chat on the closed Duo). Where the system shows it as a
-    /// popover (the iPad, the closed Duo's narrow window) its button is near More; where it is an
-    /// action sheet at the bottom (an iPhone) there is nothing to point from.
-    /// `m`: More's frame, read before the menu opened (with the question up the closed Duo's
-    /// vertical bar is out of the accessibility tree).
-    private func assertOpensFromMore(_ app: XCUIApplication, _ m: CGRect, _ confirm: XCUIElement, _ what: String) {
-        XCTAssertTrue(confirm.waitForExistence(timeout: 3), "\(what): the confirming button")
-        let window = app.windows.firstMatch.frame
-        let c = confirm.frame
-        let isSheet = c.maxY > window.maxY - 140 && c.width > window.width * 0.7
-        if isSheet { return }
-        let gap = max(0, max(c.minY - m.maxY, m.minY - c.maxY))
-        XCTAssertLessThan(gap, 220, "\(what) \(c) opens from More \(m), not mid-screen")
     }
 
     private var more: (XCUIApplication) -> XCUIElement {
@@ -170,52 +158,134 @@ final class LobbyMenuLayoutUITests: XCTestCase {
 
     // MARK: - The menu
 
-    /// The host's menu: Leave Tournament and Cancel Tournament; Cancel asks first and only then
-    /// sends cancelTournament; Keep Tournament sends nothing.
-    func testTheHostsMenuCancelsAfterAConfirmation() {
+    private static let ax3 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"]
+
+    /// Opens an item of the "…" menu (a submenu) and returns its consequence (the submenu's
+    /// header) and its one confirm button: the button with the item's title BELOW the header (the
+    /// submenu's own title row above it carries the same words).
+    private func openConfirm(_ app: XCUIApplication, _ title: String, _ message: String,
+                             file: StaticString = #filePath, line: UInt = #line) -> (header: XCUIElement, confirm: XCUIElement) {
+        let item = app.buttons.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        XCTAssertTrue(item.waitForExistence(timeout: 3), "\(title) in the menu", file: file, line: line)
+        item.tap()
+        let header = app.staticTexts[message].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 3), "the consequence heads the confirm: \(message)", file: file, line: line)
+        let below = app.buttons.matching(NSPredicate(format: "label == %@", title)).allElementsBoundByIndex
+            .filter { $0.exists && $0.frame.minY >= header.frame.maxY - 1 }
+        XCTAssertEqual(below.count, 1, "one confirm under the consequence", file: file, line: line)
+        return (header, below.first ?? item)
+    }
+
+    /// The confirm is in the menu: no alert, no popover, no dialog title floating over the chat.
+    private func assertNothingFloats(_ app: XCUIApplication, _ question: String, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(app.alerts.count, 0, "no alert", file: file, line: line)
+        XCTAssertEqual(app.popovers.count, 0, "no popover", file: file, line: line)
+        XCTAssertFalse(app.staticTexts[question].exists, "no dialog question (\(question))", file: file, line: line)
+    }
+
+    /// The consequence on screen: the header carries the whole message and sits inside the window
+    /// (whether a long one wraps rather than ending in an ellipsis is read from the screenshots).
+    private func assertWhole(_ app: XCUIApplication, _ header: XCUIElement, file: StaticString = #filePath, line: UInt = #line) {
+        let window = app.windows.firstMatch.frame
+        XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(header.frame), "header \(header.frame) inside \(window)", file: file, line: line)
+    }
+
+    /// Closes the open menu by a tap beside it (the screen's leading edge, clear of the menu on every device), the "keep" choice.
+    private func dismissMenu(_ app: XCUIApplication) {
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.45)).tap()
+    }
+
+    /// Cancel Tournament confirms IN the menu (owner 2026-11-26: the confirmationDialog showed as a
+    /// popover pointing at the chat): its submenu says what happens in full and its one button
+    /// sends cancelTournament; closing the menu sends nothing.
+    func testCancelConfirmsInTheMenuAndDismissingSendsNothing() {
         let app = lobby("tournament-rounds")
         let button = more(app)
         XCTAssertTrue(button.waitForExistence(timeout: 5))
         XCTAssertTrue(button.isHittable, "More is reachable (the vertical bar on the closed Duo)")
-        let moreFrame = button.frame
+        let message = TournamentCopy.cancelInTheLobby
         button.tap()
-        let cancel = app.buttons["Cancel Tournament"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Leave Tournament"].exists)
-        shot("menu-host")
-        cancel.tap()
-        let confirm = app.buttons.matching(NSPredicate(format: "label == %@", "Cancel Tournament")).firstMatch
-        XCTAssertTrue(app.staticTexts["Cancel the tournament?"].waitForExistence(timeout: 3), "asks first")
-        XCTAssertTrue(app.staticTexts["The tournament ends for everyone before it starts."].exists)
+        let first = openConfirm(app, "Cancel Tournament", message)
+        assertWhole(app, first.header)
+        assertNothingFloats(app, "Cancel the tournament?")
+        XCTAssertTrue(first.confirm.isHittable)
         XCTAssertEqual(sent(app), "-", "nothing sent before the confirmation")
-        assertOpensFromMore(app, moreFrame, confirm, "Cancel Tournament")
+        dismissMenu(app)
+        waitFor("the menu closed") { !app.staticTexts[message].exists }
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        XCTAssertEqual(sent(app), "-", "closing the menu keeps the tournament")
+        XCTAssertTrue(element(app, "tournament.ready").exists, "still in the lobby")
+
+        more(app).tap()
+        let second = openConfirm(app, "Cancel Tournament", message)
         shot("menu-host-confirm")
-        confirm.tap()
+        second.confirm.tap()
         waitFor("cancelTournament sent") { sent(app) == "cancelTournament" }
         app.terminate()
     }
 
-    /// A member's menu: Leave Tournament only, confirmed, then leaveTournament.
+    /// The host's menu: Leave Tournament and Cancel Tournament, each a submenu; Leave says the role
+    /// passes on and sends leaveTournament.
+    func testTheHostsMenuLeavesAfterAConfirmation() {
+        let app = lobby("tournament-rounds")
+        more(app).tap()
+        XCTAssertTrue(app.buttons["Cancel Tournament"].firstMatch.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Leave Tournament"].exists)
+        shot("menu-host")
+        let (header, confirm) = openConfirm(app, "Leave Tournament", TournamentCopy.hostLeavesTheLobby)
+        assertWhole(app, header)
+        assertNothingFloats(app, "Leave the tournament?")
+        XCTAssertEqual(sent(app), "-")
+        confirm.tap()
+        waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
+        app.terminate()
+    }
+
+    /// A member's menu: Leave Tournament only, confirmed in its submenu, then leaveTournament.
     func testAMembersMenuLeavesAfterAConfirmation() {
         let app = lobby("tournament-between")
         XCTAssertTrue(more(app).waitForExistence(timeout: 5))
-        let moreFrame = more(app).frame
         more(app).tap()
-        let leave = app.buttons["Leave Tournament"].firstMatch
-        XCTAssertTrue(leave.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Leave Tournament"].firstMatch.waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["Cancel Tournament"].exists, "only the host cancels")
         shot("menu-member")
-        leave.tap()
-        XCTAssertTrue(app.staticTexts["Leave the tournament?"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.staticTexts[TournamentCopy.noWayBack].exists,
-                      "between rounds a member who leaves is gone for good, never 'a missed round scores...'")
+        // between rounds a member who leaves is gone for good, never "a missed round scores..."
+        let (header, confirm) = openConfirm(app, "Leave Tournament", TournamentCopy.noWayBack)
+        assertWhole(app, header)
+        assertNothingFloats(app, "Leave the tournament?")
         XCTAssertEqual(sent(app), "-")
-        let confirm = app.buttons.matching(NSPredicate(format: "label == %@", "Leave Tournament")).firstMatch
-        assertOpensFromMore(app, moreFrame, confirm, "Leave Tournament")
         shot("menu-member-confirm")
         confirm.tap()
         waitFor("leaveTournament sent") { sent(app) == "leaveTournament" }
         app.terminate()
+    }
+
+    /// Screenshots of the menu and each confirm, at the default size and AX3 (`TEST_RUNNER_BAB_SHOTS`):
+    /// the host in the lobby (Cancel, Leave), the host between rounds (Cancel), a member between
+    /// rounds (Leave). Each consequence must read whole in the picture.
+    func testConfirmScreenshots() {
+        let cases: [(String, [String], String, String, String)] = [
+            ("host-lobby", [], "tournament-rounds", "Cancel Tournament", TournamentCopy.cancelInTheLobby),
+            ("host-lobby", [], "tournament-rounds", "Leave Tournament", TournamentCopy.hostLeavesTheLobby),
+            ("host-between", ["-uiHost", "ivy"], "tournament-between", "Cancel Tournament", TournamentCopy.cancelOnceBegun),
+            ("member-between", [], "tournament-between", "Leave Tournament", TournamentCopy.noWayBack),
+        ]
+        for (size, args) in [("default", [String]()), ("ax3", Self.ax3)] {
+            var menuShot = Set<String>()
+            for (who, extra, fixture, title, message) in cases {
+                let app = lobby(fixture, extra + args)
+                let button = more(app)
+                for _ in 0..<4 where !button.isHittable { app.swipeDown(velocity: .slow) }
+                button.tap()
+                XCTAssertTrue(app.buttons[title].firstMatch.waitForExistence(timeout: 3))
+                if !menuShot.contains(who) { shot("\(size)-\(who)-menu"); menuShot.insert(who) }
+                let (header, confirm) = openConfirm(app, title, message)
+                assertWhole(app, header)
+                XCTAssertTrue(confirm.isHittable, "\(size) \(who) \(title): the confirm")
+                shot("\(size)-\(who)-\(title == "Cancel Tournament" ? "cancel" : "leave")-confirm")
+                app.terminate()
+            }
+        }
     }
 
     /// The results: no menu and no slot; the back control reads Main Room.

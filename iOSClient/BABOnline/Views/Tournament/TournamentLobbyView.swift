@@ -30,8 +30,6 @@ private struct TournamentLobbyScreen: View {
     /// The compact cut's chat drawer, and how many lines it had when last closed.
     @State private var showsCutChat = false
     @State private var cutChatSeen = 0
-    /// The "…" menu's pick waiting for its confirmation (Leave, Cancel Tournament, Stop Watching).
-    @State private var confirming: TournamentLobbyMenu.Item?
 
     /// Cut for a buck is on and this app has its state (phase 'cut', the cap sent).
     private var showsCut: Bool { tournamentState.isCutPhase && tournamentState.cut != nil }
@@ -128,11 +126,6 @@ private struct TournamentLobbyScreen: View {
                     }
                 }
             }
-        }
-        // the role or the phase changed under an open question (a host hand-off, the cut, the
-        // results): a choice the menu no longer offers is dropped
-        .onChange(of: menuItems) { _, items in
-            if let c = confirming, !items.contains(c) { confirming = nil }
         }
         // Tournament-room voice (iOS 1.2.6, TournamentVoice): a member wants it here (lobby,
         // between rounds, a round I sit out or whose table finished, the results); it runs,
@@ -543,14 +536,29 @@ private struct TournamentLobbyScreen: View {
         }
     }
 
-    /// Leave / Cancel Tournament / Stop Watching, each asked first (`confirming`). Cancel waits
-    /// for the session and the re-entry like the slot; Leave never waits (during the re-entry it
-    /// is TournamentRejoin.abandon).
+    /// Leave / Cancel Tournament / Stop Watching, each confirmed IN the menu (owner 2026-11-26, "the
+    /// same fix you did for game selection": a confirmationDialog showed as a popover pointing at
+    /// the chat): the item opens a submenu headed by what happens, in plain words, whose one button
+    /// confirms; closing the menu keeps things as they are. Nothing floats over the screen, in the
+    /// header or as the vertical bar's item. The menu is rebuilt (`.id`) when its choices change
+    /// (a host hand-off, the cut, the results), so a confirm for a choice it no longer offers goes
+    /// away with it. Cancel waits for the session and the re-entry like the slot; Leave never waits
+    /// (during the re-entry it is TournamentRejoin.abandon).
     private var moreMenu: some View {
         Menu {
             ForEach(menuItems, id: \.self) { item in
-                Button(role: item == .cancel ? .destructive : nil) {
-                    confirming = item
+                Menu {
+                    Section {
+                        Button(role: .destructive) {
+                            perform(item)
+                        } label: {
+                            Label(TournamentLobbyMenu.confirmButton(item), systemImage: TournamentLobbyMenu.icon(item))
+                        }
+                        .accessibilityIdentifier("tournament.confirm")
+                    } header: {
+                        Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
+                                                                othersConnected: othersConnected))
+                    }
                 } label: {
                     Label(TournamentLobbyMenu.title(item), systemImage: TournamentLobbyMenu.icon(item))
                 }
@@ -560,23 +568,11 @@ private struct TournamentLobbyScreen: View {
         } label: {
             Label("More", systemImage: "ellipsis.circle")
         }
+        .id(menuItems)
         .accessibilityLabel("More")
         .accessibilityHint(tournamentState.isSpectator ? "Stop watching the tournament"
                            : isCreator ? "Leave or cancel the tournament" : "Leave the tournament")
         .accessibilityIdentifier("tournament.more")
-        // on the menu, not the screen (review of PR #430): iOS shows the question as a popover
-        // from the view it is attached to, so it opens from "…" (the header, or the Duo's
-        // vertical bar) instead of mid-screen with its arrow into the chat
-        .confirmationDialog(confirming.map(TournamentLobbyMenu.confirmTitle) ?? "",
-                            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
-                            titleVisibility: .visible, presenting: confirming) { item in
-            Button(TournamentLobbyMenu.confirmButton(item), role: .destructive) { perform(item) }
-                .accessibilityIdentifier("tournament.confirm")
-            Button(TournamentLobbyMenu.keepButton(item), role: .cancel) {}
-        } message: { item in
-            Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator,
-                                                    othersConnected: othersConnected))
-        }
     }
 
     /// Connected members besides me (a host alone closes the tournament by leaving).
@@ -793,7 +789,9 @@ private struct TournamentLobbyScreen: View {
 
     /// The "…" menu's choice, confirmed.
     private func perform(_ item: TournamentLobbyMenu.Item) {
-        confirming = nil
+        // the role or the phase changed under the open menu: a choice it no longer offers is dropped
+        guard TournamentLobbyMenu.stillOffers(item, phase: tournamentState.phase, isCreator: isCreator,
+                                              isSpectator: tournamentState.isSpectator) else { return }
         switch item {
         case .cancel:
             guard canSendTournamentActions, isCreator, !tournamentState.isCutPhase, !showsFinal else { return }
