@@ -498,10 +498,10 @@ reads them; `ReleaseMetadataTests` pins build >= `minimumBuild`). Build 3
 was uploaded but never submitted; build 4 adds the owner's two changes from
 the screenshots (2026-11-12: my pips in my seat's row, HSI in the bid panel;
 below) and was pulled from review; build 5 keeps them, and 6, the release,
-adds only the icon. The upgrade gate gates builds < 3 (1.0.0 and 1.1.0;
-MIN_IOS_BUILD 3, the gate PR #234, now that 1.2.0 is live), so 1.2.0 builds
-3 to 6 and 1.2.1 builds 7 and 8 are current (`upgradeGate.test.js` "1.2.x
-(build %i) is current"). It works against today's server and against
+adds only the icon. The upgrade gate gated builds < 3 (1.0.0 and 1.1.0;
+MIN_IOS_BUILD 3, the gate PR #234, once 1.2.0 was live); since 1.2.7 is live
+it gates every build < 41 (MIN_IOS_BUILD 41), these 1.2.0 and 1.2.1 builds
+included (`upgradeGate.test.js` "1.2.x build %i is gated now"). It works against today's server and against
 the server after the V1 removals: `cardPlayed` is read as `trumpBroken ?? trump`, chat
 routes on `isSpectator` (`type` only for an older server), and the server's
 failures arrive as `error` and/or `serverError`.

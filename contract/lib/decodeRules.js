@@ -26,10 +26,10 @@ const DECODE_WAIVED = {
  * frozen build left.
  */
 const DECODE_RELIED = {
-    'positionUpdate.isBot': {
-        builds: [6, 7, 8],
-        why: 'bot or human per seat: isBot first, the bot: prefix of positionUpdate.sockets only as the fallback (TableReducer+Events.swift:252 at 83a3f8f); V1_REMOVALS #14 drops sockets next, after which isBot is the only signal. isBot reached main (b1304c1) after 6, 7 and 8 were cut',
-    },
+    // (empty since MIN_IOS_BUILD 41: 'positionUpdate.isBot' held builds 6, 7
+    // and 8, which read the bot: prefix of positionUpdate.sockets as the
+    // fallback; all three are gated and retired. Re-check V1_REMOVALS #14
+    // against the builds still frozen before dropping sockets)
 };
 
 /** DECODE_RELIED for one build: {path: why}. */

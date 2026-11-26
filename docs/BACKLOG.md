@@ -32,7 +32,7 @@ The room's cap is a setting (`TOURNAMENT_VOICE_MAX`, code default 8, clamped
 cap for latency; an SFU only lifts the size limit.
 
 - **Default to 12** in a one-line PR (`MAX_ROOM_DEFAULT` in
-  server/voice/tournamentVoice.js) once `MIN_IOS_BUILD` reaches 41 (iOS 1.2.7:
+  server/voice/tournamentVoice.js) once `MIN_IOS_BUILD` reaches 41 (reached with the gate PR "[after 1.2.7 is live]"; iOS 1.2.7:
   the speaking poll fixed for 11 calls, the over-cap notice decoded) and a local
   12-peer run of `scripts/voice-mesh-measure.mjs` passes. No Railway variable.
 - **20 through an SFU** (after 1.2.7, before the macOS PRs). Cloudflare Realtime

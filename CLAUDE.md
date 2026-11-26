@@ -59,7 +59,7 @@ bab-online/
 │   │   ├── tournamentHandlers.js # Tournament lifecycle
 │   │   ├── authHandlers.js    # Sign-in/up, account deletion, signOutUser (forceLogout flow)
 │   │   ├── adminHandlers.js   # Admin panel API (adminRequest/adminResponse), DB-checked per request
-│   │   ├── upgradeGate.js     # Update screen for old iOS apps (User-Agent build < 3, or BAB_MIN_IOS_BUILD if higher; updateRequired; UPGRADE_GATE=off)
+│   │   ├── upgradeGate.js     # Update screen for old iOS apps (User-Agent build < 41, or BAB_MIN_IOS_BUILD if higher; the 1.2.x toast, updateRequired; UPGRADE_GATE=off)
 │   │   ├── badgeAwards.js     # Badges: award once per player after a game's stats, lifetime badges, badgesAwarded
 │   │   ├── safetyHandlers.js  # Report / block / unblock users
 │   │   └── validators.js      # Joi validation schemas
@@ -187,7 +187,7 @@ The nested `CLAUDE.md` files (`server/`, `server/admin/`, `server/demo/`, `contr
 | Account Admin CLIs | `server/admin/CLAUDE.md`, Account Admin | owner-run `scripts/` against production; the database is `DB_NAME`, else `babonline` (never the MONGO_URI path) |
 | Socket contract | `contract/CLAUDE.md`, Socket contract | `contract/src`, `npm run contract:gen`, contract guard, additive-only wire, `contract/V1_REMOVALS.md` |
 | Snapshot v2, `seq` | `contract/CLAUDE.md` | `getSnapshotV2`, `trickHistory`, `watching`; seq stamping, consumer rules R1-R5 |
-| Upgrade gate | `contract/CLAUDE.md`, Upgrade gate | iOS 1.0.0 / 1.1.0 detection by User-Agent (`MIN_IOS_BUILD` 3, raised and never lowered by the env `BAB_MIN_IOS_BUILD`), update-only replies, `updateRequired` (build 41's update screen), `UPGRADE_GATE=off` |
+| Upgrade gate | `contract/CLAUDE.md`, Upgrade gate | iOS builds before 1.2.7 detected by User-Agent (`MIN_IOS_BUILD` 41, raised and never lowered by the env `BAB_MIN_IOS_BUILD`), update-only replies, the 1.2.x builds' update toast (`serverError`), `updateRequired` (build 41's update screen), `UPGRADE_GATE=off` |
 | iOS reconnect, table store | `iOSClient/CLAUDE.md` | `forceReconnect` builds a new manager, a foreground keeps a live one (`resumeAfterKeepAlive` probe), session gate, lobby and tournament-lobby re-entry after a restore (`RestoreRoute`); TableReducer store, iOS fixtures; its intro lists iOS topics kept in other files (Leave alert, voice, spectators) |
 | iOS admin panel (1.2.2) | `iOSClient/CLAUDE.md`, iOS admin panel | `AuthState.isAdmin` entry in the Account sheet, `AdminApi` (adminRequest / adminResponse), `AdminState`, typed confirmations, reset link, `-uiAdmin` fixtures |
 | iOS project, builds, releases | `iOSClient/CLAUDE.md`, iOS project | hand-kept xcodeproj, synchronized folders, versions 1.1.0 / 1.2.0 (6, live) / 1.2.1 (9) and what each build adds (1.2.0 bot seats: `positionUpdate.isBot`, `bot:` socket-id fallback), dSYM warning |
