@@ -130,12 +130,28 @@ final class LiveCutForABuckTests: XCTestCase {
         shot("1-score-strip")
         let joinCut = app.buttons["Join cut for a buck"]
         XCTAssertTrue(joinCut.waitForExistence(timeout: 10))
+        // the gather's seconds left when I join: the intro plays from more than 3
+        let gatherLeft = strip.label.components(separatedBy: "starts in ").last.flatMap { Int($0.prefix { $0.isNumber }) }
         joinCut.tap()
 
         // the cut: tap the deck whenever my draw is open
         let status = any(app, "cut.status")
         XCTAssertTrue(status.waitForExistence(timeout: 30), "no cut screen")
         shot("2-cut")
+        // the intro ran its whole 2.6 s (the DEBUG probe cut.introCheck: "playing", then
+        // "ran <s>"; a stage view rebuilt as the screen came up used to end it at once)
+        if let left = gatherLeft, left > 4 {
+            let probe = any(app, "cut.introCheck")
+            var ran = ""
+            let until = Date().addingTimeInterval(6)
+            while Date() < until {
+                ran = probe.exists ? ((probe.value as? String) ?? "") : ""
+                if ran.hasPrefix("ran ") { break }
+                usleep(200_000)
+            }
+            print("[live] intro: \(ran) (joined with \(left) s of gather left)")
+            XCTAssertGreaterThanOrEqual(Double(ran.dropFirst(4)) ?? 0, 2.5, "the intro was cut short: \(ran)")
+        }
         var tapped = Set<String>()
         var outAt: String?
         var roundsSeenOut = Set<String>()
