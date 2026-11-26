@@ -321,7 +321,22 @@ enum WatchChoice: Equatable {
     case seat(Int)
 }
 
-enum HapticKind: Equatable { case error }
+enum HapticKind: Equatable {
+    case error
+    /// My seat's bid or play turn just opened (a live delta, never a snapshot or catch-up):
+    /// TurnHaptic plays one tap, once per `TurnCue`, if the setting is on and the app active.
+    case myTurn(TurnCue)
+}
+
+/// Which turn opened: one bid turn per deal, one play turn per trick. A second `.myTurn`
+/// for the same cue (the same turn seen open again) never plays again.
+struct TurnCue: Equatable, Hashable {
+    let gameId: String?
+    let dealSeq: Int
+    let action: TurnAction
+    /// The trick number for a play turn (0 for a bid turn).
+    let trick: Int
+}
 
 /// A table sound (SoundPlayer). The reducer emits one only for a live delta event, never
 /// for a snapshot (restore, rejoin, resync, a rejected action) or buffered catch-up.

@@ -25,15 +25,15 @@ final class GybUITests: XCTestCase {
     // MARK: - The lobby option
 
     func testNewGameOffersBothGames() throws {
-        for (choice, sent) in [("Get Your Bid", "createLobby:gyb"), ("Back Alley Bridge", "createLobby")] {
+        for (choice, sent) in [("gyb", "createLobby:gyb"), ("classic", "createLobby")] {
             let app = Fixture.launch("main-room")
             XCTAssertTrue(any(app, "screen.mainRoom").waitForExistence(timeout: 15))
             let newGame = app.buttons["New Game"].firstMatch
             XCTAssertTrue(newGame.waitForExistence(timeout: 5))
             newGame.tap()
-            let button = app.buttons[choice].firstMatch
+            let button = Fixture.newGameChoice(app, choice)
             XCTAssertTrue(button.waitForExistence(timeout: 5), "New Game offers \(choice)")
-            XCTAssertTrue(app.buttons["Get Your Bid"].exists && app.buttons["Back Alley Bridge"].exists)
+            XCTAssertTrue(Fixture.newGameChoice(app, "gyb").exists && Fixture.newGameChoice(app, "classic").exists)
             button.tap()
             let deadline = Date().addingTimeInterval(5)
             while Fixture.probe(app, "fixture.sent") != sent && Date() < deadline { Thread.sleep(forTimeInterval: 0.2) }

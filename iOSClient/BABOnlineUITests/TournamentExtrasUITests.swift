@@ -56,7 +56,7 @@ final class TournamentExtrasUITests: XCTestCase {
 
     // MARK: - Rounds
 
-    /// The host's segmented 1-5 above Begin: a pick shows at once (round line, scoreboard
+    /// The host's segmented 1-5 in the header: a pick shows at once (round line, scoreboard
     /// columns), sends setTournamentRounds and gets the server's system line.
     func testTheHostPicksTheRounds() {
         let app = lobby()
@@ -67,9 +67,13 @@ final class TournamentExtrasUITests: XCTestCase {
         XCTAssertEqual(roundLine(app), "Waiting to start · 4 rounds")
         XCTAssertTrue(app.staticTexts["R4"].exists)
         XCTAssertFalse(app.staticTexts["R5"].exists)
-        let begin = element(app, "tournament.begin")
-        XCTAssertTrue(begin.exists)
-        XCTAssertLessThan(picker.frame.maxY, begin.frame.minY + 1, "right above Begin")
+        // in the header under the round line (owner 2026-11-26), well above the one action slot
+        let line = element(app, "tournament.roundLine")
+        XCTAssertLessThanOrEqual(line.frame.maxY, picker.frame.minY + 1, "under \"Waiting to start · 4 rounds\"")
+        let ready = element(app, "tournament.ready")
+        XCTAssertTrue(ready.exists, "the host is not ready yet: the slot reads Ready")
+        XCTAssertLessThan(picker.frame.maxY, app.staticTexts["Players"].frame.minY, "in the header, above the players")
+        XCTAssertLessThan(picker.frame.maxY, ready.frame.minY)
         assertOnScreen(app, picker, "the picker")
         shot("rounds-host")
 

@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// The tournament lobby. Where the system shows the vertical bar (the iPhone
-/// Duo), Leave is the leading toolbar item in that column (VerticalBarHost);
-/// the title and the Ready / Begin / Cancel buttons stay in the content.
+/// The tournament lobby (owner 2026-11-26 layout): the header (title, round line, the host's
+/// Rounds picker in the lobby phase, the mic and a "…" menu with Leave / Cancel Tournament), the
+/// players and standings, the chat, then ONE action slot at the bottom (TournamentLobbySlot:
+/// Ready / Unready, or the host's Begin). Where the system shows the vertical bar (the iPhone
+/// Duo), the "…" menu (or the complete phase's Main Room) is the leading toolbar item in that
+/// column (VerticalBarHost).
 struct TournamentLobbyView: View {
     var body: some View {
         VerticalBarHost { TournamentLobbyScreen(bar: $0) }
@@ -27,6 +30,8 @@ private struct TournamentLobbyScreen: View {
     /// The compact cut's chat drawer, and how many lines it had when last closed.
     @State private var showsCutChat = false
     @State private var cutChatSeen = 0
+    /// The "…" menu's pick waiting for its confirmation (Leave, Cancel Tournament, Stop Watching).
+    @State private var confirming: TournamentLobbyMenu.Item?
 
     /// Cut for a buck is on and this app has its state (phase 'cut', the cap sent).
     private var showsCut: Bool { tournamentState.isCutPhase && tournamentState.cut != nil }
@@ -114,11 +119,29 @@ private struct TournamentLobbyScreen: View {
         .toolbar {
             if bar.usesVerticalBar {
                 ToolbarItem(placement: .barLeading) {
-                    Button(action: showsFinal ? returnToMainRoom : leaveTournament) {
-                        Label(showsFinal ? "Main Room" : "Leave", systemImage: "chevron.left")
+                    if showsFinal {
+                        Button(action: returnToMainRoom) {
+                            Label("Main Room", systemImage: "chevron.left")
+                        }
+                    } else if !menuItems.isEmpty {
+                        moreMenu
                     }
                 }
             }
+        }
+        .confirmationDialog(confirming.map(TournamentLobbyMenu.confirmTitle) ?? "",
+                            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+                            titleVisibility: .visible, presenting: confirming) { item in
+            Button(TournamentLobbyMenu.confirmButton(item), role: .destructive) { perform(item) }
+                .accessibilityIdentifier("tournament.confirm")
+            Button(TournamentLobbyMenu.keepButton(item), role: .cancel) {}
+        } message: { item in
+            Text(TournamentLobbyMenu.confirmMessage(item, phase: tournamentState.phase, isCreator: isCreator))
+        }
+        // the role or the phase changed under an open question (a host hand-off, the cut, the
+        // results): a choice the menu no longer offers is dropped
+        .onChange(of: menuItems) { _, items in
+            if let c = confirming, !items.contains(c) { confirming = nil }
         }
         // Tournament-room voice (iOS 1.2.6, TournamentVoice): a member wants it here (lobby,
         // between rounds, a round I sit out or whose table finished, the results); it runs,
@@ -218,7 +241,7 @@ private struct TournamentLobbyScreen: View {
     /// neither part collapses.
     private static func compactChatMin(_ height: CGFloat) -> CGFloat { min(220, height * 0.55) }
     /// Below this height between the header and pinned buttons (a short compact
-    /// window, accessibility text sizes with the host's three buttons) the
+    /// window, accessibility text sizes with the header's Rounds picker) the
     /// buttons scroll with the players instead, so the chat field keeps its room.
     private static let compactMinMiddle: CGFloat = 200
     /// Measured: the height above the keyboard (the screen's keyboard-aware
@@ -394,41 +417,52 @@ private struct TournamentLobbyScreen: View {
 
     // MARK: - Header
 
-    /// The header: Leave, the title with the round line, the member count and, while voice runs,
-    /// the mic (iOS 1.2.6). At the accessibility text sizes (AX1 to AX5) one row left the title a
-    /// letter wide on a phone, so Leave and the mic take a row of their own and the title, the
-    /// round line and the count wrap under them.
+    /// The header: the title with the round line, the member count, while voice runs the mic
+    /// (iOS 1.2.6), and the "…" menu (Leave / Cancel Tournament; in the complete phase the back
+    /// control "Main Room" leads instead); under them the host's Rounds picker in the lobby phase.
+    /// At the accessibility text sizes (AX1 to AX5) one row left the title a letter wide on a
+    /// phone, so the controls take a row of their own and the title, the round line and the count
+    /// wrap under them. In the vertical bar the menu / Main Room is a toolbar item.
     private var headerBar: some View {
         VStack(spacing: 0) {
-            Group {
-                if typeSize.isAccessibilitySize {
-                    VStack(alignment: .leading, spacing: Theme.Space.s2) {
+            VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                Group {
+                    if typeSize.isAccessibilitySize {
+                        VStack(alignment: .leading, spacing: Theme.Space.s2) {
+                            HStack {
+                                if showsHeaderBack { mainRoomButton.lineLimit(1).fixedSize() }
+                                Spacer()
+                                headerMic
+                                headerMenu
+                            }
+                            titleBlock(alignment: .leading)
+                            countText
+                        }
+                    } else {
                         HStack {
-                            if !bar.usesVerticalBar { leaveButton.lineLimit(1).fixedSize() }
-                            Spacer()
-                            headerMic
-                        }
-                        titleBlock(alignment: .leading)
-                        countText
-                    }
-                } else {
-                    HStack {
-                        // in the vertical bar Leave is a toolbar item and the title leads; Leave
-                        // ("Main Room" in the complete phase), the count and the mic keep their
-                        // size and the title gives way (one line, shrunk, then cut)
-                        if !bar.usesVerticalBar {
-                            leaveButton.lineLimit(1).fixedSize()
+                            // Main Room (complete phase only), the count, the mic and the menu keep
+                            // their size and the title gives way (one line, shrunk, then cut)
+                            if showsHeaderBack {
+                                mainRoomButton.lineLimit(1).fixedSize()
+                                Spacer(minLength: Theme.Space.s2)
+                            }
+                            titleBlock(alignment: showsHeaderBack ? .center : .leading, oneLine: true)
                             Spacer(minLength: Theme.Space.s2)
+                            countText.lineLimit(1).fixedSize()
+                            headerMic
+                            headerMenu
                         }
-                        titleBlock(alignment: bar.usesVerticalBar ? .leading : .center, oneLine: true)
-                        Spacer(minLength: Theme.Space.s2)
-                        countText.lineLimit(1).fixedSize()
-                        headerMic
                     }
                 }
+                // the mic coming and going never changes the header's height
+                .frame(minHeight: Theme.hitTarget)
+                // the host's round count, 1 to 5, before the tournament begins (TournamentRounds):
+                // under "Waiting to start · N rounds"; everyone else reads the count in that line
+                if TournamentRounds.showsPicker(phase: tournamentState.phase, isCreator: isCreator,
+                                                isSpectator: tournamentState.isSpectator) {
+                    TournamentRoundsPicker(enabled: canSendTournamentActions)
+                }
             }
-            // the mic coming and going never changes the header's height
-            .frame(minHeight: Theme.hitTarget)
             .padding()
             // the voice panel tip, once (VoicePanelTip): just under the header, off its mic
             .overlay(alignment: .bottom) {
@@ -442,15 +476,61 @@ private struct TournamentLobbyScreen: View {
         .zIndex(1)  // the tip hangs over the player list
     }
 
-    private var leaveButton: some View {
-        Button(action: showsFinal ? returnToMainRoom : leaveTournament) {
+    /// The complete phase's back control in the content (the vertical bar has its own).
+    private var showsHeaderBack: Bool { showsFinal && !bar.usesVerticalBar }
+
+    private var mainRoomButton: some View {
+        Button(action: returnToMainRoom) {
             HStack(spacing: Theme.Space.s1) {
                 Image(systemName: "chevron.left")
                     .accessibilityHidden(true)
-                Text(showsFinal ? "Main Room" : "Leave")
+                Text("Main Room")
             }
             .foregroundColor(Theme.textSecondary)
         }
+    }
+
+    // MARK: - The "…" menu
+
+    private var menuItems: [TournamentLobbyMenu.Item] {
+        TournamentLobbyMenu.items(phase: tournamentState.phase, isCreator: isCreator,
+                                  isSpectator: tournamentState.isSpectator)
+    }
+
+    /// In the content header (the vertical bar has it as a toolbar item).
+    @ViewBuilder
+    private var headerMenu: some View {
+        if !bar.usesVerticalBar && !menuItems.isEmpty {
+            moreMenu
+                .labelStyle(.iconOnly)
+                .font(.title3)
+                .foregroundColor(Theme.textSecondary)
+                .frame(minWidth: Theme.hitTarget, minHeight: Theme.hitTarget)
+                .contentShape(Rectangle())
+        }
+    }
+
+    /// Leave / Cancel Tournament / Stop Watching, each asked first (`confirming`). Cancel waits
+    /// for the session and the re-entry like the slot; Leave never waits (during the re-entry it
+    /// is TournamentRejoin.abandon).
+    private var moreMenu: some View {
+        Menu {
+            ForEach(menuItems, id: \.self) { item in
+                Button(role: item == .cancel ? .destructive : nil) {
+                    confirming = item
+                } label: {
+                    Label(TournamentLobbyMenu.title(item), systemImage: TournamentLobbyMenu.icon(item))
+                }
+                .disabled(item == .cancel && !canSendTournamentActions)
+                .accessibilityIdentifier("tournament.menu.\(item)")
+            }
+        } label: {
+            Label("More", systemImage: "ellipsis.circle")
+        }
+        .accessibilityLabel("More")
+        .accessibilityHint(tournamentState.isSpectator ? "Stop watching the tournament"
+                           : isCreator ? "Leave or cancel the tournament" : "Leave the tournament")
+        .accessibilityIdentifier("tournament.more")
     }
 
     /// `oneLine`: the one-row header's title stays on one line (shrunk to 0.8, then cut at its
@@ -532,75 +612,93 @@ private struct TournamentLobbyScreen: View {
         authState.username == tournamentState.creatorUsername
     }
 
-    /// Every connected member ready, or between rounds past the ready deadline (Begin then
-    /// starts with the ready members: `TournamentBegin`, the web's canBegin).
-    private var canBegin: Bool {
-        TournamentBegin.canBegin(phase: tournamentState.phase, deadlinePassed: tournamentState.readyDeadlinePassed,
-                                 players: tournamentState.players)
+    /// The one action slot (TournamentLobbySlot): nil in a round, the cut, the results and for a
+    /// spectator.
+    private var slot: TournamentLobbySlot? {
+        TournamentLobbySlot.of(phase: tournamentState.phase, isCreator: isCreator,
+                               isSpectator: tournamentState.isSpectator, isReady: showsReady,
+                               deadlinePassed: tournamentState.readyDeadlinePassed,
+                               players: tournamentState.players, me: authState.username,
+                               host: tournamentState.creatorUsername)
     }
 
+    /// The bottom: one full-width button (Ready, Unready, or the host's Begin with a small
+    /// Ready / Unready under it) and a caption saying what it waits for. Nothing (zero height,
+    /// still measured) where there is no slot.
+    @ViewBuilder
     private var bottomButtons: some View {
-        VStack(spacing: Theme.Space.s2) {
-            if tournamentState.phase == "lobby" || tournamentState.phase == "between_rounds" {
-                // Ready / Unready (spectators can't ready up)
-                if !tournamentState.isSpectator {
+        if let slot {
+            VStack(spacing: Theme.Space.s1) {
+                primaryButton(slot.primary)
+                if let toggle = slot.toggle {
                     Button(action: toggleReady) {
-                        Text(showsReady ? "Unready" : "Ready")
-                            .font(.title3.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(showsReady ? Theme.danger : Theme.buttonBackground)
-                            .foregroundColor(showsReady ? Theme.dangerForeground : Theme.buttonForeground)
-                            .cornerRadius(Theme.Radius.md)
+                        Text(toggle == .ready ? TournamentLobbySlot.Copy.ready : TournamentLobbySlot.Copy.unready)
+                            .font(.subheadline.bold())
+                            .foregroundColor(Theme.textSecondary)
+                            .frame(minWidth: Theme.hitTarget * 2, minHeight: Theme.hitTarget)
+                            .contentShape(Rectangle())
                     }
                     .disabled(!canSendTournamentActions)
-                    .opacity(canSendTournamentActions ? 1 : 0.5)  // custom fills do not dim by themselves
-                }
-
-                // the host's round count, 1 to 5, before the tournament begins (TournamentRounds)
-                if TournamentRounds.showsPicker(phase: tournamentState.phase, isCreator: isCreator,
-                                                isSpectator: tournamentState.isSpectator) {
-                    TournamentRoundsPicker(enabled: canSendTournamentActions)
-                }
-
-                // Begin button (creator only)
-                if isCreator {
-                    let label = TournamentBegin.label(phase: tournamentState.phase,
-                                                      deadlinePassed: tournamentState.readyDeadlinePassed,
-                                                      players: tournamentState.players)
-                    Button(action: beginRound) {
-                        Text(label)
-                            .font(.title3.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(canBegin ? Theme.warning : Theme.buttonDisabled)
-                            .foregroundColor(canBegin ? Theme.warningForeground : Theme.buttonDisabledForeground)
-                            .cornerRadius(Theme.Radius.md)
-                    }
-                    .disabled(!canBegin || !canSendTournamentActions)
                     .opacity(canSendTournamentActions ? 1 : 0.5)
-                    .accessibilityIdentifier("tournament.begin")
+                    .accessibilityHint(toggle == .ready ? "Marks you ready for the round" : "Marks you not ready")
+                    .accessibilityIdentifier("tournament.readyToggle")
+                }
+                if let caption = slot.caption {
+                    Text(caption)
+                        .font(.caption)
+                        .foregroundColor(Theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("tournament.slotCaption")
                 }
             }
-
-            // Cancel Tournament button (creator only; not during Cut for a buck, whose cancel would
-            // end the cut early: the spec hides it there)
-            if isCreator && !tournamentState.isCutPhase && !showsFinal {
-                Button(action: cancelTournament) {
-                    Text("Cancel Tournament")
-                        .font(.subheadline.bold())
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Theme.Space.s3)
-                        .background(Theme.danger)
-                        .foregroundColor(Theme.dangerForeground)
-                        .cornerRadius(Theme.Radius.md)
-                }
-                .disabled(!canSendTournamentActions)
-                .opacity(canSendTournamentActions ? 1 : 0.5)
-            }
+            .padding(.horizontal, Theme.Space.s3)
+            .padding(.vertical, Theme.Space.s2)
+            .animation(A11y.reduceMotion ? nil : .easeInOut(duration: 0.2), value: slot)
+        } else {
+            Color.clear.frame(height: 0)
         }
-        .padding(.horizontal, Theme.Space.s3)
-        .padding(.vertical, Theme.Space.s2)
+    }
+
+    @ViewBuilder
+    private func primaryButton(_ primary: TournamentLobbySlot.Primary) -> some View {
+        switch primary {
+        case .ready:
+            slotButton(TournamentLobbySlot.Copy.ready, fill: Theme.buttonBackground, text: Theme.buttonForeground,
+                       action: toggleReady)
+                .accessibilityHint("Marks you ready for the round")
+                .accessibilityIdentifier("tournament.ready")
+        case .unready:
+            slotButton(TournamentLobbySlot.Copy.unready, fill: Theme.surface, text: Theme.textPrimary, edge: true,
+                       action: toggleReady)
+                .accessibilityHint("Marks you not ready")
+                .accessibilityIdentifier("tournament.ready")
+        case .begin(let label):
+            slotButton(label, fill: Theme.warning, text: Theme.warningForeground, action: beginRound)
+                .accessibilityIdentifier("tournament.begin")
+        }
+    }
+
+    /// Full width, grows with the text size (wraps, never cut).
+    private func slotButton(_ title: String, fill: Color, text: Color, edge: Bool = false,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.title3.bold())
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: Theme.hitTarget)
+                .padding(.vertical, 10)
+                .background(fill)
+                .foregroundColor(text)
+                .cornerRadius(Theme.Radius.md)
+                .overlay {
+                    if edge {
+                        RoundedRectangle(cornerRadius: Theme.Radius.md).strokeBorder(Theme.inputBorder, lineWidth: 1)
+                    }
+                }
+        }
+        .disabled(!canSendTournamentActions)
+        .opacity(canSendTournamentActions ? 1 : 0.5)  // custom fills do not dim by themselves
     }
 
     // MARK: - Actions
@@ -640,6 +738,18 @@ private struct TournamentLobbyScreen: View {
 
     private func cancelTournament() {
         TournamentEmitter.cancelTournament()
+    }
+
+    /// The "…" menu's choice, confirmed.
+    private func perform(_ item: TournamentLobbyMenu.Item) {
+        confirming = nil
+        switch item {
+        case .cancel:
+            guard canSendTournamentActions, isCreator, !tournamentState.isCutPhase, !showsFinal else { return }
+            cancelTournament()
+        case .leave, .stopWatching:
+            leaveTournament()
+        }
     }
 }
 

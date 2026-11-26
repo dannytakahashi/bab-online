@@ -34,12 +34,14 @@ final class TournamentListReachTests: XCTestCase {
                 return f.minY >= v.minY - 0.5 && f.maxY <= v.maxY + 0.5 && row.isHittable
             }
             var tries = 0
-            // short drags inside the viewport, toward the row
+            // short drags inside the viewport, toward the row, held at the end so no fling
+            // carries the row past the viewport (the slot's caption, 2026-11-26, left the
+            // closed Duo's list a row shorter between rounds: a fling overshot back and forth)
             while !shown() && tries < 12 {
                 let down = row.frame.maxY > viewport.frame.maxY
                 let start = viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.75 : 0.25))
                 let end = viewport.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: down ? 0.4 : 0.6))
-                start.press(forDuration: 0.05, thenDragTo: end)
+                start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
                 tries += 1
             }
             XCTAssertTrue(shown(), "\(pose): row \(name) \(row.frame) never came fully into view \(viewport.frame)")

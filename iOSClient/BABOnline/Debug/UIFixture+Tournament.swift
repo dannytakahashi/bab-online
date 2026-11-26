@@ -13,6 +13,9 @@ import SwiftUI
 /// - `-uiVoiceFull <cap>` on any tournament lobby fixture: the over-cap notice (s2c
 ///   tournamentVoiceStatus {admitted: false, cap}); `-uiVoiceAdmit <seconds>`: then
 ///   `{admitted: true}` that long after launch.
+/// - Any tournament lobby fixture: `-uiHost <name>`, `-uiMeReady YES|NO`, `-uiAllReady YES`
+///   (`seedTournamentRoles`); Ready / Unready / Begin / Cancel / Leave show in "fixture.sent" by
+///   their event names, and Ready / Unready update my row as the server's answer would.
 extension UIFixture {
     static weak var fixtureTournament: TournamentState?
 
@@ -73,6 +76,53 @@ extension UIFixture {
             systemLine(TournamentRounds.changedLine(by: tournament.creatorUsername, to: n), in: tournament)
         }
         return "setTournamentRounds:\(n.map(String.init) ?? "-")"
+    }
+
+    /// My username in a tournament lobby fixture (the ready emulation's row).
+    static var fixtureMe: String?
+
+    /// Any tournament lobby fixture: `-uiHost <name>` makes that member the host (the lobby and
+    /// between-rounds fixtures; `tournament-rounds` / `tournament-deadline` read it themselves),
+    /// `-uiMeReady YES|NO` sets my ready flag (my row and the button), `-uiAllReady YES` readies
+    /// every connected member (the host's Begin).
+    @MainActor
+    static func seedTournamentRoles(_ tournament: TournamentState, me: String?) {
+        fixtureMe = me
+        let d = UserDefaults.standard
+        if let host = d.string(forKey: "uiHost"), tournament.players.contains(where: { $0.username == host }) {
+            tournament.creatorUsername = host
+            tournament.players = tournament.players.map { var p = $0; p.isCreator = p.username == host; return p }
+        }
+        if d.bool(forKey: "uiAllReady") {
+            tournament.players = tournament.players.map { var p = $0; if p.connected { p.isReady = true }; return p }
+        }
+        if let raw = d.string(forKey: "uiMeReady") {
+            let ready = raw == "YES"
+            tournament.players = tournament.players.map { var p = $0; if p.username == me { p.isReady = ready }; return p }
+        }
+        if let mine = tournament.players.first(where: { $0.username == me }) { tournament.isReady = mine.isReady }
+    }
+
+    /// The tournament lobby's sends in fixture mode ("fixture.sent": tournamentReady,
+    /// tournamentUnready, beginTournament, beginNextRound, cancelTournament, leaveTournament);
+    /// ready / unready are answered as the server's tournamentReadyUpdate (my row follows).
+    static func tournamentActionSent(_ event: String) -> String? {
+        let ready: Bool?
+        switch event {
+        case SocketEvents.Client.tournamentReady: ready = true
+        case SocketEvents.Client.tournamentUnready: ready = false
+        case SocketEvents.Client.beginTournament, SocketEvents.Client.beginNextRound,
+             SocketEvents.Client.cancelTournament, SocketEvents.Client.leaveTournament: ready = nil
+        default: return nil
+        }
+        if let ready {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                guard let tournament = fixtureTournament else { return }
+                let me = fixtureMe
+                tournament.players = tournament.players.map { var p = $0; if p.username == me { p.isReady = ready }; return p }
+            }
+        }
+        return event
     }
 
     private static func systemLine(_ text: String, in tournament: TournamentState) {

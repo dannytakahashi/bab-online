@@ -584,6 +584,9 @@ final class SocketService: ObservableObject {
 
     /// Emit event with no data
     func emit(_ event: String) {
+        #if DEBUG
+        UIFixture.recordSent(event, [:])
+        #endif
         socket?.emit(event)
     }
 

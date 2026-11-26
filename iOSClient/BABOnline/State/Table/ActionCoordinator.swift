@@ -90,13 +90,29 @@ final class ActionCoordinator: ObservableObject {
     /// tests count `clock`'s timers); a redeal replaces it.
     private let hsiClock: AckClock
     private var hsiTimer: AckCancellable?
+    /// The haptic on my turn (TurnHaptic: once per turn, the setting, the app active).
+    let turnHaptic: TurnHaptic
+    /// Plays a haptic (HapticManager on iOS; tests inject a recorder).
+    private let hapticOutput: @MainActor (HapticKind) -> Void
 
     /// `soundClock` is not `clock`: the ack tests count that clock's timers.
     init(store: GameState, emitter: GameActionEmitting = LiveGameEmitter(), clock: AckClock = DispatchAckClock(),
          sounds: SoundPlaying? = nil, soundClock: AckClock = DispatchAckClock(), tunePlayer: TunePlaying? = nil,
          notifications: NotificationCenter = .default, askClock: AckClock = DispatchAckClock(),
-         hsiClock: AckClock = DispatchAckClock()) {
+         hsiClock: AckClock = DispatchAckClock(), hapticClock: AckClock = DispatchAckClock(),
+         haptics: (@MainActor (HapticKind) -> Void)? = nil,
+         vibratesOnTurn: (@MainActor () -> Bool)? = nil, isAppActive: (@MainActor () -> Bool)? = nil) {
         self.store = store
+        let output = haptics ?? ActionCoordinator.playHaptic
+        hapticOutput = output
+        turnHaptic = TurnHaptic(clock: hapticClock,
+                                isEnabled: vibratesOnTurn ?? { HapticSettings.shared.vibratesOnTurn },
+                                isAppActive: isAppActive ?? { AppPresence.shared.mayPlaySound },
+                                isStillOpen: { [weak store] cue in
+                                    guard let store, case .choosing(let action) = store.state.myTurn else { return false }
+                                    return TableReducer.turnCue(store.state, action) == cue
+                                },
+                                play: { output(.myTurn($0)) })
         self.askClock = askClock
         self.hsiClock = hsiClock
         self.emitter = emitter
@@ -265,8 +281,10 @@ final class ActionCoordinator: ObservableObject {
                 self.hsiTimer = nil
                 self.store.apply(.local(.hsiRevealed(dealSeq: dealSeq)))
             }
-        case .haptic:
-            HapticManager.error()
+        case .haptic(.myTurn(let cue)):
+            turnHaptic.turnOpened(cue)
+        case .haptic(let kind):
+            hapticOutput(kind)
         case .sound(let kind):
             cues.cue(kind)
         case .bidClock(let cue):
@@ -278,6 +296,17 @@ final class ActionCoordinator: ObservableObject {
         default:
             break
         }
+    }
+
+    /// The device's haptic for a kind: an error's notification, my turn's medium impact
+    /// (TurnHaptic says why).
+    static func playHaptic(_ kind: HapticKind) {
+        #if os(iOS)
+        switch kind {
+        case .error: HapticManager.error()
+        case .myTurn: HapticManager.mediumImpact()
+        }
+        #endif
     }
 
     private func send(_ id: String, log: Bool) {

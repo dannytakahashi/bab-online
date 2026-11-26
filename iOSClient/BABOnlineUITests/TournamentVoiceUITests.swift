@@ -49,7 +49,7 @@ final class TournamentVoiceUITests: XCTestCase {
                 // about 190 wide, instead of being cut to "Sunday C…")
                 XCTAssertGreaterThan(title.frame.width, size == nil ? 90 : 150, "\(fixture) \(tag): the title squeezed to \(title.frame)")
                 for other in [title, app.staticTexts.matching(NSPredicate(format: "label ENDSWITH ' players'")).firstMatch,
-                              app.buttons["Leave"]] where other.exists {
+                              app.buttons["More"]] where other.exists {
                     XCTAssertFalse(other.frame.intersects(mic.frame), "\(fixture) \(tag): \(other.label) \(other.frame) under the mic \(mic.frame)")
                 }
                 keep("tournament-mic-\(fixture)-\(tag)")
