@@ -98,20 +98,19 @@ cap for latency; an SFU only lifts the size limit.
   non-null period with no game records, which both clients would read.
 
 - **An entrant whose socket is rebuilt during a game's DRAWING stage is not
-  rejoined:** `restoreSession` (and sign-in) read the user's `activeGameId`, which
-  `setActiveGame` writes only at seating (`gameHandlers.js`, after the draw;
-  `tournamentHandlers.js` the same), so the restore answers with no
-  `activeGameId` and the app goes to the main room while the game is dealt
-  without them (their seat then waits on the disconnect / bot timers). Seen in
-  review of the iOS foreground keep (2026-11-14); any rebuild in the draw does it
-  (a foreground probe that times out, a deploy, a network change). Fix: when the
-  database has no `activeGameId`, fall back to the in-memory
-  `gameManager.findLiveActivity(username)` (which already counts draw-phase
-  entrants, as the admin merge check uses it) and answer with that game so the
-  client rejoins it (`rejoinGame` must then accept an entrant in the draw and send
-  the draw snapshot); or write `activeGameId` when the game is created, at the
-  start of DRAWING, instead of at seating. A jest case: restore an entrant's
-  session mid-draw and expect `activeGameId` and a draw-stage rejoin.
+  rejoined (casual tables on iOS only now):** `restoreSession` (and sign-in) read the
+  user's `activeGameId`, which `setActiveGame` writes only at seating for a lobby
+  game (`gameHandlers.js`, after the draw; a tournament round writes it before its
+  draw), so the restore of a casual entrant answers with no `activeGameId`. Since
+  2026-11-26 `rejoinGame` accepts a human entrant before seating
+  (`seatLifecycle.reconnectEntrant`: the new socket takes the entrant over and is
+  seated connected), so a tournament table and a web tab (which re-sends its
+  sessionStorage `gameId`) come back; an iOS app at a casual table still goes to
+  the main room. Rest of the fix: when the database has no `activeGameId`, fall
+  back to the in-memory `gameManager.findLiveActivity(username)` (which already
+  counts draw-phase entrants) and answer with that game, or write `activeGameId`
+  at the start of DRAWING. A jest case: restore an entrant's session mid-draw and
+  expect `activeGameId`.
 - **Play again: no "Don't wait" for someone still on the results** (web review
   of PR E, finding 5; 2026-11-16). Their row now says "Still on the results"
   on both clients (`members[].onResults`, 2026-11-16), but in a lobby of 4 the

@@ -63,6 +63,29 @@ final class ScoreBarNamesTests: XCTestCase {
         XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "ann", ownerUsername: "", controller: .human)), "ann")
     }
 
+    /// The seat labels follow the owner rule too (2026-11-26, the #421 review): a lazy or resigned
+    /// seat's pips, card backs and dealer marker say its owner; its avatar and name plate keep
+    /// the bot that plays it (`name`); a native bot keeps its persona.
+    func testTheSeatLabelsNameALazyOrResignedSeatByItsOwner() {
+        // seats: 1 me, 2 L (a native bot), 3 P (a human), 4 R (a native bot)
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "🤖 Zach", "botPic": 5, "originalUsername": "P", "seq": 3]))
+        let seats = Dictionary(uniqueKeysWithValues: TableRenderModel(s).opponents.map { ($0.position, $0) })
+        XCTAssertEqual(seats[3]?.name, "🤖 Zach", "the avatar shows who is playing")
+        XCTAssertEqual(seats[3]?.spokenName, "P")
+        XCTAssertEqual(seats[2]?.spokenName, "L", "a native bot keeps its persona")
+        XCTAssertEqual(seats[4]?.spokenName, "R")
+        // back from /lazy: the owner plays, one name again
+        TableReducer.reduce(&s, T.ev("playerActiveMode", ["position": 3, "username": "P", "pic": 3, "seq": 4]))
+        XCTAssertEqual(TableRenderModel(s).opponents.first { $0.position == 3 }?.spokenName, "P")
+        // a resign bot: the owner who left
+        var r = T.dealtState()
+        TableReducer.reduce(&r, T.ev("playerResigned", ["position": 3, "oldUsername": "P", "botUsername": "🤖 Gina", "botPic": 6, "seq": 3]))
+        let o = TableRenderModel(r).opponents.first { $0.position == 3 }
+        XCTAssertEqual(o?.name, "🤖 Gina")
+        XCTAssertEqual(o?.spokenName, "P")
+    }
+
     func testNamesNotKnownYetAreEmptyNeverAPlaceholder() {
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: nil, usernames: seated) == ("", ""))
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: 0, usernames: seated) == ("", ""))

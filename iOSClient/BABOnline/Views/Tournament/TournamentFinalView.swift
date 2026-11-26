@@ -2,7 +2,7 @@ import SwiftUI
 
 /// A finished tournament on iOS 1.2.7 (41) (spec section 6 "Final lobby"; the web's
 /// FinalResultsCard.js): the tournament lobby itself in the complete phase, in place of the old
-/// results overlay (TournamentResultsView, kept for nothing newer), so the chat and voice stay.
+/// old results overlay (removed after 1.2.7), so the chat and voice stay.
 /// The score winner(s) ("kim wins the tournament!"), the cut's winner when a cut ran ("dan won cut
 /// for a buck"), the players with their chips ("Winner", "Won the cut") and the final scoreboard
 /// (R1..RN, TournamentResultsTable). Return to Main Room and "This lobby stays open for about 10
@@ -12,7 +12,15 @@ struct TournamentFinalView: View {
     @EnvironmentObject var authState: AuthState
 
     private var winners: [String] {
-        TournamentResultsView.winners(tournamentState.winners, scoreboard: tournamentState.scoreboard)
+        Self.winners(tournamentState.winners, scoreboard: tournamentState.scoreboard)
+    }
+
+    /// The server's winners (co-winners on a tie); without them (an older server's rejoin
+    /// after the end) everyone on the top score, as the web works it out.
+    static func winners(_ winners: [String], scoreboard: [TournamentScoreEntry]) -> [String] {
+        if !winners.isEmpty { return winners }
+        guard let top = scoreboard.map(\.totalScore).max() else { return [] }
+        return scoreboard.filter { $0.totalScore == top }.map(\.username)
     }
 
     var body: some View {

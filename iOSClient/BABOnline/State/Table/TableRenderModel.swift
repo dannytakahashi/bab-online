@@ -17,6 +17,12 @@ struct TableRenderModel: Equatable {
         var avatarUrl: String? = nil
         /// The seat's human owner (a lazy / resigned seat shows its bot's name): voice peers are matched by it.
         var ownerName: String? = nil
+        /// What the seat's labels say (the pips, the card backs, the dealer marker, the watch
+        /// eyes; VoiceOver): `PlayersSlice.ownerName`, the owner of a seat a lazy or resign bot
+        /// plays (owner 2026-11-25, people by player names; #416), else `name`. Only the avatar
+        /// and its name plate show who is playing (`name`).
+        var label: String? = nil
+        var spokenName: String { label ?? name }
         /// Cards left in the seat's hand (its card backs: TableLayout+Fans).
         var cards: Int = 0
         /// The avatar's badge (SeatBadges.swift: the lightbulb, the graduation cap), nil: none.
@@ -155,6 +161,7 @@ struct TableRenderModel: Equatable {
                             lazy: seat?.lazy ?? false, presence: seat?.presence ?? .none, isTurn: s.table.phase.turn == pos,
                             socketId: s.players.socketBySeat[pos], avatarUrl: seat?.avatarUrl,
                             ownerName: seat?.ownerUsername ?? seat?.username,
+                            label: seat == nil ? nil : s.players.ownerName(pos),
                             cards: s.table.phase.showsTable ? max(0, seat?.cardsInHand ?? 0) : 0,
                             badge: SeatBadge.of(seat))
         }

@@ -262,12 +262,9 @@ final class LobbyParityTests: XCTestCase {
         let board = [("kim", 404), ("ivy", 404), ("hal", 312)].map {
             TournamentScoreEntry(id: $0.0, username: $0.0, totalScore: $0.1, roundScores: [])
         }
-        XCTAssertEqual(TournamentResultsView.winners(["ivy"], scoreboard: board), ["ivy"], "the server's list wins")
-        XCTAssertEqual(TournamentResultsView.winners([], scoreboard: board), ["kim", "ivy"])
-        XCTAssertEqual(TournamentResultsView.winners([], scoreboard: []), [])
-        XCTAssertEqual(TournamentResultsView.winnerText(["kim"]), "kim wins!")
-        XCTAssertEqual(TournamentResultsView.winnerText(["kim", "ivy"]), "kim & ivy tie!")
-        XCTAssertNil(TournamentResultsView.winnerText([]))
+        XCTAssertEqual(TournamentFinalView.winners(["ivy"], scoreboard: board), ["ivy"], "the server's list wins")
+        XCTAssertEqual(TournamentFinalView.winners([], scoreboard: board), ["kim", "ivy"])
+        XCTAssertEqual(TournamentFinalView.winners([], scoreboard: []), [])
     }
 
     // MARK: - (e) The joiner's scoreboard row

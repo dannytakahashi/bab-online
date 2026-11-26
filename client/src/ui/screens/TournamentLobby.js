@@ -440,6 +440,15 @@ export function setTournamentCutTalking(username, on) {
   cutView?.setTalking(username, on);
 }
 
+/**
+ * Is the lobby on screen showing a finished tournament (the complete
+ * phase's final results)? A host hand-off then changes nothing anyone can
+ * do: main.js says nothing about it.
+ */
+export function isTournamentFinished() {
+  return currentPhase === 'complete' && !!document.getElementById('tournamentLobbyContainer');
+}
+
 /** Is the cut's view up (sound plays there: main.js). */
 export function isTournamentCutShowing() {
   return !!cutView && cutView.element.isConnected;

@@ -63,7 +63,7 @@ import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } 
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope, scopePayload } from './state/statsScope.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull, isTournamentFinished } from './ui/screens/TournamentLobby.js';
 import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
 import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
@@ -2658,7 +2658,8 @@ function initializeApp() {
       // The host left: the role passed on (to me: the Begin / Cancel
       // controls appear in place)
       updateTournamentPlayers(data.players, gameState.username, data.newCreator);
-      if (data.newCreator) {
+      // A finished tournament has nothing left to host: no toast then
+      if (data.newCreator && !isTournamentFinished()) {
         showInfo(data.newCreator === gameState.username ? 'You are now the tournament host' : `${data.newCreator} is now the tournament host`);
       }
     },

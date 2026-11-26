@@ -284,7 +284,9 @@ final class GameState: ObservableObject {
     /// The watched seat is held while the table is paused (no cards shown).
     var watchPaused: Bool { table.viewer.shoulder?.paused == true && watchedSeat != nil }
     /// The watched seat's player's name (the pill, the headings).
-    var watchedName: String? { watchedSeat.map { players.name($0) } }
+    /// The watched seat's player by the owner rule (a lazy seat's owner, never its bot:
+    /// PlayersSlice.ownerName): the watching pill, my pips' and the dealer's labels, the hints.
+    var watchedName: String? { watchedSeat.map { players.ownerName($0) } }
     /// A pure spectator in the plain table view (no seat watched).
     var isPlainSpectator: Bool { isSpectator && watchedSeat == nil }
     /// The watched seat's mirrored advice, while it is still that seat's turn's.

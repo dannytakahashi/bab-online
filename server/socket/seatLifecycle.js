@@ -535,6 +535,47 @@ function reconnectOwner(io, game, pos, socket, username) {
 }
 
 /**
+ * A human entrant is back on `socket` before seats exist (a reload or a
+ * reconnect during the countdown, the draw or its reveal): it takes its
+ * entrant record over (GameState.reattachEntrant), so the draw seats it as a
+ * connected player instead of a seat in grace that only a later rejoin could
+ * claim. Before this, rejoinGame refused ('Not a player in this game') and
+ * the player was left to spectate their own table. An older socket still
+ * attached is unmapped and leaves the room (the newest socket owns the
+ * entry), as reconnectOwner does for a seat. The rejoiner gets rejoinSuccess
+ * with the pre-seating snapshot (viewer.role 'entrant', the draw so far);
+ * the room the system line "<name> reconnected.". A card the disconnect's
+ * auto-draw already took stays theirs.
+ * @returns {boolean} false when `username` is no returning entrant here
+ */
+function reconnectEntrant(io, game, socket, username) {
+    const oldSid = game.reattachEntrant(username, socket.id);
+    if (oldSid == null) return false;
+    if (oldSid !== socket.id) {
+        game.leaveRoom(io, oldSid);
+        unmap(game, oldSid);
+    }
+    // A socket that went to watch its own table meanwhile stops watching
+    // (a mapped socket is never a pure spectator)
+    if (game.spectators?.has(socket.id)) {
+        dropSpectatorVoice(io, socket.id);
+        gameManager.leaveSpectating(io, socket.id);
+    }
+    gameManager.playerGames.set(socket.id, game.gameId);
+    game.joinToRoom(io, socket.id);
+    registerOnline(io, socket, username);
+    const tournament = reattachTournament(io, socket, game.gameId, username);
+
+    socketLogger.info('Entrant rejoined before seating', { username, gameId: game.gameId, stage: game.stage });
+    socket.emit('rejoinSuccess', carrierFor(game, socket, {
+        isLazy: false,
+        tournamentId: tournament ? tournament.tournamentId : null
+    }));
+    logEntry(io, game, `${username} reconnected.`);
+    return true;
+}
+
+/**
  * The owner of a bot-controlled seat (lazy or resigned) attaches `socket` to
  * watch it while the bot plays. An older owner socket is demoted to a pure
  * spectator (keeps watching, loses /active and every other seat right),
@@ -1053,6 +1094,7 @@ module.exports = {
     disconnectOwner,
     onGraceExpired,
     reconnectOwner,
+    reconnectEntrant,
     watchSeat,
     reclaimSeat,
     goLazy,

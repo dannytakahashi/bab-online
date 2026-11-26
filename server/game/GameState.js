@@ -1615,6 +1615,40 @@ class GameState {
         return e;
     }
 
+    /**
+     * A human entrant is back on a new socket before seating (a reload during
+     * the countdown or the draw): its record moves to `newSocketId`, connected
+     * again, with every draw structure keyed by entrant socket (drawIDs, the
+     * planned teams, a staged draw's plan), so the draw and the seating treat
+     * the new socket as the entrant itself. A card already drawn for it (the
+     * disconnect's auto-draw) stays its card. Never a bot or a 'left' entrant
+     * (a /leave before seating is final). Entrant order is kept.
+     * @returns {string|null} the old socket id (the new one when already
+     *   keyed to it), or null when `username` is no such entrant
+     */
+    reattachEntrant(username, newSocketId) {
+        if (!this.entrants || !username || !newSocketId) return null;
+        let oldSocketId = null;
+        for (const [sid, e] of this.entrants) {
+            if (!e.isBot && e.username === username && e.presence !== 'left') { oldSocketId = sid; break; }
+        }
+        if (oldSocketId === null) return null;
+        const record = this.entrants.get(oldSocketId);
+        record.presence = 'connected';
+        if (oldSocketId === newSocketId) return oldSocketId;
+        // Another entrant on the new socket would be a second identity for it
+        if (this.entrants.has(newSocketId)) return null;
+        const rekey = (sid) => (sid === oldSocketId ? newSocketId : sid);
+        record.socketId = newSocketId;
+        this.entrants = new Map(Array.from(this.entrants, ([sid, e]) => [rekey(sid), e]));
+        this.drawIDs = this.drawIDs.map(rekey);
+        if (Array.isArray(this.drawTeams)) this.drawTeams = this.drawTeams.map((t) => t.map(rekey));
+        if (this.drawPlan instanceof Map && this.drawPlan.has(oldSocketId)) {
+            this.drawPlan = new Map(Array.from(this.drawPlan, ([sid, c]) => [rekey(sid), c]));
+        }
+        return oldSocketId;
+    }
+
     /** Idempotent. */
     markEntrantLeft(socketId) {
         const e = this.entrant(socketId);
