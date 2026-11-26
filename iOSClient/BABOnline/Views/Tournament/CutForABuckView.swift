@@ -796,6 +796,7 @@ struct CutListView: View {
         Group {
             if scrolls { ScrollView { rows } } else { rows }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cut.list")
     }
 }
