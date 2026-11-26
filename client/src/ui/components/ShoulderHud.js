@@ -31,7 +31,7 @@ export function syncShoulderHud(s) {
       pausedEl.setAttribute('role', 'status');
       hudRoot().appendChild(pausedEl);
     }
-    pausedEl.textContent = pausedText(s.getPlayerNameByPosition?.(s.shoulder.position) || '');
+    pausedEl.textContent = pausedText((s.getSeatOwnerName?.(s.shoulder.position) ?? s.getPlayerNameByPosition?.(s.shoulder.position)) || '');
   } else {
     pausedEl?.remove();
     pausedEl = null;

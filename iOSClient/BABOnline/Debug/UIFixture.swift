@@ -16,7 +16,7 @@ import SpriteKit
 /// hand / score / watchers), `game-lobby-reconnecting` (a held seat's "Reconnecting…"),
 /// `tournament-deadline` (between rounds past the ready deadline, me the host: "Start with
 /// ready players", "Sitting out"; `-uiHost <name>` makes another member the host),
-/// `tournament-results` (the results overlay with every round and the round markers;
+/// `tournament-results` (the final lobby, TournamentFinalView, with every round and the round markers;
 /// `-uiPlainResults YES`: no markers, as an older server). `-uiInfoToast "<message>"` raises
 /// the neutral toast (a new host, a cancelled tournament) and `-uiVoicePanel YES` opens the
 /// voice panel over `game-lobby` with two players (their volume sliders). `game-lobby-bots` is the game lobby with two bots
@@ -98,13 +98,16 @@ enum UIFixture {
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "tournament-deadline", "tournament-results", "sign-in", "register"]
+                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings", "tournament-cut",
+                                              "tournament-rounds", "update-required", "sign-in", "register"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
                      tournament: TournamentState, auth: AuthState) {
         guard let name else { return }
         seed(fixture: name, store, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+        // `game-end-tournament -uiCut "<n> <stage>"`: the score screen's Cut for a buck strip (UIFixture+Cut)
+        seedCutOnScoreScreen(store, tournament: tournament)
     }
 
     /// Seeds the stores from the fixture `name` (also used by the #Preview blocks).
@@ -148,8 +151,15 @@ enum UIFixture {
                 "sid-w": VoiceChatManager.PeerInfo(username: "lou"),
             ]
         }
+        // Get Your Bid (UIFixture+GetYourBid.swift): its table, lobby and main-room fixtures
+        if seedGyb(name, store, appState, mainRoom: mainRoom, lobby: lobby, auth: auth) {
+            print("[UIFixture] seeded Get Your Bid \(name)")
+            return
+        }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+            // iOS 1.2.7's tournament extras: the over-cap notice, the rounds' answers (UIFixture+Tournament)
+            seedTournamentExtras(tournament)
             // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
             // fit at a real lobby's name)
             if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
@@ -175,6 +185,7 @@ enum UIFixture {
                 (d["drawn"] as? [[String: Any]])?.first { $0["drawOrder"] as? Int == d["viewerDrawOrder"] as? Int }?["username"] as? String
             }
             if drawStates.contains(name) { editDraw(name, &snapDict) }
+            if drawTeams, drawStates.contains(name) || name == "draw-in-progress" { editDrawTeams(name, &snapDict) }
             editFaults(&snapDict)
             editSeatBadges(&snapDict)  // -uiSeatBadges (UIFixture+SeatBadges.swift)
             editAssistHand(&snapDict)
@@ -452,6 +463,9 @@ enum UIFixture {
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
         case SocketEvents.Client.lobbyReturnSeen:
             message = "lobbyReturnSeen"
+        case SocketEvents.Client.createLobby:
+            // New Game's choice (GybLobbyUITests): the game it asked for
+            message = (data["mode"] as? String).map { "createLobby:\($0)" } ?? "createLobby"
         case SocketEvents.Client.watchHand:
             // -uiShoulder: answered as the server does (UIFixture+Shoulder)
             message = "watchHand:\((data["position"] as? Int).map(String.init) ?? "null")"
@@ -460,6 +474,13 @@ enum UIFixture {
             let username = data["username"] as? String ?? "-"
             message = "releaseLobbyHold:\(username)"
             emulateRelease(username)
+        case SocketEvents.Client.cutForABuckDraw:
+            // answered as the server does (UIFixture+Cut)
+            message = "cutForABuckDraw:\(data["round"] as? Int ?? 0):\((data["slot"] as? Int).map(String.init) ?? "null")"
+            emulateCutDraw(data)
+        case SocketEvents.Client.setTournamentRounds:
+            // answered as the server does (UIFixture+Tournament)
+            message = tournamentRoundsSent(data)
         case SocketEvents.Client.setSpectatorsCanTalk:
             // this build has no switch (2026-11-18); a send would show here
             message = "setSpectatorsCanTalk"
@@ -518,6 +539,19 @@ enum UIFixture {
                                 "game-end-tournament": "tournament-game"]
 
     static let drawStates: Set<String> = ["draw-start", "draw-all", "draw-teams", "draw-long", "draw-spectator", "draw-deal"]
+    /// `-uiDrawTeams YES` on a draw state (and `draw-in-progress`): a tournament table's planned
+    /// teams (snapshot draw.teams), so the draw is for first deal with the teams under the title:
+    /// fay & gus vs 🤖 Mike & eve in plan order (draw-teams' teamsAnnounced; draw-long's long
+    /// names for eve and gus).
+    static let drawTeams: Bool = isActive && UserDefaults.standard.bool(forKey: "uiDrawTeams")
+
+    private static func editDrawTeams(_ name: String, _ snap: inout [String: Any]) {
+        guard var draw = snap["draw"] as? [String: Any] else { return }
+        let (third, fourth) = name == "draw-long" ? ("JoAnn Jameson", "Christopher Johnson1") : ("eve", "gus")
+        let p = { (u: String, bot: Bool) -> [String: Any] in ["username": u, "isBot": bot] }
+        draw["teams"] = [[p("fay", false), p(fourth, false)], [p("🤖 Mike", true), p(third, false)]]
+        snap["draw"] = draw
+    }
     static var holdsTeams: Bool { name == "draw-teams" }
 
     private static func editDraw(_ name: String, _ snap: inout [String: Any]) {
@@ -697,6 +731,60 @@ enum UIFixture {
             }
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-rounds":
+            // the host's Rounds picker before Begin (UIFixture+Tournament)
+            seedTournamentRounds(appState, tournament: tournament, auth: auth)
+        case "tournament-pairings":
+            // round 3 in play (owner 2026-11-25: partners shown openly): ivy's partners so far are a
+            // bot (round 1), nobody (sat out round 2) and a 20-character name (round 3); a long name
+            // on the other team too. `-uiSpectator YES`: a tournament spectator (every round's tables).
+            let long1 = "Christopher Johnson1", long2 = "Alexandra Montgomery"
+            let names = ["kim", "ivy", "hal", "jon", "ora", "max", long1, long2]
+            tournament.tournamentId = "t1"
+            tournament.name = "Sunday Cup"
+            tournament.phase = "round_active"
+            tournament.currentRound = 3
+            tournament.creatorUsername = "kim"
+            tournament.isSpectator = UserDefaults.standard.bool(forKey: "uiSpectator")
+            if tournament.isSpectator { auth.username = "lou" }
+            tournament.players = names.map {
+                TournamentPlayer(id: "sid-\($0)", username: $0, pic: nil, isReady: false, isCreator: $0 == "kim", connected: true)
+            }
+            let rounds: [[Int]] = [[142, 88], [120, -20], [97, 64], [-40, 152], [76, 49], [55, 31], [31, 18], [-12, 7]]
+            tournament.scoreboard = zip(names, rounds)
+                .map { TournamentScoreEntry(id: $0, username: $0, totalScore: $1.reduce(0, +), roundScores: $1) }
+                .sorted { $0.totalScore > $1.totalScore }
+            tournament.pairings = TournamentRoundPairings.list([
+                ["roundNumber": 1, "tables": [
+                    ["gameId": "g1", "teams": [["ivy", NSNull()], ["kim", NSNull()]]],
+                    ["gameId": "g2", "teams": [["hal", "jon"], ["ora", "max"]]],
+                    ["gameId": "g3", "teams": [[long1, NSNull()], [long2, NSNull()]]],
+                ]],
+                ["roundNumber": 2, "tables": [
+                    ["gameId": "g4", "teams": [["kim", "hal"], ["jon", long1]]],
+                    ["gameId": "g5", "teams": [["ora", long2], ["max", NSNull()]]],
+                ]],
+                ["roundNumber": 3, "tables": [
+                    ["gameId": NSNull(), "teams": [[long2, "kim"], ["ivy", long1]]],
+                    ["gameId": NSNull(), "teams": [["hal", NSNull()], ["jon", "ora"]]],
+                    ["gameId": NSNull(), "teams": [["max", NSNull()], [NSNull(), NSNull()]]],
+                ]],
+            ] as [Any]) ?? []
+            tournament.activeGames = [
+                TournamentActiveGame(id: "g6", humanPlayers: ["ivy", long1, long2, "kim"], botCount: 0, status: "active"),
+                TournamentActiveGame(id: "g7", humanPlayers: ["hal", "jon", "ora"], botCount: 1, status: "active"),
+            ]
+            tournament.messages = chat + messages([("System", "Round 3 has begun")])
+            appState.screen = .tournamentLobby
+        case "update-required":
+            // the upgrade gate's update screen (s2c updateRequired) over the main room, signed in
+            auth.isAuthenticated = true
+            mainRoom.messages = chat
+            appState.screen = .mainRoom
+            UpdateRequiredState.shared.receive([
+                "message": "Update required. Please update BAB Online in the App Store. You'll stay signed in.",
+                "url": "https://apps.apple.com/app/id6759510890",
+            ])
         case "tournament-round", "tournament-between":
             // 8 players (ned reconnecting); mid-round two tables still play, ivy's has finished
             let between = name == "tournament-between"
@@ -765,6 +853,9 @@ enum UIFixture {
             tournament.winners = ["kim", "ivy"]
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-cut":
+            // Cut for a buck (`-uiCut "<n> <stage>"`, UIFixture+Cut)
+            seedCut(appState, tournament: tournament, auth: auth)
         case "register":
             SocketService.shared.isConnected = !UserDefaults.standard.bool(forKey: "uiOffline")
             appState.screen = .register
@@ -799,6 +890,10 @@ final class TableDebugProbe: ObservableObject {
     /// 1.2.2: "fans=2:5,3:5,4:4 dealer=3" (card backs per seat, "-" where the table shows
     /// no fans; the dealer's seat, "me", or "-"). Its own probe: a rotation may gain or lose the fans.
     @Published var tableExtras = "-"
+    /// The seats as drawn (Get Your Bid's three-seat table, GybTableUITests): "seats=3 1:left 2:right
+    /// trick=2:left,3:right clear=ok|over:<a>/<b>,..." (each opponent seat's slot by position, each
+    /// trick card's slot, and whether any two of the seats' footprints, the trick cards and my hand overlap).
+    @Published var tableSeats = "-"
     /// The avatar badges (SeatBadgeNode, TableLayout+Badges.swift): "<pos>:bulb|cap|- <x y w h>
     /// clear=ok|over:<what>;... pops=<n> pop=scale|fade|-" per seat with an avatar, by position (the
     /// drawn badge's frame in the pane's points and what of the layout's badge keeps it covers;
@@ -1008,6 +1103,8 @@ final class TableDebugProbe: ObservableObject {
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
         let extras = "fans=\(fans) back=\(back) dealer=\(dealer)"
         if extras != tableExtras { tableExtras = extras }
+        let seatsText = seatsProbe(scene)
+        if seatsText != tableSeats { tableSeats = seatsText }
         let badges = badgesProbe(scene)
         if badges != tableBadges { tableBadges = badges }
         if check != layoutCheck { layoutCheck = check }
@@ -1074,6 +1171,34 @@ extension TableDebugProbe {
     }
 }
 
+extension TableDebugProbe {
+    /// "table.seats" (see `tableSeats`).
+    func seatsProbe(_ scene: GameSKScene) -> String {
+        guard let model = scene.lastModel, model.showsTable else { return "-" }
+        let L = scene.layout
+        let seats = scene.opponentManager.nodes.sorted { $0.key < $1.key }
+        var boxes: [(String, CGRect)] = seats.map { ("seat\($0.key)", L.seatFootprint($0.value.relativePosition)) }
+        let trick = model.trick.map { c -> String in
+            let rel = Positions.getRelative(target: c.position, from: model.viewPosition, seats: model.seats)
+            boxes.append(("trick\(c.position)", L.trickRect(rel)))
+            return "\(c.position):\(rel.rawValue)"
+        }
+        if !scene.handNode.sprites.isEmpty {
+            let f = scene.handNode.calculateAccumulatedFrame()
+            boxes.append(("hand", f.insetBy(dx: 1, dy: 1)))
+        }
+        var over: [String] = []
+        for (i, a) in boxes.enumerated() {
+            for b in boxes[(i + 1)...] where a.1.insetBy(dx: 0.5, dy: 0.5).intersects(b.1.insetBy(dx: 0.5, dy: 0.5)) {
+                over.append("\(a.0)/\(b.0)")
+            }
+        }
+        return "seats=\(model.seats) " + seats.map { "\($0.key):\($0.value.relativePosition.rawValue)" }.joined(separator: " ")
+            + " trick=" + (trick.isEmpty ? "-" : trick.joined(separator: ","))
+            + " clear=" + (over.isEmpty ? "ok" : "over:" + over.joined(separator: ","))
+    }
+}
+
 /// The fixture probes, 1x1 and nearly transparent, readable by XCUITest.
 struct FixtureProbes: View {
     @ObservedObject var probe = TableDebugProbe.shared
@@ -1084,6 +1209,7 @@ struct FixtureProbes: View {
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
             dot("table.extras", probe.tableExtras)
+            dot("table.seats", probe.tableSeats)
             dot("table.badges", probe.tableBadges)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)

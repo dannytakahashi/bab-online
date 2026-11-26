@@ -31,8 +31,8 @@
  * awards nothing twice, and a matched write is exactly "newly earned": that
  * is what the player's private `badgesAwarded {gameId, badges}` lists (in
  * catalog order, the profile's order for one game's badges), sent
- * to their live socket when it has the clientHello cap `badges` (the web;
- * no iOS build). A player who is offline just finds the badge on their
+ * to their live socket when it has the clientHello cap `badges` (the web and
+ * iOS 1.2.7 (41)). A player who is offline just finds the badge on their
  * profile. Every read and write goes through the caller's `retry` (the
  * stats chain's withRetry), each badge's write on its own: one that still
  * fails leaves the player in `failed` and the others are kept. Never

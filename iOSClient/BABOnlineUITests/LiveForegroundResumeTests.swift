@@ -187,6 +187,7 @@ final class LiveForegroundResumeTests: XCTestCase {
         // responsive: a server action goes through at once
         note("tap New Game")
         newGame.tap()
+        Fixture.chooseClassicGame()
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 5), "no game lobby")
         note("lobby open")
         shot("1-lobby")
@@ -207,6 +208,7 @@ final class LiveForegroundResumeTests: XCTestCase {
         XCTAssertTrue(wait(20) { newGame.exists && newGame.isEnabled }, "not back in the main room with a session")
         note("session back; toast seen: \(toast)")
         newGame.tap()
+        Fixture.chooseClassicGame()
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 10), "no game lobby after the restart")
         shot("2-lobby")
         app.terminate()
@@ -236,6 +238,7 @@ final class LiveForegroundResumeTests: XCTestCase {
         XCTAssertTrue(wait(20) { newGame.exists && newGame.isEnabled }, "no session after the server answers again")
         note("session back")
         newGame.tap()
+        Fixture.chooseClassicGame()
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 10), "no game lobby after the rebuild")
         shot("2b-lobby")
         app.terminate()
@@ -284,6 +287,7 @@ final class LiveForegroundResumeTests: XCTestCase {
         let app = try liveApp()
         launchSignedIn(app)
         app.buttons["New Game"].tap()
+        Fixture.chooseClassicGame()
         let addBot = app.buttons["Add Bot"]
         XCTAssertTrue(addBot.waitForExistence(timeout: 15), "no game lobby")
         for n in 1...3 {

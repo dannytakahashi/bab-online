@@ -3,7 +3,7 @@
  * socket faked): the cut starting on the tournament lobby (its intro, no
  * Ready / Begin / Cancel), a draw, the winner and the final lobby in place
  * of the results modal; the last table's score screen with its strip and
- * "Join Cut for a buck"; a reload mid-cut (a static render from
+ * "Join cut for a buck"; a reload mid-cut (a static render from
  * tournamentJoined.cut); the complete phase on a return.
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
@@ -92,16 +92,16 @@ describe('Cut for a buck on the page', () => {
     socket.fire('cutForABuckDrew', { round: 1, username: 'bob', slot: 4, auto: false });
     socket.fire('cutForABuckReveal', { round: 1, draws: [{ username: 'me', slot: 1, card: { suit: 'hearts', rank: 'A' } }, { username: 'bob', slot: 4, card: { suit: 'clubs', rank: '3' } }, { username: 'cat', slot: 9, card: { suit: 'spades', rank: '3' } }], eliminated: ['bob', 'cat'], redraw: false, alive: ['me'], nextInMs: 6000 });
     socket.fire('cutForABuckWinner', { winner: 'me', participants: NAMES, rounds: 1 });
-    socket.fire('tournamentMessage', { username: 'System', message: 'me won Cut for a buck.', system: true, type: 'system' });
+    socket.fire('tournamentMessage', { username: 'System', message: 'me won cut for a buck.', system: true, type: 'system' });
     await settle();
-    expect(document.getElementById('tournamentChatArea').textContent).toContain('me won Cut for a buck.');
+    expect(document.getElementById('tournamentChatArea').textContent).toContain('me won cut for a buck.');
 
     socket.fire('tournamentComplete', { scoreboard: joined().scoreboard, winners: ['bob'], cutForABuck: { winner: 'me', participants: NAMES, rounds: 1 } });
     await settle();
     expect(document.getElementById('cutForABuck')).toBeNull();
     expect(document.getElementById('tournamentResultsOverlay')).toBeNull();
     expect(document.getElementById('tournamentFinalTitle').textContent).toBe('bob wins the tournament!');
-    expect(document.getElementById('tournamentFinalCut').textContent).toBe('You won Cut for a buck');
+    expect(document.getElementById('tournamentFinalCut').textContent).toBe('You won cut for a buck');
     const chips = (u) => [...document.querySelectorAll(`.final-results__player[data-username="${u}"] .kit-chip`)].map((c) => c.textContent);
     expect(chips('bob')).toEqual(['Winner']);
     expect(chips('me')).toEqual(['Won the cut']);
@@ -126,7 +126,7 @@ describe('Cut for a buck on the page', () => {
     expect(socket.emitted('cutForABuckDraw')).toEqual([{ round: 2, slot: null }]);
   });
 
-  it('the last table\'s score screen: the strip and "Join Cut for a buck" (the same returnToTournament)', async () => {
+  it('the last table\'s score screen: the strip and "Join cut for a buck" (the same returnToTournament)', async () => {
     socket.fire('tournamentJoined', joined({ phase: 'round_active' }));
     await settle();
     socket.fire('tournamentGameAssignment', { gameId: 'g9', tournamentId: 't1', roundNumber: 1 });
@@ -146,7 +146,7 @@ describe('Cut for a buck on the page', () => {
     await settle();
     expect(document.getElementById('cutStrip').hidden).toBe(false);
     expect(document.getElementById('cutStrip').textContent).toMatch(/^Cut for a buck starts in 1[45]$/);
-    expect(button().textContent).toBe('Join Cut for a buck');
+    expect(button().textContent).toBe('Join cut for a buck');
     // the score screen stays (no forced navigation)
     expect(page.session.screen).toBe('gameEnd');
 

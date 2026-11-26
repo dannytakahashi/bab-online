@@ -63,7 +63,7 @@ import { showLeaderboardPage, updateLeaderboardPage, leaderboardRequestFailed } 
 import { showRecordsPage, updateRecordsPage, recordsRequestFailed } from './ui/screens/RecordsPage.js';
 import { isStaleScopeReply, getStatsScope, scopePayload } from './state/statsScope.js';
 import { setIsAdmin } from './admin/adminApi.js';
-import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull } from './ui/screens/TournamentLobby.js';
+import { removeTournamentLobby, addTournamentChatMessage, updateTournamentPlayers, updateTournamentScoreboardUI, updateTournamentRoundIndicator, updateTournamentActiveGames, setTournamentPhase, setReadyDeadlinePassed, updateTournamentPairings, setTournamentTotalRounds, configureTournamentLobby, syncTournamentCut, showTournamentFinal, setTournamentCutTalking, isTournamentCutShowing, setTournamentVoiceFull, isTournamentFinished } from './ui/screens/TournamentLobby.js';
 import { applyCutEvent, restoreCut, clearCut, getCutState, getCutTournamentId } from './ui/cut/cutStore.js';
 import { STAGE as CUT_STAGE, winnerLine as cutWinnerLine } from './state/cutForABuck.js';
 import { updatePlayerSearchResults } from './ui/screens/PlayerSearchPage.js';
@@ -1140,12 +1140,12 @@ function initializeApp() {
 
   // The last table's score screen (spec section 3.3): it stays as long as
   // the player wants, with a strip saying the cut is on and its button
-  // reading "Join Cut for a buck" (the same returnToTournament)
+  // reading "Join cut for a buck" (the same returnToTournament)
   let scoreCutTimer = null;
   function syncScoreCutStrip() {
     const tid = gameState.tournamentId;
     const st = session.screen === SCREEN.GAME_END && tid && getCutTournamentId() === tid ? getCutState() : null;
-    const join = session.isSpectator ? 'Watch Cut for a buck' : 'Join Cut for a buck';
+    const join = session.isSpectator ? 'Watch cut for a buck' : 'Join cut for a buck';
     let info = null;
     if (st?.stage === CUT_STAGE.GATHER) {
       const secs = st.endsAt == null ? 0 : Math.max(0, Math.ceil((st.endsAt - Date.now()) / 1000));
@@ -1408,7 +1408,7 @@ function initializeApp() {
     if (kind === 'spectator' && isShoulder(gameState)) kind = 'watching';
     else if (kind === 'watching' && !isShoulder(gameState)) kind = 'spectator';
     const text = kind === 'watching'
-      ? watchingPillText(gameState.getPlayerNameByPosition(gameState.shoulder.position), { paused: !!gameState.shoulder.paused }) + spectatorVoiceNote('spectator')
+      ? watchingPillText(gameState.getSeatOwnerName(gameState.shoulder.position), { paused: !!gameState.shoulder.paused }) + spectatorVoiceNote('spectator')
       : (kind === 'lazy' ? 'Spectating — type /active to take back control' : 'Spectating — type /leave to exit') + spectatorVoiceNote(kind);
     // The HUD's status slot (top centre of the table, from the layout:
     // ui-18), else the top of the page
@@ -1442,7 +1442,7 @@ function initializeApp() {
 
   /** Who is watching (the badge), each watcher's row naming the hand it watches. */
   function renderSpectatorBadge(watching) {
-    return drawSpectatorBadge(watching, { me: gameState.username, seatName: (p) => gameState.getPlayerNameByPosition(p) });
+    return drawSpectatorBadge(watching, { me: gameState.username, seatName: (p) => gameState.getSeatOwnerName(p) });
   }
 
   /** A watcher's voice state on the pill: "(listening only)" (a refused microphone) or "Voice is full (8 people)". */
@@ -1785,6 +1785,8 @@ function initializeApp() {
     },
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
+      // A reload before the deal rejoins this table (sessionStorage gameId)
+      session.noteTableGame(data?.gameId);
       // The game's mode before its draw (Get Your Bid: three seats); the
       // game itself starts via positionUpdate/gameStart events
       gameState.setMode(data?.mode);
@@ -1851,7 +1853,7 @@ function initializeApp() {
       if (gameLogInstance?.container?.isConnected && gameState.isSolo) {
         gameLogInstance.updateSoloScore?.(soloHeaderRows(gameState, { spectator: !!gameState.isSpectator }));
       } else if (gameLogInstance?.container?.isConnected) {
-        const { teamName, oppName } = scoreHeaderNames(gameState.position, gameState.playerData, { spectator: !!gameState.isSpectator });
+        const { teamName, oppName } = scoreHeaderNames(gameState.position, gameState.teamPlayerData, { spectator: !!gameState.isSpectator });
         gameLogInstance.updateNames(teamName, oppName);
       }
       // Player info box creation deferred to handleDisplayOpponentHands
@@ -2164,8 +2166,9 @@ function initializeApp() {
       const position = gameState.position;
       const isSpectator = gameState.isSpectator;
       if (data.gyb) {
-        // Get Your Bid: three players, each for themselves
-        const pd = gameState.playerData;
+        // Get Your Bid: three players, each for themselves (named by the
+        // seat's owner: a lazy seat's bot plays for them)
+        const pd = gameState.teamPlayerData;
         formatSoloGameEndMessages(data.gyb, pd, { myPosition: position, isSpectator }).forEach((msg) => window.addToGameFeedFromLegacy(msg));
         window.updateGameLogSoloScore(soloHeaderRows(gameState, { spectator: !!isSpectator }));
         session.endGame();
@@ -2188,8 +2191,9 @@ function initializeApp() {
         oppScore = data.score.team1;
       }
 
-      // Add game end messages to game log
-      const playerData = gameState.playerData;
+      // Add game end messages to game log (the teams by their players:
+      // a lazy or resigned seat's owner, never the bot playing it)
+      const playerData = gameState.teamPlayerData;
       const messages = formatGameEndMessages({
         myPosition: position,
         playerData: playerData,
@@ -2656,7 +2660,11 @@ function initializeApp() {
       // The host left: the role passed on (to me: the Begin / Cancel
       // controls appear in place)
       updateTournamentPlayers(data.players, gameState.username, data.newCreator);
-      if (data.newCreator) {
+      // Only for a tournament this tab is in, and not once it is finished:
+      // nothing is left to host then (in its final lobby, or after Return to
+      // Main Room, which forgets it while the server still lists the member
+      // for the results window; iOS guards on its tournamentId the same way)
+      if (data.newCreator && gameState.tournamentId && !isTournamentFinished()) {
         showInfo(data.newCreator === gameState.username ? 'You are now the tournament host' : `${data.newCreator} is now the tournament host`);
       }
     },

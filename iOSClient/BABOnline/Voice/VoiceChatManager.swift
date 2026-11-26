@@ -153,8 +153,7 @@ final class VoiceChatManager: ObservableObject {
     private var iceRefresh: DispatchWorkItem?
 
     private static let speakingThreshold: Float = 0.005
-    private static let speakingPollInterval: TimeInterval = 0.1
-    private static let speakingHoldMs: TimeInterval = 0.4
+    private static let speakingHoldMs: TimeInterval = SpeakingPoll.hold
 
     private let factory: RTCPeerConnectionFactory
 
@@ -184,6 +183,13 @@ final class VoiceChatManager: ObservableObject {
 
     // Speaking detection
     private var speakingTimer: Timer?
+    /// The running timer's period (SpeakingPoll.interval for the call count; 0 when stopped).
+    private(set) var speakingPollPeriod: TimeInterval = 0
+    /// Calls whose stats request has not answered yet: one at a time each, so a slow answer
+    /// (19 calls on a busy phone) never piles requests up.
+    private var speakingStatsInFlight = Set<String>()
+    /// For tests: the stats requests sent, per receiver / per sender (never a whole report).
+    private(set) var speakingStatsRequests = (receiver: 0, sender: 0)
     private var speakingLastActive: [String: Date] = [:]  // socketId|"self" → last above-threshold time
     private var speakingStates: [String: Bool] = [:]
 
@@ -445,6 +451,8 @@ final class VoiceChatManager: ObservableObject {
         // Stop speaking detection
         speakingTimer?.invalidate()
         speakingTimer = nil
+        speakingPollPeriod = 0
+        speakingStatsInFlight.removeAll()
 
         // Close all peer connections
         for (socketId, peer) in peers {
@@ -853,6 +861,10 @@ final class VoiceChatManager: ObservableObject {
         peer.connection.close()
         speakingLastActive.removeValue(forKey: socketId)
         speakingStates.removeValue(forKey: socketId)
+        // a closed call may never answer its stats request: ask again freely (mine too: it may
+        // have been this call's sender)
+        speakingStatsInFlight.remove(socketId)
+        speakingStatsInFlight.remove("self")
 
         // the speaking glow goes off while the peer's username is still known (seat by username)
         speakingPeers.remove(socketId)
@@ -1058,9 +1070,13 @@ final class VoiceChatManager: ObservableObject {
 
     // MARK: - Speaking Detection
 
-    private func startSpeakingDetection() {
+    /// Starts (or restarts) the poll at the period for `calls` calls (SpeakingPoll: 100 ms up to
+    /// 8 calls, 200 ms past 8, so 19 calls cost about what 9 did before).
+    private func startSpeakingDetection(calls: Int = 0) {
         speakingTimer?.invalidate()
-        speakingTimer = Timer.scheduledTimer(withTimeInterval: Self.speakingPollInterval, repeats: true) { [weak self] _ in
+        let period = SpeakingPoll.interval(calls: calls)
+        speakingPollPeriod = period
+        speakingTimer = Timer.scheduledTimer(withTimeInterval: period, repeats: true) { [weak self] _ in
             // Scheduled from the main actor, so the timer fires on the main run loop
             MainActor.assumeIsolated {
                 self?.pollSpeakingLevels()
@@ -1068,51 +1084,42 @@ final class VoiceChatManager: ObservableObject {
         }
     }
 
+    /// Each call's audio level from its own receiver's stats (iOS 1.2.7, the tournament room of
+    /// up to 20: `statistics(for: receiver)` returns that receiver's inbound-rtp and what it
+    /// references, a few objects, where the whole report has every candidate pair, codec and
+    /// transport of the call, ten times a second for each of up to 19 calls), and mine from the
+    /// first call's sender (its outbound-rtp and media-source). The period follows the call count.
     private func pollSpeakingLevels() {
-        // Poll audio levels for all peers using WebRTC stats
-        for (socketId, peer) in peers {
-            peer.connection.statistics { [weak self] report in
-                var maxLevel: Float = 0
-
-                for (_, stats) in report.statistics {
-                    // Look for inbound RTP audio stats with audioLevel
-                    if stats.type == "inbound-rtp",
-                       let kind = stats.values["kind"] as? String, kind == "audio",
-                       let level = stats.values["audioLevel"] as? Double {
-                        maxLevel = max(maxLevel, Float(level))
-                    }
-                }
-
+        let period = SpeakingPoll.interval(calls: peers.count)
+        if period != speakingPollPeriod {
+            startSpeakingDetection(calls: peers.count)
+        }
+        for (socketId, peer) in peers where !speakingStatsInFlight.contains(socketId) {
+            // a call with no live audio transceiver yet (still negotiating): nothing to read
+            guard let receiver = Self.audioTransceivers(peer.connection).first?.receiver else { continue }
+            speakingStatsInFlight.insert(socketId)
+            speakingStatsRequests.receiver += 1
+            peer.connection.statistics(for: receiver) { [weak self] report in
+                let level = SpeakingPoll.inboundLevel(report.statistics.values.map { ($0.type, $0.values) })
                 DispatchQueue.main.async {
-                    self?.updateSpeakingState(id: socketId, level: maxLevel)
+                    self?.speakingStatsInFlight.remove(socketId)
+                    self?.updateSpeakingState(id: socketId, level: level)
                 }
             }
         }
 
-        // For local mic, check if track is enabled and use outbound stats
+        // My own level: the first call's sender (every call sends the one local track)
         if let track = localAudioTrack, track.isEnabled {
-            // Use a simple approach: check all peer connections for outbound audio stats
-            if let firstPeer = peers.values.first {
-                firstPeer.connection.statistics { [weak self] report in
-                    var maxLevel: Float = 0
-
-                    for (_, stats) in report.statistics {
-                        if stats.type == "outbound-rtp",
-                           let kind = stats.values["kind"] as? String, kind == "audio",
-                           let level = stats.values["audioLevel"] as? Double {
-                            maxLevel = max(maxLevel, Float(level))
-                        }
-                        // Also check media-source stats
-                        if stats.type == "media-source",
-                           let kind = stats.values["kind"] as? String, kind == "audio",
-                           let level = stats.values["audioLevel"] as? Double {
-                            maxLevel = max(maxLevel, Float(level))
-                        }
-                    }
-
-                    DispatchQueue.main.async {
-                        self?.updateSpeakingState(id: "self", level: maxLevel)
-                    }
+            guard !speakingStatsInFlight.contains("self"),
+                  let (_, firstPeer) = peers.min(by: { $0.key < $1.key }),
+                  let sender = Self.audioTransceivers(firstPeer.connection).first?.sender else { return }
+            speakingStatsInFlight.insert("self")
+            speakingStatsRequests.sender += 1
+            firstPeer.connection.statistics(for: sender) { [weak self] report in
+                let level = SpeakingPoll.outboundLevel(report.statistics.values.map { ($0.type, $0.values) })
+                DispatchQueue.main.async {
+                    self?.speakingStatsInFlight.remove("self")
+                    self?.updateSpeakingState(id: "self", level: level)
                 }
             }
         } else {

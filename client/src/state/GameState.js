@@ -15,6 +15,9 @@ import { parseWatching } from './snapshotV2.js';
 import { bidClockNow, clockFrom, parseBidClockEvent } from './bidClock.js';
 import { isShoulder, validShoulder } from './shoulder.js';
 import { helpNoticeSeat, tutorialTag } from './seatBadges.js';
+import { teamPlayerDataOf } from './teamPlayerData.js';
+
+export { teamPlayerDataOf };
 
 // Game phases
 export const PHASE = {
@@ -674,6 +677,22 @@ export class GameState {
   }
 
   /**
+   * A seat's player by the owner rule (owner 2026-11-25, people by player
+   * names; iOS PlayersSlice.ownerName): a lazy or resigned seat's owner,
+   * never the bot playing it (seatOwners), else the name the seat shows (a
+   * native bot's persona). The per-seat labels read it: the watching pill and
+   * its paused line, the seat-eye chip and seat badge, the spectator badge's
+   * "watching <player>" rows, the watched seat's hints and its read-only bid
+   * sheet. The avatars, their plates, a seat's profile and the log and
+   * announcer lines of who played ("X bid N", "X won the trick") keep
+   * getPlayerNameByPosition: they show who is playing.
+   */
+  getSeatOwnerName(pos) {
+    const owner = this.seatOwners?.[pos];
+    return typeof owner === 'string' && owner ? owner : this.getPlayerNameByPosition(pos);
+  }
+
+  /**
    * Mark that the player has played a card this trick.
    */
   setHasPlayedCard(value) {
@@ -1180,6 +1199,17 @@ export class GameState {
   }
 
   /**
+   * playerData for team names and the score screen (owner rule: teams by
+   * player names): each seat named by its owner (seatOwners: a lazy or
+   * resigned seat's owner, never the bot playing it), else the name the
+   * seat shows (a native bot's persona). The avatars keep playerData.
+   * @returns {Object|null} { position, username: [{username}], ... } or playerData itself
+   */
+  get teamPlayerData() {
+    return teamPlayerDataOf(this);
+  }
+
+  /**
    * Who a seat shows (playerLazyMode / playerResigned: the bot;
    * playerActiveMode: the owner again). playerData is what render() draws
    * the avatars from, so a re-render shows the seat as it is now, as a
@@ -1578,9 +1608,18 @@ export class GameState {
       if (i !== -1) mine = positions[i] || null;
     }
     if (mine) this.position = mine;
+    // Each seat's owner: positionUpdate.owners (additive 2026-11-26), else
+    // the name the seat shows. A draw-phase leaver is seated as a resign bot:
+    // usernames names the bot, owners the leaver (as a snapshot's
+    // ownerUsername does), so the owner labels name the leaver here too
+    // (getSeatOwnerName, teamPlayerData). A native bot's owner is null: its
+    // persona, as before. A server without owners: usernames, as before
+    const owners = Array.isArray(d.owners) ? d.owners : null;
     this.seatOwners = {};
     positions.forEach((pos, i) => {
-      if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
+      const owner = owners?.[i];
+      if (typeof owner === 'string' && owner) this.seatOwners[pos] = owner;
+      else if (typeof names[i] === 'string') this.seatOwners[pos] = names[i];
     });
     // The human seats (the voice rule): isBot[] per seat, else the bot:
     // prefix of the seat socket id (a server before isBot). A native bot

@@ -7,9 +7,16 @@
  * bid scores 10 + the bid, an exact 0 scores 5, anything else nothing, 1
  * point for the last bidder who takes exactly their Forbidden Bid); the
  * page shows what handComplete.gyb / gameEnd.gyb say and computes no score.
+ *
+ * Names (owner rule 2026-11-25, people by player names): every line, row
+ * and tally here names a seat by its owner (teamPlayerDataOf: a lazy or
+ * resigned seat's owner, never the bot playing it), as the server's stored
+ * hand and game-over lines do (gameHandlers.seatName), so a reload or a
+ * spectator replaying the log reads the same names as the live table.
  */
 
 import { seatsAround, seatLetter } from '../utils/positions.js';
+import { teamPlayerDataOf } from './teamPlayerData.js';
 
 export const GYB_MODE = 'gyb';
 export const GYB_SEATS = 3;
@@ -43,7 +50,7 @@ export function soloOrder(me) {
 
 /**
  * The game log's score header at a Get Your Bid table: one row per seat
- * (soloOrder), each its name, score, bid ('-' until placed) and tricks.
+ * (soloOrder), each its name (the seat's owner), score, bid ('-' until placed) and tricks.
  * @param {Object} state - GameState
  * @param {Object} [opts]
  * @param {boolean} [opts.spectator] - the viewer has no seat (seat 1 first, no row is "mine")
@@ -52,9 +59,10 @@ export function soloOrder(me) {
 export function soloHeaderRows(state, { spectator = false } = {}) {
   const me = spectator ? 1 : (state.position || 1);
   const known = Array.isArray(state.playerData?.position);
+  const names = known ? teamPlayerDataOf(state) : null;
   return soloOrder(me).map((pos) => ({
     position: pos,
-    name: known ? soloName(state.playerData, pos) : '',
+    name: known ? soloName(names, pos) : '',
     score: state.gyb?.scores?.[pos - 1] ?? 0,
     bid: state.bids?.[pos] ?? '-',
     tricks: state.tricksByPosition?.[pos] ?? 0,
@@ -67,7 +75,7 @@ export function soloHeaderRows(state, { spectator = false } = {}) {
  * A finished hand's log lines (the server's own wording, so a replayed
  * snapshot log reads the same): one per seat, seats 1 to 3.
  * @param {Object} hand - handComplete.gyb {scores, seats: [{position, bid, took, points, forbiddenHit}]}
- * @param {Object} playerData
+ * @param {Object} playerData - teamPlayerDataOf(state): the seats by their owners
  * @returns {string[]}
  */
 export function formatSoloHandMessages(hand, playerData) {
@@ -153,5 +161,6 @@ export function soloResultRows(end, playerData, { myPosition = null } = {}) {
 export function soloTally(label, state, valuesByPosition, { spectator = false } = {}) {
   if (!Array.isArray(state.playerData?.position)) return '';
   const order = soloOrder(spectator ? 1 : state.position);
-  return `${label} ${order.map((p) => `${soloName(state.playerData, p)} ${valuesByPosition[p] ?? 0}`).join(', ')}.`;
+  const names = teamPlayerDataOf(state);
+  return `${label} ${order.map((p) => `${soloName(names, p)} ${valuesByPosition[p] ?? 0}`).join(', ')}.`;
 }

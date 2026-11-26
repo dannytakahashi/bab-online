@@ -397,7 +397,6 @@
     white-space: nowrap;
 }
 
-.cut-winner__sub { margin: 0; font-size: var(--type-sm); color: var(--text-secondary); }
 
 .cut.has-winner .cut-deck { opacity: 0.25; }
 .cut.has-winner .cut-seat__cards { opacity: 0.35; }
@@ -525,4 +524,17 @@
     .cut-seat.is-entering { animation: cut-fade-in 600ms linear both; }
     .cut-card__inner { transition: opacity var(--dur-slow); }
     .cut-intro__title { animation: cut-fade-in 600ms linear both; }
+}
+
+/* The ring cannot fit (too many players for the stage): the list shows, with a note,
+   and Ring is unavailable until it fits again (owner 2026-11-25) */
+.cut-list__note {
+    margin: 0 0 var(--space-2);
+    color: var(--text-secondary);
+    font-size: var(--type-sm);
+}
+
+.cut-view-toggle .scope-control__option[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
 }

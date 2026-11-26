@@ -386,8 +386,8 @@ const defs = {
     // Bid): the client can show a Get Your Bid lobby and table (3 seats,
     // no teams; server/game/gameMode.js). Only such a socket is listed
     // one, may create, join, rejoin or watch one, so every `gyb` / `mode`
-    // key below reaches only clients that know the mode (the web; no iOS
-    // build) (contract/README.md "Client capabilities")
+    // key below reaches only clients that know the mode (the web, and iOS
+    // from 1.2.7 (42)) (contract/README.md "Client capabilities")
     clientCapGetYourBid: konst('getYourBid'),
     // A ninth, its own const for the same reason (2026-11-25, the over-cap
     // notice): the client renders the private s2c tournamentVoiceStatus
@@ -398,8 +398,9 @@ const defs = {
     // A tenth, its own const for the same reason (2026-11-25, badges): the
     // client shows badges, so its profile replies carry the player's earned
     // ones (`badges`) and it gets the private s2c badgesAwarded after a
-    // game that earned one; without it neither is ever sent (the web; no
-    // iOS build) (contract/README.md "Client capabilities")
+    // game that earned one; without it neither is ever sent (the web and
+    // iOS 1.2.7 (41); no earlier iOS build) (contract/README.md "Client
+    // capabilities")
     clientCapBadges: konst('badges'),
     // One EARNED badge (server/game/badges.js publicBadge). The catalog is
     // never on the wire: a badge nobody told this client about stays a

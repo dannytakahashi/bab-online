@@ -316,10 +316,14 @@ describe('table entry and exit', () => {
     socket.fire('allPlayersReady', { gameId: 'g7' });
     socket.fire('startDraw', { start: true });
     expect(page.session.screen).toBe(SCREEN.TABLE);
-    expect(sessionStorage.getItem('gameId')).toBeNull(); // persisted at the deal only
+    // kept from allPlayersReady on (a reload before the deal rejoins the draw)
+    expect(sessionStorage.getItem('gameId')).toBe('g7');
 
     socket.reconnect(nextSocketId());
     socket.fire('restoreSessionResponse', { success: true, username: 'me', activeTournamentId: 't1', blockedUsers: [] });
+    // the table it drew at: asked for first, gone, then back to the tournament
+    expect(socket.emitted('rejoinGame').at(-1)).toMatchObject({ gameId: 'g7' });
+    socket.fire('rejoinFailed', { reason: 'Game no longer exists' });
     expect(socket.emitted('joinTournament')).toHaveLength(0);
     expect(socket.emitted('returnToTournament')).toHaveLength(1);
     expect(page.session.screen).toBe(SCREEN.TOURNAMENT_LOBBY);

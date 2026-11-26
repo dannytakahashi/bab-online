@@ -7,9 +7,15 @@ extension TableReducer {
         // MARK: draw
         case .allPlayersReady(let p):
             if let gid = p.gameId { local(&s, .enterGameContext(gameId: gid, tournamentId: nil), &fx) }
-        case .startDraw:
-            if s.table.phase.kind == .ended { s = .fresh(keeping: s.table.me) }
-            s.table.phase = .draw(DrawState(stage: .drawing))  // drawResults start empty (stale-results fix)
+            if GameMode.from(p.mode) == .gyb { setMode(&s, .gyb) }
+        case .startDraw(let p):
+            if s.table.phase.kind == .ended {
+                let mode = s.table.mode
+                s = .fresh(keeping: s.table.me)
+                s.table.mode = mode
+            }
+            // drawResults start empty (stale-results fix); a tournament table's planned teams
+            s.table.phase = .draw(DrawState(stage: .drawing, plannedTeams: PlannedTeams.valid(p.teams)))
         case .youDrew(let p):
             mutateDraw(&s) { d in
                 d.hasDrawn = true
@@ -69,11 +75,14 @@ extension TableReducer {
             s.table.watchedAssist = nil
             clearHelpBadges(&s)
             guard var bids = s.table.phase.bids else { break }
-            if let arr = p.bids, arr.count == 4 { bids.byPosition = arr.map { $0?.value } }
+            if let arr = p.bids, arr.count == 4 || arr.count == s.table.seats {
+                bids.byPosition = BidBook.padded(arr.map { $0?.value })
+            }
             if let tb = p.teamBids { bids.teamBids = TeamPair(team1: tb.team1, team2: tb.team2) }
             if let m = p.mults { bids.mults = TeamPair(team1: m.team1, team2: m.team2) } else { bids.recomputeMults() }
             s.table.phase = .playing(PlayingState(trick: [], lead: nil, turn: Position.valid(p.lead), bids: bids))
             s.table.deal?.trumpBroken = false
+            if s.table.isGyb { s.table.gyb.forbidden = p.gyb?.forbidden ?? s.table.gybForbidden }
             logBiddingComplete(&s, bids)
         case .rainbow(let p):
             guard let pos = Position.valid(p.position) else { break }
@@ -92,7 +101,7 @@ extension TableReducer {
             for pos in s.players.seats.keys { s.players.seats[pos]?.cardsInHand = 0 }
             s.pending = nil
             let bidder = s.table.deal?.bidder ?? 1
-            s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))
+            s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder, seats: s.table.seats)))
             fx.append(.animate(.handsDestroyed(dealSeq: s.table.deal?.dealSeq ?? 0)))
 
         // MARK: play
@@ -112,6 +121,12 @@ extension TableReducer {
             fx.append(.sound(TableReducer.gameEndSound(s, data)))
             s.pending = nil
             s.table.tournamentId = p.tournamentId
+            if let end = data?.gyb {
+                setMode(&s, .gyb)
+                s.table.gyb.scores = end.scores
+                s.table.gyb.made = end.made
+                s.table.gyb.hands = end.hands
+            }
             s.table.phase = .ended(data ?? GameEndData(winningTeam: 0, team1Score: s.scores.score.team1, team2Score: s.scores.score.team2,
                                                      team1Players: [], team2Players: [], handHistory: []))
         case .abortGame, .leftGame:
@@ -268,7 +283,7 @@ extension TableReducer {
         case .actionRejected(let p):
             let matches = s.pending.map { $0.submission.action.rawValue == p.action } ?? false
             if let snap = p.snapshot {
-                applySnapshot(&s, snap, .rejected, nil, &fx)
+                applySnapshot(&s, snap, .rejected, p.gyb.map { LegacySeatHints(gyb: $0) }, &fx)
             } else if matches {
                 s.pending = nil
             }
@@ -277,7 +292,8 @@ extension TableReducer {
             fx.append(.notice(RejectReason.message(p.reason)))
         case .stateSnapshot(let p):
             if let snap = p.snapshot {
-                applySnapshot(&s, snap, p.reason == "watchHand" ? .watchReply : .requested(p.requestId ?? ""), nil, &fx)
+                applySnapshot(&s, snap, p.reason == "watchHand" ? .watchReply : .requested(p.requestId ?? ""),
+                              p.gyb.map { LegacySeatHints(gyb: $0) }, &fx)
             } else {
                 local(&s, .snapshotUnavailable(requestId: p.requestId), &fx)
             }
@@ -373,7 +389,11 @@ extension TableReducer {
             seat.isBot = isBot
             seat.controller = !isBot ? .human : native ? .bot : .resignBot
             seat.presence = isBot ? .none : (seat.presence == .none ? .connected : seat.presence)
-            seat.ownerUsername = isBot ? nil : name
+            // owners (additive 2026-11-26): the seat's owner, so a draw-phase leaver's resign bot
+            // seat is named by the leaver (PlayersSlice.ownerName / teamName), as a snapshot's
+            // ownerUsername says; nil (a native bot, an older server): as before
+            let owner = p.owners?.name(at: i)
+            seat.ownerUsername = owner ?? (isBot ? nil : name)
             seat.lazy = false
             s.players.seats[pos] = seat
             if let sid { s.players.socketBySeat[pos] = sid }
@@ -391,7 +411,7 @@ extension TableReducer {
         }
         if let mine = Position.valid(p.yourPosition) { s.table.viewer.position = mine; s.table.viewer.role = .seat }
         if s.table.viewer.role == .seat { s.table.viewer.ownerView = "seat" }
-        if s.players.seats.count == 4 { s.players.entrantHumans = nil }  // the seats say who is here
+        if s.players.seats.count >= s.table.seats { s.players.entrantHumans = nil }  // the seats say who is here
         mutateDraw(&s) { $0.stage = .resolving }
     }
 
@@ -406,7 +426,14 @@ extension TableReducer {
         let dealSeq = (previous?.dealSeq ?? 0) + 1
         let size = p.currentHand ?? previous?.handSize ?? 0
         let dealer = Position.valid(p.dealer) ?? previous?.dealer ?? 1
-        let bidder = dealer % 4 + 1
+        // Get Your Bid (gameStart.gyb): three seats, each its own score
+        if let g = p.gyb {
+            setMode(&s, .gyb)
+            s.table.gyb.scores = g.scores
+        }
+        s.table.gyb.forbidden = nil
+        s.table.gyb.last = nil
+        let bidder = Positions.rotate(dealer, seats: s.table.seats)
         s.table.deal = DealState(handNo: HandSequence.handNo(forSize: size), handSize: size, dealer: dealer, bidder: bidder,
                                  dealSeq: dealSeq, trump: p.trump, trumpBroken: false)
         if let pos = Position.valid(p.position) {
@@ -445,7 +472,7 @@ extension TableReducer {
         for pos in 1...4 where s.players.seats[pos] != nil { s.players.seats[pos]!.cardsInHand = size }
         s.table.trickNo = 1
         s.pending = nil
-        s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder)))  // 21.5: bids start empty every deal
+        s.table.phase = .bidding(BiddingState(turn: nil, bids: .fresh(bidder: bidder, seats: s.table.seats)))  // 21.5: bids start empty every deal
         if let previous { fx.append(.animate(.handCleared(dealSeq: previous.dealSeq))) }
         fx.append(.animate(.dealt(dealSeq: dealSeq)))
         fx.append(.sound(.deal))
@@ -501,21 +528,28 @@ extension TableReducer {
         let players = s.players
         let me: Int
         if s.table.viewer.role == .spectator { me = 1 } else if let p = s.table.viewer.position { me = p } else { return }
+        if s.table.isGyb {
+            // each player by name, mine first ("Bidding complete — ann: 3, bob: 2, cat: 4")
+            let line = GybRules.order(viewer: me).map { "\(players.ownerName($0)): \(bids.bid(at: $0) ?? "-")" }.joined(separator: ", ")
+            addLog(&s, "Bidding complete — \(line)")
+            return
+        }
         let r = Positions.getRelativePositions(myPos: me)
         let side = { (a: Int, b: Int) in
-            "\(players.name(a))/\(players.name(b)): \(bids.bid(at: a) ?? "-")/\(bids.bid(at: b) ?? "-")"
+            "\(players.teamName(a))/\(players.teamName(b)): \(bids.bid(at: a) ?? "-")/\(bids.bid(at: b) ?? "-")"
         }
         addLog(&s, "Bidding complete — \(side(me, r.partner)), \(side(r.opp1, r.opp2))")
     }
 
     static func cardPlayed(_ s: inout TableState, _ p: WirePayload.CardPlayed, _ fx: inout [TableEffect]) {
         guard let pos = Position.valid(p.position), case .playing(var pl) = s.table.phase else { return }
-        if pl.trick.count >= 4 { return }  // a trick never takes a 5th card
+        let seats = s.table.seats
+        if pl.trick.count >= seats { return }  // a trick never takes a 5th card (a 4th at three seats)
         if pl.trick.isEmpty { pl.lead = pos }
         let played = PlayedCard(card: p.card, position: pos)
         pl.trick.append(played)
         if let tb = p.trumpBroken ?? p.trump { s.table.deal?.trumpBroken = tb }
-        if pl.trick.count == 4 { pl.turn = nil }  // TRICK_RESOLVING: no updateTurn until trickComplete
+        if pl.trick.count == seats { pl.turn = nil }  // TRICK_RESOLVING: no updateTurn until trickComplete
         s.table.phase = .playing(pl)
         mutateSeat(&s, pos) { $0.cardsInHand = max(0, $0.cardsInHand - 1) }
         clearHelpBadge(&s, at: pos)
@@ -546,7 +580,7 @@ extension TableReducer {
         // my submitted card made its sound when it went down (submitPlay); the over-trump
         // accent follows the card's sound (TableSoundCues), with the effect it goes with
         if !confirmsMine { fx.append(.sound(.card)) }
-        if TrickRules.isOverTrump(trick: pl.trick, trump: s.table.deal?.trump) {
+        if TrickRules.isOverTrump(trick: pl.trick, trump: s.table.deal?.trump, seats: seats) {
             fx.append(.animate(.overTrump(key)))
             fx.append(.sound(.overTrump))
         }
@@ -562,6 +596,16 @@ extension TableReducer {
             s.table.phase = .handResolving(HandResolvingState(bids: pl.bids, outcome: nil))
         } else {
             s.table.phase = .playing(PlayingState(trick: [], lead: nil, turn: nil, bids: pl.bids))
+        }
+        if s.table.isGyb {
+            // each player's own count, mine first ("ann won the trick (ann 2, bob 1, cat 0)")
+            let order = GybRules.order(viewer: s.table.viewer.role == .spectator && s.table.viewer.watchedSeat == nil ? 1 : s.table.viewer.viewPosition)
+            let tally = order.map { "\(s.players.ownerName($0)) \(s.scores.tricksByPosition[$0 - 1] ?? 0)" }.joined(separator: ", ")
+            addLog(&s, "\(s.players.ownerName(winner)) won the trick (\(tally))")
+            fx.append(.animate(.trickCollected(winner: winner, key)))
+            // my own trick (no partner at three seats)
+            fx.append(.sound(s.table.viewer.holdsSeat && s.table.viewer.position == winner ? .trickOurs : .trick))
+            return
         }
         let rel = s.scores.tricks.relative(to: s.table.viewer.viewPosition)
         addLog(&s, "\(s.players.name(winner)) won the trick (\(rel.mine)-\(rel.theirs))")
@@ -585,6 +629,10 @@ extension TableReducer {
         s.scores.score = TeamPair(team1: t1, team2: t2)
         s.table.phase = .handResolving(HandResolvingState(bids: bids,
             outcome: HandOutcome(team1Tricks: t1Tricks, team2Tricks: t2Tricks, team1OldScore: old1, team2OldScore: old2)))
+        if let hand = p.gyb {
+            gybHandComplete(&s, hand, &fx)
+            return
+        }
         guard p.score != nil else { return }
         // made / set for my team (server calculateScore: tricks >= the team's bid total); a pure
         // spectator has no team: the neutral, quieter hand end (as the web)
@@ -598,7 +646,8 @@ extension TableReducer {
         }
 
         let players = s.players
-        let name = { (pos: Int) in players.name(pos) }
+        // teams by their players: a lazy or resigned seat's owner (PlayersSlice.teamName)
+        let name = { (pos: Int) in players.teamName(pos) }
         let b = { (pos: Int) in bids.bid(at: pos) ?? "-" }
         let change = { (d: Int) in d >= 0 ? "+\(d)" : "\(d)" }
         func annotation(mult: Int, rainbows: Int) -> String {
@@ -687,6 +736,14 @@ extension TableReducer {
     /// the payload's (GameEndData), else the table's last.
     static func gameEndSound(_ s: TableState, _ data: GameEndData?) -> SoundKind {
         guard s.table.viewer.holdsSeat, let me = s.table.viewer.position else { return .gameEnd }
+        if s.table.isGyb, let end = data?.gyb {
+            // the fanfare for the sole winner, the trombone for everyone else, a shared win the arpeggio
+            switch GybRules.outcome(end, me: me) {
+            case .victory: return .gameWon
+            case .defeat: return .gameLost
+            case .tie, .neutral: return .gameEnd
+            }
+        }
         let t1 = data?.team1Score ?? s.scores.score.team1
         let t2 = data?.team2Score ?? s.scores.score.team2
         let (mine, theirs) = Positions.getTeamNumber(me) == 1 ? (t1, t2) : (t2, t1)

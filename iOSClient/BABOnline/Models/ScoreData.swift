@@ -33,6 +33,9 @@ struct GameEndData: Equatable {
     /// ScoreModal grid). Empty when an older server or a test payload sends none:
     /// GameEndView then shows no stats.
     var playerStats: [PlayerEndStats] = []
+    /// Get Your Bid (gameEnd.gyb): each seat's final score, the winners, the exact bids, the
+    /// hands; nil for the base game (whose team keys then carry the result).
+    var gyb: GybEnd? = nil
 
     static func from(_ dict: [String: Any]) -> GameEndData? {
         // Server sends { score: { team1: N, team2: N }, playerStats: { "1": { username, ... }, ... } }
@@ -77,7 +80,7 @@ struct GameEndData: Equatable {
         let history = dict["handHistory"] as? [[String: Any]] ?? []
         return GameEndData(winningTeam: winner, team1Score: t1Score, team2Score: t2Score,
                            team1Players: t1Players, team2Players: t2Players, handHistory: history,
-                           playerStats: PlayerEndStats.rows(dict["playerStats"]))
+                           playerStats: PlayerEndStats.rows(dict["playerStats"]), gyb: GybEnd.from(dict["gyb"]))
     }
 }
 
@@ -151,6 +154,6 @@ extension GameEndData {
     static func == (a: GameEndData, b: GameEndData) -> Bool {
         a.winningTeam == b.winningTeam && a.team1Score == b.team1Score && a.team2Score == b.team2Score
             && a.team1Players == b.team1Players && a.team2Players == b.team2Players
-            && a.playerStats == b.playerStats
+            && a.playerStats == b.playerStats && a.gyb == b.gyb
     }
 }

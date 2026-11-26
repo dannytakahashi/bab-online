@@ -53,6 +53,8 @@ enum VoiceCopy {
     /// The voice panel's note after a refusal (iOS asks only once; Settings can allow it).
     static let deniedNote = "No mic access \u{2014} you can still listen. To talk, allow the microphone for BAB Online in Settings."
     static let lobbyHint = "The first 4 to tap Ready play; everyone else watches and can talk"
+    /// A lobby whose table seats `seats` (3 for Get Your Bid).
+    static func lobbyHint(seats: Int) -> String { "The first \(seats) to tap Ready play; everyone else watches and can talk" }
     static let tableFull = "Table full \u{2014} you'll watch"
 }
 

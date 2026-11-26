@@ -306,7 +306,7 @@ describe('handleHandComplete writes the fault lines', () => {
         expect(msgs.slice(i + 3, i + 6)).toEqual([`Fault: ${t.names[1]} (bid 1, took 0)`, `Fault: ${t.names[3]} (bid 1, took 0)`, '=== GAME OVER ===']);
     });
 
-    test('a bot seat is named as the other log lines name it', async () => {
+    test('a resigned seat: the fault line names the bot that bid, the team line the seat\'s owner', async () => {
         const t = await setup();
         const bot = new BotPlayer('🤖 Mary', 'mary');
         resignedSeat(t.game, 4, bot);
@@ -321,14 +321,16 @@ describe('handleHandComplete writes the fault lines', () => {
         const from = t.log.length;
         await gameHandlers.handleHandComplete(game, io);
         expect(faultMessages(t, from)).toEqual([`Fault: ${t.names[1]} (bid 2, took 0)`, 'Fault: 🤖 Mary (bid 1, took 0)']);
-        expect(lastHandBlock(game)[2].message).toContain(`${t.names[1]}/🤖 Mary:`);
+        // owner rule 2026-11-25: teams by player names (gameHandlers.seatName)
+        expect(lastHandBlock(game)[2].message).toContain(`${t.names[1]}/${t.names[3]}:`);
     });
 
-    test('a lazy seat is named as the other log lines name it (the bot); the stat stays on the seat', async () => {
-        // Deliberate (S1: bots get the same naming as in other log lines):
-        // the HAND COMPLETE team line names the lazy seat's bot, so the fault
-        // line does too; setsCaused is per seat, as before. Naming the owner
-        // instead is an open owner question (review 2026-11-19).
+    test('a lazy seat: the fault line names the bot (as its bid line does), the team line the owner; the stat stays on the seat', async () => {
+        // The fault line is a player's line, named like that player's bid
+        // line ("🤖 Sharon bid 2."): the bot that bid. The HAND COMPLETE team
+        // line names the TEAM, by its players (owner rule 2026-11-25: teams
+        // by player names, never a bot persona at a lazy or resigned seat);
+        // setsCaused is per seat, as before.
         const t = await setup();
         lazySeat(t.game, 2, new BotPlayer('🤖 Sharon', 'sharon'));
         const { game, io } = t;
@@ -344,7 +346,7 @@ describe('handleHandComplete writes the fault lines', () => {
         const name2 = game.getPlayerByPosition(2).username;
         expect(name2).toBe('🤖 Sharon');
         expect(faultMessages(t, from)).toEqual([`Fault: ${name2} (bid 2, took 0)`, `Fault: ${t.names[3]} (bid 1, took 0)`]);
-        expect(lastHandBlock(game)[2].message).toContain(`${name2}/${t.names[3]}:`);
+        expect(lastHandBlock(game)[2].message).toContain(`${t.names[1]}/${t.names[3]}:`);
         expect(game.playerStats[2].setsCaused).toBe(1);
     });
 

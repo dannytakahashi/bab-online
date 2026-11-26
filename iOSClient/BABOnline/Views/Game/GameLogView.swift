@@ -44,7 +44,9 @@ struct GameLogPanel: View {
 
     private var availableCommands: [SlashCommand] {
         Self.commands(pureSpectator: gameState.isSpectator && !gameState.isLazy, leave: gameState.leaveOutcome,
-                      help: gameState.helpDescription, tutorial: gameState.tutorialDescription)
+                      // Get Your Bid has no /help and no tutorial (the web's list drops both)
+                      help: gameState.isGyb ? nil : gameState.helpDescription,
+                      tutorial: gameState.isGyb ? nil : gameState.tutorialDescription)
     }
 
     /// The command list: a pure spectator (not lazy) only has /leave, which exits spectating;

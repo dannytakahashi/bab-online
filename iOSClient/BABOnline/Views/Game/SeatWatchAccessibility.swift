@@ -18,7 +18,7 @@ struct SeatWatchAccessibility: View {
                 ForEach(model.opponents, id: \.position) { o in
                     if let names = bySeat[o.position] {
                         element(layout.watchChip(o.rel, count: names.count, spectating: model.hand == nil, badges: badges), seat: o.position,
-                                label: WatchingList.watchLabel(names, player: o.name, me: me, mine: false))
+                                label: WatchingList.watchLabel(names, player: o.spokenName, me: me, mine: false))
                     }
                 }
                 // the scene's bottom eye (GameSKScene.placeMyWatchers): a watcher's only while
@@ -26,7 +26,7 @@ struct SeatWatchAccessibility: View {
                 let names = model.bottomWatchers
                 if !names.isEmpty {
                     element(layout.myWatchChip(handCount: model.hand?.cards.count ?? 0, count: names.count), seat: model.viewPosition,
-                            label: WatchingList.watchLabel(names, player: state.players.name(model.viewPosition), me: me,
+                            label: WatchingList.watchLabel(names, player: state.players.ownerName(model.viewPosition), me: me,
                                                            mine: state.table.viewer.holdsSeat))
                 }
             }

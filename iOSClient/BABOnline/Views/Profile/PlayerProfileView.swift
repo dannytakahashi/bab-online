@@ -3,8 +3,9 @@ import Combine
 
 /// Another player's profile (the web's showPlayerProfilePage): the picture and name, Report
 /// and Block / Unblock, and the same statistics as my own, for the games the Stats sheet
-/// counts. Opened from a chat line's long-press menu ("View Profile"), a seat's avatar at the
-/// table and the online list (`playerProfileHost`). A name with no account (a bot's) says so.
+/// counts, then their tournament history and the badges they have earned. Opened from a chat line's long-press menu
+/// ("View Profile"), a seat's avatar at the table and the online list (`playerProfileHost`).
+/// A name with no account (a bot's) says so.
 struct PlayerProfileView: View {
     /// The name asked for.
     let username: String
@@ -58,6 +59,22 @@ struct PlayerProfileView: View {
                             .padding(Theme.Space.s4)
                             .background(Theme.surface)
                             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
+                        // their tournament history, between the statistics and the badges as on the web
+                        if let history = viewed?.tournaments, !history.isEmpty {
+                            ProfileTournamentsSection(history: history, username: viewed?.username ?? username)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(Theme.Space.s4)
+                                .background(Theme.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
+                        }
+                        // their earned badges, below the statistics as on the web (once a reply said them)
+                        if let badges = viewed?.badges {
+                            ProfileBadgesSection(badges: badges)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(Theme.Space.s4)
+                                .background(Theme.surface)
+                                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
+                        }
                     }
                 }
                 .padding(Theme.Space.s4)

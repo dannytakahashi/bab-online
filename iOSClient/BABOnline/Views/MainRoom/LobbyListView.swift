@@ -84,6 +84,9 @@ struct LobbyRowView: View {
                     .font(.body.bold())
                     .foregroundColor(Theme.textPrimary)
 
+                // Get Your Bid: the gold chip (the web's card chip)
+                if lobby.mode == .gyb { GybChip() }
+
                 if isInProgress, let progress = lobby.progress {
                     progressLines(progress)
                 } else {
@@ -153,8 +156,11 @@ struct LobbyRowView: View {
     /// VoiceOver for an in-progress card: the names, then the hand, scores and watchers in
     /// words ("a and c 120", not "a/c: 120 | ..."); nil keeps the combined visible texts.
     private var spokenProgress: String? {
-        guard isInProgress, let spoken = lobby.progress?.spokenSummary, !spoken.isEmpty else { return nil }
-        return "\(lobby.name). \(spoken)"
+        let mode = lobby.mode == .gyb ? "\(GybRules.name). " : ""
+        guard isInProgress, let spoken = lobby.progress?.spokenSummary, !spoken.isEmpty else {
+            return mode.isEmpty ? nil : "\(lobby.name). \(mode)\(isInProgress ? "" : "\(lobby.countText) players")"
+        }
+        return "\(lobby.name). \(mode)\(spoken)"
     }
 
     /// "Hand 5 • 2 watching", then "a/c: 120 | b/d: 85" in the team colors.
@@ -166,7 +172,12 @@ struct LobbyRowView: View {
                 .font(.caption)
                 .foregroundColor(Theme.textSecondary)
         }
-        if let team1 = progress.teamText(1), let team2 = progress.teamText(2) {
+        if let solo = progress.soloText {
+            Text(solo)
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .lineLimit(2)
+        } else if let team1 = progress.teamText(1), let team2 = progress.teamText(2) {
             Text("\(Text(team1).foregroundColor(Theme.teamA)) | \(Text(team2).foregroundColor(Theme.teamB))")
                 .font(.caption)
                 .foregroundColor(Theme.textSecondary)
@@ -180,10 +191,14 @@ struct TournamentRowView: View {
     @EnvironmentObject var tournamentState: TournamentState
 
     private var phaseDescription: String {
+        // Cut for a buck (additive `cut: true`; the phase reads round_active for everyone)
+        if tournament.cut { return CutCopy.mainRoomCard }
         switch tournament.phase {
-        case "lobby": return "Waiting to start"
+        // the host's pick, 1 to 5 (the web's "Waiting for players · 3 rounds")
+        case "lobby": return TournamentRounds.lobbyCardLine(totalRounds: tournament.totalRounds)
         case "round_active": return "Round \(tournament.currentRound) of \(tournament.totalRounds)"
         case "between_rounds": return "Between rounds (\(tournament.currentRound)/\(tournament.totalRounds))"
+        case "cut": return CutCopy.mainRoomCard
         case "complete": return "Complete"
         default: return tournament.phase
         }

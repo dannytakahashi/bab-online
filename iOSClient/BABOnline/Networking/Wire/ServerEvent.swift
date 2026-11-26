@@ -4,7 +4,8 @@ import Foundation
 enum ServerEvent: Equatable {
     // pre-game / draw
     case allPlayersReady(WirePayload.AllPlayersReady)
-    case startDraw
+    /// `teams`: a tournament table's planned teams (nil at a casual table, or when malformed)
+    case startDraw(WirePayload.StartDraw)
     case youDrew(WirePayload.YouDrew)
     case playerDrew(WirePayload.PlayerDrew)
     case positionUpdate(WirePayload.PositionUpdate)
@@ -160,7 +161,7 @@ extension ServerEvent {
             let event: ServerEvent
             switch name {
             case "allPlayersReady": event = .allPlayersReady(try d(WirePayload.AllPlayersReady.self))
-            case "startDraw": event = .startDraw
+            case "startDraw": event = .startDraw((try? d(WirePayload.StartDraw.self)) ?? .init(teams: nil))
             case "youDrew": event = .youDrew(try d(WirePayload.YouDrew.self))
             case "playerDrew": event = .playerDrew(try d(WirePayload.PlayerDrew.self))
             case "positionUpdate": event = .positionUpdate(try d(WirePayload.PositionUpdate.self))

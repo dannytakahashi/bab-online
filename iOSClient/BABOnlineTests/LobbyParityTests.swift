@@ -175,6 +175,14 @@ final class LobbyParityTests: XCTestCase {
         XCTAssertEqual(service.serverError?.message, "jon is now the tournament host")
         XCTAssertEqual(state.creatorUsername, "jon")
 
+        // the tournament is over: a hand-off in the final lobby says nothing (as the web)
+        service.serverError = nil
+        state.phase = "complete"
+        h.handlePlayerLeft(["players": [wireMember("ivy", host: true)], "newCreator": "ivy"])
+        XCTAssertNil(service.serverError)
+        XCTAssertEqual(state.creatorUsername, "ivy")
+        state.phase = "lobby"
+
         // a late copy after I left (the state is reset): no toast in the main room, nothing written
         service.serverError = nil
         state.reset()
@@ -262,12 +270,9 @@ final class LobbyParityTests: XCTestCase {
         let board = [("kim", 404), ("ivy", 404), ("hal", 312)].map {
             TournamentScoreEntry(id: $0.0, username: $0.0, totalScore: $0.1, roundScores: [])
         }
-        XCTAssertEqual(TournamentResultsView.winners(["ivy"], scoreboard: board), ["ivy"], "the server's list wins")
-        XCTAssertEqual(TournamentResultsView.winners([], scoreboard: board), ["kim", "ivy"])
-        XCTAssertEqual(TournamentResultsView.winners([], scoreboard: []), [])
-        XCTAssertEqual(TournamentResultsView.winnerText(["kim"]), "kim wins!")
-        XCTAssertEqual(TournamentResultsView.winnerText(["kim", "ivy"]), "kim & ivy tie!")
-        XCTAssertNil(TournamentResultsView.winnerText([]))
+        XCTAssertEqual(TournamentFinalView.winners(["ivy"], scoreboard: board), ["ivy"], "the server's list wins")
+        XCTAssertEqual(TournamentFinalView.winners([], scoreboard: board), ["kim", "ivy"])
+        XCTAssertEqual(TournamentFinalView.winners([], scoreboard: []), [])
     }
 
     // MARK: - (e) The joiner's scoreboard row

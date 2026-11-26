@@ -3425,7 +3425,7 @@
         "web": true,
         "ios": true
       },
-      "notes": "mode (additive 2026-11-24; the web sends it, no iOS build): gyb opens a Get Your Bid lobby (3 seats, no teams; server/game/gameMode.js), only from a socket that sent the clientHello cap getYourBid (else serverError); absent or classic is the base game.",
+      "notes": "mode (additive 2026-11-24; the web sends it, and iOS from 1.2.7 (42)): gyb opens a Get Your Bid lobby (3 seats, no teams; server/game/gameMode.js), only from a socket that sent the clientHello cap getYourBid (else serverError); absent or classic is the base game.",
       "examples": [
         {
           "name": "Family night"
@@ -4650,7 +4650,7 @@
       "rateLimit": "setTournamentRounds",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -4678,7 +4678,7 @@
         },
         {}
       ],
-      "notes": "New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage \"<host> set the tournament to 3 rounds.\" to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: 'Not in a tournament', 'Only the host can change the number of rounds', 'Rounds can only change before the tournament begins'. Web sends it from the lobby's Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41."
+      "notes": "New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage \"<host> set the tournament to 3 rounds.\" to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: 'Not in a tournament', 'Only the host can change the number of rounds', 'Rounds can only change before the tournament begins'. Web sends it from the lobby's Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41 (the host's Rounds picker above Begin, Views/Tournament/TournamentRoundsPicker.swift, TournamentEmitter.setTournamentRounds)."
     },
     "cutForABuckDraw": {
       "payload": {
@@ -4708,7 +4708,7 @@
       "rateLimit": "cutForABuckDraw",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -4748,7 +4748,7 @@
           "slot": 1
         }
       ],
-      "notes": "New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room's cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper's serverError {code: 'validation'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (sentBy says what shipped clients send)."
+      "notes": "New (2026-11-25, Cut for a buck; server/socket/cutForABuck.js draw): a draw for the open round (the round of the last cutForABuckRound), the slot clicked in the face-down fan, or null for a random one. Answered by the room's cutForABuckDrew. Anything out of turn (no tournament, not phase cut, no open round, a stale round, not a player still in, a repeat, a spectator) is dropped silently (no serverError); a malformed payload gets the wrapper's serverError {code: 'validation'}. Rate limit 10 / 10 s. Sent by the web (ui/cut/CutForABuck.js: a click on the fan sends the slot under the pointer, Enter / Space on the deck null) and iOS from build 41 (TournamentEmitter.cutForABuckDraw: a tap on the fan sends the slot under the finger, VoiceOver's Draw a card and the list's button null, and a tap after the server drew for me (away) null once a round, so the next round waits for me)."
     },
     "beginTournament": {
       "payload": {
@@ -7320,6 +7320,17 @@
             "maxItems": 4,
             "description": "Per seat, in positions order: the seat's controller is a native bot (bot: lobby Add Bot, tournament filler, solo game), never a resign bot. Additive 2026-11-19: what clients read for /help having no limit in this game (assistState.isFreeHelpGame); absent from an older server"
           },
+          "owners": {
+            "type": "array",
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "maxItems": 4,
+            "description": "Per seat, in positions order: the seat's owner (SeatState ownerUsername, the snapshot's seats[].ownerUsername), null for a native bot. Additive 2026-11-26: a draw-phase leaver is seated as a resign bot, so usernames[] names the bot while the seat is the leaver's; clients name the seat's owner labels from owners[] (web GameState.seatOwners, iOS SeatState.ownerUsername) and fall back to usernames[] when it is absent (an older server)"
+          },
           "seq": {
             "$ref": "#/$defs/seq"
           }
@@ -7341,9 +7352,10 @@
         "avatarUrls",
         "isBot",
         "nativeBot",
+        "owners",
         "seq"
       ],
-      "notes": "pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate); the web reads it since 2026-11-19 (GameState positionUpdate: which seats are human, for the no-voice-alone rule, docs/claude/voice.md). sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username and for the bot: prefix when isBot is absent or not a boolean, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14). nativeBot (additive 2026-11-19): isBot is also true for a draw-phase leaver's resign bot, so web (GameState.nativeBotSeat) and iOS 1.2.3 (19) (seat controller .bot vs .resignBot) read nativeBot for a native bot seat (docs/claude/assist.md, Games with a native bot seat).",
+      "notes": "pics: a stock number or null for every recipient (one room broadcast); since V1_REMOVALS #19 A (2026-11-12) a custom picture is null here and travels only in avatarUrls (additive, only when a rendition exists): {position: /avatar URL} (docs/avatars.md). V1_REMOVALS #14 (2026-11-12): usernames[] has no socketId (read by neither client); isBot (additive) is the bot: prefix of each seat socket id as a flag; iOS 1.2.0 build 5 reads it first (TableReducer.positionUpdate); the web reads it since 2026-11-19 (GameState positionUpdate: which seats are human, for the no-voice-alone rule, docs/claude/voice.md). sockets stays for now: build 5 reads it only as fallbacks (the prefix when isBot is absent or short, my seat before the username, the voice glow after the username), web only after yourPosition / the username and for the bot: prefix when isBot is absent or not a boolean, and the never-shipped TestFlight builds 3-4 tell a bot only by the prefix (V1_REMOVALS #14). nativeBot (additive 2026-11-19): isBot is also true for a draw-phase leaver's resign bot, so web (GameState.nativeBotSeat) and iOS 1.2.3 (19) (seat controller .bot vs .resignBot) read nativeBot for a native bot seat (docs/claude/assist.md, Games with a native bot seat). owners (additive 2026-11-26): each seat's owner, null for a native bot; usernames[] is who the seat shows, so a draw-phase leaver's resign bot was named by the bot on the owner labels of every client present at seating while a snapshot named the leaver. Web GameState.applyPositionUpdate reads it into seatOwners (getSeatOwnerName, teamPlayerData), iOS from the build after 1.2.7 (42) into SeatState.ownerUsername (lenient; ownerName, teamName); both fall back to usernames[] without it. Shipped iOS builds decode positionUpdate with unknown keys ignored.",
       "reserved": [
         {
           "key": "yourPosition",
@@ -8047,7 +8059,7 @@
         "gyb",
         "seq"
       ],
-      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web; no iOS build).",
+      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web, and iOS from 1.2.7 (42)).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"
@@ -10501,7 +10513,7 @@
         "server/socket/cutForABuck.js:roomLine",
         "server/socket/cutForABuck.js:legacyLines"
       ],
-      "notes": "Cut for a buck (2026-11-25; server/socket/cutForABuck.js): room system lines at the start (\"Cut for a buck! Everyone still here draws a card. ...\"), the begin (\"Cut for a buck: 9 players.\" plus \"al and cy were not back in time.\"), \"Not enough players for Cut for a buck.\", \"<host> ended Cut for a buck.\", \"<winner> won Cut for a buck.\" and, after a deploy, \"Cut for a buck continues in 30 s after a server update.\"; and private (to: socket, unstored) lines to each member and spectator WITHOUT the clientHello cap cutForABuck, which shows the round in chat: \"Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.\", \"Round 4: everyone tied on 7s, so draw again.\", \"Reshuffling: the deck ran out.\" (names only, never team words; jokers \"HI joker\" / \"LO joker\"). system: true and type: 'system' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered \"System\" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type 'system' as a dim line without the name and without the report/block menu. username stays 'System'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy \"System\" account hides notices there."
+      "notes": "Cut for a buck (2026-11-25; server/socket/cutForABuck.js): room system lines at the start (\"Cut for a buck! Everyone still here draws a card. ...\"), the begin (\"Cut for a buck: 9 players.\" plus \"al and cy were not back in time.\"), \"Not enough players for cut for a buck.\", \"<host> ended cut for a buck.\", \"<winner> won cut for a buck.\" and, after a deploy, \"Cut for a buck continues in 30 s after a server update.\"; and private (to: socket, unstored) lines to each member and spectator WITHOUT the clientHello cap cutForABuck, which shows the round in chat: \"Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.\", \"Round 4: everyone tied on 7s, so draw again.\", \"Reshuffling: the deck ran out.\" (names only, never team words; jokers \"HI joker\" / \"LO joker\"). system: true and type: 'system' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered \"System\" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type 'system' as a dim line without the name and without the report/block menu. username stays 'System'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy \"System\" account hides notices there."
     },
     "tournamentSettingsUpdated": {
       "payload": {
@@ -11056,7 +11068,7 @@
       "emittedFrom": [
         "server/socket/cutForABuck.js:declareWinner"
       ],
-      "notes": "One player is left: the winner of Cut for a buck (\"Just for bragging rights\"), with every participant and the rounds drawn. A room system line \"<winner> won Cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
+      "notes": "One player is left: the winner of Cut for a buck, with every participant and the rounds drawn. A room system line \"<winner> won cut for a buck.\" follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later."
     },
     "tournamentLeft": {
       "payload": {

@@ -285,13 +285,9 @@ export function showTournamentLobby(data, socket, username) {
   scoreboardContainer.appendChild(createTournamentScoreboard(lobbyScoreboard, rounds.currentRound, rounds.totalRounds));
   mainColumn.appendChild(scoreboardContainer);
 
-  // The round's pairings and "Partners so far" (shown openly, owner
-  // 2026-11-25; hidden until a table has two members)
-  const pairingsContainer = el('section', { className: 'screen-section tournament-pairings', attrs: { id: 'tournamentPairings', 'aria-label': 'Pairings' } });
-  renderPairings(pairingsContainer, { pairings: lobbyPairings, me: username, spectator: isSpectator });
-  mainColumn.appendChild(pairingsContainer);
-
-  // The round's tables (visible during round_active) beside the players
+  // The round's tables (visible during round_active), the players and the
+  // pairings side by side: the pairings never take the standings' height
+  // (owner 2026-11-25: at 734 x 985 they left one of two scoreboard rows)
   const roster = el('div', { className: 'tournament-roster' });
 
   const activeGamesContainer = el('div', { className: 'screen-section tournament-games', attrs: { id: 'tournamentActiveGames' } });
@@ -302,6 +298,12 @@ export function showTournamentLobby(data, socket, username) {
   const playersDiv = el('div', { className: 'screen-section tournament-players', attrs: { id: 'tournamentPlayersList' } });
   updateTournamentPlayersList(playersDiv, data.players, username, isCreator);
   roster.appendChild(playersDiv);
+
+  // The round's pairings and "Partners so far" (shown openly, owner
+  // 2026-11-25; hidden until a table has two members), beside the players
+  const pairingsContainer = el('section', { className: 'screen-section tournament-pairings', attrs: { id: 'tournamentPairings', 'aria-label': 'Pairings' } });
+  renderPairings(pairingsContainer, { pairings: lobbyPairings, me: username, spectator: isSpectator });
+  roster.appendChild(pairingsContainer);
   mainColumn.appendChild(roster);
   container.appendChild(mainColumn);
 
@@ -438,6 +440,15 @@ export function setTournamentCutTalking(username, on) {
   cutView?.setTalking(username, on);
 }
 
+/**
+ * Is the lobby on screen showing a finished tournament (the complete
+ * phase's final results)? A host hand-off then changes nothing anyone can
+ * do: main.js says nothing about it.
+ */
+export function isTournamentFinished() {
+  return currentPhase === 'complete' && !!document.getElementById('tournamentLobbyContainer');
+}
+
 /** Is the cut's view up (sound plays there: main.js). */
 export function isTournamentCutShowing() {
   return !!cutView && cutView.element.isConnected;
@@ -521,7 +532,10 @@ function updateActiveGames(container, activeGames, socket) {
   if (!container) return;
   container.replaceChildren();
 
-  if (!activeGames || activeGames.length === 0) {
+  // only the tables still playing: a round's finished tables left an empty
+  // "Active Games" box taking a roster column between rounds
+  const live = (activeGames || []).filter((game) => game?.status === 'active');
+  if (live.length === 0) {
     container.hidden = true;
     return;
   }
@@ -529,9 +543,7 @@ function updateActiveGames(container, activeGames, socket) {
   container.hidden = false;
   container.appendChild(el('div', { className: 'section-label', text: 'Active Games' }));
 
-  activeGames.forEach((game) => {
-    if (game.status !== 'active') return;
-
+  live.forEach((game) => {
     const bots = game.botCount > 0 ? ` +${game.botCount} bot${game.botCount > 1 ? 's' : ''}` : '';
     container.appendChild(el('div', {
       className: 'game-row',

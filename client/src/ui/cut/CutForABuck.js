@@ -39,7 +39,7 @@ import { el, createButton } from '../kit/index.js';
 import { ringLayout, ringOrder, STACK_OFFSET, STACK_SHOWN, DENSE_EDGE, CARD_RATIO } from './ringLayout.js';
 import {
   STAGE, statusLines, roundLine, deckLine, deckLeft, seatView, verdictLines, revealAnnouncement, winnerLine, ringPlayers,
-  isAlive, cardShort, lowestRank, BRAGGING_LINE, RULES_LINE,
+  isAlive, cardShort, lowestRank, RULES_LINE,
 } from '../../state/cutForABuck.js';
 import { drawCard, BACK_FRAMES, CARD_DESIGN } from '../../phaser/cards/cardFaces.js';
 import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
@@ -68,6 +68,8 @@ const FAN_DEG = 50;
 const VIEW_KEY = 'bab.cutView';
 /** A seat's name line plus its caption line under the avatar (px). */
 const NAME_BOX_H = 30;
+/** Below this avatar size (px) the ring is too small to read: the list shows instead (owner 2026-11-25). */
+export const MIN_RING_AVATAR = 24;
 /** The deck's caption line, inside the deck's box under the fan (px). */
 const DECK_CAPTION_H = 14;
 
@@ -230,7 +232,9 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   let state = null;
   let layout = null;
   let order = [];
-  let mode = null; // 'ring' | 'list'
+  let mode = null; // 'ring' | 'list': what shows
+  let chosen = null; // the player's choice (or the default); mode is 'list' when the ring cannot fit (owner 2026-11-25)
+  let ringDoesNotFit = false;
   let peek = -1;
   let myDrawSent = null; // the round I drew in (no second emit)
   let backSent = null; // the round I tapped in after the server drew for me (canSayBack)
@@ -270,13 +274,17 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   const viewBtns = {};
   for (const [key, label] of [['ring', 'Ring'], ['list', 'List']]) {
     const b = el('button', { className: 'scope-control__option', attrs: { type: 'button', role: 'radio', 'aria-checked': 'false', tabindex: '-1' }, dataset: { view: key }, text: label });
-    b.addEventListener('click', () => setMode(key, { save: true }));
+    b.addEventListener('click', () => {
+      if (key === 'ring' && ringDoesNotFit) return;
+      setMode(key, { save: true });
+    });
     viewBtns[key] = b;
     viewGroup.appendChild(b);
   }
   viewGroup.addEventListener('keydown', (e) => {
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
     e.preventDefault();
+    if (ringDoesNotFit) return;
     setMode(mode === 'ring' ? 'list' : 'ring', { save: true });
     viewBtns[mode].focus();
   });
@@ -304,7 +312,8 @@ export function createCutView({ me, spectator = false, socket = null, players = 
   // the list has no deck: its own Draw a card (a random card, slot null)
   const listDraw = createButton({ label: 'Draw a card', variant: 'primary', onClick: () => drawSlot(null, -1) });
   listDraw.id = 'cutListDraw';
-  const list = el('div', { className: 'cut-list', attrs: { id: 'cutList' }, children: spectator ? [listRows] : [listDraw, listRows] });
+  const listNote = el('p', { className: 'cut-list__note', attrs: { id: 'cutListNote', hidden: '' }, text: 'Too many players to fit the ring on this screen.' });
+  const list = el('div', { className: 'cut-list', attrs: { id: 'cutList' }, children: spectator ? [listNote, listRows] : [listNote, listDraw, listRows] });
   const live = el('div', { className: 'visually-hidden', attrs: { 'aria-live': 'polite', id: 'cutLive' } });
   const liveLoud = el('div', { className: 'visually-hidden', attrs: { 'aria-live': 'assertive', id: 'cutLiveWinner' } });
   const popover = el('div', { className: 'cut-popover kit-panel kit-elev-3', attrs: { role: 'dialog', 'aria-modal': 'false', hidden: '' } });
@@ -318,16 +327,26 @@ export function createCutView({ me, spectator = false, socket = null, players = 
 
   // ---- view mode
   function setMode(next, { save = false } = {}) {
-    mode = next === 'list' ? 'list' : 'ring';
+    chosen = next === 'list' ? 'list' : 'ring';
+    if (save) saveView(chosen);
+    applyMode();
+    renderAll();
+  }
+  /** What shows: the choice, except the list while the ring cannot fit (too many players for the stage). */
+  function applyMode() {
+    if (!chosen) return;
+    mode = chosen === 'ring' && ringDoesNotFit ? 'list' : chosen;
     for (const [k, b] of Object.entries(viewBtns)) {
       b.setAttribute('aria-checked', String(k === mode));
       b.tabIndex = k === mode ? 0 : -1;
     }
+    viewBtns.ring.setAttribute('aria-disabled', String(ringDoesNotFit));
+    viewBtns.ring.title = ringDoesNotFit ? 'Too many players to fit the ring on this screen' : '';
+    listNote.hidden = !ringDoesNotFit;
     root.dataset.view = mode;
+    root.classList.toggle('is-ring-unfit', ringDoesNotFit);
     stage.hidden = mode !== 'ring';
     list.hidden = mode !== 'list';
-    if (save) saveView(mode);
-    renderAll();
   }
 
   // ---- deck input
@@ -413,16 +432,29 @@ export function createCutView({ me, spectator = false, socket = null, players = 
 
   // ---- layout
   function stageSize() {
+    // measured with the stage shown (the list hides it); shown and hidden again in the same task, so nothing paints
+    const wasHidden = stage.hidden;
+    if (wasHidden) stage.hidden = false;
     const w = stage.clientWidth || FALLBACK.w;
     const h = stage.clientHeight || FALLBACK.h;
+    if (wasHidden) stage.hidden = true;
     return { w, h };
+  }
+  /** The ring for the current players and stage; the list instead while it cannot fit. */
+  function computeLayout() {
+    const { w, h } = stageSize();
+    layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
+    root.classList.toggle('is-dense', !!layout.dense);
+    const unfit = !layout.ok || layout.avatarD < MIN_RING_AVATAR;
+    if (unfit !== ringDoesNotFit) {
+      ringDoesNotFit = unfit;
+      applyMode();
+    }
   }
   function relayout() {
     const names = ringPlayers(state);
     order = ringOrder(names, spectator ? null : me);
-    const { w, h } = stageSize();
-    layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
-    root.classList.toggle('is-dense', !!layout.dense);
+    computeLayout();
     renderAll({ instant: true });
   }
   let ro = null;
@@ -770,7 +802,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     const box = el('div', {
       className: 'cut-winner',
       attrs: { id: 'cutWinner' },
-      children: [face, el('p', { className: 'cut-winner__line', text: winnerLine(state.winner, me) }), el('p', { className: 'cut-winner__sub', text: BRAGGING_LINE })],
+      children: [face, el('p', { className: 'cut-winner__line', text: winnerLine(state.winner, me) })],
     });
     box.style.left = `${layout.cx}px`;
     box.style.top = `${layout.cy}px`;
@@ -796,9 +828,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     if (!layout) {
       const names = ringPlayers(state);
       order = ringOrder(names, spectator ? null : me);
-      const { w, h } = stageSize();
-      layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
-      root.classList.toggle('is-dense', !!layout.dense);
+      computeLayout();
     }
     root.dataset.stage = state.stage;
     renderStatus();
@@ -867,9 +897,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     const nextOrder = ringOrder(names, spectator ? null : me);
     if (nextOrder.join('\u0000') !== order.join('\u0000')) {
       order = nextOrder;
-      const { w, h } = stageSize();
-      layout = ringLayout({ w, h, n: Math.max(order.length, 1), nameH: NAME_BOX_H });
-      root.classList.toggle('is-dense', !!layout.dense);
+      computeLayout();
       if (!mode) setMode(readView() || (order.length >= 13 && (stage.clientWidth || FALLBACK.w) < 600 ? 'list' : 'ring'));
     }
     if (!mode) setMode(readView() || 'ring');
