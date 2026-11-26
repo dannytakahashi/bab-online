@@ -16,7 +16,7 @@
  *     seated at a round (out), back from a finished table (in), offers in
  *     the room and refused across tournaments, cancel / complete / the
  *     results window's end, at most maxRoom() (TOURNAMENT_VOICE_MAX,
- *     default 8, 2..20) with the rest waiting in line (the over-cap notice
+ *     default 20, 2..20) with the rest waiting in line (the over-cap notice
  *     tournamentVoiceStatus to a socket with its cap), shipped iOS (casualSpectators
  *     without tournamentVoice) never listed, a socket whose membership a
  *     table rejoin on another tab took leaves the room
@@ -429,22 +429,23 @@ describe('the tournament room', () => {
         expect(relays(two, two.sockets[1], two.sockets[0])).toBe(true);
     });
 
-    test('at most 8 in the room by default: the 9th waits unlisted and is admitted when one leaves', async () => {
-        expect(tournamentVoice.maxRoom()).toBe(8);
-        const ctx = await tournament(Array(9).fill('web'));
+    test('at most 20 in the room by default (the ceiling): the 21st waits unlisted and is admitted when one leaves', async () => {
+        expect(tournamentVoice.maxRoom()).toBe(20);
+        const ctx = await tournament(Array(21).fill('web'));
         const s = ctx.sockets;
-        expect(roomIds(ctx.t)).toEqual(s.slice(0, 8).map((x) => x.id));
-        expect(listsTo(ctx, 0, s[8].id)).toEqual([]);
-        expect(joinedTo(ctx, 0, s[0].id)).not.toContain(s[8].id);
-        expect(relays(ctx, s[8], s[0])).toBe(false);
+        expect(roomIds(ctx.t)).toEqual(s.slice(0, 20).map((x) => x.id));
+        expect(pairsSince(ctx, 0)).toHaveLength(190);
+        expect(listsTo(ctx, 0, s[20].id)).toEqual([]);
+        expect(joinedTo(ctx, 0, s[0].id)).not.toContain(s[20].id);
+        expect(relays(ctx, s[20], s[0])).toBe(false);
         // no cap tournamentVoiceStatus: no notice (it waits silently, as before)
-        expect(statusTo(ctx, 0, s[8].id)).toEqual([]);
+        expect(statusTo(ctx, 0, s[20].id)).toEqual([]);
         const mark = ctx.log.length;
         await tournamentHandlers.leaveTournament(s[3], ctx.io);
         expect(leftTo(ctx, mark, s[0].id)).toEqual([s[3].id]);
-        expect(listsTo(ctx, mark, s[8].id)).toEqual([[0, 1, 2, 4, 5, 6, 7].map((i) => s[i].id)]);
-        expect(relays(ctx, s[8], s[0])).toBe(true);
-        expect(statusTo(ctx, mark, s[8].id)).toEqual([]);
+        expect(listsTo(ctx, mark, s[20].id)).toEqual([s.slice(0, 20).filter((_, i) => i !== 3).map((x) => x.id)]);
+        expect(relays(ctx, s[20], s[0])).toBe(true);
+        expect(statusTo(ctx, mark, s[20].id)).toEqual([]);
     });
 
     describe('the room cap as a setting (env TOURNAMENT_VOICE_MAX)', () => {
@@ -454,10 +455,11 @@ describe('the tournament room', () => {
             else process.env.TOURNAMENT_VOICE_MAX = saved;
         });
 
-        test('maxRoom: default 8, clamped to 2..20, anything but a whole number is the default', () => {
+        test('maxRoom: default 20 (the ceiling), clamped to 2..20, anything but a whole number is the default', () => {
             const m = (v) => tournamentVoice.maxRoom(v === undefined ? {} : { TOURNAMENT_VOICE_MAX: v });
-            expect(m(undefined)).toBe(8);
-            expect(tournamentVoice.MAX_ROOM_DEFAULT).toBe(8);
+            expect(m(undefined)).toBe(20);
+            expect(tournamentVoice.MAX_ROOM_DEFAULT).toBe(20);
+            expect(tournamentVoice.MAX_ROOM_DEFAULT).toBe(tournamentVoice.MAX_ROOM_MAX);
             expect([tournamentVoice.MAX_ROOM_MIN, tournamentVoice.MAX_ROOM_MAX]).toEqual([2, 20]);
             expect(m('12')).toBe(12);
             expect(m(' 12 ')).toBe(12);
@@ -466,7 +468,9 @@ describe('the tournament room', () => {
             expect(m('500')).toBe(20);
             expect(m('1')).toBe(2);
             expect(m('0')).toBe(2);
-            for (const bad of ['', ' ', 'twelve', '12abc', '-3', '9.5', '1e3']) expect(m(bad)).toBe(8);
+            // the env can still lower it
+            expect(m('8')).toBe(8);
+            for (const bad of ['', ' ', 'twelve', '12abc', '-3', '9.5', '1e3']) expect(m(bad)).toBe(20);
             // read at call time
             process.env.TOURNAMENT_VOICE_MAX = '12';
             expect(tournamentVoice.maxRoom()).toBe(12);
@@ -543,18 +547,18 @@ describe('the tournament room', () => {
     });
 
     test('a newer socket of the same user (the old one half-open) takes its place in a full room', async () => {
-        const ctx = await tournament(Array(9).fill('web'));
+        const ctx = await tournament(Array(21).fill('web'));
         const s = ctx.sockets;
         const back = newUser(ctx.io, ctx.log, s[2].username);
         back.data.client = { client: 'web', version: '1', build: null, caps: WEB };
         voice.rememberBlockList(back, []);
         const mark = ctx.log.length;
         await tournamentHandlers.joinTournament(back, ctx.io, { tournamentId: ctx.t.tournamentId });
-        expect(roomIds(ctx.t)).toEqual([0, 1].map((i) => s[i].id).concat(back.id, [3, 4, 5, 6, 7].map((i) => s[i].id)));
+        expect(roomIds(ctx.t)).toEqual([s[0].id, s[1].id, back.id].concat(s.slice(3, 20).map((x) => x.id)));
         expect(leftTo(ctx, mark, s[0].id)).toEqual([s[2].id]);
-        expect(listsTo(ctx, mark, back.id)).toEqual([[0, 1, 3, 4, 5, 6, 7].map((i) => s[i].id)]);
+        expect(listsTo(ctx, mark, back.id)).toEqual([s.slice(0, 20).filter((_, i) => i !== 2).map((x) => x.id)]);
         // the one waiting still waits
-        expect(listsTo(ctx, mark, s[8].id)).toEqual([]);
+        expect(listsTo(ctx, mark, s[20].id)).toEqual([]);
         expect(relays(ctx, s[2], s[0])).toBe(false);
     });
 

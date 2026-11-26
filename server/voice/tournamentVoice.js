@@ -37,10 +37,11 @@
  * connected to already.
  *
  * At most `maxRoom()` are admitted, the first to enter: env
- * TOURNAMENT_VOICE_MAX, read at call time, clamped to 2..20, default 8 (a
- * family lobby's mesh; owner 2026-11-25: 12 once iOS 1.2.7 is the floor,
- * 20 waits for an SFU). The signaling rate limits (rateLimiter.js) and the
- * web's audio pool are sized for the ceiling, 19 calls each. A tournament
+ * TOURNAMENT_VOICE_MAX, read at call time, clamped to 2..20, default 20, the
+ * ceiling (owner 2026-11-25: straight to 20 on the peer-to-peer mesh once
+ * iOS 1.2.7 (41) is the floor; measured locally, 20 peers, 190/190 pairs,
+ * 0% loss; the env can still lower it). The signaling rate limits
+ * (rateLimiter.js) and the web's audio pool are sized for it, 19 calls each. A tournament
  * has no size limit, so the rest wait in the record, unannounced, and the
  * next in line is admitted (listed) when an admitted member leaves. A
  * waiting member whose client sent the clientHello cap
@@ -63,13 +64,13 @@ const MUTED_START_CAP = 'assist';
 const MUTED_START_IOS_BUILD = 18;
 // The over-cap notice (tournamentVoiceStatus) goes only to a client that renders it
 const STATUS_CAP = 'tournamentVoiceStatus';
-const MAX_ROOM_DEFAULT = 8;
+const MAX_ROOM_DEFAULT = 20;
 const MAX_ROOM_MIN = 2;
 const MAX_ROOM_MAX = 20;
 
 /**
  * The most members admitted to a tournament's voice room: env
- * TOURNAMENT_VOICE_MAX (a whole number; clamped to 2..20), else 8. Read at
+ * TOURNAMENT_VOICE_MAX (a whole number; clamped to 2..20), else 20. Read at
  * call time, so a test or a restart with a new value needs no reload.
  */
 function maxRoom(env = process.env) {

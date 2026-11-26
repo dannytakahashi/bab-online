@@ -138,7 +138,7 @@ class RateLimiter {
             // clients would show as a toast). Per socket, all peers together.
             // Sized for the largest mesh a room may be: a tournament's voice
             // room at its ceiling of 20 (tournamentVoice.MAX_ROOM_MAX; env
-            // TOURNAMENT_VOICE_MAX, default 8), 19 calls each (a family lobby
+            // TOURNAMENT_VOICE_MAX, default 20), 19 calls each (a family lobby
             // or a casual game with spectators is up to 8 people). Measured
             // 2026-11-11 in the desktop app's Chromium with the clients' two
             // Google STUN servers: 2 candidates per peer connection (mDNS

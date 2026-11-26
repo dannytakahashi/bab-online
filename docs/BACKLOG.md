@@ -27,22 +27,28 @@ First version; each of these was left out on purpose (`server/CLAUDE.md` "Get Yo
 
 ## Tournament voice room size (owner 2026-11-25)
 
-The room's cap is a setting (`TOURNAMENT_VOICE_MAX`, code default 8, clamped
-2..20; docs/claude/voice.md "Tournament voice"). Point to point stays below the
-cap for latency; an SFU only lifts the size limit.
+The room's cap is a setting (`TOURNAMENT_VOICE_MAX`, code default 20, clamped
+2..20; docs/claude/voice.md "Tournament voice"). Owner 2026-11-25: straight to
+20 on the peer-to-peer mesh, no 12 step and no SFU first. Done in its own PR
+(`MAX_ROOM_DEFAULT` 8 -> 20 in server/voice/tournamentVoice.js), merged only
+once the upgrade gate requires build 41 (iOS 1.2.7: the speaking poll fixed
+for 19 calls, the over-cap notice decoded; 1.2.6 polls every call's full stats
+10 times a second). Measured locally first: 20 peers, 190/190 pairs, 0% loss
+(`scripts/voice-mesh-measure.mjs`; docs/claude/voice.md "Measuring the mesh").
+No Railway variable; the env can still lower it.
 
-- **Default to 12** in a one-line PR (`MAX_ROOM_DEFAULT` in
-  server/voice/tournamentVoice.js) once `MIN_IOS_BUILD` reaches 41 (reached with the gate PR "[after 1.2.7 is live]"; iOS 1.2.7:
-  the speaking poll fixed for 11 calls, the over-cap notice decoded) and a local
-  12-peer run of `scripts/voice-mesh-measure.mjs` passes. No Railway variable.
-- **20 through an SFU** (after 1.2.7, before the macOS PRs). Cloudflare Realtime
-  SFU is the natural fit (the same account as the TURN): each client keeps one
-  connection, so the per-pair mesh, TURN allocations and signaling go away. The
-  server maps tracks to usernames, mutes and blocks (blocks enforced on
-  subscription); both clients get a second voice transport; iOS needs a release.
-  The signaling limits and the web audio pool are already sized for 20.
-- **Opus DTX** (`usedtx=1` in both clients' SDP) only after a measured run; it
-  would be the prerequisite for ever trying 20 in a mesh.
+- **Not measured yet:** TURN relays, a real uplink (cellular, home Wi-Fi), iOS
+  devices in a 20-person room, WebKit, reload / network drop. Watch the first
+  large tournament's voice; if it struggles, lower `TOURNAMENT_VOICE_MAX` in
+  Railway's environment (no code change) and reopen the SFU below.
+- **An SFU** only if the mesh falls short in production or a room should pass
+  20. Cloudflare Realtime SFU is the natural fit (the same account as the TURN):
+  each client keeps one connection, so the per-pair mesh, TURN allocations and
+  signaling go away. The server maps tracks to usernames, mutes and blocks
+  (blocks enforced on subscription); both clients get a second voice
+  transport; iOS needs a release.
+- **Opus DTX** (`usedtx=1` in both clients' SDP) only after a measured run;
+  muted web pages already send nothing (voice.md, Measuring the mesh).
 - **The harness** has no TURN, reload, network-drop or WebKit scenario yet.
 
 ## iOS: iPad (since 1.2.0 build 5, PR #241)
