@@ -99,7 +99,7 @@ enum UIFixture {
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
                                               "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings", "tournament-cut",
-                                              "update-required", "sign-in", "register"]
+                                              "tournament-rounds", "update-required", "sign-in", "register"]
 
     @MainActor
     static func seed(_ store: GameState, _ appState: AppState, mainRoom: MainRoomState, lobby: LobbyState,
@@ -153,6 +153,8 @@ enum UIFixture {
         }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+            // iOS 1.2.7's tournament extras: the over-cap notice, the rounds' answers (UIFixture+Tournament)
+            seedTournamentExtras(tournament)
             // `-uiLobbyName "<title>"` / UI_FIXTURE_LOBBY_NAME: a game lobby's title (the header's
             // fit at a real lobby's name)
             if let title = ProcessInfo.processInfo.environment["UI_FIXTURE_LOBBY_NAME"]
@@ -468,6 +470,9 @@ enum UIFixture {
             // answered as the server does (UIFixture+Cut)
             message = "cutForABuckDraw:\(data["round"] as? Int ?? 0):\((data["slot"] as? Int).map(String.init) ?? "null")"
             emulateCutDraw(data)
+        case SocketEvents.Client.setTournamentRounds:
+            // answered as the server does (UIFixture+Tournament)
+            message = tournamentRoundsSent(data)
         case SocketEvents.Client.setSpectatorsCanTalk:
             // this build has no switch (2026-11-18); a send would show here
             message = "setSpectatorsCanTalk"
@@ -718,6 +723,9 @@ enum UIFixture {
             }
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-rounds":
+            // the host's Rounds picker before Begin (UIFixture+Tournament)
+            seedTournamentRounds(appState, tournament: tournament, auth: auth)
         case "tournament-pairings":
             // round 3 in play (owner 2026-11-25: partners shown openly): ivy's partners so far are a
             // bot (round 1), nobody (sat out round 2) and a 20-character name (round 3); a long name

@@ -23,6 +23,12 @@ enum TournamentEmitter {
         socket.emit(SocketEvents.Client.tournamentUnready)
     }
 
+    /// The host's round count, 1 to 5 (lobby phase only; TournamentRounds). The server answers
+    /// the room with tournamentSettingsUpdated, or refuses with serverError.
+    static func setTournamentRounds(_ totalRounds: Int) {
+        socket.emit(SocketEvents.Client.setTournamentRounds, ["totalRounds": totalRounds])
+    }
+
     static func beginTournament() {
         socket.emit(SocketEvents.Client.beginTournament)
     }

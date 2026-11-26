@@ -81,6 +81,9 @@ struct PlayerProfile: Equatable {
     /// The badges this player has earned, oldest first, whatever the scope (the reply's
     /// `badges`, sent only for the clientHello cap `badges`; absent or unreadable = none).
     var badges: [EarnedBadge] = []
+    /// Their tournament history (iOS 1.2.7: the reply's additive `profile.tournaments` /
+    /// `cutForABuck`, the same in every scope); nil from a server without the fields.
+    var tournaments: TournamentHistory?
 
     /// The key the avatar caches load (AvatarImageView): the custom picture, else the stock one.
     var pictureKey: String { avatarPath ?? String(profilePic) }
@@ -92,7 +95,8 @@ struct PlayerProfile: Equatable {
               let username = StatsWire.string(profile["username"]) else { return nil }
         let url = StatsWire.string(dict["avatarUrl"]).flatMap { HTTPAvatarLoader.isAvatarPath($0) ? $0 : nil }
         return PlayerProfile(username: username, profilePic: ProfilePicture.stock(StatsWire.int(profile["profilePic"])),
-                             avatarPath: url, stats: ProfileStats(wire: profile["stats"]), badges: Badges.clean(dict["badges"]))
+                             avatarPath: url, stats: ProfileStats(wire: profile["stats"]), badges: Badges.clean(dict["badges"]),
+                             tournaments: TournamentHistory(profile: profile))
     }
 }
 

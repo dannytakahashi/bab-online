@@ -14,7 +14,8 @@ enum Fixture {
                                  "main-room-family": "screen.mainRoom",
                                  "tournament-lobby": "screen.tournamentLobby", "tournament-round": "screen.tournamentLobby",
                                  "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn",
-                                 "tournament-pairings": "screen.tournamentLobby", "tournament-cut": "screen.tournamentLobby", "update-required": "updateRequired"]
+                                 "tournament-pairings": "screen.tournamentLobby", "tournament-rounds": "screen.tournamentLobby", "tournament-cut": "screen.tournamentLobby",
+                                 "update-required": "updateRequired"]
 
     /// The element that says the fixture's screen is up.
     static func readyElement(_ app: XCUIApplication, _ fixture: String) -> XCUIElement {

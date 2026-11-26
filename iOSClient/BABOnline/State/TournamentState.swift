@@ -31,6 +31,10 @@ final class TournamentState: ObservableObject {
     /// The cut's result in the complete phase (tournamentComplete / tournamentJoined `cutForABuck`);
     /// nil when no cut ran.
     @Published var cutResult: CutResult?
+    /// The over-cap notice (s2c tournamentVoiceStatus, iOS 1.2.7; TournamentVoice.fullNote): the
+    /// room's cap while this member waits in line for a full tournament voice room; nil when
+    /// admitted, never told, or off the lobby screen (seated at a table, the screen left).
+    @Published var voiceFullCap: Int?
     /// The unsent chat line (survives a recreated view; not @Published).
     var chatDraft = ""
     /// The joinTournament a restore sent for the tournament lobby on screen
@@ -71,6 +75,16 @@ final class TournamentState: ObservableObject {
         pairings = []
         cut = nil
         cutResult = nil
+        voiceFullCap = nil
+    }
+
+    /// The host's round count from tournamentSettingsUpdated (or the host's own pick, shown at
+    /// once as the web does): a count outside 1...5 is ignored. False when nothing changed.
+    @discardableResult
+    func applyTotalRounds(_ any: Any?) -> Bool {
+        guard let n = TournamentRounds.count(any), n != totalRounds else { return false }
+        totalRounds = n
+        return true
     }
 
     /// The tournament is in Cut for a buck (this app sent the cap, so the server says 'cut').
@@ -104,7 +118,8 @@ final class TournamentState: ObservableObject {
         name = dict["name"] as? String ?? ""
         phase = dict["phase"] as? String ?? "lobby"
         currentRound = dict["currentRound"] as? Int ?? 0
-        totalRounds = dict["totalRounds"] as? Int ?? 4
+        // the host's pick, 1 to 5 (TournamentRounds); anything else: the default
+        totalRounds = TournamentRounds.count(dict["totalRounds"]) ?? TournamentRounds.defaultCount
         creatorUsername = dict["creatorUsername"] as? String ?? ""
         isSpectator = dict["isSpectator"] as? Bool ?? false
         // between rounds only; absent (another phase, an older server): not passed

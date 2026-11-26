@@ -4650,7 +4650,7 @@
       "rateLimit": "setTournamentRounds",
       "sentBy": {
         "web": true,
-        "ios": false
+        "ios": true
       },
       "examples": [
         {
@@ -4678,7 +4678,7 @@
         },
         {}
       ],
-      "notes": "New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage \"<host> set the tournament to 3 rounds.\" to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: 'Not in a tournament', 'Only the host can change the number of rounds', 'Rounds can only change before the tournament begins'. Web sends it from the lobby's Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41."
+      "notes": "New (2026-11-25): the host picks the number of rounds, 1 to 5 (default 4), in the tournament lobby before Begin. Accepted: tournamentSettingsUpdated {totalRounds, by} and an unstored system tournamentMessage \"<host> set the tournament to 3 rounds.\" to the room, then lobbiesUpdated; ready flags are kept; the same count again sends nothing. Refused with serverError: 'Not in a tournament', 'Only the host can change the number of rounds', 'Rounds can only change before the tournament begins'. Web sends it from the lobby's Rounds picker (ui/screens/TournamentLobby.js); iOS from build 41 (the host's Rounds picker above Begin, Views/Tournament/TournamentRoundsPicker.swift, TournamentEmitter.setTournamentRounds)."
     },
     "cutForABuckDraw": {
       "payload": {
@@ -10533,12 +10533,14 @@
         "web": [
           "client/src/handlers/tournamentHandlers.js:registerTournamentHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/socket/tournamentHandlers.js:setTournamentRounds"
       ],
-      "notes": "New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host's Rounds picker and the round line (\"Waiting to start · 3 rounds\"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41. Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1's tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds."
+      "notes": "New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host's Rounds picker and the round line (\"Waiting to start · 3 rounds\"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41 (TournamentSocketHandler.handleSettingsUpdated: the round line, the scoreboard's R1..RN columns and the host's picker follow it). Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1's tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds."
     },
     "tournamentRoundStart": {
       "payload": {
@@ -12676,12 +12678,14 @@
         "web": [
           "client/src/handlers/voiceHandlers.js:registerVoiceHandlers"
         ],
-        "ios": []
+        "ios": [
+          "iOSClient/BABOnline/Networking/Handlers/TournamentSocketHandler.swift:register"
+        ]
       },
       "emittedFrom": [
         "server/voice/tournamentVoice.js:sendStatus"
       ],
-      "notes": "New (2026-11-25, the over-cap notice; private, unsequenced): a tournament's voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows \"Voice is full (N people)\" in the tournament lobby's voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before)."
+      "notes": "New (2026-11-25, the over-cap notice; private, unsequenced): a tournament's voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows \"Voice is full (N people)\" in the tournament lobby's voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (TournamentSocketHandler.handleVoiceStatus: the same words in the tournament lobby's header, TournamentVoice.fullNote; its clientHello sends the cap). Shipped clients never send the cap, so they never get it (they wait silently, as before)."
     },
     "voicePeerJoined": {
       "payload": {

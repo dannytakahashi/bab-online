@@ -77,6 +77,10 @@ enum ClientHello {
     /// tournament table's `startDraw.teams` / snapshot `draw.teams` as a draw for first deal, so
     /// the server draws such a table honestly (each player the card they picked) when every human
     /// and spectator there has it; else it stages the draw as before.
+    /// `tournamentVoiceStatus` (iOS 1.2.7 (41); `TournamentVoice.statusCap`,
+    /// $defs.clientCapTournamentVoiceStatus): this build shows the over-cap notice "Voice is full
+    /// (N people)" while it waits in line for a full tournament voice room, so the server sends it
+    /// the private s2c tournamentVoiceStatus.
     /// `badges` (iOS 1.2.7 (41); `Badges.cap`, $defs.clientCapBadges): this build shows earned
     /// badges on profiles and the "Badge earned" toast, so the profile replies carry `badges`
     /// and the server sends the private s2c badgesAwarded after a game that earned one.
@@ -84,7 +88,7 @@ enum ClientHello {
     /// Cut for a buck, the tournament's finale (phase 'cut', the cutForABuck* events, the inline final
     /// lobby in the complete phase).
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
-                       TournamentVoice.cap, TournamentPairingRules.cap, Badges.cap, CutForABuck.cap]
+                       TournamentVoice.cap, TournamentPairingRules.cap, TournamentVoice.statusCap, Badges.cap, CutForABuck.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

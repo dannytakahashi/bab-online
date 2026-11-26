@@ -183,7 +183,8 @@ struct TournamentRowView: View {
         // Cut for a buck (additive `cut: true`; the phase reads round_active for everyone)
         if tournament.cut { return CutCopy.mainRoomCard }
         switch tournament.phase {
-        case "lobby": return "Waiting to start"
+        // the host's pick, 1 to 5 (the web's "Waiting for players · 3 rounds")
+        case "lobby": return TournamentRounds.lobbyCardLine(totalRounds: tournament.totalRounds)
         case "round_active": return "Round \(tournament.currentRound) of \(tournament.totalRounds)"
         case "between_rounds": return "Between rounds (\(tournament.currentRound)/\(tournament.totalRounds))"
         case "cut": return CutCopy.mainRoomCard

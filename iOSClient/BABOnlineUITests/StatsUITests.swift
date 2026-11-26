@@ -182,6 +182,8 @@ final class StatsUITests: XCTestCase {
         XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.helpFromFriends"].label,
                        "A little help from my friends, ivy, 37 /help uses")
         XCTAssertFalse(allTime.descendants(matching: .any)["records.superlative.botFriends"].exists, "absent from the reply")
+        XCTAssertEqual(allTime.descendants(matching: .any)["records.superlative.luckyBuck"].label, "Lucky Buck, kim, 3 wins in 7 cuts",
+                       "a title the app has no code for shows as the server sent it")
         let anchor = allTime.descendants(matching: .any)["records.superlative.anchor"]
         for _ in 0..<4 where !anchor.isHittable { element(app, "records.list").swipeUp() }
         keepScreenshot(app, "stats-records-superlatives")
@@ -437,6 +439,8 @@ final class StatsUITests: XCTestCase {
             ("cursed", "Cursed, jon, 98.7 avg HSI"),
             ("helpFromFriends", "A little help from my friends, ivy, 37 /help uses"),
             ("anchor", "Anchor, hal, 31% of hands set"),
+            // the Cut for a buck title (1.2.7 server), drawn generically like the rest
+            ("luckyBuck", "Lucky Buck, kim, 3 wins in 7 cuts"),
         ]
         var shot = false
         for (id, label) in expected {

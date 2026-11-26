@@ -241,6 +241,9 @@ private struct TournamentLobbyScreen: View {
         if showsFinal { return AnyView(compactFinal(keyboard: keyboard)) }
         return AnyView(VStack(spacing: 0) {
             headerBar
+                // never squeezed under its content (a wrapped round line and the voice-full
+                // notice at AX5 ran over the divider): the players and chat give the room
+                .fixedSize(horizontal: false, vertical: true)
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0 }
                 .zIndex(1)  // the voice panel tip hangs over what follows
             CappedAboveChat(chatMin: Self.compactChatMin) {
@@ -461,6 +464,31 @@ private struct TournamentLobbyScreen: View {
             Text(roundIndicator)
                 .font(.caption)
                 .foregroundColor(Theme.textSecondary)
+                // wraps rather than cutting the host's count ("Waiting to start · 4…" at AX5)
+                .multilineTextAlignment(alignment == .leading ? .leading : .center)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("tournament.roundLine")
+            voiceFullNote
+        }
+    }
+
+    /// The over-cap notice (iOS 1.2.7; s2c tournamentVoiceStatus, TournamentVoice.fullNote): this
+    /// member waits in line for the tournament's full voice room, under the round line (the web's
+    /// spot beside the round indicator); gone once let in or off the screen.
+    @ViewBuilder
+    private var voiceFullNote: some View {
+        if let cap = tournamentState.voiceFullCap {
+            HStack(spacing: Theme.Space.s1) {
+                Image(systemName: "mic.slash")
+                    .accessibilityHidden(true)
+                Text(TournamentVoice.fullNote(cap: cap))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .font(.caption)
+            .foregroundColor(Theme.textSecondary)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint(TournamentVoice.fullHint)
+            .accessibilityIdentifier("tournament.voiceFull")
         }
     }
 
@@ -481,15 +509,12 @@ private struct TournamentLobbyScreen: View {
         }
     }
 
+    /// "Waiting to start · 3 rounds", "Round 2 of 3", "Round 2 of 3 complete" (TournamentRounds,
+    /// the web's roundLine: the host's count, 1 to 5).
     private var roundIndicator: String {
-        switch tournamentState.phase {
-        case "lobby": return "Waiting to start"
-        case "round_active": return "Round \(tournamentState.currentRound) of \(tournamentState.totalRounds)"
-        case "between_rounds": return "Round \(tournamentState.currentRound) complete"
-        case "cut": return CutCopy.title
-        case "complete": return "Tournament complete"
-        default: return ""
-        }
+        if tournamentState.phase == CutForABuck.phase { return CutCopy.title }
+        return TournamentRounds.roundLine(phase: tournamentState.phase, currentRound: tournamentState.currentRound,
+                                          totalRounds: tournamentState.totalRounds)
     }
 
     // MARK: - Bottom Buttons
@@ -521,6 +546,12 @@ private struct TournamentLobbyScreen: View {
                     }
                     .disabled(!canSendTournamentActions)
                     .opacity(canSendTournamentActions ? 1 : 0.5)  // custom fills do not dim by themselves
+                }
+
+                // the host's round count, 1 to 5, before the tournament begins (TournamentRounds)
+                if TournamentRounds.showsPicker(phase: tournamentState.phase, isCreator: isCreator,
+                                                isSpectator: tournamentState.isSpectator) {
+                    TournamentRoundsPicker(enabled: canSendTournamentActions)
                 }
 
                 // Begin button (creator only)

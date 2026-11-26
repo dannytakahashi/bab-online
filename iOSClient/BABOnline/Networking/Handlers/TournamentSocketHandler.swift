@@ -127,6 +127,35 @@ final class TournamentSocketHandler {
         }
     }
 
+    /// tournamentSettingsUpdated {totalRounds, by} (iOS 1.2.7; TournamentRounds): the host set
+    /// the number of rounds in the lobby. The round line, the scoreboard's columns and the host's
+    /// picker follow it; the system line ("kim set the tournament to 3 rounds.") comes as a
+    /// tournamentMessage. Only for a tournament this app is in.
+    @MainActor
+    func handleSettingsUpdated(_ dict: [String: Any]) {
+        guard !tournamentState.tournamentId.isEmpty else { return }
+        tournamentState.applyTotalRounds(dict["totalRounds"])
+    }
+
+    /// tournamentVoiceStatus {admitted, cap} (iOS 1.2.7, the clientHello cap
+    /// `tournamentVoiceStatus`; TournamentVoice.fullNote): past the room's cap this member waits in
+    /// line, unlisted, so voice never starts; the lobby's header says "Voice is full (N people)"
+    /// until the server lets it in (admitted true, its voicePeerList right behind) or the screen
+    /// goes. Only on the tournament lobby screen (the web's rule).
+    @MainActor
+    func handleVoiceStatus(_ dict: [String: Any]) {
+        guard appState.screen == .tournamentLobby, !tournamentState.tournamentId.isEmpty,
+              let admitted = dict["admitted"] as? Bool else { return }
+        if admitted {
+            tournamentState.voiceFullCap = nil
+        } else {
+            let wasWaiting = tournamentState.voiceFullCap != nil
+            // a cap outside 2...20 still says "Voice is full" (TournamentVoice.fullNote)
+            tournamentState.voiceFullCap = TournamentVoice.roomCap(dict["cap"]) ?? 0
+            if !wasWaiting { A11y.announce(TournamentVoice.fullNote(cap: tournamentState.voiceFullCap)) }
+        }
+    }
+
     /// tournamentCancelled: the main room, with the web's toast (a cancel mid-round sends
     /// abortGame first, so this also explains the table closing).
     @MainActor
@@ -210,6 +239,16 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async { self.handleReadyUpdate(dict) }
         }
 
+        socket.on(SocketEvents.Server.tournamentSettingsUpdated) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.handleSettingsUpdated(dict) }
+        }
+
+        socket.on(SocketEvents.Server.tournamentVoiceStatus) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.handleVoiceStatus(dict) }
+        }
+
         // MARK: - Chat
 
         socket.on(SocketEvents.Server.tournamentMessage) { [weak self] data, _ in
@@ -243,8 +282,10 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentGameAssignment) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                // off the tournament voice room to this round's table (TournamentVoice)
+                // off the tournament voice room to this round's table (TournamentVoice); its
+                // line too (the server says nothing when a seat takes a member out of it)
                 self.voice().changeRoom()
+                self.tournamentState.voiceFullCap = nil
                 Self.routeGameAssignment(dict, to: self.gameState)
                 print("[Tournament] Game assigned: \(dict["gameId"] as? String ?? "")")
             }
