@@ -497,3 +497,31 @@ describe('the fan', () => {
     expect(STAGE.DRAWING).toBe('drawing');
   });
 });
+
+describe('the ring does not fit: the list instead (owner 2026-11-25)', () => {
+  const many = (n) => ['me', ...Array.from({ length: n - 1 }, (_, i) => `p${i}`)];
+  function bigCut(n) {
+    const names = many(n);
+    const s0 = cutReduce(null, 'start', { candidates: names, startsInMs: 15000, deckCount: 54 }, T0);
+    return cutReduce(s0, 'round', { round: 1, participants: names, alive: names, deckCount: 54, reshuffled: false, closesInMs: 15000 }, T0);
+  }
+  it('40 players on a 640 x 420 stage: the list, with the note, and Ring unavailable (a tap on it keeps the list)', () => {
+    mount({ players: many(40).map((username) => ({ username, pic: 3, connected: true })) });
+    view.update(bigCut(40));
+    expect(view.element.dataset.view).toBe('list');
+    expect(view.element.querySelector('#cutStage').hidden).toBe(true);
+    expect(view.element.querySelector('#cutListNote').hidden).toBe(false);
+    const ring = view.element.querySelector('[data-view="ring"]');
+    expect(ring.getAttribute('aria-disabled')).toBe('true');
+    ring.click();
+    expect(view.element.dataset.view).toBe('list');
+    expect(view.element.querySelectorAll('.cut-list__row')).toHaveLength(40);
+  });
+  it('12 players on the same stage: the ring, no note, Ring available', () => {
+    mount({ players: many(12).map((username) => ({ username, pic: 3, connected: true })) });
+    view.update(bigCut(12));
+    expect(view.element.dataset.view).toBe('ring');
+    expect(view.element.querySelector('#cutListNote').hidden).toBe(true);
+    expect(view.element.querySelector('[data-view="ring"]').getAttribute('aria-disabled')).toBe('false');
+  });
+});
