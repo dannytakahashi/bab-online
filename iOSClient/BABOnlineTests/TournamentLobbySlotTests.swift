@@ -138,9 +138,9 @@ final class TournamentLobbySlotTests: XCTestCase {
 
     func testTheConfirmationsSayWhatHappens() {
         typealias M = TournamentLobbyMenu
-        XCTAssertEqual(M.confirmTitle(.cancel), "Cancel the tournament?")
         XCTAssertEqual(M.confirmButton(.cancel), "Cancel Tournament")
-        XCTAssertEqual(M.keepButton(.cancel), "Keep Tournament", "never a second 'Cancel'")
+        XCTAssertEqual(M.confirmButton(.leave), "Leave Tournament")
+        XCTAssertEqual(M.confirmButton(.stopWatching), "Stop Watching")
         XCTAssertTrue(M.confirmMessage(.cancel, phase: "lobby", isCreator: true).contains("everyone"))
         XCTAssertTrue(M.confirmMessage(.cancel, phase: "round_active", isCreator: true).contains("games still in play"))
         XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: false).contains("join again"))
@@ -148,9 +148,21 @@ final class TournamentLobbySlotTests: XCTestCase {
         XCTAssertTrue(M.confirmMessage(.leave, phase: "lobby", isCreator: true).contains("Another player becomes the host"))
         XCTAssertFalse(M.confirmMessage(.leave, phase: "lobby", isCreator: false).contains("host"))
         for item in [M.Item.cancel, .leave, .stopWatching] {
-            for words in [M.title(item), M.confirmTitle(item), M.confirmMessage(item, phase: "lobby", isCreator: true)] {
+            for words in [M.title(item), M.confirmMessage(item, phase: "lobby", isCreator: true)] {
                 XCTAssertFalse(words.contains("Team"), words)
             }
         }
+    }
+
+    /// The dropped-choice rule: a confirm opened before a host hand-off, the cut or the results
+    /// does nothing once the menu no longer offers that choice.
+    func testAConfirmForAChoiceNoLongerOfferedIsDropped() {
+        typealias M = TournamentLobbyMenu
+        XCTAssertTrue(M.stillOffers(.cancel, phase: "lobby", isCreator: true, isSpectator: false))
+        XCTAssertFalse(M.stillOffers(.cancel, phase: "lobby", isCreator: false, isSpectator: false), "the host role passed on")
+        XCTAssertFalse(M.stillOffers(.cancel, phase: CutForABuck.phase, isCreator: true, isSpectator: false), "the cut began")
+        XCTAssertFalse(M.stillOffers(.leave, phase: "complete", isCreator: false, isSpectator: false), "the results")
+        XCTAssertFalse(M.stillOffers(.stopWatching, phase: "between_rounds", isCreator: false, isSpectator: false))
+        XCTAssertTrue(M.stillOffers(.leave, phase: "round_active", isCreator: false, isSpectator: false))
     }
 }

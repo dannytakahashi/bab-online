@@ -79,7 +79,7 @@ struct TournamentLobbySlot: Equatable {
 
 /// The lobby header's "…" menu (owner 2026-11-26): Cancel Tournament for the host, Leave for
 /// everyone (the host too: the role passes on, as the old Leave did), Stop Watching for a
-/// spectator; each confirmed first. Cancel is not offered during Cut for a buck (as before), and
+/// spectator; each confirmed in its own submenu (the consequence, then one destructive button). Cancel is not offered during Cut for a buck (as before), and
 /// the complete phase has no menu (its back control reads "Main Room").
 enum TournamentLobbyMenu {
     enum Item: Equatable { case cancel, leave, stopWatching }
@@ -108,16 +108,7 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// The confirmation's question.
-    static func confirmTitle(_ item: Item) -> String {
-        switch item {
-        case .cancel: return "Cancel the tournament?"
-        case .leave: return "Leave the tournament?"
-        case .stopWatching: return "Stop watching?"
-        }
-    }
-
-    /// What happens, in plain words.
+    /// What happens, in plain words: the header of the item's confirm submenu.
     static func confirmMessage(_ item: Item, phase: String, isCreator: Bool) -> String {
         switch item {
         case .cancel:
@@ -138,14 +129,13 @@ enum TournamentLobbyMenu {
         }
     }
 
-    /// The confirming button (destructive role); the other one keeps things as they are.
+    /// The confirming button (destructive role), the item's submenu's one button; closing the menu
+    /// is the keep choice, so there is no second button.
     static func confirmButton(_ item: Item) -> String { title(item) }
 
-    static func keepButton(_ item: Item) -> String {
-        switch item {
-        case .cancel: return "Keep Tournament"
-        case .leave: return "Stay"
-        case .stopWatching: return "Keep Watching"
-        }
+    /// A confirm for a choice the menu no longer offers (the role or the phase changed under the
+    /// open menu: a host hand-off, the cut, the results) is dropped.
+    static func stillOffers(_ item: Item, phase: String, isCreator: Bool, isSpectator: Bool) -> Bool {
+        items(phase: phase, isCreator: isCreator, isSpectator: isSpectator).contains(item)
     }
 }
