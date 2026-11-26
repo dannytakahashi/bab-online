@@ -321,6 +321,33 @@ describe('a whole game: one human and two bots', () => {
     });
 });
 
+describe('a lazy seat is named by its owner (owner rule 2026-11-25)', () => {
+    test('the stored hand lines, the game-over lines and the score screen say the owner, never the bot', async () => {
+        const w = world();
+        const { socks } = await table(w, 3);
+        const game = await start(w, socks);
+        const lazy = socks[1];
+        const pos = seatOf(game, lazy);
+        chatHandlers.chatMessage(lazy, w.io, { message: '/lazy' });
+        await jest.advanceTimersByTimeAsync(0);
+        const bot = game.getPlayerByPosition(pos).username;
+        expect(bot).toMatch(/^🤖 /);
+        expect(game.seat(pos).ownerUsername).toBe(name(2));
+
+        await play(w, game, [socks[0], socks[2]]);
+        expect(game.stage).toBe(Phase.ENDED);
+
+        // one rule for every seat line (gameHandlers.seatName), so a reload
+        // or a spectator replaying the stored log reads the live table's names
+        const scoreLines = game.getGameLog().filter((e) => e.type === 'score').map((e) => e.message);
+        expect(scoreLines.some((m) => m.startsWith(`${name(2)}: Bid `))).toBe(true);
+        expect(scoreLines.slice(-3)).toContain(`${name(2)}: ${game.gyb.scores[pos]}`);
+        expect(scoreLines.some((m) => m.includes(bot))).toBe(false);
+        const end = w.room(game, 'gameEnd')[0];
+        expect(end.playerStats[pos].username).toBe(name(2));
+    });
+});
+
 describe('the draw', () => {
     test('a bot drawing last completes it at once (not the 30 s draw watchdog)', async () => {
         const w = world();

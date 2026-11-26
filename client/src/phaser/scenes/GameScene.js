@@ -1181,9 +1181,9 @@ export class GameScene extends Phaser.Scene {
     const myPosition = state.position || 1;
 
     if (data.gyb) {
-      // Get Your Bid: one line per player (the server's own words), the
-      // three-player header, the scores said by name
-      for (const msg of formatSoloHandMessages(data.gyb, state.playerData)) window.addToGameFeedFromLegacy?.(msg);
+      // Get Your Bid: one line per player (the server's own words, each
+      // seat by its owner), the three-player header, the scores said by name
+      for (const msg of formatSoloHandMessages(data.gyb, teamPlayerDataOf(state))) window.addToGameFeedFromLegacy?.(msg);
       this.renderScoreHeader();
       const scores = Object.fromEntries((data.gyb.scores || []).map((v, i) => [i + 1, v]));
       announce(`Hand over.${soloTally(' Score:', state, scores, { spectator: isPureSpectator(state) })}`);

@@ -1004,7 +1004,9 @@ function scoreGybHand(game, io) {
         game.gyb.scores[pos] += points;
         if (took === bid) game.gyb.made[pos]++;
         seats.push({ position: pos, bid, took, points, forbiddenHit });
-        const name = game.getPlayerByPosition(pos)?.username || `P${pos}`;
+        // each seat by its owner (a lazy / resign bot plays for them), as
+        // the team lines and the score screen (seatName)
+        const name = seatName(game, pos) || `P${pos}`;
         game.addLogEntry(`${name}: Bid ${bid}, Won ${took}${forbiddenHit ? ' (Forbidden Bid)' : ''}, +${points} → ${game.gyb.scores[pos]}`, null, 'score');
     }
     gameLogger.debug('Score update', { gyb: seats, scores: game.gyb.scores, gameId: game.gameId });
@@ -1019,7 +1021,7 @@ function scoreGybHand(game, io) {
     });
 
     return Array.from({ length: N }, (_, i) =>
-        `${game.getPlayerByPosition(i + 1)?.username || `P${i + 1}`}: ${game.gyb.scores[i + 1]}`);
+        `${seatName(game, i + 1) || `P${i + 1}`}: ${game.gyb.scores[i + 1]}`);
 }
 
 /** The seats with the highest score at the end of a Get Your Bid game (a tie shares the win). */
