@@ -137,4 +137,49 @@ final class LiveGybTests: XCTestCase {
         XCTAssertTrue(any(app, "lobby.mode").waitForExistence(timeout: 15), "play again's lobby is not a Get Your Bid one")
         shot("5-play-again-lobby")
     }
+
+    /// Spectating a Get Your Bid table from the main room's list (a game someone else started:
+    /// the person running the check starts one on the web within 5 minutes): the gold chip on
+    /// its card, Spectate, the three-column bar and the plain spectator's three seats; then the
+    /// game's end for a spectator (Game Over and the winner by name).
+    func testSpectateAGetYourBidTable() throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let server = env["BAB_LIVE_SERVER"], let user = env["BAB_LIVE_USER"], let pass = env["BAB_LIVE_PASS"],
+              server.hasPrefix("http://localhost:") || server.hasPrefix("http://127.0.0.1:") else {
+            throw XCTSkip("opt-in: TEST_RUNNER_BAB_LIVE_SERVER (a localhost origin), TEST_RUNNER_BAB_LIVE_USER, TEST_RUNNER_BAB_LIVE_PASS")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["-serverURL", server]
+        app.launch()
+        let toRegister = app.buttons.matching(NSPredicate(format: "label == %@", "Create Account")).firstMatch
+        XCTAssertTrue(toRegister.waitForExistence(timeout: 30))
+        toRegister.tap()
+        let name = app.textFields["Username"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10))
+        name.tap(); name.typeText(user)
+        app.secureTextFields["Password"].tap(); app.secureTextFields["Password"].typeText(pass)
+        app.secureTextFields["Confirm Password"].tap(); app.secureTextFields["Confirm Password"].typeText(pass)
+        let newGame = app.buttons["New Game"]
+        for _ in 0..<3 where !newGame.exists {
+            sleep(1)
+            app.buttons.matching(NSPredicate(format: "label == %@", "Register")).firstMatch.tap()
+            _ = newGame.waitForExistence(timeout: 8)
+        }
+        XCTAssertTrue(wait(20) { newGame.isEnabled })
+        let spectate = app.buttons["Spectate"].firstMatch
+        XCTAssertTrue(spectate.waitForExistence(timeout: 300), "no game in progress to watch")
+        XCTAssertTrue(app.staticTexts.matching(identifier: "gybChip").count > 0, "the card wears the Get Your Bid chip")
+        shot("s0-main-room")
+        spectate.tap()
+        XCTAssertTrue(any(app, "scoreBar.seat.1").waitForExistence(timeout: 30), "no three-column bar")
+        XCTAssertFalse(any(app, "scoreBar.teamNames").exists)
+        sleep(3)
+        shot("s1-spectating")
+        let gameEnd = any(app, "gameEnd")
+        XCTAssertTrue(gameEnd.waitForExistence(timeout: 900), "the game did not end")
+        sleep(2)
+        XCTAssertEqual(any(app, "gameEnd.title").label, "Game over")
+        XCTAssertTrue(any(app, "gameEnd.winnerLine").exists)
+        shot("s2-game-end")
+    }
 }
