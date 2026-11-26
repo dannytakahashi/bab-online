@@ -80,8 +80,11 @@ enum ClientHello {
     /// `badges` (iOS 1.2.7 (41); `Badges.cap`, $defs.clientCapBadges): this build shows earned
     /// badges on profiles and the "Badge earned" toast, so the profile replies carry `badges`
     /// and the server sends the private s2c badgesAwarded after a game that earned one.
+    /// `cutForABuck` (iOS 1.2.7 (41); `CutForABuck.cap`, $defs.clientCapCutForABuck): this build plays
+    /// Cut for a buck, the tournament's finale (phase 'cut', the cutForABuck* events, the inline final
+    /// lobby in the complete phase).
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
-                       TournamentVoice.cap, TournamentPairingRules.cap, Badges.cap]
+                       TournamentVoice.cap, TournamentPairingRules.cap, Badges.cap, CutForABuck.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

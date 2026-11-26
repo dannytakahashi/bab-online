@@ -20,6 +20,12 @@ extension A11y {
         UIAccessibility.post(notification: .announcement, argument: text)
     }
 
+    /// Says `text` to VoiceOver at high priority (it interrupts: the cut's winner).
+    static func announceUrgent(_ text: String) {
+        let s = NSAttributedString(string: text, attributes: [.accessibilitySpeechAnnouncementPriority: UIAccessibilityPriority.high])
+        UIAccessibility.post(notification: .announcement, argument: s)
+    }
+
     /// Is Reduce Motion on (the system's setting)?
     static var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
 }

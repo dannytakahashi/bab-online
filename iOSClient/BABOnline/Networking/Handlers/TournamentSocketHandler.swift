@@ -140,6 +140,32 @@ final class TournamentSocketHandler {
         print("[Tournament] Tournament cancelled by host")
     }
 
+    /// A cutForABuck* event (iOS 1.2.7 (41)): the one cut state, whatever screen is up (the score
+    /// screen's strip reads it too). Only for a tournament this app is in (a late copy after I left
+    /// must not bring a cut into the reset state). Internal for CutForABuckTests.
+    @MainActor
+    func handleCut(_ event: String, _ dict: [String: Any], now: Date = Date()) {
+        guard !tournamentState.tournamentId.isEmpty, let type = CutState.Event.of(wireName: event) else { return }
+        tournamentState.applyCut(type, dict, now: now)
+    }
+
+    /// tournamentComplete: the final standings, the winners and, when a cut ran, its result; this
+    /// build shows them in the lobby itself (TournamentFinalView), with the chat and voice.
+    @MainActor
+    func handleComplete(_ dict: [String: Any]) {
+        tournamentState.phase = "complete"
+        tournamentState.readyDeadlinePassed = false
+        if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
+            tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
+        }
+        tournamentState.winners = dict["winners"] as? [String] ?? []
+        // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+        tournamentState.applyPairings(dict["pairings"])
+        // Cut for a buck's result (absent: no cut ran, or it ended before a winner)
+        tournamentState.cutResult = CutResult.from(dict["cutForABuck"])
+        tournamentState.cut = nil
+    }
+
     func register() {
         // every connection registers again: the newest handler answers
         socket.claimTournamentServerError = { [weak self] dict in self?.handleRejoinRefused(dict) ?? false }
@@ -268,15 +294,18 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentComplete) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                self.tournamentState.phase = "complete"
-                self.tournamentState.readyDeadlinePassed = false
-                if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
-                    self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
-                }
-                self.tournamentState.winners = dict["winners"] as? [String] ?? []
-                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
-                self.tournamentState.applyPairings(dict["pairings"])
+                self.handleComplete(dict)
                 print("[Tournament] Tournament complete")
+            }
+        }
+
+        // MARK: - Cut for a buck (iOS 1.2.7 (41))
+
+        for type in CutState.Event.allCases {
+            let event = type.wireName
+            socket.on(event) { [weak self] data, _ in
+                guard let self, let dict = data.first as? [String: Any] else { return }
+                DispatchQueue.main.async { self.handleCut(event, dict) }
             }
         }
 

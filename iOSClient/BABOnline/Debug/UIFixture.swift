@@ -98,7 +98,7 @@ enum UIFixture {
     static let screenFixtures: Set<String> = ["main-room", "main-room-empty", "main-room-cards", "game-lobby", "game-lobby-bots",
                                               "game-lobby-family", "game-lobby-family-full", "main-room-family",
                                               "game-lobby-reconnecting", "tournament-lobby", "tournament-round",
-                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings",
+                                              "tournament-between", "tournament-deadline", "tournament-results", "tournament-pairings", "tournament-cut",
                                               "update-required", "sign-in", "register"]
 
     @MainActor
@@ -106,6 +106,8 @@ enum UIFixture {
                      tournament: TournamentState, auth: AuthState) {
         guard let name else { return }
         seed(fixture: name, store, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
+        // `game-end-tournament -uiCut "<n> <stage>"`: the score screen's Cut for a buck strip (UIFixture+Cut)
+        seedCutOnScoreScreen(store, tournament: tournament)
     }
 
     /// Seeds the stores from the fixture `name` (also used by the #Preview blocks).
@@ -462,6 +464,10 @@ enum UIFixture {
             let username = data["username"] as? String ?? "-"
             message = "releaseLobbyHold:\(username)"
             emulateRelease(username)
+        case SocketEvents.Client.cutForABuckDraw:
+            // answered as the server does (UIFixture+Cut)
+            message = "cutForABuckDraw:\(data["round"] as? Int ?? 0):\((data["slot"] as? Int).map(String.init) ?? "null")"
+            emulateCutDraw(data)
         case SocketEvents.Client.setSpectatorsCanTalk:
             // this build has no switch (2026-11-18); a send would show here
             message = "setSpectatorsCanTalk"
@@ -831,6 +837,9 @@ enum UIFixture {
             tournament.winners = ["kim", "ivy"]
             tournament.messages = chat
             appState.screen = .tournamentLobby
+        case "tournament-cut":
+            // Cut for a buck (`-uiCut "<n> <stage>"`, UIFixture+Cut)
+            seedCut(appState, tournament: tournament, auth: auth)
         case "register":
             SocketService.shared.isConnected = !UserDefaults.standard.bool(forKey: "uiOffline")
             appState.screen = .register
