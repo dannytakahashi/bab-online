@@ -4,7 +4,8 @@ import XCTest
 /// UIFixture+Cut): every stage's screen, the ring's layout probe ("cut.layoutCheck") for 2 to 20
 /// players, the deck's draw and the tap after the server drew for me (in "fixture.sent"), the flip
 /// and verdict, an out player still watching, the winner, the final lobby, a spectator, the list
-/// at the largest text size, the intro (and its Reduce Motion form), and the score screen's strip.
+/// at the largest text size, the intro over the ring and over the list (and its Reduce Motion
+/// form), and the score screen's strip.
 /// Runs on every device of the UI plan (phones, the iPad, the Duo closed / open / book pose).
 final class CutForABuckUITests: XCTestCase {
     static let ax5 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
@@ -306,29 +307,73 @@ final class CutForABuckUITests: XCTestCase {
         waitFor(3, "the list's draw") { Fixture.probe(app, "fixture.sent").contains("cutForABuckDraw:3:null") }
     }
 
+    /// The intro with 12 players: over the ring where it fits, else over the list (the iPhone Duo
+    /// closed, iOS 1.2.7 (41)'s release run: the intro lived in the ring alone and never played there).
     func testTheIntroPlaysAndGoes() {
         // a held frame: the title is up mid-intro (the live one may be over before the lobby is found)
         var app = open(12, "gather", ["-uiCutView", "ring", "-uiCutIntroFrame", "1.4"])
         XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3))
         XCTAssertEqual(any(app, "cut.intro").label, "Cut for a buck!")
+        let ring = measuredFit(app).hasPrefix("ring ")
+        XCTAssertEqual(Fixture.probe(app, "cut.introCheck"), "playing over=\(ring ? "ring" : "list")")
         keep("intro-1.4")
         app.terminate()
-        // played: it goes within its 2.6 s, the ring stays (12 s of gather left)
+        // played: it goes within its 2.6 s, the ring (or the list) stays (12 s of gather left)
         app = open(12, "gather", ["-uiCutView", "ring"])
-        XCTAssertTrue(any(app, "cut.status").label.hasPrefix("Cut for a buck starts in"))
-        waitFor(4, "the intro ends") { !any(app, "cut.intro").exists }
-        // it ran its whole length (a stage view rebuilt as the lobby came up used to end it in
-        // its first frames, which the check above alone cannot tell from a played intro)
-        var ran = ""
-        waitFor(4, "the intro's probe") { ran = Fixture.probe(app, "cut.introCheck"); return ran.hasPrefix("ran ") }
-        let length = Double(ran.dropFirst(4)) ?? 0  // CutIntro.duration is 2.6 s
-        XCTAssertGreaterThanOrEqual(length, 2.6 - 0.1, "the intro was cut short: \(ran)")
-        XCTAssertTrue(any(app, "cut.seat.kim").exists)
+        assertTheIntroRunsItsLength(app)
+        XCTAssertTrue(any(app, ring ? "cut.seat.kim" : "cut.row.kim").exists)
         keep("gather")
         app.terminate()
         app = open(12, "gather", ["-uiCutView", "ring", "-uiReduceMotion", "YES", "-uiCutIntroFrame", "0.6"])
         XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3), "Reduce Motion keeps the title, faded")
         keep("intro-reduced")
+    }
+
+    /// The intro over the list (owner 2026-11-25, "the intro when the cut starts", whatever shows):
+    /// 30 players fit no device's ring, so the list shows; the title and the deck's shuffle play over
+    /// it, run their 2.6 s and go, and the rows are there, reachable, after.
+    func testTheIntroPlaysOverTheList() {
+        var app = open(30, "gather", ["-uiCutView", "ring", "-uiCutIntroFrame", "1.4"])
+        let fit = measuredFit(app)
+        XCTAssertTrue(fit.hasPrefix("list fits=no "), fit)
+        XCTAssertTrue(any(app, "cut.list").waitForExistence(timeout: 3))
+        let title = any(app, "cut.intro")
+        XCTAssertTrue(title.waitForExistence(timeout: 3), "the title over the list")
+        XCTAssertEqual(title.label, "Cut for a buck!")
+        XCTAssertEqual(Fixture.probe(app, "cut.introCheck"), "playing over=list")
+        assertInside(app, title, "the title")
+        keep("intro-list-1.4")
+        app.terminate()
+        // played: the whole length, then the rows
+        app = open(30, "gather", ["-uiCutView", "ring"])
+        XCTAssertTrue(any(app, "cut.status").label.hasPrefix("Cut for a buck starts in"))
+        assertTheIntroRunsItsLength(app)
+        XCTAssertTrue(any(app, "cut.row.ivy").isHittable, "my row, uncovered")
+        keep("gather-list")
+        app.terminate()
+        // Reduce Motion: the same over the list, a crossfade
+        app = open(30, "gather", ["-uiCutView", "list", "-uiReduceMotion", "YES", "-uiCutIntroFrame", "0.6"])
+        XCTAssertTrue(any(app, "cut.intro").waitForExistence(timeout: 3), "Reduce Motion keeps the title over the list")
+        XCTAssertEqual(Fixture.probe(app, "cut.introCheck"), "playing over=list")
+        keep("intro-list-reduced")
+    }
+
+    /// "cut.ringFit" once the stage is measured (before that: "ring fits=-").
+    private func measuredFit(_ app: XCUIApplication) -> String {
+        var fit = ""
+        waitFor(5, "the stage measured") { fit = Fixture.probe(app, "cut.ringFit"); return !fit.contains("fits=-") }
+        return fit
+    }
+
+    /// The intro (started as the screen came up) goes, having run its whole length (a stage view
+    /// rebuilt as the lobby came up used to end it in its first frames, which its going alone cannot
+    /// tell from a played intro).
+    private func assertTheIntroRunsItsLength(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+        waitFor(4, "the intro ends") { !any(app, "cut.intro").exists }
+        var ran = ""
+        waitFor(4, "the intro's probe") { ran = Fixture.probe(app, "cut.introCheck"); return ran.hasPrefix("ran ") }
+        let length = Double(ran.dropFirst(4)) ?? 0  // CutIntro.duration is 2.6 s
+        XCTAssertGreaterThanOrEqual(length, 2.6 - 0.1, "the intro was cut short: \(ran)", file: file, line: line)
     }
 
     func testTheScoreScreenStrip() {

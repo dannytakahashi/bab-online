@@ -225,10 +225,10 @@ final class CutScreenModel: ObservableObject {
         return false
     }
 
-    /// Plays the intro that started at `introStart` to its end (CutStageView's task, keyed by
-    /// `introStart`), then ends it. A cancelled wait ends nothing: SwiftUI cancels the task
-    /// whenever the stage view is rebuilt or leaves (it is rebuilt as the lobby screen comes up),
-    /// and the stage view that replaces it plays on from the same start. Before this, `try?`
+    /// Plays the intro that started at `introStart` to its end (CutForABuckView's task over the
+    /// ring or the list, keyed by `introStart`), then ends it. A cancelled wait ends nothing:
+    /// SwiftUI cancels the task whenever the view is rebuilt or leaves (it is rebuilt as the lobby
+    /// screen comes up), and the view that replaces it plays on from the same start. Before this, `try?`
     /// swallowed the cancellation and ended the intro in its first frames, so it never showed.
     func playIntro() async {
         guard let start = introStart else { return }

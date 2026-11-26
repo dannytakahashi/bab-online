@@ -5,7 +5,8 @@ import CoreGraphics
 /// timeline, a function of the time since it started, as `SplashTimeline` is, drawn by
 /// CutForABuckView's TimelineView. "Cut for a buck!" scales in, the deck riffles (two halves
 /// interleave) and fans out, the avatars slide from the centre into the ring one after another,
-/// and the title goes. Reduce Motion: crossfades only (the ring and the deck fade in where they
+/// and the title goes. Over the list (CutIntroOverlay: the ring fell back to it, or it was chosen)
+/// the title and the deck's riffle and fan play on a cover that goes with the title. Reduce Motion: crossfades only (the ring and the deck fade in where they
 /// stand, the title fades in and out), 1.2 s. It plays when the cut starts on this screen, or when
 /// I arrive with more than 3 s of the gather left (the web's INTRO_MIN_LEFT_MS); else the view
 /// renders static.
@@ -44,6 +45,14 @@ struct CutIntro: Equatable {
     /// The ring's and the deck's opacity (Reduce Motion's crossfade; 1 in the full form).
     func stageOpacity(_ t: TimeInterval) -> CGFloat {
         reduceMotion ? Self.progress(t, 0, 0.45) : min(1, 0.25 + Self.progress(t, 0.15, 0.5))
+    }
+
+    /// The list's cover (CutIntroOverlay over the list, which has no deck or avatars to bring in):
+    /// the rows hidden under the title and the deck's shuffle, then shown as the title goes (Reduce
+    /// Motion: the same crossfade, sooner).
+    func coverOpacity(_ t: TimeInterval) -> CGFloat {
+        if reduceMotion { return 1 - Self.progress(t, 0.85, 1.2) }
+        return 1 - Self.progress(t, 1.95, 2.55)
     }
 
     /// The deck's riffle: how far the two halves stand apart (0: squared up), back and forth twice.

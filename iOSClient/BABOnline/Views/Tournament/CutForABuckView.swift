@@ -91,8 +91,24 @@ struct CutForABuckView: View {
         if fits != ringFits { ringFits = fits }
     }
 
-    @ViewBuilder
+    /// The ring or the list, the intro over either (a screen-level overlay: the title, and over the
+    /// list the deck's riffle and fan too; the ring shuffles its own deck and slides its avatars in),
+    /// and the intro's clock (whichever shows, so the list's intro runs its length and goes).
     private var stageOrList: some View {
+        stageOrListContent
+            .overlay(alignment: .top) {
+                CutIntroOverlay(model: model, over: mode == "list" ? .list : .ring)
+                    .frame(maxHeight: scrolling ? Self.scrollingStageHeight : .infinity)
+            }
+            .task(id: model.introStart) {
+                // a held frame never ends; a cancelled task (this view rebuilt) ends nothing
+                guard CutStageView.heldIntroFrame == nil else { return }
+                await model.playIntro()
+            }
+    }
+
+    @ViewBuilder
+    private var stageOrListContent: some View {
         if ringFits == nil {
             // the stage's first measurement: neither drawn yet (no ring flashed before the list)
             Color.clear
@@ -130,7 +146,12 @@ struct CutForABuckView: View {
         .onChange(of: nameBox) { refit() }
         .onChange(of: scrolling) { refit() }
         #if DEBUG
-        .overlay(alignment: .topTrailing) { CutFitProbe(value: "\(mode) fits=\(ringFits.map { $0 ? "yes" : "no" } ?? "-") stage=\(Int(stageSize.width))x\(Int(scrolling ? Self.scrollingStageHeight : stageSize.height))") }
+        .overlay(alignment: .topTrailing) {
+            HStack(spacing: 0) {
+                CutProbe(id: "cut.ringFit", value: "\(mode) fits=\(ringFits.map { $0 ? "yes" : "no" } ?? "-") stage=\(Int(stageSize.width))x\(Int(scrolling ? Self.scrollingStageHeight : stageSize.height))")
+                if part != .controls { CutProbe(id: "cut.introCheck", value: introCheck) }
+            }
+        }
         #endif
         .onAppear { model.reduceMotion = reduceMotion || CutForABuckView.fixtureReduceMotion }
         .onChange(of: reduceMotion) { _, r in model.reduceMotion = r }
@@ -148,6 +169,15 @@ struct CutForABuckView: View {
             if part == .controls { drawButton.padding(Theme.Space.s3) }
         }
     }
+
+    #if DEBUG
+    /// The probe `cut.introCheck`: "playing over=<ring|list>", "ran <s>" (the last intro's
+    /// length), or "-".
+    private var introCheck: String {
+        if model.introStart != nil { return "playing over=\(mode)" }
+        return model.lastIntroLength.map { String(format: "ran %.2f", $0) } ?? "-"
+    }
+    #endif
 
     static var fixtureReduceMotion: Bool {
         #if DEBUG
@@ -347,24 +377,11 @@ struct CutStageView: View {
                 stage(layout: layout, order: order, intro: intro, t: t)
             }
             #if DEBUG
-            .overlay(alignment: .topLeading) { CutProbeView(layout: layout, order: order, state: state, intro: introCheck) }
+            .overlay(alignment: .topLeading) { CutProbeView(layout: layout, order: order, state: state) }
             #endif
         }
         .dynamicTypeSize(...DrawMetrics.nameTypeCap)
-        .task(id: model.introStart) {
-            // a held frame never ends; a cancelled task (this view rebuilt) ends nothing
-            guard CutStageView.heldIntroFrame == nil else { return }
-            await model.playIntro()
-        }
     }
-
-    #if DEBUG
-    /// The probe `cut.introCheck`: "playing", "ran <s>" (the last intro's length), or "-".
-    private var introCheck: String {
-        if model.introStart != nil { return "playing" }
-        return model.lastIntroLength.map { String(format: "ran %.2f", $0) } ?? "-"
-    }
-    #endif
 
     /// `-uiCutIntroFrame <seconds>` (fixture mode): the intro held at that moment.
     static var heldIntroFrame: TimeInterval? {
@@ -429,10 +446,6 @@ struct CutStageView: View {
                 CutWinnerView(model: model, username: w, from: CGPoint(x: layout.seats[k].x, y: layout.seats[k].y), layout: layout)
                     .id(w)
             }
-            if let t, model.introStart != nil {
-                CutIntroTitle(intro: intro, t: t)
-                    .frame(width: layout.w, height: layout.h)
-            }
         }
         .opacity(stageOpacity)
         .frame(width: layout.w, height: layout.h, alignment: .topLeading)
@@ -441,7 +454,98 @@ struct CutStageView: View {
     private func seatHeight(_ layout: CutRing.Layout) -> CGFloat { layout.avatarD + 2 + layout.nameH }
 }
 
-/// The intro's title, "Cut for a buck!", scaling in over the stage.
+/// The intro over whatever shows (owner 2026-11-25, "the intro when the cut starts"; iOS 1.2.7
+/// (42)): the title, "Cut for a buck!", over the ring or the list; over the list (which has no deck
+/// of its own: the ring fell back to it, or it was chosen) the deck's riffle and fan under the
+/// title too, on a cover that hides the rows until the title goes (a crossfade with Reduce Motion).
+/// The ring's own deck riffles and fans, and its avatars slide in (CutStageView). Same timeline
+/// (CutIntro), never a hit target; VoiceOver reads the title as before, the deck is decoration.
+struct CutIntroOverlay: View {
+    enum Over { case ring, list }
+
+    @ObservedObject var model: CutScreenModel
+    let over: Over
+    @EnvironmentObject var tournamentState: TournamentState
+
+    var body: some View {
+        if let start = model.introStart {
+            TimelineView(.animation(minimumInterval: 1.0 / 60)) { ctx in
+                let intro = CutIntro(reduceMotion: model.reduceMotion)
+                let t = CutStageView.heldIntroFrame ?? ctx.date.timeIntervalSince(start)
+                GeometryReader { geo in
+                    ZStack {
+                        if over == .list {
+                            // to the screen's foot: the list scrolls under the home indicator
+                            Theme.background
+                                .opacity(intro.coverOpacity(t))
+                                .ignoresSafeArea(.container, edges: .bottom)
+                                .accessibilityHidden(true)
+                        }
+                        VStack(spacing: Theme.Space.s3) {
+                            CutIntroTitle(intro: intro, t: t)
+                            if over == .list {
+                                let w = min(geo.size.width * 0.6, 220)
+                                let h = min(w * 0.72, max(40, geo.size.height * 0.4))
+                                CutIntroDeck(intro: intro, t: t, count: deckCount, deckSize: tournamentState.cut?.deckSize ?? CutState.deckSize)
+                                    .frame(width: w, height: h)
+                                    .opacity(intro.titleOpacity(t))
+                                    .accessibilityHidden(true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .allowsHitTesting(false)
+            .dynamicTypeSize(...DrawMetrics.nameTypeCap)
+        }
+    }
+
+    private var deckCount: Int {
+        guard let s = tournamentState.cut else { return CutState.deckSize }
+        return s.stage == .drawing ? s.freeSlots.count : s.deckLeft
+    }
+}
+
+/// The list's intro deck: the face-down fan riffling and spreading (CutIntro.riffle / fanSpread),
+/// drawn as the ring's deck is.
+struct CutIntroDeck: View {
+    let intro: CutIntro
+    let t: TimeInterval
+    let count: Int
+    let deckSize: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            let fan = CutFan(width: geo.size.width, height: geo.size.height, count: count, deckSize: deckSize)
+            let back = CardTextureGenerator.cardBackImage(width: max(8, fan.cardW.rounded()), colour: .draw)
+            Canvas { ctx, _ in
+                CutFanDrawing.draw(in: ctx, fan: fan, back: back, count: count,
+                                   spread: intro.fanSpread(t), riffle: intro.riffle(t), peek: nil)
+            }
+        }
+    }
+}
+
+/// The face-down fan, drawn (the ring's deck and the list's intro deck).
+enum CutFanDrawing {
+    static func draw(in ctx: GraphicsContext, fan: CutFan, back: PlatformImage, count: Int,
+                     spread: CGFloat, riffle: CGFloat, peek: Int?) {
+        guard count > 0 else { return }
+        let img = ctx.resolve(Image(platformImage: back).resizable())
+        for i in 0..<count {
+            var c = ctx
+            let a = fan.angle(i, of: count) * spread
+            let dx = (i % 2 == 0 ? -1 : 1) * riffle * fan.cardW * 0.6
+            c.translateBy(x: fan.pivot.x + dx, y: fan.pivot.y)
+            c.rotate(by: .radians(Double(a)))
+            let up = peek == i ? fan.cardH * CutFan.lift : 0
+            c.draw(img, in: CGRect(x: -fan.cardW / 2, y: -fan.cardH - up, width: fan.cardW, height: fan.cardH))
+        }
+    }
+}
+
+/// The intro's title, "Cut for a buck!", scaling in over the ring or the list.
 struct CutIntroTitle: View {
     let intro: CutIntro
     let t: TimeInterval
@@ -789,17 +893,8 @@ struct CutDeckView: View {
         let back = CardTextureGenerator.cardBackImage(width: max(8, fan.cardW.rounded()), colour: .draw)
         VStack(spacing: 0) {
             Canvas { ctx, _ in
-                guard count > 0 else { return }
-                let img = ctx.resolve(Image(platformImage: back).resizable())
-                for i in 0..<count {
-                    var c = ctx
-                    let a = fan.angle(i, of: count) * spread
-                    let dx = (i % 2 == 0 ? -1 : 1) * riffle * fan.cardW * 0.6
-                    c.translateBy(x: fan.pivot.x + dx, y: fan.pivot.y)
-                    c.rotate(by: .radians(Double(a)))
-                    let up = (can && peek == i) ? fan.cardH * CutFan.lift : 0
-                    c.draw(img, in: CGRect(x: -fan.cardW / 2, y: -fan.cardH - up, width: fan.cardW, height: fan.cardH))
-                }
+                CutFanDrawing.draw(in: ctx, fan: fan, back: back, count: count,
+                                   spread: spread, riffle: riffle, peek: can ? peek : nil)
             }
             .frame(width: layout.deck.width, height: fanH)
             .contentShape(Rectangle())
@@ -919,9 +1014,11 @@ struct CutListView: View {
 }
 
 #if DEBUG
-/// The "cut.ringFit" probe for XCUITest (fixture mode): "<ring|list> fits=<yes|no|-> stage=<w>x<h>",
-/// what shows, whether the ring fits the stage, and the stage measured.
-private struct CutFitProbe: View {
+/// A probe for XCUITest (fixture mode): "cut.ringFit" ("<ring|list> fits=<yes|no|-> stage=<w>x<h>",
+/// what shows, whether the ring fits the stage, and the stage measured) and "cut.introCheck"
+/// (the intro over either).
+private struct CutProbe: View {
+    let id: String
     let value: String
     var body: some View {
         Rectangle()
@@ -930,8 +1027,8 @@ private struct CutFitProbe: View {
             .opacity(0.01)
             .allowsHitTesting(false)
             .accessibilityElement()
-            .accessibilityLabel("cut.ringFit")
-            .accessibilityIdentifier("cut.ringFit")
+            .accessibilityLabel(id)
+            .accessibilityIdentifier(id)
             .accessibilityValue(value)
     }
 }
@@ -942,17 +1039,13 @@ private struct CutProbeView: View {
     let layout: CutRing.Layout
     let order: [String]
     let state: CutState?
-    let intro: String
 
     var body: some View {
         let check = layout.ok
             ? String(format: "ok n=%d f=%.2f d=%.0f card=%.0fx%.0f deck=%.0fx%.0f stage=%.0fx%.0f", layout.n, layout.f, layout.avatarD,
                      layout.cardW, layout.cardH, layout.deck.width, layout.deck.height, layout.w, layout.h)
             : "bad \(layout.why ?? "?") n=\(layout.n)"
-        HStack(spacing: 0) {
-            probe("cut.layoutCheck", check)
-            probe("cut.introCheck", intro)
-        }
+        probe("cut.layoutCheck", check)
     }
 
     private func probe(_ id: String, _ value: String) -> some View {

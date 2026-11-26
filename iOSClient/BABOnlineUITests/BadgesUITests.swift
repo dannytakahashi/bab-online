@@ -41,6 +41,18 @@ final class BadgesUITests: XCTestCase {
         for _ in 0..<swipes where !(e.exists && e.isHittable) { app.swipeUp(velocity: .slow) }
     }
 
+    /// Brings all of `e` on screen: hittable is not enough, a ~136 pt tile can stand half below
+    /// the window's edge (the iPhone Duo closed, a 466 x 678 window: iOS 1.2.7 (41)'s release run).
+    /// Short drags until its frame is inside the window; players scroll there too.
+    private func revealWhole(_ app: XCUIApplication, _ e: XCUIElement) {
+        reveal(app, e)
+        let window = app.windows.firstMatch.frame
+        for _ in 0..<8 where e.exists && e.frame.maxY > window.maxY - 1 {
+            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -120)))
+        }
+    }
+
     private func assertOnScreen(_ app: XCUIApplication, _ e: XCUIElement, _ what: String) {
         let window = app.windows.firstMatch.frame
         XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(e.frame), "\(what) \(e.frame) outside the window \(window)")
@@ -64,7 +76,11 @@ final class BadgesUITests: XCTestCase {
         if stats.exists, !stats.frame.isEmpty {
             XCTAssertGreaterThan(felted.frame.minY, stats.frame.maxY - 1, "below the statistics")
         }
-        for id in ["felted", "hammer-time", "century"] { assertOnScreen(app, element(app, "profile.badge.\(id)"), id) }
+        for id in ["felted", "hammer-time", "century"] {
+            let tile = element(app, "profile.badge.\(id)")
+            revealWhole(app, tile)
+            assertOnScreen(app, tile, id)
+        }
         XCTAssertFalse(element(app, "profile.badgesEmpty").exists)
         shot("badges-account")
         app.terminate()
@@ -131,6 +147,7 @@ final class BadgesUITests: XCTestCase {
         XCTAssertTrue(chemistry.waitForExistence(timeout: 5))
         XCTAssertEqual(chemistry.label, "Chemistry, Played 20 games with the same partner.")
         XCTAssertTrue(element(app, "profile.badge.five-hundred").exists)
+        revealWhole(app, chemistry)
         assertOnScreen(app, chemistry, "chemistry")
         shot("badges-player-kim")
         element(app, "profile.close").tap()

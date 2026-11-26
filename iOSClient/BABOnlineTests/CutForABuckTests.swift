@@ -387,6 +387,21 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertEqual(reduced.stageOpacity(1), 1)
     }
 
+    /// Over the list (iOS 1.2.7 (42)): the cover hides the rows while the title and the deck's
+    /// shuffle play, and is gone, with the title, by the intro's end; Reduce Motion the same, sooner.
+    func testTheListsCoverGoesWithTheTitle() {
+        for intro in [CutIntro(reduceMotion: false), CutIntro(reduceMotion: true)] {
+            XCTAssertEqual(intro.coverOpacity(0), 1, "the rows hidden as the intro starts")
+            XCTAssertEqual(intro.coverOpacity(intro.finish), 0, "the rows shown by its end")
+            for t in stride(from: 0.0, through: intro.finish, by: 0.05) {
+                // never a bare title over the rows: the cover is at least as up as the title
+                XCTAssertGreaterThanOrEqual(intro.coverOpacity(t) + 0.0001, intro.titleOpacity(t), "t=\(t)")
+            }
+        }
+        let full = CutIntro(reduceMotion: false)
+        XCTAssertEqual(full.coverOpacity(1.6), 1, "covered through the riffle and the fan")
+    }
+
     // MARK: - The screen model
 
     private final class Recorder {
