@@ -298,6 +298,10 @@ final class LobbyMenuLayoutUITests: XCTestCase {
             let app = lobby("tournament-rounds", size + ["-uiMeReady", "YES"])
             let slot = element(app, "tournament.ready")
             for _ in 0..<6 where !(slot.exists && slot.isHittable) { app.swipeUp(velocity: .slow) }
+            // unpinned at AX5, the slot scrolls with the players in a short scroll view (about 75 pt
+            // on the 18 Pro), which a swipe at the screen's centre (the header there) often misses
+            let scroll = app.scrollViews.containing(.button, identifier: "tournament.ready").firstMatch
+            for _ in 0..<6 where !(slot.exists && slot.isHittable) && scroll.exists { scroll.swipeUp(velocity: .slow) }
             XCTAssertTrue(slot.isHittable, "\(tag): the slot")
             assertOnScreen(app, slot, "\(tag) slot")
             XCTAssertGreaterThan(slot.frame.height, 44, "\(tag): it grows with the text")
