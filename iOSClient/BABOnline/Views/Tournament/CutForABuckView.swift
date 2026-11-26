@@ -256,17 +256,24 @@ struct CutStageView: View {
                 stage(layout: layout, order: order, intro: intro, t: t)
             }
             #if DEBUG
-            .overlay(alignment: .topLeading) { CutProbeView(layout: layout, order: order, state: state) }
+            .overlay(alignment: .topLeading) { CutProbeView(layout: layout, order: order, state: state, intro: introCheck) }
             #endif
         }
         .dynamicTypeSize(...DrawMetrics.nameTypeCap)
         .task(id: model.introStart) {
-            guard let start = model.introStart, CutStageView.heldIntroFrame == nil else { return }
-            let left = CutIntro(reduceMotion: model.reduceMotion).finish - Date().timeIntervalSince(start)
-            if left > 0 { try? await Task.sleep(for: .seconds(left)) }
-            model.endIntro()
+            // a held frame never ends; a cancelled task (this view rebuilt) ends nothing
+            guard CutStageView.heldIntroFrame == nil else { return }
+            await model.playIntro()
         }
     }
+
+    #if DEBUG
+    /// The probe `cut.introCheck`: "playing", "ran <s>" (the last intro's length), or "-".
+    private var introCheck: String {
+        if model.introStart != nil { return "playing" }
+        return model.lastIntroLength.map { String(format: "ran %.2f", $0) } ?? "-"
+    }
+    #endif
 
     /// `-uiCutIntroFrame <seconds>` (fixture mode): the intro held at that moment.
     static var heldIntroFrame: TimeInterval? {
@@ -817,21 +824,29 @@ private struct CutProbeView: View {
     let layout: CutRing.Layout
     let order: [String]
     let state: CutState?
+    let intro: String
 
     var body: some View {
         let check = layout.ok
             ? String(format: "ok n=%d f=%.2f d=%.0f card=%.0fx%.0f deck=%.0fx%.0f stage=%.0fx%.0f", layout.n, layout.f, layout.avatarD,
                      layout.cardW, layout.cardH, layout.deck.width, layout.deck.height, layout.w, layout.h)
             : "bad \(layout.why ?? "?") n=\(layout.n)"
+        HStack(spacing: 0) {
+            probe("cut.layoutCheck", check)
+            probe("cut.introCheck", intro)
+        }
+    }
+
+    private func probe(_ id: String, _ value: String) -> some View {
         Rectangle()
             .fill(Color.black)
             .frame(width: 1, height: 1)
             .opacity(0.01)
             .allowsHitTesting(false)
             .accessibilityElement()
-            .accessibilityLabel("cut.layoutCheck")
-            .accessibilityIdentifier("cut.layoutCheck")
-            .accessibilityValue(check)
+            .accessibilityLabel(id)
+            .accessibilityIdentifier(id)
+            .accessibilityValue(value)
     }
 }
 #endif

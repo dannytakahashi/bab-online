@@ -35,6 +35,9 @@ final class CutScreenModel: ObservableObject {
     @Published private(set) var backSentRound: Int?
     /// The intro's start (nil: none playing).
     @Published private(set) var introStart: Date?
+    /// How long the last intro ran before it ended (nil: none ended yet; the DEBUG probe
+    /// `cut.introCheck`): its full length, unless something cut it short.
+    @Published private(set) var lastIntroLength: TimeInterval?
     /// The reshuffle: each player's cards flying back to the deck (count), until they land.
     @Published private(set) var ghosts: [String: Int] = [:]
     @Published private(set) var ghostSeq = 0
@@ -56,6 +59,8 @@ final class CutScreenModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { MainActor.assumeIsolated { fn() } }
     }
     var now: () -> Date = Date.init
+    /// The intro's wait (a cancelled wait throws: the intro is not ended then).
+    var sleep: @MainActor (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
 
     private var current: CutState?
     private var reminded: Int?
@@ -110,6 +115,8 @@ final class CutScreenModel: ObservableObject {
         winnerShown = s?.stage == .winner && !verdictPending(s) ? s?.winner : nil
         if let s, s.stage == .gather, let end = s.endsAt, end.timeIntervalSince(now()) > CutIntro.minGatherLeft {
             introStart = now()
+        } else {
+            introStart = nil
         }
         armReminder(s)
     }
@@ -218,6 +225,25 @@ final class CutScreenModel: ObservableObject {
         return false
     }
 
+    /// Plays the intro that started at `introStart` to its end (CutStageView's task, keyed by
+    /// `introStart`), then ends it. A cancelled wait ends nothing: SwiftUI cancels the task
+    /// whenever the stage view is rebuilt or leaves (it is rebuilt as the lobby screen comes up),
+    /// and the stage view that replaces it plays on from the same start. Before this, `try?`
+    /// swallowed the cancellation and ended the intro in its first frames, so it never showed.
+    func playIntro() async {
+        guard let start = introStart else { return }
+        let left = CutIntro(reduceMotion: reduceMotion).finish - now().timeIntervalSince(start)
+        if left > 0 {
+            do { try await sleep(left) } catch { return }
+            if Task.isCancelled { return }
+        }
+        guard introStart == start else { return }
+        endIntro()
+    }
+
     /// The intro has ended (or never started).
-    func endIntro() { introStart = nil }
+    func endIntro() {
+        if let start = introStart { lastIntroLength = now().timeIntervalSince(start) }
+        introStart = nil
+    }
 }

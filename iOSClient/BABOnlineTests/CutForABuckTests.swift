@@ -464,6 +464,63 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertNotNil(m2.introStart)
     }
 
+    /// The stage view's task is cancelled whenever SwiftUI rebuilds the view (it is, as the lobby
+    /// comes up): a cancelled wait must leave the intro playing for the view that replaces it.
+    /// With `try?` around the sleep it ended the intro in its first frames (verifier 2026-11-25,
+    /// a screen recording: no title, no riffle, the avatars home from the first frame).
+    func testACancelledIntroWaitLeavesTheIntroPlaying() async {
+        let now = Date()
+        var clock = now
+        let (m, _) = model(now: now)
+        m.now = { clock }
+        let s = CutState.reduce(nil, .start, ["candidates": ["ivy", "kim"], "startsInMs": 12000], now: now)
+        m.attach(s)
+        let start = m.introStart
+        XCTAssertNotNil(start)
+        // the injected wait cancelled
+        m.sleep = { _ in throw CancellationError() }
+        await m.playIntro()
+        XCTAssertEqual(m.introStart, start, "a cancelled wait ends nothing")
+        XCTAssertNil(m.lastIntroLength)
+        // the real wait, its task cancelled (the stage view rebuilt)
+        m.sleep = { try await Task.sleep(for: .seconds($0)) }
+        let task = Task { await m.playIntro() }
+        task.cancel()
+        await task.value
+        XCTAssertEqual(m.introStart, start, "a cancelled task ends nothing")
+        // the replacing view's wait runs out: the intro ends at its full length
+        var waited: [TimeInterval] = []
+        m.sleep = { waited.append($0); clock = now.addingTimeInterval(CutIntro.duration) }
+        clock = now.addingTimeInterval(0.4)
+        await m.playIntro()
+        XCTAssertEqual(waited.count, 1)
+        XCTAssertEqual(waited.first ?? 0, CutIntro.duration - 0.4, accuracy: 0.001, "the wait is what is left")
+        XCTAssertNil(m.introStart)
+        XCTAssertEqual(m.lastIntroLength ?? 0, CutIntro.duration, accuracy: 0.001)
+    }
+
+    func testAnOlderIntroWaitNeverEndsANewerIntro() async {
+        let now = Date()
+        var clock = now
+        let (m, _) = model(now: now)
+        m.now = { clock }
+        let s = CutState.reduce(nil, .start, ["candidates": ["ivy", "kim"], "startsInMs": 12000], now: now)
+        m.attach(s)
+        // while the first intro's wait runs, the cut starts again (a new intro)
+        m.sleep = { _ in
+            clock = now.addingTimeInterval(1)
+            guard var again = s else { return }
+            again.seq += 1
+            m.update(old: s, new: again)
+        }
+        await m.playIntro()
+        XCTAssertEqual(m.introStart, now.addingTimeInterval(1), "the newer intro plays on")
+        // arriving with too little gather left: no intro, and none left over from before
+        let late = CutState.reduce(nil, .start, ["candidates": ["ivy", "kim"], "startsInMs": 2000], now: clock)
+        m.attach(late)
+        XCTAssertNil(m.introStart)
+    }
+
     func testAReshuffleSendsTheTableBack() {
         let now = Date()
         let (m, r) = model(now: now)

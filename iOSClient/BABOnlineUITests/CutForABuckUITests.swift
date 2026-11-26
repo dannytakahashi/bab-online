@@ -203,6 +203,12 @@ final class CutForABuckUITests: XCTestCase {
         app = open(12, "gather", ["-uiCutView", "ring"])
         XCTAssertTrue(any(app, "cut.status").label.hasPrefix("Cut for a buck starts in"))
         waitFor(4, "the intro ends") { !any(app, "cut.intro").exists }
+        // it ran its whole length (a stage view rebuilt as the lobby came up used to end it in
+        // its first frames, which the check above alone cannot tell from a played intro)
+        var ran = ""
+        waitFor(4, "the intro's probe") { ran = Fixture.probe(app, "cut.introCheck"); return ran.hasPrefix("ran ") }
+        let length = Double(ran.dropFirst(4)) ?? 0  // CutIntro.duration is 2.6 s
+        XCTAssertGreaterThanOrEqual(length, 2.6 - 0.1, "the intro was cut short: \(ran)")
         XCTAssertTrue(any(app, "cut.seat.kim").exists)
         keep("gather")
         app.terminate()
