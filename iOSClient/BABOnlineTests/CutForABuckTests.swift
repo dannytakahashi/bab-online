@@ -402,6 +402,28 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertEqual(full.coverOpacity(1.6), 1, "covered through the riffle and the fan")
     }
 
+    /// The overlay's title (review of iOS 1.2.7 (42)): over the ring it fades with the stage, as it
+    /// did drawn inside the stage in build 41 (title x stage); over the list it keeps its own timing.
+    func testTheOverlayTitleFadesWithTheRingButNotTheList() {
+        for intro in [CutIntro(reduceMotion: false), CutIntro(reduceMotion: true)] {
+            for t in stride(from: 0.0, through: intro.finish, by: 0.05) {
+                XCTAssertEqual(intro.overlayTitleOpacity(t, overRing: true), intro.titleOpacity(t) * intro.stageOpacity(t),
+                               accuracy: 0.0001, "ring t=\(t)")
+                XCTAssertEqual(intro.overlayTitleOpacity(t, overRing: false), intro.titleOpacity(t),
+                               accuracy: 0.0001, "list t=\(t)")
+            }
+        }
+        // the difference shows early: at 0.3 s the full form's title is ~86% up alone, ~60% over the ring
+        let full = CutIntro(reduceMotion: false)
+        XCTAssertLessThan(full.overlayTitleOpacity(0.3, overRing: true), full.overlayTitleOpacity(0.3, overRing: false) - 0.2)
+        // and both are fully up once the stage is (the ring's title is not dimmed later on)
+        XCTAssertEqual(full.overlayTitleOpacity(1.2, overRing: true), 1, accuracy: 0.0001)
+        // Reduce Motion: over the ring nothing before the stage starts fading in
+        let reduced = CutIntro(reduceMotion: true)
+        XCTAssertEqual(reduced.overlayTitleOpacity(0, overRing: true), 0)
+        XCTAssertLessThan(reduced.overlayTitleOpacity(0.2, overRing: true), reduced.overlayTitleOpacity(0.2, overRing: false))
+    }
+
     // MARK: - The screen model
 
     private final class Recorder {

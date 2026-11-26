@@ -97,8 +97,10 @@ struct CutForABuckView: View {
     private var stageOrList: some View {
         stageOrListContent
             .overlay(alignment: .top) {
-                CutIntroOverlay(model: model, over: mode == "list" ? .list : .ring)
-                    .frame(maxHeight: scrolling ? Self.scrollingStageHeight : .infinity)
+                // the accessibility sizes' one scroll: the title (and the list's deck) in the top
+                // 460 pt, where the ring would stand; the list's cover over all its rows
+                CutIntroOverlay(model: model, over: mode == "list" ? .list : .ring,
+                                contentHeight: scrolling ? Self.scrollingStageHeight : nil)
             }
             .task(id: model.introStart) {
                 // a held frame never ends; a cancelled task (this view rebuilt) ends nothing
@@ -465,6 +467,10 @@ struct CutIntroOverlay: View {
 
     @ObservedObject var model: CutScreenModel
     let over: Over
+    /// The title's (and the list's deck's) band from the top, when capped (the accessibility
+    /// sizes' one scroll: the ring's 460 pt); nil: the whole overlay. The list's cover always
+    /// spans the whole overlay (every row hidden, however long the list).
+    var contentHeight: CGFloat? = nil
     @EnvironmentObject var tournamentState: TournamentState
 
     var body: some View {
@@ -473,7 +479,8 @@ struct CutIntroOverlay: View {
                 let intro = CutIntro(reduceMotion: model.reduceMotion)
                 let t = CutStageView.heldIntroFrame ?? ctx.date.timeIntervalSince(start)
                 GeometryReader { geo in
-                    ZStack {
+                    let bandH = min(contentHeight ?? geo.size.height, geo.size.height)
+                    ZStack(alignment: .top) {
                         if over == .list {
                             // to the screen's foot: the list scrolls under the home indicator
                             Theme.background
@@ -482,18 +489,19 @@ struct CutIntroOverlay: View {
                                 .accessibilityHidden(true)
                         }
                         VStack(spacing: Theme.Space.s3) {
-                            CutIntroTitle(intro: intro, t: t)
+                            CutIntroTitle(intro: intro, t: t, overRing: over == .ring)
                             if over == .list {
                                 let w = min(geo.size.width * 0.6, 220)
-                                let h = min(w * 0.72, max(40, geo.size.height * 0.4))
+                                let h = min(w * 0.72, max(40, bandH * 0.4))
                                 CutIntroDeck(intro: intro, t: t, count: deckCount, deckSize: tournamentState.cut?.deckSize ?? CutState.deckSize)
                                     .frame(width: w, height: h)
                                     .opacity(intro.titleOpacity(t))
                                     .accessibilityHidden(true)
                             }
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .frame(width: geo.size.width, height: bandH)
                     }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
             }
             .allowsHitTesting(false)
@@ -549,6 +557,8 @@ enum CutFanDrawing {
 struct CutIntroTitle: View {
     let intro: CutIntro
     let t: TimeInterval
+    /// Over the ring the title fades with the stage too (CutIntro.overlayTitleOpacity).
+    var overRing: Bool = false
 
     var body: some View {
         Text(CutCopy.introTitle)
@@ -559,7 +569,7 @@ struct CutIntroTitle: View {
             .minimumScaleFactor(0.5)
             .padding(.horizontal, Theme.Space.s4)
             .scaleEffect(intro.titleScale(t))
-            .opacity(intro.titleOpacity(t))
+            .opacity(intro.overlayTitleOpacity(t, overRing: overRing))
             .allowsHitTesting(false)
             .accessibilityIdentifier("cut.intro")
     }

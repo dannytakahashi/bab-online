@@ -47,6 +47,12 @@ struct CutIntro: Equatable {
         reduceMotion ? Self.progress(t, 0, 0.45) : min(1, 0.25 + Self.progress(t, 0.15, 0.5))
     }
 
+    /// The title as CutIntroOverlay draws it: over the ring it fades with the stage too (as it did
+    /// inside the stage, build 41: no title before the ring under it); over the list, its own timing.
+    func overlayTitleOpacity(_ t: TimeInterval, overRing: Bool) -> CGFloat {
+        overRing ? titleOpacity(t) * stageOpacity(t) : titleOpacity(t)
+    }
+
     /// The list's cover (CutIntroOverlay over the list, which has no deck or avatars to bring in):
     /// the rows hidden under the title and the deck's shuffle, then shown as the title goes (Reduce
     /// Motion: the same crossfade, sooner).
