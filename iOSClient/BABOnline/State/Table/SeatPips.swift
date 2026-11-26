@@ -59,10 +59,17 @@ struct SeatPips: Equatable {
         }
         let size = s.table.deal?.handSize
         var out: [Int: SeatPips] = [:]
-        for pos in 1...4 {
-            if let p = pips(pos, bids: bids, handSize: size, scores: s.scores), p.slots > 0 || spoken { out[pos] = p }
+        for pos in 1...s.table.seats {
+            let p = s.table.isGyb ? soloPips(pos, bids: bids, handSize: size, scores: s.scores) : pips(pos, bids: bids, handSize: size, scores: s.scores)
+            if let p, p.slots > 0 || spoken { out[pos] = p }
         }
         return out
+    }
+
+    /// A Get Your Bid seat's pips: its own bid and its own tricks (no partner, no bore), once it bid.
+    static func soloPips(_ pos: Int, bids: BidBook, handSize: Int?, scores: ScoreSlice) -> SeatPips? {
+        guard let need = BidTotals.tricks(bids.bid(at: pos), handSize: handSize) else { return nil }
+        return SeatPips(need: need, won: scores.tricksByPosition[pos - 1] ?? 0, isBore: false, countsTeam: false)
     }
 
     static func pips(_ pos: Int, bids: BidBook, handSize: Int?, scores: ScoreSlice) -> SeatPips? {

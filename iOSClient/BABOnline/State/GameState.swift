@@ -184,6 +184,23 @@ final class GameState: ObservableObject {
     var isBidding: Bool { table.phase.isBidding }
 
     var bidBook: BidBook? { table.phase.bids }
+
+    // MARK: Get Your Bid (State/Table/GetYourBid.swift)
+
+    /// A Get Your Bid table: three seats, no teams, no HSI / /help / tutorial.
+    var isGyb: Bool { table.isGyb }
+    /// Seats at the table (3 at a Get Your Bid table).
+    var seatCount: Int { table.seats }
+    /// This deal's Forbidden Bid (the server's, else derived while bidding); nil in the base game.
+    var gybForbidden: GybForbidden? { table.gybForbidden }
+    /// My own Forbidden Bid while I bid (the bid sheet strikes it), nil otherwise.
+    var myForbiddenBid: Int? {
+        guard let f = gybForbidden, f.position == position, table.viewer.role == .seat else { return nil }
+        return f.bid
+    }
+    /// The seat this table is read from (the score bar, the bid chips): a seat's own, the
+    /// watched seat, a plain spectator's seat 1.
+    var readingSeat: Int { isPlainSpectator ? 1 : (watchedSeat ?? position ?? 1) }
     var bids: [Int: String] {
         var out: [Int: String] = [:]
         for pos in 1...4 { if let b = bidBook?.bid(at: pos) { out[pos] = b } }
@@ -236,6 +253,8 @@ final class GameState: ObservableObject {
     var drawnCard: Card? { table.phase.draw?.drawnCard }
     var drawResults: [DrawResult] { table.phase.draw?.results ?? [] }
     var teamsAnnounced: TeamsAnnounced? { table.phase.draw?.teams }
+    /// A tournament table's planned teams (the draw for first deal), nil at a casual table.
+    var drawPlannedTeams: [[TableSnapshot.PlannedTeamPlayer]]? { table.phase.draw?.plannedTeams }
     var hsiValues: [Int: Double] { table.hsi }
     /// My seat's HSI (my seat's row, the bid panel); nil for a pure spectator (no seat) or
     /// before the deal's values arrive.
@@ -245,6 +264,8 @@ final class GameState: ObservableObject {
     /// spectator) or no value for this deal.
     var myHSIReading: HSIBadge.Reading? {
         // a watcher's row is the watched seat's: its HSI (none while paused)
+        // Get Your Bid shows no HSI (the server sends none)
+        if isGyb { return nil }
         if let w = watchedSeat {
             guard !watchPaused else { return nil }
             if table.hsiHeld { return .pending }
@@ -280,7 +301,7 @@ final class GameState: ObservableObject {
     /// What Leave does from my seat now: a bot finishes, or the game (or tournament table) ends.
     var leaveOutcome: LeaveOutcome {
         LeaveOutcome.of(seats: players.seats, myPosition: position, inTournament: tournamentId != nil,
-                        verified: players.leaveCheck == .verified)
+                        verified: players.leaveCheck == .verified, tableSeats: table.seats)
     }
 
     var disconnectedPlayers: [Int: String] { players.disconnected }
@@ -334,7 +355,8 @@ final class GameState: ObservableObject {
     /// item, else the corner button): there for the whole game at my own seat (never a spectator
     /// or a lazy watcher); the lightbulb enabled only while `showsAssistAsk`.
     var showsAssistBarItem: Bool {
-        table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none
+        // Get Your Bid has no /help and no tutorial
+        table.viewer.role == .seat && table.phase.kind != .ended && table.phase.kind != .none && !table.isGyb
     }
     /// The switch sent /tutorial off and waits for the server.
     var tutorialOffSent: Bool { table.tutorialOffSent }

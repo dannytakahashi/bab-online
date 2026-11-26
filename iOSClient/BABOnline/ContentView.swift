@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var contentShown = false
     /// The one "the server restarted" message after a reconnect (RestartNotice).
     @ObservedObject private var restart = RestartNotices.shared
+    /// The server's update screen for a gated build (s2c updateRequired, build 41 on).
+    @ObservedObject private var updateRequired = UpdateRequiredState.shared
 
     /// Card faces render off the main thread from the game / tournament lobby on (or a
     /// rejoin straight into the game), so the first deal finds them cached (once per process).
@@ -76,6 +78,11 @@ struct ContentView: View {
                             // comes in with the sign-in's card at the hand-off, never in one frame
                             .opacity(showSplash ? 0 : 1)
                             .animation(.easeOut(duration: SplashTimeline.handOff), value: showSplash)
+                        // a badge just earned (s2c badgesAwarded, after gameEnd: over the score
+                        // screen), in the same spot; it waits while those toasts are up
+                        BadgeToast()
+                            .opacity(showSplash ? 0 : 1)
+                            .onDisappear { BadgeAwards.shared.reset() }
                     } else {
                         // signed out (the sign-in, register): the toasts alone, no connection pill
                         // (those screens say "Connecting to server..." themselves), so a
@@ -94,6 +101,12 @@ struct ContentView: View {
                 .environment(\.bootSplashShowing, showSplash)
                 .zIndex(0)
                 .transition(.identity)
+            }
+            if let notice = updateRequired.notice, !showSplash {
+                // over every screen: this build is gated, so nothing else it sends is answered
+                UpdateRequiredView(notice: notice)
+                    .zIndex(2)
+                    .transition(.opacity)
             }
             if showSplash {
                 // over the next screen, which is drawn under it as it fades

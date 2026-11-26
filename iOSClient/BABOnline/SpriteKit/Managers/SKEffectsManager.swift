@@ -3,6 +3,8 @@ import SpriteKit
 /// Visual effects (rainbow, bore badge, over-trump badge) in the transient
 /// layer, placed from the table layout.
 class SKEffectsManager {
+    /// Seats at the table (3 at a Get Your Bid table): which slot a seat is (GameSKScene sets it from the model).
+    var seats = 4
     enum EffectAnchor { case rainbow(Positions.RelativePosition), bore, overTrump }
 
     weak var scene: GameSKScene?
@@ -48,7 +50,7 @@ class SKEffectsManager {
     /// Rainbow over a seat (rainbow1, 128x118).
     func showRainbow(position: Int, myPosition: Int) {
         guard let scene = scene else { return }
-        let rel = Positions.getRelative(target: position, from: myPosition)
+        let rel = Positions.getRelative(target: position, from: myPosition, seats: seats)
         let texture = SKTexture(imageNamed: "rainbow1")
         let sprite = SKSpriteNode(texture: texture, size: Self.fit(texture, in: TableLayout.rainbowSize))
         sprite.name = "effect.rainbow"

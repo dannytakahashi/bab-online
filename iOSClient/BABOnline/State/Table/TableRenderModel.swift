@@ -59,6 +59,8 @@ struct TableRenderModel: Equatable {
     }
 
     var gameId: String?
+    /// Seats at the table (3 at a Get Your Bid table: no partner across, each seat its own colour).
+    var seats: Int = 4
     var viewPosition: Int
     var isSpectator: Bool
     var showsTable: Bool
@@ -69,9 +71,20 @@ struct TableRenderModel: Equatable {
     var hand: Hand?
     var trick: [TrickCard]
     var turn: Int?
-    var history: TeamPair          // team1 = my team's tricks, team2 = theirs
+    var history: TeamPair          // team1 = my team's tricks, team2 = theirs (three seats: the next in turn's)
     /// The history's bid totals once bidding is over (team1 = my team's; a bore = the hand): nil while bidding.
+    /// Three seats: team1 my bid, team2 the next in turn's.
     var pileTotals: TeamPair?
+    /// A three-seat table's third pile (TrickHistoryNode's solo rows): the seat after the next in
+    /// turn's tricks and bid, and the two opponents' seats (their colours); nil at four seats.
+    var soloPiles: SoloPiles?
+
+    struct SoloPiles: Equatable {
+        var opp: Int               // the next in turn (history.team2's seat)
+        var opp2: Int              // the one after
+        var opp2Won: Int
+        var opp2Total: Int?        // nil while bidding
+    }
     /// Every seat's trick pips by absolute position (SeatPips), my own seat's included.
     var pips: [Int: SeatPips]
     /// What VoiceOver reads per seat: `pips` plus a 0 bid without tricks (no slots, still a count).
@@ -112,6 +125,7 @@ struct TableRenderModel: Equatable {
         let viewer = s.table.viewer
         let view = viewer.viewPosition
         gameId = s.table.gameId
+        seats = s.table.seats
         viewPosition = view
         watchedSeat = viewer.watchedSeat
         bidding = s.table.phase.isBidding
@@ -123,11 +137,20 @@ struct TableRenderModel: Equatable {
         turn = s.table.phase.turn
         trickKey = s.table.phase.kind == .playing ? TableReducer.currentKey(s) : nil
 
-        let positions: [Int] = isSpectator ? [1, 2, 3, 4] : [Positions.team(view), Positions.rotate(view), Positions.rotate(Positions.rotate(Positions.rotate(view)))]
+        let positions: [Int]
+        if isSpectator {
+            positions = Array(1...seats)
+        } else if seats == 3 {
+            let around = Positions.around(view, seats: 3)
+            positions = [around.opp1, around.opp2]
+        } else {
+            positions = [Positions.team(view), Positions.rotate(view), Positions.rotate(Positions.rotate(Positions.rotate(view)))]
+        }
+        let seatCount = seats
         opponents = positions.compactMap { pos in
-            guard (1...4).contains(pos) else { return nil }
+            guard (1...seatCount).contains(pos) else { return nil }
             let seat = s.players.seats[pos]
-            return Opponent(rel: Positions.getRelative(target: pos, from: view), position: pos,
+            return Opponent(rel: Positions.getRelative(target: pos, from: view, seats: seatCount), position: pos,
                             name: seat?.username ?? "P\(pos)", pic: seat?.pic ?? .none, isBot: seat?.isBot ?? false,
                             lazy: seat?.lazy ?? false, presence: seat?.presence ?? .none, isTurn: s.table.phase.turn == pos,
                             socketId: s.players.socketBySeat[pos], avatarUrl: seat?.avatarUrl,
@@ -161,11 +184,11 @@ struct TableRenderModel: Equatable {
                 let played = s.table.phase.trick
                 legal = Set(CardLegality.getLegalCards(hand: cards, lead: played.first?.card, isLeading: played.isEmpty,
                                                        trump: s.table.deal?.trump, trumpBroken: s.table.deal?.trumpBroken ?? false,
-                                                       myPosition: me, leadPosition: s.table.phase.lead ?? 0).map(\.id))
+                                                       myPosition: me, leadPosition: s.table.phase.lead ?? 0, seats: seats).map(\.id))
                 for c in cards where !legal.contains(c.id) {
                     let r = CardLegality.isLegalMove(card: c, hand: cards, lead: played.first?.card, isLeading: played.isEmpty,
                                                      trump: s.table.deal?.trump, trumpBroken: s.table.deal?.trumpBroken ?? false,
-                                                     myPosition: me, leadPosition: s.table.phase.lead ?? 0)
+                                                     myPosition: me, leadPosition: s.table.phase.lead ?? 0, seats: seats)
                     blocked[c.id] = r.reason.map { "\($0)." } ?? Blocked.trickClearing
                 }
             } else if myTurn == .choosing(.bid) {
@@ -196,15 +219,33 @@ struct TableRenderModel: Equatable {
 
         let rel = s.scores.tricks.relative(to: view)
         history = TeamPair(team1: rel.mine, team2: rel.theirs)
+        soloPiles = nil
+        let around = Positions.around(view, seats: 3)
+        if seats == 3 {
+            // one pile per seat (the web's team / opp / opp2): mine, the next in turn's, the one after's
+            let byPos = s.scores.tricksByPosition
+            let won = { (p: Int) in byPos[p - 1] ?? 0 }
+            history = TeamPair(team1: won(view), team2: won(around.opp1))
+            soloPiles = SoloPiles(opp: around.opp1, opp2: around.opp2, opp2Won: won(around.opp2), opp2Total: nil)
+        }
         let doneBidding: BidBook?
         switch s.table.phase {
         case .playing(let p): doneBidding = p.bids
         case .handResolving(let h): doneBidding = h.bids
         default: doneBidding = nil
         }
+        let size = s.table.deal?.handSize
         pileTotals = doneBidding.map { book in
-            let t = BidTotals.totals(book, handSize: s.table.deal?.handSize).relative(to: view)
+            if seatCount == 3 {
+                // each seat's own bid (no bores in Get Your Bid)
+                let bid = { (p: Int) in BidTotals.tricks(book.bid(at: p), handSize: size) ?? 0 }
+                return TeamPair(team1: bid(view), team2: bid(around.opp1))
+            }
+            let t = BidTotals.totals(book, handSize: size).relative(to: view)
             return TeamPair(team1: t.mine, team2: t.theirs)
+        }
+        if seatCount == 3, let book = doneBidding {
+            soloPiles?.opp2Total = BidTotals.tricks(book.bid(at: around.opp2), handSize: size) ?? 0
         }
         pips = SeatPips.all(s)
         spokenPips = SeatPips.all(s, spoken: true)

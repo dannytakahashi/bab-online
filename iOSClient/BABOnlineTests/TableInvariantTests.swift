@@ -17,7 +17,7 @@ final class TableInvariantTests: XCTestCase {
                     events += 1
                     let s = replay.state
                     let model = TableRenderModel(s)
-                    let historyEmpty = model.history.team1 == 0 && model.history.team2 == 0
+                    let historyEmpty = model.history.team1 == 0 && model.history.team2 == 0 && (model.soloPiles?.opp2Won ?? 0) == 0
                     switch s.myTurn {
                     case .choosing(.bid), .submitted(.bid, _):
                         bidTurns += 1

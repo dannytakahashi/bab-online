@@ -23,7 +23,8 @@ struct TournamentScoreboardView: View {
                 HStack(spacing: 0) {
                     Text("Player")
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(1...tournamentState.totalRounds, id: \.self) { round in
+                    // R1..RN follow the host's count (TournamentRounds; never an empty range)
+                    ForEach(TournamentRounds.columns(tournamentState.totalRounds), id: \.self) { round in
                         Text("R\(round)")
                             .frame(width: 40)
                     }
@@ -49,7 +50,7 @@ struct TournamentScoreboardView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                        ForEach(0..<tournamentState.totalRounds, id: \.self) { round in
+                        ForEach(0..<TournamentRounds.columns(tournamentState.totalRounds).upperBound, id: \.self) { round in
                             if round < entry.roundScores.count {
                                 // a marked score ("-120†") stays on one line in its cell
                                 Text(entry.cellText(round: round))

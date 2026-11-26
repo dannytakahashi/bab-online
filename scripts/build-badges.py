@@ -6,7 +6,7 @@ server/game/badges.js (server/game/__tests__/badges.test.js holds the two
 lists to each other). Colours follow client/tokens/tokens.json (gold, card
 red, green, card paper).
 
-  python3 scripts/build-badges.py        # rewrites every file
+  python3 scripts/build-badges.py        # rewrites every file (and the iOS app's copies)
 
 To add a badge: add its emblem to EMBLEMS here, its entry to BADGES in
 server/game/badges.js, and run this script.
@@ -136,3 +136,25 @@ for k in EMBLEMS:
     with open(os.path.join(OUT, k + '.svg'), 'w') as f:
         f.write(svg(k) + '\n')
 print(f'wrote {len(EMBLEMS)} badges to {OUT}')
+
+# The iOS app's copies (iOS 1.2.7): one imageset per badge in Misc.xcassets/Badges (a
+# namespace: Image("Badges/<id>")), the same bytes with the vector data kept
+# (server/game/__tests__/badges.test.js holds the two sets to each other)
+import json, shutil
+IOS = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'iOSClient', 'BABOnline', 'Resources', 'Misc.xcassets', 'Badges'))
+INFO = {'author': 'xcode', 'version': 1}
+def write_json(path, data):
+    with open(path, 'w') as f:
+        f.write(json.dumps(data, indent=2).replace('": ', '" : ') + '\n')
+os.makedirs(IOS, exist_ok=True)
+for name in os.listdir(IOS):
+    if name.endswith('.imageset') and name[:-len('.imageset')] not in EMBLEMS:
+        shutil.rmtree(os.path.join(IOS, name))
+write_json(os.path.join(IOS, 'Contents.json'), {'info': INFO, 'properties': {'provides-namespace': True}})
+for k in EMBLEMS:
+    d = os.path.join(IOS, k + '.imageset')
+    os.makedirs(d, exist_ok=True)
+    shutil.copyfile(os.path.join(OUT, k + '.svg'), os.path.join(d, k + '.svg'))
+    write_json(os.path.join(d, 'Contents.json'), {'images': [{'filename': k + '.svg', 'idiom': 'universal'}], 'info': INFO,
+                                                  'properties': {'preserves-vector-representation': True}})
+print(f'wrote {len(EMBLEMS)} badges to {IOS}')

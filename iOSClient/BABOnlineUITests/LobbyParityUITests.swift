@@ -145,7 +145,8 @@ final class LobbyParityUITests: XCTestCase {
         let app = launch("tournament-results")
         let winner = app.staticTexts["results.winner"]
         XCTAssertTrue(winner.waitForExistence(timeout: 5))
-        XCTAssertEqual(winner.label, "kim & ivy tie!")
+        // iOS 1.2.7 (41): the final results are the lobby itself (TournamentFinalView), in the web's words
+        XCTAssertEqual(winner.label, "You and kim share the win!")
         let max = any(app, "results.row.max")
         XCTAssertTrue(max.waitForExistence(timeout: 5))
         XCTAssertEqual(max.label, "7. max, 82 points. Round 1: 55. Round 2: -20. Round 3: -30, left the table. Round 4: 77")
@@ -153,10 +154,7 @@ final class LobbyParityUITests: XCTestCase {
         XCTAssertTrue(ned.label.contains("Round 3: -30, sat out. Round 4: 31, sat out"), ned.label)
         XCTAssertTrue(any(app, "results.row.jon").label.contains("Round 3: 45, table ended early"))
         XCTAssertTrue(any(app, "results.table.wide").exists, "at the default text size the rounds sit beside the name")
-        // the lobby's scoreboard behind the overlay speaks its rows the same way (no glyphs)
-        XCTAssertEqual(any(app, "scoreboard.row.max").label,
-                       "7. max, 82 points. Round 1: 55. Round 2: -20. Round 3: -30, left the table. Round 4: 77")
-        // (and carries the same legend)
+        // the legend under the final standings
         let legend = any(app, "tournament.results").descendants(matching: .any)["tournament.flagLegend"]
         XCTAssertTrue(legend.exists)
         for part in ["table ended early", "left the table", "sat out"] {

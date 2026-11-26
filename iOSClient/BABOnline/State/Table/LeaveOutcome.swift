@@ -36,8 +36,9 @@ enum LeaveOutcome: Equatable {
     /// `seats` the table's seats, `myPosition` my seat (excluded), `inTournament` a tournament
     /// table, `verified` the seats come from a snapshot taken since Leave was tapped.
     /// A table not fully known yet (fewer than 4 seats) keeps the bot message.
-    static func of(seats: [Int: SeatState], myPosition: Int?, inTournament: Bool, verified: Bool = false) -> LeaveOutcome {
-        guard seats.count >= 4 else { return .botFinishes }
+    /// `tableSeats`: 3 at a Get Your Bid table.
+    static func of(seats: [Int: SeatState], myPosition: Int?, inTournament: Bool, verified: Bool = false, tableSeats: Int = 4) -> LeaveOutcome {
+        guard seats.count >= tableSeats else { return .botFinishes }
         let owners = seats.values.filter { seat in
             seat.position != myPosition && seat.controller != .bot && ownerCanReturn.contains(seat.presence)
         }

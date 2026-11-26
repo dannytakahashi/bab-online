@@ -19,6 +19,50 @@ final class ScoreBarNamesTests: XCTestCase {
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: 4, usernames: seated) == ("dan/bob", "ann/cat"))
     }
 
+    /// A lazy or resigned seat is named by its owner in the team names (owner 2026-11-25; server
+    /// #416, the web's teamPlayerDataOf): the score bar's sides, the bid chips' and the bidding /
+    /// hand lines; the seat's own plate keeps the bot that plays it; a native bot keeps its persona.
+    func testALazyOrResignedSeatIsNamedByItsOwnerInTeamNames() {
+        // seats: 1 me, 2 L (a native bot), 3 P (a human), 4 R (a native bot)
+        var s = T.dealtState()
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: s.players.teamNames) == ("me/P", "L/R"))
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "🤖 Zach", "botPic": 5, "originalUsername": "P", "seq": 3]))
+        XCTAssertEqual(s.players.name(3), "🤖 Zach", "the plate shows who is playing")
+        XCTAssertEqual(s.players.teamName(3), "P")
+        XCTAssertEqual(s.players.teamName(2), "L", "a native bot keeps its persona")
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: s.players.teamNames) == ("me/P", "L/R"))
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 2, usernames: s.players.teamNames) == ("L/R", "P/me"))
+        // the bidding line names the owner too
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 2, "seq": 4]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 0, "position": 3, "seq": 5]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 4, "seq": 6]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 1, "seq": 7]))
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": [1, 1, 0, 1], "lead": 2, "seq": 8]))
+        let lines = s.log.entries.map(\.message)
+        XCTAssertTrue(lines.contains { $0.hasPrefix("Bidding complete — me/P: ") }, "\(lines)")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("Bidding complete") && $0.contains("Zach") }, "\(lines)")
+        // back from /lazy: the owner plays and is named
+        TableReducer.reduce(&s, T.ev("playerActiveMode", ["position": 3, "username": "P", "pic": 3, "seq": 9]))
+        XCTAssertEqual(s.players.name(3), "P")
+        XCTAssertEqual(s.players.teamName(3), "P")
+
+        // a resign bot: the owner who left
+        var r = T.dealtState()
+        TableReducer.reduce(&r, T.ev("playerResigned", ["position": 3, "oldUsername": "P", "botUsername": "🤖 Gina", "botPic": 6, "seq": 3]))
+        XCTAssertEqual(r.players.name(3), "🤖 Gina")
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: r.players.teamNames) == ("me/P", "L/R"))
+        XCTAssertTrue(ScoreBarView.viewerTeams(position: nil, spectator: true, usernames: r.players.teamNames).team?.joined == "me/P")
+
+        // the rule on its own: an owner wins unless the seat is a native bot
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "ann", controller: .lazyBot)), "ann")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "ann", controller: .resignBot)), "ann")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "🤖 Mike", controller: .bot)), "🤖 Mike")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "x", controller: .bot)), "🤖 Mike")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: nil, controller: .resignBot)), "🤖 Mike",
+                       "a draw-phase leaver's resign bot with no owner known: its persona")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "ann", ownerUsername: "", controller: .human)), "ann")
+    }
+
     func testNamesNotKnownYetAreEmptyNeverAPlaceholder() {
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: nil, usernames: seated) == ("", ""))
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: 0, usernames: seated) == ("", ""))

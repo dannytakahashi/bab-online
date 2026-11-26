@@ -157,8 +157,9 @@ extension UIFixture {
 
     /// All three periods: This Year from legacy games (no bag records), This Month empty; each
     /// period's count (periodGames) differs, as the owner expects when switching periods.
-    /// Superlatives (additive 2026-11-20): All Time has five (no botFriends: human games are
-    /// never solo), This Year three with a three-way tie whose detail names two more.
+    /// Superlatives (additive 2026-11-20): All Time has six (no botFriends: human games are
+    /// never solo; Lucky Buck last, 1.2.7), This Year four with a three-way tie whose detail names
+    /// two more and a Lucky Buck tie.
     static let recordsFixture: [String: Any] = [
         "success": true,
         "totalGames": 1234,
@@ -178,6 +179,9 @@ extension UIFixture {
                     ["id": "helpFromFriends", "title": "A little help from my friends", "names": ["ivy"],
                      "detail": "37 /help uses"],
                     ["id": "anchor", "title": "Anchor", "names": ["hal"], "detail": "31% of hands set"],
+                    // 1.2.7: the most Cut for a buck wins (at least 2), last in the server's order,
+                    // rendered like any title (no client code knows its id)
+                    ["id": "luckyBuck", "title": "Lucky Buck", "names": ["kim"], "detail": "3 wins in 7 cuts"],
                 ],
             ],
             "thisYear": [
@@ -191,6 +195,7 @@ extension UIFixture {
                     ["id": "bagBoy", "title": "Bag Boy", "names": ["hal", "kim", "ned"], "detail": "2.1 bags a game (+2 more)"],
                     ["id": "luckyDuck", "title": "Lucky Duck", "names": ["max"], "detail": "139.9 avg HSI"],
                     ["id": "anchor", "title": "Anchor", "names": ["jon"], "detail": "27% of hands set"],
+                    ["id": "luckyBuck", "title": "Lucky Buck", "names": ["ivy", "kim"], "detail": "2 wins each"],
                 ],
             ],
             "thisMonth": NSNull(),

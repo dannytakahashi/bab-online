@@ -44,8 +44,10 @@ final class TournamentVoiceUITests: XCTestCase {
                 let title = app.staticTexts["Sunday Cup"]
                 XCTAssertTrue(title.exists)
                 // at AX5 one row left the title a letter wide: it gets a row of its own there
-                // ("Sunday Cup" is 96 pt wide at the default size, about 230 at AX5)
-                XCTAssertGreaterThan(title.frame.width, size == nil ? 90 : 200, "\(fixture) \(tag): the title squeezed to \(title.frame)")
+                // ("Sunday Cup" is 96 pt wide at the default size, about 230 at AX5; from 1.2.7 the
+                // header is never squeezed, so at AX5 on a phone it wraps to "Sunday" / "Cup",
+                // about 190 wide, instead of being cut to "Sunday C…")
+                XCTAssertGreaterThan(title.frame.width, size == nil ? 90 : 150, "\(fixture) \(tag): the title squeezed to \(title.frame)")
                 for other in [title, app.staticTexts.matching(NSPredicate(format: "label ENDSWITH ' players'")).firstMatch,
                               app.buttons["Leave"]] where other.exists {
                     XCTAssertFalse(other.frame.intersects(mic.frame), "\(fixture) \(tag): \(other.label) \(other.frame) under the mic \(mic.frame)")

@@ -3,7 +3,7 @@ import PhotosUI
 
 /// My own profile at the top of the Account sheet (the web's showProfilePage): the picture
 /// other players see, with Upload Photo and Choose Avatar, then my statistics for the games
-/// the Stats sheet counts. Two List sections. The rows only set `pickedPhoto` and
+/// the Stats sheet counts, then my tournament history and my badges (once a reply said them). Two to four List sections. The rows only set `pickedPhoto` and
 /// `showsAvatarPicker` (the Account sheet's state); what acts on them is OwnProfileHost on the
 /// List, because a List row that scrolls off screen is torn down with its modifiers.
 struct OwnProfileSections: View {
@@ -75,6 +75,25 @@ struct OwnProfileSections: View {
                 .padding(.vertical, Theme.Space.s1)
         }
         .listRowBackground(Theme.surface)
+
+        // my tournament history between the statistics and the badges, as on the web (once a
+        // reply said it; none for a player with no finished tournament)
+        if isMine, let history = profileState.ownTournaments, !history.isEmpty {
+            Section {
+                ProfileTournamentsSection(history: history, username: authState.username)
+                    .padding(.vertical, Theme.Space.s1)
+            }
+            .listRowBackground(Theme.surface)
+        }
+
+        // my earned badges, below the statistics as on the web (once a reply said them)
+        if isMine, let badges = profileState.ownBadges {
+            Section {
+                ProfileBadgesSection(badges: badges)
+                    .padding(.vertical, Theme.Space.s1)
+            }
+            .listRowBackground(Theme.surface)
+        }
     }
 
     private var hero: some View {

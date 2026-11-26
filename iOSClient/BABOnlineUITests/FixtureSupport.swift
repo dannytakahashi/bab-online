@@ -13,13 +13,22 @@ enum Fixture {
                                  "game-lobby-family": "screen.gameLobby", "game-lobby-family-full": "screen.gameLobby",
                                  "main-room-family": "screen.mainRoom",
                                  "tournament-lobby": "screen.tournamentLobby", "tournament-round": "screen.tournamentLobby",
-                                 "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn"]
+                                 "tournament-between": "screen.tournamentLobby", "sign-in": "screen.signIn",
+                                 "tournament-pairings": "screen.tournamentLobby", "tournament-rounds": "screen.tournamentLobby", "tournament-cut": "screen.tournamentLobby",
+                                 "update-required": "updateRequired"]
 
     /// The element that says the fixture's screen is up.
     static func readyElement(_ app: XCUIApplication, _ fixture: String) -> XCUIElement {
         if fixture.hasPrefix("game-end") { return app.descendants(matching: .any)["gameEnd"] }
         if let id = screenFixtures[fixture] { return app.descendants(matching: .any)[id] }
         return app.buttons["leave"]
+    }
+
+    /// After New Game (Get Your Bid, 2026-11-25: New Game asks which game): the base game's
+    /// choice, "Back Alley Bridge", as every live test before the second game meant.
+    static func chooseClassicGame(timeout: TimeInterval = 5) {
+        let choice = XCUIApplication().buttons["Back Alley Bridge"].firstMatch
+        if choice.waitForExistence(timeout: timeout) { choice.tap() }
     }
 
     static func launch(_ fixture: String, extra: [String] = [], env: [String: String] = [:]) -> XCUIApplication {

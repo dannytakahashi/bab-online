@@ -127,6 +127,35 @@ final class TournamentSocketHandler {
         }
     }
 
+    /// tournamentSettingsUpdated {totalRounds, by} (iOS 1.2.7; TournamentRounds): the host set
+    /// the number of rounds in the lobby. The round line, the scoreboard's columns and the host's
+    /// picker follow it; the system line ("kim set the tournament to 3 rounds.") comes as a
+    /// tournamentMessage. Only for a tournament this app is in.
+    @MainActor
+    func handleSettingsUpdated(_ dict: [String: Any]) {
+        guard !tournamentState.tournamentId.isEmpty else { return }
+        tournamentState.applyTotalRounds(dict["totalRounds"])
+    }
+
+    /// tournamentVoiceStatus {admitted, cap} (iOS 1.2.7, the clientHello cap
+    /// `tournamentVoiceStatus`; TournamentVoice.fullNote): past the room's cap this member waits in
+    /// line, unlisted, so voice never starts; the lobby's header says "Voice is full (N people)"
+    /// until the server lets it in (admitted true, its voicePeerList right behind) or the screen
+    /// goes. Only on the tournament lobby screen (the web's rule).
+    @MainActor
+    func handleVoiceStatus(_ dict: [String: Any]) {
+        guard appState.screen == .tournamentLobby, !tournamentState.tournamentId.isEmpty,
+              let admitted = dict["admitted"] as? Bool else { return }
+        if admitted {
+            tournamentState.voiceFullCap = nil
+        } else {
+            let wasWaiting = tournamentState.voiceFullCap != nil
+            // a cap outside 2...20 still says "Voice is full" (TournamentVoice.fullNote)
+            tournamentState.voiceFullCap = TournamentVoice.roomCap(dict["cap"]) ?? 0
+            if !wasWaiting { A11y.announce(TournamentVoice.fullNote(cap: tournamentState.voiceFullCap)) }
+        }
+    }
+
     /// tournamentCancelled: the main room, with the web's toast (a cancel mid-round sends
     /// abortGame first, so this also explains the table closing).
     @MainActor
@@ -138,6 +167,32 @@ final class TournamentSocketHandler {
         LobbyEmitter.joinMainRoom()
         if wasIn { socket.serverError = ServerErrorNotice(message: TournamentNotice.cancelled, kind: .info) }
         print("[Tournament] Tournament cancelled by host")
+    }
+
+    /// A cutForABuck* event (iOS 1.2.7 (41)): the one cut state, whatever screen is up (the score
+    /// screen's strip reads it too). Only for a tournament this app is in (a late copy after I left
+    /// must not bring a cut into the reset state). Internal for CutForABuckTests.
+    @MainActor
+    func handleCut(_ event: String, _ dict: [String: Any], now: Date = Date()) {
+        guard !tournamentState.tournamentId.isEmpty, let type = CutState.Event.of(wireName: event) else { return }
+        tournamentState.applyCut(type, dict, now: now)
+    }
+
+    /// tournamentComplete: the final standings, the winners and, when a cut ran, its result; this
+    /// build shows them in the lobby itself (TournamentFinalView), with the chat and voice.
+    @MainActor
+    func handleComplete(_ dict: [String: Any]) {
+        tournamentState.phase = "complete"
+        tournamentState.readyDeadlinePassed = false
+        if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
+            tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
+        }
+        tournamentState.winners = dict["winners"] as? [String] ?? []
+        // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+        tournamentState.applyPairings(dict["pairings"])
+        // Cut for a buck's result (absent: no cut ran, or it ended before a winner)
+        tournamentState.cutResult = CutResult.from(dict["cutForABuck"])
+        tournamentState.cut = nil
     }
 
     func register() {
@@ -184,6 +239,16 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async { self.handleReadyUpdate(dict) }
         }
 
+        socket.on(SocketEvents.Server.tournamentSettingsUpdated) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.handleSettingsUpdated(dict) }
+        }
+
+        socket.on(SocketEvents.Server.tournamentVoiceStatus) { [weak self] data, _ in
+            guard let self, let dict = data.first as? [String: Any] else { return }
+            DispatchQueue.main.async { self.handleVoiceStatus(dict) }
+        }
+
         // MARK: - Chat
 
         socket.on(SocketEvents.Server.tournamentMessage) { [weak self] data, _ in
@@ -208,6 +273,8 @@ final class TournamentSocketHandler {
                 if let total = dict["totalRounds"] as? Int {
                     self.tournamentState.totalRounds = total
                 }
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 print("[Tournament] Round \(self.tournamentState.currentRound) started")
             }
         }
@@ -215,8 +282,10 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentGameAssignment) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                // off the tournament voice room to this round's table (TournamentVoice)
+                // off the tournament voice room to this round's table (TournamentVoice); its
+                // line too (the server says nothing when a seat takes a member out of it)
                 self.voice().changeRoom()
+                self.tournamentState.voiceFullCap = nil
                 Self.routeGameAssignment(dict, to: self.gameState)
                 print("[Tournament] Game assigned: \(dict["gameId"] as? String ?? "")")
             }
@@ -228,6 +297,8 @@ final class TournamentSocketHandler {
                 if let gamesArr = dict["activeGames"] as? [[String: Any]] {
                     self.tournamentState.activeGames = gamesArr.compactMap { TournamentActiveGame.from($0) }
                 }
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
                     self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
                 }
@@ -242,6 +313,8 @@ final class TournamentSocketHandler {
             DispatchQueue.main.async {
                 self.tournamentState.phase = "between_rounds"
                 self.tournamentState.isReady = false
+                // each round's tables and teams so far (additive 2026-11-25; absent: kept)
+                self.tournamentState.applyPairings(dict["pairings"])
                 // a new between-rounds wait starts its own deadline (a rolled-back start
                 // sends tournamentReadyUpdate with the flag right after this)
                 self.tournamentState.readyDeadlinePassed = false
@@ -262,13 +335,18 @@ final class TournamentSocketHandler {
         socket.on(SocketEvents.Server.tournamentComplete) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             DispatchQueue.main.async {
-                self.tournamentState.phase = "complete"
-                self.tournamentState.readyDeadlinePassed = false
-                if let scoreboardArr = dict["scoreboard"] as? [[String: Any]] {
-                    self.tournamentState.scoreboard = scoreboardArr.compactMap { TournamentScoreEntry.from($0) }
-                }
-                self.tournamentState.winners = dict["winners"] as? [String] ?? []
+                self.handleComplete(dict)
                 print("[Tournament] Tournament complete")
+            }
+        }
+
+        // MARK: - Cut for a buck (iOS 1.2.7 (41))
+
+        for type in CutState.Event.allCases {
+            let event = type.wireName
+            socket.on(event) { [weak self] data, _ in
+                guard let self, let dict = data.first as? [String: Any] else { return }
+                DispatchQueue.main.async { self.handleCut(event, dict) }
             }
         }
 

@@ -122,7 +122,7 @@ extension TableReducer {
         s.players.spectatorCount = snap.spectatorCount
         s.players.watching = WatchingList(snap.watching)
         // the voice rule before seating (VoiceCompany): the draw's human entrants not left
-        if s.players.seats.count < 4, let entrants = snap.entrants {
+        if s.players.seats.count < (hints?.gyb != nil ? GybRules.seats : 4), let entrants = snap.entrants {
             s.players.entrantHumans = entrants.compactMap { e in
                 guard !e.isBot, e.presence != .left, let name = e.username, !name.isEmpty else { return nil }
                 return name
@@ -167,6 +167,7 @@ extension TableReducer {
         case .drawing, .drawResolving, .teamsAnnounced:
             var d = DrawState(stage: snap.stage == .drawing ? .drawing : snap.stage == .drawResolving ? .resolving : .teamsAnnounced)
             d.results = (snap.draw?.drawn ?? []).map { DrawResult(username: $0.username ?? "", position: $0.drawOrder, cardIndex: 0, card: $0.card) }
+            d.plannedTeams = PlannedTeams.valid(snap.draw?.teams)  // a tournament table's (a spectator joining mid-draw)
             if let mine = snap.draw?.viewerDrawOrder {
                 d.hasDrawn = true
                 d.drawnCard = snap.draw?.drawn.first(where: { $0.drawOrder == mine })?.card
@@ -190,6 +191,16 @@ extension TableReducer {
             s.table.phase = .handResolving(HandResolvingState(bids: bids, outcome: nil))
         case .ended, .aborted, .unknown:
             s.table.phase = prev.table.phase
+        }
+
+        // Get Your Bid: the carrier's `gyb` (scores, exact bids, the Forbidden Bid, three-seat
+        // order); a same-game snapshot without it keeps the mode it had (another game's is the
+        // base game, as the web's applySnapshot)
+        if let g = hints?.gyb {
+            applyGybSnapshot(&s, g)
+        } else if sameGame && prev.table.isGyb {
+            s.table.mode = .gyb
+            s.table.gyb = prev.table.gyb
         }
 
         // the running bid clock (present only while it runs; inMs from the snapshot's serverTime,

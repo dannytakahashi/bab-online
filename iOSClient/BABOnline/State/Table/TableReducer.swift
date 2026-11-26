@@ -17,6 +17,8 @@ enum LocalAction: Equatable {
     case identity(username: String?, playerId: String?)
     case enterGameContext(gameId: String, tournamentId: String?)
     case enterLobby(lobbyId: String)
+    /// The game's mode as allPlayersReady says it (Get Your Bid: three seats), before the draw.
+    case setMode(GameMode)
     case reset
     case submitPlay(Card, reqId: UInt32)
     case submitBid(String, reqId: UInt32)
@@ -196,6 +198,8 @@ enum TableReducer {
             if live { fx.append(.bidClock(.stop(.hard))) }
         case .connectionLost:
             stopBidClock(&s, .hard, &fx)
+        case .setMode(let mode):
+            setMode(&s, mode)
         case .enterLobby(let lobbyId):
             if s.table.bidTuneLive { fx.append(.bidClock(.stop(.hard))) }
             s = .fresh(keeping: s.table.me)
@@ -307,7 +311,7 @@ enum TableReducer {
     static func checkLeave(_ s: inout TableState, _ fx: inout [TableEffect]) {
         s.players.leaveCheck = .settled
         guard case .unsure = LeaveOutcome.of(seats: s.players.seats, myPosition: s.table.viewer.position,
-                                              inTournament: s.table.tournamentId != nil) else { return }
+                                              inTournament: s.table.tournamentId != nil, tableSeats: s.table.seats) else { return }
         let id = "leave-\(s.sync.nextRequestNo)"
         s.sync.nextRequestNo += 1
         s.players.leaveCheck = .pending(requestId: id)
