@@ -46,10 +46,11 @@ extension WatchingList {
 
 extension PlayersSlice {
     /// The names of the seats somebody watches over the shoulder (the badge list's
-    /// "watching <player>"; empty while nobody does).
+    /// "watching <player>"; empty while nobody does), by the owner rule: a lazy or resigned
+    /// seat's owner, never the bot playing it (`ownerName`, as the seat eye says it).
     var watchedSeatNames: [Int: String] {
         var out: [Int: String] = [:]
-        for seat in watching.watchersBySeat.keys { out[seat] = name(seat) }
+        for seat in watching.watchersBySeat.keys { out[seat] = ownerName(seat) }
         return out
     }
 }

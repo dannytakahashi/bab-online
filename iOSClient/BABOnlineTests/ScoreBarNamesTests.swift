@@ -75,6 +75,9 @@ final class ScoreBarNamesTests: XCTestCase {
         XCTAssertEqual(seats[3]?.spokenName, "P")
         XCTAssertEqual(seats[2]?.spokenName, "L", "a native bot keeps its persona")
         XCTAssertEqual(seats[4]?.spokenName, "R")
+        // the spectator badge's rows ("Zach · watching P"), as the seat eye says it
+        TableReducer.reduce(&s, T.ev("spectatorsUpdated", ["gameId": "g1", "spectators": [["username": "zed", "pic": 3, "shoulder": 3]], "count": 1]))
+        XCTAssertEqual(s.players.watchedSeatNames, [3: "P"])
         // back from /lazy: the owner plays, one name again
         TableReducer.reduce(&s, T.ev("playerActiveMode", ["position": 3, "username": "P", "pic": 3, "seq": 4]))
         XCTAssertEqual(TableRenderModel(s).opponents.first { $0.position == 3 }?.spokenName, "P")

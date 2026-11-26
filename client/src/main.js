@@ -1785,6 +1785,8 @@ function initializeApp() {
     },
     onAllPlayersReady: (data) => {
       console.log('All players ready, game starting soon...');
+      // A reload before the deal rejoins this table (sessionStorage gameId)
+      session.noteTableGame(data?.gameId);
       // The game's mode before its draw (Get Your Bid: three seats); the
       // game itself starts via positionUpdate/gameStart events
       gameState.setMode(data?.mode);
@@ -2658,8 +2660,11 @@ function initializeApp() {
       // The host left: the role passed on (to me: the Begin / Cancel
       // controls appear in place)
       updateTournamentPlayers(data.players, gameState.username, data.newCreator);
-      // A finished tournament has nothing left to host: no toast then
-      if (data.newCreator && !isTournamentFinished()) {
+      // Only for a tournament this tab is in, and not once it is finished:
+      // nothing is left to host then (in its final lobby, or after Return to
+      // Main Room, which forgets it while the server still lists the member
+      // for the results window; iOS guards on its tournamentId the same way)
+      if (data.newCreator && gameState.tournamentId && !isTournamentFinished()) {
         showInfo(data.newCreator === gameState.username ? 'You are now the tournament host' : `${data.newCreator} is now the tournament host`);
       }
     },

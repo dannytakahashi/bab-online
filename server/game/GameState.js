@@ -1627,17 +1627,15 @@ class GameState {
      *   keyed to it), or null when `username` is no such entrant
      */
     reattachEntrant(username, newSocketId) {
-        if (!this.entrants || !username || !newSocketId) return null;
-        let oldSocketId = null;
-        for (const [sid, e] of this.entrants) {
-            if (!e.isBot && e.username === username && e.presence !== 'left') { oldSocketId = sid; break; }
-        }
-        if (oldSocketId === null) return null;
-        const record = this.entrants.get(oldSocketId);
+        const record = this.returningEntrant(username);
+        if (!record || !newSocketId) return null;
+        const oldSocketId = record.socketId;
+        // Another entrant on the new socket would be a second identity for
+        // it: refused before anything changes (a dead entrant stays
+        // disconnected, so the draw still seats it in grace)
+        if (oldSocketId !== newSocketId && this.entrants.has(newSocketId)) return null;
         record.presence = 'connected';
         if (oldSocketId === newSocketId) return oldSocketId;
-        // Another entrant on the new socket would be a second identity for it
-        if (this.entrants.has(newSocketId)) return null;
         const rekey = (sid) => (sid === oldSocketId ? newSocketId : sid);
         record.socketId = newSocketId;
         this.entrants = new Map(Array.from(this.entrants, ([sid, e]) => [rekey(sid), e]));
@@ -1647,6 +1645,19 @@ class GameState {
             this.drawPlan = new Map(Array.from(this.drawPlan, ([sid, c]) => [rekey(sid), c]));
         }
         return oldSocketId;
+    }
+
+    /**
+     * The human entrant `username` may take over before seating (read only):
+     * not a bot, not 'left' (a /leave before seating is final); null when
+     * there is none or seats exist.
+     */
+    returningEntrant(username) {
+        if (!this.entrants || !username) return null;
+        for (const e of this.entrants.values()) {
+            if (!e.isBot && e.username === username && e.presence !== 'left') return e;
+        }
+        return null;
     }
 
     /** Idempotent. */

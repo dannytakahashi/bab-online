@@ -175,6 +175,14 @@ final class LobbyParityTests: XCTestCase {
         XCTAssertEqual(service.serverError?.message, "jon is now the tournament host")
         XCTAssertEqual(state.creatorUsername, "jon")
 
+        // the tournament is over: a hand-off in the final lobby says nothing (as the web)
+        service.serverError = nil
+        state.phase = "complete"
+        h.handlePlayerLeft(["players": [wireMember("ivy", host: true)], "newCreator": "ivy"])
+        XCTAssertNil(service.serverError)
+        XCTAssertEqual(state.creatorUsername, "ivy")
+        state.phase = "lobby"
+
         // a late copy after I left (the state is reset): no toast in the main room, nothing written
         service.serverError = nil
         state.reset()

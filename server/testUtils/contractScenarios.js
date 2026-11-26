@@ -211,9 +211,10 @@ async function playF1Inner({ errorLogs = [], hooks = {}, seed = 8 } = {}) {
 
     // A rejoin during the draw takes the entrant over (2026-11-26; refused
     // with 'Not a player in this game' before, §8 items 16/23): the newest
-    // socket draws and is seated, with the pre-seating snapshot
+    // socket draws and is seated, with the pre-seating snapshot, then the
+    // casual table's voice peers (the other connected entrants)
     const early = await rejoinAs(game, names[0], 'draw');
-    expect(selfEvents(w, early.id)).toEqual(['rejoinSuccess']);
+    expect(selfEvents(w, early.id)).toEqual(['rejoinSuccess', 'voicePeerList']);
     expect(w.log.find((l) => l.to === `self:${early.id}`).data.snapshot.viewer.role).toBe('entrant');
     socks[0] = early;
     // Someone who is no entrant here is still refused

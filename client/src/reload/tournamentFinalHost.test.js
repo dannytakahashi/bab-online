@@ -69,4 +69,17 @@ describe('the host of a finished tournament', () => {
     expect(controls()).toEqual([]);
     expect(toasts()).toEqual([]);
   });
+
+  it('after Return to Main Room from the final lobby, a hand-off says nothing', async () => {
+    page.socket.fire('tournamentJoined', finished('cat'));
+    await tick();
+    document.getElementById('tournamentReturnBtn').click();
+    await tick();
+    expect(page.session.screen).toBe('mainRoom');
+    clearToasts();
+    page.socket.fire('tournamentPlayerLeft', { username: 'cat', players: [{ username: 'me', ready: false, isCreator: true, connected: true }], newCreator: 'me' });
+    await tick();
+    expect(toasts()).toEqual([]);
+    expect(controls()).toEqual([]);
+  });
 });

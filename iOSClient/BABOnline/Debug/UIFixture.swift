@@ -16,7 +16,7 @@ import SpriteKit
 /// hand / score / watchers), `game-lobby-reconnecting` (a held seat's "Reconnecting…"),
 /// `tournament-deadline` (between rounds past the ready deadline, me the host: "Start with
 /// ready players", "Sitting out"; `-uiHost <name>` makes another member the host),
-/// `tournament-results` (the results overlay with every round and the round markers;
+/// `tournament-results` (the final lobby, TournamentFinalView, with every round and the round markers;
 /// `-uiPlainResults YES`: no markers, as an older server). `-uiInfoToast "<message>"` raises
 /// the neutral toast (a new host, a cancelled tournament) and `-uiVoicePanel YES` opens the
 /// voice panel over `game-lobby` with two players (their volume sliders). `game-lobby-bots` is the game lobby with two bots

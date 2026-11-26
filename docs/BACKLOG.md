@@ -104,13 +104,24 @@ cap for latency; an SFU only lifts the size limit.
   draw), so the restore of a casual entrant answers with no `activeGameId`. Since
   2026-11-26 `rejoinGame` accepts a human entrant before seating
   (`seatLifecycle.reconnectEntrant`: the new socket takes the entrant over and is
-  seated connected), so a tournament table and a web tab (which re-sends its
-  sessionStorage `gameId`) come back; an iOS app at a casual table still goes to
-  the main room. Rest of the fix: when the database has no `activeGameId`, fall
+  seated connected), so a tournament table comes back, and so does a web tab: it
+  keeps the game's id from `allPlayersReady` on (`ClientSession.noteTableGame`,
+  sessionStorage `gameId`; before, it was written only at the deal, so a casual
+  reload in the countdown or the draw had nothing to rejoin) and re-sends
+  `rejoinGame` for it. An iOS app at a casual table still goes to the main room.
+  Rest of the fix (iOS): when the database has no `activeGameId`, fall
   back to the in-memory `gameManager.findLiveActivity(username)` (which already
   counts draw-phase entrants) and answer with that game, or write `activeGameId`
   at the start of DRAWING. A jest case: restore an entrant's session mid-draw and
   expect `activeGameId`.
+- **A reload in a lobby's start window says the lobby closed** (review of #427,
+  2026-11-26; on main before it): a web reload in the `LOBBY_START_MS` window,
+  about 1 s after the last Ready and before `allPlayersReady`, re-sends `joinLobby`
+  for a lobby the start has already removed, and the tab shows "The lobby closed
+  while you were offline" while its game starts without it (the seat is then an
+  entrant that disconnected: auto-drawn, seated in grace). Fix idea: the server
+  answers a `joinLobby` for a lobby that just started with that game (the
+  entrant takeover, `rejoinGame`) instead of 'Lobby not found'.
 - **Play again: no "Don't wait" for someone still on the results** (web review
   of PR E, finding 5; 2026-11-16). Their row now says "Still on the results"
   on both clients (`members[].onResults`, 2026-11-16), but in a lobby of 4 the
