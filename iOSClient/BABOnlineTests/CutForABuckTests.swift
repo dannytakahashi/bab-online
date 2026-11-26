@@ -387,6 +387,43 @@ final class CutForABuckTests: XCTestCase {
         XCTAssertEqual(reduced.stageOpacity(1), 1)
     }
 
+    /// Over the list (iOS 1.2.7 (42)): the cover hides the rows while the title and the deck's
+    /// shuffle play, and is gone, with the title, by the intro's end; Reduce Motion the same, sooner.
+    func testTheListsCoverGoesWithTheTitle() {
+        for intro in [CutIntro(reduceMotion: false), CutIntro(reduceMotion: true)] {
+            XCTAssertEqual(intro.coverOpacity(0), 1, "the rows hidden as the intro starts")
+            XCTAssertEqual(intro.coverOpacity(intro.finish), 0, "the rows shown by its end")
+            for t in stride(from: 0.0, through: intro.finish, by: 0.05) {
+                // never a bare title over the rows: the cover is at least as up as the title
+                XCTAssertGreaterThanOrEqual(intro.coverOpacity(t) + 0.0001, intro.titleOpacity(t), "t=\(t)")
+            }
+        }
+        let full = CutIntro(reduceMotion: false)
+        XCTAssertEqual(full.coverOpacity(1.6), 1, "covered through the riffle and the fan")
+    }
+
+    /// The overlay's title (review of iOS 1.2.7 (42)): over the ring it fades with the stage, as it
+    /// did drawn inside the stage in build 41 (title x stage); over the list it keeps its own timing.
+    func testTheOverlayTitleFadesWithTheRingButNotTheList() {
+        for intro in [CutIntro(reduceMotion: false), CutIntro(reduceMotion: true)] {
+            for t in stride(from: 0.0, through: intro.finish, by: 0.05) {
+                XCTAssertEqual(intro.overlayTitleOpacity(t, overRing: true), intro.titleOpacity(t) * intro.stageOpacity(t),
+                               accuracy: 0.0001, "ring t=\(t)")
+                XCTAssertEqual(intro.overlayTitleOpacity(t, overRing: false), intro.titleOpacity(t),
+                               accuracy: 0.0001, "list t=\(t)")
+            }
+        }
+        // the difference shows early: at 0.3 s the full form's title is ~86% up alone, ~60% over the ring
+        let full = CutIntro(reduceMotion: false)
+        XCTAssertLessThan(full.overlayTitleOpacity(0.3, overRing: true), full.overlayTitleOpacity(0.3, overRing: false) - 0.2)
+        // and both are fully up once the stage is (the ring's title is not dimmed later on)
+        XCTAssertEqual(full.overlayTitleOpacity(1.2, overRing: true), 1, accuracy: 0.0001)
+        // Reduce Motion: over the ring nothing before the stage starts fading in
+        let reduced = CutIntro(reduceMotion: true)
+        XCTAssertEqual(reduced.overlayTitleOpacity(0, overRing: true), 0)
+        XCTAssertLessThan(reduced.overlayTitleOpacity(0.2, overRing: true), reduced.overlayTitleOpacity(0.2, overRing: false))
+    }
+
     // MARK: - The screen model
 
     private final class Recorder {
