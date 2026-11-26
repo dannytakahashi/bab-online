@@ -115,7 +115,7 @@ final class CutForABuckUITests: XCTestCase {
         XCTAssertTrue(any(app, "cut.statusSub").label.hasPrefix("Waiting for "))
         XCTAssertTrue(any(app, "cut.seat.ivy").label.hasPrefix("you, out in round 4"))
         XCTAssertEqual(any(app, "cut.seat.kim").value as? String, "drawn", "kim's draw this round shows")
-        XCTAssertEqual(any(app, "cut.deck").label, "Draw a card")
+        XCTAssertEqual(any(app, "cut.deck").label, "Deck", "out: the deck is no draw target")
         XCTAssertTrue(any(app, "cut.round").label.hasPrefix("Round 5"))
         keep("out")
     }

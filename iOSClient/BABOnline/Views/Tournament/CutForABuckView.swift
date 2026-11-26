@@ -477,7 +477,9 @@ struct CutCardStack: View {
         let out = s?.out[username]
         let reveal = s?.lastReveal
         let revealIndex = reveal?.draws.firstIndex { $0.username == username }
-        let lowRank = out != nil && out?.left != true ? reveal.flatMap { CutSeatLook.lowestRank($0.draws.map(\.card)) } : nil
+        // the losing outline: only on a card that put its player out at the last reveal
+        let lowRank = out != nil && out?.left != true && out?.round == reveal?.round && revealIndex != nil
+            ? reveal.flatMap { CutSeatLook.lowestRank($0.draws.map(\.card)) } : nil
         ZStack(alignment: .topLeading) {
             ForEach(0..<shown, id: \.self) { vi in
                 let i = hidden + vi
@@ -723,11 +725,18 @@ struct CutDeckView: View {
         }
         .shadow(color: can ? Theme.gold.opacity(0.55) : .clear, radius: 10)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(tournamentState.isSpectator ? "Deck" : CutCopy.drawACard)
+        .accessibilityLabel(drawsHere ? CutCopy.drawACard : "Deck")
         .accessibilityValue(CutCopy.deckLine(s))
-        .accessibilityAddTraits(tournamentState.isSpectator ? [] : .isButton)
-        .accessibilityAction { if !tournamentState.isSpectator { draw(freeIndex: nil, free: free, fan: fan, count: count) } }
+        .accessibilityAddTraits(drawsHere ? .isButton : [])
+        .accessibilityAction { if drawsHere { draw(freeIndex: nil, free: free, fan: fan, count: count) } }
         .accessibilityIdentifier("cut.deck")
+    }
+
+    /// The deck is my draw target: a participant still in (or a candidate during the gather); for a
+    /// spectator and a player who is out it is only the deck.
+    private var drawsHere: Bool {
+        guard !tournamentState.isSpectator, let s = tournamentState.cut else { return false }
+        return s.stage == .gather ? s.isInCut(model.me) : s.isAlive(model.me)
     }
 
     private func draw(freeIndex: Int?, free: [Int], fan: CutFan, count: Int) {
