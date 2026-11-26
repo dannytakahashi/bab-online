@@ -34,7 +34,10 @@ struct GameEndView: View {
 
     private var card: some View {
         VStack(spacing: Theme.Space.s6) {
-            if let data = gameState.gameEndData {
+            if let data = gameState.gameEndData, let end = data.gyb {
+                // Get Your Bid: per-player results, best score first (the web's showFinalScoreOverlay({solo}))
+                soloResults(end, data)
+            } else if let data = gameState.gameEndData {
                 // Winner banner
                 if data.isTie, !gameState.isSpectator {
                     // equal scores: nobody won (the web ScoreModal's TIE GAME; a spectator's
@@ -88,16 +91,23 @@ struct GameEndView: View {
                 }
             }
 
-            Button(action: returnAction) {
-                Text(gameState.tournamentId != nil ? "Return to Tournament" : "Return to Lobby")
-                    .font(.body.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(gameState.tournamentId != nil ? Theme.warning : Theme.buttonBackground)
-                    .foregroundColor(gameState.tournamentId != nil ? Theme.warningForeground : Theme.buttonForeground)
-                    .cornerRadius(Theme.Radius.md)
+            if gameState.tournamentId != nil {
+                // the last table's Cut for a buck strip and "Join cut for a buck" (iOS 1.2.7 (41))
+                CutScoreStrip(tournamentId: gameState.tournamentId, spectator: gameState.isSpectator, me: gameState.username,
+                              action: returnAction)
+                    .padding(.horizontal, Theme.Space.s10)
+            } else {
+                Button(action: returnAction) {
+                    Text("Return to Lobby")
+                        .font(.body.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Theme.buttonBackground)
+                        .foregroundColor(Theme.buttonForeground)
+                        .cornerRadius(Theme.Radius.md)
+                }
+                .padding(.horizontal, Theme.Space.s10)
             }
-            .padding(.horizontal, Theme.Space.s10)
         }
         .padding(.vertical, Theme.Space.s8)
         .padding(.horizontal, compact ? Theme.Space.s5 : Theme.Space.s8)
@@ -107,6 +117,50 @@ struct GameEndView: View {
         )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("gameEnd")
+    }
+
+    /// A Get Your Bid game's end: VICTORY / DEFEAT / TIE GAME for a seat (a shared top score),
+    /// "Game Over" and the winner by name for a spectator; then one row per player, best first:
+    /// the name in its seat's colour, the score, "Bids made n of 13". No HSI, no team.
+    @ViewBuilder
+    private func soloResults(_ end: GybEnd, _ data: GameEndData) -> some View {
+        let me = gameState.isSpectator ? nil : gameState.position
+        // the owner rule: a lazy or resigned seat by its owner (the table's seats, else the
+        // server's playerStats, which name the owner from #416)
+        let name = { (pos: Int) -> String in
+            gameState.players.seats[pos] != nil ? gameState.players.ownerName(pos)
+                : data.playerStats.first { $0.position == pos }?.username ?? "P\(pos)"
+        }
+        let outcome = GybRules.outcome(end, me: me)
+        let title: (String, Color, String) = {
+            switch outcome {
+            case .victory: return ("Victory!", Theme.success, "Victory")
+            case .defeat: return ("Defeat", Theme.error, "Defeat")
+            case .tie: return ("TIE GAME", Theme.gold, "Tie game")
+            case .neutral: return ("Game Over", Theme.textSecondary, "Game over")
+            }
+        }()
+        Text(title.0)
+            .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .largeTitle)
+            .foregroundColor(title.1)
+            .accessibilityLabel(title.2)
+            .accessibilityIdentifier("gameEnd.title")
+        if outcome != .victory, let line = GybRules.winnerLine(end, name: name) {
+            Text(line)
+                .font(.headline)
+                .foregroundColor(Theme.textPrimary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("gameEnd.winnerLine")
+        }
+        Text(GybRules.name)
+            .font(.caption.bold())
+            .foregroundColor(Theme.gold)
+            .accessibilityIdentifier("gameEnd.mode")
+        VStack(spacing: Theme.Space.s2) {
+            ForEach(GybRules.resultRows(end, name: name, me: me)) { row in
+                SoloResultRow(row: row)
+            }
+        }
     }
 
     /// A team's players over its score, one name a line in the team's colour (no "Team 1"
@@ -135,6 +189,55 @@ struct GameEndView: View {
         } else {
             appState.screen = .mainRoom
             LobbyEmitter.joinMainRoom()
+        }
+    }
+}
+
+/// A tournament table's Return button, and at the tournament's last table while Cut for a buck is
+/// on (spec section 3.3: the score screen stays as long as the player wants) a strip over it: "Cut
+/// for a buck starts in 12" / "Cut for a buck has started. We'll draw for you until you join.", the
+/// button reading "Join cut for a buck" (the same returnToTournament); the winner's line once it is
+/// decided. Its own view, so the cut's events re-render only this.
+struct CutScoreStrip: View {
+    let tournamentId: String?
+    let spectator: Bool
+    let me: String?
+    let action: () -> Void
+    @EnvironmentObject var tournamentState: TournamentState
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            let cut = tournamentState.tournamentId == tournamentId ? tournamentState.cut : nil
+            let strip = CutCopy.scoreStrip(cut, me: me, spectator: spectator)
+            VStack(spacing: Theme.Space.s2) {
+                if let strip {
+                    HStack(spacing: Theme.Space.s2) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundStyle(Theme.gold)
+                            .accessibilityHidden(true)
+                        Text(strip.text)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(Theme.Space.s2)
+                    .frame(maxWidth: .infinity)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(Theme.gold.opacity(0.14)))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("gameEnd.cutStrip")
+                }
+                Button(action: action) {
+                    Text(strip?.button ?? "Return to Tournament")
+                        .font(.body.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Theme.warning)
+                        .foregroundColor(Theme.warningForeground)
+                        .cornerRadius(Theme.Radius.md)
+                }
+            }
         }
     }
 }
@@ -255,5 +358,48 @@ struct GameEndStatsView: View {
                 .accessibilityIdentifier("gameEnd.stats.\(r.position)")
             }
         }
+    }
+}
+
+/// One player's row on a Get Your Bid score card: the name in its seat's colour (a crown for a
+/// winner), "Bids made n of 13" under it, the score at the end; at accessibility sizes the
+/// score goes under the words. One VoiceOver element (`GybRules.ResultRow.spoken`).
+struct SoloResultRow: View {
+    let row: GybRules.ResultRow
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.Space.s1))
+            : AnyLayout(HStackLayout(spacing: Theme.Space.s3))
+        layout {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Theme.Space.s1) {
+                    if row.winner {
+                        Image(systemName: "crown.fill")
+                            .font(.caption)
+                            .foregroundColor(Theme.gold)
+                    }
+                    Text(row.name)
+                        .font(.body.bold())
+                        .foregroundColor(Theme.team(Positions.colour(row.position, seats: GybRules.seats)))
+                        .lineLimit(2)
+                }
+                Text(row.madeText)
+                    .font(.caption)
+                    .foregroundColor(Theme.textSecondary)
+            }
+            if !typeSize.isAccessibilitySize { Spacer(minLength: Theme.Space.s2) }
+            Text("\(row.score)")
+                .font(.title2.bold())
+                .foregroundColor(row.winner ? Theme.success : Theme.textPrimary)
+        }
+        .padding(.horizontal, Theme.Space.s3)
+        .padding(.vertical, Theme.Space.s2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.md).fill(row.mine ? Theme.surfaceLight : Theme.surface.opacity(0.6)))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.spoken)
+        .accessibilityIdentifier("gameEnd.solo.\(row.position)")
     }
 }

@@ -49,7 +49,7 @@ const { gameLogger, socketLogger, authLogger, logger } = require('../../utils/lo
 const { mulberry32 } = require('../../testUtils/gameDriver');
 const { world } = require('../../testUtils/contractScenarios');
 const { createEventRecorder, serialize } = require('../../testUtils/eventRecorder');
-const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart } = require('../../testUtils/iosScenarios');
+const { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart, scenarioGyb } = require('../../testUtils/iosScenarios');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
 const DIR = path.resolve(ROOT, process.env.IOS_FIXTURE_DIR || 'iOSClient/BABOnlineTests/Fixtures/events');
@@ -120,7 +120,7 @@ async function recordHumans(name, from) {
     throw new Error('no rainbow in 40 seeds');
 }
 
-const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament, bidclock: scenarioBidClock, restart: scenarioRestart };
+const SCENARIOS = { bots: scenarioBots, presence: scenarioPresence, tournament: scenarioTournament, bidclock: scenarioBidClock, restart: scenarioRestart, gyb: scenarioGyb };
 
 test.each([
     ['events-bots-s12', 'bots', 12],
@@ -130,6 +130,7 @@ test.each([
     ['events-tournament-s15', 'tournament', 15],
     ['events-bidclock-s16', 'bidclock', 16],
     ['events-restart-s18', 'restart', 18],
+    ['events-gyb-s19', 'gyb', 19],
 ])('%s matches the committed iOS fixture (run npm run ios:fixtures)', async (name, kind, seed) => {
     const rec = kind === 'humans' ? await recordHumans(name, seed) : (await record(name, SCENARIOS[kind], seed)).rec;
     // Sanity: every open viewer reached gameEnd with a final snapshot, and there are checkpoints
@@ -165,6 +166,19 @@ test.each([
         expect(rejoin.data.snapshot.seq).toBeGreaterThanOrEqual(last + 999);
         expect(JSON.stringify(rejoin.data.snapshot.log)).toContain('This game resumed after a server update.');
         expect(hasEvent(rec, 'rejoinFailed')).toBe(false);
+    } else if (kind === 'gyb') {
+        // Get Your Bid: three seats, every carrier's snapshot beside its gyb, a hand score per seat
+        expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
+        expect(rec.checkpoints.every((c) => c.gyb && c.gyb.scores.length === 3)).toBe(true);
+        const hands = rec.logs.spectator.filter((e) => e.event === 'handComplete').map((e) => e.data.gyb);
+        expect(hands.length).toBeGreaterThan(5);
+        expect(hands.every((h) => h && h.seats.length === 3)).toBe(true);
+        expect(rec.logs.seat1.find((e) => e.event === 'allPlayersReady').data.mode).toBe('gyb');
+        expect(rec.logs['seat1-rejoin'].find((e) => e.event === 'rejoinSuccess').data.gyb).toBeTruthy();
+        expect(rec.logs.spectator.find((e) => e.event === 'spectatorJoined').data.gyb).toBeTruthy();
+        const end = rec.final.spectator.gameEnd.gyb;
+        expect(end.scores).toHaveLength(3);
+        expect(hasEvent(rec, 'teamsAnnounced')).toBe(false);
     } else if (kind === 'bots') {
         expect(Object.keys(rec.logs).sort()).toEqual(['seat1', 'seat1-rejoin', 'spectator']);
     } else if (kind === 'presence') {

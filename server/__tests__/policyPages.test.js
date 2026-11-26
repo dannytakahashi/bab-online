@@ -116,8 +116,8 @@ describe('/privacy', () => {
     });
 
     test('says what the tournament history keeps, who sees it, and that a deletion makes it "[deleted]" (tournamentRecords, 2026-11-25)', () => {
-        expect(html).toContain('<li><strong>Tournaments:</strong> a record of each finished tournament: its name, its host\'s username, the usernames of the players who finished it, the final standings (each player\'s score in every round and in total, including players who left before the end), the winners, the Cut for a buck result if one was played (who took part, how many rounds it took, and who won), and when it started and ended.</li>');
-        expect(html).toContain('tournament records (the tournament\'s name and date, how many players finished it, the winners, where the player placed, and who won Cut for a buck) on the profiles of the players who finished them; Cut for a buck wins also count toward a title on the Records page.');
+        expect(html).toContain('<li><strong>Tournaments:</strong> a record of each finished tournament: its name, its host\'s username, the usernames of the players who finished it, the final standings (each player\'s score in every round and in total, including players who left before the end), the winners, the cut for a buck result if one was played (who took part, how many rounds it took, and who won), and when it started and ended.</li>');
+        expect(html).toContain('tournament records (the tournament\'s name and date, how many players finished it, the winners, where the player placed, and who won cut for a buck) on the profiles of the players who finished them; Cut for a buck wins also count toward a title on the Records page.');
         expect(html).toContain('<li><strong>Tournament records:</strong> kept as the tournament\'s history. If you delete your account, your username in them is replaced with "[deleted]".</li>');
     });
 
@@ -137,7 +137,7 @@ describe('/support', () => {
         const html = await page('/support');
         expect(html).toContain('Our server logs record your IP address when you sign in with your password, and our host, Railway, logs the IP address of each connection.');
         expect(html).toContain('your username is replaced with "[deleted]" in game records and tournament records.');
-        expect(html).toContain('the record of each tournament you finished (its final standings, winners and Cut for a buck result, shown on your profile)');
+        expect(html).toContain('the record of each tournament you finished (its final standings, winners and cut for a buck result, shown on your profile)');
         expect(html).toContain('Reports, the admin log, and other players\' block lists keep your username, and so do a tournament still running or only just ended that you played in (in its saved standings, until about 10 minutes after it ends) and a casual game whose lobby you were in but did not play in (until it ends); your chat messages are removed from the saved state of any game or tournament still in progress. The <a href="/privacy">Privacy Policy</a> explains why.');
         expect(html).not.toMatch(/We only collect your username, a hashed password, and game statistics/);
         // Harmonized with the policy's "Games in progress"

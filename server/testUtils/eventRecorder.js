@@ -29,6 +29,16 @@ const START_EVENTS = {
     spectator: ['spectatorJoined'],
 };
 
+/**
+ * A Get Your Bid table's `gyb` (GameState.gybWire: what every snapshot
+ * carrier adds beside the frozen four-seat snapshot), as `{gyb}`; nothing
+ * at any other table, so the classic recordings are unchanged.
+ */
+function gybOf(game) {
+    const gyb = game && typeof game.gybWire === 'function' ? game.gybWire() : null;
+    return gyb ? { gyb: JSON.parse(JSON.stringify(gyb)) } : {};
+}
+
 function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
     const viewers = new Map(); // label -> {label, sid, role, started, log, open}
     const checkpoints = [];
@@ -78,7 +88,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
             const game = gameManager.getGameById(String(entry.to).slice(5)) || (getGame && getGame());
             if (game) {
                 lastHandComplete = snapshotAllOf(game);
-                for (const [label, c] of lastHandComplete) checkpoints.push({ viewer: label, afterIndex: c.afterIndex, snapshot: c.snapshot });
+                for (const [label, c] of lastHandComplete) checkpoints.push({ viewer: label, afterIndex: c.afterIndex, snapshot: c.snapshot, ...(c.gyb ? { gyb: c.gyb } : {}) });
             }
         }
     });
@@ -87,7 +97,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
         const out = new Map();
         for (const v of viewers.values()) {
             if (!v.open || !v.started) continue;
-            out.set(v.label, { afterIndex: v.log.length, snapshot: JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { log: false }))) });
+            out.set(v.label, { afterIndex: v.log.length, snapshot: JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { log: false }))), ...gybOf(game) });
         }
         return out;
     }
@@ -118,7 +128,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
                 const last = checkpoints.filter((c) => c.viewer === v.label).pop();
                 if (last && last.afterIndex === v.log.length) continue;
                 const snapshot = JSON.parse(JSON.stringify(snapshotFor(game, v.sid, { log: false })));
-                checkpoints.push({ viewer: v.label, afterIndex: v.log.length, snapshot });
+                checkpoints.push({ viewer: v.label, afterIndex: v.log.length, snapshot, ...gybOf(game) });
                 n++;
             }
             return n;
@@ -130,7 +140,7 @@ function createEventRecorder(w, { t0 = Date.now(), getGame } = {}) {
                 const end = [...v.log].reverse().find((e) => e.event === 'gameEnd'); // the last game's (tournament rounds)
                 const snap = lastHandComplete && lastHandComplete.get(v.label);
                 if (!end || !snap) throw new Error(`recorder: viewer '${v.label}' has no final hand snapshot or gameEnd`);
-                final[v.label] = { afterIndex: snap.afterIndex, snapshot: snap.snapshot, gameEnd: end.data };
+                final[v.label] = { afterIndex: snap.afterIndex, snapshot: snap.snapshot, ...(snap.gyb ? { gyb: snap.gyb } : {}), gameEnd: end.data };
             }
         },
         viewer: (label) => viewers.get(label),

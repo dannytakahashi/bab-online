@@ -145,7 +145,7 @@ describe('the start, the order of events, one tournamentComplete', () => {
         expect(reveal2).toMatchObject({ eliminated: [ctx.usernames[0]], alive: [ctx.usernames[2]], nextInMs: 6000 });
         const winner = events(ctx.log, 'cutForABuckWinner')[0].data;
         expect(winner).toEqual({ winner: ctx.usernames[2], participants: ctx.usernames, rounds: 2 });
-        expect(roomLines(ctx)).toContain(`${ctx.usernames[2]} won Cut for a buck.`);
+        expect(roomLines(ctx)).toContain(`${ctx.usernames[2]} won cut for a buck.`);
         expect(events(ctx.log, 'tournamentComplete')).toHaveLength(0);
 
         await jest.advanceTimersByTimeAsync(6000);
@@ -459,11 +459,11 @@ describe('leaving and cancelling', () => {
             // announced before the Cancel: it stands, and nothing reads as cut short
             const won = events(ctx.log, 'cutForABuckWinner').map((l) => l.data);
             expect(won).toHaveLength(1);
-            expect(roomLines(ctx)).not.toContain(`${hostName} ended Cut for a buck.`);
+            expect(roomLines(ctx)).not.toContain(`${hostName} ended cut for a buck.`);
             expect(complete[0].data.cutForABuck).toEqual(won[0]);
             expect(recordSpy.mock.calls[0][1]).toEqual(won[0]);
         } else {
-            expect(roomLines(ctx)).toContain(`${hostName} ended Cut for a buck.`);
+            expect(roomLines(ctx)).toContain(`${hostName} ended cut for a buck.`);
             expect(complete[0].data.cutForABuck).toBeUndefined();
             expect(recordSpy.mock.calls[0][1]).toBeNull();
         }
@@ -508,6 +508,58 @@ describe('spectators and members without the cap', () => {
         expect(privateLines(ctx, socketOf(ctx, a))).toEqual([]);
         // the room lines reach everyone; the spectator got every cut event (room)
         expect(events(ctx.log, 'cutForABuckReveal')[0].members).toContain(watcher.id);
+    }, 120000);
+
+    test('a player who is out keeps watching to the winner: every later round\'s events reach them, exactly as a spectator\'s', async () => {
+        // owner 2026-11-25: once out, a player watches the rest like a spectator
+        const ctx = await setupCut(4);
+        // round 1: b out (3); round 2: a out (5); round 3: d out (2), c wins
+        cutForABuck.setEngineOptionsForTests({ deck: deckOf('9h', '3s', 'Kd', 'Qh', '5c', '8d', 'Jh', 'As', '2c') });
+        await playToCut(ctx);
+        const [a, b, c, d] = ctx.usernames;
+        const out = socketOf(ctx, b);
+        const watcher = newUser(ctx.io, ctx.log, `${a}_watch`);
+        tournamentHandlers.spectateTournament(watcher, ctx.io, { tournamentId: ctx.t.tournamentId });
+        await toStage(ctx, 'drawing');
+        drawAll(ctx, { [a]: 0, [b]: 1, [c]: 2, [d]: 3 });
+        const firstReveal = events(ctx.log, 'cutForABuckReveal')[0];
+        expect(firstReveal.data.eliminated).toEqual([b]);
+        const fromIdx = ctx.log.indexOf(firstReveal) + 1;
+        // b is out: their draws are dropped from now on (no event, no error)
+        await toStage(ctx, 'drawing');
+        cutForABuck.draw(out, ctx.io, { round: 2, slot: 0 });
+        expect(events(ctx.log, 'cutForABuckDrew').filter((l) => l.data.round === 2)).toHaveLength(0);
+        drawAll(ctx, { [a]: 0, [c]: 1, [d]: 2 });
+        expect(events(ctx.log, 'cutForABuckReveal')[1].data.eliminated).toEqual([a]);
+        // b back on the tournament screen mid-cut: the state shows them out, the cut going on
+        tournamentHandlers.returnToTournament(out, ctx.io);
+        const back = selfOf(ctx, out, 'tournamentJoined').at(-1);
+        expect(back.phase).toBe('cut');
+        expect(back.cut.alive).toEqual([c, d]);
+        expect(back.cut.out).toEqual(expect.arrayContaining([expect.objectContaining({ username: b, round: 1 }), expect.objectContaining({ username: a, round: 2 })]));
+        await toStage(ctx, 'drawing');
+        drawAll(ctx, { [c]: 0, [d]: 1 });
+        expect(events(ctx.log, 'cutForABuckWinner')[0].data.winner).toBe(c);
+        await jest.advanceTimersByTimeAsync(6000);
+        expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
+        // every cut event after b's elimination went to the room with b (and
+        // a, out a round later) in it, the same events the spectator got
+        const later = ctx.log.slice(fromIdx).filter((l) => CUT_EVENTS.includes(l.event) || l.event === 'tournamentComplete');
+        const kinds = later.map((l) => (l.event === 'cutForABuckRound' || l.event === 'cutForABuckReveal' ? `${l.event}:${l.data.round}` : l.event));
+        expect(kinds).toEqual([
+            'cutForABuckRound:2', 'cutForABuckDrew', 'cutForABuckDrew', 'cutForABuckDrew', 'cutForABuckReveal:2',
+            'cutForABuckRound:3', 'cutForABuckDrew', 'cutForABuckDrew', 'cutForABuckReveal:3', 'cutForABuckWinner', 'tournamentComplete',
+        ]);
+        for (const l of later) {
+            expect(l.to).toBe(ctx.t.roomName);
+            expect(l.members).toEqual(expect.arrayContaining([out.id, watcher.id]));
+        }
+        expect(later.filter((l) => ctx.log.indexOf(l) > ctx.log.indexOf(events(ctx.log, 'cutForABuckReveal')[1])).every((l) => l.members.includes(socketOf(ctx, a).id))).toBe(true);
+        // the room lines too ("c won cut for a buck."), and nothing private instead
+        const winLine = ctx.log.find((l) => l.event === 'tournamentMessage' && l.data.message === `${c} won cut for a buck.`);
+        expect(winLine.members).toEqual(expect.arrayContaining([out.id, watcher.id]));
+        expect(privateLines(ctx, out)).toEqual([]);
+        expect(selfOf(ctx, out, 'serverError')).toEqual([]);
     }, 120000);
 
     test('legacy lines: a redraw and a reshuffle', () => {
@@ -608,7 +660,7 @@ describe('no cut: today\'s wire', () => {
         await playToCut(ctx);
         await kill(ctx.io, ctx.sockets[1]);
         await advanceUntil(() => ctx.t.phase === 'complete', 100, 60000);
-        expect(roomLines(ctx)).toContain('Not enough players for Cut for a buck.');
+        expect(roomLines(ctx)).toContain('Not enough players for cut for a buck.');
         expect(events(ctx.log, 'tournamentComplete')).toHaveLength(1);
         expect(events(ctx.log, 'tournamentComplete')[0].data.cutForABuck).toBeUndefined();
     }, 120000);

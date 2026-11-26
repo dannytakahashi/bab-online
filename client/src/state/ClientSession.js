@@ -416,6 +416,22 @@ export class ClientSession {
     return this.transition(SCREEN.TABLE, { role, gameId });
   }
 
+  /**
+   * allPlayersReady: this tab is one of a new table's players (the server
+   * sends it to the table's humans only, never an extra). Its id is kept for
+   * a reload before the deal: the server writes activeGameId only at seating
+   * for a lobby game, so without it a reload during the countdown or the
+   * draw had nothing to rejoin and landed in the main room (live check
+   * 2026-11-26). rejoinGame then takes the entrant over
+   * (seatLifecycle.reconnectEntrant); a game gone meanwhile answers
+   * rejoinFailed and the restore routes on as before.
+   */
+  noteTableGame(gameId) {
+    if (!gameId || this.isSpectator) return;
+    this._storage.removeItem(STORAGE.SPECTATE);
+    this._socketManager?.setGameId?.(gameId);
+  }
+
   /** Change the role at the current table (/lazy, /active). */
   setRole(role) {
     if (this._screen !== SCREEN.TABLE) return false;

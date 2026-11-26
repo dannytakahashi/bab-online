@@ -203,6 +203,7 @@ enum SocketEvents {
         static let profilePicUpdateResponse = "profilePicUpdateResponse"
         static let profilePicUploadResponse = "profilePicUploadResponse"
         static let playerProfileResponse = "playerProfileResponse"
+        static let badgesAwarded = "badgesAwarded"
 
         // Voice
         static let voiceOffer = "voiceOffer"
@@ -213,6 +214,7 @@ enum SocketEvents {
         static let voicePeerLeft = "voicePeerLeft"
         static let voiceIceServers = "voiceIceServers"
         static let voiceSettings = "voiceSettings"
+        static let tournamentVoiceStatus = "tournamentVoiceStatus"
 
         // Connection
         static let connect = "connect"

@@ -126,8 +126,10 @@ function legacySpectatorGameStart(game) {
  */
 function legacyRejoinSuccess(game, sid, wire) {
     const pos = game.seatByOwnerSocket(sid);
-    const seat = game.seat(pos);
-    const state = seat.controller === Controller.HUMAN
+    const seat = pos ? game.seat(pos) : null;
+    // An entrant back before seating (seatLifecycle.reconnectEntrant,
+    // 2026-11-26; refused at cc865b4): the same builder a seat gets
+    const state = !seat || seat.controller === Controller.HUMAN
         ? { ...game.getClientState(sid) }
         : { ...game.getClientState(seat.seatSocketId), isLazy: true };
     if ('tournamentId' in wire) state.tournamentId = wire.tournamentId;

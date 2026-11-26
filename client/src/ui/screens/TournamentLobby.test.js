@@ -287,6 +287,18 @@ describe('the round pairings and Partners so far (2026-11-25)', () => {
     expect([...section().querySelectorAll('.tournament-pairings__partner')].map((r) => r.textContent)).toEqual(['Round 1 · cat']);
   });
 
+  it('beside the players in the roster, never above it taking the standings\' rows (owner 2026-11-25)', () => {
+    showTournamentLobby({ ...lobby({ phase: 'between_rounds', currentRound: 1 }), pairings: PAIRINGS, activeGames: [{ gameId: 'g1', status: 'completed', humanPlayers: ['me', 'cat'], botCount: 1 }] }, fakeSocket(), 'me');
+    const roster = document.querySelector('.tournament-roster');
+    expect([...roster.children].map((c) => c.id)).toEqual(['tournamentActiveGames', 'tournamentPlayersList', 'tournamentPairings']);
+    // the main column: the title, the standings, the roster, the controls
+    const main = document.querySelector('#tournamentLobbyContainer > .screen-main');
+    expect([...main.children].map((c) => c.id || c.className)).toEqual(['section-title section-title--sm', 'tournamentScoreboardContainer', 'tournament-roster', 'tournamentButtonRow']);
+    // a round's finished tables leave no empty "Active Games" column
+    expect(document.getElementById('tournamentActiveGames').hidden).toBe(true);
+    expect(section().hidden).toBe(false);
+  });
+
   it('a spectator: the tables, no Partners so far', () => {
     showTournamentLobby({ ...lobby({ phase: 'round_active', currentRound: 1, isSpectator: true }), pairings: PAIRINGS }, fakeSocket(), 'zed');
     expect(section().querySelector('.tournament-pairings__row').textContent).toBe('me & cat vs bob & a bot');

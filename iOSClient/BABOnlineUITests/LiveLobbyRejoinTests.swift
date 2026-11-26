@@ -129,6 +129,7 @@ final class LiveLobbyRejoinTests: XCTestCase {
     /// New Game: alone in a new lobby.
     private func openLobby(_ app: XCUIApplication) {
         app.buttons["New Game"].tap()
+        Fixture.chooseClassicGame()
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 10), "no game lobby")
         XCTAssertTrue(wait(5) { seated(app, 1) }, "not alone in the lobby: \(countLabel(app))")
         note("lobby open")

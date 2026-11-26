@@ -101,8 +101,11 @@ describe('a spectator mid-draw', () => {
     // in ui/components/ScoreModal.test.js
     const modal = document.getElementById('finalScoreOverlay');
     expect(modal).toBeTruthy();
-    const t1 = scoreHeaderNames(null, page.gameState.playerData, { spectator: true });
+    // a lazy seat (this recording's seat 4 ends under a bot) is named by its
+    // owner, never the bot (owner rule 2026-11-25: teams by player names)
+    const t1 = scoreHeaderNames(null, page.gameState.teamPlayerData, { spectator: true });
     expect(t1.teamName).toMatch(/.+\/.+/);
+    expect(`${t1.teamName}/${t1.oppName}`).not.toMatch(/🤖/);
     expect(modal.querySelector('.result-score').textContent).toContain(`${t1.teamName}: `);
     expect(modal.querySelector('.result-score').textContent).toContain(`${t1.oppName}: `);
     expect(modal.textContent).not.toMatch(/Team [12]|Your Team|Opponents/);

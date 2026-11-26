@@ -1,0 +1,15 @@
+{
+  "images" : [
+    {
+      "filename" : "bet-big-win-big.svg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "properties" : {
+    "preserves-vector-representation" : true
+  }
+}

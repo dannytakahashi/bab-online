@@ -39,7 +39,15 @@ const DECODE_SOURCES = [
     'iOSClient/BABOnline/Networking/Wire/WireDecoding.swift',
     'iOSClient/BABOnline/Generated/TableSnapshot.swift',
     'iOSClient/BABOnline/Models/Card.swift',
+    // from 1.2.7 (41): Get Your Bid's wire types (GybStart and friends), reached from WirePayloads
+    'iOSClient/BABOnline/State/Table/GetYourBid.swift',
 ];
+/**
+ * Sources added after the first frozen build: file -> the first build that reads it. An older
+ * build's floor never read the file (its frozen `sources` lists only the others), so it is
+ * skipped there; from that build on it is required like every other source.
+ */
+const SOURCES_FROM = { 'iOSClient/BABOnline/State/Table/GetYourBid.swift': 41 };
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, maxBuffer: 1 << 28 });
 const show = (sha, file) => git('show', `${sha}:${file}`).toString('utf8');
@@ -72,9 +80,10 @@ function schemaAt(sha) {
 }
 
 function decodesAt(sha, version, build) {
+    const sources = DECODE_SOURCES.filter((f) => !(build < (SOURCES_FROM[f] || 0)));
     const files = {};
-    for (const f of DECODE_SOURCES) files[f] = show(sha, f);
-    return { build, version, commit: sha, sources: DECODE_SOURCES, ...extractDecodes(files) };
+    for (const f of sources) files[f] = show(sha, f);
+    return { build, version, commit: sha, sources, ...extractDecodes(files) };
 }
 
 const fileBase = (version, build) => `ios-${version}-b${build}`;
@@ -161,4 +170,4 @@ if (require.main === module) {
     }
 }
 
-module.exports = { DECODE_SOURCES, differingPaths, fileBase };
+module.exports = { DECODE_SOURCES, SOURCES_FROM, differingPaths, fileBase };

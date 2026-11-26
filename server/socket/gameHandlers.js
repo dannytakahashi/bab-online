@@ -56,6 +56,15 @@ const turnContinuationError = (what, game) => (err) => {
 };
 
 /**
+ * The name a seat goes by in team names and on the score screen: its owner
+ * (a lazy or resigned seat's too, whose bot only plays for them), else the
+ * player at the seat (a native bot's persona); null when nobody is there.
+ */
+function seatName(game, pos) {
+    return game.seat(pos)?.ownerUsername || game.getPlayerByPosition(pos)?.username || null;
+}
+
+/**
  * Tell the sender its action was refused (instead of failing silently) so a
  * client can resync rather than freeze. Clients that predate this event just
  * ignore it. `snapshot` (v2, additive) is the table as the sender should
@@ -564,15 +573,23 @@ async function handleDrawComplete(io, game) {
     const orderedPics = [];
     const orderedIsBot = [];
     const orderedNativeBot = [];
+    // owners (additive 2026-11-26): each seat's owner, null for a native
+    // bot. usernames[] is who the seat SHOWS, so a draw-phase leaver's
+    // resign bot was named by the bot on every owner label of the clients
+    // present at seating, while a snapshot named the leaver (its seats'
+    // ownerUsername); clients read owners[] for the seat's owner
+    const orderedOwners = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (player) {
+            const seat = game.seat(pos);
             orderedPositions.push(pos);
             orderedSockets.push(player.socketId);
             orderedUsernames.push({ username: player.username });
             orderedPics.push(player.pic);
             orderedIsBot.push(game.isBot(player.socketId));
-            orderedNativeBot.push(game.seat(pos)?.controller === Controller.BOT);
+            orderedNativeBot.push(seat?.controller === Controller.BOT);
+            orderedOwners.push(seat?.controller === Controller.BOT ? null : (seat?.ownerUsername ?? null));
         }
     }
 
@@ -597,7 +614,8 @@ async function handleDrawComplete(io, game) {
         usernames: orderedUsernames,
         pics: wirePics,
         isBot: orderedIsBot,
-        nativeBot: orderedNativeBot
+        nativeBot: orderedNativeBot,
+        owners: orderedOwners
     };
     if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
     game.broadcast(io, 'positionUpdate', positionUpdate);
@@ -995,7 +1013,9 @@ function scoreGybHand(game, io) {
         game.gyb.scores[pos] += points;
         if (took === bid) game.gyb.made[pos]++;
         seats.push({ position: pos, bid, took, points, forbiddenHit });
-        const name = game.getPlayerByPosition(pos)?.username || `P${pos}`;
+        // each seat by its owner (a lazy / resign bot plays for them), as
+        // the team lines and the score screen (seatName)
+        const name = seatName(game, pos) || `P${pos}`;
         game.addLogEntry(`${name}: Bid ${bid}, Won ${took}${forbiddenHit ? ' (Forbidden Bid)' : ''}, +${points} → ${game.gyb.scores[pos]}`, null, 'score');
     }
     gameLogger.debug('Score update', { gyb: seats, scores: game.gyb.scores, gameId: game.gameId });
@@ -1010,7 +1030,7 @@ function scoreGybHand(game, io) {
     });
 
     return Array.from({ length: N }, (_, i) =>
-        `${game.getPlayerByPosition(i + 1)?.username || `P${i + 1}`}: ${game.gyb.scores[i + 1]}`);
+        `${seatName(game, i + 1) || `P${i + 1}`}: ${game.gyb.scores[i + 1]}`);
 }
 
 /** The seats with the highest score at the end of a Get Your Bid game (a tie shares the win). */
@@ -1041,9 +1061,10 @@ async function handleHandComplete(game, io) {
         const playerStatsWithNames = {};
         const totalHands = game.handStats.totalHands;
         for (let pos = 1; pos <= game.seatCount; pos++) {
-            const player = game.getPlayerByPosition(pos);
+            // the score screen names the seat's owner (a lazy / resign bot
+            // plays for them; a native bot seat keeps its persona)
             playerStatsWithNames[pos] = {
-                username: player?.username || `P${pos}`,
+                username: seatName(game, pos) || `P${pos}`,
                 ...game.playerStats[pos],
                 avgHSI: totalHands > 0 ? Math.round(game.playerStats[pos].totalHSI / totalHands) : 0
             };
@@ -1152,12 +1173,10 @@ function scoreClassicHand(game, io) {
     });
 
     // Add hand complete messages to game log
-    const team1P1 = game.getPlayerByPosition(1);
-    const team1P2 = game.getPlayerByPosition(3);
-    const team2P1 = game.getPlayerByPosition(2);
-    const team2P2 = game.getPlayerByPosition(4);
-    const team1Name = `${team1P1.username}/${team1P2.username}`;
-    const team2Name = `${team2P1.username}/${team2P2.username}`;
+    // the teams by their players' names: a lazy or resigned seat's owner,
+    // never the bot playing it (owner rule: teams by player names)
+    const team1Name = `${seatName(game, 1)}/${seatName(game, 3)}`;
+    const team2Name = `${seatName(game, 2)}/${seatName(game, 4)}`;
     const team1Change = game.score.team1 - team1OldScore;
     const team2Change = game.score.team2 - team2OldScore;
     const team1ChangeStr = team1Change >= 0 ? `+${team1Change}` : `${team1Change}`;

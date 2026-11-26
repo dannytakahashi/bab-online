@@ -2,6 +2,8 @@ import SpriteKit
 
 /// The trick area and the won-trick history.
 class SKTrickManager {
+    /// Seats at the table (3 at a Get Your Bid table): which slot a seat is (GameSKScene sets it from the model).
+    var seats = 4
     weak var scene: GameSKScene?
     let trickArea = TrickAreaNode()
     let trickHistory = TrickHistoryNode()
@@ -36,7 +38,7 @@ class SKTrickManager {
         }
         HapticManager.success()
         // in flight, a collect ends at this target even if the table relays out (0.4 s, fading)
-        let point = layout.collectPoint(Positions.getRelative(target: winner, from: viewPosition))
+        let point = layout.collectPoint(Positions.getRelative(target: winner, from: viewPosition, seats: seats))
         animator.collect(sprites, to: point) { [weak self, weak scene] in
             self?.trickArea.collectFinished()
             scene?.renderLatest()

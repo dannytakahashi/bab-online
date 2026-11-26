@@ -557,8 +557,8 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
 - `getYourBid` (`$defs.clientCapGetYourBid`, its own const for the same
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid
-  lobby and its three-seat, no-teams table. The web sends it; no iOS build
-  does. Without it a socket is never listed such a lobby or table (the
+  lobby and its three-seat, no-teams table. The web sends it, and iOS from
+  1.2.7 (41) (`GybRules.cap`, iOSClient/CLAUDE.md "iOS Get Your Bid"). Without it a socket is never listed such a lobby or table (the
   main room's lists are built per socket while one exists), and its
   `createLobby {mode: 'gyb'}`, `joinLobby`, `joinAsSpectator` and
   `rejoinGame` for one are refused (serverError / `rejoinFailed` with "Get
@@ -611,8 +611,9 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   members.
 - `badges` (`$defs.clientCapBadges`, its own const for the same reason;
   2026-11-25, badges: `server/game/badges.js`, `server/socket/badgeAwards.js`,
-  `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it;
-  no iOS build does. With it `profileResponse` / `playerProfileResponse`
+  `server/CLAUDE.md` "Badges"): the client shows badges. The web sends it,
+  and iOS from 1.2.7 (41) (`iOSClient/CLAUDE.md` "iOS badges"; no earlier
+  iOS build does). With it `profileResponse` / `playerProfileResponse`
   carry `badges` (`$defs.earnedBadge` {id, name, description, at}: the
   badges that player has EARNED, oldest first, whatever the stats scope),
   and after a game that newly earned one the player's live socket gets the

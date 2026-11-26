@@ -67,7 +67,7 @@ final class GameSocketHandler {
         }
 
         switch ev.event {
-        case .startDraw, .gameStart:
+        case .startDraw(_), .gameStart:
             appState.screen = .game
         case .rejoinSuccess:
             appState.screen = .game

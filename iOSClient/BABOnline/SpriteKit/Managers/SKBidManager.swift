@@ -3,6 +3,8 @@ import SpriteKit
 /// Bid bubbles from state (`bid.<pos>`): up from the bid until the hand's
 /// first card; a new bid pops.
 class SKBidManager {
+    /// Seats at the table (3 at a Get Your Bid table): which slot a seat is (GameSKScene sets it from the model).
+    var seats = 4
     let layer: SKNode
     private(set) var bubbles: [Int: BidBubbleNode] = [:]
 
@@ -27,7 +29,7 @@ class SKBidManager {
             node.name = "bid.\(pos)"
             // a pop animates only alpha and scale, so the position is set (unless a fold glide moves it)
             if node.action(forKey: "move") == nil {
-                node.position = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition))
+                node.position = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition, seats: seats))
             }
         }
     }
@@ -35,7 +37,7 @@ class SKBidManager {
     /// Relayout: every bubble to its seat's new anchor; a pop keeps going.
     func apply(layout: TableLayout, viewPosition: Int, animator: Animator, animated: Bool) {
         for (pos, node) in bubbles {
-            let target = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition))
+            let target = layout.bubbleAnchor(Positions.getRelative(target: pos, from: viewPosition, seats: seats))
             if animated {
                 animator.move(node, to: target, duration: LayoutConstants.playCardDuration, completion: nil)
             } else {
@@ -61,6 +63,8 @@ class SKBidManager {
 /// Up to two lines within the layout's chatMaxWidth, placed by
 /// TableLayout.chatPosition (above the seat, else below it).
 class SKChatBubbleManager {
+    /// Seats at the table (3 at a Get Your Bid table): which slot a seat is (GameSKScene sets it from the model).
+    var seats = 4
     let layer: SKNode
     private(set) var bubbles: [Int: (node: SKNode, rel: Positions.RelativePosition, size: CGSize)] = [:]
 
@@ -89,7 +93,7 @@ class SKChatBubbleManager {
         watchedLines[position] = nil
         let (bubble, size) = Self.makeBubble(message, maxWidth: layout.chatMaxWidth, name: "chat.\(position)",
                                              fill: Theme.SK.chatFill, text: Theme.SK.chatText)
-        let rel = Positions.getRelative(target: position, from: viewPosition)
+        let rel = Positions.getRelative(target: position, from: viewPosition, seats: seats)
         bubble.position = layout.chatPosition(rel, bubbleSize: size)
         layer.addChild(bubble)
         bubbles[position] = (bubble, rel, size)

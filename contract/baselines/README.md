@@ -20,7 +20,9 @@ contract to every one of them; a failure names the build it would break:
 - `ios-<version>-b<build>.decodes.json`: the decode floor, read from that
   commit's Swift (`contract/lib/swiftDecodes.js` parses
   `ServerEvent.decode` and every type it reaches: `WirePayloads.swift`,
-  `WireDecoding.swift`, the generated `TableSnapshot.swift`, `Card.swift`).
+  `WireDecoding.swift`, the generated `TableSnapshot.swift`, `Card.swift`
+  and, from 1.2.7 (41), `State/Table/GetYourBid.swift`, which an older
+  build's floor never read: `SOURCES_FROM` in `contract/baseline.js`).
   For every event iOS decodes with JSONDecoder, each non-optional property
   must stay required and non-null in today's schema, and every property
   (optional ones too: `decodeIfPresent` throws on a wrong type) must keep a
@@ -49,12 +51,9 @@ the test and the release step alike:
 
 | Build | Files | Archived from | Status |
 | --- | --- | --- | --- |
+| iOS 1.2.7 (41) | `ios-1.2.7-b41.*` | 34014b99 (main, the #420 merge of ios/1.2.7 with #421's Get Your Bid; frozen 2026-11-25: 1.2.6 (40) plus the tournament pairings and the draw for first deal (cap `tournamentPairings`, decodes the optional `startDraw.teams` and snapshot `draw.teams`, `startDraw` itself decoded with `try?`), the update screen (`updateRequired`), badges (cap `badges`, `badgesAwarded`), Cut for a buck (cap `cutForABuck`), the host's round count (`setTournamentRounds`), the tournament voice status (cap `tournamentVoiceStatus`) and Get Your Bid (sends the cap `getYourBid`; decodes the optional `gyb` on gameStart, doneBidding, handComplete and the snapshot carriers through `GetYourBid.swift`'s lenient decoders, which contract/lib/swiftDecodes.js now reads: `try? decoder.container` with `c.flatMap { try? $0.decode(...) }`, every such read optional); the schema is byte-identical to main's contract at freeze time; the `stateSnapshot.requestId` waiver holds: `GameEmitter.requestSnapshot(requestId: String)`) | submitted for App Store review 2026-11-25, replaced in that review by build 42 on 2026-11-26 (App Store review) |
+| iOS 1.2.7 (42) | `ios-1.2.7-b42.*` | 2f61394a (main, the #423 merge of ios/1.2.7-b42; frozen 2026-11-26: 1.2.7 (41) plus the cut's intro over the list as well as the ring, the list's intro cover over every row, the ring's title fading with the stage, and the badges UI tests scrolling whole tiles on the closed Duo (#423), and the a11y test's `table.seats` probe allowlist (#424); no wire change, and the decode floor reads the same sources as 41's; the schema is byte-identical to main's contract at freeze time; the `stateSnapshot.requestId` waiver holds) | uploaded to TestFlight and swapped into the 1.2.7 review for build 41 2026-11-26 (App Store review) |
 
-(No row while the floor build's freeze is pending: `MIN_IOS_BUILD` 41
-retired builds 6 to 40 below, and 1.2.7 (41), plus 1.2.7 (42) if it
-replaced 41 in review, is frozen at its upload by the release step below,
-in its own PR. `additiveOnly.test.js` "the floor build is frozen" fails
-until a build at or above `MIN_IOS_BUILD` has its two files here.)
 
 Retired 2026-11-25 (PR "[after 1.2.7 is live] Upgrade gate: require iOS
 build 41 (1.2.7)", merged once 1.2.7 was READY_FOR_SALE; owner decision

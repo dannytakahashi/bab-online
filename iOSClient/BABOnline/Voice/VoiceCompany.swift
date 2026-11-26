@@ -39,13 +39,14 @@ enum VoiceCompany {
 
     /// The people at a table, nil while the table does not say who sits there yet (the draw of
     /// a lobby's game before its positionUpdate: the screen keeps what it had). Seat owners of
-    /// the four seats (a native bot has no owner; a lazy / resigned seat keeps its owner;
-    /// presence gone, or none, has left), else a snapshot's entrants before seating, plus every
-    /// spectator in `watching` (counted by name; more than the list names means others) when
-    /// `spectators` (the table has casual voice: a tournament table never admits a watcher).
-    static func people(table players: PlayersSlice, spectators: Bool = true) -> [VoicePerson]? {
+    /// the table's `seats` (four, or Get Your Bid's three: TableSlice.seats; a native bot has no
+    /// owner; a lazy / resigned seat keeps its owner; presence gone, or none, has left), else a
+    /// snapshot's entrants before seating, plus every spectator in `watching` (counted by name;
+    /// more than the list names means others) when `spectators` (the table has casual voice: a
+    /// tournament table never admits a watcher).
+    static func people(table players: PlayersSlice, seats: Int = 4, spectators: Bool = true) -> [VoicePerson]? {
         var out: [VoicePerson]
-        if players.seats.count == 4 {
+        if players.seats.count >= seats {
             out = players.seats.values.sorted { $0.position < $1.position }.map { seat in
                 VoicePerson(username: seat.ownerUsername,
                             isBot: seat.controller == .bot || seat.ownerUsername == nil,
@@ -69,9 +70,9 @@ enum VoiceCompany {
     /// beyond the names the list carries (it names at most 50) is company too. `spectators`
     /// false: the watchers never count (a table with no casual voice, e.g. a tournament table,
     /// whose watchers can never join voice: review 2026-11-19).
-    static func table(_ players: PlayersSlice, me: String?, spectators: Bool = true) -> Bool? {
+    static func table(_ players: PlayersSlice, seats: Int = 4, me: String?, spectators: Bool = true) -> Bool? {
         if spectators, players.watching.count > players.watching.spectators.count { return true }
-        guard let people = people(table: players, spectators: spectators) else {
+        guard let people = people(table: players, seats: seats, spectators: spectators) else {
             // spectators are known whatever the seats say
             guard spectators else { return nil }
             return hasCompany(players.watching.spectators.map { VoicePerson(username: $0.username) }, me: me) ? true : nil
@@ -100,13 +101,13 @@ enum VoiceCompany {
     /// The table screen: the table's people, except on the score screen of a game whose end
     /// returned me to a lobby (play again: `lobbyReturn` moved me into that lobby's voice room,
     /// `returnFromGameId` is this game), where the lobby's members count.
-    static func tableScreen(_ players: PlayersSlice, gameId: String?, returnFromGameId: String?,
+    static func tableScreen(_ players: PlayersSlice, seats: Int = 4, gameId: String?, returnFromGameId: String?,
                             lobbyId: String, lobbyPlayers: [LobbyPlayer], me: String?,
                             spectators: Bool = true) -> Bool? {
         if let gameId, returnFromGameId == gameId, !lobbyId.isEmpty {
             return lobby(lobbyPlayers, me: me)
         }
-        return table(players, me: me, spectators: spectators)
+        return table(players, seats: seats, me: me, spectators: spectators)
     }
 }
 

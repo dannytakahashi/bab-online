@@ -120,6 +120,16 @@ function seatPips(s, pos, me) {
   return { need, won: teamWon, title: `Team ${teamWon} of ${need}` };
 }
 
+/**
+ * The name a seat's labels say (the eye chip, the badge): its owner for a
+ * lazy or resigned seat (GameState.getSeatOwnerName), never the bot playing
+ * it; the avatar's plate keeps the bot.
+ */
+function seatLabelName(s, pos) {
+  if (s.getSeatOwnerName) return s.getSeatOwnerName(pos);
+  return s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
+}
+
 /** One ring's eye chip: who watches this seat's hand (none: hidden). */
 function updateWatchChip(ring, names, s, pos) {
   const eye = ring.querySelector(':scope > .hud-ring-corner > .hud-watch-chip');
@@ -134,7 +144,7 @@ function updateWatchChip(ring, names, s, pos) {
     eye.removeAttribute('role');
     return;
   }
-  const player = s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
+  const player = seatLabelName(s, pos);
   const text = watchTitle(names, player, { me: s.username || null, mine: !s.isSpectator && pos === s.position });
   eye.title = text;
   eye.setAttribute('role', 'img');
@@ -188,7 +198,7 @@ export function updateSeatBadges(root, s, { pop = [] } = {}) {
       }
       continue;
     }
-    const name = s.getPlayerNameByPosition ? s.getPlayerNameByPosition(pos) : `P${pos}`;
+    const name = seatLabelName(s, pos);
     const text = seatBadgeLabel(kind, name);
     badge.dataset.badge = kind;
     if (badge.title !== text) badge.title = text;
