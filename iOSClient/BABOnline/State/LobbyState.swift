@@ -50,13 +50,19 @@ final class LobbyState: ObservableObject {
     /// running into the lobby (one shot; `LobbyReturn.keepsVoice` clears it).
     var carriesVoice = false
 
+    /// The lobby's game (`mode` on every lobby event: 'gyb' for Get Your Bid; absent = the base
+    /// game). Get Your Bid seats three: the family-lobby rules at 3, Add Bot up to 3.
+    @Published var mode: GameMode = .classic
+    /// Seats at the lobby's table (3 for Get Your Bid, else 4).
+    var seats: Int { mode.seats }
+
     var playerCount: Int { players.count }
     var isFull: Bool { players.count >= capacity }
     /// Ready seats at the table, out of 4: ready members who play (every ready member of a
     /// lobby of 4 or fewer).
-    var readyAtTable: Int { min(4, players.filter { $0.isReady && $0.playing != false }.count) }
-    /// The table has its 4 (bots and the first to ready) in a lobby of more than 4.
-    var tableFull: Bool { players.count > 4 && LobbySeatStatus.tableFull(players) }
+    var readyAtTable: Int { min(seats, players.filter { $0.isReady && $0.playing != false }.count) }
+    /// The table has its 4 (3 for Get Your Bid: bots and the first to ready) in a bigger lobby.
+    var tableFull: Bool { players.count > seats && LobbySeatStatus.tableFull(players, seats: seats) }
 
     /// My Ready would be refused: the table filled without me ("Table full — you'll watch").
     func tableFullWithout(_ username: String?) -> Bool {
@@ -69,6 +75,7 @@ final class LobbyState: ObservableObject {
     func reset() {
         lobbyId = ""
         lobbyName = ""
+        mode = .classic
         players = []
         messages = []
         isReady = false
@@ -122,7 +129,10 @@ final class LobbyState: ObservableObject {
     /// `capacity`, `host`, `settings` of a lobby event (each kept when absent: an event of an
     /// older server, or one that does not carry them).
     func applyFamilyKeys(from dict: [String: Any]) {
-        if let c = dict["capacity"] as? Int, (4...8).contains(c), c != capacity { capacity = c }
+        if let c = dict["capacity"] as? Int, (3...8).contains(c), c != capacity { capacity = c }
+        // the mode rides on every lobby event of a Get Your Bid lobby (absent: kept, a lobby's
+        // mode never changes; applyLobby sets it from lobbyCreated's body)
+        if GameMode.from(dict["mode"]) == .gyb, mode != .gyb { mode = .gyb }
         if let h = dict["host"] as? String, h != host { host = h }
         if let settings = dict["settings"] as? [String: Any] {
             if !hasSettings { hasSettings = true }
@@ -140,6 +150,8 @@ final class LobbyState: ObservableObject {
     func applyLobby(_ dict: [String: Any], isBlocked: (String) -> Bool) {
         lobbyId = dict["lobbyId"] as? String ?? ""
         lobbyName = dict["lobbyName"] as? String ?? dict["name"] as? String ?? ""
+        let newMode = GameMode.from(dict["mode"])
+        if newMode != mode { mode = newMode }
         isReady = false
         applyPlayers(from: dict, namesHeldSeats: true)
         if let list = dict["messages"] as? [[String: Any]] {
@@ -158,5 +170,5 @@ final class LobbyState: ObservableObject {
 
     /// Add Bot: below 4 members, counting the last game's saved places (the server refuses
     /// it while members + expected would reach 4).
-    var canAddBot: Bool { players.count + expected.count < 4 }
+    var canAddBot: Bool { players.count + expected.count < seats }
 }

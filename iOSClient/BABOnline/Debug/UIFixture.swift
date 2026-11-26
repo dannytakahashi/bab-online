@@ -151,6 +151,11 @@ enum UIFixture {
                 "sid-w": VoiceChatManager.PeerInfo(username: "lou"),
             ]
         }
+        // Get Your Bid (UIFixture+GetYourBid.swift): its table, lobby and main-room fixtures
+        if seedGyb(name, store, appState, mainRoom: mainRoom, lobby: lobby, auth: auth) {
+            print("[UIFixture] seeded Get Your Bid \(name)")
+            return
+        }
         if screenFixtures.contains(name) {
             seedScreen(name, appState, mainRoom: mainRoom, lobby: lobby, tournament: tournament, auth: auth)
             // iOS 1.2.7's tournament extras: the over-cap notice, the rounds' answers (UIFixture+Tournament)
@@ -458,6 +463,9 @@ enum UIFixture {
             message = profileSent(event, data)  // answered as the server does (UIFixture+Profile)
         case SocketEvents.Client.lobbyReturnSeen:
             message = "lobbyReturnSeen"
+        case SocketEvents.Client.createLobby:
+            // New Game's choice (GybLobbyUITests): the game it asked for
+            message = (data["mode"] as? String).map { "createLobby:\($0)" } ?? "createLobby"
         case SocketEvents.Client.watchHand:
             // -uiShoulder: answered as the server does (UIFixture+Shoulder)
             message = "watchHand:\((data["position"] as? Int).map(String.init) ?? "null")"
@@ -882,6 +890,10 @@ final class TableDebugProbe: ObservableObject {
     /// 1.2.2: "fans=2:5,3:5,4:4 dealer=3" (card backs per seat, "-" where the table shows
     /// no fans; the dealer's seat, "me", or "-"). Its own probe: a rotation may gain or lose the fans.
     @Published var tableExtras = "-"
+    /// The seats as drawn (Get Your Bid's three-seat table, GybTableUITests): "seats=3 1:left 2:right
+    /// trick=2:left,3:right clear=ok|over:<a>/<b>,..." (each opponent seat's slot by position, each
+    /// trick card's slot, and whether any two of the seats' footprints, the trick cards and my hand overlap).
+    @Published var tableSeats = "-"
     /// The avatar badges (SeatBadgeNode, TableLayout+Badges.swift): "<pos>:bulb|cap|- <x y w h>
     /// clear=ok|over:<what>;... pops=<n> pop=scale|fade|-" per seat with an avatar, by position (the
     /// drawn badge's frame in the pane's points and what of the layout's badge keeps it covers;
@@ -1091,6 +1103,8 @@ final class TableDebugProbe: ObservableObject {
         let state = "lifted=\(lifted) hand=\(scene.handNode.sprites.count) trick=\(scene.trickArea.cardCount) didMove=\(scene.didMoveCount)"
         let extras = "fans=\(fans) back=\(back) dealer=\(dealer)"
         if extras != tableExtras { tableExtras = extras }
+        let seatsText = seatsProbe(scene)
+        if seatsText != tableSeats { tableSeats = seatsText }
         let badges = badgesProbe(scene)
         if badges != tableBadges { tableBadges = badges }
         if check != layoutCheck { layoutCheck = check }
@@ -1157,6 +1171,34 @@ extension TableDebugProbe {
     }
 }
 
+extension TableDebugProbe {
+    /// "table.seats" (see `tableSeats`).
+    func seatsProbe(_ scene: GameSKScene) -> String {
+        guard let model = scene.lastModel, model.showsTable else { return "-" }
+        let L = scene.layout
+        let seats = scene.opponentManager.nodes.sorted { $0.key < $1.key }
+        var boxes: [(String, CGRect)] = seats.map { ("seat\($0.key)", L.seatFootprint($0.value.relativePosition)) }
+        let trick = model.trick.map { c -> String in
+            let rel = Positions.getRelative(target: c.position, from: model.viewPosition, seats: model.seats)
+            boxes.append(("trick\(c.position)", L.trickRect(rel)))
+            return "\(c.position):\(rel.rawValue)"
+        }
+        if !scene.handNode.sprites.isEmpty {
+            let f = scene.handNode.calculateAccumulatedFrame()
+            boxes.append(("hand", f.insetBy(dx: 1, dy: 1)))
+        }
+        var over: [String] = []
+        for (i, a) in boxes.enumerated() {
+            for b in boxes[(i + 1)...] where a.1.insetBy(dx: 0.5, dy: 0.5).intersects(b.1.insetBy(dx: 0.5, dy: 0.5)) {
+                over.append("\(a.0)/\(b.0)")
+            }
+        }
+        return "seats=\(model.seats) " + seats.map { "\($0.key):\($0.value.relativePosition.rawValue)" }.joined(separator: " ")
+            + " trick=" + (trick.isEmpty ? "-" : trick.joined(separator: ","))
+            + " clear=" + (over.isEmpty ? "ok" : "over:" + over.joined(separator: ","))
+    }
+}
+
 /// The fixture probes, 1x1 and nearly transparent, readable by XCUITest.
 struct FixtureProbes: View {
     @ObservedObject var probe = TableDebugProbe.shared
@@ -1167,6 +1209,7 @@ struct FixtureProbes: View {
             dot("table.layoutCheck", probe.layoutCheck)
             dot("table.state", probe.tableState)
             dot("table.extras", probe.tableExtras)
+            dot("table.seats", probe.tableSeats)
             dot("table.badges", probe.tableBadges)
             dot("fixture.sent", probe.sent)
             dot("table.zoom", probe.tableZoom)

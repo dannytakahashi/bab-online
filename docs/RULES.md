@@ -223,7 +223,7 @@ Every finished tournament is kept: your profile shows how many tournaments you f
 
 ## Get Your Bid
 
-A second way to play, chosen when a game is created (**+ Create Game → Get Your Bid**). On the website only, in casual lobbies (not tournaments). These games are not counted in statistics, standings or records.
+A second way to play, chosen when a game is created (**+ Create Game → Get Your Bid**; in the iOS app **New Game → Get Your Bid**). On the website and in the iOS app (from version 1.2.7), in casual lobbies (not tournaments). These games are not counted in statistics, standings or records.
 
 - **3 players, no teams.** Everyone plays for themselves. A lobby starts when three players are ready; anyone else in the lobby watches
 - **The same 13 hands** (12 → 10 → 8 → 6 → 4 → 2 → 1 → 3 → 5 → 7 → 9 → 11 → 13) and **the same card play**: follow suit, trump can't be led until it is broken, and a HI joker lead makes both other players play their highest trump

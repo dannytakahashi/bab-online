@@ -3425,7 +3425,7 @@
         "web": true,
         "ios": true
       },
-      "notes": "mode (additive 2026-11-24; the web sends it, no iOS build): gyb opens a Get Your Bid lobby (3 seats, no teams; server/game/gameMode.js), only from a socket that sent the clientHello cap getYourBid (else serverError); absent or classic is the base game.",
+      "notes": "mode (additive 2026-11-24; the web sends it, and iOS from 1.2.7 (42)): gyb opens a Get Your Bid lobby (3 seats, no teams; server/game/gameMode.js), only from a socket that sent the clientHello cap getYourBid (else serverError); absent or classic is the base game.",
       "examples": [
         {
           "name": "Family night"
@@ -8047,7 +8047,7 @@
         "gyb",
         "seq"
       ],
-      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web; no iOS build).",
+      "notes": "At a Get Your Bid table the team keys keep their shape and carry nothing: the hand is gyb (each seat's bid, tricks and points, the scores before and after, the Forbidden Bid). gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web, and iOS from 1.2.7 (42)).",
       "clientReads": {
         "web": [
           "client/src/handlers/gameHandlers.js:registerGameHandlers"

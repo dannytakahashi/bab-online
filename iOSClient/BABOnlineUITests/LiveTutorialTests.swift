@@ -71,6 +71,7 @@ final class LiveTutorialTests: XCTestCase {
             if notNow.exists { notNow.tap(); _ = notNow.waitForNonExistence(timeout: 5) }
             XCTAssertTrue(wait(15) { newGame.isEnabled && newGame.isHittable })
             newGame.tap()
+            Fixture.chooseClassicGame()
             _ = app.buttons["Add Bot"].waitForExistence(timeout: 6)
         }
 

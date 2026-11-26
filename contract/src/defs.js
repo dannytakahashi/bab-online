@@ -386,8 +386,8 @@ const defs = {
     // Bid): the client can show a Get Your Bid lobby and table (3 seats,
     // no teams; server/game/gameMode.js). Only such a socket is listed
     // one, may create, join, rejoin or watch one, so every `gyb` / `mode`
-    // key below reaches only clients that know the mode (the web; no iOS
-    // build) (contract/README.md "Client capabilities")
+    // key below reaches only clients that know the mode (the web, and iOS
+    // from 1.2.7 (42)) (contract/README.md "Client capabilities")
     clientCapGetYourBid: konst('getYourBid'),
     // A ninth, its own const for the same reason (2026-11-25, the over-cap
     // notice): the client renders the private s2c tournamentVoiceStatus

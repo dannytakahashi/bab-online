@@ -61,6 +61,7 @@ final class LiveMutedVoiceTests: XCTestCase {
         let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: newGame)
         wait(for: [enabled], timeout: 15)
         newGame.tap()
+        Fixture.chooseClassicGame()
 
         // alone in the lobby: no voice at all (owner 2026-11-19, no voice alone)
         XCTAssertTrue(app.buttons["Add Bot"].waitForExistence(timeout: 20), "no game lobby")

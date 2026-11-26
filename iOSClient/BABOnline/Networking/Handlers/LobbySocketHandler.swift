@@ -15,6 +15,8 @@ final class LobbySocketHandler {
     static func routeAllPlayersReady(_ dict: [String: Any]?, to store: GameState) {
         if let gameId = dict?["gameId"] as? String {
             store.apply(.local(.enterGameContext(gameId: gameId, tournamentId: nil)))
+            // Get Your Bid (additive `mode`): three seats from the draw on
+            if GameMode.from(dict?["mode"]) == .gyb { store.apply(.local(.setMode(.gyb))) }
         }
     }
 

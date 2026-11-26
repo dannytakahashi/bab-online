@@ -17,11 +17,14 @@ struct Lobby: Identifiable, Equatable {
     var memberCount: Int? = nil
     var capacity: Int? = nil
     var memberUsernames: [String]? = nil
+    /// Get Your Bid (additive `mode` / `seats` on a list entry; only a client with the cap gets
+    /// one): the gold chip, three seats, each seat's score in progress.
+    var mode: GameMode = .classic
 
     /// Everyone in the lobby: `memberCount` when the server sent it, else `playerCount`.
     var members: Int { memberCount ?? playerCount }
     /// How many the lobby may hold: `capacity` when sent, else 4.
-    var seatsTotal: Int { capacity ?? 4 }
+    var seatsTotal: Int { capacity ?? mode.seats }
     /// The card's count: "3/8", "4/4".
     var countText: String { "\(members)/\(seatsTotal)" }
 
@@ -57,7 +60,9 @@ struct Lobby: Identifiable, Equatable {
             name = n
         } else if let pArr = dict["players"] as? [[String: Any]] {
             let names = pArr.compactMap { $0["username"] as? String }
-            if names.count == 4 {
+            if GameMode.from(dict["mode"]) == .gyb {
+                name = GybRules.listNames(names)
+            } else if names.count == 4 {
                 name = "\(names[0]) & \(names[2]) vs \(names[1]) & \(names[3])"
             } else {
                 name = names.joined(separator: ", ")
@@ -77,8 +82,9 @@ struct Lobby: Identifiable, Equatable {
         return Lobby(id: id, name: name, players: players, playerCount: playerCount, isInProgress: isInProgress,
                      progress: GameProgress.from(dict),
                      memberCount: (dict["memberCount"] as? Int).map { max(0, $0) },
-                     capacity: (dict["capacity"] as? Int).flatMap { (4...8).contains($0) ? $0 : nil },
-                     memberUsernames: (dict["memberUsernames"] as? [Any])?.compactMap { $0 as? String })
+                     capacity: (dict["capacity"] as? Int).flatMap { (3...8).contains($0) ? $0 : nil },
+                     memberUsernames: (dict["memberUsernames"] as? [Any])?.compactMap { $0 as? String },
+                     mode: GameMode.from(dict["mode"]))
     }
 }
 
@@ -91,6 +97,14 @@ struct GameProgress: Equatable {
     var team1Names: [String] = []
     var team2Names: [String] = []
     var spectatorCount: Int = 0
+    /// Get Your Bid (`mode` + `scores` by position - 1): each player's name and score, seat order.
+    var soloScores: [(name: String, score: Int)]? = nil
+
+    static func == (a: GameProgress, b: GameProgress) -> Bool {
+        a.currentHand == b.currentHand && a.team1Score == b.team1Score && a.team2Score == b.team2Score
+            && a.team1Names == b.team1Names && a.team2Names == b.team2Names && a.spectatorCount == b.spectatorCount
+            && a.soloScores?.map(\.name) == b.soloScores?.map(\.name) && a.soloScores?.map(\.score) == b.soloScores?.map(\.score)
+    }
 
     /// nil when the entry carries none of it (a waiting lobby, an older server).
     static func from(_ dict: [String: Any]) -> GameProgress? {
@@ -102,7 +116,16 @@ struct GameProgress: Equatable {
             guard let name = player["username"] as? String, let position = player["position"] as? Int else { continue }
             if position == 1 || position == 3 { p.team1Names.append(name) } else if position == 2 || position == 4 { p.team2Names.append(name) }
         }
-        let empty = p.currentHand == nil && p.team1Score == nil && p.team2Score == nil && p.spectatorCount == 0
+        if GameMode.from(dict["mode"]) == .gyb {
+            let scores = GybWire.bySeat((dict["scores"] as? [Any])?.compactMap { ($0 as? NSNumber)?.intValue })
+            var names: [Int: String] = [:]
+            for player in dict["players"] as? [[String: Any]] ?? [] {
+                if let n = player["username"] as? String, let pos = player["position"] as? Int { names[pos] = n }
+            }
+            p.team1Names = []; p.team2Names = []; p.team1Score = nil; p.team2Score = nil
+            p.soloScores = (1...GybRules.seats).compactMap { pos in names[pos].map { ($0, scores[pos - 1]) } }
+        }
+        let empty = p.currentHand == nil && p.team1Score == nil && p.team2Score == nil && p.spectatorCount == 0 && p.soloScores == nil
         return empty ? nil : p
     }
 
@@ -114,6 +137,8 @@ struct GameProgress: Equatable {
         return "\(names.joined(separator: "/")): \(score)"
     }
     var watchingText: String? { spectatorCount > 0 ? "\(spectatorCount) watching" : nil }
+    /// Get Your Bid: "ann 26 · bob 13 · cat 0" (nil at a team table).
+    var soloText: String? { soloScores.map { $0.map { "\($0.name) \($0.score)" }.joined(separator: " \u{00B7} ") } }
 
     /// VoiceOver: "Hand 5. a and c 120, b and d 85. 2 watching".
     var spokenSummary: String {
@@ -123,6 +148,7 @@ struct GameProgress: Equatable {
             score.flatMap { s in names.isEmpty ? nil : "\(names.joined(separator: " and ")) \(s)" }
         }
         if !teams.isEmpty { parts.append(teams.joined(separator: ", ")) }
+        if let solo = soloScores, !solo.isEmpty { parts.append(solo.map { "\($0.name) \($0.score)" }.joined(separator: ", ")) }
         if let watchingText { parts.append(watchingText) }
         return parts.joined(separator: ". ")
     }
@@ -174,16 +200,17 @@ enum LobbySeatStatus: String, Equatable {
     case sittingOut = "Sitting out"
 
     /// `members`: the whole list; the statuses show only in a lobby of more than 4.
-    static func of(_ player: LobbyPlayer, in members: [LobbyPlayer]) -> LobbySeatStatus? {
-        guard members.count > 4, let playing = player.playing else { return nil }
+    /// `seats`: the lobby's table (3 for Get Your Bid).
+    static func of(_ player: LobbyPlayer, in members: [LobbyPlayer], seats: Int = 4) -> LobbySeatStatus? {
+        guard members.count > seats, let playing = player.playing else { return nil }
         if playing { return .playing }
         if player.isBot { return .sittingOut }
-        return tableFull(members) ? .willWatch : nil
+        return tableFull(members, seats: seats) ? .willWatch : nil
     }
 
-    /// Four members hold the table's seats (the server's `playing`).
-    static func tableFull(_ members: [LobbyPlayer]) -> Bool {
-        members.filter { $0.playing == true }.count >= 4
+    /// The table's seats are all held (the server's `playing`).
+    static func tableFull(_ members: [LobbyPlayer], seats: Int = 4) -> Bool {
+        members.filter { $0.playing == true }.count >= seats
     }
 }
 

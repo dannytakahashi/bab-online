@@ -364,7 +364,8 @@ enum AssistRules {
     /// My own bid or play turn at my seat, with nothing of mine on its way (where the lightbulb
     /// shows, while no answer is up and none asked for is on its way).
     static func canAsk(_ s: TableState) -> Bool {
-        guard s.table.viewer.role == .seat, s.table.viewer.position != nil, !s.table.hand.isEmpty,
+        // Get Your Bid has no /help (the server refuses it there)
+        guard s.table.viewer.role == .seat, s.table.viewer.position != nil, !s.table.hand.isEmpty, !s.table.isGyb,
               s.table.snapshotTrouble == .none else { return false }
         switch s.myTurn {
         case .choosing(.bid): return s.table.phase.isBidding

@@ -1917,7 +1917,7 @@ private struct TableVoiceCompany: View {
         if let lobby {
             Observed(lobby: lobby, gameState: gameState, spectators: spectators)
         } else {
-            report(VoiceCompany.table(gameState.players, me: me, spectators: spectators))
+            report(VoiceCompany.table(gameState.players, seats: gameState.table.seats, me: me, spectators: spectators))
         }
     }
 
@@ -1937,7 +1937,7 @@ private struct TableVoiceCompany: View {
 
         var body: some View {
             let me = gameState.username ?? SocketService.shared.authState?.username
-            let company = VoiceCompany.tableScreen(gameState.players, gameId: gameState.gameId,
+            let company = VoiceCompany.tableScreen(gameState.players, seats: gameState.table.seats, gameId: gameState.gameId,
                                                    returnFromGameId: lobby.returnFromGameId, lobbyId: lobby.lobbyId,
                                                    lobbyPlayers: lobby.players, me: me, spectators: spectators)
             Color.clear
