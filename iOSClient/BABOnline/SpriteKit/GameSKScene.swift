@@ -297,7 +297,7 @@ class GameSKScene: SKScene, TableRenderer {
                 // itself (adopted), and my submitted card is already in its slot
                 // when a late cardPlayed confirms it
                 guard changes.created.contains(name) else { break }
-                let rel = Positions.getRelative(target: played.position, from: view)
+                let rel = Positions.getRelative(target: played.position, from: view, seats: model.seats)
                 trickArea.animateEntry(name, from: cardEntry(rel, model: model), slot: layout.trickSlot(rel), animator: animator)
             case .bidPlaced(let pos, _, _):
                 bidManager.pop(position: pos, animator: animator)
@@ -404,6 +404,12 @@ class GameSKScene: SKScene, TableRenderer {
             return .init()
         }
         let me = model.viewPosition
+        // Get Your Bid: three seats (no partner across); every manager places seats by it
+        trickArea.seats = model.seats
+        trickManager.seats = model.seats
+        effectsManager.seats = model.seats
+        bidManager.seats = model.seats
+        chatManager.seats = model.seats
 
         // Cross-container moves of my own card (22.4 / 22.7): hand -> trick on a
         // submit or a lazy-bot play, trick -> hand on a rollback
@@ -432,8 +438,8 @@ class GameSKScene: SKScene, TableRenderer {
         toTrick.values.forEach { $0.removeFromParent() }
         trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing,
                                             totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }),
-                                            myTeam: Positions.getTeamNumber(me))
-        myPipsNode.update(model.myPips, team: Positions.getTeamNumber(me))
+                                            myTeam: Positions.colour(me, seats: model.seats))
+        myPipsNode.update(model.myPips, team: Positions.colour(me, seats: model.seats))
         placeMyPips()
         placeMyDealer(model)
         placeMyWatchers(model)

@@ -4,22 +4,24 @@ import SwiftUI
 /// "Ready 2/4" (owner 2026-11-19: the rows show who is here, so "Players 7/8 ·" went), from a
 /// server with or without the family keys.
 struct LobbyCount: Equatable {
-    /// Ready seats at the table, out of 4.
+    /// Ready seats at the table, out of `seats` (4; 3 for Get Your Bid: "Ready 2/3").
     let ready: Int
+    var seats: Int = 4
 
-    init(ready: Int) {
+    init(ready: Int, seats: Int = 4) {
         self.ready = ready
+        self.seats = seats
     }
 
     init(_ lobby: LobbyState) {
-        self.init(ready: lobby.readyAtTable)
+        self.init(ready: lobby.readyAtTable, seats: lobby.seats)
     }
 
     /// One line, never broken: "Ready 2/4".
-    var text: String { "Ready \(ready)/4" }
+    var text: String { "Ready \(ready)/\(seats)" }
 
     /// VoiceOver, whatever the layout: "2 of 4 ready".
-    var spoken: String { "\(ready) of 4 ready" }
+    var spoken: String { "\(ready) of \(seats) ready" }
 }
 
 /// The game lobby's header: Leave (unless the vertical bar holds it), the lobby's title, the

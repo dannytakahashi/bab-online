@@ -55,6 +55,14 @@ struct BidOverlayView: View {
         readOnly ? max(gameState.currentHand, gameState.myCards.count) : gameState.myCards.count
     }
 
+    /// The Forbidden Bid on this sheet (Get Your Bid, the dealer's): struck, disabled, named
+    /// (the web's `.bid-button.is-forbidden`); the watched seat's when read-only.
+    private var forbidden: Int? {
+        guard readOnly else { return gameState.myForbiddenBid }
+        guard let f = gameState.gybForbidden, f.position == gameState.watchedSeat else { return nil }
+        return f.bid
+    }
+
     /// The selection shown (never one while read-only).
     private var shownSelection: String? { readOnly ? nil : selectedBid }
 
@@ -63,15 +71,17 @@ struct BidOverlayView: View {
 
     /// The read-only sheet's VoiceOver value: its choices as words, the suggestion and the clock.
     private func readOnlyValue(_ clock: BidCountdownModel.Display) -> String {
-        var parts = ["Choices: " + ((0...maxBid).map(String.init) + availableBoreLevels).joined(separator: ", ")]
+        var parts = ["Choices: " + ((0...maxBid).filter { $0 != forbidden }.map(String.init) + availableBoreLevels).joined(separator: ", ")]
+        if let forbidden { parts.append(GybRules.forbiddenLine(forbidden)) }
         if let s = suggested { parts.append("Suggested: \(s)") }
         if case .seconds(let n, _) = clock { parts.append("\(n) \(n == 1 ? "second" : "seconds") left") }
         return parts.joined(separator: ". ")
     }
 
-    /// Available bore levels based on what's already been bid (BidRules.availableBores)
+    /// Available bore levels based on what's already been bid (BidRules.availableBores); none
+    /// at a Get Your Bid table (numbers only).
     private var availableBoreLevels: [String] {
-        guard maxBid > 0 else { return [] }
+        guard maxBid > 0, !gameState.isGyb else { return [] }
         return BidRules.availableBores(bids: gameState.tempBids)
     }
 
@@ -94,7 +104,11 @@ struct BidOverlayView: View {
 
     /// The chip row's model: the bids on the table against this deal's hand size.
     private var bidChips: BidChips {
-        BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
+        if gameState.isGyb {
+            return BidChips.solo(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
+                                 viewer: gameState.readingSeat, names: gameState.players.seats.compactMapValues(\.username))
+        }
+        return BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
                  viewPosition: gameState.viewPosition,
                  names: ScoreBarView.viewerTeams(position: gameState.watchedSeat ?? gameState.position, spectator: gameState.isPlainSpectator,
                                                  usernames: gameState.players.seats.compactMapValues(\.username)))
@@ -146,21 +160,27 @@ struct BidOverlayView: View {
             LazyVGrid(columns: columns, spacing: 0) {
                 ForEach(0...maxBid, id: \.self) { bid in
                     let bidStr = String(bid)
-                    Button(action: { if !readOnly { selectedBid = bidStr } }) {
+                    let isForbidden = bid == forbidden
+                    Button(action: { if !readOnly && !isForbidden { selectedBid = bidStr } }) {
                         Text("\(bid)")
                             .font(.callout.bold())
+                            .strikethrough(isForbidden, color: Theme.danger)
                             .frame(width: faceSize, height: faceSize)
                             .background(shownSelection == bidStr ? Theme.primary : Theme.surfaceLight)
-                            .foregroundColor(shownSelection == bidStr ? Theme.buttonForeground : Theme.textPrimary)
+                            .foregroundColor(isForbidden ? Theme.danger : shownSelection == bidStr ? Theme.buttonForeground : Theme.textPrimary)
                             .cornerRadius(Theme.Radius.sm)
+                            .modifier(ForbiddenBidCross(on: isForbidden))
                             .modifier(SuggestedBidRing(on: suggested == bidStr, radius: Theme.Radius.sm))
+                            .opacity(isForbidden ? 0.75 : 1)
                             .frame(width: cellSize, height: cellSize)
                             .contentShape(Rectangle())
                     }
                     .accessibilityShowsLargeContentViewer()
+                    .accessibilityLabel(isForbidden ? GybRules.forbiddenButtonLabel(bid) : bidStr)
                     .accessibilityValue(suggested == bidStr ? "Suggested" : "")
+                    .accessibilityIdentifier(isForbidden ? "bid.forbidden" : "bid.\(bid)")
                     .accessibilityHidden(readOnly)  // the mirror is one static element (BidPanelAccessibility)
-                    .disabled(readOnly)
+                    .disabled(readOnly || isForbidden)
                 }
             }
             .padding(.horizontal, 6)
@@ -186,6 +206,17 @@ struct BidOverlayView: View {
                         .accessibilityHidden(readOnly)
                         .disabled(readOnly)
                     }
+                }
+
+                // Get Your Bid: "Forbidden Bid: N" where the bores would be (no bores there)
+                if let forbidden {
+                    Text(GybRules.forbiddenLine(forbidden))
+                        .font(.caption.bold())
+                        .foregroundColor(Theme.danger)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .frame(height: rowSize)
+                        .accessibilityIdentifier("bid.forbiddenLine")
                 }
 
                 // the gap (a Spacer's 8 pt minimum); HSI is an overlay of it, so the buttons never move
@@ -323,7 +354,7 @@ struct BidOverlayView: View {
 
     private func submitBid() {
         // never from the watched seat's mirror (ActionCoordinator.bid refuses a spectator too)
-        guard !readOnly, let bid = selectedBid else { return }
+        guard !readOnly, let bid = selectedBid, bid != forbidden.map(String.init) else { return }
         // the countdown reached 0: the server is bidding 0 for me (C2's margin)
         if let c = myClock, BidCountdownModel.display(c, mine: true, now: gameState.clockNow()) == .expired { return }
         if actions.bid(bid) {
@@ -395,6 +426,20 @@ struct BidChips: Equatable {
     /// team (a spectator's seats 1 and 3) and the other.
     let mineSaid: String
     let theirsSaid: String
+    /// Get Your Bid (`solo`): each player's bid in its seat's colour, mine first; nil at a team table.
+    struct Segment: Equatable { let colour: Int; let count: Int; let said: String }
+    var segments: [Segment]? = nil
+
+    /// A Get Your Bid sheet's chips: each player's bid (a number, at most the hand), mine first
+    /// then the next in turn and the one after, each in its seat's colour (the web's chips by seat).
+    static func solo(bids: BidBook, handSize: Int, viewer: Int, names: [Int: String]) -> BidChips {
+        var c = BidChips(bids: BidBook(), handSize: handSize, viewPosition: viewer)
+        c.segments = GybRules.order(viewer: viewer).map { pos in
+            Segment(colour: Positions.colour(pos, seats: GybRules.seats), count: BidTotals.tricks(bids.bid(at: pos), handSize: handSize) ?? 0,
+                    said: names[pos] ?? "")
+        }
+        return c
+    }
 
     /// `names`: the score bar's sides (`ScoreBarView.viewerTeams`), mine first.
     init(bids: BidBook, handSize: Int, viewPosition: Int,
@@ -409,13 +454,25 @@ struct BidChips: Equatable {
         theirsSaid = ScoreBarView.namesAccessibilityLabel(names.opp)
     }
 
-    var total: Int { mine + theirs }
+    /// "3+2/7" (mine + theirs / hand), at a Get Your Bid table "3+2+1/7" (mine first).
+    var debugValue: String {
+        (segments.map { $0.map { String($0.count) }.joined(separator: "+") } ?? "\(mine)+\(theirs)") + "/\(handSize)"
+    }
+
+    var total: Int { segments.map { $0.reduce(0) { $0 + $1.count } } ?? (mine + theirs) }
     /// Tricks bid beyond the hand (0: not an overbid).
     var overbid: Int { max(0, total - handSize) }
 
     /// Left to right: my team's, the other team's, then empty up to the hand size.
     var chips: [Chip] {
         let count = min(max(total, handSize), Self.maxChips)
+        if let segments {
+            let colours = segments.flatMap { Array(repeating: $0.colour, count: $0.count) }
+            return (0..<count).map { i in
+                guard i < colours.count else { return .empty }
+                return i >= handSize ? .over(colours[i]) : .team(colours[i])
+            }
+        }
         let other = myTeam == 1 ? 2 : 1
         return (0..<count).map { i in
             let team: Int? = i < mine ? myTeam : (i < total ? other : nil)
@@ -429,6 +486,12 @@ struct BidChips: Equatable {
     /// web's announcer); while the names are not known only the total, "Bids: 5 of 7 tricks".
     var spoken: String {
         let of = "of \(handSize) \(handSize == 1 ? "trick" : "tricks")"
+        if let segments {
+            let known = segments.allSatisfy { !$0.said.isEmpty }
+            var text = known ? "Bids: " + segments.map { "\($0.said) \($0.count)" }.joined(separator: ", ") + ", \(of)" : "Bids: \(total) \(of)"
+            if overbid > 0 { text += ". Over by \(overbid)" }
+            return text
+        }
         var text = mineSaid.isEmpty || theirsSaid.isEmpty
             ? "Bids: \(total) \(of)"
             : "Bids: \(mineSaid) \(mine), \(theirsSaid) \(theirs), \(of)"
@@ -459,7 +522,7 @@ struct BidChipRow: View {
         .accessibilityLabel(chips.spoken)
         .accessibilityIdentifier("bidChips")
         #if DEBUG
-        .accessibilityValue("\(chips.mine)+\(chips.theirs)/\(chips.handSize)")  // the fixture UI tests read the totals
+        .accessibilityValue(chips.debugValue)  // the fixture UI tests read the totals
         #endif
     }
 
@@ -528,5 +591,27 @@ struct BidClockPill: View {
         #if DEBUG
         .accessibilityValue(low ? "\(seconds) low" : "\(seconds)")  // the fixture UI tests read it
         #endif
+    }
+}
+
+/// The Forbidden Bid's cross (Get Your Bid): the face crossed out in the danger colour, under
+/// the struck number (the web's `.bid-button.is-forbidden`).
+struct ForbiddenBidCross: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if on {
+                GeometryReader { g in
+                    Path { p in
+                        p.move(to: CGPoint(x: 6, y: 6))
+                        p.addLine(to: CGPoint(x: g.size.width - 6, y: g.size.height - 6))
+                    }
+                    .stroke(Theme.danger.opacity(0.8), lineWidth: 2)
+                }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
     }
 }

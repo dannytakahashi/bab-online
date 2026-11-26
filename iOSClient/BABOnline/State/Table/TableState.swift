@@ -57,6 +57,25 @@ struct TableSlice: Equatable {
     var watchedAssist: AssistHint?
     /// The watched seat's mirrored rule tip (assistHint kind `tip` with `watched`), nil when none.
     var watchedTip: AssistHint?
+    /// The game this table plays (allPlayersReady.mode, gameStart.gyb, a carrier's gyb): Get Your
+    /// Bid has three seats and no teams (State/Table/GetYourBid.swift). Fixed for the game.
+    var mode: GameMode = .classic
+    /// A Get Your Bid table's scores, exact bids and last hand (unused in the base game).
+    var gyb = GybTable()
+
+    /// Seats at the table: 3 at a Get Your Bid table, else 4.
+    var seats: Int { mode.seats }
+    var isGyb: Bool { mode == .gyb }
+
+    /// This deal's Forbidden Bid at a Get Your Bid table: the server's word once it said it
+    /// (doneBidding, a carrier), else derived from the bids (GybRules.forbidden, the server's
+    /// rule) while bidding; nil in the base game and where the rule does not apply.
+    var gybForbidden: GybForbidden? {
+        guard isGyb else { return nil }
+        if let said = gyb.forbidden { return said }
+        guard let deal, let bids = phase.bids else { return nil }
+        return GybRules.forbidden(bids: bids, dealer: deal.dealer, handSize: deal.handSize)
+    }
 }
 
 /// The over-the-shoulder view's selection (the web's ShoulderWatch, client/src/state/shoulder.js).

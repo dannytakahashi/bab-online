@@ -44,9 +44,10 @@ class TrickHistoryNode: SKNode {
                    myTeam: Int? = nil) {
         if let spacing { stackSpacing = spacing }
         if case .some(let t) = totals { self.totals = t }
-        if let myTeam { self.myTeam = myTeam == 2 ? 2 : 1 }
+        // 3: a Get Your Bid table's third seat (gold); its second pile is the other two players'
+        if let myTeam { self.myTeam = (1...3).contains(myTeam) ? myTeam : 1 }
         sync(prefix: "history.team.", count: team, y: Self.teamRowY, color: Theme.SK.team(self.myTeam))
-        sync(prefix: "history.opp.", count: opp, y: Self.oppRowY, color: Theme.SK.team(3 - self.myTeam))
+        sync(prefix: "history.opp.", count: opp, y: Self.oppRowY, color: Theme.SK.team(self.myTeam == 3 ? 1 : 3 - self.myTeam))
         counts = (team, opp)
         syncPile(row: "team", count: team, total: self.totals?.team, y: Self.teamRowY)
         syncPile(row: "opp", count: opp, total: self.totals?.opp, y: Self.oppRowY)

@@ -7,7 +7,19 @@ import Foundation
 enum WirePayload {
     struct SeqOnly: Decodable, Equatable { var seq: Int? }
 
-    struct AllPlayersReady: Decodable, Equatable { var gameId: String? }
+    /// `mode` (additive 2026-11-24): 'gyb' for a Get Your Bid table (only to a client with the
+    /// cap getYourBid), absent for the base game.
+    struct AllPlayersReady: Decodable, Equatable {
+        var gameId: String?
+        var mode: String?
+        init(gameId: String?, mode: String? = nil) { self.gameId = gameId; self.mode = mode }
+        private enum CodingKeys: String, CodingKey { case gameId, mode }
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            gameId = try c.decodeIfPresent(String.self, forKey: .gameId)
+            mode = (try? c.decodeIfPresent(String.self, forKey: .mode)) ?? nil
+        }
+    }
 
     /// startDraw (2026-11-25): `teams` only at a tournament table whose teams the round's plan set
     /// (contract $defs plannedTeamPlayer: 2 x 2 `{username, isBot}`, staged or honest alike); the
@@ -71,6 +83,9 @@ enum WirePayload {
         /// gameStart, cap shoulderView): the watched seat's new hand and this deal's HSI for it.
         /// Lenient: a malformed one is nil and the deal still applies.
         var shoulder: LenientShoulder?
+        /// Get Your Bid (additive 2026-11-24): each seat's score before this deal; its presence
+        /// marks the table as a Get Your Bid one (GetYourBid.swift).
+        var gyb: GybStart?
     }
 
     /// `{position, hand, hsi}` (gameStart.shoulder), decoded with `try?`.
@@ -105,6 +120,8 @@ enum WirePayload {
         var teamBids: TableSnapshot.TeamPair?
         var mults: TableSnapshot.TeamPair?
         var seq: Int?
+        /// Get Your Bid (additive): this deal's Forbidden Bid (null where none applied).
+        var gyb: GybDoneBidding?
     }
 
     struct PositionOnly: Decodable, Equatable { var position: Int?; var seq: Int? }
@@ -127,6 +144,8 @@ enum WirePayload {
         var team1OldScore: Int?
         var team2OldScore: Int?
         var seq: Int?
+        /// Get Your Bid (additive): the hand seat by seat (the team keys carry nothing there).
+        var gyb: GybHand?
     }
 
     struct GameEnd: Decodable, Equatable { var tournamentId: String?; var seq: Int? }
@@ -348,8 +367,10 @@ enum WirePayload {
         var hasTournamentId: Bool
         var players: [Player]?
         var hasFullState: Bool  // spectatorJoined: the full state (players + trump), not the notice
+        /// Get Your Bid (additive): the real three-seat state beside the padded snapshot.
+        var gyb: GybSnapshot?
 
-        enum CodingKeys: String, CodingKey { case gameId, snapshot, isLazy, tournamentId, players, trump, avatarUrls }
+        enum CodingKeys: String, CodingKey { case gameId, snapshot, isLazy, tournamentId, players, trump, avatarUrls, gyb }
 
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -361,6 +382,7 @@ enum WirePayload {
             tournamentId = try c.decodeIfPresent(String.self, forKey: .tournamentId)
             players = try c.decodeIfPresent([Player].self, forKey: .players)
             hasFullState = c.contains(.players) && c.contains(.trump)
+            gyb = (try? c.decodeIfPresent(GybSnapshot.self, forKey: .gyb)) ?? nil
         }
 
         var hints: LegacySeatHints {
@@ -371,14 +393,23 @@ enum WirePayload {
                 if let sid = p.socketId, !sid.isEmpty { h.sockets[pos] = sid }
             }
             for (k, url) in avatarUrls ?? [:] { if let pos = Position.valid(Int(k)) { h.avatarUrls[pos] = url } }
+            h.gyb = gyb
             return h
         }
     }
 
-    struct ActionRejected: Decodable, Equatable { var action: String?; var reason: String?; var snapshot: TableSnapshot? }
+    struct ActionRejected: Decodable, Equatable {
+        var action: String?; var reason: String?; var snapshot: TableSnapshot?
+        /// Get Your Bid (additive): beside the snapshot, as every carrier.
+        var gyb: GybSnapshot? = nil
+    }
 
     /// stateSnapshot: `{snapshot, requestId?}` or `{snapshot: null, reason: 'not_in_game', requestId?}`.
-    struct StateSnapshot: Decodable, Equatable { var snapshot: TableSnapshot?; var reason: String?; var requestId: String? }
+    struct StateSnapshot: Decodable, Equatable {
+        var snapshot: TableSnapshot?; var reason: String?; var requestId: String?
+        /// Get Your Bid (additive): beside the snapshot, as every carrier.
+        var gyb: GybSnapshot? = nil
+    }
 
     /// The app-level `error` ({type?, message, handler?}) and `serverError` ({code, message, handler}, V1_REMOVALS #1).
     struct ServerError: Decodable, Equatable { var type: String?; var code: String?; var message: String?; var handler: String? }
@@ -395,6 +426,8 @@ struct LegacySeatHints: Equatable {
     var avatarUrls: [Int: String] = [:]
     /// rejoinSuccess always carries tournamentId (null for casual games); nil here = the key was absent.
     var tournamentId: String?? = nil
+    /// The carrier's `gyb` (Get Your Bid: every carrier of such a table has it), nil elsewhere.
+    var gyb: GybSnapshot? = nil
 }
 
 /// Seat positions from the wire: 1...4, anything else is no position (21.7).

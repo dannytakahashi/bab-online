@@ -80,8 +80,11 @@ enum ClientHello {
     /// `badges` (iOS 1.2.7 (41); `Badges.cap`, $defs.clientCapBadges): this build shows earned
     /// badges on profiles and the "Badge earned" toast, so the profile replies carry `badges`
     /// and the server sends the private s2c badgesAwarded after a game that earned one.
+    /// `getYourBid` (iOS 1.2.7 (42); `GybRules.cap`, $defs.clientCapGetYourBid): this build shows
+    /// a Get Your Bid lobby and its three-seat table, so the server lists, seats and shows them
+    /// and sends the additive `mode` / `gyb` keys (State/Table/GetYourBid.swift).
     static let caps = ["avatarUrl", "casualSpectators", "playAgain", "assist", "tutorial", ShoulderRules.cap,
-                       TournamentVoice.cap, TournamentPairingRules.cap, Badges.cap]
+                       TournamentVoice.cap, TournamentPairingRules.cap, Badges.cap, GybRules.cap]
 
     static func payload(version: String = AppInfo.version, build: String = AppInfo.build) -> [String: Any] {
         ["client": "ios", "version": String(version.prefix(32)), "build": String(build.prefix(64)), "caps": caps]

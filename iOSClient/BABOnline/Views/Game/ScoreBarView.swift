@@ -5,6 +5,90 @@ struct ScoreBarView: View {
     @EnvironmentObject var gameState: GameState
 
     var body: some View {
+        if gameState.isGyb {
+            soloBar
+        } else {
+            teamBar
+        }
+    }
+
+    // MARK: Get Your Bid (three seats, no teams: the web's three-cell score header)
+
+    /// One column per player, mine first then the next in turn and the one after (a spectator's
+    /// seat 1, 2, 3), each its name, its score in its seat's colour and "Bid n · Won m"; the
+    /// trump and the hand in a narrower column at the end. The same three lines as the team
+    /// bar, so the same height (the 84 pt cap).
+    private var soloBar: some View {
+        HStack(spacing: 0) {
+            ForEach(Self.soloColumns(gameState), id: \.position) { col in
+                SoloScoreColumn(column: col)
+                    .frame(maxWidth: .infinity)
+            }
+            centerInfo
+                .frame(width: 76)
+        }
+        .padding(.horizontal, Theme.Space.s2)
+        .padding(.vertical, Theme.Space.s2)
+        .background(Theme.surface.opacity(0.9), ignoresSafeAreaEdges: [])
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+    }
+
+    /// One player's column of the Get Your Bid bar.
+    struct SoloColumn: Equatable {
+        let position: Int
+        let name: String
+        let score: Int
+        let bid: String
+        let won: Int
+        let mine: Bool
+
+        /// "Bid 3 · Won 1" ("Bid - · Won 0" before the seat bids).
+        var line: String { "Bid \(bid) \u{00B7} Won \(won)" }
+        /// VoiceOver: "ann, 26 points, bid 3, won 1" ("not bid yet" before the bid).
+        var spoken: String {
+            let bidWords = bid == "-" ? "not bid yet" : "bid \(bid)"
+            return "\(name.isEmpty ? "Seat \(position)" : name), \(score) \(score == 1 ? "point" : "points"), \(bidWords), won \(won)"
+        }
+    }
+
+    /// The three columns from the store (pure over its slices: ScoreBarNamesTests).
+    @MainActor
+    static func soloColumns(_ g: GameState) -> [SoloColumn] {
+        soloColumns(viewer: g.isPlainSpectator ? nil : g.readingSeat, mine: g.isPlainSpectator ? nil : g.readingSeat,
+                    names: g.players.seats.compactMapValues(\.username), scores: g.table.gyb.scores,
+                    bids: g.bidBook, tricks: g.scores.tricksByPosition)
+    }
+
+    static func soloColumns(viewer: Int?, mine: Int?, names: [Int: String], scores: [Int], bids: BidBook?, tricks: [Int?]) -> [SoloColumn] {
+        GybRules.order(viewer: viewer).map { pos in
+            SoloColumn(position: pos, name: names[pos] ?? "", score: scores.indices.contains(pos - 1) ? scores[pos - 1] : 0,
+                       bid: bids?.bid(at: pos) ?? "-", won: tricks.indices.contains(pos - 1) ? (tricks[pos - 1] ?? 0) : 0,
+                       mine: pos == mine)
+        }
+    }
+
+    /// The trump and the hand (shared by both bars).
+    private var centerInfo: some View {
+        VStack(spacing: 2) {
+            if let trump = gameState.trump {
+                HStack(spacing: Theme.Space.s1) {
+                    Text("Trump:")
+                        .font(.caption2)
+                        .foregroundColor(Theme.textDim)
+                    Text(trumpDisplay(trump))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundColor(trumpColor(trump))
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
+            Text("Hand \(handNumber)")
+                .font(.caption2)
+                .foregroundColor(Theme.textDim)
+        }
+    }
+
+    private var teamBar: some View {
         HStack(spacing: 0) {
             // Team side (positions 1 & 3)
             VStack(spacing: 2) {
@@ -357,5 +441,40 @@ struct ScoreBarNamesLabel: View {
                 .accessibilityIdentifier(identifier)
                 .frame(width: geo.size.width, height: geo.size.height)
         }
+    }
+}
+
+/// One player's column of the Get Your Bid score bar: the name (one line, cut at its end), the
+/// score in the seat's colour (`Positions.colour`: blue, coral, gold), "Bid n · Won m". One
+/// VoiceOver element per player; ids `scoreBar.seat.<pos>` (and `.score`).
+struct SoloScoreColumn: View {
+    let column: ScoreBarView.SoloColumn
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(column.name.isEmpty ? " " : column.name)
+                .font(.caption2.weight(column.mine ? .bold : .regular))
+                .foregroundColor(column.mine ? Theme.textPrimary : Theme.textDim)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .minimumScaleFactor(ScoreBarView.namesMinScale)
+            Text("\(column.score)")
+                .font(.title3.bold())
+                .foregroundColor(Theme.team(Positions.colour(column.position, seats: GybRules.seats)))
+                .lineLimit(1)
+                .accessibilityIdentifier("scoreBar.seat.\(column.position).score")
+            Text(column.line)
+                .font(.caption2)
+                .foregroundColor(Theme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(.horizontal, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(column.spoken)
+        .accessibilityIdentifier("scoreBar.seat.\(column.position)")
+        #if DEBUG
+        .accessibilityValue("\(column.score)")  // the fixture UI tests read the score
+        #endif
     }
 }

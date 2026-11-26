@@ -123,7 +123,8 @@ struct DrawPhaseView: View {
                               spoken: DrawCopy.teamsSpoken(plannedTeams, me: gameState.isSpectator ? nil : gameState.username))
                     .drawProbe("plannedTeams")
             }
-            Text(DrawCopy.rules(planned: plannedTeams != nil))
+            // Get Your Bid: no partners, the highest card deals (the web's DRAW_TEXT_SOLO)
+            Text(gameState.isGyb ? GybRules.drawRules : DrawCopy.rules(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.sm, relativeTo: .subheadline)
                 .foregroundStyle(Theme.textSecondary)
                 .drawProbe("rules")
@@ -176,7 +177,8 @@ struct DrawPhaseView: View {
 
     private func resultsRow(_ m: DrawMetrics) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            ForEach(0..<4, id: \.self) { index in
+            // a slot per seat: three at a Get Your Bid table
+            ForEach(0..<gameState.seatCount, id: \.self) { index in
                 drawSlot(index: index, m)
                     .frame(width: m.slotWidth)
             }

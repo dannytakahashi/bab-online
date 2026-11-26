@@ -54,8 +54,15 @@ struct BidBook: Equatable {
     var teamBids: TeamPair?                           // once bidding is over
     var mults = TeamPair(team1: 1, team2: 1)
 
-    static func fresh(bidder: Int) -> BidBook {
-        BidBook(order: (0..<4).map { (bidder - 1 + $0) % 4 + 1 })
+    /// `seats`: 3 at a Get Your Bid table (the order has three seats; `byPosition` keeps its
+    /// four slots, the fourth always nil, as the server pads the snapshot).
+    static func fresh(bidder: Int, seats: Int = 4) -> BidBook {
+        BidBook(order: (0..<seats).map { (bidder - 1 + $0) % seats + 1 })
+    }
+
+    /// A wire bid array (four seats, or three at a Get Your Bid table) as the four slots.
+    static func padded(_ a: [String?]) -> [String?] {
+        (0..<4).map { a.indices.contains($0) ? a[$0] : nil }
     }
 
     /// The bids so far in bidding order (bore availability in BidOverlay).
@@ -420,13 +427,15 @@ enum TrickRules {
     }
 
     /// Is the LAST card of `trick` (play order) an over-trump?
-    static func isOverTrump(trick: [PlayedCard], trump: Card?) -> Bool {
+    /// `seats` 3 (Get Your Bid): every other seat is an opponent, so beating any other seat's
+    /// trump is an over-trump.
+    static func isOverTrump(trick: [PlayedCard], trump: Card?, seats: Int = 4) -> Bool {
         guard trick.count >= 3, let trump, let lead = trick.first?.card, !isTrump(lead, trump: trump) else { return false }
         let last = trick[trick.count - 1]
         guard isTrump(last.card, trump: trump),
               let b = winnerIndex(trick: Array(trick.dropLast()), trump: trump) else { return false }
         let before = trick[b]
-        guard isTrump(before.card, trump: trump), before.position % 2 != last.position % 2 else { return false }
+        guard isTrump(before.card, trump: trump), Positions.areOpponents(before.position, last.position, seats: seats) else { return false }
         return winnerIndex(trick: trick, trump: trump) == trick.count - 1
     }
 }
