@@ -60,10 +60,10 @@ describe('the reducer over the fixture', () => {
     expect(reshuffles).toBe(1);
     expect(ties).toBe(1);
     expect(s.stage).toBe(STAGE.WINNER);
-    expect(s.winner).toBe('T13_u2');
-    expect(s.alive).toEqual(['T13_u2']);
+    expect(s.winner).toBe('T8_u2');
+    expect(s.alive).toEqual(['T8_u2']);
     expect(s.rounds).toBe(15);
-    expect(Object.keys(s.out).sort()).toEqual(['T13_u1', 'T13_u3', 'T13_u4']);
+    expect(Object.keys(s.out).sort()).toEqual(['T8_u1', 'T8_u3', 'T8_u4']);
   });
 
   it('ignores a draw of another round', () => {

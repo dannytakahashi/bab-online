@@ -198,18 +198,13 @@ class GameState {
         this.drawNames = [];
         // A tournament table's planned teams (two pairs of entrant socket
         // ids; set by tournamentHandlers.createRoundTable); null elsewhere.
-        // drawHonest (set only by gameLifecycle.beginDraw, owner
-        // 2026-11-25): every human and spectator there can show a draw for
-        // first deal, so each draw takes the card picked and the draw
-        // decides only seats and who deals first (drawPositions). Otherwise
-        // (a legacy client present, or drawTeams set without beginDraw's
-        // decision) the draw is staged: drawPlan, chosen at the first draw,
-        // hands each planned entrant the card that seats the plan
-        // (tournamentPartners.planDrawCards). drawTeamsWire: the teams by
-        // name as startDraw.teams / snapshot draw.teams sent them
+        // The draw there is honest (owner 2026-11-25; the staged draw is
+        // gone since every iOS build the upgrade gate lets in shows a draw
+        // for first deal): each draw takes the card picked, like any draw,
+        // and the draw decides only seats and who deals first
+        // (drawPositions). drawTeamsWire: the teams by name as
+        // startDraw.teams / snapshot draw.teams sent them (beginDraw)
         this.drawTeams = null;
-        this.drawPlan = null;
-        this.drawHonest = false;
         this.drawTeamsWire = null;
 
         // Seat records (SeatState.js): position -> who controls the seat and
@@ -856,49 +851,15 @@ class GameState {
         if (this._stage !== Phase.DRAWING || !this.deck || this.deck.cards.length === 0) return null;
         if (this.drawIDs.includes(socketId) || this.drawIDs.length >= this.seatCount) return null;
         const n = this.deck.cards.length;
-        let i = this._plannedDrawIndex(socketId);
-        if (i < 0) {
-            i = index == null ? Math.floor(Math.random() * n) : Math.floor(Number(index));
-            if (!Number.isFinite(i)) i = 0;
-            i = Math.max(0, Math.min(n - 1, i));
-            i = this._unplannedDrawIndex(i);
-        }
+        let i = index == null ? Math.floor(Math.random() * n) : Math.floor(Number(index));
+        if (!Number.isFinite(i)) i = 0;
+        i = Math.max(0, Math.min(n - 1, i));
         const [card] = this.deck.cards.splice(i, 1);
         this.drawCards.push(card);
         this.drawIDs.push(socketId);
         this.drawNames.push(username);
         this.drawIndex++;
         return { card, drawOrder: this.drawIndex };
-    }
-
-    /**
-     * A staged tournament table's draw (drawTeams, not drawHonest): the deck
-     * index of the card planned for `socketId`, or -1 (no plan, an honest
-     * draw, or not one of the planned). The draw stays a real draw on the
-     * wire; only who gets which of four cards off the shuffled deck is
-     * chosen. An honest draw never plans (drawPlan stays null), so every
-     * draw there is the card asked for (a bot's, an auto-draw's random one).
-     */
-    _plannedDrawIndex(socketId) {
-        if (!this.drawTeams || this.drawHonest) return -1;
-        if (!this.drawPlan) {
-            this.drawPlan = require('./tournamentPartners').planDrawCards(this.deck.cards, this.drawTeams) || new Map();
-        }
-        const card = this.drawPlan.get(socketId);
-        return card ? this.deck.cards.indexOf(card) : -1;
-    }
-
-    /** `i`, or the nearest index whose card is not planned for another drawer. */
-    _unplannedDrawIndex(i) {
-        if (!this.drawPlan || this.drawPlan.size === 0) return i;
-        const planned = new Set(this.drawPlan.values());
-        const cards = this.deck.cards;
-        for (let d = 0; d < cards.length; d++) {
-            for (const j of [i + d, i - d]) {
-                if (j >= 0 && j < cards.length && !planned.has(cards[j])) return j;
-            }
-        }
-        return i;
     }
 
     /**

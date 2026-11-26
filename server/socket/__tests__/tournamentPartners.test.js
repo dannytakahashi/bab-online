@@ -186,9 +186,11 @@ describe('a table aborted before its draw adds no partnership', () => {
 });
 
 // ==================== honest draws (owner 2026-11-25) ====================
-// Every human and spectator at a planned table sends the clientHello cap
-// tournamentPairings: the teams go out on startDraw, each player gets the
+// Every planned table: the teams go out on startDraw, each player gets the
 // card they picked, and the draw decides only the seats and the first deal.
+// There is no staged draw (removed once the upgrade gate requires iOS build
+// 41, which sends the clientHello cap tournamentPairings), so a socket
+// without the cap (a cached web tab) changes nothing.
 
 const gameHandlers = require('../gameHandlers');
 const GameState = require('../../game/GameState');
@@ -260,7 +262,8 @@ describe('honest draw: every member has the cap', () => {
         const tables = await toDraw(ctx);
         const snapshots = [];
         for (const g of tables) {
-            expect(g.drawHonest).toBe(true);
+            // no staged-draw state left on the game
+            expect(['drawPlan', 'drawHonest'].filter((k) => k in g)).toEqual([]);
             // startDraw: the teams by name, bots by persona, plan order
             const [start] = roomEvents(ctx, g, 'startDraw');
             const planned = teamNames(ctx.t, g);
@@ -284,7 +287,6 @@ describe('honest draw: every member has the cap', () => {
                 expect(you.data.card).toEqual(d.before[num]);
                 expect(roomEvents(ctx, g, 'playerDrew').find((e) => e.data.drawOrder === you.data.drawOrder).data.card).toEqual(d.before[num]);
             }
-            expect(g.drawPlan).toBeNull();
         }
         // bots draw their own index; the snapshot during the reveal
         await advanceUntil(() => tables.every((g) => g.drawIDs.length === 4), 50, 20000);
@@ -293,7 +295,6 @@ describe('honest draw: every member has the cap', () => {
                 if (d.index != null) expect(d.card).toEqual(d.asked);
                 else expect(d.before).toContainEqual(d.card);
             }
-            expect(g.drawPlan).toBeNull();
             const sid = ctx.sockets.find((s) => g.entrant(s.id))?.id;
             snapshots.push({ g, snap: g.getSnapshotV2(sid) });
         }
@@ -314,7 +315,7 @@ describe('honest draw: every member has the cap', () => {
             // the snapshot's positions are the seats
             for (const d of snap.draw.drawn) expect(g.getPlayerByPosition(d.position).username).toBe(d.username);
             // the draw state is gone with the deal
-            expect([g.drawTeams, g.drawPlan, g.drawTeamsWire, g.drawHonest]).toEqual([null, null, null, false]);
+            expect([g.drawTeams, g.drawTeamsWire]).toEqual([null, null]);
         }
     }, 120000);
 
@@ -324,7 +325,6 @@ describe('honest draw: every member has the cap', () => {
         for (const s of ctx.sockets) hello(s, WEB_CAPS);
         const draws = watchDraws();
         const [g] = await toDraw(ctx);
-        expect(g.drawHonest).toBe(true);
         await advanceUntil(() => g.drawIDs.length === 4, 500, 40000);
         const auto = draws.filter((d) => d.gameId === g.gameId && d.index == null);
         expect(auto).toHaveLength(4);
@@ -332,17 +332,34 @@ describe('honest draw: every member has the cap', () => {
             expect(d.before).toContainEqual(d.card);
             expect(g.drawCards).toContainEqual(d.card);
         }
-        expect(g.drawPlan).toBeNull();
         await toDeal(ctx, [g]);
         expect(sortTeams(seatedTeams(g, ctx.usernames))).toEqual(sortTeams(plannedTeams(ctx.t, g)));
     }, 120000);
 });
 
-describe('staged draw: someone at the table cannot show a draw for first deal', () => {
+/** startDraw named the plan and the room got the one "Partners this round" line. */
+function expectAnnounced(ctx, g) {
+    expect(roomEvents(ctx, g, 'startDraw')[0].data.teams.map((t) => t.map((p) => (p.isBot ? null : p.username)))).toEqual(teamNames(ctx.t, g));
+    const lines = roomEvents(ctx, g, 'gameLogEntry').filter((e) => /^Partners this round: /.test(e.data.message));
+    expect(lines).toHaveLength(1);
+    expect(g.gameLog.filter((l) => /^Partners this round: /.test(l.message))).toHaveLength(1);
+}
+
+/** Every draw at `g` was the card asked for (an auto-draw's: a card of the deck then). */
+function expectCardsAsked(draws, g) {
+    const mine = draws.filter((x) => x.gameId === g.gameId);
+    expect(mine).toHaveLength(4);
+    for (const d of mine) {
+        if (d.index != null) expect(d.card).toEqual(d.asked);
+        else expect(d.before).toContainEqual(d.card);
+    }
+}
+
+describe('no staged draw: a socket without the cap still gets the honest draw', () => {
     const variants = [
-        ['iOS 1.2.6 (40) caps', (s) => hello(s, IOS_40_CAPS, 'ios')],
-        ['no clientHello (iOS 1.2.0 era, chaos, recordings)', (s) => hello(s, null)],
-        ['an old web tab', (s) => hello(s, OLD_WEB_CAPS)],
+        ['an old web tab (before 2026-11-25)', (s) => hello(s, OLD_WEB_CAPS)],
+        ['no clientHello (chaos, recordings)', (s) => hello(s, null)],
+        ['iOS 1.2.6 (40) caps (gated once 1.2.7 is live; were it let in)', (s) => hello(s, IOS_40_CAPS, 'ios')],
     ];
     test.each(variants)('3 cap members + one with %s', async (_label, legacy) => {
         Math.random = mulberry32(51);
@@ -350,77 +367,76 @@ describe('staged draw: someone at the table cannot show a draw for first deal', 
         ctx.sockets.forEach((s, i) => (i === 2 ? legacy(s) : hello(s, WEB_CAPS)));
         const draws = watchDraws();
         const [g] = await toDraw(ctx);
-        expect(g.drawHonest).toBe(false);
-        // the teams still go out (a cap client shows the first-deal copy), no log line
-        expect(roomEvents(ctx, g, 'startDraw')[0].data.teams.map((t) => t.map((p) => p.username))).toEqual(teamNames(ctx.t, g));
-        expect(roomEvents(ctx, g, 'gameLogEntry').filter((e) => /^Partners this round/.test(e.data.message))).toEqual([]);
-        humansDraw(ctx, g);
-        expect(g.drawPlan.size).toBe(4);
-        // the planned cards, not the ones asked for
-        for (const d of draws.filter((x) => x.gameId === g.gameId)) expect(d.card).toBe(g.drawPlan.get(d.socketId));
+        expectAnnounced(ctx, g);
+        const picks = humansDraw(ctx, g);
+        for (const [sid, num] of Object.entries(picks)) {
+            const d = draws.find((x) => x.gameId === g.gameId && x.socketId === sid);
+            expect(d.card).toEqual(d.before[num]);
+        }
+        await advanceUntil(() => g.drawIDs.length === 4, 50, 20000);
+        expectCardsAsked(draws, g);
         await toDeal(ctx, [g]);
         expect(sortTeams(seatedTeams(g, ctx.usernames))).toEqual(sortTeams(plannedTeams(ctx.t, g)));
+        // the telemetry still counts the socket without the cap
+        const logged = socketLogger.info.mock.calls.find(([m, d]) => m === 'Tournament draw' && d.gameId === g.gameId)[1];
+        expect(logged).toMatchObject({ mode: 'firstDeal', legacyHumans: 1, legacySpectators: 0 });
     }, 120000);
 
-    inCountdown('a legacy spectator present at beginDraw', async () => {
+    inCountdown('a spectator without the cap present at beginDraw', async () => {
         Math.random = mulberry32(52);
         const ctx = await setupTournament(4);
         for (const s of ctx.sockets) hello(s, WEB_CAPS);
+        const draws = watchDraws();
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await advanceUntil(() => liveTables(ctx.t).length > 0, 10, 20000);
         const [g] = liveTables(ctx.t);
         expect(g.stage).toBe(Phase.CREATED);
         const watcher = newUser(ctx.io, ctx.log, `${ctx.usernames[0]}_w`);
-        hello(watcher, IOS_40_CAPS, 'ios');
+        hello(watcher, OLD_WEB_CAPS);
         g.addSpectator(watcher.id, `${ctx.usernames[0]}_w`, 3);
         await advanceUntil(() => g.stage !== Phase.CREATED, 10, 20000);
-        expect(g.drawHonest).toBe(false);
-        // a cap spectator would not have mattered
+        expectAnnounced(ctx, g);
+        humansDraw(ctx, g);
+        await advanceUntil(() => g.drawIDs.length === 4, 50, 20000);
+        expectCardsAsked(draws, g);
         g.removeSpectator?.(watcher.id);
         await toDeal(ctx, [g]);
         expect(sortTeams(seatedTeams(g, ctx.usernames))).toEqual(sortTeams(plannedTeams(ctx.t, g)));
     }, 120000);
 
-    inCountdown('a cap spectator does not stage it', async () => {
-        Math.random = mulberry32(53);
-        const ctx = await setupTournament(4);
-        for (const s of ctx.sockets) hello(s, WEB_CAPS);
-        ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
-        await advanceUntil(() => liveTables(ctx.t).length > 0, 10, 20000);
-        const [g] = liveTables(ctx.t);
-        const watcher = newUser(ctx.io, ctx.log, `${ctx.usernames[0]}_w`);
-        hello(watcher, WEB_CAPS);
-        g.addSpectator(watcher.id, `${ctx.usernames[0]}_w`, 3);
-        await advanceUntil(() => g.stage !== Phase.CREATED, 10, 20000);
-        expect(g.drawHonest).toBe(true);
-        await toDeal(ctx, [g]);
-    }, 120000);
-
-    inCountdown('an entrant disconnected at beginDraw', async () => {
+    inCountdown('an entrant disconnected at beginDraw: auto-drawn a card off the real deck', async () => {
         Math.random = mulberry32(54);
         const ctx = await setupTournament(4);
         for (const s of ctx.sockets) hello(s, WEB_CAPS);
+        const draws = watchDraws();
         ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
         await advanceUntil(() => liveTables(ctx.t).length > 0, 10, 20000);
         const [g] = liveTables(ctx.t);
         await kill(ctx.io, ctx.sockets[3]);
         expect(g.entrant(ctx.sockets[3].id).presence).toBe('disconnected');
         await advanceUntil(() => g.stage !== Phase.CREATED, 10, 20000);
-        expect(g.drawHonest).toBe(false);
-        expect(g.drawPlan.size).toBe(4); // the dropped entrant was auto-drawn at once, from the plan
+        // the dropped entrant was auto-drawn at once, a random card
+        const dropped = draws.find((d) => d.gameId === g.gameId && d.socketId === ctx.sockets[3].id);
+        expect(dropped.index).toBeNull();
+        expect(dropped.before).toContainEqual(dropped.card);
+        expectAnnounced(ctx, g);
         await toDeal(ctx, [g]);
+        expectCardsAsked(draws, g);
         expect(sortTeams(seatedTeams(g, ctx.usernames))).toEqual(sortTeams(plannedTeams(ctx.t, g)));
     }, 120000);
 
-    test.each(['off', 'false', '0', 'disabled', 'no'])('TOURNAMENT_HONEST_DRAW=%s', async (v) => {
+    test('TOURNAMENT_HONEST_DRAW (the retired kill switch) no longer stages anything', async () => {
         Math.random = mulberry32(55);
-        process.env.TOURNAMENT_HONEST_DRAW = v;
+        process.env.TOURNAMENT_HONEST_DRAW = 'off';
         try {
             const ctx = await setupTournament(4);
             for (const s of ctx.sockets) hello(s, WEB_CAPS);
+            const draws = watchDraws();
             const [g] = await toDraw(ctx);
-            expect(g.drawHonest).toBe(false);
-            expect(roomEvents(ctx, g, 'startDraw')[0].data.teams).toHaveLength(2);
+            expectAnnounced(ctx, g);
+            humansDraw(ctx, g);
+            await advanceUntil(() => g.drawIDs.length === 4, 50, 20000);
+            expectCardsAsked(draws, g);
             await toDeal(ctx, [g]);
             expect(sortTeams(seatedTeams(g, ctx.usernames))).toEqual(sortTeams(plannedTeams(ctx.t, g)));
         } finally {
@@ -428,18 +444,25 @@ describe('staged draw: someone at the table cannot show a draw for first deal', 
         }
     }, 120000);
 
-    test('drawTeams set without beginDraw\'s decision is staged (the flag defaults to staged)', () => {
+    test('drawTeams set without beginDraw: each draw is the card asked for, the plan is seated', () => {
         const g = new GameState('direct-api');
         g.initEntrants(IDS4.map((socketId, i) => ({ socketId, username: `u${i}`, isBot: false })));
         g.drawTeams = [[IDS4[0], IDS4[1]], [IDS4[2], IDS4[3]]];
         g.forcePhase('DRAWING');
         g.deck = new (require('../../game/Deck'))();
         g.deck.shuffle();
-        for (const id of IDS4) g.recordDraw(id, 0, id);
-        expect(g.drawPlan.size).toBe(4);
-        for (let i = 0; i < 4; i++) expect(g.drawCards[i]).toBe(g.drawPlan.get(IDS4[i]));
+        const expected = [];
+        for (const id of IDS4) {
+            expected.push(g.deck.cards[0]);
+            g.recordDraw(id, 0, id);
+        }
+        expect(g.drawCards).toEqual(expected);
         const pos = g.drawPositions();
+        // the planned partners sit opposite whatever the cards
         expect([[pos[0], pos[1]].sort().join(), [pos[2], pos[3]].sort().join()].sort()).toEqual(['1,3', '2,4']);
+        // and the highest card deals first
+        const top = g.drawCards.findIndex((c) => drawBeats(c, g.drawCards) === 3);
+        expect(pos[top]).toBe(1);
     });
 });
 

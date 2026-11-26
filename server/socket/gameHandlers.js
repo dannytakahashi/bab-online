@@ -677,8 +677,6 @@ async function handleDrawComplete(io, game) {
     game.drawNames = [];
     game.deck = null;
     game.drawTeams = null;
-    game.drawPlan = null;
-    game.drawHonest = false;
     game.drawTeamsWire = null;
 
     // Notify main room that a new in-progress game is available to spectate

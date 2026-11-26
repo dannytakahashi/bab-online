@@ -582,8 +582,8 @@ function gybDrawPosition(myCard, allCards) {
  * four cards sits 1 & 3, that card at 1 (it deals first: game.dealer
  * starts at 1), its partner at 3; the other team 2 & 4, its higher card at
  * 2 (it bids first). Equals determineDrawPosition whenever the partners
- * hold the two highest or the two lowest cards (every staged draw:
- * planDrawCards), so a staged table seats exactly as before.
+ * hold the two highest or the two lowest cards (the draws where the casual
+ * rule would have paired them too).
  * @param {Array<{suit, rank}>} drawCards - the four drawn cards, in draw order
  * @param {string[]} drawIDs - who drew each (same order)
  * @param {Array<[string, string]>} teams - the two planned teams of socket ids

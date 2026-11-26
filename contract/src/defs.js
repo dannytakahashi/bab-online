@@ -452,9 +452,9 @@ const defs = {
     // tournament draws): the client shows the round pairings and "Partners
     // so far" (the tournament events' `pairings`) and, at a tournament
     // table, startDraw.teams / snapshot draw.teams as a draw for first deal.
-    // A tournament table draws honestly only when every human there and
-    // every spectator present at its startDraw sent it (contract/README.md
-    // "Client capabilities")
+    // Every tournament table draws honestly (the staged draw for clients
+    // without it is gone: the upgrade gate lets in no iOS build without
+    // it; contract/README.md "Client capabilities")
     clientCapTournamentPairings: konst('tournamentPairings'),
     // A tenth, its own const (2026-11-25, Cut for a buck): the client shows
     // the tournament's finale (the cutForABuck* events, phase 'cut' and

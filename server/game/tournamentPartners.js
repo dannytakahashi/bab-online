@@ -37,23 +37,19 @@
  * as `pairings` on the tournament events (TournamentState.pairingsWire) and
  * as `teams` on the table's startDraw / snapshot draw. At the table
  * (GameState.drawTeams, set by socket/tournamentHandlers.createRoundTable)
- * the draw then decides only the seats and who deals first: where every
- * human and spectator there sent the clientHello cap PAIRINGS_CAP
- * (gameLifecycle.beginDraw sets drawHonest), each player gets the card
- * they picked and rules.seatPlannedTeams seats the plan (the highest
- * card's team at 1 & 3, that card at 1: it deals first). Anywhere else (a
- * shipped iOS build or a cached web tab at the table, TOURNAMENT_HONEST_DRAW
- * off) the draw is staged as before: each planned entrant draws a card
- * chosen so the ordinary rule seats the plan (planDrawCards below;
- * rules.determineDrawPosition: the two highest cards sit 1 and 3), so a
- * legacy client's printed "the two highest cards are partners" stays true.
- * The draw is a real draw on the wire either way (startDraw, youDrew,
+ * the draw then decides only the seats and who deals first: each player
+ * gets the card they picked and rules.seatPlannedTeams seats the plan (the
+ * highest card's team at 1 & 3, that card at 1: it deals first). Every
+ * client the upgrade gate lets in shows that draw for first deal (the
+ * clientHello cap PAIRINGS_CAP: the web, iOS from build 41), so there is no
+ * staged draw any more; a cached web tab from before 2026-11-25 still
+ * reads its old "two highest cards are partners" copy, and the room's
+ * "Partners this round" log line (gameLifecycle.beginDraw) says who is
+ * partnered. The draw is a real draw on the wire (startDraw, youDrew,
  * playerDrew, teamsAnnounced, positionUpdate unchanged).
  */
 
 'use strict';
-
-const { determineDrawPosition } = require('./rules');
 
 // Lexicographic weight of a back-to-back partnership over repeats
 const CONSECUTIVE = 1e6;
@@ -233,31 +229,6 @@ function planRoundTables(usernames, history = emptyHistory(), rng = Math.random)
 }
 
 /**
- * The card each socket of a planned table draws, so the draw seats
- * `teams` as partners (positions 1&3: the two highest of the four cards).
- * Takes the first four cards of the (shuffled) deck; which team sits 1&3
- * and who of a team draws the higher card are random.
- * @param {Array<{suit, rank}>} deckCards
- * @param {Array<[string, string]>} teams - two teams of two socket ids
- * @returns {Map<string, {suit, rank}>|null} null when it cannot plan (a
- *   short deck or a malformed plan)
- */
-function planDrawCards(deckCards, teams, rng = Math.random) {
-    if (!Array.isArray(deckCards) || deckCards.length < 4) return null;
-    if (!Array.isArray(teams) || teams.length !== 2) return null;
-    const ids = teams.flat();
-    if (ids.length !== 4 || new Set(ids).size !== 4 || ids.some((id) => !id)) return null;
-    const four = deckCards.slice(0, 4);
-    const high = four.filter((c) => [1, 3].includes(determineDrawPosition(c, four)));
-    const low = four.filter((c) => [2, 4].includes(determineDrawPosition(c, four)));
-    const [upper, lower] = rng() < 0.5 ? [teams[0], teams[1]] : [teams[1], teams[0]];
-    const plan = new Map();
-    shuffle([...upper], rng).forEach((id, i) => plan.set(id, high[i]));
-    shuffle([...lower], rng).forEach((id, i) => plan.set(id, low[i]));
-    return plan;
-}
-
-/**
  * A table's planned teams in words, plan order, never a team number
  * ("Hannah & Danny vs Clara & 🤖 Mary").
  * @param {Array<Array<{username: string}>>} teams - plannedTeamsWire
@@ -280,6 +251,5 @@ module.exports = {
     tableShapes,
     slotsOf,
     bestMatching,
-    planRoundTables,
-    planDrawCards
+    planRoundTables
 };
