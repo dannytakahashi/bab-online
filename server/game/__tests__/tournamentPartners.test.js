@@ -13,8 +13,6 @@
 
 const TournamentState = require('../TournamentState');
 const P = require('../tournamentPartners');
-const { determineDrawPosition } = require('../rules');
-const Deck = require('../Deck');
 const { mulberry32 } = require('../../testUtils/gameDriver');
 
 beforeEach(() => {
@@ -413,36 +411,6 @@ describe('a table that never seated adds no partnership', () => {
         const seats = [['a', 1], ['c', 2], ['b', 3], ['d', 4]].map(([username, position]) => ({ username, position }));
         expect(scoreGoneTable(t, 'g1', { tableScore: { score: { team1: 40, team2: -20 }, seats } })).toBe(true);
         expect(t.partnerHistory().counts.get(P.pairKey('a', 'b'))).toBe(1);
-    });
-});
-
-describe('the draw seats the planned teams', () => {
-    test('planDrawCards: the planned partners draw the two highest or the two lowest of four cards', () => {
-        const orientations = new Set();
-        for (let seed = 1; seed <= 300; seed++) {
-            const rng = mulberry32(seed);
-            const deck = new Deck();
-            deck.cards.sort(() => rng() - 0.5);
-            const teams = [['s1', 's2'], ['s3', 's4']];
-            const plan = P.planDrawCards(deck.cards, teams, rng);
-            const four = [...plan.values()];
-            expect(new Set(four).size).toBe(4);
-            const pos = (id) => determineDrawPosition(plan.get(id), four);
-            const parity = (id) => pos(id) % 2;
-            expect(parity('s1')).toBe(parity('s2'));
-            expect(parity('s3')).toBe(parity('s4'));
-            expect(parity('s1')).not.toBe(parity('s3'));
-            orientations.add(pos('s1') % 2);
-        }
-        expect(orientations.size).toBe(2);
-    });
-
-    test('planDrawCards refuses a malformed plan or a short deck', () => {
-        const deck = new Deck();
-        expect(P.planDrawCards(deck.cards, [['a', 'b']])).toBeNull();
-        expect(P.planDrawCards(deck.cards, [['a', 'a'], ['b', 'c']])).toBeNull();
-        expect(P.planDrawCards(deck.cards, [['a', null], ['b', 'c']])).toBeNull();
-        expect(P.planDrawCards(deck.cards.slice(0, 3), [['a', 'b'], ['c', 'd']])).toBeNull();
     });
 });
 

@@ -4,14 +4,13 @@
  * seats a tournament table's planned teams (owner 2026-11-25: the draw
  * decides only the seats and who deals first): the team holding the highest
  * card at 1 & 3 with that card at 1, the other team at 2 & 4 with its
- * higher card at 2. On every staged draw (planDrawCards) it seats exactly as
- * determineDrawPosition does.
+ * higher card at 2. Where the partners hold the two highest or the two
+ * lowest cards it seats exactly as determineDrawPosition does.
  */
 
 'use strict';
 
 const { drawBeats, determineDrawPosition, seatPlannedTeams } = require('../rules');
-const { planDrawCards } = require('../tournamentPartners');
 const Deck = require('../Deck');
 const { mulberry32 } = require('../../testUtils/gameDriver');
 
@@ -94,15 +93,14 @@ describe('seatPlannedTeams', () => {
         }
     });
 
-    test('equals determineDrawPosition on every planDrawCards draw (a staged table seats as before)', () => {
+    test('equals determineDrawPosition on every draw where the partners hold the two highest or the two lowest', () => {
         const rng = mulberry32(99);
         for (let n = 0; n < 3000; n++) {
-            const deck = deckCards(rng);
-            const teams = SPLITS[n % 3];
-            const plan = planDrawCards(deck, teams, rng);
+            const cards = deckCards(rng).slice(0, 4);
             // any draw order
             const order = [...IDS].sort(() => rng() - 0.5);
-            const cards = order.map((id) => plan.get(id));
+            const byBeats = [...order].sort((x, y) => drawBeats(cards[order.indexOf(y)], cards) - drawBeats(cards[order.indexOf(x)], cards));
+            const teams = rng() < 0.5 ? [byBeats.slice(0, 2), byBeats.slice(2)] : [byBeats.slice(2), byBeats.slice(0, 2)];
             const seats = seatPlannedTeams(cards, order, teams);
             expect(order.map((id) => seats.get(id))).toEqual(cards.map((c) => determineDrawPosition(c, cards)));
         }

@@ -441,17 +441,17 @@ describe('snapshot v2 fixtures from real games', () => {
         const gameHandlers = require('../gameHandlers');
         const CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'tournamentPairings'];
         const out = {};
-        for (const [mode, seed] of [['honest', 111], ['staged', 112]]) {
+        // One case since the staged draw is gone (every planned table draws
+        // honestly; a socket without the cap changes nothing on the wire)
+        for (const [mode, seed] of [['honest', 111]]) {
             Math.random = mulberry32(seed);
             const ctx = await setupTournament(4);
-            // staged: the 4th member is a shipped iOS build (no tournamentPairings)
-            ctx.sockets.forEach((sk, i) => {
-                sk.data.client = { client: mode === 'staged' && i === 3 ? 'ios' : 'web', version: '1', build: null, caps: mode === 'staged' && i === 3 ? CAPS.slice(0, 7) : CAPS };
+            ctx.sockets.forEach((sk) => {
+                sk.data.client = { client: 'web', version: '1', build: null, caps: CAPS };
             });
             ctx.starting = tournamentHandlers.beginTournament(ctx.sockets[0], ctx.io);
             await advanceUntil(() => liveTables(ctx.t).length > 0 && liveTables(ctx.t)[0].stage === Phase.DRAWING, 10, 20000);
             const [g] = liveTables(ctx.t);
-            expect(g.drawHonest).toBe(mode === 'honest');
             const pick = (e) => ({ event: e.event, data: JSON.parse(JSON.stringify(e.data)) });
             const roundStart = ctx.log.find((e) => e.event === 'tournamentRoundStart');
             const startDraw = ctx.log.find((e) => e.event === 'startDraw' && e.to === g.roomName);
@@ -473,9 +473,8 @@ describe('snapshot v2 fixtures from real games', () => {
             for (const id of Array.from(gameManager.tournaments.keys())) gameManager.deleteTournament(id);
         }
         pairingsEvents = {
-            description: 'A 4-member tournament table\'s draw for first deal (2026-11-25, clientHello cap tournamentPairings), from real games: tournamentRoundStart with pairings (the planned round, gameId null), startDraw with teams, and a mid-draw stateSnapshot (two drawn) whose draw carries teams. honest: every member has the cap, so the room also gets the "Partners this round" system line and each player the card they picked; staged: one member is a shipped iOS build, so the cards are staged and there is no line (the wire is otherwise the same). Rewrite with npm run contract:fixtures.',
+            description: 'A 4-member tournament table\'s draw for first deal (2026-11-25, clientHello cap tournamentPairings), from real games: tournamentRoundStart with pairings (the planned round, gameId null), startDraw with teams, and a mid-draw stateSnapshot (two drawn) whose draw carries teams. honest: the room also gets the "Partners this round" system line and each player the card they picked (every planned table; the staged draw for clients without the cap is gone). Rewrite with npm run contract:fixtures.',
             honest: out.honest,
-            staged: out.staged,
         };
     }, 60000);
 
