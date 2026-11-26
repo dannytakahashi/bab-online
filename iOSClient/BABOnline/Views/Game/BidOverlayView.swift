@@ -217,6 +217,7 @@ struct BidOverlayView: View {
                         .minimumScaleFactor(0.7)
                         .frame(height: rowSize)
                         .accessibilityIdentifier("bid.forbiddenLine")
+                        .layoutPriority(-1)  // Submit keeps its width; the line shrinks first
                 }
 
                 // the gap (a Spacer's 8 pt minimum); HSI is an overlay of it, so the buttons never move
@@ -264,6 +265,7 @@ struct BidOverlayView: View {
                 }
                 .disabled(selectedBid == nil || isSubmitted)
                 .accessibilityShowsLargeContentViewer()
+                .layoutPriority(1)  // never "Sub…" beside the Forbidden Bid's line
                 }
             }
             .padding(.horizontal, Theme.Space.s2)

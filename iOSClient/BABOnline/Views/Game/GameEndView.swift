@@ -151,7 +151,6 @@ struct GameEndView: View {
                 SoloResultRow(row: row)
             }
         }
-        .accessibilityIdentifier("gameEnd.soloResults")
     }
 
     /// A team's players over its score, one name a line in the team's colour (no "Team 1"
