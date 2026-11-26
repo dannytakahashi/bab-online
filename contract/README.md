@@ -557,7 +557,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   reason; 2026-11-24, Get Your Bid: `server/game/gameMode.js`,
   `server/CLAUDE.md` "Get Your Bid"): the client can show a Get Your Bid
   lobby and its three-seat, no-teams table. The web sends it, and iOS from
-  1.2.7 (42) (`GybRules.cap`, iOSClient/CLAUDE.md "iOS Get Your Bid"). Without it a socket is never listed such a lobby or table (the
+  1.2.7 (41) (`GybRules.cap`, iOSClient/CLAUDE.md "iOS Get Your Bid"). Without it a socket is never listed such a lobby or table (the
   main room's lists are built per socket while one exists), and its
   `createLobby {mode: 'gyb'}`, `joinLobby`, `joinAsSpectator` and
   `rejoinGame` for one are refused (serverError / `rejoinFailed` with "Get
