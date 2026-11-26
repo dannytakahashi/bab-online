@@ -677,6 +677,22 @@ export class GameState {
   }
 
   /**
+   * A seat's player by the owner rule (owner 2026-11-25, people by player
+   * names; iOS PlayersSlice.ownerName): a lazy or resigned seat's owner,
+   * never the bot playing it (seatOwners), else the name the seat shows (a
+   * native bot's persona). The per-seat labels read it: the watching pill and
+   * its paused line, the seat-eye chip and seat badge, the spectator badge's
+   * "watching <player>" rows, the watched seat's hints and its read-only bid
+   * sheet. The avatars, their plates, a seat's profile and the log and
+   * announcer lines of who played ("X bid N", "X won the trick") keep
+   * getPlayerNameByPosition: they show who is playing.
+   */
+  getSeatOwnerName(pos) {
+    const owner = this.seatOwners?.[pos];
+    return typeof owner === 'string' && owner ? owner : this.getPlayerNameByPosition(pos);
+  }
+
+  /**
    * Mark that the player has played a card this trick.
    */
   setHasPlayedCard(value) {
