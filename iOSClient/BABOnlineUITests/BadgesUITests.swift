@@ -101,6 +101,13 @@ final class BadgesUITests: XCTestCase {
         if felted.exists {
             XCTAssertGreaterThan(hammer.frame.minY, felted.frame.maxY - 1, "one badge a row")
         }
+        // a swipe can stop with the ~340 pt row half in view (the Tournaments section above it,
+        // 1.2.7, moved where the swipes end): short drags until all of it is on screen
+        let window = app.windows.firstMatch.frame
+        for _ in 0..<8 where hammer.frame.maxY > window.maxY - 20 {
+            let start = app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+            start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -160)))
+        }
         assertOnScreen(app, hammer, "hammer-time")
         shot("badges-account-ax5")
         app.terminate()

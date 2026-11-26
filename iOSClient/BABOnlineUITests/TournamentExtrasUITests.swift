@@ -172,8 +172,11 @@ final class TournamentExtrasUITests: XCTestCase {
         }
     }
 
+    /// Swipes until `e` is hittable, then short drags until all of it is in the window (a swipe
+    /// may stop with a row half under the bottom edge).
     private func reveal(_ app: XCUIApplication, _ e: XCUIElement, swipes: Int = 10) {
         for _ in 0..<swipes where !(e.exists && e.isHittable) { app.swipeUp(velocity: .slow) }
+        if e.exists { dragFullyIn(app, e) }
     }
 
     /// My Tournaments section: after my statistics, before my badges; the stats, five results
