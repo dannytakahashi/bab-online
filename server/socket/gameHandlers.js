@@ -573,15 +573,23 @@ async function handleDrawComplete(io, game) {
     const orderedPics = [];
     const orderedIsBot = [];
     const orderedNativeBot = [];
+    // owners (additive 2026-11-26): each seat's owner, null for a native
+    // bot. usernames[] is who the seat SHOWS, so a draw-phase leaver's
+    // resign bot was named by the bot on every owner label of the clients
+    // present at seating, while a snapshot named the leaver (its seats'
+    // ownerUsername); clients read owners[] for the seat's owner
+    const orderedOwners = [];
     for (let pos = 1; pos <= 4; pos++) {
         const player = game.getPlayerByPosition(pos);
         if (player) {
+            const seat = game.seat(pos);
             orderedPositions.push(pos);
             orderedSockets.push(player.socketId);
             orderedUsernames.push({ username: player.username });
             orderedPics.push(player.pic);
             orderedIsBot.push(game.isBot(player.socketId));
-            orderedNativeBot.push(game.seat(pos)?.controller === Controller.BOT);
+            orderedNativeBot.push(seat?.controller === Controller.BOT);
+            orderedOwners.push(seat?.controller === Controller.BOT ? null : (seat?.ownerUsername ?? null));
         }
     }
 
@@ -606,7 +614,8 @@ async function handleDrawComplete(io, game) {
         usernames: orderedUsernames,
         pics: wirePics,
         isBot: orderedIsBot,
-        nativeBot: orderedNativeBot
+        nativeBot: orderedNativeBot,
+        owners: orderedOwners
     };
     if (avatarUrls) positionUpdate.avatarUrls = avatarUrls;
     game.broadcast(io, 'positionUpdate', positionUpdate);

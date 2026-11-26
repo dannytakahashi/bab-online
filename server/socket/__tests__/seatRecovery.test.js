@@ -116,6 +116,44 @@ describe('draw-phase leave and disconnect', () => {
         expect(game.seat(dropperPos).controller).toBe('resignBot');
     });
 
+    test('positionUpdate.owners names each seat\'s owner: the leaver for its resign bot, null for a native bot', async () => {
+        // 2026-11-26: usernames[] names who the seat shows (a leaver's resign
+        // bot), so the clients present at seating named the seat by the bot
+        // while a snapshot (seats[].ownerUsername) named the leaver
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const humans = [1, 2, 3].map((n) => `w${seq}-h${n}`);
+        const botId = `bot:own${seq}`;
+        const game = drawingGame([...humans, botId], humans);
+        const s = humans.map((id) => makeSocket(id, log));
+
+        chatHandlers.chatMessage(s[0], io, { message: '/leave' }); // the leaver (auto-drawn)
+        gameHandlers.autoDraw(io, game, botId, 'Bot');
+        await queueHandlers.handleDisconnect(s[2], io); // a draw-phase disconnect (grace)
+        gameHandlers.draw(s[1], io, { num: 0 }); // the 4th card: runs on through the seating
+        await jest.advanceTimersByTimeAsync(7000);
+
+        const pu = events(log, 'positionUpdate').at(-1).data;
+        const at = (pos) => pu.positions.indexOf(pos);
+        const leaverPos = game.seatByUsername(`user_${humans[0]}`);
+        const botPos = pu.positions.find((p) => game.seat(p).controller === 'bot');
+        expect(game.seat(leaverPos)).toMatchObject({ controller: 'resignBot', ownerUsername: `user_${humans[0]}` });
+        // the seat SHOWS the bot, its owner is the leaver
+        expect(pu.usernames[at(leaverPos)].username).not.toBe(`user_${humans[0]}`);
+        expect(pu.owners[at(leaverPos)]).toBe(`user_${humans[0]}`);
+        expect(pu.owners[at(botPos)]).toBeNull();
+        expect(pu.owners[at(game.seatByUsername(`user_${humans[1]}`))]).toBe(`user_${humans[1]}`);
+        expect(pu.owners[at(game.seatByUsername(`user_${humans[2]}`))]).toBe(`user_${humans[2]}`); // in grace
+        expect(pu.owners).toHaveLength(pu.positions.length);
+        // the same owners a snapshot gives
+        const { buildSnapshotV2 } = require('../../game/snapshotV2');
+        const snap = buildSnapshotV2(game, humans[1]);
+        for (const seat of snap.seats) {
+            expect(pu.owners[at(seat.position)]).toBe(seat.controller === 'bot' ? null : seat.ownerUsername);
+        }
+    });
+
     test('a draw-phase disconnect sends no position:null event', async () => {
         const log = [];
         const io = makeIo(log);
