@@ -76,7 +76,8 @@ enum ClientHello {
     /// each round's pairings and "Partners so far" from the tournament events' `pairings`, and a
     /// tournament table's `startDraw.teams` / snapshot `draw.teams` as a draw for first deal, so
     /// the server draws such a table honestly (each player the card they picked) when every human
-    /// and spectator there has it; else it stages the draw as before.
+    /// and spectator there has it; else (until PR #417, which removes the staged draw once the
+    /// upgrade gate requires build 41) it stages the draw as before.
     /// `tournamentVoiceStatus` (iOS 1.2.7 (41); `TournamentVoice.statusCap`,
     /// $defs.clientCapTournamentVoiceStatus): this build shows the over-cap notice "Voice is full
     /// (N people)" while it waits in line for a full tournament voice room, so the server sends it

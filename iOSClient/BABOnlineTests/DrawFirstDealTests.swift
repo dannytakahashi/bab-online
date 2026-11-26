@@ -83,8 +83,11 @@ final class DrawFirstDealTests: XCTestCase {
         let url = Self.root.appendingPathComponent("contract/fixtures/pairings/events.json")
         guard FileManager.default.fileExists(atPath: url.path) else { throw XCTSkip("the checkout is not reachable from this test host") }
         let file = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        // "honest" is required; "staged" is replayed only while the fixture still has it
+        // (PR #417 removes the staged draw and drops that case from the fixture)
+        XCTAssertNotNil(file["honest"] as? [[String: Any]], "the fixture's honest case")
         for mode in ["honest", "staged"] {
-            let events = try XCTUnwrap(file[mode] as? [[String: Any]], mode)
+            guard let events = file[mode] as? [[String: Any]] else { continue }
             let store = GameState()
             var sawTeams = false, sawRoundStart = false
             for e in events {
