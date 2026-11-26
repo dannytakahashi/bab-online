@@ -108,7 +108,11 @@ final class GybUITests: XCTestCase {
         XCTAssertTrue(forbidden.exists)
         XCTAssertEqual(forbidden.label, "3, the Forbidden Bid")
         XCTAssertFalse(forbidden.isEnabled)
-        XCTAssertEqual(any(app, "bid.forbiddenLine").label, "Forbidden Bid: 3")
+        let line = any(app, "bid.forbiddenLine")
+        XCTAssertEqual(line.label, "Forbidden Bid: 3")
+        // drawn whole inside the sheet (a layout priority once squeezed it to nothing)
+        XCTAssertGreaterThan(line.frame.width, 80, "\(line.frame)")
+        XCTAssertTrue(sheet.frame.contains(line.frame), "\(line.frame) in \(sheet.frame)")
         // numbers only: no bores
         XCTAssertFalse(app.buttons["B"].exists)
         // a tap on the Forbidden Bid selects nothing; another bid does
@@ -129,6 +133,8 @@ final class GybUITests: XCTestCase {
         XCTAssertTrue(sheet.waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["bid.forbidden"].exists)
         XCTAssertTrue(window(app).contains(any(app, "bid.forbiddenLine").frame), "Forbidden Bid line on screen")
+        XCTAssertGreaterThan(any(app, "bid.forbiddenLine").frame.width, 80)
+        XCTAssertGreaterThan(app.buttons["Submit"].frame.width, 100)
         XCTAssertTrue(window(app).contains(app.buttons["Submit"].frame), "Submit on screen")
     }
 

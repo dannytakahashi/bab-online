@@ -36,10 +36,12 @@ final class LiveGybTests: XCTestCase {
 
     private func any(_ app: XCUIApplication, _ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
 
-    /// My hand's playable cards (CardSpriteNode: a button, not enabled while illegal).
-    private func playableCards(_ app: XCUIApplication) -> [XCUIElement] {
-        let names = NSPredicate(format: "label MATCHES %@", "^(.+ of (Spades|Hearts|Diamonds|Clubs)|High Joker|Low Joker)$")
-        return app.buttons.matching(names).allElementsBoundByIndex.filter { $0.isEnabled && $0.isHittable }
+    /// My hand's first playable card (CardSpriteNode: a button, not enabled while illegal), as
+    /// one query (the hand changes under a list read element by element).
+    private func playableCard(_ app: XCUIApplication) -> XCUIElement? {
+        let names = NSPredicate(format: "enabled == true AND label MATCHES %@", "^(.+ of (Spades|Hearts|Diamonds|Clubs)|High Joker|Low Joker)$")
+        let card = app.buttons.matching(names).firstMatch
+        return card.exists ? card : nil
     }
 
     func testAGetYourBidGameFromTheLobbyToTheEnd() throws {
@@ -112,7 +114,7 @@ final class LiveGybTests: XCTestCase {
                 sleep(1)
                 continue
             }
-            if let card = playableCards(app).first {
+            if let card = playableCard(app) {
                 if !sawTable { shot("2-table"); sawTable = true }
                 // the card's visible strip (the next card covers its right part): lift, then play
                 let strip = card.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.3))
