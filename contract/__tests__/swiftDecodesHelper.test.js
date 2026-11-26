@@ -3,11 +3,13 @@
 // contract/lib/swiftDecodes.js reads a lenient custom init(from:) that decodes through a local
 // helper (iOS 1.2.3 (18): WirePayload.AssistHint, WirePayload.GameLogEntry) only when the
 // helper is exactly `(try? c.decodeIfPresent(t, forKey: k)) ?? nil`: every call is optional.
-// Anything else still throws, so a floor is never quietly partial.
+// Also a try? wrapper, and (iOS 1.2.7 (41), Get Your Bid) a lenient `try? decoder.container`
+// read through `c.flatMap { try? $0.decode(...) }`. Anything else still throws, so a floor is
+// never quietly partial.
 
 const { extractDecodes } = require('../lib/swiftDecodes');
 
-const event = (init, { inExtension = false } = {}) => ({
+const event = (init, { inExtension = false, container = 'try' } = {}) => ({
     'ServerEvent.swift': `
 enum ServerEvent {
     static func decode(name: String) throws {
@@ -31,17 +33,17 @@ enum WirePayload {
             case v, reasons, card
             case label = "text"
         }
-${inExtension ? '' : initBlock(init)}
+${inExtension ? '' : initBlock(init, container)}
     }
 }
-${inExtension ? `extension WirePayload.Hint {${initBlock(init)}}` : ''}
+${inExtension ? `extension WirePayload.Hint {${initBlock(init, container)}}` : ''}
 struct Card: Decodable { var suit: String; var rank: String }`,
 });
 
-function initBlock(init) {
+function initBlock(init, container = 'try') {
     return `
         init(from decoder: Decoder) throws {
-            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let c = ${container} decoder.container(keyedBy: CodingKeys.self)
 ${init}
         }
 `;
@@ -138,4 +140,53 @@ test('a try? wrapper around another type decodes anything: a value of every JSON
 test('a try? wrapper with anything more in its init is still refused', () => {
     expect(() => extractDecodes(wrapped('value = try? Card(from: decoder); n = 1'))).toThrow(/WirePayload.Wrap: custom init\(from:\) with no keyed decode/);
     expect(() => extractDecodes(wrapped('value = try Card(from: decoder)'))).toThrow(/WirePayload.Wrap: custom init\(from:\) with no keyed decode/);
+});
+
+// A lenient container (iOS 1.2.7 (41): StartDraw, GybStart, GybDoneBidding, GybSnapshot):
+//   let c = try? decoder.container(keyedBy: CodingKeys.self)
+//   x = c.flatMap { try? $0.decode(T.self, forKey: .k) }
+// The closure's own try / try? says required / optional, as for a plain read.
+const FLATMAP = `
+            v = c.flatMap { try? $0.decode(Int.self, forKey: .v) } ?? 0
+            reasons = c.flatMap { try? $0.decodeIfPresent([String].self, forKey: .reasons) } ?? nil
+            label = c.flatMap { try? $0.decode(String.self, forKey: .label) }`;
+
+test('a lenient container read through flatMap: every try? read is optional, under its raw key', () => {
+    const floor = extractDecodes(event(FLATMAP, { container: 'try?' }));
+    expect(floor.types['WirePayload.Hint']).toEqual({
+        kind: 'struct',
+        fields: {
+            v: { type: 'Int', optional: true },
+            reasons: { type: '[String]', optional: true },
+            text: { type: 'String', optional: true },
+        },
+    });
+});
+
+test('a strict read inside the flatMap stays required, beside the tolerant ones', () => {
+    const init = `${FLATMAP}
+            card = c.flatMap { try $0.decode(Card.self, forKey: .card) }`;
+    const { fields } = extractDecodes(event(init, { container: 'try?' })).types['WirePayload.Hint'];
+    expect(fields.card).toEqual({ type: 'Card', optional: false });
+    expect(fields.v).toEqual({ type: 'Int', optional: true });
+});
+
+test('a flatMap over anything but this init\'s own try? keyed container is refused', () => {
+    // `c` here is the strict container: a flatMap over it is not this pattern, never guessed at
+    expect(() => extractDecodes(event(FLATMAP))).toThrow(/c\.flatMap \{ \$0\.decode \} over a container it cannot read/);
+    const other = `
+            let n = try? c.nestedContainer(keyedBy: CodingKeys.self, forKey: .card)
+            v = n.flatMap { try? $0.decode(Int.self, forKey: .v) }`;
+    expect(() => extractDecodes(event(other))).toThrow(/n\.flatMap \{ \$0\.decode \} over a container it cannot read/);
+});
+
+test('today\'s Swift (the next build to freeze) is readable: every decode source parses into a floor', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { DECODE_SOURCES } = require('../baseline');
+    const root = path.join(__dirname, '..', '..');
+    const files = Object.fromEntries(DECODE_SOURCES.map((f) => [f, fs.readFileSync(path.join(root, f), 'utf8')]));
+    const floor = extractDecodes(files);
+    expect(floor.types.GybStart).toEqual({ kind: 'struct', fields: { scores: { type: '[Int]', optional: true } } });
+    expect(floor.types['WirePayload.GameStart'].fields.gyb).toEqual({ type: 'GybStart', optional: true });
 });
