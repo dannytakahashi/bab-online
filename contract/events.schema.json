@@ -5619,7 +5619,7 @@
       "emittedFrom": [
         "server/socket/upgradeGate.js:sendUpdateRequired"
       ],
-      "notes": "New (2026-11-25, private, unsequenced): only an upgrade-gated iOS socket (User-Agent build below the gate: MIN_IOS_BUILD, raised and never lowered by the env BAB_MIN_IOS_BUILD) gets it, with the gate's main push (2 s after connect, beside mainRoomJoined) and then once a minute (every 10th REPEAT_MS repeat), so the timed pushes stay within the gate's 20 emits per minute. message is the gate's update text, url the App Store page. The builds gated today (1.0.0, 1.1.0) and builds 39 / 40 ignore it (no handler); iOS from build 41 shows it as a full-screen update screen with an App Store button and keeps the saved session, so the next gate past 41 is seen on every screen."
+      "notes": "New (2026-11-25, private, unsequenced): only an upgrade-gated iOS socket of build 41 or later (User-Agent build below the gate: MIN_IOS_BUILD, 41 since 1.2.7 is live, raised and never lowered by the env BAB_MIN_IOS_BUILD; so only once the gate passes 41) gets it, with the gate's main push (2 s after connect, beside mainRoomJoined), then once a minute (every 10th REPEAT_MS repeat), so the timed pushes stay within the gate's 20 emits per minute, and as the reply to the taps a stale screen allows (upgradeGate.js TOAST_REPLIES). message is the gate's update text, url the App Store page. iOS from build 41 shows it as a full-screen update screen with an App Store button and keeps the saved session. The gated builds 1 to 40 have no handler and never get it (1.2.x builds 3 to 40 get the serverError toast in its place)."
     },
     "signUpResponse": {
       "payload": {
@@ -5871,7 +5871,7 @@
       },
       "status": "active",
       "to": "self",
-      "notes": "Refused (success false, the message says why) while the player is in a live game (its draw included, a /leave'd seat until the game ends) or a tournament that is not complete (2026-11-15). On success the name is held for 30 days (a deleted-name tombstone: sign-up says it is taken; an admin can free it in the panel).",
+      "notes": "Refused (success false, the message says why) while the player is in a live game (its draw included, a /leave'd seat until the game ends) or a tournament that is not complete (2026-11-15). On success the name is held for 30 days (a deleted-name tombstone: sign-up says it is taken; an admin can free it in the panel). The upgrade gate answers a gated iOS 1.2.x socket (builds 3 to 40) with {success: false, message: the update text} and deletes nothing (upgradeGate.js replyAccount).",
       "clientReads": {
         "web": [
           "client/src/main.js:deleteAccountResponse"
@@ -5881,7 +5881,8 @@
         ]
       },
       "emittedFrom": [
-        "server/socket/authHandlers.js:deleteAccount"
+        "server/socket/authHandlers.js:deleteAccount",
+        "server/socket/upgradeGate.js:replyAccount"
       ]
     },
     "changePasswordResponse": {
@@ -5903,7 +5904,7 @@
       },
       "status": "active",
       "to": "self",
-      "notes": "New (2026-11-15): the reply to changePassword. success true: the password changed, every other device was signed out (forceLogout to its live sockets, its saved session revoked); this device stays signed in. success false: message says why (the 8-100 rule, the same password, a wrong current password (counted in the failed-sign-in throttle), throttled, busy, a database error). Web: the profile page's Change password form; iOS from the next build after 1.2.1 build 9 (Account sheet). Shipped iOS builds never send changePassword, so never get it.",
+      "notes": "New (2026-11-15): the reply to changePassword. success true: the password changed, every other device was signed out (forceLogout to its live sockets, its saved session revoked); this device stays signed in. success false: message says why (the 8-100 rule, the same password, a wrong current password (counted in the failed-sign-in throttle), throttled, busy, a database error). Web: the profile page's Change password form; iOS from the next build after 1.2.1 build 9 (Account sheet). Shipped iOS builds never send changePassword, so never get it. The upgrade gate answers a gated iOS 1.2.x socket (builds 3 to 40) with {success: false, message: the update text} and changes nothing (upgradeGate.js replyAccount).",
       "clientReads": {
         "web": [
           "client/src/main.js:changePasswordResponse"
@@ -5911,7 +5912,8 @@
         "ios": []
       },
       "emittedFrom": [
-        "server/socket/authHandlers.js:changePassword"
+        "server/socket/authHandlers.js:changePassword",
+        "server/socket/upgradeGate.js:replyAccount"
       ]
     },
     "activeGameFound": {
@@ -12645,7 +12647,7 @@
         "server/voice/tournamentVoice.js:change",
         "server/voice/tournamentVoice.js:relist"
       ],
-      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table's seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating's reveal hold); in a tournament's voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most tournamentVoice.maxRoom(): env TOURNAMENT_VOICE_MAX, 2..20, default 8; the rest wait in line unlisted, see tournamentVoiceStatus) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again."
+      "notes": "Since 2026-11-16 joinLobby lists (and voicePeerJoined goes to) mapped lobby members only: a seat held for its reload grace has a dead socket and a play-again hold none. At a play-again return (server/socket/playAgain.js) each moved member gets the moved members before it in row order (playAgain cap only). The receiver offers to every listed peer. A casual game's voice room (2026-11-16, server/voice/gameVoice.js) adds capable spectators: a newly admitted one gets the players (and, while spectators may talk, the spectators admitted before it), a returning owner (reconnect, /active reclaim) gets the voice spectators too; a block list that is loaded leaves a pair out. Tournament voice (2026-11-24, server/voice/tournamentVoice.js): at a tournament table's seating (right after positionUpdate) each connected human owner gets the owners before it in seat order (sockets with the cap tournamentVoice, or casualSpectators from iOS that starts voice muted: with assist, or build 18 and later; a reconnect there lists the same sockets, never during the seating's reveal hold); in a tournament's voice room (tournament:<id>: members on its lobby screen with the cap tournamentVoice, at most tournamentVoice.maxRoom(): env TOURNAMENT_VOICE_MAX, 2..20, default 20; the rest wait in line unlisted, see tournamentVoiceStatus) a member entering (tournamentCreated / tournamentJoined) gets the admitted members before it, and a member already in it gets every other one again."
     },
     "tournamentVoiceStatus": {
       "payload": {
@@ -12679,7 +12681,7 @@
       "emittedFrom": [
         "server/voice/tournamentVoice.js:sendStatus"
       ],
-      "notes": "New (2026-11-25, the over-cap notice; private, unsequenced): a tournament's voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows \"Voice is full (N people)\" in the tournament lobby's voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before)."
+      "notes": "New (2026-11-25, the over-cap notice; private, unsequenced): a tournament's voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 20) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows \"Voice is full (N people)\" in the tournament lobby's voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before)."
     },
     "voicePeerJoined": {
       "payload": {
@@ -12944,9 +12946,10 @@
       },
       "emittedFrom": [
         "server/socket/serverError.js:emitError",
-        "server/socket/chatHandlers.js:sendError"
+        "server/socket/chatHandlers.js:sendError",
+        "server/socket/upgradeGate.js:sendToast"
       ],
-      "notes": "Every app-level server error (V1_REMOVALS #1): the wrappers' rate limit / Joi validation / unexpected exception, a handler's refusal, a chat command error. Phase A (2026-11-11) added it as the twin of the v1 `error`; phase B (2026-11-12, once iOS 1.1.0 was gated) dropped `error`, so this is the only copy. code: rateLimit / validation / server, or rejected (a handler's {message} refusal); handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused; the chat events: mainRoomChat / lobbyChat / tournamentChat, in-game chat chatMessage), null when unknown. Read by web (main.js onServerFailure: a toast, and a table resync for playCard / playerBid / requestSnapshot; adminApi.js fails a dropped admin request fast as rate_limited on {code:'rateLimit', handler:'adminRequest'}) and iOS 1.2.0 (SocketService handleServerError: toast + routeTableError); its own name because Socket.IO-Client-Swift reserves 'error' for transport errors (clientEvent .error, which 1.2.0 still listens to for those). Gated builds 1 and 2 never get it (upgradeGate.js registers no handler for them)."
+      "notes": "Every app-level server error (V1_REMOVALS #1): the wrappers' rate limit / Joi validation / unexpected exception, a handler's refusal, a chat command error. Phase A (2026-11-11) added it as the twin of the v1 `error`; phase B (2026-11-12, once iOS 1.1.0 was gated) dropped `error`, so this is the only copy. code: rateLimit / validation / server, or rejected (a handler's {message} refusal); handler: the c2s event it answers (the registered socket.on name: errorHandler options.event, else the schema; or the handler that refused; the chat events: mainRoomChat / lobbyChat / tournamentChat, in-game chat chatMessage), null when unknown. Read by web (main.js onServerFailure: a toast, and a table resync for playCard / playerBid / requestSnapshot; adminApi.js fails a dropped admin request fast as rate_limited on {code:'rateLimit', handler:'adminRequest'}) and iOS 1.2.0 (SocketService handleServerError: toast + routeTableError); its own name because Socket.IO-Client-Swift reserves 'error' for transport errors (clientEvent .error, which 1.2.0 still listens to for those). The upgrade gate (MIN_IOS_BUILD 41) also sends it to a gated iOS 1.2.x socket (builds 3 to 40) as the update toast over any screen: {code: 'rejected', message: the update text, handler: null} (null: no screen claims it, no table resync), with the main push, once a minute and as the reply to the taps a stale screen allows (upgradeGate.js sendToast); gated builds 1 and 2 never get it, nor does a gated build 41+ (updateRequired instead)."
     }
   },
   "builtins": {

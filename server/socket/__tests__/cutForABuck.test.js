@@ -8,8 +8,8 @@
  * all-legacy and kill-switch paths (today's wire), the draw's refusals,
  * the round cap, a deterministic redraw / reshuffle, the final winners
  * snapshot and the secrecy guard. Every emit is checked against the
- * contract by the always-on guard; the cut events against the iOS b39 / b40
- * baselines too.
+ * contract by the always-on guard; the cut events against every frozen iOS
+ * baseline too (contract/baselines: the builds MIN_IOS_BUILD lets connect).
  */
 
 'use strict';
@@ -759,7 +759,10 @@ describe('secrecy', () => {
 });
 
 describe('the iOS baselines', () => {
-    test('every cut payload and the changed tournament payloads validate against b39 and b40 (the events they know)', async () => {
+    // (1.2.5 (39) and 1.2.6 (40), which lack the cap, until MIN_IOS_BUILD 41 retired them)
+    const FROZEN = require('fs').readdirSync(require('path').join(__dirname, '../../../contract/baselines'))
+        .map((f) => /^ios-(.+)\.schema\.json$/.exec(f)?.[1]).filter(Boolean).sort();
+    test('every cut payload and the changed tournament payloads validate against every frozen iOS baseline (the events it knows)', async () => {
         const ctx = await setupCut(3, { capable: 2 });
         cutForABuck.setEngineOptionsForTests({ deck: deckOf('7s', '7h', '7d', '2s', 'Kh', 'Qh') });
         await playToCut(ctx);
@@ -771,7 +774,7 @@ describe('the iOS baselines', () => {
         await advanceUntil(() => ctx.t.phase === 'complete', 200, 120000);
         tournamentHandlers.returnToTournament(ctx.sockets[2], ctx.io);
         const checked = new Set();
-        for (const build of ['1.2.5-b39', '1.2.6-b40']) {
+        for (const build of FROZEN) {
             for (const l of ctx.log) {
                 if (!(CUT_EVENTS.includes(l.event) || l.event.startsWith('tournament') || l.event === 'lobbiesUpdated')) continue;
                 const errors = baselineCheck(build, l.event, l.data);
@@ -780,7 +783,8 @@ describe('the iOS baselines', () => {
                 expect({ build, event: l.event, errors }).toEqual({ build, event: l.event, errors: [] });
             }
         }
-        expect([...checked]).toEqual(expect.arrayContaining(['tournamentComplete', 'tournamentJoined', 'tournamentMessage', 'lobbiesUpdated']));
+        // (none frozen: additiveOnly.test.js 'the floor build is frozen' fails instead)
+        if (FROZEN.length) expect([...checked]).toEqual(expect.arrayContaining(['tournamentComplete', 'tournamentJoined', 'tournamentMessage', 'lobbiesUpdated']));
     }, 120000);
 });
 

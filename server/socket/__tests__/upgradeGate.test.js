@@ -1,10 +1,13 @@
 /**
- * server/socket/upgradeGate.js: the old App Store iOS builds (1.0.0 build 1,
- * 1.1.0 build 2; MIN_IOS_BUILD 3) see only the update message and keep their
- * saved session; every other client (1.2.0 build 3+, browsers, a missing or
- * garbled User-Agent) is never gated. User-Agents below were captured from
+ * server/socket/upgradeGate.js: the old iOS builds (MIN_IOS_BUILD 41: 1.0.0
+ * build 1, 1.1.0 build 2 and every 1.2.x build 3 to 40, 1.2.6 the last) see
+ * only the update message and keep their saved session; every other client
+ * (1.2.7 build 41+, browsers, a missing or garbled User-Agent) is never
+ * gated. The 1.2.x builds also get the update toast (serverError) and the
+ * Account sheet's refusals; a gated build 41+ (BAB_MIN_IOS_BUILD above 41)
+ * gets updateRequired instead. User-Agents below were captured from
  * simulator builds of cc9059f (1.0.0) and f05d264 (1.1.0) against a
- * header-logging server.
+ * header-logging server; every later build has the same form.
  */
 
 const http = require('http');
@@ -42,8 +45,18 @@ const UA_125 = 'BAB%20Online/5 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_126 = 'BAB%20Online/6 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_127 = 'BAB%20Online/7 CFNetwork/3896.200.61 Darwin/27.2.0';
 const UA_128 = 'BAB%20Online/8 CFNetwork/3896.200.61 Darwin/27.2.0';
-// Every gated build: [label, User-Agent, build]
+const ua = (b) => `BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`;
+const UA_126_40 = ua(40); // 1.2.6 (40), the last build MIN_IOS_BUILD 41 gates
+const UA_127_41 = ua(41); // 1.2.7 (41), the floor
+// The gated builds with no notice (1.0.0, 1.1.0): [label, User-Agent, build]
 const OLD_BUILDS = [['1.0.0', UA_100, 1], ['1.1.0', UA_110, 2]];
+// The gated 1.2.x builds (the toast): the first TestFlight build, the
+// released ones (6, 9, 13, 30, 39) and 1.2.6 (40)
+const TOAST_BUILDS = [['1.2.0 (3)', UA_120, 3], ['1.2.0 (6)', UA_126, 6], ['1.2.1 (9)', ua(9), 9], ['1.2.2 (13)', ua(13), 13],
+    ['1.2.3 (30)', ua(30), 30], ['1.2.5 (39)', ua(39), 39], ['1.2.6 (40)', UA_126_40, 40]];
+// A User-Agent the gate never gates (the real handlers register rejoinGame;
+// a gated socket never does)
+const isGated = (w) => !w.handlers.has('rejoinGame');
 // The built-in browser of the live check (Chromium) and common browsers
 const BROWSERS = [
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
@@ -77,35 +90,32 @@ describe('parseIosUserAgent', () => {
         expect(gate.parseIosUserAgent(UA_100)).toEqual({ client: 'ios', build: 1 });
         expect(gate.parseIosUserAgent(UA_110)).toEqual({ client: 'ios', build: 2 });
         expect(gate.parseIosUserAgent(UA_124)).toEqual({ client: 'ios', build: 4 });
-        expect(gate.isOutdatedIosApp(UA_100)).toBe(true);
-        expect(gate.isOutdatedIosApp(UA_110)).toBe(true);
-        expect(gate.isOutdatedIosApp(UA_120)).toBe(false);
-        expect(gate.isOutdatedIosApp(UA_124)).toBe(false);
-        expect(gate.isOutdatedIosApp(UA_125)).toBe(false);
-        expect(gate.isOutdatedIosApp(UA_126)).toBe(false);
-        expect(gate.isOutdatedIosApp(UA_127)).toBe(false);
-        expect(gate.isOutdatedIosApp(UA_128)).toBe(false);
-        expect(gate.isOutdatedIosApp('BAB%20Online/17 CFNetwork/1500 Darwin/25.0.0')).toBe(false);
+        for (const u of [UA_100, UA_110, UA_120, UA_124, UA_125, UA_126, UA_127, UA_128, UA_126_40]) expect(gate.isOutdatedIosApp(u)).toBe(true);
+        expect(gate.isOutdatedIosApp('BAB%20Online/17 CFNetwork/1500 Darwin/25.0.0')).toBe(true);
+        expect(gate.isOutdatedIosApp(UA_127_41)).toBe(false);
+        expect(gate.isOutdatedIosApp('BAB%20Online/42 CFNetwork/1500 Darwin/25.0.0')).toBe(false);
         // the same app on another iOS / CFNetwork, or the unencoded name
-        for (const b of [1, 2]) {
+        for (const b of [1, 2, 40]) {
             expect(gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/1568.100.1 Darwin/24.0.0`)).toBe(true);
             expect(gate.isOutdatedIosApp(`BAB Online/${b} CFNetwork/1568.100.1 Darwin/24.0.0`)).toBe(true);
         }
-        expect(gate.isOutdatedIosApp('BAB Online/3 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(false);
+        expect(gate.isOutdatedIosApp('BAB Online/41 CFNetwork/1568.100.1 Darwin/24.0.0')).toBe(false);
     });
 
-    test('the boundary: builds 1 and 2 (1.0.0, 1.1.0) are gated, 3 and later are not', () => {
-        expect(gate.MIN_IOS_BUILD).toBe(3);
-        const at = (b) => gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`);
-        expect([0, 1, 2, 3, 4, 5, 100].map(at)).toEqual([true, true, true, false, false, false, false]);
+    test('the boundary: builds 1 to 40 (1.0.0 to 1.2.6) are gated, 41 (1.2.7) and later are not', () => {
+        expect(gate.MIN_IOS_BUILD).toBe(41);
+        const at = (b) => gate.isOutdatedIosApp(ua(b));
+        expect([0, 1, 2, 3, 6, 9, 13, 30, 39, 40, 41, 42, 100].map(at))
+            .toEqual([true, true, true, true, true, true, true, true, true, true, false, false, false]);
     });
 
-    test('iOS 1.2.5 (39) and 1.2.6 (40) parse, and are not gated at MIN_IOS_BUILD 3', () => {
-        for (const b of [39, 40, 41]) {
-            const ua = `BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`;
-            expect(gate.parseIosUserAgent(ua)).toEqual({ client: 'ios', build: b });
-            expect(gate.isOutdatedIosApp(ua)).toBe(false);
-        }
+    test('what each gated build is told on any screen: nothing (1, 2), the toast (3 to 40), the update screen (41+)', () => {
+        expect([1, 2, 3, 6, 40, 41, 42].map(gate.noticeKind)).toEqual([null, null, 'toast', 'toast', 'toast', 'screen', 'screen']);
+        expect([gate.TOAST_MIN_BUILD, gate.UPDATE_SCREEN_BUILD]).toEqual([3, 41]);
+    });
+
+    test('iOS 1.2.6 (40) and 1.2.7 (41) parse', () => {
+        for (const b of [39, 40, 41]) expect(gate.parseIosUserAgent(ua(b))).toEqual({ client: 'ios', build: b });
     });
 
     describe('BAB_MIN_IOS_BUILD raises the gate, never lowers it', () => {
@@ -115,30 +125,36 @@ describe('parseIosUserAgent', () => {
         });
         const at = (b) => gate.isOutdatedIosApp(`BAB%20Online/${b} CFNetwork/3896.200.61 Darwin/27.2.0`);
 
-        test('41 gates 39 and 40, not 41 or later', () => {
-            process.env.BAB_MIN_IOS_BUILD = '41';
-            expect(gate.minIosBuild()).toBe(41);
-            expect([1, 2, 3, 39, 40, 41, 42].map(at)).toEqual([true, true, true, true, true, false, false]);
+        test('42 gates 41 too, not 42 or later', () => {
+            process.env.BAB_MIN_IOS_BUILD = '42';
+            expect(gate.minIosBuild()).toBe(42);
+            expect([1, 2, 3, 39, 40, 41, 42, 43].map(at)).toEqual([true, true, true, true, true, true, false, false]);
         });
 
-        test.each(['1', '2', '0', '-5', 'abc', '', ' '])('%j cannot un-gate builds 1 and 2', (v) => {
+        test.each(['41', '40', '3', '1', '2', '0', '-5', 'abc', '', ' '])('%j cannot un-gate builds 1 to 40', (v) => {
             process.env.BAB_MIN_IOS_BUILD = v;
             expect(gate.minIosBuild()).toBe(gate.MIN_IOS_BUILD);
-            expect([1, 2, 3].map(at)).toEqual([true, true, false]);
+            expect([1, 2, 3, 40, 41].map(at)).toEqual([true, true, true, true, false]);
         });
 
-        test('read per connection: a gated socket under the override gets the update screen', () => {
+        test('read per connection: a gated build 41 under the override gets the update screen, never the toast', async () => {
             jest.useFakeTimers();
-            process.env.BAB_MIN_IOS_BUILD = '41';
-            const w = wired('BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0');
-            expect(w.handlers.has('playCard')).toBe(false);
-            expect(w.socket.data.appBuild).toBe(40);
+            process.env.BAB_MIN_IOS_BUILD = '42';
+            const w = wired(UA_127_41);
+            expect(isGated(w)).toBe(true);
+            expect(w.socket.data.appBuild).toBe(41);
             jest.advanceTimersByTime(2000);
             expect(w.emits('updateRequired').map((l) => l.data)).toEqual([{ message: MSG_OUT, url: gate.APP_STORE_URL }]);
+            // its taps get the update screen too (it covers every screen); no toast, no account replies
+            for (const ev of gate.TOAST_REPLIES) w.handlers.get(ev)({});
+            w.handlers.get('chatMessage')({ message: 'hi' });
+            expect(w.handlers.has('deleteAccount')).toBe(false);
+            expect(w.emits('updateRequired')).toHaveLength(2 + gate.TOAST_REPLIES.length);
+            expect(w.emits('serverError')).toEqual([]);
             w.handlers.get('disconnect')();
             delete process.env.BAB_MIN_IOS_BUILD;
-            const ok = wired('BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0');
-            expect(ok.handlers.has('playCard')).toBe(true);
+            const ok = wired(UA_127_41);
+            expect(isGated(ok)).toBe(false);
             gameManager.removeUserSocket(ok.socket.id);
         });
     });
@@ -215,7 +231,10 @@ function serverState() {
     });
 }
 
-describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
+describe.each([...OLD_BUILDS, ...TOAST_BUILDS])('a %s socket', (_version, UA_OLD, BUILD) => {
+    // null for 1.0.0 / 1.1.0, 'toast' for the 1.2.x builds (upgradeGate.js noticeKind)
+    const KIND = gate.noticeKind(BUILD);
+    const TOAST = KIND === 'toast';
     test('restoreSession: no restoreSessionResponse, a signInResponse failure; the DB token is kept, only its lastUsedAt moves', async () => {
         const users = mockDb.current.users;
         const old = new Date(Date.now() - 10 * 24 * 3600 * 1000);
@@ -227,7 +246,8 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
 
         const w = wired(UA_OLD);
         expect([...w.handlers.keys()].sort()).toEqual(['chatMessage', 'disconnect', 'draw', 'joinMainRoom', 'leaveLobby', 'leaveTournament',
-            'restoreSession', 'returnToTournament', 'signIn', 'signUp'].sort());
+            'restoreSession', 'returnToTournament', 'signIn', 'signUp',
+            ...(KIND ? gate.TOAST_REPLIES : []), ...(TOAST ? ['deleteAccount', 'changePassword'] : [])].sort());
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         expect(w.emits('restoreSessionResponse')).toEqual([]);
         expect(w.emits('signInResponse').map((l) => l.data)).toEqual([{ success: false, message: MSG }]);
@@ -311,15 +331,22 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
             ['joinMainRoom'], ['mainRoomChat', { message: 'hi' }], ['createLobby', { name: 'x' }], ['joinQueue'],
             ['joinLobby', { lobbyId: 'nope' }], ['addBot'], ['playerReady'], ['createTournament'], ['joinTournament', { tournamentId: 't' }],
             ['rejoinGame', { gameId: 'g', username: 'Alan', sessionToken: ALAN_TOKEN }], ['playCard', { card: { suit: 'spades', rank: 'A' } }],
-            ['playerBid', { bid: '1' }], ['deleteAccount', { password: 'pw' }], ['getProfile'], ['getLeaderboard'],
+            ['playerBid', { bid: '1' }], ['deleteAccount', { password: 'pw' }], ['changePassword', { currentPassword: 'pw', newPassword: 'pw2pw2pw2' }],
+            ['getProfile'], ['getLeaderboard'],
             ['requestSnapshot', {}], ['clientHello', { client: 'ios', version: _version, caps: ['avatarUrl'] }], ['voiceOffer', { to: 'x' }],
             ['chatMessage', { message: 'hello' }], ['blockUser', { username: 'Bob' }],
         ]) await w.send(ev, d);
         expect(serverState()).toBe(before);
         expect(gameManager.getUserBySocketId(w.socket.id)).toBeFalsy();
         expect(w.socket.data.client).toBeUndefined();
-        // the only replies: the restore's update message and the empty main room
-        expect([...new Set(w.log.map((l) => l.event))].sort()).toEqual(['mainRoomJoined', 'signInResponse']);
+        // nothing deleted or changed by deleteAccount / changePassword
+        const alan = await mockDb.current.users.findOne({ username: 'Alan' });
+        expect(await bcrypt.compare('pw', alan.password)).toBe(true);
+        // the only replies: the restore's update message and the empty main
+        // room; a 1.2.x build also the toast for its taps and the Account
+        // sheet's refusals
+        expect([...new Set(w.log.map((l) => l.event))].sort()).toEqual(['mainRoomJoined', 'signInResponse',
+            ...(TOAST ? ['changePasswordResponse', 'deleteAccountResponse', 'serverError'] : [])].sort());
         const room = w.emits('mainRoomJoined')[0].data;
         expect(room).toMatchObject({ lobbies: [], onlineCount: 0, onlineUsers: [], inProgressGames: [], tournaments: [] });
         expect(room.recentMessages).toEqual([{ username: 'BAB Online', message: MSG, timestamp: expect.any(Number) }]);
@@ -362,9 +389,12 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
             expect(room.messages).toEqual([{ username: 'BAB Online', message: MSG, timestamp: expect.any(Number) }]);
             expect(room.recentMessages).toEqual(room.messages);
         }
-        expect(w.log.map((l) => l.event).filter((e) => e !== 'mainRoomJoined' && e !== 'signInResponse'))
+        // (a slow runner may reach the 2 s push: its toast is the timed one)
+        expect(w.log.map((l) => l.event).filter((e) => e !== 'mainRoomJoined' && e !== 'signInResponse' && e !== 'serverError'))
             .toEqual(['leftGame', 'leftGame', 'tournamentLeft', 'leftLobby', 'tournamentLeft']);
-        for (const e of ['error', 'serverError']) expect(w.emits(e)).toEqual([]);
+        expect(w.emits('error')).toEqual([]);
+        if (TOAST) expect(w.emits('serverError').length).toBeLessThanOrEqual(1);
+        else expect(w.emits('serverError')).toEqual([]);
         expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
         await w.send('disconnect');
     });
@@ -381,10 +411,12 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         // the app restores its session on connect: later pushes keep "stay signed in"
         w.handlers.get('restoreSession')({ username: 'Alan', sessionToken: ALAN_TOKEN });
         jest.advanceTimersByTime(1700);
-        expect(at()).toEqual(['signInResponse', 'signInResponse', 'signInResponse', 'mainRoomJoined', 'updateRequired']);
+        expect(at()).toEqual(['signInResponse', 'signInResponse', 'signInResponse', 'mainRoomJoined', ...(TOAST ? ['serverError'] : [])]);
         expect(w.emits('mainRoomJoined')[0].data.recentMessages[0].message).toBe(MSG);
-        // build 41's full-screen update screen (older builds ignore it)
-        expect(w.emits('updateRequired')[0].data).toEqual({ message: MSG, url: gate.APP_STORE_URL });
+        // the update screen is build 41's (no handler before it): never sent to 1 to 40
+        expect(w.emits('updateRequired')).toEqual([]);
+        // a 1.2.x build's toast, over whatever screen it is on
+        if (TOAST) expect(w.emits('serverError')[0].data).toEqual({ code: 'rejected', message: MSG, handler: null });
         const gated = socketLogger.info.mock.calls.filter(([m]) => m === 'Upgrade gate: outdated iOS app');
         expect(gated).toEqual([['Upgrade gate: outdated iOS app', { socketId: w.socket.id, build: BUILD, username: 'Alan', savedSession: true }]]);
         expect(JSON.stringify(gated)).not.toContain(ALAN_TOKEN);
@@ -430,7 +462,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         expect(jest.getTimerCount()).toBe(0);
     });
 
-    test('updateRequired: with the main push, then once a minute; no signInResponse push is lost to it', () => {
+    test('the notice (none for 1.0.0 / 1.1.0, the toast for 1.2.x): with the main push, then once a minute; no signInResponse push is lost to it', () => {
         jest.useFakeTimers();
         const w = wired(UA_OLD);
         const inWindow = () => w.log.filter((l) => Date.now() - l.at < gate.EMIT_WINDOW_MS).length;
@@ -443,8 +475,13 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
         const last = gate.PUSH_DELAYS_MS[gate.PUSH_DELAYS_MS.length - 1];
         const repeats = Math.floor((t - last) / gate.REPEAT_MS);
         expect(w.emits('signInResponse')).toHaveLength(gate.PUSH_DELAYS_MS.length + repeats);
-        expect(w.emits('updateRequired')).toHaveLength(1 + Math.floor(repeats / gate.UPDATE_EVERY));
-        expect(w.emits('updateRequired')[0].at).toBe(w.emits('mainRoomJoined')[0].at);
+        expect(w.emits('updateRequired')).toEqual([]);
+        if (TOAST) {
+            expect(w.emits('serverError')).toHaveLength(1 + Math.floor(repeats / gate.UPDATE_EVERY));
+            expect(w.emits('serverError')[0].at).toBe(w.emits('mainRoomJoined')[0].at);
+        } else {
+            expect(w.emits('serverError')).toEqual([]);
+        }
         w.handlers.get('disconnect')();
     });
 
@@ -479,7 +516,7 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
     test.each(['off', 'OFF', 'false', '0', 'disabled'])('kill switch UPGRADE_GATE=%s: the real handlers run', async (v) => {
         process.env.UPGRADE_GATE = v;
         const w = wired(UA_OLD);
-        expect(w.handlers.has('playCard')).toBe(true);
+        expect(isGated(w)).toBe(false);
         await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
         expect(w.emits('restoreSessionResponse').map((l) => l.data)).toEqual([expect.objectContaining({ success: true, username: 'Alan' })]);
         expect(w.socket.data.appBuild).toBe(BUILD);
@@ -489,17 +526,66 @@ describe.each(OLD_BUILDS)('a %s socket', (_version, UA_OLD, BUILD) => {
     test('UPGRADE_GATE=on (or anything else) keeps the gate', () => {
         process.env.UPGRADE_GATE = 'on';
         const w = wired(UA_OLD);
-        expect(w.handlers.has('playCard')).toBe(false);
+        expect(isGated(w)).toBe(true);
+        w.handlers.get('disconnect')();
+    });
+});
+
+// ---------- what only the gated 1.2.x builds (3 to 40) get ----------
+
+describe.each(TOAST_BUILDS)('a gated %s socket: the toast and the Account sheet', (_version, UA_OLD) => {
+    test('every tap a stale screen allows gets the update toast; nothing changes on the server', async () => {
+        const before = serverState();
+        const w = wired(UA_OLD);
+        await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
+        w.log.length = 0;
+        for (const ev of gate.TOAST_REPLIES) await w.send(ev, {});
+        await w.send('chatMessage', { message: 'anyone here?' });
+        await w.send('chatMessage', { message: '?help' });
+        const toast = { code: 'rejected', message: MSG, handler: null };
+        expect(w.log.map((l) => [l.event, l.data])).toEqual(
+            Array.from({ length: gate.TOAST_REPLIES.length + 2 }, () => ['serverError', toast]));
+        // only /leave is still a way out
+        await w.send('chatMessage', { message: '/leave' });
+        expect(w.log[w.log.length - 1].event).toBe('leftGame');
+        expect(serverState()).toBe(before);
+        expect(gameManager.getOnlineUsernames()).not.toContain('Alan');
+        await w.send('disconnect');
+    });
+
+    test('Delete Account and Change Password are refused with the update message; the account is untouched', async () => {
+        const users = mockDb.current.users;
+        const before = await users.findOne({ username: 'Alan' });
+        const writes = ['updateOne', 'updateMany', 'findOneAndUpdate', 'insertOne', 'deleteOne', 'deleteMany', 'replaceOne']
+            .filter((m) => users[m]).map((m) => jest.spyOn(users, m));
+        const w = wired(UA_OLD);
+        await w.send('deleteAccount', { password: 'pw' });
+        await w.send('changePassword', { currentPassword: 'pw', newPassword: 'another-pw-1' });
+        expect(w.log.map((l) => [l.event, l.data])).toEqual([
+            ['deleteAccountResponse', { success: false, message: MSG_OUT }],
+            ['changePasswordResponse', { success: false, message: MSG_OUT }],
+        ]);
+        expect(writes.filter((sp) => sp.mock.calls.length)).toEqual([]);
+        writes.forEach((sp) => sp.mockRestore());
+        expect(await users.findOne({ username: 'Alan' })).toEqual(before);
+        await w.send('disconnect');
+    });
+
+    test('the replies share the per-socket limit: a burst of taps never exceeds EMIT_LIMIT', () => {
+        jest.useFakeTimers();
+        const w = wired(UA_OLD);
+        for (let i = 0; i < 50; i++) w.handlers.get('playCard')({});
+        expect(w.log).toHaveLength(gate.EMIT_LIMIT);
         w.handlers.get('disconnect')();
     });
 });
 
 describe('never gated', () => {
-    test.each([['1.2.0 build 3', UA_120], ['1.2.0 build 4', UA_124], ['1.2.0 build 5', UA_125], ['1.2.0 build 6', UA_126], ['1.2.1 build 7', UA_127], ['1.2.1 build 8', UA_128], ['a later build', 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0'],
+    test.each([['1.2.7 build 41', UA_127_41], ['a later build', ua(42)], ['build 100', ua(100)],
         ...BROWSERS.map((b) => [b.slice(0, 50), b]), ['no User-Agent', undefined], ...GARBAGE.filter((g) => typeof g === 'string').map((g) => [g.slice(0, 50), g])])(
         '%s: the real handlers', async (_l, ua) => {
             const w = wired(ua);
-            expect(w.handlers.has('playCard')).toBe(true);
+            expect(isGated(w)).toBe(false);
             await w.send('restoreSession', { username: 'Alan', sessionToken: ALAN_TOKEN });
             expect(w.emits('restoreSessionResponse').map((l) => l.data.success)).toEqual([true]);
             expect(w.emits('signInResponse')).toEqual([]);
@@ -512,7 +598,7 @@ describe('never gated', () => {
         const handlers = new Map();
         socket.on = (ev, fn) => handlers.set(ev, fn);
         setupSocketHandlers({ on: (ev, cb) => cb(socket) });
-        expect(handlers.has('playCard')).toBe(true);
+        expect(handlers.has('rejoinGame')).toBe(true);
     });
 
     test('every iOS socket records its build (adoption telemetry), gated or not', () => {
@@ -524,12 +610,21 @@ describe('never gated', () => {
         expect(web.socket.data.appBuild).toBeUndefined();
     });
 
-    test.each([[3, UA_120], [4, UA_124], [5, UA_125], [6, UA_126], [7, UA_127], [8, UA_128]])('1.2.x (build %i) is current: parsed, recorded, never gated', (build, ua) => {
-        expect(gate.parseIosUserAgent(ua)).toEqual({ client: 'ios', build });
-        const w = wired(ua);
+    test.each([[41, UA_127_41], [42, ua(42)]])('build %i is current: parsed, recorded, never gated', (build, u) => {
+        expect(gate.parseIosUserAgent(u)).toEqual({ client: 'ios', build });
+        const w = wired(u);
         expect(w.socket.data.appBuild).toBe(build);
-        expect(w.handlers.has('playCard')).toBe(true);
+        expect(isGated(w)).toBe(false);
         expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build });
+        gameManager.removeUserSocket(w.socket.id);
+    });
+
+    test.each([[3, UA_120], [4, UA_124], [5, UA_125], [6, UA_126], [7, UA_127], [8, UA_128], [40, UA_126_40]])('1.2.x build %i is gated now: parsed and recorded too', (build, u) => {
+        const w = wired(u);
+        expect(w.socket.data.appBuild).toBe(build);
+        expect(isGated(w)).toBe(true);
+        expect(socketLogger.info).toHaveBeenCalledWith('iOS app connected', { socketId: w.socket.id, build });
+        w.handlers.get('disconnect')();
     });
 });
 
@@ -569,7 +664,7 @@ describe('over a real Socket.IO connection', () => {
     };
     const serverSocket = (c) => io.sockets.sockets.get(c.id);
 
-    test.each(OLD_BUILDS)('%s: gated after the websocket upgrade and again after a reconnect', async (_v, UA_OLD) => {
+    test.each([...OLD_BUILDS, ['1.2.6 (40)', UA_126_40]])('%s: gated after the websocket upgrade and again after a reconnect', async (_v, UA_OLD) => {
         const c = connect(UA_OLD);
         await once(c, 'connect');
         await upgraded(c);
@@ -588,7 +683,17 @@ describe('over a real Socket.IO connection', () => {
         c.close();
     });
 
-    test.each([['1.2.1 build 8', UA_128], ['1.2.1 build 7', UA_127], ['1.2.0 build 6', UA_126], ['1.2.0 build 5', UA_125], ['1.2.0 build 4', UA_124], ['1.2.0 build 3', UA_120], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
+    test('1.2.6 (40): a chat line from a stale screen gets the update toast over the real transport', async () => {
+        const c = connect(UA_126_40);
+        await once(c, 'connect');
+        await upgraded(c);
+        const toast = once(c, 'serverError');
+        c.emit('chatMessage', { message: 'hello?' });
+        expect(await toast).toEqual({ code: 'rejected', message: MSG_OUT, handler: null });
+        c.close();
+    });
+
+    test.each([['1.2.7 build 41', UA_127_41], ['build 42', ua(42)], ['a browser', BROWSERS[0]], ['no User-Agent override', null], ['garbage', 'BAB%20Online/1.0 x']])(
         '%s: never gated, after the upgrade and after a reconnect', async (_l, ua) => {
             const c = connect(ua);
             let gated = false;

@@ -381,8 +381,9 @@ lifecycle "Cut for a buck"; `server/socket/cutForABuck.js`, the pure engine
   `fixtures/v2`, whose count iOS `TableSnapshotDecodingTests` pins), from a
   seeded 4-member, 2-round tournament with one legacy member: 13 redraws, a
   reshuffle, a tie of two, the winner (`npm run contract:fixtures`).
-- Once `MIN_IOS_BUILD` reaches 41 the no-cap branch (the projection and the
-  chat lines) is dead code: removed in a cleanup PR, `V1_REMOVALS.md`.
+- `MIN_IOS_BUILD` is 41 (iOS 1.2.7 is live), so the no-cap branch (the
+  projection and the chat lines) is dead code for iOS (only a cached web tab
+  can lack the cap): removed in a cleanup PR, `V1_REMOVALS.md`.
 - Clients: the web sends the cap (`client/src/utils/avatar.js`, 2026-11-25)
   and reads every cut event and `tournamentJoined.cut` / `cutForABuck`
   (`client/src/state/cutForABuck.js`, `client/src/ui/cut/`;
@@ -528,7 +529,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   same reason; 2026-11-24, tournament voice): the client starts voice on its
   tournament lobby screen (muted, only with another member there) and at a
   tournament table, so the server may put it in the tournament's voice room
-  (`tournament:<id>`: the members on that screen, at most `TOURNAMENT_VOICE_MAX`, default 8, 2..20; voicePeerList /
+  (`tournament:<id>`: the members on that screen, at most `TOURNAMENT_VOICE_MAX`, default 20, 2..20; voicePeerList /
   voicePeerJoined / voicePeerLeft as in a lobby, offers relayed between two
   admitted members) and announces it at its table's seating. Without it a
   socket is never a tournament-room peer: shipped iOS 1.2.5 (39) and older
@@ -546,7 +547,7 @@ gets the legacy shape of every payload. Caps (`$defs.clientCap`):
   const for the same reason; 2026-11-25, the over-cap notice): the client
   renders the private s2c `tournamentVoiceStatus {admitted, cap}`. A member
   waiting in line for a full tournament voice room (past
-  `TOURNAMENT_VOICE_MAX`, default 8) gets `admitted: false` when it enters
+  `TOURNAMENT_VOICE_MAX`, default 20) gets `admitted: false` when it enters
   the line (and again when its lobby screen is drawn again while it waits)
   and `admitted: true` when it is let in; nothing else. Without the cap
   nothing is sent (it waits silently, as before). The web sends it from
