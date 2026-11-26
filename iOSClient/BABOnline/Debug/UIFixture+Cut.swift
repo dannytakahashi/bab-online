@@ -2,7 +2,7 @@
 import SwiftUI
 
 /// Cut for a buck in fixture mode (spec section 6, iOS extras): `-uiFixture tournament-cut -uiCut
-/// "<n 2..20> <stage>"` seeds the tournament lobby in the cut with n players (me, ivy, first in the
+/// "<n 2..40> <stage>"` seeds the tournament lobby in the cut with n players (me, ivy, first in the
 /// participants' list unless `-uiCutSeat <k>` puts me at k), built by replaying wire-shaped events
 /// through `CutState.reduce`, so the fixture goes through the same reducer as the server's events.
 /// Stages:
@@ -25,7 +25,7 @@ extension UIFixture {
         guard isActive, let raw = UserDefaults.standard.string(forKey: "uiCut") else { return nil }
         let parts = raw.split(separator: " ").map(String.init)
         guard parts.count == 2, let n = Int(parts[0]) else { return nil }
-        return (min(20, max(2, n)), parts[1])
+        return (min(40, max(2, n)), parts[1])
     }()
     static let cutIntroFrame: TimeInterval? = isActive ? UserDefaults.standard.string(forKey: "uiCutIntroFrame").flatMap(Double.init) : nil
     static let cutPlays: Bool = isActive && UserDefaults.standard.bool(forKey: "uiCutPlay")
@@ -36,9 +36,11 @@ extension UIFixture {
 
     private static weak var fixtureCutTournament: TournamentState?
 
-    /// The participants for n: ivy (me) at `-uiCutSeat` (default 0) among the first n names.
+    /// The participants for n: ivy (me) at `-uiCutSeat` (default 0) among the first n names (past
+    /// the 20 above: "p21", "p22", ...).
     static func cutPlayers(_ n: Int) -> [String] {
         var names = Array(cutNames.prefix(n))
+        if n > cutNames.count { names += (cutNames.count + 1...n).map { "p\($0)" } }
         if let k = UserDefaults.standard.string(forKey: "uiCutSeat").flatMap(Int.init), k > 0, k < n {
             names.removeFirst()
             names.insert("ivy", at: k)
@@ -136,7 +138,8 @@ extension UIFixture {
         auth.username = spectator ? "lou" : "ivy"
         let players = cutPlayers(spec.n)
         tournament.tournamentId = "t1"
-        tournament.name = "Sunday Cup"
+        // UI_FIXTURE_TOURNAMENT_NAME: the header's title (an apostrophe survives the environment)
+        tournament.name = ProcessInfo.processInfo.environment["UI_FIXTURE_TOURNAMENT_NAME"] ?? "Sunday Cup"
         tournament.currentRound = 2
         tournament.totalRounds = 2
         tournament.creatorUsername = "kim"

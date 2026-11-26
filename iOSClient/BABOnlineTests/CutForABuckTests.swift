@@ -273,6 +273,52 @@ final class CutForABuckTests: XCTestCase {
         }
     }
 
+    /// The ring falls back to the list when it cannot fit (owner 2026-11-25, the web's PR #422):
+    /// the layout's own check fails, or the avatars come out under 24 pt.
+    func testTheRingFallsBackToTheListWhenItCannotFit() {
+        XCTAssertEqual(CutRing.minRingAvatar, 24)
+        // the iPhone 18 Pro's stage (393 x 560 measured): 12 fits, 40 never does
+        XCTAssertTrue(CutRing.fits(w: 393, h: 560, n: 12))
+        let forty = CutRing.layout(w: 393, h: 560, n: 40)
+        XCTAssertLessThan(forty.avatarD, CutRing.minRingAvatar)
+        XCTAssertFalse(CutRing.fits(forty))
+        XCTAssertFalse(CutRing.fits(w: 393, h: 560, n: 40))
+        // the threshold itself, on a layout that is otherwise fine
+        var L = CutRing.layout(w: 820, h: 1000, n: 8)
+        XCTAssertTrue(L.ok)
+        L.avatarD = 24
+        XCTAssertTrue(CutRing.fits(L), "24 pt is enough")
+        L.avatarD = 23.9
+        XCTAssertFalse(CutRing.fits(L), "under 24 pt is not")
+        L.avatarD = 40
+        L.ok = false
+        XCTAssertFalse(CutRing.fits(L), "an overlap never fits, whatever the size")
+        // every stage: fits is exactly "ok and at least 24", and once it stops fitting, more players never fit again
+        // (2 players of slack: the thin stack edge from 13 can give one more player room)
+        for size in Self.stages {
+            var stopped: Int?
+            for n in 2...40 {
+                let lay = CutRing.layout(w: size.width, h: size.height, n: n)
+                let fits = CutRing.fits(w: size.width, h: size.height, n: n)
+                XCTAssertEqual(fits, lay.ok && lay.avatarD >= 24 - 0.001, "\(n) on \(size)")
+                if !fits, stopped == nil { stopped = n }
+                if let s = stopped, n > s + 2 { XCTAssertFalse(fits, "\(n) on \(size) fits after \(s) did not") }
+            }
+            if size.width < 700 { XCTAssertNotNil(stopped, "40 players never fit a phone's or the Duo's \(size)") }
+        }
+        // a size change brings the ring back: 16 players do not fit a phone's stage, they fit the iPad's
+        XCTAssertFalse(CutRing.fits(w: 393, h: 560, n: 16))
+        XCTAssertTrue(CutRing.fits(w: 820, h: 1000, n: 16))
+    }
+
+    func testTheFixtureSeatsFortyPlayers() {
+        let names = UIFixture.cutPlayers(40)
+        XCTAssertEqual(names.count, 40)
+        XCTAssertEqual(Set(names).count, 40)
+        XCTAssertEqual(names.first, "ivy")
+        XCTAssertNotNil(UIFixture.cutState(n: 40, stage: "drawing"))
+    }
+
     func testEqualArcsAndThePerimeter() {
         XCTAssertEqual(CutRing.ellipsePerimeter(10, 10), 2 * .pi * 10, accuracy: 0.001)
         let a = CutRing.equalArcAngles(200, 120, 7)

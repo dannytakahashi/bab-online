@@ -119,6 +119,20 @@ struct PlayersSlice: Equatable {
     }
 
     func name(_ pos: Int) -> String { seats[pos]?.username ?? "P\(pos)" }
+
+    /// A seat's name in team names (the score bar, the bid chips' sides, the bidding and hand
+    /// lines): its owner for a seat a lazy or resign bot plays (owner 2026-11-25, people by player
+    /// names; server #416 and the web's teamPlayerDataOf), else the name it shows; a native bot
+    /// keeps its persona. The seat's plate and avatar still show who is playing (`name`).
+    static func teamName(_ seat: SeatState) -> String? {
+        if seat.controller != .bot, let owner = seat.ownerUsername, !owner.isEmpty { return owner }
+        return seat.username
+    }
+
+    func teamName(_ pos: Int) -> String { seats[pos].flatMap(Self.teamName) ?? "P\(pos)" }
+
+    /// `teamName` for every seat with a name (ScoreBarView.seatTeams' input).
+    var teamNames: [Int: String] { seats.compactMapValues(Self.teamName) }
 }
 
 struct LogSlice: Equatable {

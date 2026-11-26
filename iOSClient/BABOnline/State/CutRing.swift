@@ -14,6 +14,9 @@ import CoreGraphics
 ///   - the name under the avatar; the cards on the inward ray, never rotated, with room for the
 ///     older cards' offsets (up to 3; from 13 players a thin stack edge)
 ///   - the deck in the middle, at least a 44 pt target
+///   - when it cannot fit (`fits`: the layout's own check fails, or the avatars come out under
+///     `minRingAvatar` 24 pt) the screen shows the list instead (owner 2026-11-25; the web's
+///     MIN_RING_AVATAR, PR #422)
 /// Every number is in points of the stage (0, 0 at its top left).
 enum CutRing {
     static let cardRatio: CGFloat = 435.0 / 300.0
@@ -30,6 +33,9 @@ enum CutRing {
     static let denseEdge: CGFloat = 3
     /// Older cards drawn per player; the rest are the "+n" chip.
     static let stackShown = 3
+    /// Below this avatar size the ring is too small to read: the list shows instead (owner
+    /// 2026-11-25; the web's MIN_RING_AVATAR).
+    static let minRingAvatar: CGFloat = 24
 
     struct Seat: Equatable {
         let order: Int
@@ -224,6 +230,17 @@ enum CutRing {
             f -= 0.025
         }
         return solve(w: W, h: H, n: count, nameH: 11, maxCardW: cardCap, f: 0.2)
+    }
+
+    /// The ring can show this layout: nothing overlaps or spills and the avatars are at least
+    /// `minRingAvatar` (else the list, with "Too many players to fit the ring on this screen.").
+    static func fits(_ layout: Layout) -> Bool {
+        layout.ok && layout.avatarD >= minRingAvatar - 0.001
+    }
+
+    /// Whether the ring fits n players on a w x h stage (the layout `CutStageView` would draw).
+    static func fits(w: CGFloat, h: CGFloat, n: Int, nameH: CGFloat = 30) -> Bool {
+        fits(layout(w: w, h: h, n: max(1, n), nameH: nameH))
     }
 }
 

@@ -28,8 +28,8 @@ final class CutForABuckUITests: XCTestCase {
         app.descendants(matching: .any)[id]
     }
 
-    private func open(_ n: Int, _ stage: String, _ extra: [String] = []) -> XCUIApplication {
-        let app = Fixture.launch("tournament-cut", extra: ["-uiCut", "\(n) \(stage)"] + extra)
+    private func open(_ n: Int, _ stage: String, _ extra: [String] = [], env: [String: String] = [:]) -> XCUIApplication {
+        let app = Fixture.launch("tournament-cut", extra: ["-uiCut", "\(n) \(stage)"] + extra, env: env)
         XCTAssertTrue(Fixture.readyElement(app, "tournament-cut").waitForExistence(timeout: 20), "the tournament lobby")
         return app
     }
@@ -57,6 +57,15 @@ final class CutForABuckUITests: XCTestCase {
     func testTheRingFitsFromTwoToTwentyPlayers() {
         for n in [2, 4, 8, 12, 16, 20] {
             let app = open(n, "drawing", ["-uiCutView", "ring"])
+            if Fixture.probe(app, "cut.ringFit").hasPrefix("list fits=no ") {
+                // too many for this stage (avatars under 24 pt): the list, never a ring too small to read
+                XCTAssertGreaterThanOrEqual(n, 13, "\(n) players should fit the ring")
+                assertTheListStandsIn(app, n)
+                if n == 20 { keep("ring-unfit-\(n)") }
+                app.terminate()
+                continue
+            }
+            XCTAssertTrue(Fixture.probe(app, "cut.ringFit").hasPrefix("ring fits=yes "))
             let check = Fixture.probe(app, "cut.layoutCheck")
             XCTAssertTrue(check.hasPrefix("ok n=\(n) "), "\(n) players: \(check)")
             if n >= 3 {
@@ -70,6 +79,111 @@ final class CutForABuckUITests: XCTestCase {
             }
             assertInside(app, any(app, "cut.deck"), "the deck")
             if [8, 20].contains(n) { keep("ring-\(n)") }
+            app.terminate()
+        }
+    }
+
+    /// The list in the ring's place: the note, every player's row, Ring unavailable (dimmed for
+    /// VoiceOver) and a tap on it changing nothing.
+    private func assertTheListStandsIn(_ app: XCUIApplication, _ n: Int, file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertTrue(any(app, "cut.list").waitForExistence(timeout: 5), "the list", file: file, line: line)
+        XCTAssertFalse(any(app, "cut.ring").exists, "no ring", file: file, line: line)
+        let note = any(app, "cut.listNote")
+        XCTAssertTrue(note.exists, "the note", file: file, line: line)
+        XCTAssertEqual(note.label, "Too many players to fit the ring on this screen.", file: file, line: line)
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'cut.row.'"))
+        XCTAssertEqual(rows.count, n, "a row a player", file: file, line: line)
+        let ring = app.buttons["Ring"]
+        XCTAssertTrue(ring.exists, file: file, line: line)
+        XCTAssertFalse(ring.isEnabled, "Ring is unavailable while the ring cannot fit", file: file, line: line)
+        XCTAssertTrue(app.buttons["List"].isSelected, "List shows as chosen", file: file, line: line)
+        ring.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertTrue(any(app, "cut.list").exists, "a tap on Ring keeps the list", file: file, line: line)
+        XCTAssertTrue(Fixture.probe(app, "cut.ringFit").hasPrefix("list fits=no "), file: file, line: line)
+    }
+
+    /// Forty players (owner 2026-11-25, "auto-switch to list when it doesn't fit"): no device's
+    /// stage holds them at 24 pt avatars but the iPad's landscape one, so the list shows with the note;
+    /// my choice (Ring) is kept, the list is only what shows.
+    func testManyPlayersGetTheListWithTheNote() {
+        let app = open(40, "drawing", ["-uiCutView", "ring"])
+        let fit = Fixture.probe(app, "cut.ringFit")
+        if fit.hasPrefix("ring fits=yes ") {
+            XCTAssertEqual(UIDevice.current.userInterfaceIdiom, .pad, "40 players fit only an iPad's stage: \(fit)")
+            XCTAssertTrue(Fixture.probe(app, "cut.layoutCheck").hasPrefix("ok n=40 "))
+        } else {
+            XCTAssertTrue(fit.hasPrefix("list fits=no "), fit)
+            assertTheListStandsIn(app, 40)
+            // my own row and Draw a card are there; a tap on Draw a card sends a random card
+            XCTAssertTrue(any(app, "cut.row.ivy").exists)
+            XCTAssertTrue(app.buttons["cut.listDraw"].isHittable)
+            app.buttons["cut.listDraw"].tap()
+            waitFor(4, "the draw sent") { Fixture.probe(app, "fixture.sent").contains("cutForABuckDraw:3:null") }
+            keep("list-40")
+        }
+    }
+
+    /// The check runs again on every size change: a rotation that gives the stage room brings the
+    /// ring back (the choice is Ring), one that takes it away shows the list. Phones are held in
+    /// portrait (AppDelegate.mask), so this runs where the stage changes with the rotation: the iPad,
+    /// with a player count whose ring fits one orientation's stage and not the other's
+    /// (`TEST_RUNNER_BAB_CUT_ROTATE_N`, else 22: on the iPad Air 11 (stage 451 x 945 portrait, 649 x 585 landscape) the list in portrait, the ring in
+    /// landscape).
+    func testARotationRechecksTheRing() throws {
+        guard UIDevice.current.userInterfaceIdiom == .pad else {
+            throw XCTSkip("phones stay in portrait: no rotation changes the stage")
+        }
+        let n = Int(ProcessInfo.processInfo.environment["BAB_CUT_ROTATE_N"] ?? "") ?? 22
+        XCUIDevice.shared.orientation = .portrait
+        let app = open(n, "drawing", ["-uiCutView", "ring"])
+        defer { XCUIDevice.shared.orientation = .portrait }
+        var seen: [String] = []
+        var probes: [String] = []
+        for o in [UIDeviceOrientation.portrait, .landscapeLeft, .portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = o
+            sleep(2)
+            let probe = Fixture.probe(app, "cut.ringFit")
+            let fit = probe.components(separatedBy: " stage=").first ?? probe
+            seen.append(fit)
+            probes.append(probe)
+            if fit == "ring fits=yes" {
+                XCTAssertTrue(any(app, "cut.ring").exists, "\(o.rawValue): the ring")
+                XCTAssertFalse(any(app, "cut.listNote").exists)
+                XCTAssertTrue(app.buttons["Ring"].isEnabled)
+                XCTAssertTrue(app.buttons["Ring"].isSelected)
+                let check = Fixture.probe(app, "cut.layoutCheck")
+                XCTAssertTrue(check.hasPrefix("ok n=\(n) "), check)
+            } else {
+                XCTAssertEqual(fit, "list fits=no", "\(o.rawValue) \(probe)")
+                XCTAssertTrue(any(app, "cut.list").exists, "\(o.rawValue): the list")
+                XCTAssertTrue(any(app, "cut.listNote").exists)
+                XCTAssertFalse(app.buttons["Ring"].isEnabled)
+            }
+            keep("rotate-\(n)-\(o.rawValue)")
+        }
+        XCTAssertEqual(seen, ["list fits=no", "ring fits=yes", "list fits=no", "ring fits=yes"],
+                       "list in portrait, the ring in landscape, back and forth: \(probes)")
+    }
+
+    /// The complete phase's header on one line: the back control reads "Main Room" whole and the
+    /// title gives way (one line, shrunk, then cut), never "ana's / Tournament" over two lines.
+    func testTheFinalLobbysHeaderTitleStaysOnOneLine() {
+        for name in ["ana's Tournament", "Christopher Johnson1's Tournament"] {
+            let app = open(8, "complete", env: ["UI_FIXTURE_TOURNAMENT_NAME": name])
+            let back = app.buttons["Main Room"]
+            let title = app.staticTexts["tournament.title"]
+            XCTAssertTrue(title.waitForExistence(timeout: 5), name)
+            if !Fixture.usesVerticalBar(app) {
+                XCTAssertTrue(back.exists, name)
+                XCTAssertEqual(back.label, "Main Room")
+                XCTAssertLessThanOrEqual(back.frame.maxX, title.frame.minX + 0.5, "\(name): Main Room clear of the title")
+            }
+            XCTAssertEqual(title.label, name, "VoiceOver reads the whole name")
+            // one headline line (about 22 pt at the default size), not two
+            XCTAssertLessThan(title.frame.height, 30, "\(name): \(title.frame)")
+            assertInside(app, title, name)
+            keep("final-header-\(name.count)")
             app.terminate()
         }
     }

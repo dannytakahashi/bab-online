@@ -413,14 +413,16 @@ private struct TournamentLobbyScreen: View {
                     }
                 } else {
                     HStack {
-                        // in the vertical bar Leave is a toolbar item and the title leads
+                        // in the vertical bar Leave is a toolbar item and the title leads; Leave
+                        // ("Main Room" in the complete phase), the count and the mic keep their
+                        // size and the title gives way (one line, shrunk, then cut)
                         if !bar.usesVerticalBar {
-                            leaveButton
-                            Spacer()
+                            leaveButton.lineLimit(1).fixedSize()
+                            Spacer(minLength: Theme.Space.s2)
                         }
-                        titleBlock(alignment: bar.usesVerticalBar ? .leading : .center)
-                        Spacer()
-                        countText
+                        titleBlock(alignment: bar.usesVerticalBar ? .leading : .center, oneLine: true)
+                        Spacer(minLength: Theme.Space.s2)
+                        countText.lineLimit(1).fixedSize()
                         headerMic
                     }
                 }
@@ -451,7 +453,10 @@ private struct TournamentLobbyScreen: View {
         }
     }
 
-    private func titleBlock(alignment: HorizontalAlignment) -> some View {
+    /// `oneLine`: the one-row header's title stays on one line (shrunk to 0.8, then cut at its
+    /// end) rather than wrapping ("ana's / Tournament" beside "Main Room" on an iPhone 18 Pro);
+    /// the accessibility sizes' own row lets it wrap.
+    private func titleBlock(alignment: HorizontalAlignment, oneLine: Bool = false) -> some View {
         VStack(alignment: alignment, spacing: 2) {
             HStack(spacing: 6) {
                 Image(systemName: "trophy.fill")
@@ -460,6 +465,10 @@ private struct TournamentLobbyScreen: View {
                 Text(tournamentState.name.isEmpty ? "Tournament" : tournamentState.name)
                     .font(.headline)
                     .foregroundColor(Theme.warning)
+                    .lineLimit(oneLine ? 1 : nil)
+                    .minimumScaleFactor(oneLine ? 0.8 : 1)
+                    .truncationMode(.tail)
+                    .accessibilityIdentifier("tournament.title")
             }
             Text(roundIndicator)
                 .font(.caption)

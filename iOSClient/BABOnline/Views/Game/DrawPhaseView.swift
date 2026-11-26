@@ -21,6 +21,7 @@ struct DrawPhaseView: View {
     /// DrawLayoutProbe's frames (DEBUG builds only record any).
     @State private var probeFrames: [String: CGRect] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var hSize
 
     /// The results row instead of the deck: after my tap, when I had already drawn
     /// before this view appeared (a rejoin or a relaunch mid-draw), or for a spectator
@@ -111,6 +112,11 @@ struct DrawPhaseView: View {
     /// (owner 2026-11-25), and the teams show under the title before anyone draws.
     private var plannedTeams: [[TableSnapshot.PlannedTeamPlayer]]? { gameState.drawPlannedTeams }
 
+    /// The title and the rules keep a reading width; the teams line (one line, its names cut when
+    /// short of room) takes the whole width on a regular width (the iPad, the open Duo), so long
+    /// names at the large text sizes are not cut at 480 pt.
+    static let headerTextWidth: CGFloat = 480
+
     private var header: some View {
         VStack(spacing: Theme.Space.s2) {
             Text(DrawCopy.title(planned: plannedTeams != nil))
@@ -118,19 +124,21 @@ struct DrawPhaseView: View {
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
                 .drawProbe("title")
+                .frame(maxWidth: Self.headerTextWidth)
             if let plannedTeams {
                 DrawTeamsLine(names: DrawCopy.teamsNames(plannedTeams, me: gameState.isSpectator ? nil : gameState.username),
                               spoken: DrawCopy.teamsSpoken(plannedTeams, me: gameState.isSpectator ? nil : gameState.username))
+                    .frame(maxWidth: hSize == .regular ? .infinity : Self.headerTextWidth)
                     .drawProbe("plannedTeams")
             }
             Text(DrawCopy.rules(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.sm, relativeTo: .subheadline)
                 .foregroundStyle(Theme.textSecondary)
                 .drawProbe("rules")
+                .frame(maxWidth: Self.headerTextWidth)
         }
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 480)
     }
 
     // MARK: - Deck
@@ -361,6 +369,8 @@ struct DrawTeamsLine: View {
     let names: [[String]]
     let spoken: String
     @ScaledMetric(relativeTo: .subheadline) private var fontSize: CGFloat = Theme.TypeScale.sm
+    /// The line as drawn (a name may be cut), for the fixture's accessibility value.
+    @State private var shown = ""
 
     var body: some View {
         Text(verbatim: "Ag")
@@ -370,8 +380,10 @@ struct DrawTeamsLine: View {
             .frame(maxWidth: .infinity)
             .overlay {
                 GeometryReader { geo in
-                    Text(DrawCopy.fittedLine(names, width: geo.size.width, minScale: DrawMetrics.nameMinScale,
-                                             measure: Self.measure(fontSize)))
+                    let line = DrawCopy.fittedLine(names, width: geo.size.width, minScale: DrawMetrics.nameMinScale,
+                                                   measure: Self.measure(fontSize))
+                    Text(line)
+                        .onChange(of: line, initial: true) { _, l in shown = l }
                         .font(.system(size: fontSize, weight: Theme.Weight.semibold))
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
@@ -383,6 +395,10 @@ struct DrawTeamsLine: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(spoken)
             .accessibilityIdentifier("draw.plannedTeams")
+            #if DEBUG
+            // fixture mode: the drawn line, so a UI test can tell a cut name ("…") from a whole one
+            .accessibilityValue(UIFixture.isActive ? shown : "")
+            #endif
     }
 
     /// A string's width in the line's font at `size` (full size).

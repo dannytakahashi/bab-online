@@ -97,7 +97,7 @@ struct BidOverlayView: View {
         BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
                  viewPosition: gameState.viewPosition,
                  names: ScoreBarView.viewerTeams(position: gameState.watchedSeat ?? gameState.position, spectator: gameState.isPlainSpectator,
-                                                 usernames: gameState.players.seats.compactMapValues(\.username)))
+                                                 usernames: gameState.players.teamNames))
     }
 
     private var hsiInHeader: Bool { gameState.myHSIReading != nil && !Self.hsiFitsRow(gap: gapWidth, hsi: hsiWidth) }

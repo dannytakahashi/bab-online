@@ -112,6 +112,34 @@ final class DrawPhaseUITests: XCTestCase {
         }
     }
 
+    /// On a regular width (the iPad) the teams line is not held to the title's 480 pt: at AX3 (the
+    /// draw's cap) the long names of `draw-long` show whole, in both orientations; a phone keeps
+    /// the 480 pt column and cuts them.
+    func testTheTeamsLineTakesTheWideWidthOnTheIPad() {
+        let ax3 = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXL"]
+        let app = Fixture.launch("draw-long", extra: ["-uiDrawTeams", "YES"] + ax3)
+        let line = app.descendants(matching: .any)["draw.plannedTeams"]
+        XCTAssertTrue(line.waitForExistence(timeout: 20))
+        sleep(2)
+        let shown = (line.value as? String) ?? ""
+        XCTAssertFalse(shown.isEmpty, "the fixture's drawn line")
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCTAssertGreaterThan(line.frame.width, 480.5, "the line's width \(line.frame)")
+            XCTAssertFalse(shown.contains("…"), "a name cut on the iPad at AX3: \(shown)")
+            XCTAssertEqual(Fixture.probe(app, "draw.layoutCheck"), "ok")
+            shoot("firstdeal-draw-long-ax3")
+            XCUIDevice.shared.orientation = .landscapeLeft
+            sleep(2)
+            XCTAssertFalse(((line.value as? String) ?? "").contains("…"), "landscape: \(line.value ?? "")")
+            XCTAssertEqual(Fixture.probe(app, "draw.layoutCheck"), "ok", "landscape")
+            shoot("firstdeal-draw-long-ax3-landscape")
+            XCUIDevice.shared.orientation = .portrait
+        } else {
+            XCTAssertLessThanOrEqual(line.frame.width, 480.5)
+        }
+        app.terminate()
+    }
+
     /// VoiceOver reads each drawn card with its player, and the deck as a button.
     func testAccessibilityLabels() {
         var app = open("draw-start")

@@ -232,7 +232,7 @@ struct ScoreBarView: View {
     private var seatTeams: (team: SideNames?, opp: SideNames?) {
         // a watcher's bar reads from the watched seat (the over-the-shoulder view), as its scores
         Self.viewerTeams(position: gameState.watchedSeat ?? gameState.position, spectator: gameState.isPlainSpectator,
-                         usernames: gameState.players.seats.compactMapValues(\.username))
+                         usernames: gameState.players.teamNames)
     }
 
     /// The bar's two sides for the viewer: a seat's `seatTeams`; a spectator's as seat 1's

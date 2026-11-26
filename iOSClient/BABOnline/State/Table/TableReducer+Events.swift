@@ -504,7 +504,7 @@ extension TableReducer {
         if s.table.viewer.role == .spectator { me = 1 } else if let p = s.table.viewer.position { me = p } else { return }
         let r = Positions.getRelativePositions(myPos: me)
         let side = { (a: Int, b: Int) in
-            "\(players.name(a))/\(players.name(b)): \(bids.bid(at: a) ?? "-")/\(bids.bid(at: b) ?? "-")"
+            "\(players.teamName(a))/\(players.teamName(b)): \(bids.bid(at: a) ?? "-")/\(bids.bid(at: b) ?? "-")"
         }
         addLog(&s, "Bidding complete — \(side(me, r.partner)), \(side(r.opp1, r.opp2))")
     }
@@ -599,7 +599,8 @@ extension TableReducer {
         }
 
         let players = s.players
-        let name = { (pos: Int) in players.name(pos) }
+        // teams by their players: a lazy or resigned seat's owner (PlayersSlice.teamName)
+        let name = { (pos: Int) in players.teamName(pos) }
         let b = { (pos: Int) in bids.bid(at: pos) ?? "-" }
         let change = { (d: Int) in d >= 0 ? "+\(d)" : "\(d)" }
         func annotation(mult: Int, rainbows: Int) -> String {

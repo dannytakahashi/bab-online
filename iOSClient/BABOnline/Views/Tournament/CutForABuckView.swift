@@ -18,6 +18,11 @@ import SwiftUI
 ///   - the intro (CutIntro), Ring | List, VoiceOver (one ring container in ring order, me first;
 ///     one announcement per reveal, an urgent one for the winner), Dynamic Type capped on the ring
 ///     like the draw's, the list for the accessibility sizes
+///   - the list instead of the ring whenever the ring cannot fit the stage (`CutRing.fits`: an
+///     overlap, or avatars under 24 pt; owner 2026-11-25, the web's PR #422): the note "Too many
+///     players to fit the ring on this screen." over the list and Ring unavailable, re-checked on
+///     every size change (rotation, a Duo fold, Split View) and player change; the ring comes back
+///     when it fits again and Ring is the choice
 struct CutForABuckView: View {
     enum Part { case full, stage, controls }
 
@@ -31,6 +36,15 @@ struct CutForABuckView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Ring or List as chosen (remembered on the device; fixture mode: `-uiCutView ring|list`, never saved).
     @State private var savedMode: String = CutForABuckView.storedMode
+    /// The ring's stage as the screen gives it (the list's area too: the same frame).
+    @State private var stageSize: CGSize = .zero
+    /// Whether the ring fits that stage; nil until the stage is measured (nothing drawn there yet).
+    @State private var ringFits: Bool?
+    /// The name line plus its caption under each avatar, as `CutStageView` measures it.
+    @ScaledMetric(relativeTo: .caption) private var nameBox: CGFloat = 30
+    /// The accessibility sizes' ring height (one scroll; the stage is this tall).
+    static let scrollingStageHeight: CGFloat = 460
+    static let ringUnfitNote = "Too many players to fit the ring on this screen."
 
     static let modeKey = "bab.cutView"
     static var storedMode: String {
@@ -51,12 +65,42 @@ struct CutForABuckView: View {
     private var state: CutState? { tournamentState.cut }
     private var me: String? { tournamentState.isSpectator ? nil : authState.username }
 
-    /// Ring or List: the saved choice, else the list at the accessibility sizes on a compact width
-    /// and from 13 players there.
-    private var mode: String {
+    /// Ring or List as chosen: the saved choice, else the list at the accessibility sizes on a
+    /// compact width and from 13 players there.
+    private var chosenMode: String {
         if savedMode == "ring" || savedMode == "list" { return savedMode }
         let many = (state?.ringPlayers.count ?? 0) >= CutRing.denseFrom
         return hSize == .compact && (typeSize.isAccessibilitySize || many) ? "list" : "ring"
+    }
+
+    /// What shows: the choice, except the list while the ring cannot fit.
+    private var mode: String {
+        chosenMode == "ring" && ringFits == false ? "list" : chosenMode
+    }
+
+    private var ringUnfit: Bool { ringFits == false }
+
+    private var scrolling: Bool { typeSize.isAccessibilitySize && part == .full }
+
+    /// Re-checks the ring against the stage (size, players, text size).
+    private func refit() {
+        guard stageSize.width > 0, stageSize.height > 0 || scrolling else { return }
+        let n = max(1, state?.ringPlayers.count ?? 0)
+        let h = scrolling ? Self.scrollingStageHeight : stageSize.height
+        let fits = CutRing.fits(w: stageSize.width, h: h, n: n, nameH: min(nameBox, 40))
+        if fits != ringFits { ringFits = fits }
+    }
+
+    @ViewBuilder
+    private var stageOrList: some View {
+        if ringFits == nil {
+            // the stage's first measurement: neither drawn yet (no ring flashed before the list)
+            Color.clear
+        } else if mode == "list" {
+            CutListView(model: model, scrolls: !scrolling, note: ringUnfit ? Self.ringUnfitNote : nil)
+        } else {
+            CutStageView(model: model)
+        }
     }
 
     var body: some View {
@@ -67,12 +111,13 @@ struct CutForABuckView: View {
                     VStack(spacing: 0) {
                         bar
                         status
-                        if mode == "list" {
-                            CutListView(model: model, scrolls: false)
+                        if mode == "list" || ringFits == nil {
+                            stageOrList
                         } else {
-                            CutStageView(model: model).frame(height: 460)
+                            stageOrList.frame(height: Self.scrollingStageHeight)
                         }
                     }
+                    .onGeometryChange(for: CGSize.self, of: { $0.size }) { stageSize = CGSize(width: $0.width, height: Self.scrollingStageHeight); refit() }
                 }
                 .scrollBounceBehavior(.basedOnSize)
             } else {
@@ -81,6 +126,12 @@ struct CutForABuckView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("cut")
+        .onChange(of: state?.ringPlayers.count ?? 0) { refit() }
+        .onChange(of: nameBox) { refit() }
+        .onChange(of: scrolling) { refit() }
+        #if DEBUG
+        .overlay(alignment: .topTrailing) { CutFitProbe(value: "\(mode) fits=\(ringFits.map { $0 ? "yes" : "no" } ?? "-") stage=\(Int(stageSize.width))x\(Int(scrolling ? Self.scrollingStageHeight : stageSize.height))") }
+        #endif
         .onAppear { model.reduceMotion = reduceMotion || CutForABuckView.fixtureReduceMotion }
         .onChange(of: reduceMotion) { _, r in model.reduceMotion = r }
     }
@@ -90,10 +141,9 @@ struct CutForABuckView: View {
             if part != .controls { bar }
             if part != .stage { status }
             if part != .controls {
-                Group {
-                    if mode == "list" { CutListView(model: model) } else { CutStageView(model: model) }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                stageOrList
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onGeometryChange(for: CGSize.self, of: { $0.size }) { stageSize = $0; refit() }
             }
             if part == .controls { drawButton.padding(Theme.Space.s3) }
         }
@@ -110,13 +160,13 @@ struct CutForABuckView: View {
     // MARK: - Bar
 
     private var bar: some View {
-        let picker = Picker("Show the players as", selection: Binding(get: { mode }, set: { choose($0) })) {
-            Text("Ring").tag("ring")
-            Text("List").tag("list")
+        // a segmented control of our own: a system segmented Picker cannot disable one segment,
+        // and Ring is unavailable while the ring cannot fit
+        let picker = CutViewToggle(mode: mode, ringAvailable: !ringUnfit) { m in
+            if m == "ring" && ringUnfit { return }
+            choose(m)
         }
-        .pickerStyle(.segmented)
         .fixedSize()
-        .accessibilityIdentifier("cut.view")
         return ViewThatFits(in: .horizontal) {
             HStack(spacing: Theme.Space.s2) {
                 titleBlock
@@ -194,6 +244,47 @@ struct CutForABuckView: View {
         if let s = state, s.stage == .drawing, s.isAlive(me) {
             CutDrawButton(model: model)
         }
+    }
+}
+
+/// Ring | List: the system segmented control's look, with Ring disabled (dimmed, VoiceOver
+/// "dimmed") while the ring cannot fit the stage. Each segment is a button with the selected
+/// trait; id `cut.view`.
+struct CutViewToggle: View {
+    let mode: String
+    let ringAvailable: Bool
+    let choose: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            segment("Ring", "ring", enabled: ringAvailable)
+            segment("List", "list", enabled: true)
+        }
+        .padding(2)
+        .background(Capsule().fill(Theme.surfaceLight))
+        .animation(.easeOut(duration: 0.15), value: mode)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Show the players as")
+        .accessibilityIdentifier("cut.view")
+    }
+
+    private func segment(_ title: String, _ tag: String, enabled: Bool) -> some View {
+        let on = mode == tag
+        return Button { if !on { choose(tag) } } label: {
+            Text(title)
+                .font(.subheadline.weight(on ? .semibold : .medium))
+                .lineLimit(1)
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, Theme.Space.s3)
+                .frame(minHeight: 28)
+                .background(Capsule().fill(on ? Theme.surfaceRaised : Color.clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(enabled ? "" : CutForABuckView.ringUnfitNote)
     }
 }
 
@@ -767,6 +858,8 @@ struct CutListView: View {
     @ObservedObject var model: CutScreenModel
     /// Its own scroll view (false: inside the accessibility sizes' one scroll).
     var scrolls = true
+    /// Why the list shows instead of the ring (the ring cannot fit), over the rows.
+    var note: String? = nil
     @EnvironmentObject var tournamentState: TournamentState
     @EnvironmentObject var authState: AuthState
 
@@ -776,6 +869,14 @@ struct CutListView: View {
         let order = CutOrder.ring(s?.ringPlayers ?? [], me: me)
         let pending = model.verdictPending(s)
         let rows = VStack(spacing: Theme.Space.s2) {
+                if let note {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("cut.listNote")
+                }
                 if let s, s.stage == .drawing, s.isAlive(me) {
                     CutDrawButton(model: model)
                 }
@@ -818,6 +919,23 @@ struct CutListView: View {
 }
 
 #if DEBUG
+/// The "cut.ringFit" probe for XCUITest (fixture mode): "<ring|list> fits=<yes|no|-> stage=<w>x<h>",
+/// what shows, whether the ring fits the stage, and the stage measured.
+private struct CutFitProbe: View {
+    let value: String
+    var body: some View {
+        Rectangle()
+            .fill(Color.black)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .allowsHitTesting(false)
+            .accessibilityElement()
+            .accessibilityLabel("cut.ringFit")
+            .accessibilityIdentifier("cut.ringFit")
+            .accessibilityValue(value)
+    }
+}
+
 /// The "cut.layoutCheck" probe for XCUITest (fixture mode): "ok n=12 f=1.00 d=40 card=30x44 deck=...",
 /// or what is wrong (the ring's own check: bounds, overlaps, the deck's floor).
 private struct CutProbeView: View {
