@@ -1175,25 +1175,44 @@ describe('(e2) admin panel', () => {
 // ==================== upgrade gate ====================
 
 describe('upgrade gate', () => {
-    test('a gated iOS socket gets updateRequired with the main push (BAB_MIN_IOS_BUILD 41 gates build 40)', () => {
+    /** A stub socket with an iOS User-Agent through the gate (BAB_MIN_IOS_BUILD for the call). */
+    const gated = (build, minBuild) => {
         const gate = require('../upgradeGate');
         const { makeSocket } = require('../../testUtils/gameDriver');
         const log = [];
-        const socket = makeSocket('gated-40', log);
-        socket.handshake = { headers: { 'user-agent': 'BAB%20Online/40 CFNetwork/3896.200.61 Darwin/27.2.0' } };
+        const socket = makeSocket(`gated-${build}`, log);
+        socket.handshake = { headers: { 'user-agent': `BAB%20Online/${build} CFNetwork/3896.200.61 Darwin/27.2.0` } };
         const handlers = new Map();
         socket.on = (ev, fn) => handlers.set(ev, fn);
         const prev = process.env.BAB_MIN_IOS_BUILD;
-        process.env.BAB_MIN_IOS_BUILD = '41';
+        if (minBuild) process.env.BAB_MIN_IOS_BUILD = String(minBuild);
         try {
             expect(gate.gate(socket)).toBe(true);
         } finally {
             if (prev === undefined) delete process.env.BAB_MIN_IOS_BUILD; else process.env.BAB_MIN_IOS_BUILD = prev;
         }
+        return { gate, log, handlers };
+    };
+
+    test('a gated iOS 1.2.6 (40) socket (MIN_IOS_BUILD 41) gets the update toast with the main push and the Account sheet refusals', () => {
+        const { gate, log, handlers } = gated(40);
+        jest.advanceTimersByTime(2100);
+        expect(events(log, 'serverError').map((l) => l.data)).toEqual([{ code: 'rejected', message: gate.UPDATE_MESSAGE_SIGNED_OUT, handler: null }]);
+        expect(events(log, 'updateRequired')).toEqual([]);
+        handlers.get('deleteAccount')({ password: 'pw' });
+        handlers.get('changePassword')({});
+        expect(events(log, 'deleteAccountResponse').map((l) => l.data)).toEqual([{ success: false, message: gate.UPDATE_MESSAGE_SIGNED_OUT }]);
+        expect(events(log, 'changePasswordResponse').map((l) => l.data)).toEqual([{ success: false, message: gate.UPDATE_MESSAGE_SIGNED_OUT }]);
+        handlers.get('disconnect')();
+    });
+
+    test('a gated build 41 (BAB_MIN_IOS_BUILD 42) gets updateRequired with the main push, never the toast', () => {
+        const { gate, log, handlers } = gated(41, 42);
         jest.advanceTimersByTime(2100);
         const update = events(log, 'updateRequired');
         expect(update).toHaveLength(1);
         expect(update[0].data).toEqual({ message: gate.UPDATE_MESSAGE_SIGNED_OUT, url: gate.APP_STORE_URL });
+        expect(events(log, 'serverError')).toEqual([]);
         handlers.get('disconnect')();
     });
 });

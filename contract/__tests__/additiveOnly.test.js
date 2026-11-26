@@ -50,6 +50,17 @@ const BUILDS = fs.readdirSync(DIR).filter((f) => FILE_RE.test(f) && f.endsWith('
     };
 }).sort((a, b) => a.build - b.build);
 
+/**
+ * test.each over the frozen builds; while none is frozen (right after a gate
+ * raise retired them all, before the floor build's freeze lands) one skipped
+ * placeholder, since 'the floor build is frozen' below already fails then.
+ */
+const eachBuild = (name, fn) => (BUILDS.length
+    ? test.each(BUILDS.map((b) => [b.label, b]))(name, fn)
+    : test.skip(name.replace('%s', 'every frozen iOS build'), () => {}));
+/** Regex-escaped, for the labels in the messages below. */
+const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const BASELINES = [
     { label: 'the v1 baseline (cc865b4: iOS 1.0.0 and the web client)', file: 'contract/v1-baseline.schema.json', schema: v1 },
     ...BUILDS,
@@ -238,8 +249,17 @@ test('the v1 baseline is the cc865b4 contract (frozen)', () => {
     expect(v1.s2c.seq).toBeUndefined();
 });
 
-test('every submitted iOS build that is not gated has a baseline and a decode floor', () => {
-    expect(BUILDS.map((b) => b.build)).toEqual(expect.arrayContaining([6, 7, 8]));
+test('the floor build is frozen: some iOS build MIN_IOS_BUILD lets connect has a baseline and a decode floor', () => {
+    // Raising MIN_IOS_BUILD retires every build below it; the build that
+    // becomes the floor was frozen at its upload (README "Release step"), so a
+    // raise with no frozen build at or above it would leave every iOS build
+    // that can connect unguarded
+    if (!BUILDS.some((b) => b.build >= MIN_IOS_BUILD)) {
+        throw new Error(`No frozen baseline for an iOS build >= MIN_IOS_BUILD ${MIN_IOS_BUILD}: freeze the floor build first (npm run contract:baseline -- --build ${MIN_IOS_BUILD} --commit <sha>, contract/baselines/README.md "Release step")`);
+    }
+});
+
+test('every frozen iOS build has a well-formed baseline and decode floor', () => {
     for (const f of fs.readdirSync(DIR)) {
         if (f === 'README.md') continue;
         expect(f).toMatch(FILE_RE);
@@ -263,12 +283,14 @@ test.each(BASELINES.map((b) => [b.label, b]))('everything %s promised is still t
     fail(b, baselineProblems(b.schema, schema));
 });
 
-test.each(BUILDS.map((b) => [b.label, b]))('what %s decodes is still sent: required, non-null, the same JSON types', (_, b) => {
+eachBuild('what %s decodes is still sent: required, non-null, the same JSON types', (_, b) => {
     fail(b, checkDecodes(b.decodes, schema, b.label, DECODE_WAIVED, reliedFor(b.build)));
 });
 
 test('every decode waiver still matches a mismatch on some frozen build (a stale one would hide a new hole)', () => {
     // some, not every: a later build that decodes it leniently needs no waiver, the older ones still do
+    // (with no frozen build at all, 'the floor build is frozen' fails instead)
+    if (!BUILDS.length) return;
     for (const where of Object.keys(DECODE_WAIVED)) {
         const needed = BUILDS.some((b) => checkDecodes(b.decodes, schema, b.label).some((p) => p.startsWith(`${b.label} decodes ${where} `)));
         if (!needed) throw new Error(`DECODE_WAIVED['${where}'] matches no frozen build's mismatch: delete it (contract/lib/decodeRules.js)`);
@@ -330,23 +352,25 @@ test('the s2c split exception is narrow: only named payloads, and the named vari
     expect(run('s2c.gameLogEntry', { anyOf: [loose, priv] })).toEqual(['s2c.gameLogEntry|room.seq: no longer required']);
 });
 
-describe('fault injection: what the per-build guards catch', () => {
-    const b6 = BUILDS.find((b) => b.build === 6);
+// On the oldest frozen build (iOS 1.2.0 (6) until MIN_IOS_BUILD 41 retired it)
+(BUILDS.length ? describe : describe.skip)('fault injection: what the per-build guards catch', () => {
+    const oldest = BUILDS[0];
+    const L = oldest ? esc(oldest.label) : '';
     const mutate = (fn) => {
         const s = JSON.parse(JSON.stringify(schema));
         fn(s);
         return s;
     };
-    const both = (s) => [...baselineProblems(b6.schema, s), ...checkDecodes(b6.decodes, s, b6.label, DECODE_WAIVED, reliedFor(6))];
+    const both = (s) => [...baselineProblems(oldest.schema, s), ...checkDecodes(oldest.decodes, s, oldest.label, DECODE_WAIVED, reliedFor(oldest.build))];
 
-    test('dropping snapshot trickHistory breaks iOS 1.2.0 (6) in both guards', () => {
+    test('dropping snapshot trickHistory breaks the oldest frozen build in both guards', () => {
         const s = mutate((x) => {
             delete x.$defs.snapshotV2.properties.trickHistory;
             x.$defs.snapshotV2.required = x.$defs.snapshotV2.required.filter((k) => k !== 'trickHistory');
         });
-        expect(baselineProblems(b6.schema, s)).toContain('$defs.snapshotV2.trickHistory: removed');
-        expect(checkDecodes(b6.decodes, s, b6.label)).toEqual(expect.arrayContaining([
-            expect.stringMatching(/^iOS 1\.2\.0 \(6\) decodes rejoinSuccess\.snapshot\.trickHistory .*gone from the schema/),
+        expect(baselineProblems(oldest.schema, s)).toContain('$defs.snapshotV2.trickHistory: removed');
+        expect(checkDecodes(oldest.decodes, s, oldest.label)).toEqual(expect.arrayContaining([
+            expect.stringMatching(new RegExp(`^${L} decodes rejoinSuccess\\.snapshot\\.trickHistory .*gone from the schema`)),
         ]));
     });
 
@@ -363,29 +387,16 @@ describe('fault injection: what the per-build guards catch', () => {
             x.s2c.cardPlayed.payload.required = x.s2c.cardPlayed.payload.required.filter((k) => k !== 'card');
             x.$defs.seatV2.properties.isBot = { type: 'integer' };
         });
-        const out = checkDecodes(b6.decodes, s, b6.label);
+        const out = checkDecodes(oldest.decodes, s, oldest.label);
         expect(out).toEqual(expect.arrayContaining([
             expect.stringMatching(/decodes cardPlayed\.card \(WirePayload\.CardPlayed\): no longer required/),
             expect.stringMatching(/decodes rejoinSuccess\.snapshot\.seats\[\]\.isBot .*it is integer, Swift wants Bool/),
         ]));
     });
 
-    test('positionUpdate.isBot (optional in Swift, relied on once sockets go) is held for 6 to 8', () => {
-        const opt = mutate((x) => { x.s2c.positionUpdate.payload.required = x.s2c.positionUpdate.payload.required.filter((k) => k !== 'isBot'); });
-        expect(checkDecodes(b6.decodes, opt, b6.label)).toEqual([expect.stringMatching(/requestId/)]);
-        expect(checkDecodes(b6.decodes, opt, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([
-            expect.stringMatching(/^iOS 1\.2\.0 \(6\) decodes positionUpdate\.isBot \(WirePayload\.PositionUpdate\): no longer required \(relied on: bot or human/),
-        ]);
-        const nul = mutate((x) => { x.s2c.positionUpdate.payload.properties.isBot = { anyOf: [x.s2c.positionUpdate.payload.properties.isBot, { type: 'null' }] }; });
-        expect(checkDecodes(b6.decodes, nul, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual([expect.stringMatching(/positionUpdate\.isBot .*it may be null \(relied on:/)]);
-        const gone = mutate((x) => { delete x.s2c.positionUpdate.payload.properties.isBot; });
-        expect(checkDecodes(b6.decodes, gone, b6.label, DECODE_WAIVED, reliedFor(6))).toEqual(expect.arrayContaining([expect.stringMatching(/positionUpdate\.isBot .*gone from the schema \(relied on:/)]));
-        expect(reliedFor(9)).toEqual({});
-    });
-
     test('a new card rank would throw in Card(from:) on the shipped builds', () => {
         const s = mutate((x) => { x.$defs.card.properties.rank.enum.push('XX'); });
-        expect(checkDecodes(b6.decodes, s, b6.label)).toEqual(expect.arrayContaining([expect.stringMatching(/"XX"\] would throw \(Rank decodes only/)]));
+        expect(checkDecodes(oldest.decodes, s, oldest.label)).toEqual(expect.arrayContaining([expect.stringMatching(/"XX"\] would throw \(Rank decodes only/)]));
     });
 
     test('a c2s event a client starts sending (unsent -> active) passes; the way back, or an s2c one, is caught', () => {
