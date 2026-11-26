@@ -397,7 +397,6 @@
     white-space: nowrap;
 }
 
-.cut-winner__sub { margin: 0; font-size: var(--type-sm); color: var(--text-secondary); }
 
 .cut.has-winner .cut-deck { opacity: 0.25; }
 .cut.has-winner .cut-seat__cards { opacity: 0.35; }

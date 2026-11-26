@@ -19,7 +19,7 @@ export const TOURNAMENT_HISTORY_COPY = Object.freeze({
   won: 'Won',
   cut: 'Cut for a buck',
   recent: 'Recent results',
-  wonCut: 'Won Cut for a buck',
+  wonCut: 'Won cut for a buck',
   cutBy: (name) => `Cut for a buck: ${name}`,
 });
 

@@ -740,9 +740,16 @@ describe('crediting at game end: an AFK seat counts like a /lazy seat', () => {
         expect(game.seat(1).ownerUsername).toBe(names[0]);
         expect(botName).toMatch(/^🤖 /);
 
-        // Score screen: the persona at the seat the bot held at the end
-        expect(end.playerStats[1].username).toBe(botName);
+        // Score screen: the seat's owner, never the bot that played it
+        // (owner rule 2026-11-25: teams by player names), so iOS's team
+        // names (read from playerStats) and the web's stats rows say who played
+        expect(end.playerStats[1].username).toBe(names[0]);
         expect(end.playerStats[2].username).toBe(names[1]);
+        expect(Object.values(end.playerStats).map((p) => p.username)).not.toContain(botName);
+        // the stored hand lines and the game-over lines name the owner too
+        const scoreLines = game.gameLog.filter((e) => e.type === 'score').map((e) => e.message);
+        expect(scoreLines.some((m) => m.startsWith(`${names[0]}/${names[2]}: `))).toBe(true);
+        expect(scoreLines.some((m) => m.includes(botName))).toBe(false);
 
         // users.stats (leaderboard): one game for every human owner, seat 1 included
         const team1Won = end.score.team1 > end.score.team2;

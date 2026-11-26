@@ -296,11 +296,12 @@ describe('the winner', () => {
     expect(view.element.querySelector('#cutWinner')).toBeNull();
     vi.advanceTimersByTime(TIMING.verdict);
     const w = view.element.querySelector('#cutWinner');
-    expect(w.querySelector('.cut-winner__line').textContent).toBe('You win Cut for a buck!');
-    expect(w.querySelector('.cut-winner__sub').textContent).toBe('Just for bragging rights.');
+    expect(w.querySelector('.cut-winner__line').textContent).toBe('You win cut for a buck!');
+    expect(w.querySelector('.cut-winner__sub')).toBeNull();
+    expect(w.textContent).not.toMatch(/bragging/i);
     expect(w.querySelector('.cut-winner__buck svg')).not.toBeNull();
     expect(sound.played).toContain('gameend-win');
-    expect(view.element.querySelector('#cutLiveWinner').textContent).toBe('You win Cut for a buck!');
+    expect(view.element.querySelector('#cutLiveWinner').textContent).toBe('You win cut for a buck!');
     expect(seatEl('me').classList.contains('is-winner')).toBe(true);
   });
 
@@ -308,7 +309,7 @@ describe('the winner', () => {
     mount();
     const s = cutReduce(round(started(), 4, { alive: ['al', 'bo'] }), 'winner', { winner: 'al', participants: PLAYERS, rounds: 4 }, T0);
     view.update(s);
-    expect(view.element.querySelector('.cut-winner__line').textContent).toBe('al wins Cut for a buck!');
+    expect(view.element.querySelector('.cut-winner__line').textContent).toBe('al wins cut for a buck!');
     expect(sound.played).toContain('gameend');
   });
 });
@@ -351,14 +352,65 @@ describe('the intro', () => {
 });
 
 describe('spectators, restore, list, voice', () => {
-  it('a spectator: the deck is not a button, "Watching Cut for a buck", the ring in the players\' order', () => {
+  it('a spectator: the deck is not a button, "Watching cut for a buck", the ring in the players\' order', () => {
     mount({ me: 'zed', spectator: true });
     view.update(round(started()));
     expect(view.element.querySelector('#cutDeck').tagName).toBe('DIV');
-    expect(view.element.querySelector('#cutStatus').textContent).toBe('Watching Cut for a buck');
+    expect(view.element.querySelector('#cutStatus').textContent).toBe('Watching cut for a buck');
     expect([...view.element.querySelector('.cut-ring').children].map((c) => c.dataset.username)).toEqual(PLAYERS);
     view.drawFree(0);
     expect(socket.emitted('cutForABuckDraw')).toEqual([]);
+  });
+
+  it('a player who is out keeps watching every later round live, like a spectator, to the winner', () => {
+    // owner 2026-11-25: out in round 1, me still sees round 2's draws,
+    // flips and eliminations, then round 3 and the winner
+    mount();
+    let { revealed: s } = revealRound(round(started()), 1, [['al', card('9')], ['me', card('3')], ['bo', card('K')], ['cy', card('Q')]], { eliminated: ['me'], alive: ['al', 'bo', 'cy'] });
+    view.update(s);
+    vi.advanceTimersByTime(TIMING.verdict);
+    expect(view.element.querySelector('#cutStatus').textContent).toBe("You're out with a 3");
+    expect(seatEl('me').classList.contains('is-out')).toBe(true);
+    // round 2 opens: the stage stays, the deck is not mine to draw
+    s = round(s, 2, { alive: ['al', 'bo', 'cy'], deckCount: 50 });
+    view.update(s);
+    expect(view.element.querySelector('#cutStage').hidden).toBe(false);
+    expect(view.element.querySelector('#cutStatus').textContent).toBe("You're out. Watching the rest");
+    expect(view.element.querySelector('#cutStatusSub').textContent).toBe('Waiting for al, bo and cy');
+    expect(view.element.querySelector('#cutRoundLine').textContent).toBe('Round 2 · 3 of 4 left');
+    view.drawFree(0);
+    expect(socket.emitted('cutForABuckDraw')).toEqual([]);
+    // their draws come in one by one, face down
+    s = cutReduce(s, 'drew', { round: 2, username: 'al', slot: 0, auto: false }, T0);
+    view.update(s);
+    expect(seatEl('al').getAttribute('aria-label')).toMatch(/^al, drawn/);
+    expect(view.element.querySelector('#cutStatusSub').textContent).toBe('Waiting for bo and cy');
+    s = cutReduce(s, 'drew', { round: 2, username: 'bo', slot: 1, auto: false }, T0);
+    s = cutReduce(s, 'drew', { round: 2, username: 'cy', slot: 2, auto: true }, T0);
+    view.update(s);
+    // the flip and the verdict (al out)
+    s = cutReduce(s, 'reveal', { round: 2, draws: [{ username: 'al', slot: 0, card: card('5') }, { username: 'bo', slot: 1, card: card('J') }, { username: 'cy', slot: 2, card: card('8') }], eliminated: ['al'], redraw: false, alive: ['bo', 'cy'], nextInMs: 4000 }, T0);
+    view.update(s);
+    expect(view.element.querySelectorAll('.cut-card.is-flipping').length).toBeGreaterThan(0);
+    vi.advanceTimersByTime(TIMING.verdict);
+    expect(view.element.querySelector('#cutStatus').textContent).toBe('al is out with a 5');
+    expect(seatEl('al').classList.contains('is-out')).toBe(true);
+    expect(seatEl('al').querySelector('.cut-seat__caption').textContent).toBe('Out · round 2');
+    // round 3 and the winner
+    s = round(s, 3, { alive: ['bo', 'cy'], deckCount: 47 });
+    view.update(s);
+    expect(view.element.querySelector('#cutStatusSub').textContent).toBe('Waiting for bo and cy');
+    s = cutReduce(s, 'drew', { round: 3, username: 'bo', slot: 0, auto: false }, T0);
+    s = cutReduce(s, 'drew', { round: 3, username: 'cy', slot: 1, auto: false }, T0);
+    s = cutReduce(s, 'reveal', { round: 3, draws: [{ username: 'bo', slot: 0, card: card('A') }, { username: 'cy', slot: 1, card: card('2') }], eliminated: ['cy'], redraw: false, alive: ['bo'], nextInMs: 6000 }, T0);
+    view.update(s);
+    s = cutReduce(s, 'winner', { winner: 'bo', participants: PLAYERS, rounds: 3 }, T0);
+    view.update(s);
+    vi.advanceTimersByTime(TIMING.verdict);
+    expect(view.element.querySelector('.cut-winner__line').textContent).toBe('bo wins cut for a buck!');
+    expect(seatEl('bo').classList.contains('is-winner')).toBe(true);
+    expect(seatEl('cy').querySelector('.cut-seat__caption').textContent).toBe('Out · round 3');
+    expect(sound.played).toContain('gameend');
   });
 
   it('a static render from tournamentJoined.cut: faces already up, out players dim, no sounds', () => {

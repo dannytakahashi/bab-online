@@ -6,7 +6,7 @@
  * game's paths are unchanged (their own tests).
  */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { GameState } from './GameState.js';
+import { GameState, teamPlayerDataOf } from './GameState.js';
 import {
   soloOrder, soloHeaderRows, formatSoloHandMessages, formatSoloGameEndMessages,
   soloOutcome, soloWinnerLine, soloResultRows, soloTally,
@@ -255,5 +255,26 @@ describe('what the table says', () => {
   it('the announcer names the three, the viewer first', () => {
     const s = table(2);
     expect(soloTally(' Tricks:', s, { 1: 2, 2: 1, 3: 0 })).toBe(' Tricks: bob 1, cat 0, ann 2.');
+  });
+
+  it("a lazy or resigned seat: every line and row names its owner, as the server's stored lines do", () => {
+    // owner rule 2026-11-25 (people by player names): the seat shows the
+    // bot, the header, the hand and game-over lines, the tally and the
+    // score screen name the owner, so a reload or a spectator replaying
+    // the stored log (gameHandlers.seatName) reads what the live table wrote
+    const s = table(1);
+    s.applySeatDisplay(2, { username: '🤖 Gina', pic: 8 });
+    expect(s.playerData.username[1].username).toBe('🤖 Gina');
+    const pd = teamPlayerDataOf(s);
+    expect(soloHeaderRows(s).map((r) => r.name)).toEqual(['ann', 'bob', 'cat']);
+    expect(formatSoloHandMessages({ scores: [0, 11, 0], seats: [{ position: 2, bid: 1, took: 1, points: 11, forbiddenHit: false }] }, pd))
+      .toEqual(['--- HAND COMPLETE ---', 'bob: Bid 1, Won 1, +11 → 11']);
+    const end = { scores: [10, 20, 5], winners: [2], made: [1, 2, 0], hands: 13 };
+    expect(formatSoloGameEndMessages(end, pd, { myPosition: 1 })).toEqual(['=== GAME OVER ===', 'ann: 10', 'bob: 20', 'cat: 5', 'DEFEAT', 'bob wins!']);
+    expect(soloResultRows(end, pd).map((r) => r.name)).toEqual(['bob', 'ann', 'cat']);
+    expect(soloTally(' Tricks:', s, { 1: 0, 2: 1, 3: 0 })).toBe(' Tricks: ann 0, bob 1, cat 0.');
+    // /active: the seat shows its owner again
+    s.applySeatDisplay(2, { username: 'bob', pic: 2 });
+    expect(soloHeaderRows(s).map((r) => r.name)).toEqual(['ann', 'bob', 'cat']);
   });
 });

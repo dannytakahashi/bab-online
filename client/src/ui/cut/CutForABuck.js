@@ -39,7 +39,7 @@ import { el, createButton } from '../kit/index.js';
 import { ringLayout, ringOrder, STACK_OFFSET, STACK_SHOWN, DENSE_EDGE, CARD_RATIO } from './ringLayout.js';
 import {
   STAGE, statusLines, roundLine, deckLine, deckLeft, seatView, verdictLines, revealAnnouncement, winnerLine, ringPlayers,
-  isAlive, cardShort, lowestRank, BRAGGING_LINE, RULES_LINE,
+  isAlive, cardShort, lowestRank, RULES_LINE,
 } from '../../state/cutForABuck.js';
 import { drawCard, BACK_FRAMES, CARD_DESIGN } from '../../phaser/cards/cardFaces.js';
 import { avatarSrc, applyAvatarImg } from '../../utils/avatar.js';
@@ -770,7 +770,7 @@ export function createCutView({ me, spectator = false, socket = null, players = 
     const box = el('div', {
       className: 'cut-winner',
       attrs: { id: 'cutWinner' },
-      children: [face, el('p', { className: 'cut-winner__line', text: winnerLine(state.winner, me) }), el('p', { className: 'cut-winner__sub', text: BRAGGING_LINE })],
+      children: [face, el('p', { className: 'cut-winner__line', text: winnerLine(state.winner, me) })],
     });
     box.style.left = `${layout.cx}px`;
     box.style.top = `${layout.cy}px`;

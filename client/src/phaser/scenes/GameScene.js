@@ -16,7 +16,7 @@
  */
 
 import { seatAvatarSrc, applyAvatarImg } from '../../utils/avatar.js';
-import { getGameState, PHASE } from '../../state/GameState.js';
+import { getGameState, PHASE, teamPlayerDataOf } from '../../state/GameState.js';
 import { teamsLine } from '../../ui/drawCopy.js';
 import { getCardImageKey, getCardDisplayName, sortHand } from '../../utils/cards.js';
 import { announce } from '../../ui/handA11y.js';
@@ -703,7 +703,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     // Player names only, '' until they are known (never a placeholder)
-    const { teamName, oppName } = scoreHeaderNames(state.position, state.playerData, { spectator: isPureSpectator(state) });
+    const { teamName, oppName } = scoreHeaderNames(state.position, teamPlayerDataOf(state), { spectator: isPureSpectator(state) });
     const bid = (p) => state.bids?.[p] ?? '-';
     const anyBid = Object.keys(state.bids || {}).length > 0;
     const teamBids = anyBid ? `${bid(pos)}/${bid(team(pos))}` : '-/-';
@@ -1181,9 +1181,9 @@ export class GameScene extends Phaser.Scene {
     const myPosition = state.position || 1;
 
     if (data.gyb) {
-      // Get Your Bid: one line per player (the server's own words), the
-      // three-player header, the scores said by name
-      for (const msg of formatSoloHandMessages(data.gyb, state.playerData)) window.addToGameFeedFromLegacy?.(msg);
+      // Get Your Bid: one line per player (the server's own words, each
+      // seat by its owner), the three-player header, the scores said by name
+      for (const msg of formatSoloHandMessages(data.gyb, teamPlayerDataOf(state))) window.addToGameFeedFromLegacy?.(msg);
       this.renderScoreHeader();
       const scores = Object.fromEntries((data.gyb.scores || []).map((v, i) => [i + 1, v]));
       announce(`Hand over.${soloTally(' Score:', state, scores, { spectator: isPureSpectator(state) })}`);
@@ -1215,7 +1215,7 @@ export class GameScene extends Phaser.Scene {
     if (window.ModernUtils && window.ModernUtils.formatHandCompleteMessages) {
       const messages = window.ModernUtils.formatHandCompleteMessages({
         myPosition: myPosition,
-        playerData: state.playerData,
+        playerData: teamPlayerDataOf(state),
         bids: bids || state.bids,
         teamScore: teamScore,
         oppScore: oppScore,
@@ -1233,7 +1233,7 @@ export class GameScene extends Phaser.Scene {
 
     // Update game log score display (player names only, as renderScoreHeader)
     if (window.updateGameLogScoreFromLegacy) {
-      const { teamName, oppName } = scoreHeaderNames(myPosition, state.playerData, { spectator: isPureSpectator(state) });
+      const { teamName, oppName } = scoreHeaderNames(myPosition, teamPlayerDataOf(state), { spectator: isPureSpectator(state) });
       window.updateGameLogScoreFromLegacy(teamName, oppName, teamScore, oppScore);
     }
 
@@ -1563,7 +1563,7 @@ export class GameScene extends Phaser.Scene {
    */
   _teamsSaid(lead, mine, theirs) {
     const s = this.state;
-    const pairs = scoreHeaderPairs(s.position, s.playerData, { spectator: isPureSpectator(s) });
+    const pairs = scoreHeaderPairs(s.position, teamPlayerDataOf(s), { spectator: isPureSpectator(s) });
     if (!pairs.mine || !pairs.theirs) return '';
     return `${lead} ${pairs.mine.join(' and ')} ${mine}, ${pairs.theirs.join(' and ')} ${theirs}.`;
   }

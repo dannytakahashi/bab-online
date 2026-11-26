@@ -95,6 +95,8 @@ const LOBBY_EXTRA_KEYS = Object.keys(LOBBY_EXTRA_PROPS);
 const GYB_NOTE = ' gyb (additive 2026-11-24, Get Your Bid: server/game/gameMode.js): present only at a Get Your Bid table, which only clients with the clientHello cap getYourBid ever sit at or watch (the web; no iOS build).';
 const LOBBY_EXTRA_NOTE = 'members / host / settings / capacity (additive 2026-11-16, GameManager.lobbyWire; family lobbies): members lists everyone (at most 8) with playing (seated now: in a lobby of 4 or fewer every member; in a bigger one the table bots and the first humans to ready, up to 4) and reconnecting (a held seat); host the username that sets "Spectators can talk" (passes to the first connected member when it leaves); settings {spectatorsCanTalk} (always true since 2026-11-18: spectators always may talk); capacity 8 while every human member sent the casualSpectators cap, else 4. players / reconnecting keep at most the first 4 (frozen maxItems). Shipped clients read players and ignore the new keys (iOS reads lobby payloads as dictionaries). Play again (additive 2026-11-16, server/socket/playAgain.js): members[].returning marks a place held for someone not back from the last game (a row whose socketId is away:<uuid>, never a socket; it also carries reconnecting, and its name is in the top-level reconnecting a legacy client reads); expected (only while one stands) lists the last game\'s older-app players whose place is saved without a row (a reservation: strangers and Add Bot are refused while members + expected would pass 4). members[].onResults (additive 2026-11-16) marks a member moved back at the last game\'s end whose app still shows that game\'s results (lobby.afterGame.unsettled: no lobbyReturnSeen nor any act in the lobby yet), present and connected (never on a held row: a drop makes it returning or reconnecting instead); every moved member\'s row carries it in lobbyReturn. When one settles (lobbyReturnSeen, a joinLobby re-entry, an act whose own reply sends no list: chat, a refused Ready / Unready / Add Bot / Remove Bot / talk setting / Don\'t wait) the other capable members get a playerReadyUpdate (neither) without it; a leave or drop takes it off with that event\'s list. Web and iOS 1.2.2 (12) and later show "Still on the results" on the row (never on one\'s own) where it would say Waiting..., in the "Not back yet" style, with no "Don\'t wait" (they are present).';
 // One gameEnd.playerStats entry (also lobbyReturn.lastGame.playerStats)
+// username: the seat's owner (a lazy or resigned seat's too: owner rule, teams by
+// player names, 2026-11-25; gameHandlers.seatName), a native bot's persona
 const GAME_END_STATS = obj({
     username: str(), totalBids: int(), totalTricks: int(), setsCaused: int(), totalHSI: num(), avgHSI: num(),
 });
@@ -880,9 +882,9 @@ const s2c = {
     badgesAwarded: {
         payload: obj({ gameId: str(), badges: arr(ref('earnedBadge'), { minItems: 1 }) }),
         status: 'active', to: 'socket', seq: false,
-        clientReads: reads(W.profile, I.profile),
+        clientReads: reads(W.profile, []),
         emittedFrom: ['server/socket/badgeAwards.js:notify'],
-        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web and iOS 1.2.7 (41), which shows it as a toast over the score screen). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
+        notes: 'New (2026-11-25, badges; private, unsequenced): the badges this player newly earned in the game that just ended (or a lifetime badge its stats reached), sent after the game\'s stats are written, so shortly after gameEnd, ONLY to the player\'s live socket when it has the clientHello cap badges ($defs.clientCapBadges; the web, no iOS build). Each badge once, the first time it is earned. A player who is offline gets no event and finds the badge on their profile.',
     },
     profileResponse: {
         payload: okFail({ profile: ref('profile'), avatarUrl: ref('avatarUrl'), scope: statsScope, badges: arr(ref('earnedBadge')) }, { optional: ['avatarUrl', 'scope', 'badges'] }),
@@ -992,14 +994,14 @@ const s2c = {
         status: 'active', to: ['tournament', 'socket'],
         clientReads: reads(W.tour, I.tour),
         emittedFrom: ['server/socket/tournamentHandlers.js:tournamentChat', 'server/socket/tournamentHandlers.js:spectateTournament', 'server/socket/tournamentHandlers.js:setTournamentRounds', 'server/socket/tournamentHandlers.js:rollbackRound', 'server/socket/tournamentLiveness.js:onReadyDeadline', 'server/socket/tournamentLiveness.js:handOffHost', 'server/socket/tournamentLiveness.js:startForIdleHost', 'server/socket/cutForABuck.js:roomLine', 'server/socket/cutForABuck.js:legacyLines'],
-        notes: 'Cut for a buck (2026-11-25; server/socket/cutForABuck.js): room system lines at the start ("Cut for a buck! Everyone still here draws a card. ..."), the begin ("Cut for a buck: 9 players." plus "al and cy were not back in time."), "Not enough players for Cut for a buck.", "<host> ended Cut for a buck.", "<winner> won Cut for a buck." and, after a deploy, "Cut for a buck continues in 30 s after a server update."; and private (to: socket, unstored) lines to each member and spectator WITHOUT the clientHello cap cutForABuck, which shows the round in chat: "Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.", "Round 4: everyone tied on 7s, so draw again.", "Reshuffling: the deck ran out." (names only, never team words; jokers "HI joker" / "LO joker"). system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
+        notes: 'Cut for a buck (2026-11-25; server/socket/cutForABuck.js): room system lines at the start ("Cut for a buck! Everyone still here draws a card. ..."), the begin ("Cut for a buck: 9 players." plus "al and cy were not back in time."), "Not enough players for cut for a buck.", "<host> ended cut for a buck.", "<winner> won cut for a buck." and, after a deploy, "Cut for a buck continues in 30 s after a server update."; and private (to: socket, unstored) lines to each member and spectator WITHOUT the clientHello cap cutForABuck, which shows the round in chat: "Round 2: alice 9♥, bob 3♠, carol 3♦. bob and carol are out.", "Round 4: everyone tied on 7s, so draw again.", "Reshuffling: the deck ran out." (names only, never team words; jokers "HI joker" / "LO joker"). system: true and type: \'system\' (additive, 2026-11-15) mark a server notice (spectateTournament, rollbackRound, the ready deadline, the idle-host hand-off and the server start past the deadline); a player line has neither, so a player who registered "System" before it was reserved cannot pass for one. Web styles by system; iOS 1.2.0 (ChatMessage.from reads type) shows type \'system\' as a dim line without the name and without the report/block menu. username stays \'System\'; iOS 1.2.0 filters lines by blocked username before reading type, so blocking a legacy "System" account hides notices there.',
     },
     tournamentSettingsUpdated: {
         payload: obj({ totalRounds: int({ minimum: 1, maximum: 5 }), by: orNull(str()) }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/tournamentHandlers.js:setTournamentRounds'],
-        notes: 'New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host\'s Rounds picker and the round line ("Waiting to start · 3 rounds"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41 (TournamentSocketHandler.handleSettingsUpdated: the round line, the scoreboard\'s R1..RN columns and the host\'s picker follow it). Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1\'s tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds.',
+        notes: 'New (2026-11-25): the host (by) set the number of rounds (setTournamentRounds), lobby phase only. Web redraws the scoreboard columns, the host\'s Rounds picker and the round line ("Waiting to start · 3 rounds"; ui/screens/TournamentLobby.js setTournamentTotalRounds); iOS from build 41. Shipped iOS builds ignore it and see the system tournamentMessage that follows; their empty lobby scoreboard keeps its columns until round 1\'s tournamentRoundStart (totalRounds) corrects them. Every tournament event and tournamentClientState already carries totalRounds.',
     },
     tournamentRoundStart: {
         payload: obj({ roundNumber: int({ minimum: 1 }), totalRounds: int(), assignments: arr(obj({ humanCount: int({ minimum: 0 }), botCount: int({ minimum: 0 }) })), pairings: arr(ref('roundPairings')) }, { optional: ['pairings'] }),
@@ -1047,44 +1049,44 @@ const s2c = {
     cutForABuckStart: {
         payload: obj({ candidates: arr(str()), startsInMs: int({ minimum: 0 }), deckCount: int({ minimum: 1 }) }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:startGather'],
-        notes: 'New (2026-11-25; contract/README.md "Cut for a buck"): the last table\'s result came in and Cut for a buck starts in startsInMs (the gather, CUT_GATHER_MS 15 s: people come back from their score screens). Only when CUT_FOR_A_BUCK is not off, 2 or more members are connected and one of them has the clientHello cap cutForABuck; then the tournament is in phase \'cut\' (sockets without the cap see \'round_active\'). candidates: the members connected now; the participants are fixed at the gather\'s end (cutForABuckRound). deckCount: the full deck(s), 54 per 54 players. Followed by a room system line and lobbiesUpdated (the summary\'s cut: true). Read by the web and iOS from build 41 (TournamentSocketHandler handleCut, State/CutForABuck.swift); shipped clients ignore it.',
+        notes: 'New (2026-11-25; contract/README.md "Cut for a buck"): the last table\'s result came in and Cut for a buck starts in startsInMs (the gather, CUT_GATHER_MS 15 s: people come back from their score screens). Only when CUT_FOR_A_BUCK is not off, 2 or more members are connected and one of them has the clientHello cap cutForABuck; then the tournament is in phase \'cut\' (sockets without the cap see \'round_active\'). candidates: the members connected now; the participants are fixed at the gather\'s end (cutForABuckRound). deckCount: the full deck(s), 54 per 54 players. Followed by a room system line and lobbiesUpdated (the summary\'s cut: true). Read by the web and iOS from build 41; shipped clients ignore it.',
     },
     cutForABuckRound: {
         payload: obj({ round: int({ minimum: 1 }), participants: arr(str()), alive: arr(str()), deckCount: int({ minimum: 1 }), reshuffled: bool(), closesInMs: int({ minimum: 0 }) }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:openRound'],
         notes: 'A round opens: everyone in alive draws one card from the deckCount face-down slots (0..deckCount-1, c2s cutForABuckDraw) within closesInMs (CUT_DRAW_MS, 15 s); then the server draws for whoever has not (cutForABuckDrew auto). A player still in who is disconnected, on a socket without the cap, or away (2 timeouts in a row, until a draw of their own (any cutForABuckDraw from them, one dropped as a repeat included) or a return to the lobby) is drawn for at once. reshuffled: fewer cards were left than players, so the full deck(s) were shuffled back (the table cleared). participants is the same list every round.',
     },
     cutForABuckDrew: {
         payload: obj({ round: int({ minimum: 1 }), username: str(), slot: int({ minimum: 0 }), auto: bool() }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:draw', 'server/socket/cutForABuck.js:autoDraw'],
         notes: 'A player drew the card in slot (a taken slot went to the nearest free one; a null slot drew a random one). Never the card: every card stays secret until cutForABuckReveal. auto: the server drew for them (disconnected, no cap, away, or the window closed).',
     },
     cutForABuckLeft: {
         payload: obj({ round: int({ minimum: 0 }), username: str(), alive: arr(str()), freedSlot: int({ minimum: 0 }) }, { optional: ['freedSlot'] }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:memberLeft'],
         notes: 'A player still in left the tournament: out (as left). freedSlot: the slot of their unrevealed draw this round, free again. Then, as it falls, cutForABuckWinner (one player left) or cutForABuckReveal (everyone left has drawn).',
     },
     cutForABuckReveal: {
         payload: obj({ round: int({ minimum: 1 }), draws: arr(ref('cutDraw')), eliminated: arr(str()), redraw: bool(), alive: arr(str()), nextInMs: int({ minimum: 0 }) }),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:reveal'],
         notes: 'Every card of the round, flipped together (draws in participant order). The lowest rank is out (suits never count; 2..A, then LO, then HI): eliminated, everyone tied on it. redraw: every player still in tied, nobody is out. Drawn cards never go back in the deck until a reshuffle. nextInMs: the next cutForABuckRound (CUT_REVEAL_MS, 4 s), or with one player left the time until tournamentComplete (CUT_WINNER_MS, 6 s; cutForABuckWinner follows at once). Members and spectators without the cap get the round as a private system tournamentMessage.',
     },
     cutForABuckWinner: {
         payload: ref('cutResult'),
         status: 'active', to: 'tournament',
-        clientReads: reads(W.tour, I.tour),
+        clientReads: reads(W.tour, []),
         emittedFrom: ['server/socket/cutForABuck.js:declareWinner'],
-        notes: 'One player is left: the winner of Cut for a buck, with every participant and the rounds drawn. A room system line "<winner> won Cut for a buck." follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later.',
+        notes: 'One player is left: the winner of Cut for a buck, with every participant and the rounds drawn. A room system line "<winner> won cut for a buck." follows; tournamentComplete (with the same cutForABuck) comes CUT_WINNER_MS later.',
     },
     tournamentLeft: {
         payload: empty,
@@ -1181,9 +1183,9 @@ const s2c = {
             cap: int({ minimum: 2, maximum: 20, description: 'the room\'s size limit now (tournamentVoice.maxRoom())' }),
         }),
         status: 'active', to: 'socket',
-        clientReads: reads(W.voice, I.tour),
+        clientReads: reads(W.voice, []),
         emittedFrom: ['server/voice/tournamentVoice.js:sendStatus'],
-        notes: 'New (2026-11-25, the over-cap notice; private, unsequenced): a tournament\'s voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others\' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows "Voice is full (N people)" in the tournament lobby\'s voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (TournamentSocketHandler.handleVoiceStatus: the same words in the tournament lobby\'s header, TournamentVoice.fullNote; its clientHello sends the cap). Shipped clients never send the cap, so they never get it (they wait silently, as before).',
+        notes: 'New (2026-11-25, the over-cap notice; private, unsequenced): a tournament\'s voice room (tournament:<id>) admits the first tournamentVoice.maxRoom() members on its lobby screen (env TOURNAMENT_VOICE_MAX, clamped 2..20, default 8) and the rest wait in line, unlisted. Only to a socket that sent the clientHello cap tournamentVoiceStatus ($defs.clientCapTournamentVoiceStatus): admitted false when it enters the record past the cap (and again when its lobby screen is drawn again while it still waits: a tournamentJoined to a member already in line), admitted true when an admitted member leaves and it moves into the room (its voicePeerList and the others\' voicePeerJoined come in the same tick). Nothing is sent when it leaves the line (seated at a table, a leave, a disconnect): a client forgets it with the screen. The web shows "Voice is full (N people)" in the tournament lobby\'s voice slot while it waits (client/src/main.js, Tournament voice); iOS reads it from 1.2.7 (listed for Swift in that release). Shipped clients never send the cap, so they never get it (they wait silently, as before).',
     },
     voicePeerJoined: {
         payload: ref('voicePeer'),
