@@ -151,6 +151,200 @@ describe('draw-phase leave and disconnect', () => {
         expect(events(log, 'resignationAvailable')).toHaveLength(0);
     });
 
+    test('a draw-phase disconnecter back on a new socket before the draw ends is seated as a connected player', async () => {
+        // A reload during the draw for first deal (owner live check
+        // 2026-11-26: the player used to land in the main room, rejoinGame
+        // answered 'Not a player in this game', and could only spectate)
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `r${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+
+        await gameHandlers.draw(s[0], io, { num: 0 });
+        await queueHandlers.handleDisconnect(s[3], io); // auto-draws its card
+        expect(game.entrant(ids[3])).toMatchObject({ presence: 'disconnected' });
+        expect(game.drawIDs).toContain(ids[3]);
+
+        const fresh = makeSocket(`${ids[3]}-again`, log);
+        gameManager.registerUser(fresh.id, `user_${ids[3]}`);
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[3]}` });
+
+        // The entrant record, its drawn card and the mapping moved to the new socket
+        expect(events(log, 'rejoinFailed')).toHaveLength(0);
+        const ok = log.filter((l) => l.to === `self:${fresh.id}` && l.event === 'rejoinSuccess');
+        expect(ok).toHaveLength(1);
+        expect(ok[0].data.snapshot.viewer.role).toBe('entrant');
+        expect(ok[0].data.snapshot.draw.viewerDrawOrder).toBe(2);
+        expect(game.entrant(ids[3])).toBeNull();
+        expect(game.entrant(fresh.id)).toMatchObject({ username: `user_${ids[3]}`, presence: 'connected', socketId: fresh.id });
+        expect(game.drawIDs).toEqual([ids[0], fresh.id]);
+        expect(gameManager.playerGames.get(fresh.id)).toBe(game.gameId);
+        expect(gameManager.playerGames.has(ids[3])).toBe(false);
+        expect(events(log, 'gameLogEntry').some((l) => l.data.message === `user_${ids[3]} reconnected.`)).toBe(true);
+        // Entrant order is kept (the draw's seat for each entrant follows it)
+        expect(Array.from(game.entrants.keys())).toEqual([ids[0], ids[1], ids[2], fresh.id]);
+
+        // It cannot draw a second card
+        await gameHandlers.draw(fresh, io, { num: 3 });
+        expect(game.drawIDs).toEqual([ids[0], fresh.id]);
+
+        await gameHandlers.draw(s[1], io, { num: 0 });
+        gameHandlers.draw(s[2], io, { num: 0 }); // the 4th card: runs on through the seating
+        await jest.advanceTimersByTimeAsync(7000); // positions, teams, deal
+
+        const pos = game.seatByUsername(`user_${ids[3]}`);
+        expect(game.seat(pos)).toMatchObject({ controller: 'human', presence: 'connected', ownerSocketId: fresh.id });
+        expect(events(log, 'playerDisconnected')).toHaveLength(0);
+        expect(log.some((l) => l.to === fresh.id && l.event === 'gameStart')).toBe(true);
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(events(log, 'resignationAvailable')).toHaveLength(0);
+    });
+
+    test('a new socket takes over an entrant whose old socket is still attached (newest socket wins)', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `w${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+
+        const fresh = makeSocket(`${ids[1]}-again`, log);
+        gameManager.registerUser(fresh.id, `user_${ids[1]}`);
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[1]}` });
+        expect(game.entrant(fresh.id)).toMatchObject({ presence: 'connected' });
+        expect(game.entrant(ids[1])).toBeNull();
+        expect(gameManager.playerGames.has(ids[1])).toBe(false);
+
+        // The old socket's late disconnect finds nothing to do
+        await queueHandlers.handleDisconnect(s[1], io);
+        expect(game.entrant(fresh.id)).toMatchObject({ presence: 'connected' });
+        expect(events(log, 'gameLogEntry').some((l) => /disconnected during card draw/.test(l.data.message))).toBe(false);
+
+        // Asking again on the same socket is answered again, never refused
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[1]}` });
+        expect(log.filter((l) => l.to === `self:${fresh.id}` && l.event === 'rejoinSuccess')).toHaveLength(2);
+        expect(events(log, 'rejoinFailed')).toHaveLength(0);
+        // ...quietly: one room line for the takeover, none for the repeat
+        expect(events(log, 'gameLogEntry').filter((l) => l.data.message === `user_${ids[1]} reconnected.`)).toHaveLength(1);
+        // its voice peers dropped the old socket's call (newest wins)
+        for (const peer of [ids[0], ids[2], ids[3]]) {
+            expect(log.some((l) => l.to === peer && l.event === 'voicePeerLeft' && l.data.socketId === ids[1])).toBe(true);
+        }
+
+        for (const sock of [s[0], fresh, s[2]]) await gameHandlers.draw(sock, io, { num: 0 });
+        gameHandlers.draw(s[3], io, { num: 0 }); // the 4th card: runs on through the seating
+        await jest.advanceTimersByTimeAsync(7000);
+        const pos = game.seatByUsername(`user_${ids[1]}`);
+        expect(game.seat(pos)).toMatchObject({ controller: 'human', presence: 'connected', ownerSocketId: fresh.id });
+    });
+
+    test('an entrant who left during the draw, a bot and a stranger are still refused before seating', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `x${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+        chatHandlers.chatMessage(s[0], io, { message: '/leave' });
+
+        const back = makeSocket(`${ids[0]}-again`, log);
+        gameManager.registerUser(back.id, `user_${ids[0]}`);
+        await reconnectHandlers.rejoinGame(back, io, { gameId: game.gameId, username: `user_${ids[0]}` });
+        const stranger = makeSocket(`x${seq}-out`, log);
+        gameManager.registerUser(stranger.id, `outsider${seq}`);
+        await reconnectHandlers.rejoinGame(stranger, io, { gameId: game.gameId, username: `outsider${seq}` });
+
+        expect(events(log, 'rejoinFailed').map((l) => l.data)).toEqual([
+            { reason: 'Not a player in this game' },
+            { reason: 'Not a player in this game' },
+        ]);
+        expect(game.entrant(back.id)).toBeNull();
+        expect(game.entrant(ids[0])).toMatchObject({ presence: 'left' });
+        expect(gameManager.playerGames.has(back.id)).toBe(false);
+    });
+
+    test('a refused takeover changes nothing: the dead entrant stays disconnected and is seated in grace', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `z${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+        await queueHandlers.handleDisconnect(s[3], io);
+        expect(game.entrant(ids[3])).toMatchObject({ presence: 'disconnected' });
+        // onto a socket that is another entrant: refused before any change
+        expect(game.reattachEntrant(`user_${ids[3]}`, ids[0])).toBeNull();
+        expect(game.entrant(ids[3])).toMatchObject({ presence: 'disconnected', socketId: ids[3] });
+        expect(game.entrant(ids[0])).toMatchObject({ username: `user_${ids[0]}` });
+        for (const sock of s.slice(0, 2)) await gameHandlers.draw(sock, io, { num: 0 });
+        gameHandlers.draw(s[2], io, { num: 0 });
+        await jest.advanceTimersByTimeAsync(7000);
+        const pos = game.seatByUsername(`user_${ids[3]}`);
+        expect(game.seatPresence(pos)).toBe('grace');
+        expect(events(log, 'playerDisconnected').some((l) => l.data.position === pos)).toBe(true);
+    });
+
+    test('voice: the returning entrant gets the table\'s voice peers and they get it', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `v${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const s = ids.map((id) => makeSocket(id, log));
+        await queueHandlers.handleDisconnect(s[2], io);
+        const fresh = makeSocket(`${ids[2]}-again`, log);
+        gameManager.registerUser(fresh.id, `user_${ids[2]}`);
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[2]}` });
+        const list = log.find((l) => l.to === `self:${fresh.id}` && l.event === 'voicePeerList');
+        expect(list.data.peers.map((p) => p.socketId).sort()).toEqual([ids[0], ids[1], ids[3]].sort());
+        for (const peer of [ids[0], ids[1], ids[3]]) {
+            expect(log.some((l) => l.to === peer && l.event === 'voicePeerJoined' && l.data.socketId === fresh.id)).toBe(true);
+        }
+        // after rejoinSuccess, which starts the client's voice
+        const order = log.filter((l) => l.to === `self:${fresh.id}`).map((l) => l.event);
+        expect(order.indexOf('rejoinSuccess')).toBeLessThan(order.indexOf('voicePeerList'));
+    });
+
+    test('a socket watching another table stops watching it before it takes its entrant over', async () => {
+        const log = [];
+        const io = makeIo(log);
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `o${seq}-h${n}`);
+        const game = drawingGame(ids);
+        const other = drawingGame([1, 2, 3, 4].map((n) => `o${seq}-x${n}`));
+        const s = ids.map((id) => makeSocket(id, log));
+        await queueHandlers.handleDisconnect(s[1], io);
+        const fresh = makeSocket(`${ids[1]}-again`, log);
+        gameManager.registerUser(fresh.id, `user_${ids[1]}`);
+        gameManager.addSpectator(io, other, fresh.id, `user_${ids[1]}`, null);
+        expect(gameManager.spectatorGames.get(fresh.id)).toBe(other.gameId);
+        await reconnectHandlers.rejoinGame(fresh, io, { gameId: game.gameId, username: `user_${ids[1]}` });
+        expect(game.entrant(fresh.id)).toMatchObject({ presence: 'connected' });
+        expect(gameManager.spectatorGames.has(fresh.id)).toBe(false);
+        expect(other.spectators.has(fresh.id)).toBe(false);
+        expect(gameManager.playerGames.get(fresh.id)).toBe(game.gameId);
+    });
+
+    test('a planned tournament table keeps its teams and staged cards through the takeover', () => {
+        seq++;
+        const ids = [1, 2, 3, 4].map((n) => `p${seq}-h${n}`);
+        const game = drawingGame(ids);
+        game.drawTeams = [[ids[0], ids[2]], [ids[1], ids[3]]];
+        game.drawPlan = new Map(ids.map((id, i) => [id, { rank: String(i + 2), suit: 'spades' }]));
+        game.markEntrantDisconnected(ids[2]);
+
+        expect(game.reattachEntrant(`user_${ids[2]}`, 'p-new')).toBe(ids[2]);
+        expect(game.drawTeams).toEqual([[ids[0], 'p-new'], [ids[1], ids[3]]]);
+        expect(game.drawPlan.get('p-new')).toEqual({ rank: '4', suit: 'spades' });
+        expect(game.drawPlan.has(ids[2])).toBe(false);
+        // Nobody else's name, and never onto a socket that is another entrant
+        expect(game.reattachEntrant('nobody', 'p-x')).toBeNull();
+        expect(game.reattachEntrant(`user_${ids[1]}`, ids[0])).toBeNull();
+        expect(game.entrant(ids[1])).toMatchObject({ socketId: ids[1] });
+    });
+
     test('a /leave from someone who already drew does not run the draw completion twice', async () => {
         const log = [];
         const io = makeIo(log);

@@ -310,7 +310,7 @@ extension TableReducer {
     static func watchedHint(_ s: inout TableState, _ h: AssistHint, _ fx: inout [TableEffect]) {
         guard s.table.viewer.role == .spectator, let w = h.watched, s.table.viewer.watchesHand,
               s.table.viewer.watchedSeat == w, h.kind != .status else { return }
-        let name = s.players.name(w)
+        let name = s.players.ownerName(w)
         if h.kind == .tip {
             guard !TutorialRules.isWelcome(h) else { return }
             switch s.table.phase.kind {

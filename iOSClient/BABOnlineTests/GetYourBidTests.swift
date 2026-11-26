@@ -336,6 +336,27 @@ final class GetYourBidTests: XCTestCase {
         XCTAssertEqual(store.leaveOutcome, .endsGame)
     }
 
+    /// The seat labels at a Get Your Bid table (the #421 review, 2026-11-26): a spectator watching
+    /// a lazy seat's hand reads its owner on the watching pill, my pips', the dealer's and the
+    /// hints' labels (`watchedName`), and every seat's pips, card backs and dealer marker say
+    /// the owner (`spokenName`); only the avatar keeps "🤖 Mike".
+    func testTheSeatLabelsNameALazySeatByItsOwner() {
+        var s = Self.dealt(dealer: 2)
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 2, "botUsername": "\u{1F916} Mike", "originalUsername": "L", "seq": 3]))
+        let o = TableRenderModel(s).opponents.first { $0.position == 2 }
+        XCTAssertEqual(o?.name, "\u{1F916} Mike")
+        XCTAssertEqual(o?.spokenName, "L")
+        XCTAssertEqual(TableRenderModel(s).opponents.first { $0.position == 3 }?.spokenName, "R")
+
+        // a spectator watching that hand: the pill and the labels from the watched seat say "L"
+        s.table.viewer.role = .spectator
+        s.table.viewer.position = nil
+        s.table.viewer.shoulder = ShoulderSeat(position: 2)
+        let watched = s.table.viewer.watchedSeat.map { s.players.ownerName($0) }
+        XCTAssertEqual(watched, "L")
+        XCTAssertEqual(ShoulderRules.pillText(watched ?? ""), "Watching L's hand")
+    }
+
     /// The owner rule (#416): a lazy seat is named by its owner in every Get Your Bid line and
     /// in the score bar; the avatar keeps the bot's name.
     func testALazySeatIsNamedByItsOwner() {

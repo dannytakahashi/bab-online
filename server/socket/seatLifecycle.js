@@ -535,6 +535,106 @@ function reconnectOwner(io, game, pos, socket, username) {
 }
 
 /**
+ * A human entrant is back on `socket` before seats exist (a reload or a
+ * reconnect during the countdown, the draw or its reveal): it takes its
+ * entrant record over (GameState.reattachEntrant), so the draw seats it as a
+ * connected player instead of a seat in grace that only a later rejoin could
+ * claim. Before this, rejoinGame refused ('Not a player in this game') and
+ * the player was left to spectate their own table. An older socket still
+ * attached is unmapped and leaves the room (the newest socket owns the
+ * entry), as reconnectOwner does for a seat. The rejoiner gets rejoinSuccess
+ * with the pre-seating snapshot (viewer.role 'entrant', the draw so far),
+ * then its voice (announceEntrantVoice); the room the system line "<name>
+ * reconnected.". A card the disconnect's auto-draw already took stays
+ * theirs. The same socket asking again while attached gets only
+ * rejoinSuccess.
+ * @returns {boolean} false when `username` is no returning entrant here
+ */
+function reconnectEntrant(io, game, socket, username) {
+    const before = game.returningEntrant(username);
+    if (!before) return false;
+    const wasSid = before.socketId;
+    const wasConnected = before.presence === 'connected';
+    const oldSid = game.reattachEntrant(username, socket.id);
+    if (oldSid == null) return false;
+    const carrier = (tournament) => carrierFor(game, socket, {
+        isLazy: false,
+        tournamentId: tournament ? tournament.tournamentId : null
+    });
+    // The same socket asking again while attached: answered, nothing announced
+    if (oldSid === socket.id && wasConnected) {
+        const tid = gameManager.tournamentGames.get(game.gameId) || null;
+        socket.emit('rejoinSuccess', carrier(tid ? gameManager.getTournamentById(tid) : null));
+        return true;
+    }
+    if (oldSid !== socket.id) {
+        // An older socket still attached (newest wins): its voice peers drop
+        // its calls, as for a draw-phase disconnect
+        if (wasConnected && wasSid === oldSid) voicePeersLeft(io, game, oldSid, socket.id);
+        game.leaveRoom(io, oldSid);
+        unmap(game, oldSid);
+    }
+    // A socket watching any table (this one or another) stops watching
+    // first: a mapped socket is never a pure spectator (leaveSpectatingFor)
+    dropSpectatorVoice(io, socket.id);
+    gameManager.leaveSpectating(io, socket.id);
+    gameManager.playerGames.set(socket.id, game.gameId);
+    game.joinToRoom(io, socket.id);
+    registerOnline(io, socket, username);
+    const tournament = reattachTournament(io, socket, game.gameId, username);
+
+    socketLogger.info('Entrant rejoined before seating', { username, gameId: game.gameId, stage: game.stage });
+    socket.emit('rejoinSuccess', carrier(tournament));
+    announceEntrantVoice(io, game, socket, username);
+    logEntry(io, game, `${username} reconnected.`);
+    return true;
+}
+
+/**
+ * `sid` (an entrant's older socket, replaced) leaves voice: the table's other
+ * voice members and its voice spectators drop the call (private
+ * voicePeerLeft), never `except` (the socket taking over).
+ */
+function voicePeersLeft(io, game, sid, except) {
+    const peers = new Set(gameVoice.gameVoiceMembers(game).map((m) => m.socketId));
+    for (const s of game.voiceSpectators?.keys() || []) peers.add(s);
+    peers.delete(sid);
+    peers.delete(except);
+    for (const p of peers) io.to(p).emit('voicePeerLeft', { socketId: sid });
+}
+
+/**
+ * Voice for an entrant back before seating (`socket`): before the seats
+ * exist the voice members are the connected human entrants
+ * (gameVoice.gameVoiceMembers), so at a casual table the other connected
+ * entrants and the voice spectators get voicePeerJoined and the entrant all
+ * of them in voicePeerList (it offers), a blocked pair left out, then
+ * voiceSettings to the room (refreshVoice), as announceOwnerVoice does for a
+ * seat. Nothing re-announces a casual table's voice at seating, so without
+ * this a player who reloaded during the draw had no voice all game. A
+ * tournament table has no voice before seating: its humans are announced to
+ * each other at seating (tournamentVoice.announceTable, after the reveal
+ * hold), this entrant among them now that it is connected.
+ */
+function announceEntrantVoice(io, game, socket, username) {
+    if (game.tournamentId || gameManager.tournamentGames.has(game.gameId)) return;
+    const peers = [];
+    for (const m of gameVoice.gameVoiceMembers(game)) {
+        if (m.socketId === socket.id) continue;
+        if (gameVoice.blockedPair(io, socket.id, username, m.socketId, m.username)) continue;
+        peers.push({ socketId: m.socketId, username: m.username });
+        io.to(m.socketId).emit('voicePeerJoined', { socketId: socket.id, username });
+    }
+    for (const [sid, e] of game.voiceSpectators || []) {
+        if (sid === socket.id || gameVoice.blockedPair(io, socket.id, username, sid, e.username)) continue;
+        peers.push({ socketId: sid, username: e.username });
+        io.to(sid).emit('voicePeerJoined', { socketId: socket.id, username });
+    }
+    if (peers.length > 0) socket.emit('voicePeerList', { peers });
+    gameVoice.refreshVoice(io, game);
+}
+
+/**
  * The owner of a bot-controlled seat (lazy or resigned) attaches `socket` to
  * watch it while the bot plays. An older owner socket is demoted to a pure
  * spectator (keeps watching, loses /active and every other seat right),
@@ -1053,6 +1153,7 @@ module.exports = {
     disconnectOwner,
     onGraceExpired,
     reconnectOwner,
+    reconnectEntrant,
     watchSeat,
     reclaimSeat,
     goLazy,

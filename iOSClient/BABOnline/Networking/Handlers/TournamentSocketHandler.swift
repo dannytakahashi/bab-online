@@ -109,7 +109,9 @@ final class TournamentSocketHandler {
         guard let newCreator = dict["newCreator"] as? String else { return }
         let changed = newCreator != tournamentState.creatorUsername
         tournamentState.creatorUsername = newCreator
-        if changed {
+        // a finished tournament has nothing left to host: no toast in its final lobby (the web's
+        // isTournamentFinished guard)
+        if changed && tournamentState.phase != "complete" {
             socket.serverError = ServerErrorNotice(message: TournamentNotice.hostChanged(to: newCreator, me: socket.authState?.username),
                                                    kind: .info)
         }
