@@ -212,7 +212,7 @@ test('the contract and the generated constants: no s2c error (baseline too), ser
     expect(schema.s2c).not.toHaveProperty('error');
     expect(baseline.s2c).not.toHaveProperty('error');
     expect(schema.s2c.serverError.status).toBe('active');
-    expect(schema.s2c.serverError.emittedFrom).toEqual(['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError']);
+    expect(schema.s2c.serverError.emittedFrom).toEqual(['server/socket/serverError.js:emitError', 'server/socket/chatHandlers.js:sendError', 'server/socket/upgradeGate.js:sendToast']);
     const web = fs.readFileSync(path.join(ROOT, 'client/src/constants/events.js'), 'utf8');
     expect(web).not.toMatch(/\n {2}ERROR: 'error',\n/);
     expect(web).toMatch(/\n {2}SERVER_ERROR: 'serverError',\n/);

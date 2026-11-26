@@ -705,8 +705,11 @@ still not gated: MIN_IOS_BUILD 3) read only the `bot:` prefix, so without
 owner accepts that for TestFlight or MIN_IOS_BUILD is 5 (no frozen baseline
 holds 3 or 4: `contract/baselines/README.md`); (3b) `isBot` is then the only
 bot signal for builds 6 to 8, and their frozen baselines predate it (b1304c1
-merged after they were cut), so it is held by `DECODE_RELIED` in
-`contract/lib/decodeRules.js` (required, non-null) and must stay there; (4) a pre-#233 web
+merged after they were cut), so it was held by `DECODE_RELIED` in
+`contract/lib/decodeRules.js` (required, non-null). Since `MIN_IOS_BUILD` 41
+(2026-11-25) builds 3 to 40 are all gated (6 to 40 retired, the DECODE_RELIED
+entry with them), so (3) and (3b) hold nothing back: re-check only what the
+frozen builds (41 and later) read; (4) a pre-#233 web
 tab keeps `sockets` only in `playerData.socket` for its glow (report only).
 
 `positionUpdate.sockets` / `usernames[].socketId`, `playerDrew.socketId`,
@@ -1237,8 +1240,9 @@ above; after it, what 1.2.0 itself still reads is the remaining blocker:
 
 ## Pending: Cut for a buck's legacy branch (2026-11-25)
 
-Once `MIN_IOS_BUILD` reaches 41 (the build that sends the clientHello cap
-`cutForABuck`), every tournament member has the cap: remove the projection
+`MIN_IOS_BUILD` is 41 (the build that sends the clientHello cap
+`cutForABuck`; raised once 1.2.7 was live), so every iOS tournament member
+has the cap: remove the projection
 of phase `'cut'` to `'round_active'` for sockets without it
 (`TournamentState.getClientState({cutCap})`, `GameManager.getAllTournaments`
 keeps `cut: true` but may report `'cut'` only after the summary's readers

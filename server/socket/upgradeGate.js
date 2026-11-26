@@ -1,9 +1,12 @@
 /**
  * Update screen for the old App Store iOS builds: 1.0.0 (build 1, source
- * cc9059f; gated since 2026-11-11) and 1.1.0 (build 2, source f05d264;
- * gated once 1.2.0 is live: owner decision, MIN_IOS_BUILD 3). All a player
- * on an old build should see is "please update the app", while the app
- * keeps its saved session so the update finds the player signed in.
+ * cc9059f; gated since 2026-11-11), 1.1.0 (build 2, source f05d264; gated
+ * once 1.2.0 was live, MIN_IOS_BUILD 3) and, once 1.2.7 (build 41) is live
+ * (owner decision 2026-11-25: hard-block the old versions; MIN_IOS_BUILD
+ * 41), every 1.2.x build before it: 1.2.0 (3 to 6) to 1.2.6 (40, source
+ * 51463a5). All a player on an old build should see is "please update the
+ * app", while the app keeps its saved session so the update finds the
+ * player signed in.
  *
  * Detection: positive identification only, fail open. Every iOS build opens
  * with HTTP long-polling through URLSession (Socket.IO-Client-Swift
@@ -15,15 +18,18 @@
  *   1.2.0  "BAB%20Online/6 ..." (the App Store build since 2026-11-13: build 5
  *          + the new app icon; build 3 was uploaded, never submitted; build 4
  *          was pulled from review)
- *   1.2.1  "BAB%20Online/7 ..." on TestFlight; 8 is the next build
+ *   1.2.1  "BAB%20Online/7 ..." on TestFlight; every later build the same
+ *          form up to 1.2.6 "BAB%20Online/40 ..." and 1.2.7 ".../41 ..."
+ *          (CFBundleName and the URLSession transport never changed)
  * The websocket upgrade request (Starscream) carries no User-Agent, but
  * socket.handshake keeps the polling handshake's headers for the socket's
  * life. A socket is gated only when that header parses as the iOS app with a
  * build number below MIN_IOS_BUILD; a browser, a missing or unparseable
- * header, and build 3 or later are never gated. `clientHello` cannot be the
- * signal: 1.0.0 and 1.1.0 never send it.
+ * header, and build 41 or later are never gated. `clientHello` cannot be the
+ * signal: 1.0.0 and 1.1.0 never send it (and the gate registers no handler
+ * for it, so a gated 1.2.x build's caps are never read).
  *
- * What both old builds do with what they get (AuthSocketHandler.swift at
+ * What 1.0.0 and 1.1.0 do with what they get (AuthSocketHandler.swift at
  * cc9059f and f05d264; the handlers below read the same keys in both):
  *   restoreSessionResponse {success:false}  CLEARS its saved token. Never sent.
  *   signInResponse {success:false, message} sets authState.error, which
@@ -65,6 +71,43 @@
  *     only from DrawPhaseView). A player who had
  *     already drawn before the deploy has no button left: force-quitting
  *     lands on sign-in with the message.
+ *
+ * iOS 1.2.0 to 1.2.6 (builds 3 to 40; read at 29f3536 (3), 83a3f8f (6),
+ * ae9a95c (9), 523a1f9 (13), 6f29409 (30), 3c30c932 (39) and 51463a5 (40)):
+ * every reply above lands the same way (the same AuthSocketHandler failure
+ * branches setting authState.error, SignInView / RegisterView showing it in
+ * red and clearing it onAppear, LobbySocketHandler's `recentMessages ??
+ * messages`, leftGame -> joinMainRoom or returnToTournament, tournamentLeft ->
+ * joinMainRoom, leftLobby -> MainRoomView.onAppear's joinMainRoom, the draw
+ * overlay over Leave with Tap to Draw sending `draw`), and the gate never
+ * answers restoreSession, so nothing clears the token: a cold start is
+ * AppState's default .signIn under the splash (no restore timeout anywhere)
+ * with the username pre-filled and the message under the password; a warm
+ * reconnect keeps the screen it was on with isSessionReady false (from about
+ * 1.2.1: New Game / Tournament / Join / Ready greyed) and a foreground after
+ * the keep-alive always rebuilds the socket (its requestSnapshot probe is
+ * never answered). They differ from 1.0.0 / 1.1.0 in one useful way: every
+ * one shows `serverError {message}` as a 3 s toast on top of any screen it
+ * is signed in on (SocketService.handleServerError; ContentView mounts the
+ * toast layer while isAuthenticated, and from about 1.2.3 (30) on the
+ * sign-in / register too; code 'rejected' with handler null is claimed by
+ * no screen: the lobby / tournament re-entry claims want joinLobby /
+ * joinAsSpectator / joinTournament, the profile and admin ones rateLimit;
+ * routeTableError needs a table handler), so a table, a lobby, a tournament
+ * lobby or the Account sheet says "update" before any Leave. So builds 3 to
+ * 40 also get (`noticeKind` 'toast'):
+ *   - that toast (`sendNotice`) with the main push and then once a minute, in
+ *     updateRequired's slot (so the timed budget is unchanged), and as the
+ *     reply to the taps a stale screen still allows (TOAST_REPLIES: chat on
+ *     every screen, a bid or a card, Ready, Add Bot, New Game, Join, Spectate,
+ *     a tournament's create / join), which otherwise go unanswered;
+ *   - `deleteAccountResponse` / `changePasswordResponse {success:false,
+ *     message}` for the Account sheet's Delete Account / Change Password
+ *     (read by hand from 1.2.0 / 1.2.2 (10); never acted on).
+ * Build 41 and later read `updateRequired` instead (`noticeKind` 'screen':
+ * the full-screen update screen, which also answers their taps); 1.0.0 and
+ * 1.1.0 get neither (noticeKind null: exactly their replies above).
+ *
  * Nothing else is registered for a gated socket (setupSocketHandlers returns
  * before its handlers), so every other event is ignored: it never signs in,
  * is never registered as online, never joins a room, never touches a game,
@@ -83,17 +126,20 @@
  * not accepted (expired, evicted by MAX_SESSIONS, a merged account) gets the
  * signed-out message from then on. A database error changes nothing.
  *
- * updateRequired {message, url} (2026-11-25, additive, private): pushed with
- * the main push and then once a minute (it counts toward the same
- * per-socket emit limit, and the timed pushes stay under it). The builds gated today and builds 39 / 40
- * ignore it; from build 41 the app shows it as a full-screen update screen
- * with an App Store button (keeping its session), so whatever build the gate
- * passes next is told on every screen, not only on sign-in.
+ * updateRequired {message, url} (2026-11-25, additive, private): to a gated
+ * build 41 or later only, pushed with the main push and then once a minute
+ * (it counts toward the same per-socket emit limit, and the timed pushes
+ * stay under it). From build 41 the app shows it as a full-screen update
+ * screen with an App Store button (keeping its session), so whatever build
+ * the gate passes next (BAB_MIN_IOS_BUILD above 41) is told on every screen,
+ * not only on sign-in. Builds 1 to 40 have no handler for it.
  *
  * BAB_MIN_IOS_BUILD (env, read at each connection) raises the gate without a
  * deploy (release day: the new build is live, the old ones are gated from
  * Railway's environment); it can never lower it below MIN_IOS_BUILD
- * (minIosBuild). Logged at startup when set.
+ * (minIosBuild). Logged at startup when set. Once this constant is 41 the
+ * env var is redundant at 41 and can be removed from Railway (or left: it
+ * cannot lower the gate).
  *
  * Kill switch: UPGRADE_GATE=off (also false / 0 / disabled / no), read at each
  * connection. Telemetry: one info line per gated connection (build, the
@@ -111,17 +157,41 @@ const { verifySession } = require('../utils/sessionTokens');
 const { gateEnabled } = require('../utils/upgradeGateSwitch');
 
 /**
- * First iOS build number that is never gated: 1.0.0 (1) and 1.1.0 (2) are,
- * 1.2.0 (6 in the App Store, live 2026-11-13; 3 was never submitted, 4 was
- * pulled from review, 5 was replaced by 6), 1.2.1 (7 on TestFlight, 8 next)
- * and later are not.
+ * First iOS build number that is never gated: 1.2.7 (41; owner decision
+ * 2026-11-25, merged once 1.2.7 is READY_FOR_SALE). Gated: 1.0.0 (1), 1.1.0
+ * (2) and every 1.2.x build before 1.2.7: 1.2.0 (3 to 6) to 1.2.6 (40).
  */
-const MIN_IOS_BUILD = 3;
+const MIN_IOS_BUILD = 41;
+
+/** First build that shows a `serverError` as a toast (1.2.0 build 3, 29f3536). */
+const TOAST_MIN_BUILD = 3;
+/** First build with the full-screen update screen for `updateRequired` (1.2.7, 41). */
+const UPDATE_SCREEN_BUILD = 41;
+
+/**
+ * What a gated build can be told on any screen: 'screen' (updateRequired),
+ * 'toast' (serverError) or null (1.0.0 / 1.1.0: only the replies they read).
+ */
+function noticeKind(build) {
+    if (build >= UPDATE_SCREEN_BUILD) return 'screen';
+    if (build >= TOAST_MIN_BUILD) return 'toast';
+    return null;
+}
+
+/**
+ * The taps a stale 1.2.x screen still allows that the gate otherwise leaves
+ * unanswered; each gets the build's notice (the toast, or the update screen).
+ * chatMessage is handled with /leave (anything but /leave gets it too).
+ */
+const TOAST_REPLIES = Object.freeze([
+    'mainRoomChat', 'lobbyChat', 'tournamentChat', 'playerBid', 'playCard', 'playerReady', 'addBot',
+    'createLobby', 'joinLobby', 'joinAsSpectator', 'createTournament', 'joinTournament',
+]);
 
 /**
  * The gate in force: MIN_IOS_BUILD, or BAB_MIN_IOS_BUILD when that is higher
- * (an env override can only raise the gate: 1 or 2 never un-gates 1.0.0 or
- * 1.1.0). Read per connection.
+ * (an env override can only raise the gate: a lower value never un-gates
+ * builds 1 to 40). Read per connection.
  */
 function minIosBuild() {
     return Math.max(MIN_IOS_BUILD, Number.parseInt(process.env.BAB_MIN_IOS_BUILD, 10) || 0);
@@ -249,12 +319,30 @@ function attach(socket, app) {
     function sendUpdateMessage(reserve = 0) {
         send('signInResponse', { success: false, message: message() }, reserve);
     }
-    // Build 41 and later: the full-screen update screen (older builds ignore
-    // it). With the main push, then once a minute (every UPDATE_EVERY-th
-    // repeat), so the timed pushes stay within EMIT_LIMIT - REPLY_RESERVE in
-    // any window (13 signInResponse / mainRoomJoined + 1 in the first minute)
-    function sendUpdateRequired() {
-        send('updateRequired', { message: message(), url: APP_STORE_URL }, REPLY_RESERVE);
+    // The notice this build shows on any screen: build 41 and later the
+    // full-screen update screen (updateRequired), builds 3 to 40 a toast
+    // (serverError), 1.0.0 / 1.1.0 nothing. Timed: with the main push, then
+    // once a minute (every UPDATE_EVERY-th repeat), so the timed pushes stay
+    // within EMIT_LIMIT - REPLY_RESERVE in any window (13 signInResponse /
+    // mainRoomJoined + 1 in the first minute); as a reply, from the budget
+    // every reply shares
+    const kind = noticeKind(app.build);
+    function sendNotice(reserve = 0) {
+        if (kind === 'screen') sendUpdateRequired(reserve);
+        else if (kind === 'toast') sendToast(reserve);
+    }
+    function sendUpdateRequired(reserve) {
+        send('updateRequired', { message: message(), url: APP_STORE_URL }, reserve);
+    }
+    // code 'rejected' and handler null: no screen claims it and no table
+    // resyncs for it (see the header), so it is only the toast
+    function sendToast(reserve) {
+        send('serverError', { code: 'rejected', message: message(), handler: null }, reserve);
+    }
+    // Delete Account / Change Password in the Account sheet (builds 3 to 40
+    // read these by hand; nothing is deleted or changed)
+    function replyAccount(event) {
+        send(event, { success: false, message: message() });
     }
     function replySignUp() {
         send('signUpResponse', { success: false, message: message() });
@@ -285,10 +373,19 @@ function attach(socket, app) {
     socket.on('signIn', (data) => { note(data); sendUpdateMessage(); });
     socket.on('signUp', (data) => { note(data); replySignUp(); });
     socket.on('joinMainRoom', () => sendMainRoom());
-    // The in-game Leave button sends the /leave chat command
+    // The in-game Leave button sends the /leave chat command; any other line
+    // gets the notice (a 1.2.x build's typed chat would vanish otherwise)
     socket.on('chatMessage', (data) => {
         if (typeof data?.message === 'string' && data.message.trim().toLowerCase() === '/leave') replyLeave('leftGame');
+        else sendNotice();
     });
+    if (kind) {
+        for (const event of TOAST_REPLIES) socket.on(event, () => sendNotice());
+    }
+    if (kind === 'toast') {
+        socket.on('deleteAccount', () => replyAccount('deleteAccountResponse'));
+        socket.on('changePassword', () => replyAccount('changePasswordResponse'));
+    }
     // Tap to Draw: the only control a stale draw screen leaves (1.1.0's Leave
     // is covered by the draw overlay on phones, disabled on the Duo's bar)
     socket.on('draw', () => replyLeave('leftGame'));
@@ -311,13 +408,13 @@ function attach(socket, app) {
             sendUpdateMessage(REPLY_RESERVE);
             if (i === MAIN_PUSH) {
                 sendMainRoom();
-                sendUpdateRequired();
+                sendNotice(REPLY_RESERVE);
                 logOnce();
             }
             if (i === last && st.connected) {
                 st.interval = safeInterval(() => {
                     sendUpdateMessage(REPLY_RESERVE);
-                    if (++repeats % UPDATE_EVERY === 0) sendUpdateRequired();
+                    if (++repeats % UPDATE_EVERY === 0) sendNotice(REPLY_RESERVE);
                 }, REPEAT_MS, 'upgradeGateRepeat');
                 if (typeof st.interval?.unref === 'function') st.interval.unref();
             }
@@ -362,6 +459,10 @@ async function refreshSession(data) {
 
 module.exports = {
     MIN_IOS_BUILD,
+    TOAST_MIN_BUILD,
+    UPDATE_SCREEN_BUILD,
+    TOAST_REPLIES,
+    noticeKind,
     APP_STORE_URL,
     minIosBuild,
     UPDATE_MESSAGE,

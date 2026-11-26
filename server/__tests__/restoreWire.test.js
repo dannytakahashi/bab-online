@@ -11,7 +11,8 @@
  *   - validates against contract/v1-baseline.schema.json and every
  *     contract/baselines/ios-*.schema.json that knows the event (their
  *     enums pin snapshot resume.kind and seat presence: no new resume kind
- *     or presence; also checked against the oldest build's enums directly)
+ *     or presence; also checked against the oldest frozen build's enums
+ *     directly)
  * and the restart's own lines are exactly the owner's texts.
  */
 
@@ -226,15 +227,21 @@ describe('restoreWire', () => {
         }
         expect(bad).toEqual([]);
         for (const [name] of BASELINES) expect(covered[name]).toBeGreaterThan(100);
-        expect(BASELINES.map(([n]) => n)).toEqual(expect.arrayContaining(['v1-baseline', 'ios-1.2.0-b6', 'ios-1.2.3-b17']));
+        // every frozen iOS build (contract/baselines: the builds MIN_IOS_BUILD
+        // lets connect; additiveOnly.test.js requires the floor build's)
+        expect(BASELINES[0][0]).toBe('v1-baseline');
+        const ios = BASELINES.filter(([n]) => /^ios-/.test(n));
 
-        // No new resume kind or presence (the oldest shipped build's enums)
+        // No new resume kind or presence (the oldest frozen build's enums)
         const seen = { resume: new Set(), presence: new Set() };
         for (const e of wire) enumsIn(e.data, seen);
-        const oldest = BASELINES.find(([n]) => n === 'ios-1.2.0-b6')[1];
-        expect([...seen.resume].filter((k) => !oldest.$defs.snapshotV2.properties.resume.properties.kind.enum.includes(k))).toEqual([]);
-        expect([...seen.presence].filter((p) => !oldest.$defs.seatV2.properties.presence.enum.includes(p))).toEqual([]);
         for (const p of ['connected', 'grace', 'away']) expect(seen.presence.has(p)).toBe(true);
+        const build = ([n]) => Number(/-b(\d+)$/.exec(n)[1]);
+        const oldest = ios.length ? ios.reduce((a, b) => (build(b) < build(a) ? b : a))[1] : null;
+        if (oldest) {
+            expect([...seen.resume].filter((k) => !oldest.$defs.snapshotV2.properties.resume.properties.kind.enum.includes(k))).toEqual([]);
+            expect([...seen.presence].filter((p) => !oldest.$defs.seatV2.properties.presence.enum.includes(p))).toEqual([]);
+        }
 
         // The restart's own lines, exactly the owner's texts
         const lines = new Set(wire.filter((e) => e.event === 'gameLogEntry').map((e) => e.data.message));
