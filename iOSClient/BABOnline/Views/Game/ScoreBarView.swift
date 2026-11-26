@@ -55,7 +55,7 @@ struct ScoreBarView: View {
     @MainActor
     static func soloColumns(_ g: GameState) -> [SoloColumn] {
         soloColumns(viewer: g.isPlainSpectator ? nil : g.readingSeat, mine: g.isPlainSpectator ? nil : g.readingSeat,
-                    names: g.players.seats.compactMapValues(\.username), scores: g.table.gyb.scores,
+                    names: g.players.ownerNames, scores: g.table.gyb.scores,
                     bids: g.bidBook, tricks: g.scores.tricksByPosition)
     }
 

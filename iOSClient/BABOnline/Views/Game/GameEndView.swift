@@ -118,8 +118,11 @@ struct GameEndView: View {
     @ViewBuilder
     private func soloResults(_ end: GybEnd, _ data: GameEndData) -> some View {
         let me = gameState.isSpectator ? nil : gameState.position
+        // the owner rule: a lazy or resigned seat by its owner (the table's seats, else the
+        // server's playerStats, which name the owner from #416)
         let name = { (pos: Int) -> String in
-            data.playerStats.first { $0.position == pos }?.username ?? gameState.getPlayerName(position: pos)
+            gameState.players.seats[pos] != nil ? gameState.players.ownerName(pos)
+                : data.playerStats.first { $0.position == pos }?.username ?? "P\(pos)"
         }
         let outcome = GybRules.outcome(end, me: me)
         let title: (String, Color, String) = {

@@ -337,7 +337,7 @@ extension TableReducer {
             fx.append(.sound(.handEnd))
         }
         let players = s.players
-        for line in GybRules.handLines(hand, name: { players.name($0) }) { addLog(&s, line) }
+        for line in GybRules.handLines(hand, name: { players.ownerName($0) }) { addLog(&s, line) }
     }
 
     /// A carrier's `gyb` over the state built from its snapshot (applySnapshot): the mode, the

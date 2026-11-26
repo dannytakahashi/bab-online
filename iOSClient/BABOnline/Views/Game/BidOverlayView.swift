@@ -106,7 +106,7 @@ struct BidOverlayView: View {
     private var bidChips: BidChips {
         if gameState.isGyb {
             return BidChips.solo(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
-                                 viewer: gameState.readingSeat, names: gameState.players.seats.compactMapValues(\.username))
+                                 viewer: gameState.readingSeat, names: gameState.players.ownerNames)
         }
         return BidChips(bids: gameState.bidBook ?? BidBook(), handSize: gameState.currentHand > 0 ? gameState.currentHand : maxBid,
                  viewPosition: gameState.viewPosition,

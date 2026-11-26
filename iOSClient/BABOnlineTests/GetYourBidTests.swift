@@ -335,6 +335,37 @@ final class GetYourBidTests: XCTestCase {
         XCTAssertEqual(store.leaveOutcome, .endsGame)
     }
 
+    /// The owner rule (#416): a lazy seat is named by its owner in every Get Your Bid line and
+    /// in the score bar; the avatar keeps the bot's name.
+    func testALazySeatIsNamedByItsOwner() {
+        var s = Self.dealt(dealer: 3)
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 2, "botUsername": "\u{1F916} Mike", "originalUsername": "L", "seq": 3]))
+        XCTAssertEqual(s.players.name(2), "\u{1F916} Mike")
+        XCTAssertEqual(s.players.ownerName(2), "L")
+        XCTAssertEqual(s.players.ownerName(3), "R", "a seat its owner plays keeps its name")
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 4]))
+        for (i, pos) in [1, 2, 3].enumerated() {
+            TableReducer.reduce(&s, T.ev("bidReceived", ["bid": "1", "position": pos, "seq": 5 + 2 * i]))
+            TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": pos % 3 + 1, "seq": 6 + 2 * i]))
+        }
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "1", "1"], "lead": 2, "seq": 11]))
+        XCTAssertEqual(s.log.entries.last?.message, "Bidding complete — me: 1, L: 1, R: 1")
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "K"), "position": 2, "seq": 12]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "2"), "position": 3, "seq": 13]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "3"), "position": 1, "seq": 14]))
+        TableReducer.reduce(&s, T.ev("trickComplete", ["winner": 2, "seq": 15]))
+        XCTAssertEqual(s.log.entries.last?.message, "L won the trick (me 0, L 1, R 0)")
+        let hand = GybHand(scores: [0, 11, 0], seats: [.init(position: 1, bid: 1, took: 0, points: 0), .init(position: 2, bid: 1, took: 1, points: 11),
+                                                       .init(position: 3, bid: 1, took: 0, points: 0)])
+        TableReducer.reduce(&s, T.ev("handComplete", ["score": ["team1": 0, "team2": 0], "gyb": [
+            "scores": hand.scores, "oldScores": [0, 0, 0], "forbidden": NSNull(),
+            "seats": hand.seats.map { ["position": $0.position, "bid": $0.bid, "took": $0.took, "points": $0.points, "forbiddenHit": false] },
+        ], "seq": 16]))
+        XCTAssertTrue(s.log.entries.map(\.message).contains("L: Bid 1, Won 1, +11 → 11"))
+        XCTAssertEqual(ScoreBarView.soloColumns(viewer: 1, mine: 1, names: s.players.ownerNames, scores: s.table.gyb.scores,
+                                                bids: nil, tricks: s.scores.tricksByPosition).map(\.name), ["me", "L", "R"])
+    }
+
     // MARK: - Screens' models
 
     func testTheScoreBarHasOneColumnPerPlayerMineFirst() {

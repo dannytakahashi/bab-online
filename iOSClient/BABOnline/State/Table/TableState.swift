@@ -138,6 +138,20 @@ struct PlayersSlice: Equatable {
     }
 
     func name(_ pos: Int) -> String { seats[pos]?.username ?? "P\(pos)" }
+
+    /// The owner rule (#416, 2026-11-25: people by player names): a lazy or resigned seat named
+    /// by its owner, never the bot playing it (a native bot keeps its persona). Get Your Bid's
+    /// score bar, hand and bidding lines, tally and results read it; the avatars keep `name`.
+    func ownerName(_ pos: Int) -> String {
+        guard let seat = seats[pos], seat.controller == .lazyBot || seat.controller == .resignBot,
+              let owner = seat.ownerUsername, !owner.isEmpty else { return name(pos) }
+        return owner
+    }
+
+    /// Every seat's `ownerName` by position (the seats known).
+    var ownerNames: [Int: String] {
+        Dictionary(uniqueKeysWithValues: seats.keys.map { ($0, ownerName($0)) })
+    }
 }
 
 struct LogSlice: Equatable {

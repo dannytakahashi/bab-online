@@ -526,7 +526,7 @@ extension TableReducer {
         if s.table.viewer.role == .spectator { me = 1 } else if let p = s.table.viewer.position { me = p } else { return }
         if s.table.isGyb {
             // each player by name, mine first ("Bidding complete — ann: 3, bob: 2, cat: 4")
-            let line = GybRules.order(viewer: me).map { "\(players.name($0)): \(bids.bid(at: $0) ?? "-")" }.joined(separator: ", ")
+            let line = GybRules.order(viewer: me).map { "\(players.ownerName($0)): \(bids.bid(at: $0) ?? "-")" }.joined(separator: ", ")
             addLog(&s, "Bidding complete — \(line)")
             return
         }
@@ -596,8 +596,8 @@ extension TableReducer {
         if s.table.isGyb {
             // each player's own count, mine first ("ann won the trick (ann 2, bob 1, cat 0)")
             let order = GybRules.order(viewer: s.table.viewer.role == .spectator && s.table.viewer.watchedSeat == nil ? 1 : s.table.viewer.viewPosition)
-            let tally = order.map { "\(s.players.name($0)) \(s.scores.tricksByPosition[$0 - 1] ?? 0)" }.joined(separator: ", ")
-            addLog(&s, "\(s.players.name(winner)) won the trick (\(tally))")
+            let tally = order.map { "\(s.players.ownerName($0)) \(s.scores.tricksByPosition[$0 - 1] ?? 0)" }.joined(separator: ", ")
+            addLog(&s, "\(s.players.ownerName(winner)) won the trick (\(tally))")
             fx.append(.animate(.trickCollected(winner: winner, key)))
             // my own trick (no partner at three seats)
             fx.append(.sound(s.table.viewer.holdsSeat && s.table.viewer.position == winner ? .trickOurs : .trick))
