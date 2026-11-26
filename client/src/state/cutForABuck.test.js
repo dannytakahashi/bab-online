@@ -10,7 +10,7 @@ import { resolve } from 'node:path';
 import { REPO_ROOT } from '../testing/files.js';
 import {
   STAGE, cutReduce, cutFromWire, statusLines, verdictLines, revealAnnouncement, seatView, waitingFor, roundLine, deckLine, deckLeft,
-  rankWithArticle, rankPlural, joinNames, winnerLine, tournamentWinnerLine, cutWonLine, ringPlayers, isInCut, RULES_LINE, RESHUFFLE_LINE, WATCHING_LINE, BRAGGING_LINE,
+  rankWithArticle, rankPlural, joinNames, winnerLine, tournamentWinnerLine, cutWonLine, ringPlayers, isInCut, RULES_LINE, RESHUFFLE_LINE, WATCHING_LINE,
 } from './cutForABuck.js';
 
 const FIXTURE = JSON.parse(readFileSync(resolve(REPO_ROOT, 'contract/fixtures/cut/events.json'), 'utf8'));
@@ -132,11 +132,11 @@ describe('restore from tournamentJoined.cut at every stage', () => {
     expect(statusLines(s, { me: 'me' })).toEqual({ main: "You're safe with a 9", sub: 'bo is out with a 3' });
   });
 
-  it('winner: the winner and the bragging line', () => {
+  it('winner: the winner, no second line (owner 2026-11-25: no "Just for bragging rights.")', () => {
     const s = cutFromWire(wire({ stage: 'winner', alive: ['al'], winner: 'al', drawn: [] }), 0);
     expect(s.stage).toBe(STAGE.WINNER);
-    expect(statusLines(s, { me: 'me' })).toEqual({ main: 'al wins Cut for a buck!', sub: BRAGGING_LINE });
-    expect(statusLines(s, { me: 'al' }).main).toBe('You win Cut for a buck!');
+    expect(statusLines(s, { me: 'me' })).toEqual({ main: 'al wins cut for a buck!', sub: "" });
+    expect(statusLines(s, { me: 'al' }).main).toBe('You win cut for a buck!');
     expect(seatView(s, 'al', { me: 'me' }).state).toBe('winner');
   });
 
@@ -179,15 +179,15 @@ describe('the words', () => {
     expect(['3', 'Q', 'A', 'LO'].map(rankPlural)).toEqual(['3s', 'queens', 'aces', 'LO jokers']);
     expect(joinNames(['al'])).toBe('al');
     expect(joinNames(['al', 'bo', 'cy'])).toBe('al, bo and cy');
-    expect(winnerLine('dan', 'me')).toBe('dan wins Cut for a buck!');
+    expect(winnerLine('dan', 'me')).toBe('dan wins cut for a buck!');
     expect(tournamentWinnerLine(['kim'], 'me')).toBe('kim wins the tournament!');
     expect(tournamentWinnerLine(['me', 'kim'], 'me')).toBe('You and kim share the win!');
     expect(tournamentWinnerLine(['kim', 'me'], 'me')).toBe('You and kim share the win!');
     // a username keeps its case (seen live: "Cd3 and cd4")
     expect(tournamentWinnerLine(['cd3', 'cd4'], 'me')).toBe('cd3 and cd4 share the win!');
     expect(tournamentWinnerLine(['me'], 'me')).toBe('You win the tournament!');
-    expect(cutWonLine({ winner: 'dan' }, 'me')).toBe('dan won Cut for a buck');
-    expect(cutWonLine({ winner: 'me' }, 'me')).toBe('You won Cut for a buck');
+    expect(cutWonLine({ winner: 'dan' }, 'me')).toBe('dan won cut for a buck');
+    expect(cutWonLine({ winner: 'me' }, 'me')).toBe('You won cut for a buck');
     expect(cutWonLine(null, 'me')).toBe('');
     expect(RESHUFFLE_LINE).toBe('Not enough cards left. Shuffling them back in.');
   });

@@ -212,8 +212,11 @@ function seatRejoin(socket, io, game, gameId, username) {
         socket.emit('rejoinFailed', { reason: 'Not a player in this game' });
     };
 
-    // Before seats exist there is nothing to rejoin into yet
+    // Before seats exist: a human entrant back on a new socket (a reload
+    // during the countdown or the draw) takes its entrant record over and is
+    // seated as connected; anyone else has nothing to rejoin into yet
     if (game.entrants !== null) {
+        if (!deletedSince(username, game.createdAt) && seatLifecycle.reconnectEntrant(io, game, socket, username)) return;
         refuse();
         return;
     }

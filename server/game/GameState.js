@@ -1576,6 +1576,48 @@ class GameState {
         return e;
     }
 
+    /**
+     * A human entrant is back on a new socket before seating (a reload during
+     * the countdown or the draw): its record moves to `newSocketId`, connected
+     * again, with every draw structure keyed by entrant socket (drawIDs, the
+     * planned teams, a staged draw's plan), so the draw and the seating treat
+     * the new socket as the entrant itself. A card already drawn for it (the
+     * disconnect's auto-draw) stays its card. Never a bot or a 'left' entrant
+     * (a /leave before seating is final). Entrant order is kept.
+     * @returns {string|null} the old socket id (the new one when already
+     *   keyed to it), or null when `username` is no such entrant
+     */
+    reattachEntrant(username, newSocketId) {
+        const record = this.returningEntrant(username);
+        if (!record || !newSocketId) return null;
+        const oldSocketId = record.socketId;
+        // Another entrant on the new socket would be a second identity for
+        // it: refused before anything changes (a dead entrant stays
+        // disconnected, so the draw still seats it in grace)
+        if (oldSocketId !== newSocketId && this.entrants.has(newSocketId)) return null;
+        record.presence = 'connected';
+        if (oldSocketId === newSocketId) return oldSocketId;
+        const rekey = (sid) => (sid === oldSocketId ? newSocketId : sid);
+        record.socketId = newSocketId;
+        this.entrants = new Map(Array.from(this.entrants, ([sid, e]) => [rekey(sid), e]));
+        this.drawIDs = this.drawIDs.map(rekey);
+        if (Array.isArray(this.drawTeams)) this.drawTeams = this.drawTeams.map((t) => t.map(rekey));
+        return oldSocketId;
+    }
+
+    /**
+     * The human entrant `username` may take over before seating (read only):
+     * not a bot, not 'left' (a /leave before seating is final); null when
+     * there is none or seats exist.
+     */
+    returningEntrant(username) {
+        if (!this.entrants || !username) return null;
+        for (const e of this.entrants.values()) {
+            if (!e.isBot && e.username === username && e.presence !== 'left') return e;
+        }
+        return null;
+    }
+
     /** Idempotent. */
     markEntrantLeft(socketId) {
         const e = this.entrant(socketId);

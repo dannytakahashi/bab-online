@@ -70,7 +70,8 @@ enum CardLegality {
         trump: Card?,
         trumpBroken: Bool,
         myPosition: Int,
-        leadPosition: Int
+        leadPosition: Int,
+        seats: Int = 4
     ) -> LegalityResult {
         guard let trump = trump else { return .ok }
 
@@ -96,7 +97,8 @@ enum CardLegality {
 
         // HI joker special rule: opponents must play their highest trump
         if lead.rank == .hi {
-            let isOpponent = myPosition % 2 != leadPosition % 2
+            // at a three-seat table (Get Your Bid) every other seat is an opponent
+            let isOpponent = Positions.areOpponents(myPosition, leadPosition, seats: seats)
             if isOpponent && !isHighestTrump(rank: card.rank, hand: hand, trump: trump) {
                 return .illegal("Must play highest trump when HI joker leads")
             }
@@ -120,13 +122,14 @@ enum CardLegality {
         trump: Card?,
         trumpBroken: Bool,
         myPosition: Int,
-        leadPosition: Int
+        leadPosition: Int,
+        seats: Int = 4
     ) -> [Card] {
         hand.filter { card in
             isLegalMove(
                 card: card, hand: hand, lead: lead, isLeading: isLeading,
                 trump: trump, trumpBroken: trumpBroken,
-                myPosition: myPosition, leadPosition: leadPosition
+                myPosition: myPosition, leadPosition: leadPosition, seats: seats
             ).legal
         }
     }

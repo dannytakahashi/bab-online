@@ -224,11 +224,23 @@ function describe(decl, decls) {
     if (codingKeys) for (const c of enumCases(codingKeys)) rawKey[c.name] = c.raw;
     const fields = {};
     if (init) {
-        // keyed custom init: decode = required, decodeIfPresent / try? = optional; contains() is no decode
-        const re = /(?:let\s+(\w+)\s*=\s*)?try(\?)?\s*\w+\.(decode|decodeIfPresent)\(\s*(.+?)\.self\s*,\s*forKey:\s*\.(\w+)\s*\)/g;
+        // keyed custom init: decode = required, decodeIfPresent / try? = optional; contains() is no decode.
+        // A read is `try[?] c.decode(T.self, forKey: .k)` or, over a lenient container (iOS 1.2.7 (41):
+        // StartDraw and Get Your Bid's GybStart / GybDoneBidding / GybSnapshot), exactly
+        //   let c = try? decoder.container(keyedBy: CodingKeys.self)
+        //   x = c.flatMap { try? $0.decode(T.self, forKey: .k) }
+        // where the closure's own try / try? says required / optional, as for a plain read. A payload
+        // that is not an object then decodes too (every field empty); the floor still wants an
+        // object there, and a wrong type under any try?, as everywhere else here: held, never
+        // loosened (a read that would come back empty is a lost field, not a failed event)
+        const re = /(?:let\s+(\w+)\s*=\s*)?(?:try(\?)?\s*\w+|(\w+)\.flatMap\s*\{\s*try(\?)?\s*\$0)\.(decode|decodeIfPresent)\(\s*(.+?)\.self\s*,\s*forKey:\s*\.(\w+)\s*\)/g;
+        const lenientContainers = new Set([...init.matchAll(/\blet\s+(\w+)\s*=\s*try\?\s*decoder\.container\(\s*keyedBy:\s*CodingKeys\.self\s*\)/g)].map((x) => x[1]));
         let m;
         while ((m = re.exec(init))) {
-            const [, local, tryQ, how, typeText, key] = m;
+            const [, local, plainTryQ, viaFlatMap, closureTryQ, how, typeText, key] = m;
+            // a flatMap read only over this init's own `try? decoder.container(keyedBy: CodingKeys.self)`
+            if (viaFlatMap && !lenientContainers.has(viaFlatMap)) throw new Error(`swiftDecodes: ${decl.name}: ${viaFlatMap}.flatMap { $0.${how} } over a container it cannot read`);
+            const tryQ = viaFlatMap ? closureTryQ : plainTryQ;
             let t = resolveType(parseType(typeText), decl.name, decls);
             // `let s = decode(String)` then `guard let x = SomeEnum(rawValue: s) else { throw }`: the closed enum
             const asEnum = local && new RegExp(`(\\w+)\\(rawValue:\\s*${local}\\s*\\)`).exec(init);

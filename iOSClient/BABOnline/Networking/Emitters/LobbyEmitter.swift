@@ -11,8 +11,10 @@ enum LobbyEmitter {
         socket.emit(SocketEvents.Client.mainRoomChat, ["message": message])
     }
 
-    static func createLobby() {
-        socket.emit(SocketEvents.Client.createLobby, [:])
+    /// `mode` .gyb: a Get Your Bid lobby (`createLobby {mode: 'gyb'}`, the cap getYourBid);
+    /// the base game sends `{}` as before.
+    static func createLobby(mode: GameMode = .classic) {
+        socket.emit(SocketEvents.Client.createLobby, mode == .gyb ? ["mode": GybRules.wireMode] : [:])
     }
 
     static func joinLobby(lobbyId: String) {

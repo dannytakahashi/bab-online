@@ -19,6 +19,121 @@ final class ScoreBarNamesTests: XCTestCase {
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: 4, usernames: seated) == ("dan/bob", "ann/cat"))
     }
 
+    /// A lazy or resigned seat is named by its owner in the team names (owner 2026-11-25; server
+    /// #416, the web's teamPlayerDataOf): the score bar's sides, the bid chips' and the bidding /
+    /// hand lines; the seat's own plate keeps the bot that plays it; a native bot keeps its persona.
+    func testALazyOrResignedSeatIsNamedByItsOwnerInTeamNames() {
+        // seats: 1 me, 2 L (a native bot), 3 P (a human), 4 R (a native bot)
+        var s = T.dealtState()
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: s.players.teamNames) == ("me/P", "L/R"))
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "🤖 Zach", "botPic": 5, "originalUsername": "P", "seq": 3]))
+        XCTAssertEqual(s.players.name(3), "🤖 Zach", "the plate shows who is playing")
+        XCTAssertEqual(s.players.teamName(3), "P")
+        XCTAssertEqual(s.players.teamName(2), "L", "a native bot keeps its persona")
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: s.players.teamNames) == ("me/P", "L/R"))
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 2, usernames: s.players.teamNames) == ("L/R", "P/me"))
+        // the bidding line names the owner too
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 2, "seq": 4]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 0, "position": 3, "seq": 5]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 4, "seq": 6]))
+        TableReducer.reduce(&s, T.ev("bidReceived", ["bid": 1, "position": 1, "seq": 7]))
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": [1, 1, 0, 1], "lead": 2, "seq": 8]))
+        let lines = s.log.entries.map(\.message)
+        XCTAssertTrue(lines.contains { $0.hasPrefix("Bidding complete — me/P: ") }, "\(lines)")
+        XCTAssertFalse(lines.contains { $0.hasPrefix("Bidding complete") && $0.contains("Zach") }, "\(lines)")
+        // back from /lazy: the owner plays and is named
+        TableReducer.reduce(&s, T.ev("playerActiveMode", ["position": 3, "username": "P", "pic": 3, "seq": 9]))
+        XCTAssertEqual(s.players.name(3), "P")
+        XCTAssertEqual(s.players.teamName(3), "P")
+
+        // a resign bot: the owner who left
+        var r = T.dealtState()
+        TableReducer.reduce(&r, T.ev("playerResigned", ["position": 3, "oldUsername": "P", "botUsername": "🤖 Gina", "botPic": 6, "seq": 3]))
+        XCTAssertEqual(r.players.name(3), "🤖 Gina")
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: r.players.teamNames) == ("me/P", "L/R"))
+        XCTAssertTrue(ScoreBarView.viewerTeams(position: nil, spectator: true, usernames: r.players.teamNames).team?.joined == "me/P")
+
+        // the rule on its own: an owner wins unless the seat is a native bot
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "ann", controller: .lazyBot)), "ann")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "ann", controller: .resignBot)), "ann")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "🤖 Mike", controller: .bot)), "🤖 Mike")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: "x", controller: .bot)), "🤖 Mike")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "🤖 Mike", ownerUsername: nil, controller: .resignBot)), "🤖 Mike",
+                       "a draw-phase leaver's resign bot with no owner known: its persona")
+        XCTAssertEqual(PlayersSlice.teamName(SeatState(position: 1, username: "ann", ownerUsername: "", controller: .human)), "ann")
+    }
+
+    /// The seat labels follow the owner rule too (2026-11-26, the #421 review): a lazy or resigned
+    /// seat's pips, card backs and dealer marker say its owner; its avatar and name plate keep
+    /// the bot that plays it (`name`); a native bot keeps its persona.
+    func testTheSeatLabelsNameALazyOrResignedSeatByItsOwner() {
+        // seats: 1 me, 2 L (a native bot), 3 P (a human), 4 R (a native bot)
+        var s = T.dealtState()
+        TableReducer.reduce(&s, T.ev("playerLazyMode", ["position": 3, "botUsername": "🤖 Zach", "botPic": 5, "originalUsername": "P", "seq": 3]))
+        let seats = Dictionary(uniqueKeysWithValues: TableRenderModel(s).opponents.map { ($0.position, $0) })
+        XCTAssertEqual(seats[3]?.name, "🤖 Zach", "the avatar shows who is playing")
+        XCTAssertEqual(seats[3]?.spokenName, "P")
+        XCTAssertEqual(seats[2]?.spokenName, "L", "a native bot keeps its persona")
+        XCTAssertEqual(seats[4]?.spokenName, "R")
+        // the spectator badge's rows ("Zach · watching P"), as the seat eye says it
+        TableReducer.reduce(&s, T.ev("spectatorsUpdated", ["gameId": "g1", "spectators": [["username": "zed", "pic": 3, "shoulder": 3]], "count": 1]))
+        XCTAssertEqual(s.players.watchedSeatNames, [3: "P"])
+        // back from /lazy: the owner plays, one name again
+        TableReducer.reduce(&s, T.ev("playerActiveMode", ["position": 3, "username": "P", "pic": 3, "seq": 4]))
+        XCTAssertEqual(TableRenderModel(s).opponents.first { $0.position == 3 }?.spokenName, "P")
+        // a resign bot: the owner who left
+        var r = T.dealtState()
+        TableReducer.reduce(&r, T.ev("playerResigned", ["position": 3, "oldUsername": "P", "botUsername": "🤖 Gina", "botPic": 6, "seq": 3]))
+        let o = TableRenderModel(r).opponents.first { $0.position == 3 }
+        XCTAssertEqual(o?.name, "🤖 Gina")
+        XCTAssertEqual(o?.spokenName, "P")
+    }
+
+    /// positionUpdate.owners (additive 2026-11-26): a draw-phase leaver seated as a resign bot is
+    /// named by the leaver on the seat's owner labels (pips, card backs, dealer, team names), as a
+    /// snapshot's ownerUsername says; the seat shows the bot; a native bot keeps its persona; an
+    /// older server (no owners) and a malformed entry leave today's names.
+    func testPositionUpdateOwnersNameADrawLeaversSeat() {
+        func seated(_ owners: Any?) -> TableState {
+            var s = TableState()
+            TableReducer.reduce(&s, .local(.identity(username: "me", playerId: "sid-me")))
+            TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+            var p: [String: Any] = [
+                "positions": [1, 2, 3, 4], "sockets": ["sid-me", "bot:z", "sid-p", "bot:r"],
+                "usernames": [["username": "me"], ["username": "🤖 Zach"], ["username": "P"], ["username": "R"]],
+                "pics": [1, 2, 3, 4], "isBot": [false, true, false, true], "nativeBot": [false, false, false, true], "seq": 1,
+            ]
+            if let owners { p["owners"] = owners }
+            TableReducer.reduce(&s, T.ev("positionUpdate", p))
+            return s
+        }
+        let s = seated(["me", "bo", "P", NSNull()])
+        XCTAssertEqual(s.players.seats[2]?.controller, .resignBot)
+        XCTAssertEqual(s.players.seats[2]?.ownerUsername, "bo")
+        XCTAssertEqual(s.players.name(2), "🤖 Zach", "the seat shows the bot")
+        XCTAssertEqual(s.players.ownerName(2), "bo")
+        XCTAssertEqual(s.players.teamName(2), "bo")
+        XCTAssertEqual(TableRenderModel(s).opponents.first { $0.position == 2 }?.spokenName, "bo")
+        XCTAssertEqual(s.players.ownerName(4), "R", "a native bot keeps its persona")
+        XCTAssertNil(s.players.seats[4]?.ownerUsername)
+        XCTAssertEqual(s.players.seats[3]?.ownerUsername, "P")
+        XCTAssertTrue(ScoreBarView.seatTeamNames(position: 1, usernames: s.players.teamNames) == ("me/P", "bo/R"))
+
+        // an older server: the bot, as before
+        let old = seated(nil)
+        XCTAssertNil(old.players.seats[2]?.ownerUsername)
+        XCTAssertEqual(old.players.ownerName(2), "🤖 Zach")
+        // malformed entries are no owner, never a decode failure
+        let odd = seated([7, "", NSNull(), "R?"])
+        XCTAssertEqual(odd.players.seats[1]?.ownerUsername, "me")
+        XCTAssertNil(odd.players.seats[2]?.ownerUsername)
+        XCTAssertEqual(odd.players.ownerName(2), "🤖 Zach")
+        // not an array: no owners, and the seating still applies
+        let notAList = seated("bo")
+        XCTAssertEqual(notAList.players.seats.count, 4)
+        XCTAssertEqual(notAList.players.ownerName(2), "🤖 Zach")
+    }
+
     func testNamesNotKnownYetAreEmptyNeverAPlaceholder() {
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: nil, usernames: seated) == ("", ""))
         XCTAssertTrue(ScoreBarView.seatTeamNames(position: 0, usernames: seated) == ("", ""))

@@ -7,8 +7,9 @@
  *            rules.js (gybHandScore, gybForbiddenBid).
  *
  * A lobby carries `lobby.mode` ('gyb', else absent) and the game it starts
- * `game.mode`. Web only for now: a socket must announce the clientHello cap
- * `getYourBid` to see, join or watch one (no iOS build has it), so every
+ * `game.mode`. The web, and iOS from 1.2.7 (42): a socket must announce the
+ * clientHello cap `getYourBid` to see, join or watch one (iOS builds before
+ * 42 do not), so every
  * payload of a Get Your Bid table goes only to clients that know the mode.
  */
 

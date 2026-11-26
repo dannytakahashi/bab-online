@@ -65,6 +65,7 @@ final class LiveLobbyBotTests: XCTestCase {
         XCTAssertTrue(newGame.exists, "not in the main room after registering")
         XCTAssertTrue(wait(15) { newGame.isEnabled }, "New Game stays disabled (session)")
         newGame.tap()
+        Fixture.chooseClassicGame()
         let addBot = app.buttons["Add Bot"]
         XCTAssertTrue(addBot.waitForExistence(timeout: 15), "no game lobby")
 

@@ -650,5 +650,102 @@ async function scenarioRestart(w, rec, seed) {
     return { game, usernames: { [human.id]: 'ios_ann', 'ios-h1-r1': 'ios_ann' } };
 }
 
-module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart, iosActions };
+/**
+ * The caps an iOS build with Get Your Bid sends in clientHello (iOS 1.2.7
+ * (42): ServerConfig ClientHello.caps). Only the Get Your Bid recording
+ * says hello: a socket without `getYourBid` is never sat at such a table.
+ */
+const IOS_GYB_CAPS = ['avatarUrl', 'casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView',
+    'tournamentVoice', 'tournamentPairings', 'badges', 'getYourBid'];
+
+function iosHello(w, s) {
+    require('../socket/clientInfo').handle(s, w.io, { client: 'ios', version: '1.2.7', build: '42', caps: IOS_GYB_CAPS });
+}
+
+/** The seat on turn's legal cards at a three-seat table (rules.isLegalMove with `solo`: every other seat an opponent of a HI joker lead). */
+function gybLegalCards(game, socketId) {
+    const { isLegalMove } = require('../game/rules');
+    const position = game.getPositionBySocketId(socketId);
+    const hand = game.getHand(socketId);
+    const leading = game.playedCardsIndex === 0;
+    return hand.filter((card, i) => {
+        const remaining = hand.filter((_, j) => j !== i);
+        return leading
+            ? isLegalMove(card, remaining, card, true, game.trump, game.isTrumpBroken, position, position, true)
+            : isLegalMove(card, remaining, game.leadCard, false, game.trump, game.isTrumpBroken, position, game.leadPosition, true);
+    });
+}
+
+/**
+ * scenarioGyb(w, rec, seed): Get Your Bid (server/game/gameMode.js), one
+ * iOS human and two lobby bots, 13 hands. The human's socket says hello
+ * with the cap getYourBid (createLobby {mode: 'gyb'}); a spectator (the
+ * cap too) joins in hand 2; in hand 4 the human's socket dies mid-trick
+ * and rejoins. The human bids a seeded legal number (never its Forbidden
+ * Bid: isValidGybBid) and plays a seeded legal card. Every checkpoint
+ * carries `gyb` (GameState.gybWire, what every carrier adds).
+ */
+async function scenarioGyb(w, rec, seed) {
+    const { isValidGybBid } = require('../game/rules');
+    const pick = mulberry32(seed * 7919 + 7);
+    const a = iosActions(w, rec);
+    const human = w.user('ios-h1', 'ios_ann', { pic: 11 });
+    iosHello(w, human);
+    rec.watch('seat1', human.id, 'seat');
+    mainRoomHandlers.createLobby(human, w.io, { name: 'iOS three', mode: 'gyb' });
+    const lobby = gameManager.getPlayerLobby(human.id);
+    if (!lobby || lobby.mode !== 'gyb') throw new Error('gyb scenario: no Get Your Bid lobby');
+    for (let i = 0; i < 2; i++) await lobbyHandlers.addBot(human, w.io);
+    w.pending.push(lobbyHandlers.playerReady(human, w.io));
+    await jest.advanceTimersByTimeAsync(pacing().LOBBY_START_MS);
+    const game = gameManager.getPlayerGame(human.id);
+    if (!game || game.seatCount !== 3) throw new Error('gyb scenario: no three-seat game');
+    await jest.advanceTimersByTimeAsync(pacing().PREDRAW_COUNTDOWN_MS);
+    await playDraw(a, rec, game, [human]);
+
+    const done = {};
+    let me = human;
+    let guard = 0;
+    while (!game.isTerminal() && guard++ < 20000) {
+        const hands = game.handStats.totalHands;
+        if (hands === 1 && game.stage === Phase.BIDDING && !done.spectator) {
+            done.spectator = true;
+            const spec = w.user('ios-spec', 'ios_fan', { pic: 12 });
+            iosHello(w, spec);
+            rec.watch('spectator', spec.id, 'spectator');
+            mainRoomHandlers.joinAsSpectator(spec, w.io, { gameId: game.gameId });
+        }
+        if (hands === 3 && game.stage === Phase.PLAYING && game.playedCardsIndex >= 1 && !done.rejoin) {
+            done.rejoin = true;
+            rec.close('seat1');
+            await w.kill(me);
+            me = w.user('ios-h1-r1', 'ios_ann', { db: false });
+            iosHello(w, me);
+            rec.watch('seat1-rejoin', me.id, 'rejoin');
+            await reconnectHandlers.rejoinGame(me, w.io, { gameId: game.gameId, username: 'ios_ann' });
+        }
+        loopCheckpoint(rec, game, me.id, hands === 1 || hands === 3);
+        if (turnOpen(game, rec) && game.seat(game.currentTurn).ownerSocketId === me.id && humanAt(game, game.currentTurn)) {
+            const pos = game.currentTurn;
+            if (game.stage === Phase.BIDDING) {
+                const legal = [];
+                for (let n = 0; n <= Math.min(game.currentHand, 4); n++) {
+                    if (isValidGybBid(String(n), game.playerBids, game.currentHand, game.seatCount)) legal.push(String(n));
+                }
+                a.bid(me, legal[Math.floor(pick() * legal.length)] || '1', pos);
+            } else {
+                const legal = gybLegalCards(game, me.id);
+                a.play(me, legal[Math.floor(pick() * legal.length)], pos);
+            }
+            await tick();
+            continue;
+        }
+        await jest.advanceTimersByTimeAsync(250);
+    }
+    if (!done.spectator || !done.rejoin) throw new Error('gyb scenario: scripted steps missing ' + JSON.stringify(done));
+    await finish(w, rec, game);
+    return { game, usernames: { [human.id]: 'ios_ann', 'ios-h1-r1': 'ios_ann', 'ios-spec': 'ios_fan' } };
+}
+
+module.exports = { scenarioBots, scenarioHumans, scenarioPresence, scenarioTournament, scenarioBidClock, scenarioRestart, scenarioGyb, iosActions };
 

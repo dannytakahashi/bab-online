@@ -57,7 +57,7 @@ private struct GameLobbyScreen: View {
     /// Family lobbies (1.2.2 (12)): what it means for those who do not get a seat. Spectators
     /// always may talk (owner 2026-11-18: no host switch), so it is one line.
     private var voiceSection: some View {
-        Text(VoiceCopy.lobbyHint)
+        Text(VoiceCopy.lobbyHint(seats: lobbyState.seats))
             .font(.caption)
             .foregroundColor(Theme.textSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -170,6 +170,9 @@ private struct GameLobbyScreen: View {
                 }
                 .zIndex(1)  // over the player list it hangs across
 
+                // Get Your Bid: the mode above the seats (the web's lobbyMode line)
+                if lobbyState.mode == .gyb { GybModeBanner().padding(.horizontal).padding(.bottom, Theme.Space.s2) }
+
                 Divider().background(Theme.inputBorder, ignoresSafeAreaEdges: .vertical)
 
                 // Player slots: every member (up to 8 in a family lobby), then the table's
@@ -182,12 +185,12 @@ private struct GameLobbyScreen: View {
                                        isRemoving: removing.contains(player.id) || !canSendLobbyActions,
                                        isReconnecting: lobbyState.isReconnecting(player),
                                        isHost: !player.isBot && lobbyState.isHost(player.username),
-                                       status: LobbySeatStatus.of(player, in: lobbyState.players),
+                                       status: LobbySeatStatus.of(player, in: lobbyState.players, seats: lobbyState.seats),
                                        onRelease: mayRelease ? { releaseHold(player.username) } : nil,
                                        isReleasing: releasing.contains(player.username) || !canSendLobbyActions)
                     }
                     // (a place saved for the last game's expected players is not empty)
-                    ForEach(lobbyState.players.count..<max(lobbyState.players.count, 4 - lobbyState.expected.count), id: \.self) { index in
+                    ForEach(lobbyState.players.count..<max(lobbyState.players.count, lobbyState.seats - lobbyState.expected.count), id: \.self) { index in
                         emptySlot(index: index)
                     }
                     if !lobbyState.expected.isEmpty { expectedSection }
@@ -401,5 +404,34 @@ private struct LobbySplitLayout: Layout {
                     proposal: ProposedViewSize(width: left, height: readyHeight))
         chat.place(at: CGPoint(x: bounds.minX + chatX, y: bounds.minY),
                    proposal: ProposedViewSize(width: bounds.width - chatX, height: bounds.height))
+    }
+}
+
+/// The gold "Get Your Bid" chip (the main room's cards, the lobby): the mode's name.
+struct GybChip: View {
+    var body: some View {
+        Text(GybRules.name)
+            .font(.caption2.bold())
+            .foregroundColor(Theme.gold)
+            .padding(.horizontal, Theme.Space.s2)
+            .padding(.vertical, 2)
+            .background(Capsule().strokeBorder(Theme.gold, lineWidth: 1))
+            .accessibilityIdentifier("gybChip")
+    }
+}
+
+/// The game lobby's line above the seats of a Get Your Bid lobby: the chip and its one-line rules.
+struct GybModeBanner: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.s1) {
+            GybChip()
+            Text(GybRules.blurb)
+                .font(.caption)
+                .foregroundColor(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("lobby.mode")
     }
 }

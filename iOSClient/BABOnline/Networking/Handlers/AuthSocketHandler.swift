@@ -1,7 +1,7 @@
 import Foundation
 
 /// Handles auth-related socket events: signInResponse, signUpResponse, forceLogout, activeGameFound, deleteAccountResponse,
-/// changePasswordResponse
+/// changePasswordResponse, updateRequired
 final class AuthSocketHandler {
     private let socket: SocketService
     private let authState: AuthState
@@ -61,6 +61,13 @@ final class AuthSocketHandler {
         socket.on(SocketEvents.Server.changePasswordResponse) { [weak self] data, _ in
             guard let self, let dict = data.first as? [String: Any] else { return }
             self.handleChangePasswordResponse(dict)
+        }
+
+        // the upgrade gate (2026-11-25): this build is too old for the server; the full-screen
+        // update screen, the session kept
+        socket.on(SocketEvents.Server.updateRequired) { data, _ in
+            let dict = data.first as? [String: Any]
+            DispatchQueue.main.async { UpdateRequiredState.shared.receive(dict) }
         }
     }
 

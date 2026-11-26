@@ -23,6 +23,12 @@ enum TournamentEmitter {
         socket.emit(SocketEvents.Client.tournamentUnready)
     }
 
+    /// The host's round count, 1 to 5 (lobby phase only; TournamentRounds). The server answers
+    /// the room with tournamentSettingsUpdated, or refuses with serverError.
+    static func setTournamentRounds(_ totalRounds: Int) {
+        socket.emit(SocketEvents.Client.setTournamentRounds, ["totalRounds": totalRounds])
+    }
+
     static func beginTournament() {
         socket.emit(SocketEvents.Client.beginTournament)
     }
@@ -45,6 +51,12 @@ enum TournamentEmitter {
 
     static func returnToTournament() {
         socket.emit(SocketEvents.Client.returnToTournament)
+    }
+
+    /// Cut for a buck: my draw for the open round, the fan's slot I touched or nil for a random one
+    /// (VoiceOver's "Draw a card", the list's button, a tap after the server drew for me).
+    static func cutForABuckDraw(round: Int, slot: Int?) {
+        socket.emit(SocketEvents.Client.cutForABuckDraw, ["round": round, "slot": slot.map { $0 as Any } ?? NSNull()])
     }
 
     static func cancelTournament() {

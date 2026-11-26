@@ -122,8 +122,9 @@ extension Theme {
     static let teamA = Palette.Team.a.color
     static let teamB = Palette.Team.b.color
 
-    /// Team 1 is A, team 2 is B.
-    static func team(_ teamNumber: Int) -> Color { teamNumber == 2 ? teamB : teamA }
+    /// Team 1 is A, team 2 is B; 3 is a Get Your Bid table's third seat (gold: the web's
+    /// `.is-team-c`, `--gold`, no new token), `Positions.colour(_:seats:)`.
+    static func team(_ teamNumber: Int) -> Color { teamNumber == 3 ? gold : teamNumber == 2 ? teamB : teamA }
 
     /// The team color of a seat (1...4).
     static func team(forPosition position: Int) -> Color { team(Positions.getTeamNumber(position)) }
@@ -257,7 +258,7 @@ extension Theme {
         static let pileDanger = Palette.Danger.text.uiColor
         static let pileSlot = Palette.Surface.s3.opacity(0.9).uiColor
 
-        static func team(_ teamNumber: Int) -> PlatformColor { teamNumber == 2 ? teamB : teamA }
+        static func team(_ teamNumber: Int) -> PlatformColor { teamNumber == 3 ? Palette.gold.uiColor : teamNumber == 2 ? teamB : teamA }
 
         /// A font for SKLabelNode.fontName by weight. SpriteKit loads fonts by name and the
         /// system font has no public one (its ".SFUI" name falls back to Times), so this is

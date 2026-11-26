@@ -65,6 +65,7 @@ final class LivePlayAgainTests: XCTestCase {
 
         // a lobby with three bots, then Ready: the game starts
         newGame.tap()
+        Fixture.chooseClassicGame()
         let addBot = app.buttons["Add Bot"]
         XCTAssertTrue(addBot.waitForExistence(timeout: 15), "no game lobby")
         let lobbyName = "\(user)'s Game"  // the server's default name (GameManager.createNamedLobby)

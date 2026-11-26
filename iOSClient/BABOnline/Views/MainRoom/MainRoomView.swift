@@ -24,6 +24,8 @@ private struct MainRoomScreen: View {
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @State private var hingeTick = 0
     @State private var showLeaderboard = false
+    /// New Game's choice of game (Get Your Bid, owner 2026-11-24: the web's create dialog).
+    @State private var showCreateGame = false
     @State private var showOnlineUsers = false
     @State private var showAccountSettings = false
     @State private var didEnterBackground = false
@@ -79,6 +81,17 @@ private struct MainRoomScreen: View {
                 LobbyEmitter.joinMainRoom()
             }
         }
+        // New Game: which game (the web's create dialog: "Back Alley Bridge" sends createLobby {}
+        // as before, "Get Your Bid" createLobby {mode: 'gyb'})
+        .confirmationDialog("New Game", isPresented: $showCreateGame, titleVisibility: .visible) {
+            Button(GybRules.classicName) { createLobby(.classic) }
+                .accessibilityIdentifier("newGame.classic")
+            Button(GybRules.name) { createLobby(.gyb) }
+                .accessibilityIdentifier("newGame.gyb")
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(GybRules.classicName): \(GybRules.classicBlurb)\n\(GybRules.name): \(GybRules.blurb)")
+        }
         .sheet(isPresented: $showLeaderboard) {
             StatsView()
                 .statsSheetSizing()
@@ -132,6 +145,12 @@ private struct MainRoomScreen: View {
         }
     }
 
+    /// The choice was made: only while the main room may still send (the session gate).
+    private func createLobby(_ mode: GameMode) {
+        guard socketService.canSendMainRoomActions else { return }
+        LobbyEmitter.createLobby(mode: mode)
+    }
+
     private func createTournament() {
         TournamentRejoin.startFromMainRoom(tournamentState)
         TournamentEmitter.createTournament()
@@ -144,7 +163,7 @@ private struct MainRoomScreen: View {
         let othersIconsOnly = words != .words
         return HStack(spacing: othersIconsOnly ? 4 : 8) {
             headerButton("New Game", icon: "suit.spade.fill", color: Theme.primary,
-                         iconsOnly: words == .icons) { LobbyEmitter.createLobby() }
+                         iconsOnly: words == .icons) { showCreateGame = true }
                 .disabled(!socketService.canSendMainRoomActions)
             headerButton("Tournament", icon: "trophy.fill", color: Theme.warning,
                          iconsOnly: othersIconsOnly) { createTournament() }
@@ -193,7 +212,7 @@ private struct MainRoomScreen: View {
     @ToolbarContentBuilder
     private var barControls: some ToolbarContent {
         ToolbarItemGroup(placement: .barLeading) {
-            barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { LobbyEmitter.createLobby() }
+            barButton("New Game", icon: "suit.spade.fill", color: Theme.primary) { showCreateGame = true }
                 .disabled(!socketService.canSendMainRoomActions)
             barButton("Tournament", icon: "trophy.fill", color: Theme.warning) { createTournament() }
                 .disabled(!socketService.canSendMainRoomActions)

@@ -1086,7 +1086,7 @@ private struct GameScreen: View {
                 Color.clear
                     .frame(width: rect.width, height: rect.height)
                     .accessibilityElement()
-                    .accessibilityLabel("\(o.name): \(p.accessibilityLabel)")
+                    .accessibilityLabel("\(o.spokenName): \(p.accessibilityLabel)")
                     .accessibilityIdentifier("pips.\(o.position)")
                     .allowsHitTesting(false)
                     .offset(x: rect.minX, y: rect.minY)
@@ -1100,7 +1100,7 @@ private struct GameScreen: View {
                     Color.clear
                         .frame(width: rect.width, height: rect.height)
                         .accessibilityElement()
-                        .accessibilityLabel("\(o.name): \(o.cards) \(o.cards == 1 ? "card" : "cards")")
+                        .accessibilityLabel("\(o.spokenName): \(o.cards) \(o.cards == 1 ? "card" : "cards")")
                         .accessibilityIdentifier("fan.\(o.position)")
                         .allowsHitTesting(false)
                         .offset(x: rect.minX, y: rect.minY)
@@ -1114,7 +1114,7 @@ private struct GameScreen: View {
                 Color.clear
                     .frame(width: rect.width, height: rect.height)
                     .accessibilityElement()
-                    .accessibilityLabel(seat.map { "Dealer: \($0.name)" } ?? gameState.watchedName.map { "Dealer: \($0)" } ?? "You are the dealer")
+                    .accessibilityLabel(seat.map { "Dealer: \($0.spokenName)" } ?? gameState.watchedName.map { "Dealer: \($0)" } ?? "You are the dealer")
                     .accessibilityIdentifier("dealer")
                     .accessibilityValue("\(dealer)")
                     .allowsHitTesting(false)
@@ -1519,7 +1519,7 @@ private struct GameScreen: View {
                             // VoiceOver's way to an avatar tap: watch a seat's hand
                             .accessibilityActions {
                                 ForEach(ShoulderRules.watchableSeats(gameState.state), id: \.self) { pos in
-                                    Button("Watch \(ShoulderRules.possessive(gameState.players.name(pos))) hand") {
+                                    Button("Watch \(ShoulderRules.possessive(gameState.players.ownerName(pos))) hand") {
                                         gameState.apply(.local(.watchSeat(pos)))
                                     }
                                 }
@@ -1567,9 +1567,10 @@ private struct GameScreen: View {
     /// (the bottom seat has no avatar on the felt), Table view goes back to the plain view.
     private func watchingPill(_ w: Int) -> some View {
         let seat = gameState.players.seats[w]
-        let name = gameState.players.name(w)
+        // the owner rule: a lazy seat's owner, never the bot playing it (the avatar shows the bot)
+        let name = gameState.players.ownerName(w)
         let s = gameState.state
-        let others = ShoulderRules.watchableSeats(s).filter { $0 != w }.map { (position: $0, name: gameState.players.name($0)) }
+        let others = ShoulderRules.watchableSeats(s).filter { $0 != w }.map { (position: $0, name: gameState.players.ownerName($0)) }
         return WatchingPill(player: name, pictureKey: seat.flatMap { $0.avatarUrl ?? $0.pic.string }, paused: gameState.watchPaused,
                             speaking: watchedSpeaking, isTurn: gameState.currentTurn == w && !gameState.watchPaused,
                             badge: SeatBadge.of(seat), position: w, badgePop: gameState.badgePops[w] ?? 0, others: others,
@@ -1917,7 +1918,7 @@ private struct TableVoiceCompany: View {
         if let lobby {
             Observed(lobby: lobby, gameState: gameState, spectators: spectators)
         } else {
-            report(VoiceCompany.table(gameState.players, me: me, spectators: spectators))
+            report(VoiceCompany.table(gameState.players, seats: gameState.table.seats, me: me, spectators: spectators))
         }
     }
 
@@ -1937,7 +1938,7 @@ private struct TableVoiceCompany: View {
 
         var body: some View {
             let me = gameState.username ?? SocketService.shared.authState?.username
-            let company = VoiceCompany.tableScreen(gameState.players, gameId: gameState.gameId,
+            let company = VoiceCompany.tableScreen(gameState.players, seats: gameState.table.seats, gameId: gameState.gameId,
                                                    returnFromGameId: lobby.returnFromGameId, lobbyId: lobby.lobbyId,
                                                    lobbyPlayers: lobby.players, me: me, spectators: spectators)
             Color.clear

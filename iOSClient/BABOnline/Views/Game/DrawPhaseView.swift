@@ -21,6 +21,7 @@ struct DrawPhaseView: View {
     /// DrawLayoutProbe's frames (DEBUG builds only record any).
     @State private var probeFrames: [String: CGRect] = [:]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.horizontalSizeClass) private var hSize
 
     /// The results row instead of the deck: after my tap, when I had already drawn
     /// before this view appeared (a rejoin or a relaunch mid-draw), or for a spectator
@@ -107,21 +108,38 @@ struct DrawPhaseView: View {
 
     // MARK: - Header
 
+    /// A tournament table whose teams the round's plan set: the draw is for first deal only
+    /// (owner 2026-11-25), and the teams show under the title before anyone draws.
+    private var plannedTeams: [[TableSnapshot.PlannedTeamPlayer]]? { gameState.drawPlannedTeams }
+
+    /// The title and the rules keep a reading width; the teams line (one line, its names cut when
+    /// short of room) takes the whole width on a regular width (the iPad, the open Duo), so long
+    /// names at the large text sizes are not cut at 480 pt.
+    static let headerTextWidth: CGFloat = 480
+
     private var header: some View {
         VStack(spacing: Theme.Space.s2) {
-            Text("Draw for Deal")
+            Text(DrawCopy.title(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.xxl, weight: Theme.Weight.bold, design: .rounded, relativeTo: .title)
                 .foregroundStyle(Theme.textPrimary)
                 .accessibilityAddTraits(.isHeader)
                 .drawProbe("title")
-            Text("The two highest cards are partners; the highest deals.")
+                .frame(maxWidth: Self.headerTextWidth)
+            if let plannedTeams {
+                DrawTeamsLine(names: DrawCopy.teamsNames(plannedTeams, me: gameState.isSpectator ? nil : gameState.username),
+                              spoken: DrawCopy.teamsSpoken(plannedTeams, me: gameState.isSpectator ? nil : gameState.username))
+                    .frame(maxWidth: hSize == .regular ? .infinity : Self.headerTextWidth)
+                    .drawProbe("plannedTeams")
+            }
+            // Get Your Bid: no partners, the highest card deals (the web's DRAW_TEXT_SOLO)
+            Text(gameState.isGyb ? GybRules.drawRules : DrawCopy.rules(planned: plannedTeams != nil))
                 .themeFont(Theme.TypeScale.sm, relativeTo: .subheadline)
                 .foregroundStyle(Theme.textSecondary)
                 .drawProbe("rules")
+                .frame(maxWidth: Self.headerTextWidth)
         }
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: 480)
     }
 
     // MARK: - Deck
@@ -167,7 +185,8 @@ struct DrawPhaseView: View {
 
     private func resultsRow(_ m: DrawMetrics) -> some View {
         HStack(alignment: .top, spacing: 0) {
-            ForEach(0..<4, id: \.self) { index in
+            // a slot per seat: three at a Get Your Bid table
+            ForEach(0..<gameState.seatCount, id: \.self) { index in
                 drawSlot(index: index, m)
                     .frame(width: m.slotWidth)
             }
@@ -342,6 +361,55 @@ struct DrawPhaseView: View {
     }
 }
 
+// MARK: - Planned teams
+
+/// A tournament table's teams under the draw's title, "You & Hannah vs Danny & Clara": one
+/// line in every case (a hidden "Ag" sets its height), shrunk up to `DrawMetrics.nameMinScale`,
+/// then each name cut on its own (`DrawCopy.fittedLine`) so "&" and "vs" always show. VoiceOver
+/// reads "Partners: you and Hannah versus Danny and Clara".
+struct DrawTeamsLine: View {
+    let names: [[String]]
+    let spoken: String
+    @ScaledMetric(relativeTo: .subheadline) private var fontSize: CGFloat = Theme.TypeScale.sm
+    /// The line as drawn (a name may be cut), for the fixture's accessibility value.
+    @State private var shown = ""
+
+    var body: some View {
+        Text(verbatim: "Ag")
+            .font(.system(size: fontSize, weight: Theme.Weight.semibold))
+            .lineLimit(1)
+            .hidden()
+            .frame(maxWidth: .infinity)
+            .overlay {
+                GeometryReader { geo in
+                    let line = DrawCopy.fittedLine(names, width: geo.size.width, minScale: DrawMetrics.nameMinScale,
+                                                   measure: Self.measure(fontSize))
+                    Text(line)
+                        .onChange(of: line, initial: true) { _, l in shown = l }
+                        .font(.system(size: fontSize, weight: Theme.Weight.semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(DrawMetrics.nameMinScale)
+                        .truncationMode(.tail)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(spoken)
+            .accessibilityIdentifier("draw.plannedTeams")
+            #if DEBUG
+            // fixture mode: the drawn line, so a UI test can tell a cut name ("…") from a whole one
+            .accessibilityValue(UIFixture.isActive ? shown : "")
+            #endif
+    }
+
+    /// A string's width in the line's font at `size` (full size).
+    static func measure(_ size: CGFloat) -> (String) -> CGFloat {
+        let font = PlatformFont.systemFont(ofSize: size, weight: .semibold)
+        return { ($0 as NSString).size(withAttributes: [.font: font]).width }
+    }
+}
+
 // MARK: - Metrics
 
 /// The draw's geometry for a window width: four slots across, each card at most
@@ -372,86 +440,10 @@ struct DrawMetrics: Equatable {
     var cornerRadius: CGFloat { card.width * 24 / 300 }
 }
 
-// MARK: - Card art
-
-/// A card bitmap from CardTextureGenerator at `size` (its pixels sample 1:1 at
-/// the hand card's size), with the table's raised-card shadow.
-private struct CardArtImage: View {
-    let image: PlatformImage
-    let size: CGSize
-
-    var body: some View {
-        Image(platformImage: image)
-            .resizable()
-            .interpolation(.high)
-            .antialiased(true)
-            .frame(width: size.width, height: size.height)
-            .elevation(Theme.Elevation.e2)
-    }
-}
-
-/// A card that turns over around its vertical axis: the back up to 90 degrees,
-/// then the face (`flat`, Reduce Motion: no turn, the face replaces the back half way).
-private struct FlipCard: View, Animatable {
-    var angle: Double
-    let face: PlatformImage?
-    let back: PlatformImage
-    let size: CGSize
-    let flat: Bool
-
-    var animatableData: Double {
-        get { angle }
-        set { angle = newValue }
-    }
-
-    var body: some View {
-        let showsFace = angle >= 90
-        CardArtImage(image: showsFace ? (face ?? back) : back, size: size)
-            .rotation3DEffect(.degrees(flat ? 0 : showsFace ? angle - 180 : angle), axis: (x: 0, y: 1, z: 0), perspective: 0.4)
-    }
-}
-
-/// A player as the table's seats show one (OpponentHandNode): a circle in
-/// surface.s2 with a line.strong ring and the bold initial, or the seat's picture
-/// once the players are seated; mine has a primary ring. Its size is geometry, like
-/// the seat's (not type).
-private struct DrawAvatar: View {
-    let name: String?
-    let pictureKey: String?
-    let isLocal: Bool
-    @State private var image: PlatformImage?
-    private let diameter = Theme.Space.s8
-
-    var body: some View {
-        Group {
-            if let name {
-                ZStack {
-                    Circle().fill(Theme.surfaceLight)
-                    if let image {
-                        Image(platformImage: image).resizable().scaledToFill()
-                    } else {
-                        Text(String(name.prefix(1)).uppercased())
-                            .font(.system(size: diameter * 0.45, weight: .bold))  // the seat's radius * 0.9
-                            .foregroundStyle(Theme.textPrimary)
-                    }
-                }
-                .clipShape(Circle())
-                .overlay(Circle().strokeBorder(isLocal ? Theme.primary : Theme.inputBorder, lineWidth: isLocal ? 2 : 1.5))
-                .task(id: pictureKey) { image = await AvatarImageCache.image(for: pictureKey) }
-            } else {
-                Circle()
-                    .strokeBorder(Theme.inputBorder, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
-            }
-        }
-        .frame(width: diameter, height: diameter)
-        .accessibilityHidden(true)
-    }
-}
-
 // MARK: - Layout probe (DEBUG)
 
 /// What the draw's layout tests read (DEBUG builds): the frames of the title,
-/// rules line, deck, prompt, every slot's avatar / name / card and the teams
+/// a tournament table's teams line (`plannedTeams`), rules line, deck, prompt, every slot's avatar / name / card and the teams
 /// panel in the overlay's space, and `check`: "ok", or what is wrong (a name
 /// closer than Theme.Space.s3 to its card, a short name cut off, the cards not on
 /// one line, anything outside the overlay's safe area, two parts overlapping).
@@ -488,7 +480,7 @@ enum DrawLayoutProbe {
                 bad.append("card.\(i) top \(card.minY) not level with card.\(first.0) \(first.1.minY)")
             }
         }
-        let blocks = ["title", "rules", "deck", "prompt"] + (0..<4).flatMap { ["avatar.\($0)", "name.\($0)", "card.\($0)"] }
+        let blocks = ["title", "plannedTeams", "rules", "deck", "prompt"] + (0..<4).flatMap { ["avatar.\($0)", "name.\($0)", "card.\($0)"] }
         let present = blocks.compactMap { k in frames[k].map { (k, $0.insetBy(dx: 0.5, dy: 0.5)) } }
         for (a, ra) in present.enumerated() {
             for rb in present[(a + 1)...] where ra.1.intersects(rb.1) {

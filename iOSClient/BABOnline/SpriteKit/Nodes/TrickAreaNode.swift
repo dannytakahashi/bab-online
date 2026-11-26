@@ -5,6 +5,8 @@ import SpriteKit
 /// order (22.1c). Collected sprites leave for the scene's transient layer, so
 /// a reconcile never touches them.
 class TrickAreaNode: SKNode {
+    /// Seats at the table (3 at a Get Your Bid table): which slot a seat is (GameSKScene sets it from the model).
+    var seats = 4
     /// Collects in flight. While above 0 the hand is not playable, so the next
     /// card cannot be played into a table that is still being cleared (#187).
     private(set) var collectingCount = 0
@@ -43,7 +45,7 @@ class TrickAreaNode: SKNode {
         var created: Set<String> = []
         for c in cards {
             let name = Self.spriteName(c.position, c.card)
-            let slot = layout.trickSlot(Positions.getRelative(target: c.position, from: viewPosition))
+            let slot = layout.trickSlot(Positions.getRelative(target: c.position, from: viewPosition, seats: seats))
             let sprite: SKSpriteNode
             if let existing = self.sprite(named: name) {
                 sprite = existing
@@ -86,7 +88,7 @@ class TrickAreaNode: SKNode {
         for s in cardSprites {
             let parts = (s.name ?? "").split(separator: ".")
             guard parts.count >= 2, let pos = Int(parts[1]) else { continue }
-            let slot = layout.trickSlot(Positions.getRelative(target: pos, from: viewPosition))
+            let slot = layout.trickSlot(Positions.getRelative(target: pos, from: viewPosition, seats: seats))
             if s.action(forKey: "move") != nil { animator.retarget(s, to: slot) } else { s.position = slot }
             s.removeAction(forKey: "scale")
             s.setScale(layout.trickSpriteScale)
