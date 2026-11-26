@@ -1,4 +1,5 @@
 import XCTest
+import SpriteKit
 @testable import BAB_Online
 
 /// Get Your Bid on iOS (State/Table/GetYourBid.swift): the rules the app mirrors, the three-seat
@@ -392,11 +393,28 @@ final class GetYourBidTests: XCTestCase {
         // mine first (bob 1, coral), then cat (0), then ann (2, blue)
         XCTAssertEqual(chips.chips, [.team(2), .team(1), .team(1), .empty, .empty])
         XCTAssertEqual(chips.debugValue, "1+0+2/5")
-        XCTAssertEqual(chips.spoken, "Bids: bob 1, cat 0, ann 2, of 5 tricks")
+        // cat has not bid: no chips, and VoiceOver never says "cat 0" (a real Get Your Bid bid)
+        XCTAssertEqual(chips.spoken, "Bids: bob 1, cat not bid yet, ann 2, of 5 tricks")
         bids.byPosition = BidBook.padded(["4", "1", "2"])
         let over = BidChips.solo(bids: bids, handSize: 6, viewer: 1, names: [1: "ann", 2: "bob", 3: "cat"])
         XCTAssertEqual(over.overbid, 1)
         XCTAssertEqual(over.chips.last, .over(3))
+    }
+
+    /// The dealer has not bid yet: the chips count nothing for them, VoiceOver says so; a real
+    /// 0 is read as 0.
+    func testTheBidChipsSayADealerWhoHasNotBidHasNotBid() {
+        var bids = BidBook.fresh(bidder: 1, seats: 3)
+        bids.byPosition = BidBook.padded(["0", "7", nil])
+        let chips = BidChips.solo(bids: bids, handSize: 12, viewer: 1, names: [1: "ann", 2: "bob", 3: "\u{1F916} Mary"])
+        XCTAssertEqual(chips.segments?.map(\.bid), [0, 7, nil])
+        XCTAssertEqual(chips.segments?.map(\.count), [0, 7, 0])
+        XCTAssertEqual(chips.debugValue, "0+7+0/12")
+        XCTAssertEqual(chips.spoken, "Bids: ann 0, bob 7, \u{1F916} Mary not bid yet, of 12 tricks")
+        // before anyone bids
+        let none = BidChips.solo(bids: BidBook.fresh(bidder: 1, seats: 3), handSize: 10, viewer: 2, names: [1: "ann", 2: "bob", 3: "cat"])
+        XCTAssertEqual(none.spoken, "Bids: bob not bid yet, cat not bid yet, ann not bid yet, of 10 tricks")
+        XCTAssertEqual(none.chips.filter { $0 != .empty }, [])
     }
 
     func testTheGameEndRowsAreBestFirstWithTiesAndOutcomes() {
@@ -487,7 +505,158 @@ final class GetYourBidTests: XCTestCase {
         XCTAssertEqual(GameMode.from(nil), .classic)
     }
 
+    // MARK: - Voice, the shoulder view, the piles
+
+    /// Three seats are the whole table: the voice gate knows who is here (VoiceCompany.people),
+    /// starts with another human seated and stops once only bots are left with me.
+    func testThreeSeatsTellTheVoiceGateWhoIsHere() {
+        var s = TableState()
+        TableReducer.reduce(&s, .local(.identity(username: "me", playerId: "sid-me")))
+        TableReducer.reduce(&s, .local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        TableReducer.reduce(&s, .local(.setMode(.gyb)))
+        TableReducer.reduce(&s, T.ev("positionUpdate", [
+            "positions": [1, 2, 3], "sockets": ["sid-me", "sid-amy", "bot:r"],
+            "usernames": [["username": "me"], ["username": "amy"], ["username": "\u{1F916} Mary"]], "pics": [1, 2, 3],
+            "isBot": [false, false, true], "seq": 1,
+        ]))
+        XCTAssertEqual(s.table.seats, 3)
+        XCTAssertNil(s.players.entrantHumans, "the seats say who is here")
+        XCTAssertEqual(VoiceCompany.people(table: s.players, seats: s.table.seats)?.count, 3)
+        XCTAssertEqual(VoiceCompany.table(s.players, seats: s.table.seats, me: "me"), true, "amy is here")
+        XCTAssertEqual(VoiceCompany.tableScreen(s.players, seats: s.table.seats, gameId: "g1", returnFromGameId: nil, lobbyId: "",
+                                                lobbyPlayers: [], me: "me"), true)
+        // four seats asked of three: still not known (a casual table before its fourth seat)
+        XCTAssertNil(VoiceCompany.table(s.players, me: "me"))
+        TableReducer.reduce(&s, T.ev("seatLeft", ["gameId": "g1", "position": 2, "username": "amy"]))
+        XCTAssertEqual(VoiceCompany.table(s.players, seats: s.table.seats, me: "me"), false, "only a bot left with me")
+    }
+
+    /// A Get Your Bid snapshot's three seats are known to the voice gate too.
+    func testARestoredGybTableTellsTheVoiceGateWhoIsHere() throws {
+        let game = try RecordedGame("events-gyb-s19")
+        let viewer = game.viewer("seat1-rejoin")
+        var replay = ReducerReplay(viewer: viewer)
+        try replay.apply(try XCTUnwrap(game.logs[viewer.label]!.first { $0.event == "rejoinSuccess" }))
+        let s = replay.state
+        XCTAssertEqual(s.players.seats.count, 3)
+        XCTAssertNotNil(VoiceCompany.table(s.players, seats: s.table.seats, me: s.table.me.username), "the seats are known: no hold")
+    }
+
+    /// A spectator watches one of the three seats, never a seat 4 that is not there.
+    func testASpectatorCanWatchOnlyTheThreeSeats() throws {
+        let game = try RecordedGame("events-gyb-s19")
+        let viewer = game.viewer("spectator")
+        var replay = ReducerReplay(viewer: viewer)
+        for e in game.logs[viewer.label]! {
+            try replay.apply(e)
+            if e.event == "gameStart" || (e.event == "spectatorJoined" && replay.state.table.deal != nil) { break }
+        }
+        let s = replay.state
+        XCTAssertTrue(ShoulderRules.allowed(s))
+        XCTAssertNotNil(s.table.deal)
+        let watched = s.table.viewer.watchesHand ? s.table.viewer.watchedSeat : nil
+        XCTAssertEqual(ShoulderRules.watchableSeats(s), [1, 2, 3].filter { $0 != watched })
+        XCTAssertEqual(ShoulderRules.tap(s, position: 4), .profile)
+        XCTAssertLessThanOrEqual(ShoulderRules.firstHumanSeat(s), 3)
+    }
+
+    /// One pile per seat (the web's team / opp / opp2): mine, the next in turn's, the one after's,
+    /// each with its own bid's border.
+    func testEverySeatHasItsOwnPileWithItsOwnBid() {
+        var s = Self.dealt(dealer: 3, size: 6)
+        TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": 1, "seq": 3]))
+        for (i, (pos, bid)) in [(1, "1"), (2, "2"), (3, "4")].enumerated() {
+            TableReducer.reduce(&s, T.ev("bidReceived", ["bid": bid, "position": pos, "seq": 4 + 2 * i]))
+            TableReducer.reduce(&s, T.ev("updateTurn", ["currentTurn": pos % 3 + 1, "seq": 5 + 2 * i]))
+        }
+        TableReducer.reduce(&s, T.ev("doneBidding", ["bids": ["1", "2", "4"], "lead": 1, "gyb": ["forbidden": NSNull()], "seq": 10]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("spades", "A"), "position": 1, "seq": 11]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "2"), "position": 2, "seq": 12]))
+        TableReducer.reduce(&s, T.ev("cardPlayed", ["card": T.card("hearts", "3"), "position": 3, "seq": 13]))
+        TableReducer.reduce(&s, T.ev("trickComplete", ["winner": 3, "seq": 14]))
+        let model = TableRenderModel(s)
+        XCTAssertEqual(model.history, TeamPair(team1: 0, team2: 0), "mine, then L's (the next in turn)")
+        XCTAssertEqual(model.pileTotals, TeamPair(team1: 1, team2: 2))
+        XCTAssertEqual(model.soloPiles, .init(opp: 2, opp2: 3, opp2Won: 1, opp2Total: 4))
+
+        let node = TrickHistoryNode()
+        // the four-seat envelope (two rows of 16 pt icons, borders included)
+        node.setCounts(team: 13, opp: 13, totals: .some((team: 13, opp: 13)), myTeam: 1, solo: .some(nil))
+        let envelope = node.calculateAccumulatedFrame()
+        XCTAssertNil(node.border("opp2"))
+        node.setCounts(team: 0, opp: 0, opp2: 1, totals: .some((team: 1, opp: 2)), opp2Total: 4, myTeam: 2,
+                       solo: .init(opp: 3, opp2: 1))
+        func sprite(_ role: String) -> SKSpriteNode? { node.children.first { $0.role == role } as? SKSpriteNode }
+        XCTAssertNil(sprite("history.team.0"))
+        XCTAssertEqual(Self.rgba(sprite("history.opp2.0")?.color), Self.rgba(Theme.SK.team(1)))
+        XCTAssertEqual(sprite("history.opp2.0")?.position.y, TrickHistoryNode.soloOpp2RowY)
+        XCTAssertEqual(node.children.first { $0.role == "history.opp.slot.1" }?.position.y, TrickHistoryNode.soloOppRowY)
+        XCTAssertEqual(node.children.first { $0.role == "history.team.slot.0" }?.position.y, TrickHistoryNode.soloTeamRowY)
+        XCTAssertEqual(node.border("team"), .danger)
+        XCTAssertEqual(node.border("opp"), .danger)
+        XCTAssertEqual(node.border("opp2"), .danger)
+        XCTAssertNotNil(node.children.first { $0.role == "history.opp2.border" })
+        // three full rows stay inside the two rows' envelope: every layout keeps the piles clear
+        node.setCounts(team: 13, opp: 13, opp2: 13, totals: .some((team: 13, opp: 13)), opp2Total: 13)
+        let solo = node.calculateAccumulatedFrame()
+        XCTAssertTrue(envelope.insetBy(dx: -0.01, dy: -0.01).contains(solo), "\(solo) in \(envelope)")
+        // the rows do not touch
+        let rows = ["team", "opp", "opp2"].compactMap { r in node.children.first { $0.role == "history.\(r).border" }?.frame }
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertFalse(rows[0].intersects(rows[1]) || rows[1].intersects(rows[2]) || rows[0].intersects(rows[2]))
+        XCTAssertEqual(node.border("opp2"), .safe)
+        // back to a four-seat table: the third pile goes, the rows return
+        node.setCounts(team: 2, opp: 1, totals: .some(nil), myTeam: 1, solo: .some(nil))
+        XCTAssertFalse(node.children.contains { $0.role?.hasPrefix("history.opp2.") == true })
+        XCTAssertEqual(sprite("history.team.0")?.size, TableLayout.historyIcon)
+        XCTAssertEqual(sprite("history.team.0")?.position.y, TrickHistoryNode.teamRowY)
+    }
+
+    /// The scene draws the three piles from the store (seat colours: blue, coral, gold).
+    @MainActor
+    func testTheSceneDrawsAPilePerSeat() {
+        let h = ReplayHarness()
+        let size = CGSize(width: 393, height: 852)
+        let scene = GameSKScene(size: size)
+        scene.animator = InstantAnimator()
+        scene.configure(gameState: h.store, actions: h.actions)
+        scene.didMove(to: SKView(frame: CGRect(origin: .zero, size: size)))
+        h.store.apply(.local(.identity(username: "me", playerId: "sid-me")))
+        h.store.apply(.local(.enterGameContext(gameId: "g1", tournamentId: nil)))
+        h.store.apply(.local(.setMode(.gyb)))
+        for e in Self.dealEvents(dealer: 3, size: 6) { h.store.apply(e) }
+        h.store.apply(T.ev("updateTurn", ["currentTurn": 1, "seq": 3]))
+        for (i, (pos, bid)) in [(1, "1"), (2, "2"), (3, "4")].enumerated() {
+            h.store.apply(T.ev("bidReceived", ["bid": bid, "position": pos, "seq": 4 + 2 * i]))
+            h.store.apply(T.ev("updateTurn", ["currentTurn": pos % 3 + 1, "seq": 5 + 2 * i]))
+        }
+        h.store.apply(T.ev("doneBidding", ["bids": ["1", "2", "4"], "lead": 1, "gyb": ["forbidden": NSNull()], "seq": 10]))
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("spades", "A"), "position": 1, "seq": 11]))
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("hearts", "2"), "position": 2, "seq": 12]))
+        h.store.apply(T.ev("cardPlayed", ["card": T.card("hearts", "3"), "position": 3, "seq": 13]))
+        h.store.apply(T.ev("trickComplete", ["winner": 3, "seq": 14]))
+        scene.render(TableRenderModel(h.store.state))
+        let hist = scene.trickManager.trickHistory
+        XCTAssertEqual(hist.solo, .init(opp: 2, opp2: 3))
+        XCTAssertEqual(hist.counts.team, 0)
+        XCTAssertEqual(hist.counts.opp, 0)
+        XCTAssertEqual(hist.counts.opp2, 1)
+        XCTAssertEqual(hist.totals?.opp2, 4)
+        XCTAssertEqual(Self.rgba((hist.children.first { $0.role == "history.opp2.0" } as? SKSpriteNode)?.color), Self.rgba(Theme.SK.team(3)))
+        // a relayout keeps the third pile
+        scene.trickManager.apply(layout: scene.layout, viewPosition: 1, animator: InstantAnimator())
+        XCTAssertEqual(hist.counts.opp2, 1)
+    }
+
     // MARK: - Helpers
+
+    /// RGBA, rounded: SKSpriteNode keeps its own copy of the color, which == does not match.
+    static func rgba(_ c: UIColor?) -> [Int]? {
+        guard let c else { return nil }
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return [r, g, b, a].map { Int(($0 * 255).rounded()) }
+    }
 
     /// Seat 1 ("me") at a Get Your Bid table with L at 2 and R at 3, dealt `size` cards.
     static func dealt(dealer: Int, size: Int = 3) -> TableState {

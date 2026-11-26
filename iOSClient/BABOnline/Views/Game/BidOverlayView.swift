@@ -428,7 +428,13 @@ struct BidChips: Equatable {
     let mineSaid: String
     let theirsSaid: String
     /// Get Your Bid (`solo`): each player's bid in its seat's colour, mine first; nil at a team table.
-    struct Segment: Equatable { let colour: Int; let count: Int; let said: String }
+    /// `bid` nil: that player has not bid yet (no chips; VoiceOver says so, never "0", a real bid).
+    struct Segment: Equatable {
+        let colour: Int
+        let bid: Int?
+        let said: String
+        var count: Int { bid ?? 0 }
+    }
     var segments: [Segment]? = nil
 
     /// A Get Your Bid sheet's chips: each player's bid (a number, at most the hand), mine first
@@ -436,7 +442,7 @@ struct BidChips: Equatable {
     static func solo(bids: BidBook, handSize: Int, viewer: Int, names: [Int: String]) -> BidChips {
         var c = BidChips(bids: BidBook(), handSize: handSize, viewPosition: viewer)
         c.segments = GybRules.order(viewer: viewer).map { pos in
-            Segment(colour: Positions.colour(pos, seats: GybRules.seats), count: BidTotals.tricks(bids.bid(at: pos), handSize: handSize) ?? 0,
+            Segment(colour: Positions.colour(pos, seats: GybRules.seats), bid: BidTotals.tricks(bids.bid(at: pos), handSize: handSize),
                     said: names[pos] ?? "")
         }
         return c
@@ -489,7 +495,8 @@ struct BidChips: Equatable {
         let of = "of \(handSize) \(handSize == 1 ? "trick" : "tricks")"
         if let segments {
             let known = segments.allSatisfy { !$0.said.isEmpty }
-            var text = known ? "Bids: " + segments.map { "\($0.said) \($0.count)" }.joined(separator: ", ") + ", \(of)" : "Bids: \(total) \(of)"
+            let each = segments.map { seg in seg.bid.map { "\(seg.said) \($0)" } ?? "\(seg.said) not bid yet" }
+            var text = known ? "Bids: " + each.joined(separator: ", ") + ", \(of)" : "Bids: \(total) \(of)"
             if overbid > 0 { text += ". Over by \(overbid)" }
             return text
         }

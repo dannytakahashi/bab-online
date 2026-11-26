@@ -395,7 +395,7 @@ class GameSKScene: SKScene, TableRenderer {
             opponentManager.cleanup()
             handNode.cleanup()
             trickArea.clearAllCards()
-            trickManager.trickHistory.setCounts(team: 0, opp: 0, spacing: layout.historySpacing, totals: .some(nil))
+            trickManager.trickHistory.setCounts(team: 0, opp: 0, opp2: 0, spacing: layout.historySpacing, totals: .some(nil))
             myPipsNode.update(nil, team: 1)
             placeMyPips()
             myDealerNode.update(shown: false)
@@ -436,9 +436,15 @@ class GameSKScene: SKScene, TableRenderer {
             c.position == me ? toTrick.removeValue(forKey: c.card.id) : nil
         }, animator: animator)
         toTrick.values.forEach { $0.removeFromParent() }
-        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, spacing: layout.historySpacing,
+        // three seats: a pile per seat, each in its seat's colour with its own bid's border
+        let solo = model.soloPiles
+        trickManager.trickHistory.setCounts(team: model.history.team1, opp: model.history.team2, opp2: solo?.opp2Won ?? 0,
+                                            spacing: layout.historySpacing,
                                             totals: .some(model.pileTotals.map { (team: $0.team1, opp: $0.team2) }),
-                                            myTeam: Positions.colour(me, seats: model.seats))
+                                            opp2Total: solo?.opp2Total,
+                                            myTeam: Positions.colour(me, seats: model.seats),
+                                            solo: .some(solo.map { .init(opp: Positions.colour($0.opp, seats: 3),
+                                                                         opp2: Positions.colour($0.opp2, seats: 3)) }))
         myPipsNode.update(model.myPips, team: Positions.colour(me, seats: model.seats))
         placeMyPips()
         placeMyDealer(model)

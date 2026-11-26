@@ -51,8 +51,9 @@ enum ShoulderRules {
     }
 
     /// The first human seat in seat order (an owner not gone, never a native bot), else seat 1.
+    /// Every seat range here is the table's own (`TableSlice.seats`: Get Your Bid has no seat 4).
     static func firstHumanSeat(_ s: TableState) -> Int {
-        (1...4).first { pos in
+        (1...s.table.seats).first { pos in
             guard let seat = s.players.seats[pos], seat.controller != .bot, seat.presence != .gone, seat.presence != .none,
                   let owner = seat.ownerUsername, !owner.isEmpty else { return false }
             return true
@@ -62,7 +63,7 @@ enum ShoulderRules {
     /// The seat my username owns at this table (a player's other device; gone seats included).
     static func ownSeat(_ s: TableState) -> Int? {
         guard let me = s.table.me.username, !me.isEmpty else { return nil }
-        return (1...4).first { s.players.seats[$0]?.ownerUsername == me }
+        return (1...s.table.seats).first { s.players.seats[$0]?.ownerUsername == me }
     }
 
     /// Is the shoulder view offered here: a pure spectator, not at a tournament table, not refused for the game.
@@ -94,7 +95,7 @@ enum ShoulderRules {
     enum Tap: Equatable { case watch, profile }
 
     static func tap(_ s: TableState, position pos: Int) -> Tap {
-        guard (1...4).contains(pos), allowed(s), s.table.deal != nil else { return .profile }
+        guard (1...s.table.seats).contains(pos), allowed(s), s.table.deal != nil else { return .profile }
         if let own = s.table.watch.ownSeat ?? ownSeat(s), pos != own { return .profile }
         if s.table.viewer.watchedSeat == pos && s.table.viewer.watchesHand { return .profile }
         return .watch
@@ -102,7 +103,7 @@ enum ShoulderRules {
 
     /// The seats a tap (or a VoiceOver action) would watch now, in seat order.
     static func watchableSeats(_ s: TableState) -> [Int] {
-        (1...4).filter { tap(s, position: $0) == .watch }
+        (1...s.table.seats).filter { tap(s, position: $0) == .watch }
     }
 }
 

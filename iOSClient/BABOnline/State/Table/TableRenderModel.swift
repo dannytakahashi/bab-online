@@ -71,9 +71,20 @@ struct TableRenderModel: Equatable {
     var hand: Hand?
     var trick: [TrickCard]
     var turn: Int?
-    var history: TeamPair          // team1 = my team's tricks, team2 = theirs
+    var history: TeamPair          // team1 = my team's tricks, team2 = theirs (three seats: the next in turn's)
     /// The history's bid totals once bidding is over (team1 = my team's; a bore = the hand): nil while bidding.
+    /// Three seats: team1 my bid, team2 the next in turn's.
     var pileTotals: TeamPair?
+    /// A three-seat table's third pile (TrickHistoryNode's solo rows): the seat after the next in
+    /// turn's tricks and bid, and the two opponents' seats (their colours); nil at four seats.
+    var soloPiles: SoloPiles?
+
+    struct SoloPiles: Equatable {
+        var opp: Int               // the next in turn (history.team2's seat)
+        var opp2: Int              // the one after
+        var opp2Won: Int
+        var opp2Total: Int?        // nil while bidding
+    }
     /// Every seat's trick pips by absolute position (SeatPips), my own seat's included.
     var pips: [Int: SeatPips]
     /// What VoiceOver reads per seat: `pips` plus a 0 bid without tricks (no slots, still a count).
@@ -208,12 +219,14 @@ struct TableRenderModel: Equatable {
 
         let rel = s.scores.tricks.relative(to: view)
         history = TeamPair(team1: rel.mine, team2: rel.theirs)
+        soloPiles = nil
+        let around = Positions.around(view, seats: 3)
         if seats == 3 {
-            // mine (the bottom pile) and the other two together (the second pile)
+            // one pile per seat (the web's team / opp / opp2): mine, the next in turn's, the one after's
             let byPos = s.scores.tricksByPosition
-            let mine = byPos[view - 1] ?? 0
-            let all = (0..<3).reduce(0) { $0 + (byPos[$1] ?? 0) }
-            history = TeamPair(team1: mine, team2: all - mine)
+            let won = { (p: Int) in byPos[p - 1] ?? 0 }
+            history = TeamPair(team1: won(view), team2: won(around.opp1))
+            soloPiles = SoloPiles(opp: around.opp1, opp2: around.opp2, opp2Won: won(around.opp2), opp2Total: nil)
         }
         let doneBidding: BidBook?
         switch s.table.phase {
@@ -224,12 +237,15 @@ struct TableRenderModel: Equatable {
         let size = s.table.deal?.handSize
         pileTotals = doneBidding.map { book in
             if seatCount == 3 {
+                // each seat's own bid (no bores in Get Your Bid)
                 let bid = { (p: Int) in BidTotals.tricks(book.bid(at: p), handSize: size) ?? 0 }
-                let mine = bid(view)
-                return TeamPair(team1: mine, team2: (1...3).filter { $0 != view }.map(bid).reduce(0, +))
+                return TeamPair(team1: bid(view), team2: bid(around.opp1))
             }
             let t = BidTotals.totals(book, handSize: size).relative(to: view)
             return TeamPair(team1: t.mine, team2: t.theirs)
+        }
+        if seatCount == 3, let book = doneBidding {
+            soloPiles?.opp2Total = BidTotals.tricks(book.bid(at: around.opp2), handSize: size) ?? 0
         }
         pips = SeatPips.all(s)
         spokenPips = SeatPips.all(s, spoken: true)
