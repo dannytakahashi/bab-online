@@ -53,6 +53,22 @@ final class LobbyMenuLayoutUITests: XCTestCase {
         XCTAssertTrue(window.insetBy(dx: -1, dy: -1).contains(e.frame), "\(what) \(e.frame) outside the window \(window)")
     }
 
+    /// Drags inside `scroll` (pressed, moved slowly and held, so it does not fling) by the distance
+    /// that brings `e` inside its frame, at most 80% of its height per call. False when `e` is
+    /// already inside (nothing to drag).
+    @discardableResult
+    private func drag(_ scroll: XCUIElement, toShow e: XCUIElement) -> Bool {
+        let s = scroll.frame, f = e.frame, margin: CGFloat = 8
+        let dy: CGFloat  // > 0 moves the content down (e is above the top edge)
+        if f.minY < s.minY { dy = min(s.minY - f.minY + margin, s.height * 0.8) }
+        else if f.maxY > s.maxY { dy = -min(f.maxY - s.maxY + margin, s.height * 0.8) }
+        else { return false }
+        let start = scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: dy > 0 ? 0.1 : 0.9))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: dy)),
+                    withVelocity: .slow, thenHoldForDuration: 0.3)
+        return true
+    }
+
     private var more: (XCUIApplication) -> XCUIElement {
         { $0.buttons.matching(NSPredicate(format: "label == %@", "More")).firstMatch }
     }
@@ -298,10 +314,14 @@ final class LobbyMenuLayoutUITests: XCTestCase {
             let app = lobby("tournament-rounds", size + ["-uiMeReady", "YES"])
             let slot = element(app, "tournament.ready")
             for _ in 0..<6 where !(slot.exists && slot.isHittable) { app.swipeUp(velocity: .slow) }
-            // unpinned at AX5, the slot scrolls with the players in a short scroll view (about 75 pt
-            // on the 18 Pro), which a swipe at the screen's centre (the header there) often misses
+            // unpinned at AX5, the slot scrolls with the players in a short scroll view (167 pt on
+            // the 18 Pro) that cannot show the slot (86 pt) and its caption (153 pt) at once: the
+            // swipes end at its bottom, the caption in view and the slot above the top edge. Drag
+            // inside that scroll view, by the slot's measured distance, until the slot is in it.
             let scroll = app.scrollViews.containing(.button, identifier: "tournament.ready").firstMatch
-            for _ in 0..<6 where !(slot.exists && slot.isHittable) && scroll.exists { scroll.swipeUp(velocity: .slow) }
+            for _ in 0..<8 where !slot.isHittable && scroll.exists {
+                guard drag(scroll, toShow: slot) else { break }
+            }
             XCTAssertTrue(slot.isHittable, "\(tag): the slot")
             assertOnScreen(app, slot, "\(tag) slot")
             XCTAssertGreaterThan(slot.frame.height, 44, "\(tag): it grows with the text")
