@@ -83,14 +83,14 @@ const SERVER = path.join(__dirname, '../../..');
 // (partner rotation, game/tournamentPartners.js): the release before's
 // hydrate builds round games from named fields and drops it, and a v1 doc
 // without it restores here as a round with no partner history.
-// Tournament v2 (2026-11-25, Cut for a buck): state.finalWinners,
-// finalMembers, cut (its SAVED.cut / SAVED.cutEngine lists) and cutResult;
-// hydrate still reads v1 (READ_VERSIONS [1, 2], tournamentCodec.test.js).
 // Game v3 re-pinned again on 2026-11-25, for the same reasons as seatBags,
 // for state.badgeTrack (the badges' per-game tracker, game/badges.js): the
 // release before drops the extra state key, and a v3 doc without it
 // restores here as no tracker (that game earns only what its final state
 // shows).
+// Tournament v2 (2026-11-25, Cut for a buck): state.finalWinners,
+// finalMembers, cut (its SAVED.cut / SAVED.cutEngine lists) and cutResult;
+// hydrate still reads v1 (READ_VERSIONS [1, 2], tournamentCodec.test.js).
 const PINNED = {
     game: { 1: '53c0d6fe0850bbdc', 2: 'b185d520afa14216', 3: 'd5400bb5ea9e97a6' },
     tournament: { 1: 'a116c48a7c168758', 2: '91f0f59cc99be667' },

@@ -12,20 +12,31 @@
  * {<pos>: n}` (profileHandlers.buildGameEndRecord; only for seats whose
  * stats go to the human bucket, so a bot game or a /help-assisted win
  * carries none). awardForRecord, run after the stats of that record are
- * applied, gives each named seat:
+ * applied and BEFORE its statsPending is cleared (applyPendingStats keeps
+ * a player's pending entry while their award has not gone through, so the
+ * boot sweep, resumePendingGameStats, finishes it: a badge earned in a game
+ * is never lost to a failed write or a crash), gives each named seat:
  *   - the record's badges for that seat,
  *   - Century: users.stats.gamesPlayed >= 100,
  *   - Child Labor: badgeProgress.overtrumped >= 50,
- *   - Chemistry: 20 human game records with this game's partner on the
- *     same team (gameRecords.teamNPlayers, which rename / merge keep in
- *     step; this game's record is already inserted).
+ *   - Chemistry: 20 game records with this game's partner on the same
+ *     team where BOTH partners' seats went to the human bucket
+ *     (statsDeltas.bucket / bucketByPosition, as the stats did; a record
+ *     from before statsDeltas: not withBots), so an opponent's /help win
+ *     still counts for the pair (gameRecords.teamNPlayers, which rename /
+ *     merge keep in step, on the multikey indexes database.ensureIndexes
+ *     builds; this game's record is already inserted).
  * Every award is its own guarded $push (`badges.id: {$ne: id}`), so running
  * it twice for a record (a replay, the pending-stats resume, a tombstone)
  * awards nothing twice, and a matched write is exactly "newly earned": that
- * is what the player's private `badgesAwarded {gameId, badges}` lists, sent
- * to their live socket when it has the clientHello cap `badges` (the web
- * and iOS 1.2.7 (41)). A player who is offline just finds the badge on their
- * profile. Never throws: a badge must not fail the stats chain.
+ * is what the player's private `badgesAwarded {gameId, badges}` lists (in
+ * catalog order, the profile's order for one game's badges), sent
+ * to their live socket when it has the clientHello cap `badges` (the web and
+ * iOS 1.2.7 (41)). A player who is offline just finds the badge on their
+ * profile. Every read and write goes through the caller's `retry` (the
+ * stats chain's withRetry), each badge's write on its own: one that still
+ * fails leaves the player in `failed` and the others are kept. Never
+ * throws: a badge must not fail the stats chain.
  */
 
 'use strict';
@@ -33,7 +44,7 @@
 const gameManager = require('../game/GameManager');
 const { authLogger } = require('../utils/logger');
 const { hasCap } = require('./clientInfo');
-const { LIMITS, isBadgeId, partnerOf, publicBadge } = require('../game/badges');
+const { BADGE_IDS, LIMITS, isBadgeId, partnerOf, publicBadge, recordSeatCounts } = require('../game/badges');
 const { DELETED_NAME } = require('../admin/nameHold');
 
 const BADGES_CAP = 'badges';
@@ -49,19 +60,41 @@ const isName = (v) => typeof v === 'string' && v.length > 0 && v !== DELETED_NAM
 
 /** Does this seat of the record count as a human game for its player? */
 function humanSeat(statsDeltas, position) {
-    if (!isPlainObject(statsDeltas) || statsDeltas.bucket === 'botStats') return false;
-    const byPos = statsDeltas.bucketByPosition;
-    return !(isPlainObject(byPos) && byPos[position] === 'botStats');
+    return isPlainObject(statsDeltas) && recordSeatCounts({ statsDeltas }, position);
 }
 
-/** Human game records with both players on the same team. */
+/** Run once: the default `retry` (no backoff). */
+const once = (_step, fn) => fn();
+
+/**
+ * One team's clause of gamesTogether: both names in teamNPlayers, and both
+ * of the team's seats in the human bucket (badges.recordSeatCounts as a
+ * query: a statsDeltas record by its buckets, an older one by withBots).
+ */
+function togetherOnTeam(team, [p, q], a, b) {
+    const bySeat = (pos) => ({ [`statsDeltas.bucketByPosition.${pos}`]: { $ne: 'botStats' } });
+    return {
+        $and: [
+            { [`${team}Players`]: a },
+            { [`${team}Players`]: b },
+            {
+                $or: [
+                    { statsDeltas: { $exists: true }, 'statsDeltas.bucket': { $ne: 'botStats' }, ...bySeat(p), ...bySeat(q) },
+                    { statsDeltas: { $exists: false }, withBots: { $ne: true } }
+                ]
+            }
+        ]
+    };
+}
+
+/**
+ * Game records with both players on the same team and both partners'
+ * seats in the human bucket (an opponent's /help win does not take it
+ * away; a seat /help moved, or a bot game, does).
+ */
 function gamesTogether(gameRecords, a, b) {
     return gameRecords.countDocuments({
-        withBots: { $ne: true },
-        $or: [
-            { $and: [{ team1Players: a }, { team1Players: b }] },
-            { $and: [{ team2Players: a }, { team2Players: b }] }
-        ]
+        $or: [togetherOnTeam('team1', [1, 3], a, b), togetherOnTeam('team2', [2, 4], a, b)]
     });
 }
 
@@ -70,46 +103,67 @@ function gamesTogether(gameRecords, a, b) {
  * @param {Object} doc - the user's {stats, badgeProgress, badges}
  * @param {string|null} partner - this game's partner (a human name), or null
  */
-async function lifetimeBadges(doc, username, partner, gameRecords) {
+async function lifetimeBadges(doc, username, partner, gameRecords, retry = once) {
     const has = new Set((Array.isArray(doc.badges) ? doc.badges : []).map((b) => b?.id));
     const out = [];
     if (!has.has('century') && (doc.stats?.gamesPlayed || 0) >= LIMITS.centuryGames) out.push('century');
     if (!has.has('child-labor') && (doc.badgeProgress?.overtrumped || 0) >= LIMITS.overTrumped) out.push('child-labor');
     if (!has.has('chemistry') && gameRecords && isName(partner) && partner !== username) {
-        if (await gamesTogether(gameRecords, username, partner) >= LIMITS.chemistryGames) out.push('chemistry');
+        if (await retry('badgeChemistry', () => gamesTogether(gameRecords, username, partner)) >= LIMITS.chemistryGames) out.push('chemistry');
     }
     return out;
 }
 
+/** Catalog order (the profile's order for badges of one game). */
+const byCatalog = (ids) => [...ids].sort((x, y) => BADGE_IDS.indexOf(x) - BADGE_IDS.indexOf(y));
+
 /**
- * Give `username` each badge of `ids` they do not have.
- * @returns {Promise<string[]>} the ids newly earned
+ * Give `username` each badge of `ids` they do not have, each its own
+ * guarded write through `retry`; a write that still fails is logged and
+ * the rest still go in.
+ * @returns {Promise<{earned: string[], failed: string[]}>} the ids newly
+ *   earned and the ids whose write failed, both in catalog order
  */
-async function grant(users, username, ids, { at, gameId = null }) {
+async function grantEach(users, username, ids, { at, gameId = null, retry = once }) {
     const earned = [];
-    for (const id of [...new Set(ids)].filter(isBadgeId)) {
+    const failed = [];
+    for (const id of byCatalog(new Set(ids)).filter(isBadgeId)) {
         const entry = { id, at };
         if (gameId) entry.gameId = gameId;
-        const res = await users.updateOne(
-            { username, mergedInto: { $exists: false }, 'badges.id': { $ne: id } },
-            { $push: { badges: entry } }
-        );
-        if (res?.modifiedCount > 0) earned.push(id);
+        try {
+            const res = await retry('badge', () => users.updateOne(
+                { username, mergedInto: { $exists: false }, 'badges.id': { $ne: id } },
+                { $push: { badges: entry } }
+            ));
+            if (res?.modifiedCount > 0) earned.push(id);
+        } catch (error) {
+            failed.push(id);
+            authLogger.error('Error awarding a badge', { username, gameId, badge: id, error: error.message });
+        }
     }
-    return earned;
+    return { earned, failed };
+}
+
+/** grantEach, the ids newly earned only. */
+async function grant(users, username, ids, opts) {
+    return (await grantEach(users, username, ids, opts)).earned;
 }
 
 /**
  * Award what one game record earned (see the header). Safe to run again
  * for the same record.
  * @param {{gameId: string, completedAt?: Date, statsDeltas?: Object}} record
- * @param {{users: Collection, gameRecords?: Collection}} collections
- * @returns {Promise<Array<{username: string, badges: string[]}>>} who newly earned what
+ * @param {{users: Collection, gameRecords?: Collection, retry?: Function}} collections
+ *   retry(step, fn): runs fn, retrying a failure (default: once)
+ * @returns {Promise<{awards: Array<{username: string, badges: string[]}>, failed: string[]}>}
+ *   who newly earned what, and the players whose award did not fully go
+ *   through (the caller keeps them pending)
  */
-async function awardForRecord(record, { users, gameRecords }) {
-    const out = [];
+async function awardRecord(record, { users, gameRecords, retry = once }) {
+    const awards = [];
+    const failed = [];
     const sd = record?.statsDeltas;
-    if (!users || !isPlainObject(sd) || !isPlainObject(sd.names)) return out;
+    if (!users || !isPlainObject(sd) || !isPlainObject(sd.names)) return { awards, failed };
     const at = record.completedAt instanceof Date ? record.completedAt : new Date();
     const done = new Set();
     for (const [posKey, username] of Object.entries(sd.names)) {
@@ -117,27 +171,34 @@ async function awardForRecord(record, { users, gameRecords }) {
         if (!isName(username) || done.has(username) || !humanSeat(sd, posKey)) continue;
         done.add(username);
         try {
-            const doc = await users.findOne(
+            const doc = await retry('badgeRead', () => users.findOne(
                 { username, mergedInto: { $exists: false } },
                 { projection: { 'stats.gamesPlayed': 1, badgeProgress: 1, badges: 1 } }
-            );
+            ));
             if (!doc) continue;
             const fromGame = isPlainObject(sd.badges) && Array.isArray(sd.badges[posKey]) ? sd.badges[posKey] : [];
             const partner = sd.names[partnerOf(position)];
-            const lifetime = await lifetimeBadges(doc, username, partner, gameRecords);
+            const lifetime = await lifetimeBadges(doc, username, partner, gameRecords, retry);
             const has = new Set((Array.isArray(doc.badges) ? doc.badges : []).map((b) => b?.id));
             const wanted = [...fromGame, ...lifetime].filter((id) => !has.has(id));
             if (wanted.length === 0) continue;
-            const earned = await grant(users, username, wanted, { at, gameId: record.gameId });
-            if (earned.length > 0) {
-                out.push({ username, badges: earned });
-                authLogger.info('Badges awarded', { username, gameId: record.gameId, badges: earned });
+            const result = await grantEach(users, username, wanted, { at, gameId: record.gameId, retry });
+            if (result.failed.length > 0) failed.push(username);
+            if (result.earned.length > 0) {
+                awards.push({ username, badges: result.earned });
+                authLogger.info('Badges awarded', { username, gameId: record.gameId, badges: result.earned });
             }
         } catch (error) {
+            failed.push(username);
             authLogger.error('Error awarding badges', { username, gameId: record?.gameId, error: error.message });
         }
     }
-    return out;
+    return { awards, failed };
+}
+
+/** awardRecord, who newly earned what only. */
+async function awardForRecord(record, collections) {
+    return (await awardRecord(record, collections)).awards;
 }
 
 /** Tell each player who is online (and whose client shows badges) what they just earned. */
@@ -149,7 +210,7 @@ function notify(awards, gameId) {
             const user = gameManager.currentUsers.find((u) => u.username === username);
             const socket = user && io.sockets?.sockets?.get(user.socketId);
             if (!socket || !hasCap(socket, BADGES_CAP)) continue;
-            const list = badges.map((id) => publicBadge(id)).filter(Boolean);
+            const list = byCatalog(badges).map((id) => publicBadge(id)).filter(Boolean);
             if (list.length > 0) socket.emit('badgesAwarded', { gameId, badges: list });
         } catch (error) {
             authLogger.warn('Could not send badgesAwarded', { username, gameId, error: error.message });
@@ -157,16 +218,21 @@ function notify(awards, gameId) {
     }
 }
 
-/** awardForRecord + notify, never rejecting (the stats chain calls it). */
+/**
+ * awardRecord + notify, never rejecting (the stats chain calls it).
+ * @returns {Promise<{awards: Array, failed: string[]|null}>} failed: null
+ *   when the award could not run at all (every named player is then
+ *   unfinished)
+ */
 async function awardAndNotify(record, collections) {
     try {
-        const awards = await awardForRecord(record, collections);
+        const { awards, failed } = await awardRecord(record, collections);
         notify(awards, record?.gameId);
-        return awards;
+        return { awards, failed };
     } catch (error) {
         authLogger.error('Badge awards failed', { gameId: record?.gameId, error: error.message });
-        return [];
+        return { awards: [], failed: null };
     }
 }
 
-module.exports = { BADGES_CAP, setIo, humanSeat, gamesTogether, grant, awardForRecord, notify, awardAndNotify };
+module.exports = { BADGES_CAP, setIo, humanSeat, gamesTogether, grant, grantEach, awardRecord, awardForRecord, notify, awardAndNotify };

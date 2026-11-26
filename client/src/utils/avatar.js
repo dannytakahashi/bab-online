@@ -231,14 +231,14 @@ export function foldAvatarPayload(event, data) {
  * "Partners so far" and words a tournament table's draw as a draw for first
  * deal with the teams (startDraw.teams), so the server may draw honestly
  * there (each player the card picked).
+ * And badges (2026-11-25, ui/components/Badges.js): this page shows a
+ * player's earned badges on their profile and the badgesAwarded toast.
  * And cutForABuck (2026-11-25, ui/cut/, state/cutForABuck.js): this page
  * shows Cut for a buck, the tournament's finale (phase 'cut', the
  * cutForABuck* events, tournamentJoined.cut) and the complete phase as the
  * lobby's final results, so the server runs the cut when a member has it.
- * And badges (2026-11-25, ui/components/Badges.js): this page shows a
- * player's earned badges on their profile and the badgesAwarded toast.
  */
-const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'cutForABuck', 'badges'];
+const TABLE_CAPS = ['casualSpectators', 'playAgain', 'assist', 'tutorial', 'shoulderView', 'tournamentVoice', 'getYourBid', 'tournamentPairings', 'tournamentVoiceStatus', 'badges', 'cutForABuck'];
 
 export function clientHello(version, build, capable = true) {
   return {

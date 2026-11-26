@@ -13,6 +13,11 @@ const SUITS = { s: 'spades', h: 'hearts', d: 'diamonds', c: 'clubs', j: 'joker' 
 /** "10h" / "HIj" -> {suit, rank}, as the case table writes cards. */
 const card = (code) => ({ rank: code.slice(0, -1), suit: SUITS[code.slice(-1)] });
 
+/** Mark each of `positions`' bid of this hand made by a human (GameState.applyBid). */
+const humanBids = (track, positions = [1, 2, 3, 4]) => { for (const p of positions) badges.noteBid(track, p, true); };
+/** Mark each of `positions`' card of this trick played by a human (GameState.applyPlay). */
+const humanPlays = (track, positions = [1, 2, 3, 4]) => { for (const p of positions) badges.notePlay(track, p, true); };
+
 /** A finished game as gameBadges reads it. */
 function game({ score = [0, 0], sets = [0, 0], tricks = [10, 10, 10, 10], track = badges.newTrack() } = {}) {
     return {
@@ -88,8 +93,21 @@ describe('overTrumps against contract/rules/legality-cases.json', () => {
 
     test('an over-trump of an over-trump counts both victims', () => {
         const track = badges.newTrack();
+        humanPlays(track);
         badges.noteTrick(track, { lead: 1, cards: ['Kh', '5s', '9s', 'Js'].map(card), trump: card('7s') });
         expect([1, 2, 3, 4].map((p) => track.byPos[p].ot)).toEqual([0, 1, 1, 0]);
+    });
+
+    test('a beaten card a bot played (lazy, AFK or resign) counts for nobody (owner 2026-11-25)', () => {
+        const track = badges.newTrack();
+        humanPlays(track);
+        badges.notePlay(track, 2, false);
+        badges.noteTrick(track, { lead: 1, cards: ['Kh', '5s', '9s', 'Js'].map(card), trump: card('7s') });
+        expect([1, 2, 3, 4].map((p) => track.byPos[p].ot)).toEqual([0, 0, 1, 0]);
+        // a tracker from before the marks (none set) counts nothing
+        const old = badges.normalizeTrack({ byPos: { 1: { ot: 2 } } });
+        badges.noteTrick(old, { lead: 1, cards: ['Kh', '5s', '9s', 'Js'].map(card), trump: card('7s') });
+        expect([1, 2, 3, 4].map((p) => old.byPos[p].ot)).toEqual([2, 0, 0, 0]);
     });
 });
 
@@ -98,6 +116,8 @@ describe('the tracker', () => {
         const track = badges.newTrack();
         track.low.team1 = -120;
         track.byPos[3].ot = 4;
+        badges.noteBid(track, 2, true);
+        badges.notePlay(track, 4, true);
         expect(badges.normalizeTrack(JSON.parse(JSON.stringify(track)))).toEqual(track);
         expect(badges.normalizeTrack(null)).toBeNull();
         expect(badges.normalizeTrack({})).toBeNull();
@@ -106,18 +126,21 @@ describe('the tracker', () => {
 
     test('a kept hand: big bids, a bore as the whole hand, zero runs, the HI joker', () => {
         const track = badges.newTrack();
+        humanBids(track);
         badges.noteHandKept(track, { playerBids: ['6', '5', 'B', '0'], handSize: 8, hiJokerPosition: 2 });
         expect([1, 2, 3, 4].map((p) => track.byPos[p].bigBid)).toEqual([1, 0, 1, 0]);
         expect(track.byPos[2].hi).toBe(1);
         expect(track.byPos[4].zeros).toBe(1);
         // a bore on a short hand is not a big bid
         const short = badges.newTrack();
+        humanBids(short);
         badges.noteHandKept(short, { playerBids: ['B', '0', '0', '0'], handSize: 4, hiJokerPosition: null });
         expect(short.byPos[1].bigBid).toBe(0);
     });
 
     test('five zero bids in a row, broken by any other bid', () => {
         const track = badges.newTrack();
+        humanBids(track);
         const hand = (bid) => badges.noteHandKept(track, { playerBids: [bid, '1', '1', '1'], handSize: 5, hiJokerPosition: null });
         for (let i = 0; i < 4; i++) hand('0');
         hand('1');
@@ -129,8 +152,31 @@ describe('the tracker', () => {
         expect(badges.gameBadges(game({ track }))[2]).not.toContain('spectator');
     });
 
+    test('a bid a bot made (lazy, AFK or resign) earns nothing and ends the run of zeros (owner 2026-11-25)', () => {
+        const track = badges.newTrack();
+        const hand = (bid, human) => {
+            humanBids(track, [2, 3, 4]);
+            badges.noteBid(track, 1, human);
+            badges.noteHandKept(track, { playerBids: [bid, '1', '1', '1'], handSize: 8, hiJokerPosition: 1 });
+        };
+        // a bot's 6 and its HI joker hands count for nothing
+        for (let i = 0; i < 5; i++) hand('6', false);
+        expect(track.byPos[1]).toMatchObject({ bigBid: 0, hi: 0 });
+        // four human zeros, a bot's zero, four more human zeros: no run of five
+        for (let i = 0; i < 4; i++) hand('0', true);
+        hand('0', false);
+        for (let i = 0; i < 4; i++) hand('0', true);
+        expect(track.byPos[1].zeroBest).toBe(4);
+        expect(track.byPos[1].hi).toBe(8);
+        hand('0', true);
+        expect(track.byPos[1].zeroBest).toBe(5);
+        expect(badges.gameBadges(game({ track }))[1]).toEqual(expect.arrayContaining(['spectator', 'hammer-time']));
+        expect(badges.gameBadges(game({ track }))[1]).not.toContain('go-big-or-go-home');
+    });
+
     test('a scored hand: lows, leads, the hand\'s points, a 4B made or set, a double rainbow', () => {
         const track = badges.newTrack();
+        humanBids(track);
         badges.noteHandScored(track, {
             score: { team1: -110, team2: 95 }, delta: { team1: -110, team2: 95 },
             playerBids: ['3B', '4B', '0', '0'], bids: { team1: 12, team2: 12 }, tricks: { team1: 0, team2: 12 }, rainbows: { team1: 0, team2: 2 }
@@ -150,6 +196,26 @@ describe('the tracker', () => {
         expect(() => badges.noteHandScored(null, {})).not.toThrow();
         expect(() => badges.noteHandKept(null, {})).not.toThrow();
         expect(() => badges.noteTrick(null, {})).not.toThrow();
+        expect(() => badges.noteBid(null, 1, true)).not.toThrow();
+        expect(() => badges.notePlay(null, 1, true)).not.toThrow();
+    });
+
+    test('a 4B or a rainbow hand a bot bid earns nothing; the team\'s result badges stay (owner 2026-11-25)', () => {
+        const track = badges.newTrack();
+        humanBids(track, [1, 3]);
+        badges.noteBid(track, 2, false);
+        badges.noteBid(track, 4, true);
+        badges.noteHandScored(track, {
+            score: { team1: -110, team2: 95 }, delta: { team1: -110, team2: 95 },
+            playerBids: ['0', '4B', '0', '0'], bids: { team1: 0, team2: 12 }, tricks: { team1: 0, team2: 12 }, rainbows: { team1: 0, team2: 2 }
+        });
+        // seat 2's bot bid the 4B: no Bet Big Win Big for the team
+        expect(track.quadWon).toEqual({ team1: 0, team2: 0 });
+        // Double Rainbow only for seat 4, whose hand was its human's
+        expect([1, 2, 3, 4].map((p) => track.byPos[p].dbl)).toEqual([0, 0, 0, 1]);
+        // the scores still move (the result badges are the team's)
+        expect(track.low).toEqual({ team1: -110, team2: 0 });
+        expect(track.bestHand).toEqual({ team1: 0, team2: 95 });
     });
 });
 

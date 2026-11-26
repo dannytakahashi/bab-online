@@ -161,6 +161,11 @@ async function ensureIndexes({
         safeIndex(gameRecords, { statsPending: 1 },
             { name: 'statsPending_partial', partialFilterExpression: { statsPending: { $exists: true } } },
             'gameRecords.statsPending_partial'),
+        // Badges' Chemistry (socket/badgeAwards.gamesTogether: both partners
+        // in one team's array, at every human game end): multikey, so each
+        // $or branch is an IXSCAN on one name instead of a collection scan
+        safeIndex(gameRecords, { team1Players: 1 }, {}, 'gameRecords.team1Players_1'),
+        safeIndex(gameRecords, { team2Players: 1 }, {}, 'gameRecords.team2Players_1'),
         safeIndex(reports, { createdAt: -1 }, {}, 'reports.createdAt_-1'),
         ensureUsernameIndex(users),
         // A deleted account's name hold (server/admin/accountDelete.js)
