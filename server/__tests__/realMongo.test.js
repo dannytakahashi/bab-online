@@ -1142,4 +1142,52 @@ describe('real mongod', () => {
         expect((await users.updateOne(guard('Bea'), { $addToSet: { blockedUsers: 'Bea' } })).modifiedCount).toBe(1);
         expect((await users.findOne({ username: 'Cy' })).blockedUsers).toHaveLength(BLOCK_LIST_MAX);
     });
+
+    test('(s) badges on the real driver: Chemistry\'s query by the stats\' bucket on the teamNPlayers multikey indexes, the backfill\'s, a concurrent guarded grant', async () => {
+        if (!client) return;
+        const badgeAwards = require('../socket/badgeAwards');
+        const backfill = require('../admin/badgeBackfill');
+        const gr = mockHolder.gameRecords;
+        const names = { 1: 'Alan', 2: 'Bea', 3: 'Cy', 4: 'Dot' };
+        const at = new Date('2026-10-01T00:00:00Z');
+        const rec = (gameId, extra) => ({ gameId, completedAt: at, team1Score: 100, team2Score: 520, team1Players: ['Alan', 'Cy'], team2Players: ['Bea', 'Dot'], ...extra });
+        await gr.insertMany([
+            // the opponents won with Bea's /help: Alan and Cy still count
+            rec('b-opp', { withBots: true, statsDeltas: { bucket: 'stats', byPosition: {}, names, bucketByPosition: { 2: 'botStats' } } }),
+            // Cy's /help moved her seat: not for the pair
+            rec('b-own', { withBots: true, statsDeltas: { bucket: 'stats', byPosition: {}, names, bucketByPosition: { 3: 'botStats' } } }),
+            rec('b-bot', { withBots: true, statsDeltas: { bucket: 'botStats', byPosition: {}, names } }),
+            rec('b-human', { statsDeltas: { bucket: 'stats', byPosition: {}, names } })
+        ]);
+        // with the seed's g0 (Alan/Cy, before statsDeltas, not withBots)
+        expect(await badgeAwards.gamesTogether(gr, 'Alan', 'Cy')).toBe(3);
+        expect(await badgeAwards.gamesTogether(gr, 'Bea', 'Dot')).toBe(2);
+        const idx = (await gr.indexes()).map((i) => i.name);
+        expect(idx).toEqual(expect.arrayContaining(['team1Players_1', 'team2Players_1']));
+        // the planner uses the multikey indexes for both $or branches (no collection scan)
+        const q = { $or: [{ $and: [{ team1Players: 'Alan' }, { team1Players: 'Cy' }] }, { $and: [{ team2Players: 'Alan' }, { team2Players: 'Cy' }] }] };
+        const stages = planOf(await gr.find(q).explain('queryPlanner'));
+        expect(stages.some((st) => st.stage === 'COLLSCAN')).toBe(false);
+        expect(usesIndex(stages, 'team1Players_1')).toBe(true);
+        expect(usesIndex(stages, 'team2Players_1')).toBe(true);
+        const spy = jest.spyOn(gr, 'countDocuments');
+        await badgeAwards.gamesTogether(gr, 'Alan', 'Cy');
+        const [filter] = spy.mock.calls[0];
+        spy.mockRestore();
+        const real = planOf(await gr.find(filter).explain('queryPlanner'));
+        expect(real.some((st) => st.stage === 'COLLSCAN')).toBe(false);
+        expect(usesIndex(real, 'team1Players_1') && usesIndex(real, 'team2Players_1')).toBe(true);
+
+        // the backfill's read: the score badges by seat
+        const p = await backfill.plan(mockHolder);
+        const by = (u) => p.awards.filter((a) => a.username === u).map((a) => a.id).sort();
+        // Dot's seat stayed human in b-opp: 500 + 400; Bea's 500 was /help's
+        expect(by('Dot')).toEqual(['five-hundred', 'four-hundred']);
+        expect(by('Bea')).toEqual(['five-hundred', 'four-hundred']); // from b-human, where her seat counts
+
+        // ten concurrent guarded grants of one badge store it once
+        const res = await Promise.all(Array.from({ length: 10 }, () => badgeAwards.grant(mockHolder.users, 'Eve', ['felted'], { at })));
+        expect(res.flat()).toEqual(['felted']);
+        expect((await mockHolder.users.findOne({ username: 'Eve' })).badges).toHaveLength(1);
+    });
 });

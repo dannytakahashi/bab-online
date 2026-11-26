@@ -222,6 +222,144 @@ describe('the award', () => {
     });
 });
 
+describe('durability: a badge earned in a game is never lost', () => {
+    /** users.updateOne that throws for a badge $push while `fail(update)` says so. */
+    function failBadgeWrites(fail) {
+        const coll = users();
+        const orig = coll.updateOne.bind(coll);
+        const calls = { badge: 0, failed: 0 };
+        coll.updateOne = async (filter, update, opts) => {
+            if (update?.$push?.badges) {
+                calls.badge++;
+                if (fail(filter, calls)) {
+                    calls.failed++;
+                    throw new Error('transient');
+                }
+            }
+            return orig(filter, update, opts);
+        };
+        return { calls, restore: () => { coll.updateOne = orig; } };
+    }
+    const stored = (gameId) => records().docs.find((d) => d.gameId === gameId);
+
+    test('a one-time failure of a badge write is retried like the stats', async () => {
+        const ann = online('Ann');
+        let once = true;
+        const inject = failBadgeWrites((filter) => {
+            if (filter.username !== 'Ann' || !once) return false;
+            once = false;
+            return true;
+        });
+        const game = finishedGame({ score: { team1: 510, team2: 150 } });
+        await profile.recordGameStats(game);
+        expect(inject.calls.failed).toBe(1);
+        expect(badgeIds('Ann')).toEqual(['five-hundred', 'four-hundred']);
+        expect(badgeIds('Cat')).toEqual(['five-hundred', 'four-hundred']);
+        expect(awardedTo(ann).map((d) => d.badges.map((b) => b.id))).toEqual([['five-hundred', 'four-hundred']]);
+        expect(stored(game.gameId).statsPending).toBeUndefined();
+        expect(userDoc('Ann').stats.gamesPlayed).toBe(1);
+    });
+
+    test('one badge that keeps failing: the others go in, the player stays pending and the boot sweep finishes it', async () => {
+        const inject = failBadgeWrites((filter) => filter.username === 'Ann' && filter['badges.id'].$ne === 'four-hundred');
+        const game = finishedGame({ score: { team1: 510, team2: 150 } });
+        await profile.recordGameStats(game);
+        // retried to the end (1 + 5 retries), then given up for this run
+        expect(inject.calls.failed).toBe(6);
+        // the per-badge catch kept Ann's other badge, Cat got both
+        expect(badgeIds('Ann')).toEqual(['five-hundred']);
+        expect(badgeIds('Cat')).toEqual(['five-hundred', 'four-hundred']);
+        expect(stored(game.gameId).statsPending).toEqual([{ position: 1, username: 'Ann' }]);
+
+        // the next boot: the database answers again
+        inject.restore();
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(badgeIds('Ann')).toEqual(['five-hundred', 'four-hundred']);
+        expect(stored(game.gameId).statsPending).toBeUndefined();
+        // the stats guard kept the re-run from counting twice
+        expect(userDoc('Ann').stats.gamesPlayed).toBe(1);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 0, failed: 0 });
+    });
+
+    test('a crash after the stats and before the award: the record is still pending, the boot sweep awards once', async () => {
+        // the process "dies" inside the award: it never returns
+        const hang = jest.spyOn(badgeAwards, 'awardAndNotify').mockImplementation(() => new Promise(() => {}));
+        const game = finishedGame({ score: { team1: 510, team2: 150 } });
+        profile.recordGameStats(game);
+        for (let i = 0; i < 50 && hang.mock.calls.length === 0; i++) await new Promise((r) => setImmediate(r));
+        expect(hang).toHaveBeenCalledTimes(1);
+        // at the award the stats are in and the record is NOT marked yet
+        expect(userDoc('Ann').stats.gamesPlayed).toBe(1);
+        expect(stored(game.gameId).statsPending).toHaveLength(4);
+        expect(badgeIds('Ann')).toEqual([]);
+
+        // the next process
+        hang.mockRestore();
+        profile._resetCachesForTests();
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        for (const name of ['Ann', 'Cat']) expect(badgeIds(name)).toEqual(['five-hundred', 'four-hundred']);
+        expect(stored(game.gameId).statsPending).toBeUndefined();
+        expect(userDoc('Ann').stats.gamesPlayed).toBe(1);
+    });
+
+    test('an award that cannot run at all keeps every player pending', async () => {
+        // awardAndNotify's own catch (the award threw outside a player's)
+        jest.spyOn(badgeAwards, 'awardAndNotify').mockResolvedValueOnce({ awards: [], failed: null });
+        const game = finishedGame({ score: { team1: 510, team2: 150 } });
+        await profile.recordGameStats(game);
+        expect(stored(game.gameId).statsPending).toHaveLength(4);
+        expect(await profile.resumePendingGameStats()).toEqual({ records: 1, failed: 0 });
+        expect(badgeIds('Ann')).toEqual(['five-hundred', 'four-hundred']);
+    });
+});
+
+describe('Chemistry counts a game when both partners\' seats are human-bucket', () => {
+    const base = { completedAt: new Date('2026-10-01T00:00:00Z'), team1Score: 100, team2Score: 300 };
+    const sd = (extra = {}) => ({ statsDeltas: { bucket: 'stats', byPosition: {}, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' }, ...extra } });
+
+    test('an opponent\'s /help win keeps it; a partner /help moved, a bot game or an old withBots record does not', async () => {
+        // the opponents (Ben/Dan) won with Ben's /help: Ann and Cat still played a human game together
+        await records().insertOne({ ...base, gameId: 'opp-help', withBots: true, assistedTeams: [2], team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'], ...sd({ bucketByPosition: { 2: 'botStats' } }) });
+        // Cat won with /help: her seat went to botStats, so not for the pair
+        await records().insertOne({ ...base, gameId: 'own-help', withBots: true, assistedTeams: [1], team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'], ...sd({ bucketByPosition: { 3: 'botStats' } }) });
+        await records().insertOne({ ...base, gameId: 'bot-game', withBots: true, team1Players: ['Ann', 'Cat'], team2Players: ['Ben'], ...sd({ bucket: 'botStats' }) });
+        await records().insertOne({ ...base, gameId: 'old-bots', withBots: true, team1Players: ['Ann', 'Cat'], team2Players: ['Ben'] });
+        await records().insertOne({ ...base, gameId: 'old-human', team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'] });
+        expect(await badgeAwards.gamesTogether(records(), 'Ann', 'Cat')).toBe(2);
+        // the assisted winners' own pair counts nothing from those two games
+        expect(await badgeAwards.gamesTogether(records(), 'Ben', 'Dan')).toBe(2);
+    });
+
+    test('the 20th game together can be one the opponents won with /help', async () => {
+        for (let i = 0; i < 19; i++) await records().insertOne({ ...base, gameId: `h-${i}`, team1Players: ['Ann', 'Cat'], team2Players: ['Ben', 'Dan'], ...sd() });
+        const game = finishedGame({ score: { team1: 100, team2: 300 }, help: { 2: 4 } });
+        const record = profile.buildGameEndRecord(game);
+        expect(record.withBots).toBe(true);
+        expect(record.statsDeltas.bucketByPosition).toEqual({ 2: 'botStats' });
+        await profile.recordGameStats(game);
+        expect(badgeIds('Ann')).toEqual(['chemistry']);
+        expect(badgeIds('Cat')).toEqual(['chemistry']);
+        expect(badgeIds('Ben')).toEqual([]);
+    });
+});
+
+describe('the toast lists one game\'s badges in the profile\'s (catalog) order', () => {
+    test('whatever order the record and the lifetime checks give them', async () => {
+        const ann = online('Ann');
+        await users().updateOne({ username: 'Ann' }, { $set: { stats: { gamesPlayed: 99 } } });
+        // the record lists them out of catalog order; Century (lifetime) comes before go-big-or-go-home in the catalog
+        const record = { gameId: 'g-order', completedAt: new Date(), statsDeltas: { bucket: 'stats', byPosition: {}, names: { 1: 'Ann' }, badges: { 1: ['hammer-time', 'felted', 'go-big-or-go-home', 'five-hundred', 'four-hundred'] } } };
+        await users().updateOne({ username: 'Ann' }, { $set: { 'stats.gamesPlayed': 100 } });
+        await badgeAwards.awardAndNotify(record, { users: users(), gameRecords: records() });
+        const order = badges.BADGE_IDS;
+        const sent = awardedTo(ann)[0].badges.map((b) => b.id);
+        expect(sent).toEqual(['five-hundred', 'four-hundred', 'felted', 'century', 'go-big-or-go-home', 'hammer-time']);
+        expect([...sent].sort((a, b) => order.indexOf(a) - order.indexOf(b))).toEqual(sent);
+        // the profile (same `at`) lists them the same way
+        expect(badges.publicBadges(userDoc('Ann').badges).map((b) => b.id)).toEqual(sent);
+    });
+});
+
 describe('the profile', () => {
     const reply = (socket, event) => log.filter((l) => l.to === `self:${socket.id}` && l.event === event).pop()?.data;
 
@@ -281,6 +419,26 @@ describe('the backfill (admin/badgeBackfill.js)', () => {
         const p = await backfill.plan({ users: users(), gameRecords: records() });
         expect(p.awards.map((a) => `${a.username}:${a.id}`)).toEqual(['Ann:chemistry', 'Ben:chemistry', 'Cat:chemistry', 'Dan:chemistry']);
         expect(p.awards[0]).toMatchObject({ gameId: 'c-19' });
+    });
+});
+
+describe('the backfill by the stats\' bucket', () => {
+    const rec = (gameId, t1, s1, t2, s2, extra = {}) => ({ gameId, completedAt: new Date('2026-10-01T00:00:00Z'), team1Players: t1, team1Score: s1, team2Players: t2, team2Score: s2, ...extra });
+    const sd = (extra = {}) => ({ statsDeltas: { bucket: 'stats', byPosition: {}, names: { 1: 'Ann', 2: 'Ben', 3: 'Cat', 4: 'Dan' }, ...extra } });
+
+    test('an opponent\'s /help win still counts for the other team (score badges and Chemistry); a moved seat and a bot game do not', async () => {
+        // Ben won with /help (his seat botStats): Ann and Cat are Felted and played together
+        for (let i = 0; i < 20; i++) {
+            await records().insertOne(rec(`o-${i}`, ['Ann', 'Cat'], i === 0 ? -20 : 100, ['Ben', 'Dan'], 520, { withBots: true, assistedTeams: [2], ...sd({ bucketByPosition: { 2: 'botStats' } }) }));
+        }
+        await records().insertOne(rec('bots', ['Ann', 'Cat'], 900, ['Ben'], 10, { withBots: true, ...sd({ bucket: 'botStats' }) }));
+        const p = await backfill.plan({ users: users(), gameRecords: records() });
+        expect(p.records).toBe(20);
+        expect(p.awards.map((a) => `${a.username}:${a.id}`)).toEqual([
+            'Ann:chemistry', 'Ann:felted', 'Cat:chemistry', 'Cat:felted',
+            // Dan's seat stayed human (his partner Ben was the one moved): his 500s count, Ben's do not; no Chemistry for them
+            'Dan:five-hundred', 'Dan:four-hundred'
+        ]);
     });
 });
 

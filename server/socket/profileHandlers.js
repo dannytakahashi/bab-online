@@ -292,8 +292,10 @@ async function uploadProfilePic(socket, io, data) {
  *      credited (logged with the delta) rather than risk counting it twice.
  *      A record this chain just inserted was never applied, so only the id
  *      guards it. A tombstone (renamed or merged away) is never credited
- *   3. `statsPending` is unset (or cut to what failed); the usernames leave
- *      the record with it
+ *   3. the record's badges are awarded (socket/badgeAwards.js, each write
+ *      retried and guarded, so a re-run awards nothing twice)
+ *   4. `statsPending` is unset (or cut to what failed, a stats write or a
+ *      badge award); the usernames leave the record with it
  * Every step retries with backoff (shutdown.retryDelay, short during a
  * shutdown, which retries until its drain ends), and a graceful shutdown
  * waits for the whole chain (shutdown.trackInFlight). A record still
@@ -499,9 +501,9 @@ function seatBucket(statsDeltas, position) {
 }
 
 /**
- * Steps 2 and 3 for one record: every pending player's guarded `$inc` (into
- * that seat's bucket, seatBucket), then the record's pending list cut to
- * what failed (unset when nothing did). Safe to run twice for the same
+ * Steps 2 to 4 for one record: every pending player's guarded `$inc` (into
+ * that seat's bucket, seatBucket), the record's badges, then the record's
+ * pending list cut to what failed (unset when nothing did). Safe to run twice for the same
  * record, also from two processes.
  * @param {{gameId: string, statsDeltas?: Object, statsPending?: Array}} record
  * @param {{users: Collection, gameRecords?: Collection, fresh?: boolean}} collections
@@ -574,6 +576,25 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
         }
     }));
 
+    // Badges: what this record earned, plus the lifetime ones the stats just
+    // written may have reached (idempotent: socket/badgeAwards.js), each
+    // write retried like the stats. BEFORE the mark: a player whose award
+    // did not go through keeps their pending entry, so the boot sweep
+    // (resumePendingGameStats) finishes it, and a crash before the mark
+    // leaves the whole record pending (the stats guard keeps the re-run
+    // single). Each player still online is told privately (badgesAwarded)
+    const badges = await badgeAwards.awardAndNotify(record, {
+        users,
+        gameRecords,
+        retry: (step, fn) => withRetry(step, gameId, fn)
+    });
+    if (badges.failed === null) {
+        done.clear();
+    } else if (badges.failed.length > 0) {
+        const unfinished = new Set(badges.failed);
+        for (const entry of [...done]) if (unfinished.has(entry?.username)) done.delete(entry);
+    }
+
     const remaining = pending.filter(entry => !done.has(entry));
     // An empty list (account deletion pulls its entry) is cleared too
     const emptied = pending.length === 0 && Array.isArray(record.statsPending);
@@ -589,10 +610,6 @@ async function applyPendingStats(record, { users, gameRecords, fresh = false }) 
             authLogger.error('Could not mark game stats applied', { gameId, error: error.message });
         }
     }
-    // Badges: what this record earned, plus the lifetime ones the stats just
-    // written may have reached (idempotent: socket/badgeAwards.js). Each
-    // player still online is told privately (badgesAwarded)
-    await badgeAwards.awardAndNotify(record, { users, gameRecords });
     return remaining.length;
 }
 
