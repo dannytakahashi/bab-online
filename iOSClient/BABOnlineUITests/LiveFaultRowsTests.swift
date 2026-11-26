@@ -100,6 +100,7 @@ final class LiveFaultRowsTests: XCTestCase {
                 dismissSave()
                 XCTAssertTrue(wait(15) { newGame.isEnabled && newGame.isHittable })
                 newGame.tap()
+                Fixture.chooseClassicGame()
                 _ = addBot.waitForExistence(timeout: 6)
             }
         }

@@ -119,6 +119,8 @@ final class GybUITests: XCTestCase {
         // the chips: mine (0 so far), kim's 2, Mary's 1 of 6
         XCTAssertEqual(any(app, "bidChips").value as? String, "0+2+1/6")
         XCTAssertTrue(window(app).contains(sheet.frame), "the sheet is on screen")
+        // Submit keeps its word beside the Forbidden Bid's line (it was cut to "Sub…")
+        XCTAssertGreaterThan(app.buttons["Submit"].frame.width, 100, "\(app.buttons["Submit"].frame)")
     }
 
     func testTheBidSheetAtTheLargestTextSize() {
